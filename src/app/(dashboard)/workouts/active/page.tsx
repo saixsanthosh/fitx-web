@@ -1,392 +1,128 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  X, Check, Plus, Timer, Play, Pause, SkipForward, Calculator,
-  TrendingUp, Flame, Trophy, Star, ChevronRight, Dumbbell,
-} from "lucide-react";
-import { FitxButton } from "@/components/ui/FitxButton";
-import { FitxCard } from "@/components/ui/FitxCard";
-import { Confetti } from "@/components/ui/Confetti";
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Check, Clock3, Plus, Timer, Trophy } from "lucide-react";
+import { EmptyState } from "@/components/app/EmptyState";
+import { PageHeading } from "@/components/app/PageHeading";
+import { createClient } from "@/lib/supabase/client";
+import { estimateOneRepMax } from "@/lib/domain/workout";
 
-interface SetRow {
-  setNumber: number;
-  prevWeight: number;
-  prevReps: number;
-  weight: string;
-  reps: string;
-  rpe: number;
-  completed: boolean;
-  isPR: boolean;
-}
-
-interface ActiveExercise {
-  id: string;
-  name: string;
-  sets: SetRow[];
-}
-
-const initialExercises: ActiveExercise[] = [
-  {
-    id: "ex-001", name: "Barbell Bench Press",
-    sets: [
-      { setNumber: 1, prevWeight: 80, prevReps: 10, weight: "80", reps: "10", rpe: 7, completed: false, isPR: false },
-      { setNumber: 2, prevWeight: 80, prevReps: 9, weight: "82.5", reps: "8", rpe: 8, completed: false, isPR: false },
-      { setNumber: 3, prevWeight: 82.5, prevReps: 8, weight: "82.5", reps: "8", rpe: 8, completed: false, isPR: false },
-      { setNumber: 4, prevWeight: 82.5, prevReps: 7, weight: "85", reps: "6", rpe: 9, completed: false, isPR: false },
-    ],
-  },
-  {
-    id: "ex-020", name: "Overhead Press",
-    sets: [
-      { setNumber: 1, prevWeight: 50, prevReps: 8, weight: "50", reps: "8", rpe: 7, completed: false, isPR: false },
-      { setNumber: 2, prevWeight: 50, prevReps: 7, weight: "52.5", reps: "6", rpe: 8, completed: false, isPR: false },
-      { setNumber: 3, prevWeight: 52.5, prevReps: 6, weight: "52.5", reps: "6", rpe: 9, completed: false, isPR: false },
-    ],
-  },
-  {
-    id: "ex-021", name: "Lateral Raise",
-    sets: [
-      { setNumber: 1, prevWeight: 10, prevReps: 15, weight: "10", reps: "15", rpe: 7, completed: false, isPR: false },
-      { setNumber: 2, prevWeight: 10, prevReps: 14, weight: "12", reps: "12", rpe: 8, completed: false, isPR: false },
-      { setNumber: 3, prevWeight: 12, prevReps: 12, weight: "12", reps: "12", rpe: 8, completed: false, isPR: false },
-    ],
-  },
-];
-
-const PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
-
-function PlateCalculator({ weight, barWeight = 20, onClose }: { weight: number; barWeight?: number; onClose: () => void }) {
-  const perSide = Math.max(0, (weight - barWeight) / 2);
-  const plates: number[] = [];
-  let remaining = perSide;
-  for (const plate of PLATES) {
-    while (remaining >= plate) {
-      plates.push(plate);
-      remaining = Math.round((remaining - plate) * 100) / 100;
-    }
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-      onClick={onClose}
-    >
-      <FitxCard variant="glow" hover={false} className="max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-heading text-sm text-fitx-text uppercase tracking-wider">Plate Calculator</h3>
-          <button onClick={onClose} className="text-fitx-text-secondary hover:text-fitx-text"><X size={18} /></button>
-        </div>
-        <div className="text-center mb-4">
-          <p className="text-3xl font-mono font-bold text-fitx-primary">{weight} kg</p>
-          <p className="text-xs text-fitx-text-secondary font-body">Bar: {barWeight}kg &middot; Per side: {perSide}kg</p>
-        </div>
-        {plates.length > 0 ? (
-          <div className="flex items-center justify-center gap-1 flex-wrap">
-            {plates.map((p, i) => (
-              <span key={i} className="px-2 py-3 bg-fitx-primary/20 border border-fitx-primary/40 rounded-lg font-mono text-sm text-fitx-text font-bold">
-                {p}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p className="text-center text-sm text-fitx-text-secondary font-body">Just the bar</p>
-        )}
-      </FitxCard>
-    </motion.div>
-  );
-}
-
-function RestTimer({ seconds, onSkip, onClose }: { seconds: number; onSkip: () => void; onClose: () => void }) {
-  const [remaining, setRemaining] = useState(seconds);
-  const [paused, setPaused] = useState(false);
-
-  useEffect(() => {
-    if (paused) return;
-    if (remaining <= 0) { onClose(); return; }
-    const timer = setTimeout(() => setRemaining((r) => r - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [remaining, paused, onClose]);
-
-  const progress = remaining / seconds;
-  const circ = 2 * Math.PI * 70;
-
-  return (
-    <motion.div
-      initial={{ y: 100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: 100, opacity: 0 }}
-      className="fixed bottom-0 left-0 right-0 z-40 bg-fitx-surface border-t border-fitx-primary/30 p-4"
-    >
-      <div className="max-w-md mx-auto flex items-center gap-4">
-        <div className="relative w-20 h-20 flex-shrink-0">
-          <svg viewBox="0 0 160 160" className="-rotate-90 w-full h-full">
-            <circle cx="80" cy="80" r="70" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
-            <circle cx="80" cy="80" r="70" fill="none" stroke="#E8160C" strokeWidth="10" strokeLinecap="round"
-              strokeDasharray={circ} strokeDashoffset={circ * (1 - progress)}
-              style={{ filter: "drop-shadow(0 0 6px rgba(232,22,12,0.5))", transition: "stroke-dashoffset 1s linear" }} />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xl font-mono font-bold text-fitx-text">{remaining}s</span>
-          </div>
-        </div>
-        <div className="flex-1">
-          <p className="font-heading text-sm text-fitx-text uppercase tracking-wider">Rest Timer</p>
-          <p className="text-xs text-fitx-text-secondary font-body">Next set coming up</p>
-        </div>
-        <button onClick={() => setPaused(!paused)} className="w-10 h-10 rounded-xl bg-fitx-surface-variant flex items-center justify-center text-fitx-text">
-          {paused ? <Play size={18} /> : <Pause size={18} />}
-        </button>
-        <button onClick={onSkip} className="w-10 h-10 rounded-xl bg-fitx-primary flex items-center justify-center text-white">
-          <SkipForward size={18} />
-        </button>
-      </div>
-    </motion.div>
-  );
-}
+type SetItem = { id: string; set_number: number; target_reps: number | null; reps: number | null; weight_kg: number; completed_at: string | null; draftWeight: string; draftReps: string };
+type ExerciseItem = { id: string; name: string; target_sets: number; rest_seconds: number; sort_order: number; sets: SetItem[] };
+type Session = { id: string; user_id: string; plan_id: string | null; name: string; started_at: string; status: string };
 
 export default function ActiveWorkoutPage() {
-  const [exercises, setExercises] = useState(initialExercises);
-  const [elapsed, setElapsed] = useState(0);
-  const [showPlates, setShowPlates] = useState<number | null>(null);
-  const [restActive, setRestActive] = useState(false);
-  const [completed, setCompleted] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [exercises, setExercises] = useState<ExerciseItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [restRemaining, setRestRemaining] = useState(0);
+  const [finished, setFinished] = useState(false);
+  const [summary, setSummary] = useState({ duration: 0, volume: 0, sets: 0, records: 0 });
 
-  useEffect(() => {
-    if (completed) return;
-    const timer = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(timer);
-  }, [completed]);
+  const load = useCallback(async (id: string) => {
+    if (!id) { setLoading(false); setError("Start a workout from your workout plans to open a session."); return; }
+    const supabase = createClient();
+    if (!supabase) { setLoading(false); setError("FITX is not connected to Supabase."); return; }
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) { setLoading(false); setError("Sign in to open this workout."); return; }
+    const sessionResult = await supabase.from("workout_sessions").select("id,user_id,plan_id,name,started_at,status").eq("id", id).eq("user_id", auth.user.id).maybeSingle();
+    if (!sessionResult.data) { setLoading(false); setError("This workout session could not be found."); return; }
+    const { data: exerciseRows, error: exerciseError } = await supabase.from("workout_session_exercises").select("id,exercise_name,target_sets,rest_seconds,sort_order").eq("user_id", auth.user.id).eq("session_id", id).order("sort_order");
+    if (exerciseError) { setLoading(false); setError("The workout exercises could not be loaded."); return; }
+    const exerciseIds = ((exerciseRows || []) as Array<{ id: string }>).map((row) => row.id);
+    const { data: setRows, error: setResultError } = exerciseIds.length
+      ? await supabase.from("workout_sets").select("id,session_exercise_id,set_number,target_reps,reps,weight_kg,completed_at").eq("user_id", auth.user.id).in("session_exercise_id", exerciseIds).order("set_number")
+      : { data: [], error: null };
+    if (setResultError) { setLoading(false); setError("Your workout sets could not be loaded."); return; }
+    setSession(sessionResult.data as Session);
+    const exerciseList = (exerciseRows || []) as Array<{ id: string; exercise_name: string; target_sets: number; rest_seconds: number; sort_order: number }>;
+    const setList = (setRows || []) as Array<{ id: string; session_exercise_id: string; set_number: number; target_reps: number | null; reps: number | null; weight_kg: number; completed_at: string | null }>;
+    setExercises(exerciseList.map((row) => ({
+      id: row.id, name: row.exercise_name, target_sets: row.target_sets, rest_seconds: row.rest_seconds, sort_order: row.sort_order,
+      sets: setList.filter((set) => set.session_exercise_id === row.id).map((set) => ({
+        ...set, weight_kg: Number(set.weight_kg || 0), draftWeight: String(set.weight_kg || ""), draftReps: set.reps == null ? String(set.target_reps || "") : String(set.reps),
+      })),
+    })));
+    setLoading(false); setError("");
+  }, []);
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60).toString().padStart(2, "0");
-    const sec = (s % 60).toString().padStart(2, "0");
-    return `${m}:${sec}`;
-  };
+  useEffect(() => { const id = new URLSearchParams(window.location.search).get("session") || ""; void Promise.resolve().then(() => load(id)); }, [load]);
+  useEffect(() => { if (!restRemaining) return; const timer = window.setTimeout(() => setRestRemaining((value) => Math.max(0, value - 1)), 1000); return () => window.clearTimeout(timer); }, [restRemaining]);
 
-  const updateSet = (exId: string, setNum: number, field: "weight" | "reps", value: string) => {
-    setExercises((prev) => prev.map((ex) =>
-      ex.id === exId ? { ...ex, sets: ex.sets.map((s) => s.setNumber === setNum ? { ...s, [field]: value } : s) } : ex
-    ));
-  };
+  const completedSets = useMemo(() => exercises.flatMap((exercise) => exercise.sets.filter((set) => Boolean(set.completed_at))), [exercises]);
 
-  const completeSet = (exId: string, setNum: number) => {
-    setExercises((prev) => prev.map((ex) =>
-      ex.id === exId ? {
-        ...ex, sets: ex.sets.map((s) => {
-          if (s.setNumber !== setNum) return s;
-          const w = parseFloat(s.weight) || 0;
-          const isPR = w > s.prevWeight;
-          return { ...s, completed: !s.completed, isPR: !s.completed && isPR };
-        })
-      } : ex
-    ));
-    setRestActive(true);
-  };
-
-  const totalSets = exercises.reduce((sum, ex) => sum + ex.sets.length, 0);
-  const doneSets = exercises.reduce((sum, ex) => sum + ex.sets.filter((s) => s.completed).length, 0);
-  const totalVolume = exercises.reduce((sum, ex) =>
-    sum + ex.sets.filter((s) => s.completed).reduce((v, s) => v + (parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0), 0), 0
-  );
-  const prCount = exercises.reduce((sum, ex) => sum + ex.sets.filter((s) => s.isPR).length, 0);
-
-  if (completed) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-        <Confetti active={true} />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(232,22,12,0.15)_0%,transparent_60%)]" />
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ type: "spring", duration: 0.6 }}
-          className="relative z-10 max-w-md w-full text-center"
-        >
-          <motion.div
-            animate={{ scale: [1, 1.1, 1] }}
-            transition={{ repeat: Infinity, duration: 1.5 }}
-          >
-            <Flame className="h-20 w-20 text-fitx-primary mx-auto mb-4" />
-          </motion.div>
-          <h1 className="text-5xl font-display tracking-wider text-fitx-text uppercase mb-2">
-            Workout <span className="text-gradient-red">Complete</span>
-          </h1>
-          <p className="text-fitx-text-secondary font-body mb-6">Push Day — crushed it! 💪</p>
-
-          <FitxCard variant="glow" hover={false} className="mb-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-2xl font-mono font-bold text-fitx-text">{formatTime(elapsed)}</p>
-                <p className="text-[10px] font-heading text-fitx-text-secondary uppercase">Duration</p>
-              </div>
-              <div>
-                <p className="text-2xl font-mono font-bold text-fitx-text">{Math.round(totalVolume).toLocaleString()} kg</p>
-                <p className="text-[10px] font-heading text-fitx-text-secondary uppercase">Volume</p>
-              </div>
-              <div>
-                <p className="text-2xl font-mono font-bold text-fitx-text">{doneSets}</p>
-                <p className="text-[10px] font-heading text-fitx-text-secondary uppercase">Sets</p>
-              </div>
-              <div>
-                <p className="text-2xl font-mono font-bold text-fitx-gold">{prCount}</p>
-                <p className="text-[10px] font-heading text-fitx-text-secondary uppercase">New PRs</p>
-              </div>
-            </div>
-          </FitxCard>
-
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.4, type: "spring" }}
-            className="flex items-center justify-center gap-2 bg-fitx-gold/10 border border-fitx-gold/30 rounded-xl p-3 mb-4"
-          >
-            <Star className="h-5 w-5 text-fitx-gold fill-fitx-gold" />
-            <span className="font-mono text-fitx-gold font-bold">+320 XP earned</span>
-          </motion.div>
-
-          <FitxCard hover={false} className="mb-6 text-left">
-            <p className="text-xs font-heading text-fitx-primary uppercase tracking-wider mb-1">AI Coach</p>
-            <p className="text-sm text-fitx-text font-body">
-              Excellent session! You hit {prCount} new PR{prCount !== 1 ? "s" : ""} and pushed your volume up 6% from last week.
-              Make sure to get 30g+ protein in the next hour for optimal recovery.
-            </p>
-          </FitxCard>
-
-          <div className="flex gap-3">
-            <Link href="/dashboard" className="flex-1">
-              <FitxButton variant="outline" size="lg" className="w-full">Done</FitxButton>
-            </Link>
-            <FitxButton variant="primary" size="lg" className="flex-1" icon={<TrendingUp size={18} />}>
-              Share Card
-            </FitxButton>
-          </div>
-        </motion.div>
-      </div>
-    );
+  function changeSet(exerciseId: string, setId: string, field: "draftWeight" | "draftReps", value: string) {
+    setExercises((items) => items.map((exercise) => exercise.id !== exerciseId ? exercise : {
+      ...exercise, sets: exercise.sets.map((set) => set.id === setId ? { ...set, [field]: value } : set),
+    }));
   }
 
-  return (
-    <div className="min-h-screen pb-32">
-      <div className="sticky top-0 z-30 bg-[#030000]/90 backdrop-blur-xl border-b border-fitx-border">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/workouts" className="text-fitx-text-secondary hover:text-fitx-text">
-            <X size={22} />
-          </Link>
-          <div className="text-center">
-            <p className="font-heading text-sm text-fitx-text uppercase tracking-wider">Push Day</p>
-            <p className="text-xs font-mono text-fitx-primary">{formatTime(elapsed)}</p>
-          </div>
-          <FitxButton variant="primary" size="sm" onClick={() => setCompleted(true)}>
-            Finish
-          </FitxButton>
-        </div>
-        <div className="h-1 bg-fitx-surface-variant">
-          <motion.div
-            className="h-full bg-gradient-to-r from-fitx-primary to-fitx-glow"
-            animate={{ width: `${(doneSets / totalSets) * 100}%` }}
-          />
-        </div>
-      </div>
+  async function saveSet(exerciseId: string, set: SetItem, complete: boolean) {
+    const weight = Number(set.draftWeight || 0); const reps = Number(set.draftReps || 0);
+    if (!Number.isFinite(weight) || weight < 0 || weight > 2000 || !Number.isInteger(reps) || reps < 0 || reps > 500) { setError("Enter a valid weight and rep count."); return; }
+    const supabase = createClient(); if (!supabase) return;
+    const patch = { weight_kg: weight, reps, completed_at: complete ? new Date().toISOString() : null };
+    const { error: updateError } = await supabase.from("workout_sets").update(patch).eq("id", set.id);
+    if (updateError) { setError("That set could not be saved."); return; }
+    setExercises((items) => items.map((exercise) => exercise.id !== exerciseId ? exercise : {
+      ...exercise, sets: exercise.sets.map((item) => item.id === set.id ? { ...item, ...patch, draftWeight: String(weight), draftReps: String(reps) } : item),
+    }));
+    setError("");
+    if (complete) setRestRemaining(exercises.find((item) => item.id === exerciseId)?.rest_seconds || 90);
+  }
 
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {exercises.map((ex, exIndex) => (
-          <motion.div
-            key={ex.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: exIndex * 0.1 }}
-          >
-            <FitxCard hover={false}>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-fitx-surface flex items-center justify-center">
-                    <Dumbbell size={18} className="text-fitx-primary" />
-                  </div>
-                  <h3 className="font-heading text-sm text-fitx-text uppercase tracking-wider">{ex.name}</h3>
-                </div>
-                <button
-                  onClick={() => setShowPlates(parseFloat(ex.sets[0].weight) || 0)}
-                  className="text-fitx-text-secondary hover:text-fitx-primary transition-colors"
-                >
-                  <Calculator size={18} />
-                </button>
-              </div>
+  async function addSet(exercise: ExerciseItem) {
+    const supabase = createClient(); if (!supabase || !session) return;
+    const next = exercise.sets.length + 1;
+    const inserted = await supabase.from("workout_sets").insert({ user_id: session.user_id, session_exercise_id: exercise.id, set_number: next, target_reps: 8, weight_kg: 0 }).select("id,set_number,target_reps,reps,weight_kg,completed_at").single();
+    if (inserted.error || !inserted.data) return setError("A new set could not be added.");
+    setExercises((items) => items.map((item) => item.id === exercise.id ? { ...item, sets: [...item.sets, { ...inserted.data, weight_kg: 0, draftWeight: "", draftReps: "8" }] } : item));
+  }
 
-              <div className="grid grid-cols-[40px_1fr_1fr_1fr_44px] gap-2 mb-2 px-2">
-                <span className="text-[10px] font-heading text-fitx-text-disabled uppercase">Set</span>
-                <span className="text-[10px] font-heading text-fitx-text-disabled uppercase text-center">Prev</span>
-                <span className="text-[10px] font-heading text-fitx-text-disabled uppercase text-center">Kg</span>
-                <span className="text-[10px] font-heading text-fitx-text-disabled uppercase text-center">Reps</span>
-                <span></span>
-              </div>
+  async function finishWorkout() {
+    const supabase = createClient(); if (!supabase || !session) return;
+    const validSets = completedSets.filter((set) => Number(set.reps) > 0);
+    if (!validSets.length) { setError("Complete at least one set before finishing your workout."); return; }
+    setSaving(true); setError("");
+    const now = new Date();
+    const duration = Math.max(0, Math.floor((now.getTime() - new Date(session.started_at).getTime()) / 1000));
+    const volume = validSets.reduce((sum, set) => sum + Number(set.reps) * Number(set.weight_kg), 0);
+    const sessionUpdate = await supabase.from("workout_sessions").update({ status: "completed", completed_at: now.toISOString(), duration_seconds: duration, total_volume: volume }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress");
+    if (sessionUpdate.error) { setSaving(false); return setError("Your session could not be completed. Try again."); }
 
-              <div className="space-y-2">
-                {ex.sets.map((set) => (
-                  <div
-                    key={set.setNumber}
-                    className={`grid grid-cols-[40px_1fr_1fr_1fr_44px] gap-2 items-center p-2 rounded-lg transition-colors ${
-                      set.completed ? "bg-fitx-success/10" : "bg-fitx-surface/50"
-                    }`}
-                  >
-                    <span className="text-sm font-mono text-fitx-text-secondary text-center flex items-center justify-center gap-1">
-                      {set.setNumber}
-                      {set.isPR && <Trophy size={10} className="text-fitx-gold" />}
-                    </span>
-                    <span className="text-[11px] font-mono text-fitx-text-disabled text-center">
-                      {set.prevWeight}×{set.prevReps}
-                    </span>
-                    <input
-                      value={set.weight}
-                      onChange={(e) => updateSet(ex.id, set.setNumber, "weight", e.target.value)}
-                      inputMode="decimal"
-                      className="bg-fitx-surface border border-fitx-border rounded-lg py-1.5 text-center text-sm font-mono text-fitx-text focus:outline-none focus:border-fitx-primary/60"
-                    />
-                    <input
-                      value={set.reps}
-                      onChange={(e) => updateSet(ex.id, set.setNumber, "reps", e.target.value)}
-                      inputMode="numeric"
-                      className="bg-fitx-surface border border-fitx-border rounded-lg py-1.5 text-center text-sm font-mono text-fitx-text focus:outline-none focus:border-fitx-primary/60"
-                    />
-                    <button
-                      onClick={() => completeSet(ex.id, set.setNumber)}
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-                        set.completed ? "bg-fitx-success text-white" : "bg-fitx-surface-variant text-fitx-text-disabled hover:text-fitx-text"
-                      }`}
-                    >
-                      <Check size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
+    let recordCount = 0;
+    for (const exercise of exercises) {
+      const liftSets = exercise.sets.filter((set) => set.completed_at && Number(set.reps) > 0);
+      if (!liftSets.length) continue;
+      const best = liftSets.reduce((winner, set) => estimateOneRepMax(Number(set.weight_kg), Number(set.reps)) > estimateOneRepMax(Number(winner.weight_kg), Number(winner.reps)) ? set : winner);
+      const { data: existing } = await supabase.from("personal_records").select("best_weight_kg,estimated_one_rep_max").eq("user_id", session.user_id).eq("exercise_name", exercise.name).maybeSingle();
+      const estimated = estimateOneRepMax(Number(best.weight_kg), Number(best.reps));
+      if (!existing || Number(best.weight_kg) > Number(existing.best_weight_kg) || estimated > Number(existing.estimated_one_rep_max)) {
+        const record = await supabase.from("personal_records").upsert({ user_id: session.user_id, exercise_name: exercise.name, best_weight_kg: Math.max(Number(existing?.best_weight_kg || 0), Number(best.weight_kg)), best_reps: Number(best.reps), estimated_one_rep_max: Math.max(Number(existing?.estimated_one_rep_max || 0), estimated), session_id: session.id, achieved_at: now.toISOString() }, { onConflict: "user_id,exercise_name" });
+        if (!record.error) recordCount++;
+      }
+    }
+    if (session.plan_id) {
+      await supabase.from("planner_events").update({ status: "completed" }).eq("workout_plan_id", session.plan_id).eq("user_id", session.user_id);
+      await supabase.from("workout_plans").update({ status: "completed" }).eq("id", session.plan_id).eq("user_id", session.user_id);
+    }
+    setSummary({ duration, volume, sets: validSets.length, records: recordCount }); setFinished(true); setSaving(false);
+  }
 
-              <button className="mt-3 w-full py-2 rounded-lg border border-dashed border-fitx-border text-xs font-heading text-fitx-text-secondary uppercase tracking-wider hover:border-fitx-primary/40 hover:text-fitx-text transition-all flex items-center justify-center gap-1">
-                <Plus size={14} /> Add Set
-              </button>
-            </FitxCard>
-          </motion.div>
-        ))}
+  if (loading) return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading workout…</div>;
+  if (!session) return <EmptyState title="Workout not available" description={error || "This workout session could not be loaded."} action={<Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link>}/>;
+  if (session && session.status !== "in_progress") return <EmptyState title="This session is closed" description="Only an in-progress workout can be edited here." action={<Link href="/workouts" className="fitx-button fitx-button-secondary">Return to workouts</Link>}/>;
+  if (finished) return <div className="mx-auto max-w-2xl space-y-5"><PageHeading title="Workout complete" description="Your session has been saved to your workout history."/><section className="fitx-panel p-6"><div className="mb-4 grid h-12 w-12 place-items-center rounded-full bg-fitx-primary/10 text-fitx-primary"><Check size={24}/></div><h2 className="text-lg font-semibold">{session?.name}</h2><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Duration", `${Math.floor(summary.duration / 60)} min`], ["Sets", String(summary.sets)], ["Volume", `${Math.round(summary.volume).toLocaleString()} kg`], ["New records", String(summary.records)]].map(([label, value]) => <div key={label} className="rounded-lg border border-fitx-border bg-fitx-surface p-3"><p className="text-xs text-fitx-text-disabled">{label}</p><p className="mt-1 font-medium">{value}</p></div>)}</div><Link href="/workouts" className="fitx-button mt-5 w-full">Return to workouts</Link></section></div>;
 
-        <FitxButton variant="outline" size="lg" className="w-full" icon={<Plus size={18} />}>
-          Add Exercise
-        </FitxButton>
-      </div>
-
-      <AnimatePresence>
-        {showPlates !== null && (
-          <PlateCalculator weight={showPlates} onClose={() => setShowPlates(null)} />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {restActive && (
-          <RestTimer seconds={90} onSkip={() => setRestActive(false)} onClose={() => setRestActive(false)} />
-        )}
-      </AnimatePresence>
-    </div>
-  );
+  return <div className="mx-auto max-w-4xl space-y-5"><PageHeading title={session?.name || "Active workout"} description="Record weights and reps as you go. Each completed set is saved to your account." actions={<Link href="/workouts" className="fitx-button fitx-button-secondary"><ArrowLeft size={15}/>Close</Link>}/>
+    {error && <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/5 px-4 py-3 text-sm text-red-200">{error}</p>}
+    <div className="fitx-panel flex flex-wrap items-center justify-between gap-3 p-4"><p className="flex items-center gap-2 text-sm"><Clock3 size={16} className="text-fitx-primary"/>Started {new Date(session.started_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p><p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Check size={15} className="text-fitx-primary"/>{completedSets.length} sets completed</p></div>
+    {!exercises.length && <EmptyState title="No exercises in this session" description="This workout has no exercises yet. Go back and choose a saved plan with movements."/>}
+    <div className="space-y-4">{exercises.map((exercise) => <section key={exercise.id} className="fitx-panel p-4 sm:p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-medium">{exercise.sort_order + 1}. {exercise.name}</h2><p className="mt-1 text-xs text-fitx-text-secondary">Target: {exercise.target_sets} sets · Rest {exercise.rest_seconds}s</p></div><button onClick={() => void addSet(exercise)} className="fitx-button fitx-button-secondary"><Plus size={14}/>Add set</button></div><div className="grid grid-cols-[44px_1fr_1fr_40px] gap-2 px-1 pb-2 text-[11px] text-fitx-text-disabled"><span>SET</span><span>WEIGHT (KG)</span><span>REPS</span><span/></div><div className="space-y-2">{exercise.sets.map((set) => <div key={set.id} className="grid grid-cols-[44px_1fr_1fr_40px] items-center gap-2"><span className="text-sm text-fitx-text-secondary">{set.set_number}</span><input aria-label={`${exercise.name} set ${set.set_number} weight in kg`} className="fitx-field h-10" type="number" min="0" max="2000" step="0.5" value={set.draftWeight} onChange={(event) => changeSet(exercise.id, set.id, "draftWeight", event.target.value)}/><input aria-label={`${exercise.name} set ${set.set_number} reps`} className="fitx-field h-10" type="number" min="0" max="500" step="1" value={set.draftReps} onChange={(event) => changeSet(exercise.id, set.id, "draftReps", event.target.value)}/><button onClick={() => void saveSet(exercise.id, set, !set.completed_at)} aria-label={set.completed_at ? "Mark set incomplete" : "Complete set"} className={`grid h-10 w-10 place-items-center rounded-lg border ${set.completed_at ? "border-fitx-primary/50 bg-fitx-primary/10 text-fitx-primary" : "border-fitx-border text-fitx-text-disabled hover:text-fitx-primary"}`}><Check size={17}/></button></div>)}</div></section>)}</div>
+    {restRemaining > 0 && <section className="fitx-panel flex items-center justify-between gap-3 border-fitx-primary/30 p-4"><p className="flex items-center gap-2 text-sm"><Timer size={17} className="text-fitx-primary"/>Rest timer</p><p className="text-xl font-semibold tabular-nums">{Math.floor(restRemaining / 60)}:{String(restRemaining % 60).padStart(2, "0")}</p><button onClick={() => setRestRemaining(0)} className="fitx-button fitx-button-secondary">Skip</button></section>}
+    <section className="fitx-panel flex flex-wrap items-center justify-between gap-3 p-4"><p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Trophy size={16} className="text-fitx-primary"/>{completedSets.length} completed sets · {Math.round(completedSets.reduce((sum, set) => sum + Number(set.weight_kg) * Number(set.reps), 0)).toLocaleString()} kg logged</p><button disabled={saving} onClick={() => void finishWorkout()} className="fitx-button">{saving ? "Saving…" : "Finish workout"}<Check size={15}/></button></section>
+  </div>;
 }

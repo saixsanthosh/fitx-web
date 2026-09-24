@@ -4,7 +4,7 @@ import { isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from "./client"
 
 /**
  * Server-side Supabase client. Next 16: cookies() is async, so this is async.
- * Returns null in demo mode (no keys), so callers can fall back to seed data.
+ * It uses only the user's cookie-backed session and publishable key.
  */
 export async function createClient() {
   if (!isSupabaseConfigured) return null;

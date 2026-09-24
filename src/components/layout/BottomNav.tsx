@@ -2,46 +2,31 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
-import { LayoutDashboard, Dumbbell, Utensils, ListChecks, User } from "lucide-react";
+import { ChartNoAxesColumn, Dumbbell, House, UserRound, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/exercises", label: "Train", icon: Dumbbell },
-  { href: "/nutrition", label: "Food", icon: Utensils },
-  { href: "/tasks", label: "Tasks", icon: ListChecks },
-  { href: "/profile", label: "Profile", icon: User },
+  { href: "/dashboard", label: "Home", icon: House },
+  { href: "/workouts", label: "Workouts", icon: Dumbbell },
+  { href: "/nutrition", label: "Nutrition", icon: Utensils },
+  { href: "/progress", label: "Progress", icon: ChartNoAxesColumn },
+  { href: "/profile", label: "Profile", icon: UserRound },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
-
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#030000]/95 backdrop-blur-xl border-t border-fitx-border">
-      <div className="flex items-center justify-around px-2 py-2">
-        {items.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex flex-col items-center gap-1 px-3 py-1.5 relative"
-            >
-              {active && (
-                <motion.div
-                  layoutId="bottomnav-active"
-                  className="absolute -top-2 w-8 h-1 bg-fitx-primary rounded-full"
-                />
-              )}
-              <item.icon size={20} className={cn(active ? "text-fitx-primary" : "text-fitx-text-secondary")} />
-              <span className={cn("text-[9px] font-heading uppercase tracking-wider", active ? "text-fitx-text" : "text-fitx-text-disabled")}>
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
-      </div>
+    <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-fitx-divider bg-[#0b1112]/95 px-1 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur lg:hidden">
+      {items.map(({ href, label, icon: Icon }) => {
+        const active = pathname === href || pathname.startsWith(`${href}/`);
+        return (
+          <Link key={href} href={href} aria-current={active ? "page" : undefined}
+            className={cn("flex min-h-12 flex-col items-center justify-center gap-1 text-[10px]", active ? "text-fitx-primary" : "text-fitx-text-disabled")}>
+            <Icon size={19} strokeWidth={active ? 2.2 : 1.8} />
+            <span>{label}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }

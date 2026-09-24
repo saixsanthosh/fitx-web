@@ -1,301 +1,44 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Search, Filter, Grid3x3, List, Heart, Dumbbell, ChevronDown } from "lucide-react";
-import { exercises, muscleGroups, equipmentList } from "@/data/exercises";
-import { FitxCard } from "@/components/ui/FitxCard";
-import { FitxInput } from "@/components/ui/FitxInput";
-import { SmartImage } from "@/components/ui/SmartImage";
-import { muscleImage, muscleGradient } from "@/data/images";
 import Link from "next/link";
-import type { MuscleGroup, Equipment, Difficulty, ExerciseType } from "@/types";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, Dumbbell, Search } from "lucide-react";
+import { EmptyState } from "@/components/app/EmptyState";
+import { PageHeading } from "@/components/app/PageHeading";
+import { createClient } from "@/lib/supabase/client";
+import type { ExerciseRecord } from "@/lib/domain/workout";
+
+type Exercise = ExerciseRecord & { description: string };
 
 export default function ExerciseLibraryPage() {
+  const [items, setItems] = useState<Exercise[]>([]);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"grid" | "list">("grid");
-  const [showFilters, setShowFilters] = useState(false);
-  const [selectedMuscles, setSelectedMuscles] = useState<MuscleGroup[]>([]);
-  const [selectedEquipment, setSelectedEquipment] = useState<Equipment[]>([]);
-  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | "">("");
-  const [selectedType, setSelectedType] = useState<ExerciseType | "">("");
-  const [sort, setSort] = useState("name");
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
-
+  const [muscle, setMuscle] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialQuery = params.get("q") || "";
+    const queryTimer = window.setTimeout(() => setSearch(initialQuery), 0);
+    let active = true;
+    void (async () => {
+      const supabase = createClient();
+      if (!supabase) { setLoading(false); setError("The exercise library is not connected to Supabase."); return; }
+      const result = await supabase.from("exercise_library").select("id,name,description,primary_muscle,secondary_muscles,equipment,locations,difficulty,movement_pattern,recommended_sets,reps_min,reps_max,rest_seconds,alternatives").eq("is_active", true).order("name").limit(300);
+      if (!active) return;
+      if (result.error) setError("The exercise library could not be loaded."); else setItems((result.data || []) as Exercise[]);
+      setLoading(false);
+    })();
+    return () => { active = false; window.clearTimeout(queryTimer); };
+  }, []);
+  const muscles = useMemo(() => [...new Set(items.map((item) => item.primary_muscle))].sort(), [items]);
   const filtered = useMemo(() => {
-    let result = exercises.filter((ex) => {
-      if (search && !ex.name.toLowerCase().includes(search.toLowerCase())) return false;
-      if (selectedMuscles.length && !selectedMuscles.includes(ex.muscleGroup)) return false;
-      if (selectedEquipment.length && !ex.equipment.some((e) => selectedEquipment.includes(e))) return false;
-      if (selectedDifficulty && ex.difficulty !== selectedDifficulty) return false;
-      if (selectedType && ex.type !== selectedType) return false;
-      return true;
-    });
-
-    if (sort === "name") result.sort((a, b) => a.name.localeCompare(b.name));
-    else if (sort === "difficulty") {
-      const order = { Beginner: 0, Intermediate: 1, Advanced: 2 };
-      result.sort((a, b) => order[a.difficulty] - order[b.difficulty]);
-    }
-
-    return result;
-  }, [search, selectedMuscles, selectedEquipment, selectedDifficulty, selectedType, sort]);
-
-  const toggleFavorite = (id: string) => {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleFilter = <T,>(item: T, list: T[], setter: (v: T[]) => void) => {
-    setter(list.includes(item) ? list.filter((i) => i !== item) : [...list, item]);
-  };
-
-  const difficultyColor: Record<string, string> = {
-    Beginner: "bg-fitx-success/20 text-fitx-success",
-    Intermediate: "bg-fitx-warning/20 text-fitx-warning",
-    Advanced: "bg-fitx-primary/20 text-fitx-primary",
-  };
-
-  return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-        <h1 className="text-3xl font-display tracking-wider text-fitx-text uppercase mb-1">
-          Exercise Library
-        </h1>
-        <p className="text-sm text-fitx-text-secondary font-body">
-          {exercises.length} exercises &middot; {filtered.length} matching your filters
-        </p>
-      </motion.div>
-
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="flex-1">
-          <FitxInput
-            placeholder="Search exercises..."
-            icon={<Search size={18} />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all font-heading text-sm uppercase tracking-wider ${
-              showFilters ? "bg-fitx-primary/20 border-fitx-primary text-fitx-text" : "bg-fitx-surface border-fitx-border text-fitx-text-secondary"
-            }`}
-          >
-            <Filter size={16} /> Filters <ChevronDown size={14} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
-          </button>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-            className="bg-fitx-surface border border-fitx-border rounded-xl px-4 py-2.5 font-heading text-sm text-fitx-text-secondary uppercase tracking-wider focus:outline-none focus:border-fitx-primary/60"
-          >
-            <option value="name">A-Z</option>
-            <option value="difficulty">Difficulty</option>
-          </select>
-          <div className="flex border border-fitx-border rounded-xl overflow-hidden">
-            <button
-              onClick={() => setView("grid")}
-              className={`p-2.5 ${view === "grid" ? "bg-fitx-primary/20 text-fitx-text" : "text-fitx-text-secondary"}`}
-            >
-              <Grid3x3 size={18} />
-            </button>
-            <button
-              onClick={() => setView("list")}
-              className={`p-2.5 ${view === "list" ? "bg-fitx-primary/20 text-fitx-text" : "text-fitx-text-secondary"}`}
-            >
-              <List size={18} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {showFilters && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="overflow-hidden mb-6"
-          >
-            <FitxCard hover={false} className="p-6">
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xs font-heading text-fitx-text-secondary uppercase tracking-wider mb-2">Muscle Group</p>
-                  <div className="flex flex-wrap gap-2">
-                    {muscleGroups.map((mg) => (
-                      <button
-                        key={mg}
-                        onClick={() => toggleFilter(mg as MuscleGroup, selectedMuscles, setSelectedMuscles)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-heading uppercase tracking-wider transition-all border ${
-                          selectedMuscles.includes(mg as MuscleGroup)
-                            ? "bg-fitx-primary/20 border-fitx-primary text-fitx-text"
-                            : "bg-fitx-surface border-fitx-border text-fitx-text-secondary"
-                        }`}
-                      >
-                        {mg}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-heading text-fitx-text-secondary uppercase tracking-wider mb-2">Equipment</p>
-                  <div className="flex flex-wrap gap-2">
-                    {equipmentList.map((eq) => (
-                      <button
-                        key={eq}
-                        onClick={() => toggleFilter(eq as Equipment, selectedEquipment, setSelectedEquipment)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-heading uppercase tracking-wider transition-all border ${
-                          selectedEquipment.includes(eq as Equipment)
-                            ? "bg-fitx-primary/20 border-fitx-primary text-fitx-text"
-                            : "bg-fitx-surface border-fitx-border text-fitx-text-secondary"
-                        }`}
-                      >
-                        {eq}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex gap-6">
-                  <div>
-                    <p className="text-xs font-heading text-fitx-text-secondary uppercase tracking-wider mb-2">Difficulty</p>
-                    <div className="flex gap-2">
-                      {["Beginner", "Intermediate", "Advanced"].map((d) => (
-                        <button
-                          key={d}
-                          onClick={() => setSelectedDifficulty(selectedDifficulty === d ? "" : d as Difficulty)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-heading uppercase tracking-wider transition-all border ${
-                            selectedDifficulty === d ? "bg-fitx-primary/20 border-fitx-primary text-fitx-text" : "bg-fitx-surface border-fitx-border text-fitx-text-secondary"
-                          }`}
-                        >
-                          {d}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-heading text-fitx-text-secondary uppercase tracking-wider mb-2">Type</p>
-                    <div className="flex gap-2">
-                      {["Compound", "Isolation", "Isometric", "Cardio"].map((t) => (
-                        <button
-                          key={t}
-                          onClick={() => setSelectedType(selectedType === t ? "" : t as ExerciseType)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-heading uppercase tracking-wider transition-all border ${
-                            selectedType === t ? "bg-fitx-primary/20 border-fitx-primary text-fitx-text" : "bg-fitx-surface border-fitx-border text-fitx-text-secondary"
-                          }`}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </FitxCard>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {filtered.length === 0 ? (
-        <div className="text-center py-20">
-          <Dumbbell className="h-16 w-16 text-fitx-text-disabled mx-auto mb-4" />
-          <h3 className="text-lg font-heading text-fitx-text uppercase tracking-wider mb-2">No exercises found</h3>
-          <p className="text-sm text-fitx-text-secondary font-body">Try adjusting your filters or search term.</p>
-        </div>
-      ) : view === "grid" ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((ex, i) => (
-            <motion.div
-              key={ex.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(i * 0.03, 0.5) }}
-            >
-              <Link href={`/exercises/${ex.id}`}>
-                <FitxCard className="group cursor-pointer h-full">
-                  <div className="relative aspect-video rounded-xl mb-4 overflow-hidden">
-                    <SmartImage
-                      src={muscleImage[ex.muscleGroup] ?? muscleImage.Chest}
-                      alt={ex.name}
-                      className="w-full h-full group-hover:scale-105 transition-transform duration-500"
-                      fallbackGradient={muscleGradient[ex.muscleGroup] ?? "from-fitx-primary/30 to-fitx-surface"}
-                      fallbackIcon={<Dumbbell size={36} />}
-                      overlay
-                    />
-                    <button
-                      onClick={(e) => { e.preventDefault(); toggleFavorite(ex.id); }}
-                      className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 backdrop-blur-sm z-10"
-                    >
-                      <Heart size={14} className={favorites.has(ex.id) ? "text-fitx-primary fill-fitx-primary" : "text-white/60"} />
-                    </button>
-                  </div>
-                  <h3 className="font-heading text-sm text-fitx-text uppercase tracking-wider mb-2 group-hover:text-fitx-primary transition-colors">
-                    {ex.name}
-                  </h3>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    <span className="text-[10px] bg-fitx-primary/15 text-fitx-primary px-2 py-0.5 rounded-full font-mono">
-                      {ex.muscleGroup}
-                    </span>
-                    {ex.secondaryMuscles.slice(0, 2).map((m) => (
-                      <span key={m} className="text-[10px] bg-fitx-surface-variant text-fitx-text-secondary px-2 py-0.5 rounded-full font-mono">
-                        {m}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-heading uppercase ${difficultyColor[ex.difficulty]}`}>
-                      {ex.difficulty}
-                    </span>
-                    <span className="text-[10px] text-fitx-text-disabled font-mono">{ex.type}</span>
-                  </div>
-                </FitxCard>
-              </Link>
-            </motion.div>
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((ex, i) => (
-            <motion.div
-              key={ex.id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: Math.min(i * 0.02, 0.3) }}
-            >
-              <Link href={`/exercises/${ex.id}`}>
-                <div className="flex items-center gap-4 p-4 bg-fitx-card border border-fitx-border rounded-xl hover:border-fitx-primary/30 transition-all group">
-                  <div className="w-12 h-12 rounded-lg bg-fitx-surface flex items-center justify-center flex-shrink-0">
-                    <Dumbbell size={20} className="text-fitx-text-disabled group-hover:text-fitx-primary transition-colors" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-heading text-sm text-fitx-text uppercase tracking-wider truncate group-hover:text-fitx-primary transition-colors">
-                      {ex.name}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] bg-fitx-primary/15 text-fitx-primary px-2 py-0.5 rounded-full font-mono">{ex.muscleGroup}</span>
-                      <span className="text-[10px] text-fitx-text-disabled font-mono">{ex.equipment.join(", ")}</span>
-                    </div>
-                  </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-heading uppercase flex-shrink-0 ${difficultyColor[ex.difficulty]}`}>
-                    {ex.difficulty}
-                  </span>
-                  <button
-                    onClick={(e) => { e.preventDefault(); toggleFavorite(ex.id); }}
-                    className="flex-shrink-0"
-                  >
-                    <Heart size={16} className={favorites.has(ex.id) ? "text-fitx-primary fill-fitx-primary" : "text-fitx-text-disabled"} />
-                  </button>
-                </div>
-              </Link>
-            </motion.div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+    const value = search.trim().toLowerCase();
+    return items.filter((item) => (muscle === "all" || item.primary_muscle === muscle) && (!value || [item.name, item.description, item.primary_muscle, ...item.secondary_muscles].some((part) => part.toLowerCase().includes(value))));
+  }, [items, search, muscle]);
+  return <div className="space-y-5"><PageHeading title="Exercise library" description={`${items.length} movements with instructions, equipment, and suggested sets.`} actions={<Link href="/workouts" className="fitx-button fitx-button-secondary">Workout plans<ArrowRight size={15}/></Link>}/>
+    {error && <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/5 px-4 py-3 text-sm text-red-200">{error}</p>}
+    <div className="fitx-panel flex flex-col gap-3 p-3 sm:flex-row"><label className="relative min-w-0 flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fitx-text-disabled"/><input className="fitx-field pl-10" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search movements or muscles" aria-label="Search exercises"/></label><select className="fitx-field sm:max-w-56" value={muscle} onChange={(event) => setMuscle(event.target.value)} aria-label="Filter by muscle"><option value="all">All muscle groups</option>{muscles.map((name) => <option key={name} value={name} className="capitalize">{name.replaceAll("_", " ")}</option>)}</select></div>
+    {loading ? <p className="py-10 text-center text-sm text-fitx-text-secondary">Loading exercise library…</p> : filtered.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filtered.map((item) => <Link key={item.id} href={`/exercises/${item.id}`} className="fitx-panel block p-4 transition-colors hover:border-fitx-primary/30"><div className="mb-3 flex items-start justify-between gap-3"><span className="grid h-10 w-10 place-items-center rounded-lg bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={18}/></span><span className="rounded-full border border-fitx-border px-2 py-1 text-[10px] capitalize text-fitx-text-secondary">{item.difficulty}</span></div><h2 className="font-medium">{item.name}</h2><p className="mt-1 line-clamp-2 text-xs leading-5 text-fitx-text-secondary">{item.description}</p><div className="mt-3 flex flex-wrap gap-1.5"><span className="rounded bg-fitx-surface px-2 py-1 text-[10px] capitalize text-fitx-primary">{item.primary_muscle.replaceAll("_", " ")}</span>{item.equipment.slice(0, 2).map((equipment) => <span key={equipment} className="rounded bg-fitx-surface px-2 py-1 text-[10px] capitalize text-fitx-text-disabled">{equipment.replaceAll("_", " ")}</span>)}</div><p className="mt-3 text-xs text-fitx-text-disabled">{item.recommended_sets} sets · {item.reps_min}–{item.reps_max} reps · {item.rest_seconds}s rest</p></Link>)}</div> : <EmptyState title="No matching exercises" description={loading ? "The exercise library is loading." : "Try another search or choose a different muscle group."}/ >}
+  </div>;
 }

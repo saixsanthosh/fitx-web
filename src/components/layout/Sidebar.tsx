@@ -1,106 +1,50 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  LayoutDashboard, Dumbbell, Utensils, ListChecks, Timer,
-  TrendingUp, Bot, Users, Settings, Building2, ChevronLeft, ChevronRight,
-  Trophy, User,
-} from "lucide-react";
-import { BRAND } from "@/config/brand";
+import { CalendarDays, ChartNoAxesColumn, Dumbbell, House, Target, UserRound, Utensils } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/exercises", label: "Exercises", icon: Dumbbell },
+const items = [
+  { href: "/dashboard", label: "Home", icon: House },
+  { href: "/workouts", label: "Workouts", icon: Dumbbell },
   { href: "/nutrition", label: "Nutrition", icon: Utensils },
-  { href: "/tasks", label: "Tasks", icon: ListChecks },
-  { href: "/workouts", label: "Workouts", icon: Timer },
-  { href: "/progress", label: "Progress", icon: TrendingUp },
-  { href: "/ai-coach", label: "AI Coach", icon: Bot },
-  { href: "/social", label: "Community", icon: Users },
-  { href: "/achievements", label: "Achievements", icon: Trophy },
-  { href: "/profile", label: "Profile", icon: User },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/admin", label: "Gym Admin", icon: Building2 },
+  { href: "/progress", label: "Progress", icon: ChartNoAxesColumn },
+  { href: "/goals", label: "Goals", icon: Target },
+  { href: "/planner", label: "Planner", icon: CalendarDays },
+  { href: "/profile", label: "Profile", icon: UserRound },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside
-      className={cn(
-        "sticky top-0 h-screen bg-fitx-surface border-r border-fitx-border flex flex-col transition-all duration-300 z-30",
-        collapsed ? "w-[72px]" : "w-64"
-      )}
-    >
-      <div className="flex items-center gap-2 p-4 border-b border-fitx-divider">
-        <Logo size={32} className="flex-shrink-0" />
-        {!collapsed && (
-          <motion.span
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-xl font-display tracking-[0.2em] text-fitx-text"
-          >
-            {BRAND.name}
-          </motion.span>
-        )}
-      </div>
-
-      <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href;
+    <aside className="sticky top-0 hidden h-dvh w-[216px] shrink-0 flex-col border-r border-fitx-divider bg-fitx-surface lg:flex">
+      <Link href="/dashboard" className="flex h-[76px] items-center gap-2.5 border-b border-fitx-divider px-6">
+        <Logo size={39} />
+      </Link>
+      <nav aria-label="Main navigation" className="flex-1 space-y-1 px-3 py-5">
+        {items.map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
             <Link
-              key={item.href}
-              href={item.href}
+              key={href}
+              href={href}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group relative",
-                isActive
-                  ? "bg-fitx-primary/15 text-fitx-text"
-                  : "text-fitx-text-secondary hover:text-fitx-text hover:bg-white/5"
+                "relative flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm transition-colors",
+                active ? "bg-fitx-primary/10 text-fitx-primary" : "text-fitx-text-secondary hover:bg-white/[.04] hover:text-fitx-text"
               )}
             >
-              {isActive && (
-                <motion.div
-                  layoutId="sidebar-active"
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-fitx-primary rounded-r-full"
-                />
-              )}
-              <item.icon size={20} className={cn("flex-shrink-0", isActive && "text-fitx-primary")} />
-              {!collapsed && (
-                <span className="text-sm font-heading uppercase tracking-wider truncate">{item.label}</span>
-              )}
+              {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-fitx-primary" />}
+              <Icon size={18} strokeWidth={active ? 2.2 : 1.8} />
+              <span>{label}</span>
             </Link>
           );
         })}
       </nav>
-
-      <div className="p-3 border-t border-fitx-divider">
-        {!collapsed && (
-          <div className="flex items-center gap-3 px-3 py-2 mb-2">
-            <div className="w-9 h-9 rounded-full bg-fitx-primary/20 border-2 border-fitx-primary/40 flex items-center justify-center font-heading text-fitx-primary text-xs">
-              AK
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-heading text-fitx-text truncate">Alex Knight</p>
-              <p className="text-[10px] text-fitx-text-secondary font-body">Level 24 — Elite</p>
-            </div>
-          </div>
-        )}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-fitx-text-secondary hover:text-fitx-text hover:bg-white/5 transition-all"
-        >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-          {!collapsed && <span className="text-xs font-heading uppercase tracking-wider">Collapse</span>}
-        </button>
-      </div>
+      <div className="border-t border-fitx-divider p-4 text-xs text-fitx-text-disabled">Your pace. Your progress.</div>
     </aside>
   );
 }

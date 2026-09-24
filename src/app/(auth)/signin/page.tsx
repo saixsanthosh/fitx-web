@@ -1,149 +1,91 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { Mail, Lock, Globe } from "lucide-react";
-import { toast } from "sonner";
-import { FitxButton } from "@/components/ui/FitxButton";
-import { FitxInput } from "@/components/ui/FitxInput";
-import { FitxCard } from "@/components/ui/FitxCard";
+import { useState, type FormEvent } from "react";
+import { Apple, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
-import { BRAND } from "@/config/brand";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
-const googleOAuthEnabled = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "true";
+const googleEnabled = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "true";
+const appleEnabled = process.env.NEXT_PUBLIC_APPLE_OAUTH_ENABLED === "true";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
     const supabase = createClient();
     if (!supabase) {
-      toast.error("Auth isn't configured yet. Add your Supabase keys.");
+      setError("Sign in is temporarily unavailable. Please try again later.");
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      toast.error(error.message);
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (authError) {
+      setError(authError.message);
       setLoading(false);
       return;
     }
-    toast.success("Welcome back, warrior.");
-    window.location.href = "/dashboard";
-  };
+    const requested = new URLSearchParams(window.location.search).get("next") || "/dashboard";
+    const destination = requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard";
+    window.location.assign(destination);
+  }
 
-  const handleGoogle = async () => {
+  async function signInWith(provider: "google" | "apple") {
     const supabase = createClient();
-    if (!supabase) {
-      toast.error("Auth isn't configured yet. Add your Supabase keys.");
-      return;
-    }
-    setGoogleLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
+    if (!supabase) return setError("Sign in is temporarily unavailable. Please try again later.");
+    setError("");
+    setLoading(true);
+    const { error: authError } = await supabase.auth.signInWithOAuth({
+      provider,
       options: { redirectTo: `${window.location.origin}/auth/callback?next=/dashboard` },
     });
-    if (error) {
-      toast.error(error.message);
-      setGoogleLoading(false);
+    if (authError) {
+      setError(authError.message);
+      setLoading(false);
     }
-  };
+  }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-    >
-      <div className="text-center mb-8">
-        <Link href="/" className="inline-flex items-center gap-2 mb-4">
-          <Logo size={44} />
-          <span className="text-3xl font-display tracking-tight text-fitx-text">{BRAND.name}</span>
-        </Link>
-        <p className="text-sm text-fitx-text-secondary font-body">Welcome back, warrior</p>
-      </div>
-
-      <FitxCard variant="glow" hover={false} className="p-8">
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <FitxInput
-            label="Email"
-            type="email"
-            placeholder="you@example.com"
-            icon={<Mail size={18} />}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <FitxInput
-            label="Password"
-            type="password"
-            placeholder="Enter your password"
-            icon={<Lock size={18} />}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-
-          <div className="flex items-center justify-end">
-            <Link
-              href="/forgot-password"
-              className="text-xs text-fitx-primary hover:text-fitx-primary-bright transition-colors font-body"
-            >
-              Forgot password?
-            </Link>
-          </div>
-
-          <FitxButton type="submit" variant="primary" size="lg" className="w-full" loading={loading}>
-            Sign In
-          </FitxButton>
-        </form>
-
-        {googleOAuthEnabled && (
+    <div className="mx-auto w-full max-w-[448px]">
+      <Link href="/" className="mb-7 flex justify-center" aria-label="FITX">
+        <Logo size={64} />
+      </Link>
+      <section className="rounded-2xl border border-fitx-border bg-[#0b1012] p-6 shadow-[0_24px_80px_rgba(0,0,0,.25)] sm:p-8">
+        <h1 className="mb-5 text-center text-xl font-semibold text-fitx-text">Login</h1>
+        {(googleEnabled || appleEnabled) && (
           <>
-            <div className="mt-6 relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-fitx-divider" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-fitx-card px-4 text-fitx-text-disabled font-body">or continue with</span>
-              </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {googleEnabled && <button type="button" disabled={loading} onClick={() => void signInWith("google")} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface text-sm hover:bg-white/[.04]"><span className="font-bold text-[#4285F4]">G</span>Continue with Google</button>}
+              {appleEnabled && <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface text-sm hover:bg-white/[.04]"><Apple size={18} fill="currentColor" />Continue with Apple</button>}
             </div>
-
-            <div className="mt-6">
-              <FitxButton
-                type="button"
-                variant="secondary"
-                size="md"
-                className="w-full"
-                icon={<Globe size={18} />}
-                loading={googleLoading}
-                onClick={handleGoogle}
-              >
-                Continue with Google
-              </FitxButton>
-            </div>
+            <div className="my-5 flex items-center gap-3 text-xs text-fitx-text-disabled"><span className="h-px flex-1 bg-fitx-divider" /><span>or</span><span className="h-px flex-1 bg-fitx-divider" /></div>
           </>
         )}
-      </FitxCard>
-
-      {!isSupabaseConfigured && (
-        <p className="mt-4 text-center text-[11px] text-fitx-warning font-body">
-          Demo mode — add Supabase keys to enable real sign-in.
-        </p>
-      )}
-
-      <p className="mt-6 text-center text-sm text-fitx-text-secondary font-body">
-        Don&apos;t have an account?{" "}
-        <Link href="/signup" className="text-fitx-primary hover:text-fitx-primary-bright transition-colors font-semibold">
-          Sign Up
-        </Link>
-      </p>
-    </motion.div>
+        <form onSubmit={signIn} className="space-y-3">
+          <label className="relative block">
+            <span className="sr-only">Email address</span><Mail size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-fitx-text-disabled" />
+            <input className="fitx-field pl-11" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" />
+          </label>
+          <label className="relative block">
+            <span className="sr-only">Password</span><LockKeyhole size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-fitx-text-disabled" />
+            <input className="fitx-field pl-11 pr-12" type={visible ? "text" : "password"} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
+            <button type="button" aria-label={visible ? "Hide password" : "Show password"} onClick={() => setVisible(!visible)} className="absolute right-3 top-1/2 -translate-y-1/2 text-fitx-text-disabled hover:text-fitx-text">{visible ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+          </label>
+          <div className="flex justify-end pt-0.5">
+            <Link href="/forgot-password" className="text-sm text-fitx-primary hover:text-fitx-primary-bright">Forgot password?</Link>
+          </div>
+          {error && <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/5 px-3 py-2 text-sm text-red-300">{error}</p>}
+          {!isSupabaseConfigured && <p role="status" className="text-xs text-fitx-warning">Supabase connection is not configured for this environment.</p>}
+          <button type="submit" disabled={loading} className="fitx-button w-full">{loading ? "Signing in…" : "Log In"}</button>
+        </form>
+        <p className="mt-5 text-center text-sm text-fitx-text-secondary">Don&apos;t have an account? <Link href="/signup" className="font-medium text-fitx-primary hover:text-fitx-primary-bright">Sign Up</Link></p>
+      </section>
+    </div>
   );
 }
