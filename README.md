@@ -1,6 +1,6 @@
 # FITX — Stronger Everyday
 
-A premium, white-label gym management & fitness platform. Built as a full production-grade demo to sell branded versions to gym owners.
+A personal fitness app with Supabase-backed authentication and a Postgres schema protected by row-level security.
 
 **Designed & Developed by B SAI SANTHOSH** · ✉ saisanthosh102030@gmail.com · ☎ +91 8925075593
 
@@ -13,8 +13,7 @@ A premium, white-label gym management & fitness platform. Built as a full produc
 - **Icons:** Lucide React
 - **Canvas:** HTML Canvas (fire particles, confetti)
 - **API:** Next.js Route Handlers (`/api/v1/*`)
-- **DB (schema ready):** PostgreSQL + Prisma
-- **Auth/Payments/AI (env-ready):** NextAuth + JWT, Stripe + Razorpay, OpenAI GPT-4
+- **Auth and database:** Supabase Auth + PostgreSQL + Row Level Security
 
 ## Getting Started
 
@@ -23,6 +22,8 @@ npm install
 npm run dev      # http://localhost:3000
 npm run build    # production build
 ```
+
+For local Supabase authentication, copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from the Supabase project. Keep service-role and database credentials in server-side environment variables only; never add them to client code or commit them.
 
 ## White-Label Rebranding
 
@@ -62,7 +63,7 @@ Every color token, name, and logo across the site reads from this config (and th
 | `/social` | GET | Feed + leaderboard |
 | `/challenges` | GET | Group challenges |
 | `/programs` | GET | Workout programs |
-| `/ai/chat` | POST | AI Coach (GPT-4 ready) |
+| `/ai/chat` | POST | Prototype response endpoint; no AI provider is configured |
 | `/gym-admin` | GET | Members + revenue |
 
 **Response format:**
@@ -71,9 +72,11 @@ Every color token, name, and logo across the site reads from this config (and th
 { "success": false, "error": { "code": "NOT_FOUND", "message": "..." } }
 ```
 
-## Database
+## Supabase
 
-A complete Prisma schema is in `prisma/schema.prisma` (User, Exercise, Program, WorkoutSession, MealEntry, Task, Habit, Gym). To connect a real Postgres DB, set `DATABASE_URL` in `.env` and run `npx prisma migrate dev`. The demo runs fully on seed data (`src/data/`) without a database.
+The initial database schema is in `supabase/migrations/0001_init.sql`. It creates user profiles, workouts, meals, tasks, habits, and body metrics with row-level security policies. The FITX Vercel project uses a Supabase resource provisioned through the Vercel Marketplace integration. Apply future database changes as new migrations under `supabase/migrations/`.
+
+The browser and server Supabase clients use only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Supabase service-role keys and database passwords must remain server-only and must not be committed.
 
 ## Project Structure
 
