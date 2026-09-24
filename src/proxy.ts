@@ -39,8 +39,12 @@ export async function proxy(request: NextRequest) {
   }
   if (user && ["/dashboard", "/onboarding"].includes(request.nextUrl.pathname)) {
     const { data: profile } = await supabase.from("profiles").select("onboarded").eq("id", user.id).maybeSingle();
-    if (!profile?.onboarded) return NextResponse.redirect(new URL("/onboarding", request.url));
-    if (request.nextUrl.pathname === "/onboarding") return NextResponse.redirect(new URL("/dashboard", request.url));
+    if (!profile?.onboarded && request.nextUrl.pathname === "/dashboard") {
+      return NextResponse.redirect(new URL("/onboarding", request.url));
+    }
+    if (profile?.onboarded && request.nextUrl.pathname === "/onboarding") {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
   }
   if (isAuthEntry && user) return NextResponse.redirect(new URL("/dashboard", request.url));
   return response;
