@@ -23,7 +23,7 @@ npm run dev      # http://localhost:3000
 npm run build    # production build
 ```
 
-For local Supabase authentication, copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from the Supabase project. Keep service-role and database credentials in server-side environment variables only; never add them to client code or commit them.
+For local Supabase authentication, copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from the Supabase project. Keep service-role and database credentials in server-side environment variables only; never add them to client code or commit them. Enable `NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED` only after configuring Google OAuth in Supabase.
 
 ## White-Label Rebranding
 

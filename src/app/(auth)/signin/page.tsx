@@ -12,6 +12,8 @@ import { Logo } from "@/components/ui/Logo";
 import { BRAND } from "@/config/brand";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
+const googleOAuthEnabled = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "true";
+
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -102,28 +104,32 @@ export default function SignInPage() {
           </FitxButton>
         </form>
 
-        <div className="mt-6 relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-fitx-divider" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-fitx-card px-4 text-fitx-text-disabled font-body">or continue with</span>
-          </div>
-        </div>
+        {googleOAuthEnabled && (
+          <>
+            <div className="mt-6 relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-fitx-divider" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-fitx-card px-4 text-fitx-text-disabled font-body">or continue with</span>
+              </div>
+            </div>
 
-        <div className="mt-6">
-          <FitxButton
-            type="button"
-            variant="secondary"
-            size="md"
-            className="w-full"
-            icon={<Globe size={18} />}
-            loading={googleLoading}
-            onClick={handleGoogle}
-          >
-            Continue with Google
-          </FitxButton>
-        </div>
+            <div className="mt-6">
+              <FitxButton
+                type="button"
+                variant="secondary"
+                size="md"
+                className="w-full"
+                icon={<Globe size={18} />}
+                loading={googleLoading}
+                onClick={handleGoogle}
+              >
+                Continue with Google
+              </FitxButton>
+            </div>
+          </>
+        )}
       </FitxCard>
 
       {!isSupabaseConfigured && (
