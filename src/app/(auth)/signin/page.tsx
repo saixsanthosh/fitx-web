@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { Apple, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
+import { GoogleIcon } from "@/components/ui/GoogleIcon";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
-const googleEnabled = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "true";
 const appleEnabled = process.env.NEXT_PUBLIC_APPLE_OAUTH_ENABLED === "true";
 
 export default function SignInPage() {
@@ -43,10 +43,15 @@ export default function SignInPage() {
     setLoading(true);
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=/dashboard` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+        ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {}),
+      },
     });
     if (authError) {
-      setError(authError.message);
+      setError(provider === "google" && /unsupported provider|provider is not enabled/i.test(authError.message)
+        ? "Google sign-in hasn’t been enabled for this app yet. Please use email and password for now."
+        : authError.message);
       setLoading(false);
     }
   }
@@ -58,15 +63,13 @@ export default function SignInPage() {
       </Link>
       <section className="rounded-2xl border border-fitx-border bg-[#0b1012] p-6 shadow-[0_24px_80px_rgba(0,0,0,.25)] sm:p-8">
         <h1 className="mb-5 text-center text-xl font-semibold text-fitx-text">Login</h1>
-        {(googleEnabled || appleEnabled) && (
-          <>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {googleEnabled && <button type="button" disabled={loading} onClick={() => void signInWith("google")} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface text-sm hover:bg-white/[.04]"><span className="font-bold text-[#4285F4]">G</span>Continue with Google</button>}
-              {appleEnabled && <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface text-sm hover:bg-white/[.04]"><Apple size={18} fill="currentColor" />Continue with Apple</button>}
-            </div>
-            <div className="my-5 flex items-center gap-3 text-xs text-fitx-text-disabled"><span className="h-px flex-1 bg-fitx-divider" /><span>or</span><span className="h-px flex-1 bg-fitx-divider" /></div>
-          </>
-        )}
+        <>
+          <div className={`grid grid-cols-1 gap-2 ${appleEnabled ? "sm:grid-cols-2" : ""}`}>
+            <button type="button" disabled={loading} onClick={() => void signInWith("google")} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface text-sm hover:bg-white/[.04]"><GoogleIcon />Continue with Google</button>
+            {appleEnabled && <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface text-sm hover:bg-white/[.04]"><Apple size={18} fill="currentColor" />Continue with Apple</button>}
+          </div>
+          <div className="my-5 flex items-center gap-3 text-xs text-fitx-text-disabled"><span className="h-px flex-1 bg-fitx-divider" /><span>or</span><span className="h-px flex-1 bg-fitx-divider" /></div>
+        </>
         <form onSubmit={signIn} className="space-y-3">
           <label className="relative block">
             <span className="sr-only">Email address</span><Mail size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-fitx-text-disabled" />
