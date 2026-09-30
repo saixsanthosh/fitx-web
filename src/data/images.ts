@@ -46,7 +46,7 @@ export const muscleImage: Record<string, string> = {
 export const muscleGradient: Record<string, string> = {
   Chest: "from-fitx-primary/40 to-fitx-surface",
   Back: "from-blue-500/40 to-fitx-surface",
-  Legs: "from-purple-500/40 to-fitx-surface",
+  Legs: "from-fitx-primary/25 to-fitx-surface",
   Shoulders: "from-fitx-gold/40 to-fitx-surface",
   Arms: "from-fitx-primary/40 to-fitx-surface",
   Core: "from-fitx-success/40 to-fitx-surface",

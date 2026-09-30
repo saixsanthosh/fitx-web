@@ -15,6 +15,12 @@ const nextConfig: NextConfig = {
     ],
     qualities: [50, 60, 75, 90, 100],
   },
+  async headers() {
+    return [{
+      source: "/:path*",
+      headers: [{ key: "Strict-Transport-Security", value: "max-age=31536000" }],
+    }];
+  },
 };
 
 export default nextConfig;

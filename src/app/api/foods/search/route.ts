@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import usdaFoundationFoods from "@/data/usda-foundation-foods.json";
 
 type FoodResult = {
   id: string;
@@ -23,18 +24,19 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const query = (params.get("q") || "").trim().slice(0, 100);
   const barcode = (params.get("barcode") || "").replace(/\D/g, "").slice(0, 14);
-  if (!query && !barcode) return NextResponse.json({ foods: [] });
-  if (query.length < 2 && !barcode) return NextResponse.json({ foods: [] });
+  const browse = params.get("browse") === "1";
+  if (!query && !barcode && !browse) return NextResponse.json({ foods: [] });
+  if (query.length < 2 && !barcode && !browse) return NextResponse.json({ foods: [] });
 
   const foods: FoodResult[] = [];
-  try {
+  if (query || barcode) try {
     const base = "https://world.openfoodfacts.org";
     const url = barcode
       ? `${base}/api/v3/product/${barcode}.json?fields=${FIELDS}`
       : `${base}/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=20&fields=${FIELDS}`;
     const response = await fetch(url, {
-      headers: { "User-Agent": process.env.OPEN_FOOD_FACTS_USER_AGENT || "FITX/1.0 (food search; fitx-web-five.vercel.app)" },
-      signal: AbortSignal.timeout(7000),
+      headers: { "User-Agent": process.env.OPEN_FOOD_FACTS_USER_AGENT || "FITX/1.0 (https://fitnessx.vercel.app; food search)" },
+      signal: AbortSignal.timeout(3500),
       next: { revalidate: 3600 },
     });
     if (response.ok) {
@@ -64,7 +66,7 @@ export async function GET(request: Request) {
       const response = await fetch("https://api.nal.usda.gov/fdc/v1/foods/search?api_key=" + encodeURIComponent(apiKey), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, pageSize: 12, dataType: ["Foundation", "SR Legacy", "Branded"] }),
-        signal: AbortSignal.timeout(7000), next: { revalidate: 3600 },
+        signal: AbortSignal.timeout(3500), next: { revalidate: 3600 },
       });
       if (response.ok) {
         const data = await response.json();
@@ -79,6 +81,16 @@ export async function GET(request: Request) {
       }
     } catch {
       // USDA is optional and should not make Open Food Facts results unavailable.
+    }
+  }
+
+  if (!barcode) {
+    const terms = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    const localFoods = (usdaFoundationFoods as FoodResult[])
+      .filter((food) => browse || terms.every((term) => food.name.toLocaleLowerCase().includes(term)))
+      .slice(0, browse ? 25 : 40);
+    for (const food of localFoods) {
+      if (!foods.some((item) => item.source === food.source && item.id === food.id)) foods.push(food);
     }
   }
   return NextResponse.json({ foods: foods.slice(0, 25) }, { headers: { "Cache-Control": "private, max-age=60" } });

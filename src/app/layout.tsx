@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { BRAND } from "@/config/brand";
 import { Toaster } from "@/components/ui/Toaster";
+import { AnalyticsConsent } from "@/components/layout/AnalyticsConsent";
 import "./globals.css";
 
 const inter = Inter({
@@ -17,7 +18,7 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://fitx-web-five.vercel.app"),
+  metadataBase: new URL("https://fitnessx.vercel.app"),
   title: BRAND.meta.title,
   description: BRAND.meta.description,
   authors: [{ name: BRAND.meta.author }],
@@ -32,7 +33,10 @@ export const metadata: Metadata = {
     description: BRAND.meta.description,
     type: "website",
     siteName: BRAND.name,
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "FITX fitness tracker" }],
   },
+  twitter: { card: "summary_large_image", title: BRAND.meta.title, description: BRAND.meta.description, images: ["/opengraph-image"] },
+  icons: { icon: "/icon.svg", shortcut: "/icon.svg", apple: "/icon.svg" },
 };
 
 export const viewport: Viewport = {
@@ -56,6 +60,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col font-body bg-background text-foreground">
         {children}
         <Toaster />
+        <AnalyticsConsent />
       </body>
     </html>
   );

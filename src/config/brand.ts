@@ -1,7 +1,7 @@
 export const BRAND = {
   name: "FITX",
   tagline: "Your training, clearly tracked.",
-  logoUrl: "/favicon.ico",
+  logoUrl: "/icon.svg",
   primaryColor: "#79DF83",
   primaryBright: "#91ED98",
   redGlow: "#79DF83",
@@ -21,7 +21,7 @@ export const BRAND = {
   border: "rgba(230,244,241,0.1)",
   divider: "rgba(230,244,241,0.08)",
   meta: {
-    title: "FITX — Personal Fitness Tracker",
+    title: "FITX - Personal Fitness Tracker",
     description: "Plan workouts, log nutrition, and follow your fitness progress with FITX.",
     author: "FITX",
   },

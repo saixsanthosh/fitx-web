@@ -18,7 +18,7 @@ interface AchievementBadgeProps {
 const rarityStyles: Record<Rarity, { glow: string; border: string; text: string; bg: string }> = {
   Common: { glow: "", border: "border-fitx-text-disabled/40", text: "text-fitx-text-secondary", bg: "from-fitx-surface-variant to-fitx-surface" },
   Rare: { glow: "drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]", border: "border-blue-400/50", text: "text-blue-400", bg: "from-blue-500/20 to-fitx-surface" },
-  Epic: { glow: "drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]", border: "border-purple-400/50", text: "text-purple-400", bg: "from-purple-500/20 to-fitx-surface" },
+  Epic: { glow: "drop-shadow-[0_0_10px_rgba(88,211,123,0.35)]", border: "border-fitx-primary/50", text: "text-fitx-primary", bg: "from-fitx-primary/15 to-fitx-surface" },
   Legendary: { glow: "drop-shadow-[0_0_14px_rgba(212,160,64,0.6)]", border: "border-fitx-gold/60", text: "text-fitx-gold", bg: "from-fitx-gold/20 to-fitx-surface" },
 };
 
