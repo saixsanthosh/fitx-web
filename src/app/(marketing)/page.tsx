@@ -1,33 +1,383 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, Barcode, ChartNoAxesColumnIncreasing, Dumbbell, Search, Utensils } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUpRight,
+  Barcode,
+  Check,
+  Dumbbell,
+  MapPin,
+  Target,
+  Timer,
+  Utensils,
+} from "lucide-react";
+import { IMG } from "@/data/images";
+import usdaFoundationFoods from "@/data/usda-foundation-foods.json";
+import styles from "./page.module.css";
 
 export const metadata: Metadata = {
-  title: "FITX - Fitness tracking for your real routine",
-  description: "Plan workouts, search food and barcode data, log water, and review your personal progress with FITX.",
+  title: "FITX | Your fitness. Your way.",
+  description:
+    "Build training around your goals, equipment, time, and routine. Track food, workouts, and progress with FITX.",
 };
 
-const features = [
-  { icon: Dumbbell, title: "Plan a workout", description: "Browse an exercise library and build a plan around your equipment and schedule." },
-  { icon: Search, title: "Find food data", description: "Search Open Food Facts and look up packaged foods by barcode." },
-  { icon: Utensils, title: "Keep a meal log", description: "Save portions, calories, and macros to your own daily nutrition log." },
-  { icon: ChartNoAxesColumnIncreasing, title: "Review your progress", description: "See the workout, nutrition, water, and body measurements you choose to record." },
+const featuredExercise = {
+  name: "Barbell Bench Press",
+  description: "Press a bar from the chest while keeping the shoulder blades stable.",
+  primaryMuscle: "Chest",
+  secondaryMuscles: ["Triceps", "Front deltoids"],
+  equipment: ["Barbell", "Bench"],
+  difficulty: "Intermediate",
+  sets: 3,
+  reps: "6–10",
+  rest: 150,
+};
+
+const featuredFood = usdaFoundationFoods.find((food) => food.id === "1105073");
+
+const preferenceFields = [
+  { icon: Target, label: "Goal", detail: "Choose a focus" },
+  { icon: Dumbbell, label: "Level", detail: "Set your experience" },
+  { icon: Check, label: "Equipment", detail: "Use what you have" },
+  { icon: Timer, label: "Time", detail: "Fit the session to your day" },
 ];
 
+const personalizationPlaces = ["Gym", "Home", "Both", "Outdoors"];
+
 export default function HomePage() {
-  return <main>
-    <section className="relative isolate overflow-hidden border-b border-fitx-divider"><div aria-hidden="true" className="pointer-events-none absolute -right-32 -top-40 -z-10 h-[38rem] w-[38rem] rounded-full bg-[radial-gradient(circle,rgba(121,223,131,.12),transparent_68%)]"/>
-      <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-24 lg:grid-cols-[1.08fr_.92fr] lg:px-8 lg:py-28">
-        <div><p className="text-xs font-semibold uppercase tracking-[.24em] text-fitx-primary">Your personal fitness workspace</p><h1 className="mt-5 max-w-2xl text-4xl font-semibold leading-[1.08] tracking-[-.04em] text-fitx-text sm:text-5xl lg:text-6xl">Plan training. Log meals. See your progress.</h1><p className="mt-6 max-w-xl text-base leading-7 text-fitx-text-secondary">FITX brings workout planning, food search, meal and water logs, and progress history into one place you control.</p><div className="mt-8 flex flex-wrap gap-3"><Link href="/signup" className="fitx-button min-h-12 px-5">Create your free account<ArrowRight size={17}/></Link><Link href="/signin" className="fitx-button fitx-button-secondary min-h-12 px-5">Sign in</Link></div><p className="mt-4 text-xs text-fitx-text-disabled">Your dashboard reflects the entries you make.</p></div>
-        <div aria-label="FITX feature preview" className="grid gap-3 sm:grid-cols-2">
-          <div className="fitx-panel min-h-48 p-5 sm:translate-y-5"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-lg border border-fitx-primary/20 bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={19}/></span><h2 className="font-medium">Workout plans</h2></div><div className="mt-7 space-y-2"><div className="h-2 w-4/5 rounded bg-white/10"/><div className="h-2 w-3/5 rounded bg-white/10"/><div className="mt-4 inline-flex items-center gap-2 text-xs text-fitx-text-secondary"><span className="h-1.5 w-1.5 rounded-full bg-fitx-primary"/>Exercises, sets, and sessions</div></div></div>
-          <div className="fitx-panel min-h-48 p-5"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-lg border border-fitx-primary/20 bg-fitx-primary/10 text-fitx-primary"><Utensils size={19}/></span><h2 className="font-medium">Food and water</h2></div><div className="mt-7 flex gap-2"><span className="grid h-10 flex-1 place-items-center rounded-lg border border-fitx-border bg-black/20 text-fitx-text-secondary"><Search size={17}/></span><span className="grid h-10 w-12 place-items-center rounded-lg border border-fitx-border bg-black/20 text-fitx-text-secondary"><Barcode size={17}/></span></div><p className="mt-4 text-xs text-fitx-text-secondary">Search foods or scan a barcode</p></div>
-          <div className="fitx-panel min-h-48 p-5 sm:translate-y-5"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-lg border border-fitx-primary/20 bg-fitx-primary/10 text-fitx-primary"><ChartNoAxesColumnIncreasing size={19}/></span><h2 className="font-medium">Progress history</h2></div><div className="mt-7 flex h-12 items-end gap-2" aria-hidden="true">{[36,55,44,70,53,82,64].map((height,index)=><span key={index} className="flex-1 rounded-t bg-fitx-primary/70" style={{height:`${height}%`}}/>)}</div><p className="mt-3 text-xs text-fitx-text-secondary">A view built from your own logs</p></div>
-          <div className="fitx-panel min-h-48 p-5"><p className="text-[11px] font-semibold uppercase tracking-[.18em] text-fitx-text-disabled">Built for your routine</p><p className="mt-4 text-lg font-medium leading-7">Choose what to record. Keep the plan practical.</p><Link href="/features" className="mt-4 inline-flex items-center gap-2 text-xs text-fitx-primary hover:underline">Explore FITX features<ArrowRight size={14}/></Link></div>
+  return (
+    <main className={styles.page}>
+      <section className={styles.hero} aria-labelledby="hero-title">
+        <CinematicMedia
+          src={IMG.workoutMan}
+          alt="An athlete performing a dynamic workout in a gym"
+          ratio="cinema"
+          priority
+          className={styles.heroMedia}
+        />
+        <div className={styles.heroShade} aria-hidden="true" />
+        <div className={styles.heroContent}>
+          <p className={styles.heroEyebrow}>TRAIN <span>·</span> EAT <span>·</span> PROGRESS</p>
+          <h1 id="hero-title" className={styles.heroTitle}>
+            Your fitness.<br />
+            <span>Your way.</span>
+          </h1>
+          <p className={styles.heroCopy}>
+            Build training around your goals, equipment, time, and routine.
+            Track nutrition. Measure progress. Keep improving.
+          </p>
+          <div className={styles.heroActions}>
+            <Link href="/signup" className={styles.primaryAction}>
+              Start training <ArrowRight size={17} aria-hidden="true" />
+            </Link>
+            <Link href="#personalization" className={styles.secondaryAction}>
+              Explore FITX <ArrowDown size={15} aria-hidden="true" />
+            </Link>
+          </div>
+          <p className={styles.heroNote}>A training and nutrition record shaped by you.</p>
         </div>
-      </div>
-    </section>
-    <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20"><div className="max-w-2xl"><p className="text-xs font-semibold uppercase tracking-[.2em] text-fitx-primary">A clear daily workflow</p><h2 className="mt-3 text-3xl font-semibold tracking-tight">The tools you need, without the noise.</h2><p className="mt-4 text-sm leading-6 text-fitx-text-secondary">Start with the parts that fit your goals. Each page uses your own account data and gives you a clear place to continue.</p></div><div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{features.map(({icon:Icon,title,description})=><article key={title} className="fitx-panel p-5"><Icon size={20} className="text-fitx-primary"/><h3 className="mt-4 font-medium">{title}</h3><p className="mt-2 text-xs leading-5 text-fitx-text-secondary">{description}</p></article>)}</div></section>
-    <section className="border-y border-fitx-divider bg-[#0c1112]"><div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-12 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8"><div><h2 className="text-2xl font-semibold">Make your next session easier to plan.</h2><p className="mt-2 text-sm text-fitx-text-secondary">Create an account to save workouts, meals, and personal progress.</p></div><Link href="/signup" className="fitx-button min-h-11 shrink-0 px-4">Get started<ArrowRight size={16}/></Link></div></section>
-  </main>;
+        <div className={styles.heroIndex} aria-hidden="true">
+          <span>01</span><i /> FITX / YOUR ROUTINE
+        </div>
+      </section>
+
+      <section id="personalization" className={`${styles.story} ${styles.personalization}`} aria-labelledby="personalization-title">
+        <div className={styles.personalVisual}>
+          <CinematicMedia
+            src={IMG.womanFit}
+            mobileSrc={mobilePhoto(IMG.womanFit)}
+            alt="Athlete training in a gym"
+            ratio="portrait"
+            className={styles.roundedMedia}
+          />
+          <div className={styles.imageCaption}><span>01 / PREFERENCES</span><span>MADE FOR YOUR ROUTINE</span></div>
+        </div>
+        <div className={styles.storyCopy}>
+          <SectionEyebrow>Start with how you train</SectionEyebrow>
+          <h2 id="personalization-title" className={styles.storyTitle}>Built around you.</h2>
+          <p className={styles.lede}>FITX adapts your plan to how you actually train.</p>
+          <div className={styles.placeChoices} aria-label="Available workout locations">
+            {personalizationPlaces.map((place) => <span key={place}>{place}</span>)}
+          </div>
+          <div className={styles.preferenceList}>
+            {preferenceFields.map(({ icon: Icon, label, detail }) => (
+              <div className={styles.preferenceRow} key={label}>
+                <Icon size={17} aria-hidden="true" />
+                <span className={styles.preferenceLabel}>{label}</span>
+                <span className={styles.preferenceDetail}>{detail}</span>
+              </div>
+            ))}
+          </div>
+          <Link href="/signup" className={styles.inlineAction}>Set your preferences <ArrowUpRight size={15} aria-hidden="true" /></Link>
+        </div>
+      </section>
+
+      <section className={`${styles.darkStory} ${styles.story}`} aria-labelledby="workout-title">
+        <div className={styles.workoutIntro}>
+          <SectionEyebrow>02 / Workout engine</SectionEyebrow>
+          <h2 id="workout-title" className={styles.storyTitle}>Train with a plan.</h2>
+          <p className={styles.lede}>Choose your focus and FITX builds a session from your level, available equipment, and time.</p>
+        </div>
+        <div className={styles.workoutLayout}>
+          <div className={styles.workoutFlow} aria-label="Workout plan flow">
+            {[
+              ["01", "Goal"], ["02", "Level"], ["03", "Equipment"], ["04", "Time"], ["05", "Workout"],
+            ].map(([number, label], index) => (
+              <div className={styles.flowStep} key={number}>
+                <span>{number}</span><strong>{label}</strong>
+                {index < 4 && <i aria-hidden="true" />}
+              </div>
+            ))}
+          </div>
+          <div className={styles.planCard}>
+            <div className={styles.planCardHead}>
+              <div><span className={styles.miniLabel}>FITX WORKOUT BUILDER</span><h3>Auto plan</h3></div>
+              <Dumbbell size={20} aria-hidden="true" />
+            </div>
+            <p className={styles.planDescription}>A practical session drawn from your preferences and the exercise library.</p>
+            <div className={styles.planInputs}>
+              {preferenceFields.map(({ label, detail }, index) => (
+                <div className={styles.planInput} key={label}>
+                  <span>{label}</span><strong>{detail}</strong><b>0{index + 1}</b>
+                </div>
+              ))}
+            </div>
+            <Link href="/signup" className={styles.planAction}>Build your plan <ArrowRight size={15} aria-hidden="true" /></Link>
+          </div>
+        </div>
+        <div className={styles.workoutMedia}>
+          <CinematicMedia
+            src={IMG.training}
+            mobileSrc={mobilePhoto(IMG.training)}
+            alt="Athlete preparing for a training session"
+            ratio="wide"
+            className={styles.roundedMedia}
+          />
+          <span className={styles.mediaNote}>REAL TRAINING. A PLAN THAT FITS.</span>
+        </div>
+      </section>
+
+      <section className={`${styles.story} ${styles.exerciseStory}`} aria-labelledby="exercise-title">
+        <div className={styles.storyCopy}>
+          <SectionEyebrow>03 / Exercise library</SectionEyebrow>
+          <h2 id="exercise-title" className={styles.storyTitle}>Know the movement.</h2>
+          <p className={styles.lede}>Look up a movement, see the target muscles and equipment, then follow its instructions.</p>
+          <Link href="/exercises" className={styles.inlineAction}>Explore the exercise library <ArrowUpRight size={15} aria-hidden="true" /></Link>
+          <div className={styles.exerciseMedia}>
+            <CinematicMedia
+              src={IMG.athlete}
+              mobileSrc={mobilePhoto(IMG.athlete)}
+              alt="Athlete working through a strength training movement"
+              ratio="wide"
+              className={styles.roundedMedia}
+            />
+          <span className={styles.mediaNote}>MOVEMENT DETAILS IN FITX</span>
+          </div>
+        </div>
+        <article className={styles.exerciseCard} aria-label="Example from the FITX exercise library">
+          <div className={styles.exerciseCardHead}>
+            <span className={styles.miniLabel}>FROM THE FITX LIBRARY</span>
+            <span className={styles.difficulty}>{featuredExercise.difficulty}</span>
+          </div>
+          <h3>{featuredExercise.name}</h3>
+          <p className={styles.exerciseDescription}>{featuredExercise.description}</p>
+          <dl className={styles.exerciseDetails}>
+            <div><dt>Primary muscle</dt><dd>{featuredExercise.primaryMuscle}</dd></div>
+            <div><dt>Also works</dt><dd>{featuredExercise.secondaryMuscles.join(", ")}</dd></div>
+            <div><dt>Equipment</dt><dd>{featuredExercise.equipment.join(" + ")}</dd></div>
+            <div><dt>Suggested work</dt><dd>{featuredExercise.sets} sets · {featuredExercise.reps} reps</dd></div>
+            <div><dt>Rest</dt><dd>{featuredExercise.rest} seconds</dd></div>
+          </dl>
+          <p className={styles.exerciseFootnote}>Library entry preview. Exercise descriptions and suggested sets are general guidance.</p>
+        </article>
+      </section>
+
+      <section className={`${styles.foodStory} ${styles.story}`} aria-labelledby="nutrition-title">
+        <div className={styles.foodPhoto}>
+          <CinematicMedia
+            src={IMG.saladBowl}
+            mobileSrc={mobilePhoto(IMG.saladBowl)}
+            alt="A bowl of fresh food"
+            ratio="portrait"
+            className={styles.roundedMedia}
+          />
+          <div className={styles.imageCaption}><span>04 / NUTRITION</span><span>SEARCH · SELECT · LOG</span></div>
+        </div>
+        <div className={styles.foodContent}>
+          <SectionEyebrow>Food, in context</SectionEyebrow>
+          <h2 id="nutrition-title" className={styles.storyTitle}>Eat with purpose.</h2>
+          <p className={styles.lede}>Search food, set a portion, and save the nutrition to your daily log.</p>
+          <div className={styles.nutritionFlow} aria-label="Nutrition workflow">
+            <span>Food</span><ArrowRight size={14} aria-hidden="true" /><span>Search / scan</span><ArrowRight size={14} aria-hidden="true" /><span>Log</span>
+          </div>
+          {featuredFood ? (
+            <article className={styles.foodCard} aria-label={`USDA nutrition for ${featuredFood.name} per 100 grams`}>
+              <div className={styles.foodCardHead}>
+                <div><span className={styles.miniLabel}>USDA FOODDATA CENTRAL · PER 100 G</span><h3>{featuredFood.name}</h3></div>
+                <Utensils size={19} aria-hidden="true" />
+              </div>
+              <div className={styles.foodMacros}>
+                <Macro label="Calories" value={`${featuredFood.calories}`} unit="kcal" />
+                <Macro label="Protein" value={macroValue(featuredFood.protein)} unit="g" />
+                <Macro label="Carbohydrates" value={macroValue(featuredFood.carbs)} unit="g" />
+                <Macro label="Fat" value={macroValue(featuredFood.fat)} unit="g" />
+              </div>
+            </article>
+          ) : <p className={styles.foodCard}>Food data preview unavailable.</p>}
+          <Link href="/nutrition" className={styles.inlineAction}>Open nutrition tracking <ArrowUpRight size={15} aria-hidden="true" /></Link>
+        </div>
+      </section>
+
+      <section className={`${styles.barcodeStory} ${styles.story}`} aria-labelledby="barcode-title">
+        <div className={styles.barcodeCopy}>
+          <SectionEyebrow>05 / Packaged food lookup</SectionEyebrow>
+          <h2 id="barcode-title" className={styles.storyTitle}>Scan it. Log it.</h2>
+          <p className={styles.lede}>Use the camera to read a product barcode. FITX looks up available food information before you choose what to log.</p>
+          <Link href="/nutrition" className={styles.inlineAction}>Find food in FITX <ArrowUpRight size={15} aria-hidden="true" /></Link>
+        </div>
+        <div className={styles.barcodeVisual}>
+          <CinematicMedia
+            src={IMG.veggies}
+            mobileSrc={mobilePhoto(IMG.veggies)}
+            alt="Fresh ingredients prepared for a meal"
+            ratio="wide"
+            className={styles.barcodePhoto}
+          />
+          <div className={styles.scanPanel}>
+            <div className={styles.scanPanelHead}><Barcode size={18} aria-hidden="true"/><span>PRODUCT LOOKUP</span></div>
+            <div className={styles.scanFrame} aria-hidden="true"><span /><i /></div>
+            <div className={styles.scanSteps}>
+              <span>Product</span><ArrowRight size={13} aria-hidden="true"/><span>Scan</span><ArrowRight size={13} aria-hidden="true"/><span>Nutrition</span>
+            </div>
+            <p>Camera starts when you choose to scan.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className={`${styles.darkStory} ${styles.story}`} aria-labelledby="progress-title">
+        <div className={styles.progressIntro}>
+          <SectionEyebrow>06 / Progress</SectionEyebrow>
+          <h2 id="progress-title" className={styles.storyTitle}>See the work.</h2>
+          <p className={styles.lede}>Review the sessions, measurements, and personal records you choose to log.</p>
+        </div>
+        <div className={styles.progressLayout}>
+          <CinematicMedia
+            src={IMG.gymEquipment}
+            mobileSrc={mobilePhoto(IMG.gymEquipment)}
+            alt="Strength training equipment in a gym"
+            ratio="wide"
+            className={styles.roundedMedia}
+          />
+          <div className={styles.progressPreview}>
+            <div className={styles.progressPreviewHead}><span className={styles.miniLabel}>YOUR TRAINING RECORD</span><span>LIVE FROM YOUR LOGS</span></div>
+            <div className={styles.progressCategories}>
+              {["Strength", "Consistency", "Volume", "Bodyweight"].map((item) => <span key={item}>{item}</span>)}
+            </div>
+            <div className={styles.emptyProgress}>
+              <div className={styles.emptyGrid} aria-hidden="true"><i /><i /><i /><i /></div>
+              <p>Records and trends appear as you log your training.</p>
+            </div>
+            <Link href="/progress" className={styles.planAction}>View progress tools <ArrowRight size={15} aria-hidden="true" /></Link>
+          </div>
+        </div>
+      </section>
+
+      <section className={`${styles.story} ${styles.contextStory}`} aria-labelledby="context-title">
+        <div className={styles.contextVisual}>
+          <CinematicMedia
+            src={IMG.gymInterior}
+            mobileSrc={mobilePhoto(IMG.gymInterior)}
+            alt="A calm, well-equipped training space"
+            ratio="wide"
+            className={styles.roundedMedia}
+          />
+          <div className={styles.contextStamp}><MapPin size={15} aria-hidden="true"/><span>YOUR ROUTINE, IN ONE PLACE</span></div>
+        </div>
+        <div className={styles.storyCopy}>
+          <SectionEyebrow>07 / Your training context</SectionEyebrow>
+          <h2 id="context-title" className={styles.storyTitle}>Your data.<br />Your next move.</h2>
+          <p className={styles.lede}>Bring your workout plans, nutrition entries, and progress history together. Review what you have logged, then choose what comes next.</p>
+          <div className={styles.contextLinks}>
+            <Link href="/workouts"><Dumbbell size={17} aria-hidden="true"/><span>Plans and sessions</span><ArrowUpRight size={14} aria-hidden="true"/></Link>
+            <Link href="/nutrition"><Utensils size={17} aria-hidden="true"/><span>Food and daily logs</span><ArrowUpRight size={14} aria-hidden="true"/></Link>
+            <Link href="/progress"><Target size={17} aria-hidden="true"/><span>Measurements and records</span><ArrowUpRight size={14} aria-hidden="true"/></Link>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.finalCta} aria-labelledby="final-title">
+        <CinematicMedia
+          src={IMG.gymEquipment}
+          mobileSrc={mobilePhoto(IMG.gymEquipment)}
+          alt="Strength training equipment in a gym"
+          ratio="cinema"
+          className={styles.finalMedia}
+        />
+        <div className={styles.finalShade} aria-hidden="true" />
+        <div className={styles.finalContent}>
+          <SectionEyebrow>FITX / TRAIN · EAT · PROGRESS</SectionEyebrow>
+          <h2 id="final-title" className={styles.finalTitle}>Train smarter.<br /><span>Live stronger.</span></h2>
+          <Link href="/signup" className={styles.primaryAction}>Start training <ArrowRight size={17} aria-hidden="true" /></Link>
+        </div>
+        <div className={styles.finalIndex} aria-hidden="true">FITX · YOUR FITNESS, YOUR WAY</div>
+      </section>
+    </main>
+  );
+}
+
+function SectionEyebrow({ children }: { children: React.ReactNode }) {
+  return <p className={styles.sectionEyebrow}>{children}</p>;
+}
+
+function Macro({ label, value, unit }: { label: string; value: string; unit: string }) {
+  return <div className={styles.macro}>
+    <span>{label}</span><strong>{value}<small> {unit}</small></strong>
+  </div>;
+}
+
+type CinematicMediaProps = {
+  src: string;
+  alt: string;
+  ratio: "cinema" | "wide" | "portrait" | "square";
+  mobileSrc?: string;
+  videoSrc?: string;
+  posterSrc?: string;
+  priority?: boolean;
+  className?: string;
+};
+
+function CinematicMedia({ src, alt, ratio, mobileSrc, videoSrc, posterSrc, priority = false, className = "" }: CinematicMediaProps) {
+  return (
+    <figure className={`${styles.mediaFrame} ${styles[ratio]} ${videoSrc ? styles.hasVideo : ""} ${className}`}>
+      <picture className={styles.mediaPicture}>
+        {mobileSrc && <source media="(max-width: 767px)" srcSet={mobileSrc} />}
+        <Image
+          src={src}
+          alt={alt}
+          fill
+          sizes={ratio === "cinema" ? "100vw" : "(max-width: 767px) 100vw, (max-width: 1100px) 50vw, 44vw"}
+          quality={75}
+          preload={priority}
+          loading={priority ? undefined : "lazy"}
+          className={styles.mediaImage}
+        />
+      </picture>
+      {videoSrc && (
+        <video className={styles.mediaVideo} controls preload="none" playsInline poster={posterSrc ?? src} aria-label={`Video: ${alt}`}>
+          <source src={videoSrc} type="video/mp4" />
+          Your browser cannot play this video.
+        </video>
+      )}
+    </figure>
+  );
+}
+
+function mobilePhoto(src: string) {
+  return src.replace(/([?&]w=)\d+/, (_match, prefix: string) => `${prefix}720`);
+}
+
+function macroValue(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
