@@ -2,6 +2,8 @@ export const BRAND = {
   name: "FITX",
   tagline: "Your training, clearly tracked.",
   logoUrl: "/icon.svg",
+  supportEmail: "saisanthosh5369@gmail.com",
+  instagramUrl: "https://www.instagram.com/saixsanthosh/",
   primaryColor: "#79DF83",
   primaryBright: "#91ED98",
   redGlow: "#79DF83",
