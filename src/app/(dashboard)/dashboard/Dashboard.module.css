@@ -1,0 +1,61 @@
+.page { min-width: 0; }
+.greeting { display: flex; flex-direction: column; gap: 0.12em; }
+.greeting strong { color: var(--fitx-text); font-size: 1.12em; font-weight: 750; letter-spacing: -0.045em; overflow-wrap: anywhere; }
+.topGrid { align-items: stretch; }
+.workout { isolation: isolate; border-color: rgba(121,223,131,.22); background: linear-gradient(145deg,#101817,#0d1313 68%); }
+.workout::before,.workout::after { position: absolute; z-index: -1; pointer-events: none; content: ""; }
+.workout::before { inset: -35% -20% 10% 36%; background: radial-gradient(ellipse,rgba(121,223,131,.12),transparent 67%); animation: atmosphere 18s ease-in-out infinite alternate; }
+.workout::after { width: 260px; height: 260px; right: -84px; top: 8px; border: 1px solid rgba(121,223,131,.08); border-radius: 50%; box-shadow: 0 0 0 28px rgba(121,223,131,.025),0 0 0 58px rgba(121,223,131,.018); }
+.progressPanel { min-width: 0; }
+.progressMetrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .6rem; }
+.progressMetrics > div { min-width: 0; border: 1px solid rgba(255,255,255,.045); transition: border-color .18s ease, background-color .18s ease; }
+.progressMetrics > div:hover { border-color: rgba(121,223,131,.22); background-color: rgba(121,223,131,.045); }
+.macroStrip { gap: .5rem; }
+.macroStrip span { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem; border-left: 2px solid rgba(121,223,131,.34); padding-left: .55rem; }
+.macroStrip b { font-size: .82rem; }
+.analyticsGrid { display: grid; gap: 1rem; grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); align-items: stretch; }
+.weekly { min-width: 0; }
+.activityChart { display: grid; height: 10rem; grid-template-columns: repeat(7,minmax(0,1fr)); gap: clamp(.35rem,1.6vw,1.1rem); }
+.activityDay { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: flex-end; gap: .48rem; }
+.activityCount { color: #d9e1df; font-size: .72rem; font-variant-numeric: tabular-nums; }
+.activityTrack { display: flex; width: 100%; max-width: 3rem; height: 7.2rem; align-items: flex-end; overflow: hidden; border: 1px solid rgba(255,255,255,.035); border-radius: .55rem .55rem .3rem .3rem; background: linear-gradient(180deg,rgba(255,255,255,.025),rgba(255,255,255,.01)); }
+.activityBar { width: 100%; min-height: 3px; border-radius: .45rem .45rem .2rem .2rem; background: linear-gradient(180deg,#9aeea0,#4ea95c); transition: height .35s ease, filter .2s ease; }
+.activityDay:hover .activityBar { filter: brightness(1.12); }
+.activityDay[data-today="true"] .activityLabel { color: #9aeea0; }
+.activityLabel { color: #818d8c; font-size: .68rem; text-transform: uppercase; }
+.stats { min-width: 0; align-content: start; }
+.stat { min-width: 0; transition: border-color .18s ease, transform .18s ease; }
+.stat:hover { border-color: rgba(121,223,131,.22); transform: translateY(-1px); }
+.quickActions { min-width: 0; }
+.actionGrid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .6rem; }
+.action { display: flex; min-height: 5.4rem; align-items: center; justify-content: space-between; gap: .5rem; border: 1px solid var(--fitx-border); border-radius: .8rem; background: var(--fitx-surface); padding: .9rem; color: var(--fitx-text-secondary); font-size: .85rem; transition: border-color .18s ease, background-color .18s ease, color .18s ease, transform .18s ease; }
+.action:hover { transform: translateY(-1px); border-color: rgba(121,223,131,.35); background: rgba(121,223,131,.04); color: var(--fitx-text); }
+.action > svg { flex: 0 0 auto; transition: transform .18s ease; }
+.action:hover > svg { transform: translateX(2px); color: #9aeea0; }
+.actionLabel { display: flex; min-width: 0; align-items: center; gap: .65rem; }
+.actionLabel svg { flex: 0 0 auto; color: #79df83; }
+.recent { min-width: 0; }
+@keyframes atmosphere { from { transform: translate3d(-1.5%,0,0) scale(.98); opacity: .7; } to { transform: translate3d(1.5%,1%,0) scale(1.03); opacity: 1; } }
+@media (max-width: 767px) {
+  .greeting { gap: .05em; }
+  .greeting strong { font-size: 1.04em; }
+  .workout::before { inset: -25% -28% 20% 32%; opacity: .55; animation-duration: 24s; }
+  .workout::after { width: 190px; height: 190px; right: -80px; top: 55px; }
+  .analyticsGrid { grid-template-columns: minmax(0,1fr); }
+  .stats { order: 1; }
+  .weekly { order: 2; }
+  .activityChart { height: 8.8rem; gap: .32rem; }
+  .activityTrack { height: 6.1rem; max-width: 2rem; }
+  .actionGrid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .action { min-height: 3.6rem; padding: .65rem .7rem; }
+}
+@media (max-width: 360px) {
+  .activityChart { gap: .2rem; }
+  .activityLabel { font-size: .6rem; }
+  .macroStrip { gap: .25rem; font-size: .68rem; }
+  .macroStrip b { font-size: .73rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workout::before { animation: none; }
+  .activityBar,.stat,.action,.action > svg { transition: none; }
+}
