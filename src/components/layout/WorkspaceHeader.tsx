@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Bell, Search, UserRound } from "lucide-react";
+import { ArrowRight, Bell, Search, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Logo } from "@/components/ui/Logo";
@@ -42,11 +42,12 @@ export function WorkspaceHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-[68px] items-center justify-between gap-4 border-b border-fitx-divider bg-[#0b1112]/90 px-4 backdrop-blur-md sm:px-6 lg:px-8">
-      <div className="flex items-center gap-2 lg:hidden"><Logo size={34} /></div>
-      <form onSubmit={search} className="hidden w-full max-w-[350px] items-center gap-2 rounded-lg border border-fitx-border bg-[#0b1112] px-3 sm:flex">
-        <Search size={16} className="text-fitx-text-disabled" />
-        <input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search exercises" placeholder="Search exercises…" className="h-10 w-full bg-transparent text-sm text-fitx-text outline-none placeholder:text-fitx-text-disabled" />
+    <header className="sticky top-0 z-30 flex min-h-[68px] flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-fitx-divider bg-[#0b1112]/95 px-4 py-3 backdrop-blur-md sm:h-[68px] sm:flex-nowrap sm:py-0 sm:px-6 lg:px-8">
+      <div className="flex shrink-0 items-center gap-2 lg:hidden"><Logo size={34} /></div>
+      <form onSubmit={search} role="search" className="order-3 flex h-10 w-full basis-full items-center gap-2 rounded-lg border border-fitx-border bg-[#0b1112] px-3 sm:order-none sm:w-full sm:max-w-[350px] sm:basis-auto">
+        <Search size={16} aria-hidden="true" className="shrink-0 text-fitx-text-disabled" />
+        <input type="search" enterKeyHint="search" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search exercises" placeholder="Search exercises…" className="h-10 min-w-0 w-full bg-transparent text-sm text-fitx-text outline-none placeholder:text-fitx-text-disabled" />
+        <button type="submit" aria-label="Search exercise library" className="grid min-h-9 min-w-9 shrink-0 place-items-center rounded-md text-fitx-text-secondary transition-colors hover:bg-white/[.05] hover:text-fitx-primary sm:min-h-10 sm:min-w-10"><ArrowRight size={16} aria-hidden="true"/></button>
       </form>
       <div className="ml-auto flex items-center gap-2 sm:gap-4">
         <button type="button" aria-label="Notifications" title="Notifications" className="relative grid h-10 w-10 place-items-center rounded-lg text-fitx-text-secondary hover:bg-white/[.04] hover:text-fitx-text">

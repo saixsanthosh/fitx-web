@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { ArrowUpRight, Camera, Mail } from "lucide-react";
+import Image from "next/image";
+import { ArrowUpRight, Mail } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { BRAND } from "@/config/brand";
+import styles from "./PublicFooter.module.css";
 
 const links = [["Features", "/features"], ["About", "/about"], ["Pricing", "/pricing"], ["Privacy", "/privacy"], ["Terms", "/terms"], ["Cookies", "/cookies"], ["Refunds", "/refunds"]] as const;
 export function PublicFooter() {
@@ -13,16 +15,28 @@ export function PublicFooter() {
         <div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-fitx-primary">FITX / Stay connected</p><h2 id="footer-contact-title" className="mt-1 text-lg font-semibold text-fitx-text">We’re easy to reach.</h2></div>
         <p className="text-xs text-fitx-text-secondary">Follow along or get a hand with your account.</p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <a href={BRAND.instagramUrl} rel="noopener noreferrer" target="_blank" aria-label="Open FITX on Instagram @saixsanthosh in a new tab" className="group flex min-w-0 items-center gap-3 border border-fitx-divider bg-[#101716] p-3 transition-colors hover:border-fitx-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fitx-primary sm:p-4">
-          <span className="flex size-10 shrink-0 items-center justify-center border border-fitx-divider text-fitx-primary"><Camera size={18} aria-hidden="true" /></span>
-          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-fitx-text">Instagram</span><span className="mt-0.5 block truncate text-xs text-fitx-text-secondary">@saixsanthosh</span></span>
-          <ArrowUpRight size={17} aria-hidden="true" className="shrink-0 text-fitx-text-secondary transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+      <div className={styles.contactGrid}>
+        <a href={BRAND.instagramUrl} rel="noopener noreferrer" target="_blank" aria-label="Open FITX on Instagram @saixsanthosh in a new tab" className={styles.contactCard}>
+          <span className={styles.contactTop}>
+            <span className={styles.contactIdentity}>
+              <span className={styles.portraitRing}><Image src="/images/instagram-profile.png" alt="Sai Santhosh" width={44} height={44} sizes="44px" className={styles.portrait}/></span>
+              <span className={styles.contactLabel}>Instagram</span>
+            </span>
+            <ArrowUpRight size={17} aria-hidden="true" className={styles.contactArrow}/>
+          </span>
+          <span className={styles.contactName}>@saixsanthosh</span>
+          <span className={styles.contactBottom}><span className={styles.contactLine}/><span className={styles.contactAction}>Follow the journey</span></span>
         </a>
-        <a href={`mailto:${BRAND.supportEmail}`} aria-label={`Email FITX help desk at ${BRAND.supportEmail}`} className="group flex min-w-0 items-center gap-3 border border-fitx-divider bg-[#101716] p-3 transition-colors hover:border-fitx-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fitx-primary sm:p-4">
-          <span className="flex size-10 shrink-0 items-center justify-center border border-fitx-divider text-fitx-primary"><Mail size={18} aria-hidden="true" /></span>
-          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-fitx-text">Help desk</span><span className="mt-0.5 block truncate text-xs text-fitx-text-secondary">{BRAND.supportEmail}</span></span>
-          <ArrowUpRight size={17} aria-hidden="true" className="shrink-0 text-fitx-text-secondary transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+        <a href={`mailto:${BRAND.supportEmail}`} aria-label={`Email FITX help desk at ${BRAND.supportEmail}`} className={styles.contactCard}>
+          <span className={styles.contactTop}>
+            <span className={styles.contactIdentity}>
+              <span className={styles.mailMark}><Mail size={18} aria-hidden="true"/></span>
+              <span className={styles.contactLabel}>FITX support</span>
+            </span>
+            <ArrowUpRight size={17} aria-hidden="true" className={styles.contactArrow}/>
+          </span>
+          <span className={styles.helpCopy}><span className={styles.contactName}>Need a hand?</span><span className={styles.helpDescription}>We’re here to help.</span></span>
+          <span className={styles.contactBottom}><span className={styles.contactLine}/><span className={styles.supportEmail}>{BRAND.supportEmail}</span></span>
         </a>
       </div>
     </section>

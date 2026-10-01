@@ -112,9 +112,25 @@ export default function DashboardPage() {
       {error && <p role="status" className="rounded-lg border border-red-300/20 bg-red-300/5 px-3 py-2 text-sm text-red-200">{error}</p>}
       {!data && null}
 
-      <section className="grid gap-4 xl:grid-cols-[1.05fr_.95fr]">
+      <section className="grid gap-4 xl:grid-cols-[1.08fr_.92fr]">
+        <article className="relative isolate flex min-h-[250px] flex-col justify-between overflow-hidden rounded-[20px] border border-fitx-primary/20 bg-[#101817] p-5 sm:min-h-[280px] sm:p-7">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,rgba(121,223,131,0.11),transparent_62%)]" />
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-fitx-primary"><Dumbbell size={15} aria-hidden="true"/>Today&apos;s workout</p>
+              {upcoming && <p className="rounded-md border border-fitx-border bg-black/20 px-2.5 py-1.5 text-xs text-fitx-text-secondary">{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(upcoming.starts_at))}</p>}
+            </div>
+            <h2 className="mt-5 max-w-xl text-[26px] font-semibold leading-tight tracking-tight sm:text-3xl">{upcoming?.title ?? "Nothing planned today"}</h2>
+            <p className="mt-2 max-w-md text-sm leading-6 text-fitx-text-secondary">{upcoming ? "Your session is on the planner. Open it to review the plan and start when you’re ready." : "Your training plan is yours to shape. Build a session around the time and equipment you have."}</p>
+          </div>
+          <div className="mt-7 flex flex-wrap items-center gap-3">
+            <Link href={upcoming?.workout_plan_id ? `/workouts?plan=${upcoming.workout_plan_id}` : "/workouts"} className="fitx-button min-h-12 w-full sm:w-auto"><Dumbbell size={17} aria-hidden="true"/>{upcoming ? "Open workout plan" : "Plan a workout"}</Link>
+            {upcoming && <span className="text-xs text-fitx-text-disabled">Scheduled for today</span>}
+          </div>
+        </article>
+
         <article className="fitx-panel p-5 sm:p-6">
-          <div className="mb-5 flex items-center justify-between"><div><h2 className="font-semibold">Today&apos;s progress</h2><p className="mt-1 text-xs text-fitx-text-secondary">{readableDate(now)}</p></div><Link href="/progress" className="text-fitx-text-disabled hover:text-fitx-primary" aria-label="View progress"><ArrowRight size={18}/></Link></div>
+          <div className="mb-5 flex items-center justify-between"><div><h2 className="font-semibold">Today&apos;s progress</h2><p className="mt-1 text-xs text-fitx-text-secondary">{readableDate(now)}</p></div><Link href="/progress" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-disabled hover:bg-white/[.04] hover:text-fitx-primary" aria-label="View progress"><ArrowRight size={18}/></Link></div>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-[auto_1fr] sm:items-center">
             <ProgressRing value={mealsTotal.calories} target={caloriesTarget} label="calories" size={132} />
             <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -129,13 +145,13 @@ export default function DashboardPage() {
             <span>Fat <b className="ml-1 font-medium text-fitx-text">{Math.round(mealsTotal.fat)} g</b></span>
           </div>
         </article>
+      </section>
 
-        <article className="fitx-panel flex flex-col justify-between p-5 sm:p-6">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-sm text-fitx-text-secondary">Today&apos;s workout</p><h2 className="mt-2 text-xl font-semibold">{upcoming?.title ?? "Nothing planned today"}</h2>{upcoming && <p className="mt-2 text-sm text-fitx-text-secondary">{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(upcoming.starts_at))}</p>}</div><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={20}/></span></div>
-          <div className="mt-6">
-            {upcoming ? <Link href={upcoming.workout_plan_id ? `/workouts?plan=${upcoming.workout_plan_id}` : "/workouts"} className="fitx-button w-full sm:w-auto"><Dumbbell size={17}/>Start workout</Link> : <EmptyState title="No workout recorded or scheduled" description="Plan a session or start a workout when you’re ready." action={<Link href="/workouts" className="fitx-button fitx-button-secondary"><Plus size={16}/>Plan a workout</Link>} />}
-          </div>
-        </article>
+      <section className="fitx-panel p-5 sm:p-6">
+        <div className="mb-5 flex items-center justify-between"><div><h2 className="font-semibold">Weekly activity</h2><p className="mt-1 text-xs text-fitx-text-secondary">Completed workouts by day</p></div><Link href="/progress" className="grid min-h-11 place-items-center rounded-lg px-3 text-xs font-medium text-fitx-primary hover:bg-white/[.04]">View progress</Link></div>
+        <div className="grid h-36 grid-cols-7 gap-2 sm:gap-4">
+          {weekDays.map(({ date, key, count }) => <div key={key} className="flex flex-col items-center justify-end gap-2"><span className="text-[11px] tabular-nums text-fitx-text-secondary">{count || ""}</span><div className="flex h-24 w-full max-w-12 items-end rounded-md bg-fitx-surface"><div className="w-full rounded-md bg-fitx-primary/80" style={{ height: count ? `${Math.max(12, (count / maxWorkouts) * 100)}%` : "3px" }}/></div><span className="text-[10px] text-fitx-text-disabled">{new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date)}</span></div>)}
+        </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
@@ -149,7 +165,7 @@ export default function DashboardPage() {
           <div className="mb-4 flex items-center justify-between"><h2 className="font-medium">Water intake</h2><Droplets size={17} className="text-fitx-info"/></div>
           <p className="text-3xl font-semibold tabular-nums">{(waterTotal / 1000).toFixed(1)}<span className="ml-1 text-base font-normal text-fitx-text-secondary">/ {(data.waterTarget / 1000).toFixed(1)} L</span></p>
           <div className="fitx-progress-track mt-4 h-2"><div className="fitx-progress-fill bg-[#69bdf4]" style={{ width: `${Math.min(100, (waterTotal / Math.max(data.waterTarget, 1)) * 100)}%` }}/></div>
-          <button disabled={savingWater} onClick={() => void addWater()} className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-fitx-primary hover:text-fitx-primary-bright"><Plus size={14}/>{savingWater ? "Saving…" : "Add 250 ml"}</button>
+          <button disabled={savingWater} onClick={() => void addWater()} className="mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-fitx-border px-3 text-sm font-medium text-fitx-primary transition-colors hover:border-fitx-primary/40 hover:text-fitx-primary-bright"><Plus size={14}/>{savingWater ? "Saving…" : "Add 250 ml"}</button>
         </article>
         <article className="fitx-panel p-5">
           <div className="mb-4 flex items-center justify-between"><h2 className="font-medium">Latest weight</h2><Scale size={17} className="text-fitx-primary"/></div>
@@ -157,13 +173,7 @@ export default function DashboardPage() {
         </article>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.3fr_.7fr]">
-        <article className="fitx-panel p-5 sm:p-6">
-          <div className="mb-5 flex items-center justify-between"><div><h2 className="font-semibold">Weekly activity</h2><p className="mt-1 text-xs text-fitx-text-secondary">Completed workouts by day</p></div><Link href="/progress" className="text-xs font-medium text-fitx-primary">View progress</Link></div>
-          <div className="grid h-36 grid-cols-7 gap-2 sm:gap-4">
-            {weekDays.map(({ date, key, count }) => <div key={key} className="flex flex-col items-center justify-end gap-2"><span className="text-[11px] tabular-nums text-fitx-text-secondary">{count || ""}</span><div className="flex h-24 w-full max-w-12 items-end rounded-md bg-fitx-surface"><div className="w-full rounded-md bg-fitx-primary/80" style={{ height: count ? `${Math.max(12, (count / maxWorkouts) * 100)}%` : "3px" }}/></div><span className="text-[10px] text-fitx-text-disabled">{new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date)}</span></div>)}
-          </div>
-        </article>
+      <section aria-label="Quick actions">
         <article className="fitx-panel p-5 sm:p-6">
           <div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">Quick actions</h2><Plus size={17} className="text-fitx-primary"/></div>
           <div className="space-y-2">

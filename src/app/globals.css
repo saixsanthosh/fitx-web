@@ -16,7 +16,7 @@
   --fitx-warning: #f2c35a;
   --fitx-text: #f2f5f4;
   --fitx-text-secondary: #a1adab;
-  --fitx-text-disabled: #6d7977;
+  --fitx-text-disabled: #84918e;
   --fitx-border: rgba(230, 244, 241, 0.1);
   --fitx-divider: rgba(230, 244, 241, 0.08);
 }
@@ -70,37 +70,42 @@ a { color: inherit; text-decoration: none; }
 
 .fitx-panel {
   border: 1px solid var(--fitx-border);
-  border-radius: 16px;
-  background: var(--fitx-card-bg);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(21, 29, 31, .72), var(--fitx-card-bg) 42%);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .12);
+  transition: border-color .2s ease, box-shadow .2s ease;
 }
+.plan-navigation-target { border-color: rgba(121, 223, 131, .62); box-shadow: 0 0 0 2px rgba(121, 223, 131, .12), 0 12px 32px rgba(0, 0, 0, .12); }
 .fitx-field {
   width: 100%;
-  min-height: 46px;
+  min-height: 48px;
   border: 1px solid var(--fitx-border);
-  border-radius: 10px;
+  border-radius: 11px;
   background: #0b1112;
   color: var(--fitx-text);
   padding: 0 14px;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease;
 }
+.fitx-field:focus { border-color: rgba(121, 223, 131, .75); background: #0c1313; outline: none; box-shadow: 0 0 0 3px rgba(121, 223, 131, .1); }
+.fitx-field:disabled { color: var(--fitx-text-disabled); opacity: .7; }
 .fitx-field.pl-11 { padding-left: 44px; }
 .fitx-field.pr-12 { padding-right: 48px; }
 .fitx-field::placeholder { color: var(--fitx-text-disabled); }
-.fitx-field:focus { border-color: rgba(121, 223, 131, .75); outline: none; }
 .fitx-button {
-  min-height: 44px;
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 11px;
   background: var(--fitx-primary);
   color: #071009;
-  padding: 0 16px;
+  padding: 0 18px;
   font-weight: 650;
-  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease, box-shadow .18s ease;
 }
-.fitx-button:hover { background: var(--fitx-primary-bright); }
+.fitx-button:hover { background: var(--fitx-primary-bright); box-shadow: 0 5px 16px rgba(121, 223, 131, .12); }
 .fitx-button:active { transform: translateY(1px); }
 .fitx-button:disabled { opacity: .55; }
 .fitx-button-secondary {
@@ -112,7 +117,10 @@ a { color: inherit; text-decoration: none; }
 .fitx-button-quiet { border-color: var(--fitx-border); background: transparent; color: var(--fitx-text-secondary); }
 .fitx-button-danger { border-color: rgba(248, 113, 113, .28); background: rgba(127, 29, 29, .35); color: #fca5a5; }
 .fitx-progress-track { overflow: hidden; border-radius: 999px; background: #273130; }
-.fitx-progress-fill { height: 100%; border-radius: inherit; background: var(--fitx-primary); transition: width .25s ease; }
+.fitx-progress-fill { height: 100%; border-radius: inherit; background: var(--fitx-primary); transition: width .35s ease; }
+
+select.fitx-field { color-scheme: dark; }
+textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px; }
 
 .auth-ambient { z-index: 0; contain: strict; }
 .auth-orb {

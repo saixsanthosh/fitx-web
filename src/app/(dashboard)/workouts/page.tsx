@@ -61,6 +61,18 @@ export default function WorkoutsPage() {
 
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
+  useEffect(() => {
+    const requestedPlanId = new URLSearchParams(window.location.search).get("plan");
+    if (!requestedPlanId || !plans.some((plan) => plan.id === requestedPlanId)) return;
+    const card = document.getElementById(`workout-plan-${requestedPlanId}`);
+    if (!card) return;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    card.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "center" });
+    card.classList.add("plan-navigation-target");
+    const timeout = window.setTimeout(() => card.classList.remove("plan-navigation-target"), 3500);
+    return () => window.clearTimeout(timeout);
+  }, [plans]);
+
   const filteredCatalog = useMemo(() => {
     const value = query.trim().toLowerCase();
     return catalog.filter((item) => !value || item.name.toLowerCase().includes(value) || item.primary_muscle.toLowerCase().includes(value)).slice(0, 30);
@@ -185,14 +197,14 @@ export default function WorkoutsPage() {
         actions={<><button className="fitx-button fitx-button-secondary" onClick={() => openCreator("custom")}><Plus size={17}/>Custom workout</button><button className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16}/>Auto plan</button></>} />
       {error && <p role="alert" className="rounded-lg border border-red-300/20 bg-red-300/5 px-3 py-2 text-sm text-red-200">{error}</p>}
       {activeSession && <div className="flex flex-col gap-3 rounded-xl border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium">Workout in progress</p><p className="mt-1 text-xs text-fitx-text-secondary">{activeSession.name} · started {readableDate(new Date(activeSession.started_at), { hour: "numeric", minute: "2-digit" })}</p></div><Link className="fitx-button" href={"/workouts/active?session=" + activeSession.id}>Continue workout<ArrowRight size={16}/></Link></div>}
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section>
+        <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Your plans</h2><p className="mt-1 text-xs text-fitx-text-secondary">Auto plans use your level, available equipment, and session length.</p></div><Link href="/planner" className="text-xs font-medium text-fitx-primary">Open planner<ArrowRight className="ml-1 inline" size={14}/></Link></div>
+        {plans.length ? <div className="space-y-3">{plans.map((plan) => <article key={plan.id} id={`workout-plan-${plan.id}`} className="fitx-panel flex flex-col gap-4 p-4 transition-colors sm:flex-row sm:items-center sm:p-5"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={20}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-medium">{plan.title}</h3><span className="rounded-full bg-fitx-surface-variant px-2 py-1 text-[10px] capitalize text-fitx-text-secondary">{plan.status}</span></div><p className="mt-1 flex items-center gap-1.5 text-xs capitalize text-fitx-text-secondary"><CalendarDays size={13}/>{plan.planned_for ? readableDate(new Date(plan.planned_for + "T12:00:00")) : "No date set"} · {plan.split.replaceAll("_", " ")}</p></div><div className="flex items-center gap-2"><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void cancelPlan(plan.id)} aria-label={"Cancel " + plan.title}><X size={15}/>Cancel</button><button disabled={Boolean(starting)} className="fitx-button min-h-11 px-4 text-xs" onClick={() => void startWorkout(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15}/></button></div></article>)}</div> : <EmptyState title="No workout plans yet" description="Generate a plan that respects your equipment and training level, or build one movement by movement." action={<button className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16}/>Create a plan</button>} />}
+      </section>
+      <section aria-label="Workout totals" className="grid gap-3 sm:grid-cols-3">
         <div className="fitx-panel p-4"><p className="text-xs text-fitx-text-secondary">Completed workouts</p><p className="mt-1 text-2xl font-semibold tabular-nums">{sessions.length}</p></div>
         <div className="fitx-panel p-4"><p className="text-xs text-fitx-text-secondary">Saved plans</p><p className="mt-1 text-2xl font-semibold tabular-nums">{plans.length}</p></div>
         <div className="fitx-panel p-4"><p className="text-xs text-fitx-text-secondary">Exercise library</p><p className="mt-1 text-2xl font-semibold tabular-nums">{catalog.length}</p></div>
-      </section>
-      <section>
-        <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Your plans</h2><p className="mt-1 text-xs text-fitx-text-secondary">Auto plans use your level, available equipment, and session length.</p></div><Link href="/planner" className="text-xs font-medium text-fitx-primary">Open planner<ArrowRight className="ml-1 inline" size={14}/></Link></div>
-        {plans.length ? <div className="space-y-3">{plans.map((plan) => <article key={plan.id} className="fitx-panel flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={20}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-medium">{plan.title}</h3><span className="rounded-full bg-fitx-surface-variant px-2 py-1 text-[10px] capitalize text-fitx-text-secondary">{plan.status}</span></div><p className="mt-1 flex items-center gap-1.5 text-xs capitalize text-fitx-text-secondary"><CalendarDays size={13}/>{plan.planned_for ? readableDate(new Date(plan.planned_for + "T12:00:00")) : "No date set"} · {plan.split.replaceAll("_", " ")}</p></div><div className="flex items-center gap-2"><button className="fitx-button fitx-button-quiet min-h-10 px-3 text-xs" onClick={() => void cancelPlan(plan.id)} aria-label={"Cancel " + plan.title}><X size={15}/>Cancel</button><button disabled={Boolean(starting)} className="fitx-button min-h-10 px-4 text-xs" onClick={() => void startWorkout(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15}/></button></div></article>)}</div> : <EmptyState title="No workout plans yet" description="Generate a plan that respects your equipment and training level, or build one movement by movement." action={<button className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16}/>Create a plan</button>} />}
       </section>
       <section>
         <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Recent history</h2><p className="mt-1 text-xs text-fitx-text-secondary">Sessions you’ve finished.</p></div><Link href="/progress" className="text-xs font-medium text-fitx-primary">View progress</Link></div>
