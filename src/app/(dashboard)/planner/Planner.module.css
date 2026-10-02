@@ -59,7 +59,7 @@
  .desktopWeek { grid-template-columns: repeat(7,minmax(8.25rem,1fr)); overflow-x: auto; padding-bottom: .35rem; }
  .dayCard { min-height: 11rem; }
 }
-@media(max-width: 700px) {
+@media(max-width: 767px) {
  .weekSection { border-radius: .85rem; padding: .7rem; }
  .weekHeader { grid-template-columns: 2.45rem minmax(0,1fr) 2.45rem; gap: .35rem; padding-bottom: .8rem; }
  .weekArrow { width: 2.4rem; height: 2.4rem; }
@@ -89,8 +89,8 @@
  .mobilePlanner .addInline { min-height: 2.65rem; font-size: .72rem; }
  .weekEmpty { align-items: flex-start; flex-wrap: wrap; }
  .weekEmpty > button { margin-left: 1.25rem; }
- .eventForm { grid-template-columns: minmax(0,1fr); }
- .eventForm .formHeading,.eventForm .formActions { grid-column: 1; }
+ .eventForm { grid-template-columns: repeat(2,minmax(0,1fr)); }
+ .eventForm .formHeading,.eventForm .formActions,.fieldWide { grid-column: 1/-1; }
  .formActions { display: grid; grid-template-columns: 1fr 1.4fr; }
 }
 @media(max-width: 360px) {

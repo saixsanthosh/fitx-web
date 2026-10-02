@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowRight, Bell, Search, UserRound } from "lucide-react";
+import { ArrowRight, Bell, Search, UserRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Logo } from "@/components/ui/Logo";
@@ -12,6 +12,7 @@ export function WorkspaceHeader() {
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -38,18 +39,24 @@ export function WorkspaceHeader() {
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = query.trim();
-    if (value) router.push(`/exercises?q=${encodeURIComponent(value)}`);
+    if (value) {
+      router.push(`/exercises?q=${encodeURIComponent(value)}`);
+      setSearchOpen(false);
+    }
   }
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-[68px] flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-fitx-divider bg-[#0b1112]/95 px-4 py-3 backdrop-blur-md sm:h-[68px] sm:flex-nowrap sm:py-0 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 flex min-h-[60px] flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-fitx-divider bg-[#0b1112]/95 px-3 py-2 backdrop-blur-md sm:h-[68px] sm:min-h-[68px] sm:flex-nowrap sm:gap-x-4 sm:py-0 sm:px-6 lg:px-8">
       <div className="flex shrink-0 items-center gap-2 lg:hidden"><Logo size={34} /></div>
-      <form onSubmit={search} role="search" className="order-3 flex h-10 w-full basis-full items-center gap-2 rounded-lg border border-fitx-border bg-[#0b1112] px-3 sm:order-none sm:w-full sm:max-w-[350px] sm:basis-auto">
+      <form id="workspace-search" onSubmit={search} role="search" className={`${searchOpen ? "flex" : "hidden"} order-3 h-10 w-full basis-full items-center gap-2 rounded-lg border border-fitx-border bg-[#0b1112] px-3 sm:order-none sm:flex sm:w-full sm:max-w-[350px] sm:basis-auto`}>
         <Search size={16} aria-hidden="true" className="shrink-0 text-fitx-text-disabled" />
         <input type="search" enterKeyHint="search" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search exercises" placeholder="Search exercises…" className="h-10 min-w-0 w-full bg-transparent text-sm text-fitx-text outline-none placeholder:text-fitx-text-disabled" />
         <button type="submit" aria-label="Search exercise library" className="grid min-h-9 min-w-9 shrink-0 place-items-center rounded-md text-fitx-text-secondary transition-colors hover:bg-white/[.05] hover:text-fitx-primary sm:min-h-10 sm:min-w-10"><ArrowRight size={16} aria-hidden="true"/></button>
       </form>
-      <div className="ml-auto flex items-center gap-2 sm:gap-4">
+      <div className="ml-auto flex items-center gap-1.5 sm:gap-4">
+        <button type="button" aria-label={searchOpen ? "Close search" : "Open search"} aria-expanded={searchOpen} aria-controls="workspace-search" onClick={() => setSearchOpen((open) => !open)} className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-white/[.04] hover:text-fitx-text sm:hidden">
+          {searchOpen ? <X size={18} aria-hidden="true"/> : <Search size={18} aria-hidden="true"/>}
+        </button>
         <button type="button" aria-label="Notifications" title="Notifications" className="relative grid h-10 w-10 place-items-center rounded-lg text-fitx-text-secondary hover:bg-white/[.04] hover:text-fitx-text">
           <Bell size={18} />
         </button>

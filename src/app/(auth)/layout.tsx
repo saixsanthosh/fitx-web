@@ -1,6 +1,6 @@
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className="auth-shell relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-8">
+    <main className="auth-shell relative flex min-h-dvh items-center justify-center px-4 py-5 sm:py-8">
       <div aria-hidden="true" className="auth-ambient pointer-events-none absolute inset-0 overflow-hidden">
         <span className="auth-orb auth-orb-one" />
         <span className="auth-orb auth-orb-two" />

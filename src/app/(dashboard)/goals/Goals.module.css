@@ -38,9 +38,9 @@
  .overview > div { padding: .8rem .7rem; }
  .overview span { font-size: .55rem; letter-spacing: .06em; }
  .overview strong { font-size: 1.4rem; }
- .goalBuilder { grid-template-columns: minmax(0,1fr); gap: .65rem; }
- .builderHeading,.goalBuilder .builderActions { grid-column: 1; }
- .goalBuilder .builderActions button { width: 100%; }
+ .goalBuilder { grid-template-columns: repeat(2,minmax(0,1fr)); gap: .65rem; }
+ .builderHeading,.goalBuilder .builderActions,.fieldWide { grid-column: 1/-1; }
+ .goalBuilder .builderActions button { width: min(100%,220px); }
  .goalList { grid-template-columns: minmax(0,1fr); }
  .goalActions button { flex: 1 1 auto; }
 }

@@ -58,17 +58,17 @@ export default function SignInPage() {
 
   return (
     <div className="mx-auto w-full max-w-[448px]">
-      <Link href="/" className="mb-7 flex justify-center" aria-label="FITX">
+      <Link href="/" className="mb-6 flex justify-center sm:mb-7" aria-label="FITX">
         <Logo size={64} />
       </Link>
-      <section className="rounded-2xl border border-fitx-border bg-[#0b1012] p-6 shadow-[0_24px_80px_rgba(0,0,0,.25)] sm:p-8">
-        <h1 className="mb-5 text-center text-xl font-semibold text-fitx-text">Login</h1>
+      <section className="rounded-2xl border border-fitx-border bg-[#0b1012] p-4 shadow-[0_24px_80px_rgba(0,0,0,.25)] sm:p-8">
+        <h1 className="mb-4 text-center text-xl font-semibold text-fitx-text sm:mb-5">Login</h1>
         <>
           <div className={`grid grid-cols-1 gap-2 ${appleEnabled ? "sm:grid-cols-2" : ""}`}>
             <button type="button" disabled={loading} onClick={() => void signInWith("google")} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface text-sm hover:bg-white/[.04]"><GoogleIcon />Continue with Google</button>
             {appleEnabled && <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface text-sm hover:bg-white/[.04]"><Apple size={18} fill="currentColor" />Continue with Apple</button>}
           </div>
-          <div className="my-5 flex items-center gap-3 text-xs text-fitx-text-disabled"><span className="h-px flex-1 bg-fitx-divider" /><span>or</span><span className="h-px flex-1 bg-fitx-divider" /></div>
+          <div className="my-4 flex items-center gap-3 text-xs text-fitx-text-disabled sm:my-5"><span className="h-px flex-1 bg-fitx-divider" /><span>or</span><span className="h-px flex-1 bg-fitx-divider" /></div>
         </>
         <form onSubmit={signIn} className="space-y-3">
           <label className="relative block">
