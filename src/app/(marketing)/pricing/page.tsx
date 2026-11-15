@@ -1,7 +1,7 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Pricing | FITX", description: "FITX is currently available without a paid subscription." };
+export const metadata = publicPageMetadata({ title: "Pricing", description: "See what is currently included with FITX. The personal fitness app is available without a paid subscription.", path: "/pricing" });
 export default function PricingPage() {
   return <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-16 sm:px-6 lg:px-8 lg:py-24"><p className="text-xs font-semibold uppercase tracking-[.2em] text-fitx-primary">Pricing</p><h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">No paid plan at launch.</h1><p className="mt-5 max-w-2xl text-base leading-7 text-fitx-text-secondary">FITX is currently available without a subscription or in-app purchase. No payment details are needed to create an account.</p><section className="fitx-panel mt-9 max-w-xl p-6"><p className="text-sm font-semibold text-fitx-primary">FITX account</p><h2 className="mt-3 text-2xl font-semibold">Free to use</h2><p className="mt-3 text-sm leading-6 text-fitx-text-secondary">Workout planning, exercise search, nutrition logging, barcode lookup, water tracking, and progress history are available in the app. Food providers may apply their own fair-use limits.</p><Link href="/signup" className="fitx-button mt-6 min-h-11 px-4">Create account</Link></section><p className="mt-6 text-xs text-fitx-text-disabled">If paid features are introduced later, pricing and terms will be updated before any charge is made.</p></main>;
 }

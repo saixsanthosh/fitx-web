@@ -31,18 +31,18 @@
   bottom: 0;
   left: 15px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(121, 223, 131, .3), transparent);
+  background: linear-gradient(90deg, transparent, rgba(196, 73, 51, .34), transparent);
   content: "";
   opacity: .55;
 }
 
 .contactCard:hover {
-  border-color: rgba(121, 223, 131, .48);
+  border-color: rgba(196, 73, 51, .52);
   background: linear-gradient(145deg, #14201b, #0b1110 75%);
 }
 
 .contactCard:focus-visible {
-  outline: 2px solid #79df83;
+  outline: 2px solid #ed725c;
   outline-offset: 3px;
 }
 
@@ -71,8 +71,8 @@
   height: 42px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid rgba(121, 223, 131, .48);
-  color: #79df83;
+  border: 1px solid rgba(196, 73, 51, .52);
+  color: #ed725c;
 }
 
 .portraitRing {
@@ -93,7 +93,7 @@
 
 .mailMark {
   border-radius: 11px;
-  background: rgba(121, 223, 131, .045);
+  background: rgba(196, 73, 51, .08);
   animation: mail-breathe 3.2s ease-in-out infinite;
 }
 
@@ -114,7 +114,7 @@
 
 .contactCard:hover .contactArrow {
   transform: translate(2px, -2px);
-  color: #91ed98;
+  color: #f28a77;
 }
 
 .contactName {
@@ -141,7 +141,7 @@
   width: 30px;
   height: 1px;
   flex: 0 0 auto;
-  background: #79df83;
+  background: #ed725c;
   opacity: .75;
   transition: width .25s ease, opacity .25s ease;
 }
@@ -164,7 +164,7 @@
 
 .contactAction {
   margin-left: auto;
-  color: #9ee4a3;
+  color: #f3b4a7;
   font-size: 9px;
   font-weight: 650;
   letter-spacing: .1em;
@@ -178,13 +178,13 @@
 }
 
 @keyframes portrait-ring {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(121, 223, 131, .08); }
-  50% { box-shadow: 0 0 0 3px rgba(121, 223, 131, .14); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(196, 73, 51, .08); }
+  50% { box-shadow: 0 0 0 3px rgba(196, 73, 51, .15); }
 }
 
 @keyframes mail-breathe {
-  0%, 100% { color: #79df83; }
-  50% { color: #a1eca6; }
+  0%, 100% { color: #ed725c; }
+  50% { color: #f28a77; }
 }
 
 @media (prefers-reduced-motion: reduce) {

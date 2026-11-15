@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <path id="cap" d="M10 13H54" stroke="currentColor" stroke-width="5.5" stroke-linecap="square"/>
+  <path id="spine" d="M32 13V54" stroke="currentColor" stroke-width="5.5" stroke-linecap="square"/>
+  <path id="crossbar" d="M10 29H32" stroke="currentColor" stroke-width="5.5" stroke-linecap="square"/>
+  <path id="x" d="M32 31L53 52M32 52L53 31" stroke="currentColor" stroke-width="5.5" stroke-linecap="square"/>
+</svg>

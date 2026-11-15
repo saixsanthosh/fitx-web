@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
+import { Inter, JetBrains_Mono, Manrope } from "next/font/google";
 import { BRAND } from "@/config/brand";
 import { Toaster } from "@/components/ui/Toaster";
 import { AnalyticsConsent } from "@/components/layout/AnalyticsConsent";
@@ -11,6 +12,12 @@ const inter = Inter({
   display: "swap",
 });
 
+const manrope = Manrope({
+  subsets: ["latin"],
+  variable: "--font-manrope",
+  display: "swap",
+});
+
 const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains",
@@ -19,28 +26,43 @@ const jetbrains = JetBrains_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://fitnessx.vercel.app"),
-  title: BRAND.meta.title,
+  title: { default: BRAND.meta.title, template: "%s | FITX" },
   description: BRAND.meta.description,
   authors: [{ name: BRAND.meta.author }],
+  verification: process.env.GOOGLE_SITE_VERIFICATION
+    ? { google: process.env.GOOGLE_SITE_VERIFICATION }
+    : undefined,
   keywords: [
-    "fitness",
-    "workout tracker",
-    "nutrition tracker",
     "FITX",
+    "fitness tracker",
+    "workout planning",
+    "nutrition tracking",
   ],
   openGraph: {
     title: BRAND.meta.title,
     description: BRAND.meta.description,
     type: "website",
     siteName: BRAND.name,
+    url: "https://fitnessx.vercel.app/",
     images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "FITX fitness tracker" }],
   },
+  alternates: { canonical: "/" },
   twitter: { card: "summary_large_image", title: BRAND.meta.title, description: BRAND.meta.description, images: ["/opengraph-image"] },
-  icons: { icon: "/icon.svg", shortcut: "/icon.svg", apple: "/icon.svg" },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/brand/fitx-favicon-32.png", sizes: "32x32", type: "image/png" },
+    ],
+    shortcut: "/brand/fitx-favicon-32.png",
+    apple: [{ url: "/brand/fitx-apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#070809",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F7F7F4" },
+    { media: "(prefers-color-scheme: dark)", color: "#151715" },
+  ],
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
@@ -55,9 +77,12 @@ export default function RootLayout({
     <html
       lang="en"
       data-scroll-behavior="smooth"
-    className={`${inter.variable} ${jetbrains.variable} h-full antialiased`}
+      data-theme="light"
+      suppressHydrationWarning
+      className={`${inter.variable} ${manrope.variable} ${jetbrains.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-body bg-background text-foreground">
+        <Script id="fitx-bootstrap" src="/brand/fitx-bootstrap.js" strategy="beforeInteractive" />
         {children}
         <Toaster />
         <AnalyticsConsent />

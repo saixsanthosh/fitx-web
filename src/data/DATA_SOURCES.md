@@ -2,7 +2,7 @@
 
 ## Exercise library
 
-Exercise names, instructions, muscle groups, equipment, and related text are adapted from [Free Exercise DB](https://github.com/yuhonas/free-exercise-db), revision `f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5`. Its text data is released under the [Unlicense](https://github.com/yuhonas/free-exercise-db/blob/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/UNLICENSE). FITX imports the text fields into `exercise_library`; images are excluded.
+Exercise names, instructions, muscle groups, equipment, and related text are adapted from [Free Exercise DB](https://github.com/yuhonas/free-exercise-db), revision `f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5`. Its repository publishes the dataset under the [Unlicense](https://github.com/yuhonas/free-exercise-db/blob/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/UNLICENSE). FITX imports the text fields into `exercise_library`. The Phase 2 library resolves reference stills from the same pinned revision, on demand; it does not mirror them. These are sequential still images, not animated demonstrations, and unavailable frames fall back to a labeled placeholder.
 
 ## Food nutrition
 

@@ -1,19 +1,22 @@
 import { cn } from "@/lib/utils";
+import { FitxMark } from "@/components/ui/FitxMark";
 
 interface LogoProps {
   size?: number;
   className?: string;
-  glow?: boolean;
+  markOnly?: boolean;
+  animateMark?: boolean;
 }
 
-export function Logo({ size = 36, className }: LogoProps) {
+/** The mark and the FITX wordmark remain separate, crisp HTML/SVG elements. */
+export function Logo({ size = 36, className, markOnly = false, animateMark = false }: LogoProps) {
   return (
     <span
-      className={cn("inline-flex shrink-0 items-center justify-center font-black italic tracking-[-0.12em] text-white", className)}
-      style={{ fontSize: size * 0.53, lineHeight: 1, width: size, height: size }}
-      aria-label="FITX"
+      className={cn("fitx-logo inline-flex shrink-0 items-center", animateMark && "is-forming", className)}
+      style={{ fontSize: size * 0.58, lineHeight: 1 }}
     >
-      FIT<span className="text-fitx-primary">X</span>
+      <FitxMark size={size} animate={animateMark} />
+      {!markOnly && <span className="fitx-wordmark">FITX</span>}
     </span>
   );
 }

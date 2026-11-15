@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import { LegalPage } from "@/components/layout/LegalPage";
 import { CookiePreferences } from "@/components/layout/CookiePreferences";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Cookie policy | FITX", description: "See how FITX uses essential sign-in storage and optional analytics." };
+export const metadata = publicPageMetadata({ title: "Cookie policy", description: "See how FITX uses essential sign-in storage and optional analytics.", path: "/cookies" });
 export default function CookiesPage() {
   return <LegalPage title="Cookie and storage policy" updated="September 30, 2026">
     <section><h2>Essential sign-in storage</h2><p>Supabase uses browser cookies to keep your session active and secure after you sign in. These are needed for core account features and cannot be disabled from within FITX while you use a signed-in area.</p></section>

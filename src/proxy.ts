@@ -37,16 +37,17 @@ export async function proxy(request: NextRequest) {
     signIn.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(signIn);
   }
-  if (user && ["/dashboard", "/onboarding"].includes(request.nextUrl.pathname)) {
+  if (user && (isPrivate || isAuthEntry)) {
     const { data: profile } = await supabase.from("profiles").select("onboarded").eq("id", user.id).maybeSingle();
-    if (!profile?.onboarded && request.nextUrl.pathname === "/dashboard") {
+    if (!profile?.onboarded && request.nextUrl.pathname !== "/onboarding") {
       return NextResponse.redirect(new URL("/onboarding", request.url));
     }
     if (profile?.onboarded && request.nextUrl.pathname === "/onboarding") {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
+    if (isAuthEntry && profile?.onboarded) return NextResponse.redirect(new URL("/dashboard", request.url));
   }
-  if (isAuthEntry && user) return NextResponse.redirect(new URL("/dashboard", request.url));
+  if (isAuthEntry && user) return NextResponse.redirect(new URL("/onboarding", request.url));
   return response;
 }
 

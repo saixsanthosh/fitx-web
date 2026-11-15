@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { Barcode, ChartNoAxesColumnIncreasing, Dumbbell, Droplets, Utensils } from "lucide-react";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Features | FITX", description: "Explore FITX workout planning, exercise search, meal logging, water tracking, and progress history." };
+export const metadata = publicPageMetadata({ title: "Features", description: "Explore workout planning, exercise instructions, nutrition and calorie logging, water tracking, and progress history in FITX.", path: "/features" });
 const items = [
   { icon: Dumbbell, title: "Workout planning", text: "Create and schedule plans, choose movements, and record working sets in an active session." },
   { icon: Barcode, title: "Exercise library", text: "Search movements by name or muscle group and review equipment, instructions, and suggested sets." },

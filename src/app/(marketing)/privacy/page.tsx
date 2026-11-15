@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import { LegalPage } from "@/components/layout/LegalPage";
 import { BRAND } from "@/config/brand";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Privacy policy | FITX", description: "Learn what FITX stores, how account data is used, and how to request a change or deletion." };
+export const metadata = publicPageMetadata({ title: "Privacy policy", description: "Learn what FITX stores, how account data is used, and how to request a change or deletion.", path: "/privacy" });
 const updated = "October 1, 2026";
 export default function PrivacyPage() {
   const support = BRAND.supportEmail;

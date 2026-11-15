@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import { LegalPage } from "@/components/layout/LegalPage";
 import { BRAND } from "@/config/brand";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Terms of use | FITX", description: "Terms for using FITX workout planning, food logging, and progress tracking." };
+export const metadata = publicPageMetadata({ title: "Terms of use", description: "Terms for using FITX workout planning, food logging, and progress tracking.", path: "/terms" });
 export default function TermsPage() {
   const support = BRAND.supportEmail;
   return <LegalPage title="Terms of use" updated="October 1, 2026">

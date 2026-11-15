@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -15,12 +14,16 @@ import {
 } from "lucide-react";
 import { IMG } from "@/data/images";
 import usdaFoundationFoods from "@/data/usda-foundation-foods.json";
+import { BrandFormation } from "@/components/brand/BrandFormation";
+import { CinematicIntro } from "@/components/brand/CinematicIntro";
+import { CinematicMedia } from "./CinematicMedia";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = {
-  title: "FITX | Your fitness. Your way.",
+  title: "Train smart. Live fit.",
   description:
-    "Build training around your goals, equipment, time, and routine. Track food, workouts, and progress with FITX.",
+    "Plan workouts, explore exercise demonstrations, track food and calories, and follow your fitness progress with FITX.",
+  alternates: { canonical: "/" },
 };
 
 const featuredExercise = {
@@ -46,9 +49,24 @@ const preferenceFields = [
 
 const personalizationPlaces = ["Gym", "Home", "Both", "Outdoors"];
 
+function mobilePhoto(src: string) {
+  return src.replace(/([?&]w=)\d+/, (_match, prefix: string) => `${prefix}720`);
+}
+
 export default function HomePage() {
+  const websiteSchema = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "FITX",
+    url: "https://fitnessx.vercel.app/",
+    description: "Training, nutrition, and fitness progress in one place.",
+  };
+
   return (
+    <>
+    <CinematicIntro />
     <main className={styles.page}>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema).replace(/</g, "\\u003c") }} />
       <section className={styles.hero} aria-labelledby="hero-title">
         <CinematicMedia
           src={IMG.workoutMan}
@@ -59,6 +77,7 @@ export default function HomePage() {
         />
         <div className={styles.heroShade} aria-hidden="true" />
         <div className={styles.heroContent}>
+          <BrandFormation />
           <p className={styles.heroEyebrow}>TRAIN <span>·</span> EAT <span>·</span> PROGRESS</p>
           <h1 id="hero-title" className={styles.heroTitle}>
             Your fitness.<br />
@@ -324,6 +343,7 @@ export default function HomePage() {
         <div className={styles.finalIndex} aria-hidden="true">FITX · YOUR FITNESS, YOUR WAY</div>
       </section>
     </main>
+    </>
   );
 }
 
@@ -335,47 +355,6 @@ function Macro({ label, value, unit }: { label: string; value: string; unit: str
   return <div className={styles.macro}>
     <span>{label}</span><strong>{value}<small> {unit}</small></strong>
   </div>;
-}
-
-type CinematicMediaProps = {
-  src: string;
-  alt: string;
-  ratio: "cinema" | "wide" | "portrait" | "square";
-  mobileSrc?: string;
-  videoSrc?: string;
-  posterSrc?: string;
-  priority?: boolean;
-  className?: string;
-};
-
-function CinematicMedia({ src, alt, ratio, mobileSrc, videoSrc, posterSrc, priority = false, className = "" }: CinematicMediaProps) {
-  return (
-    <figure className={`${styles.mediaFrame} ${styles[ratio]} ${videoSrc ? styles.hasVideo : ""} ${className}`}>
-      <picture className={styles.mediaPicture}>
-        {mobileSrc && <source media="(max-width: 767px)" srcSet={mobileSrc} />}
-        <Image
-          src={src}
-          alt={alt}
-          fill
-          sizes={ratio === "cinema" ? "100vw" : "(max-width: 767px) 100vw, (max-width: 1100px) 50vw, 44vw"}
-          quality={75}
-          preload={priority}
-          loading={priority ? undefined : "lazy"}
-          className={styles.mediaImage}
-        />
-      </picture>
-      {videoSrc && (
-        <video className={styles.mediaVideo} controls preload="none" playsInline poster={posterSrc ?? src} aria-label={`Video: ${alt}`}>
-          <source src={videoSrc} type="video/mp4" />
-          Your browser cannot play this video.
-        </video>
-      )}
-    </figure>
-  );
-}
-
-function mobilePhoto(src: string) {
-  return src.replace(/([?&]w=)\d+/, (_match, prefix: string) => `${prefix}720`);
 }
 
 function macroValue(value: number) {
