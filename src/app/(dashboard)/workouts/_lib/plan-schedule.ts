@@ -1,10 +1,10 @@
 /**
  * How saving a workout plan changes the planner events linked to it.
  *
- * Plans are reusable: finishing a workout completes that day's planner event and
- * leaves the plan in the list. Completed and cancelled events are history, so a
- * later save never moves or reopens them. Only the plan's upcoming ("scheduled")
- * event follows the plan's date.
+ * Plans are reusable: finishing a workout completes one planner event (see
+ * `plannerEventToComplete`) and leaves the plan in the list. Completed and
+ * cancelled events are history, so a later save never moves or reopens them.
+ * Only the plan's upcoming ("scheduled") event follows the plan's date.
  *
  * No imports, so `node --test` can load this file directly.
  */
@@ -29,4 +29,28 @@ export function plannerScheduleChange(events: readonly LinkedPlannerEvent[], pla
   // finishing it today: re-saving must not schedule the same day again.
   if (events.some((event) => event.status === "completed" && event.dateKey === plannedFor)) return "none";
   return hasScheduled ? "update-scheduled" : "insert";
+}
+
+/** A planner event linked to the plan, with its start in epoch milliseconds. */
+export type TimedPlannerEvent = { id: string; status: string; startsAt: number };
+
+/**
+ * The planner event a finished workout completes, or null for none.
+ *
+ * - The plan's scheduled event on the session's day; with several that day, the
+ *   one nearest to when the session started.
+ * - Otherwise its most recent overdue scheduled event, so a workout done a day
+ *   late still ticks off the day it was planned for.
+ * - Never an event on a later day: a workout done early leaves that day planned.
+ *
+ * `day` is the session's local day as [start, end) in epoch milliseconds.
+ */
+export function plannerEventToComplete(events: readonly TimedPlannerEvent[], day: { start: number; end: number }, sessionStartedAt: number): string | null {
+  const candidates = events.filter((event) => event.status === "scheduled" && Number.isFinite(event.startsAt) && event.startsAt < day.end);
+  const sameDay = candidates.filter((event) => event.startsAt >= day.start);
+  if (sameDay.length) {
+    return sameDay.reduce((best, event) => Math.abs(event.startsAt - sessionStartedAt) < Math.abs(best.startsAt - sessionStartedAt) ? event : best).id;
+  }
+  if (!candidates.length) return null;
+  return candidates.reduce((latest, event) => event.startsAt > latest.startsAt ? event : latest).id;
 }
