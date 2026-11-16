@@ -437,3 +437,24 @@ test("after 'no small size', picking one of the food's sizes keeps the typed cou
   assert.equal(amountAfterUnitChange(Number.NaN, null, large, typed), 2);
   assert.equal(amountAfterUnitChange(Number.NaN, null, chopped, typed), 1, "the typed eggs are not cups");
 });
+
+test("a bare count never means a whole can, carton, cube or pack", async () => {
+  const { fromOpenFoodFacts } = await import("@/lib/food/open-food-facts");
+  const biscuits = fromOpenFoodFacts({
+    code: "8901063011366", product_name_en: "Marie biscuits", nutriments: { "energy-kcal_100g": 442, proteins_100g: 7.4, carbohydrates_100g: 75.6, fat_100g: 12.5 },
+    serving_size: "6 biscuits (27 g)", serving_quantity: 27, product_quantity: 250, product_quantity_unit: "g", quantity: "250 g",
+  });
+  assert.ok(biscuits);
+  const asked = resolvePortion(parseFoodQuery("2 marie biscuits"), biscuits.portions);
+  assert.equal(asked.kind === "ask" && asked.reason, "no-count-weight", "2 biscuits are not 2 packs (500 g)");
+  const can: FoodPortion[] = [{ label: "1 can (4.75 oz)", unit: "piece", grams: 135 }, { label: "1 cup", unit: "cup", grams: 225 }];
+  assert.equal(resolvePortion(parseFoodQuery("1 cheese spread"), can).kind, "ask");
+  assert.equal(resolvePortion(parseFoodQuery("2 goat cheese"), [{ label: "1 cubic inch", unit: "piece", grams: 25 }]).kind, "ask");
+  assert.equal(resolvePortion(parseFoodQuery("2 milk"), [{ label: "1 individual school container", unit: "piece", grams: 244 }]).kind, "ask");
+  assert.equal(gramsOf(resolvePortion(parseFoodQuery("2 pieces"), [{ label: "1 pack", unit: "piece", grams: 70 }])), null, "\"2 pcs\" asks too");
+  assert.deepEqual(withCountDefault([{ label: "1 can", unit: "piece", grams: 330 }]), [{ label: "1 can", unit: "piece", grams: 330 }], "a lone can is never the default");
+  // Real pieces are unchanged.
+  assert.equal(gramsOf(resolvePortion(parseFoodQuery("2 samosa"), [{ label: "1 samosa", unit: "piece", grams: 75 }])), 150);
+  assert.equal(gramsOf(lookup("3 idlis").resolution), 114);
+  assert.equal(lookup("2 eggs").resolution.kind, "portion");
+});

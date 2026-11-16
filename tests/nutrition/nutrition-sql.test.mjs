@@ -204,7 +204,7 @@ describe("Nutrition v2 SQL on a local Postgres", { skip }, () => {
     assert.equal(pg.json(`select count(*) from public.food_catalog where id = '2708346';`), 1);
   });
 
-  test("the catalogue seed parts load, are safe to re-run, and keep curated portions", { skip: SEED_PARTS.length ? false : "no seed parts generated yet" }, () => {
+  test("the catalogue seed parts load, are safe to re-run, never undo later changes, and keep curated portions", { skip: SEED_PARTS.length ? false : "no seed parts generated yet" }, () => {
     for (const name of SEED_PARTS) pg.applyFile(path.join(MIGRATIONS_DIR, name));
     const counts = pg.json(`select json_build_object('foods', (select count(*) from public.food_catalog), 'portions', (select count(*) from public.food_portions));`);
     assert.ok(counts.foods > 1000, `foods: ${counts.foods}`);
@@ -217,6 +217,15 @@ describe("Nutrition v2 SQL on a local Postgres", { skip }, () => {
     assert.deepEqual({ ...egg, aliases: egg.aliases.slice().sort() }, { aliases: ["anda", "ande", "egg", "whole egg"], diet: "egg", basis: "compiled" });
     const paneer = pg.json(`select count(*) from public.food_catalog where id = '2705740';`);
     assert.equal(paneer, 0, "FNDDS paneer stays out");
+    // A food hidden or corrected after the seed (as the admin catalogue will do) stays that way when a part runs again.
+    const egg171287 = `select json_build_object('active', is_active, 'kcal', kcal, 'portions', (select count(*) from public.food_portions where food_id = '171287')) from public.food_catalog where id = '171287';`;
+    const seeded = pg.json(egg171287);
+    pg.exec(`update public.food_catalog set is_active = false, kcal = 150 where id = '171287';
+      delete from public.food_portions where food_id = '171287' and sort_order > 0;`);
+    for (const name of SEED_PARTS) pg.applyFile(path.join(MIGRATIONS_DIR, name));
+    assert.deepEqual(pg.json(egg171287), { active: false, kcal: 150, portions: 1 }, `seeded as ${JSON.stringify(seeded)}`);
+    const burgers = pg.json(`select json_agg(distinct diet_type) from public.food_catalog where category = 'Burgers' and name !~* 'veg|soy|bean';`);
+    assert.deepEqual(burgers, ["non_veg"], "every meat burger is labelled non-veg");
     const search = pg.json(`select json_agg(r.id) from public.search_foods('idli', array['idli'], 5) r where r.kind = 'catalog';`, asA);
     assert.equal(search[0], "2708346");
   });

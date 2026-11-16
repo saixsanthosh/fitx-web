@@ -56,7 +56,8 @@ export interface FoodResult {
   suggestion: boolean;
 }
 
-export type SourceId = "fitx-catalog" | "fitx-staples" | "usda-foundation" | "my-foods" | "usda-live" | "open-food-facts";
+/** fitx-catalog is the database catalogue; fitx-built-in the curated staples and USDA Foundation snapshot bundled with the app. */
+export type SourceId = "fitx-catalog" | "fitx-built-in" | "my-foods" | "usda-live" | "open-food-facts";
 export type SourceState = "ok" | "no_results" | "not_used" | "not_configured" | "not_set_up" | "error" | "timeout" | "rate_limited";
 export interface SourceStatus {
   id: SourceId;
@@ -71,7 +72,7 @@ export interface FoodSearchResponse {
   sources: SourceStatus[];
   /** The one food that clearly matches what was typed, so the page can select it and fill in the amount. */
   pick: { source: string; id: string } | null;
-  /** catalog: FITX's food catalogue in the database. fallback: the small built-in list (catalogue not set up yet). */
+  /** catalog: FITX's food catalogue in the database (with the built-in list for foods it lacks). fallback: the built-in list only, while the catalogue is not set up or not answering. */
   mode: "catalog" | "fallback" | "packaged" | "barcode" | "browse";
   /** For barcode lookups: why nothing usable came back. */
   barcodeStatus?: "found" | "not_found" | "no_label" | "invalid" | "rate_limited" | "unavailable" | "timeout";

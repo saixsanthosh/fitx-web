@@ -6,11 +6,14 @@
  * FDC data is public domain (CC0 1.0). Suggested citation: U.S. Department of Agriculture, Agricultural
  * Research Service. FoodData Central. fdc.nal.usda.gov.
  */
-import { inferFoodState, portionFromLabel, withCountDefault } from "@/lib/domain/food-query";
+import { inferFoodState, NOT_A_COUNT, portionFromLabel, withCountDefault } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodState, FoodUnit } from "@/lib/domain/food-query";
+import { dietTypeOf, STAPLE_DIET } from "@/lib/food/diet";
+import type { DietType } from "@/lib/food/types";
 
+export { dietTypeOf };
+export type { DietType };
 export type CatalogValueBasis = "lab_analysed" | "compiled" | "recipe_calculated";
-export type DietType = "vegan" | "veg" | "egg" | "non_veg";
 
 export interface CatalogPortion {
   label: string;
@@ -145,19 +148,6 @@ export function keywordsOf(additionalDescriptions: string | undefined): string[]
     .filter((part) => part && part.length <= 40 && part.split(/\s+/).length <= 5)
     .filter((part) => !/^(ns as to|nfs$|any source$|other |made with |with or without|from |eaten$)/.test(part) && !/\bns as to\b/.test(part)))
     .slice(0, 6);
-}
-
-/**
- * Meat, fish or egg, when the food's own name, category or USDA ingredient list says so (FNDDS lists every
- * ingredient, down to "Soup, chicken broth"). Otherwise null: an ingredient can itself be a product whose
- * contents its name does not show ("Candies, marshmallows" has gelatin), so FITX never claims "vegetarian"
- * from this. Hand-checked staples carry veg and vegan labels instead (STAPLE_DIET).
- */
-export function dietTypeOf(name: string, ingredients: readonly string[], category: string | null): DietType | null {
-  const texts = [name, ...ingredients].map((text) => text.toLowerCase());
-  if (texts.some(isNonVeg) || NON_VEG_CATEGORY.test(category ?? "")) return "non_veg";
-  if (texts.some((text) => EGG.test(text))) return "egg";
-  return null;
 }
 
 /** Common Indian dishes in FNDDS, so the app can tell them apart from similar Western foods. */
@@ -306,7 +296,6 @@ export function withStaple(row: CatalogRow | null, staple: StapleRecord): Catalo
 }
 
 const HOUSEHOLD_ONLY = new Set<FoodUnit>(["katori", "ladle", "spoon"]);
-const NOT_A_COUNT = /cubic inch|container|carton|package|packet|\bcan\b|bottle|\bjar\b|\bbox\b|\bbag\b|\bpouch\b/i;
 
 function unitOrder(unit: FoodUnit): number {
   const order: Partial<Record<FoodUnit, number>> = { piece: 0, slice: 1, serving: 2, cup: 3, bowl: 4, plate: 5, glass: 6, tbsp: 7, tsp: 8, floz: 9, ml: 10, l: 11 };
@@ -320,46 +309,7 @@ function plainness(portion: FoodPortion): number {
   return 1;
 }
 
-const NON_VEG_WORDS = [
-  "beef", "pork", "chicken", "turkey", "lamb", "mutton", "goat", "veal", "venison", "bison", "rabbit", "duck", "goose", "quail",
-  "pheasant", "dove", "squab", "pigeon", "ostrich", "emu", "elk", "moose", "caribou", "deer", "bacon", "ham", "sausage", "sausages",
-  "salami", "pepperoni", "chorizo", "frankfurter", "frankfurters", "bologna", "pastrami", "prosciutto", "jerky", "meat", "meats",
-  "meatball", "meatballs", "meatloaf", "poultry", "fish", "salmon", "tuna", "cod", "tilapia", "sardine", "sardines", "anchovy",
-  "anchovies", "mackerel", "herring", "trout", "catfish", "pollock", "haddock", "halibut", "flounder", "perch", "pike", "carp",
-  "whiting", "snapper", "swordfish", "mahi", "bass", "sole", "shark", "eel", "roe", "caviar", "shrimp", "prawn", "prawns", "crab",
-  "lobster", "clam", "clams", "oyster", "oysters", "mussel", "mussels", "scallop", "scallops", "squid", "calamari", "octopus",
-  "crayfish", "crawfish", "seafood", "shellfish", "gelatin", "gelatine", "lard", "tallow", "suet", "giblets", "gizzard", "gizzards",
-  "liver", "tripe", "chitterlings", "worcestershire", "crustaceans", "mollusks", "game", "liverwurst", "pate", "scrapple", "gyro",
-];
-const NON_VEG = new RegExp(`\\b(${NON_VEG_WORDS.join("|")})\\b`);
-/** Words that look like meat but are not: kidney beans, coconut meat, meatless and veggie products. */
-const NOT_MEAT = /\b(kidney beans?|beans?, kidney|coconut meat|nut meats?|meatless|imitation (crab|meat)|vegetarian|veggie (burger|patty)|meat substitutes?|soy(bean)? (burger|patty|crumbles))\b/g;
-const EGG = /\b(eggs?|egg (white|yolk|noodles)|mayonnaise|meringue|custard|eggnog)\b/;
-const NON_VEG_CATEGORY = /(poultry|beef|pork|lamb|veal|game|finfish|shellfish|sausages|luncheon meats|seafood|fish|chicken|turkey|meat)/i;
-
-function isNonVeg(text: string): boolean {
-  return NON_VEG.test(text.replace(NOT_MEAT, " "));
-}
-
 const INDIAN_DISH = /\b(idli|idly|dosa|sambar|sambhar|dal|daal|dhal|biryani|biriyani|paratha|parantha|puri|poori|naan|chappatti|chapati|roti|upma|vada|samosa|pakora|paneer|channa|chana|saag|korma|tikka|tandoori|vindaloo|chutney|raita|lassi|kheer|halwa|jalebi|gulab jamun|kulfi|khichdi|pulao|pongal|rasam|kofta|aloo|gobi|bhaji|bhindi|dhokla|uttapam|poha|makhani|rajma|chole|masala)\b/;
-
-/**
- * Diet labels for the curated staples, checked by hand against each food's USDA ingredient list (FNDDS) or
- * description (SR Legacy, Foundation). Only these foods are labelled vegetarian or vegan.
- */
-const STAPLE_DIET: Record<string, DietType> = {
-  // FNDDS: rice, idli (rice, split peas), dosa (rice, lentils, oil), puri, sambar, upma, vada, channa saag, pasta.
-  "2708408": "vegan", "2708414": "vegan", "2708346": "vegan", "2708347": "vegan", "2707714": "vegan", "2707430": "vegan",
-  "2709128": "vegan", "2709130": "vegan", "2709632": "vegan", "2708357": "vegan",
-  // FNDDS with butter oil, butter, yogurt or cottage cheese: dal, samosa, veg biryani, palak paneer, ghee.
-  "2707427": "veg", "2708730": "veg", "2708985": "veg", "2709631": "veg", "2710168": "veg",
-  // Commercial frozen chapati and paratha (SR Legacy ingredient): no meat or egg, dairy possible.
-  "2707713": "veg", "2707715": "veg",
-  // SR Legacy and Foundation single foods.
-  "171287": "egg", "173424": "egg", "173904": "vegan", "746782": "veg", "170000": "vegan", "170457": "vegan",
-  "171413": "vegan", "169640": "veg", "173410": "veg", "173757": "vegan", "169736": "vegan", "169759": "vegan",
-  // Not labelled: naan (commercial naan may contain egg) and masala dosa (its pakora filling's ingredients are not listed).
-};
 
 function nonNegative(value: number | null, digits: number): number | null {
   return value === null ? null : round(Math.max(0, value), digits);

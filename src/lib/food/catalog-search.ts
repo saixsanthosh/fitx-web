@@ -5,6 +5,7 @@
  */
 import { clearMatch, inferFoodState, matchFoods, singular } from "@/lib/domain/food-query";
 import type { FoodPortion } from "@/lib/domain/food-query";
+import { dietTypeOf, stapleDietType, strongerDiet } from "@/lib/food/diet";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
 import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
 
@@ -44,7 +45,8 @@ type FoundationJson = Array<{ id: string; name: string; calories: number; protei
 
 /**
  * The built-in list from src/data/fitx-staples.json and src/data/usda-foundation-foods.json: the curated staples
- * first, so they win ties ("rice" means cooked rice), then the Foundation foods they do not repeat.
+ * first, so they win ties ("rice" means cooked rice), then the Foundation foods they do not repeat. Diet labels
+ * follow the catalogue's rules (src/lib/food/diet.ts), so a food is labelled the same in both.
  */
 export function localFoodsFrom(staplesJson: StapleJson, foundationJson: FoundationJson) {
   const staples: RankableFood[] = staplesJson.foods.map((food) => usdaFood({
@@ -58,24 +60,32 @@ export function localFoodsFrom(staplesJson: StapleJson, foundationJson: Foundati
     state: food.state === "raw" || food.state === "cooked" ? food.state : null,
     portions: food.portions as FoodPortion[],
     aliases: food.aliases,
+    dietType: stapleDietType(food.id, food.name, food.aliases),
   }));
   const stapleIds = new Set(staples.map((food) => food.id));
   const foundation = foundationJson
     .filter((food) => !stapleIds.has(food.id))
-    .map((food) => usdaFood({ ...food, dataType: "Foundation", state: inferFoodState(food.name), portions: [] }));
+    .map((food) => usdaFood({ ...food, dataType: "Foundation", state: inferFoodState(food.name), portions: [], dietType: dietTypeOf(food.name, [], null) }));
   return { staples, all: [...staples, ...foundation] };
 }
 
 /**
  * What the database matches each typed word against: the part every spelling of the word shares, so "idlis"
- * finds "idli" and "berries" finds "strawberries".
+ * finds "idli" and "berries" finds "strawberries". A short word keeps at least its first three letters as typed
+ * ("fries" looks for "frie", not "fr", which would match fresh, frozen and french too).
  */
 export function stemsFor(words: readonly string[]): string[] {
   return [...new Set(words.map((word) => {
-    const forms = [word, singular(word), word.endsWith("ies") ? word.slice(0, -1) : word];
-    let stem = forms[0];
-    for (const form of forms) while (!form.startsWith(stem)) stem = stem.slice(0, -1);
-    return stem.length >= 2 ? stem : word;
+    const shared = (forms: string[]) => {
+      let stem = forms[0];
+      for (const form of forms) while (!form.startsWith(stem)) stem = stem.slice(0, -1);
+      return stem;
+    };
+    const plural = word.endsWith("ies") ? word.slice(0, -1) : word;
+    const stem = shared([word, singular(word), plural]);
+    if (stem.length >= 3 || stem.length === word.length) return stem;
+    const typed = shared([word, plural]);
+    return typed.length >= 2 ? typed : word;
   }))];
 }
 
@@ -119,7 +129,9 @@ export function searchRowToFood(row: Row): RankableFood {
     valueBasis,
     basis: basisInfo(valueBasis).label,
     state: row.state === "raw" || row.state === "cooked" ? row.state : null,
-    dietType: DIETS.has(String(row.diet_type)) ? (row.diet_type as DietType) : null,
+    // Seed parts already applied keep the labels of the rules they were built with; the name and category can only
+    // make a label more cautious ("Hamburger, NFS" saved without one is non-veg now).
+    dietType: strongerDiet(DIETS.has(String(row.diet_type)) ? (row.diet_type as DietType) : null, dietTypeOf(String(row.name), [], text(row.category))),
     portions,
     image,
     imageCredit: image ? text(row.image_attribution) : null,
@@ -162,6 +174,8 @@ export function customRowToFood(row: Row, recentCount = 0): RankableFood {
     origin,
     recentCount,
     suggestion: false,
+    // The brand helps find the food ("haldiram bhujia"), but like any keyword it never selects it.
+    keywords: text(row.brand) ? [text(row.brand) as string] : [],
   };
 }
 
@@ -169,16 +183,18 @@ export function customRowToFood(row: Row, recentCount = 0): RankableFood {
  * Ranks catalogue and custom results together (exact name or alias first, then closeness; your own and recently
  * logged foods get a small lift) and picks the food to select without asking: your own food named exactly what
  * was typed, or else the one catalogue food whose name or alias is exactly that, but only when none of your own
- * foods also matches. Suggestions (close spellings) are kept after the matches and never picked.
+ * foods also matches by name (a brand that merely shares a word, such as Milky Mist for "2 milk", does not count).
+ * Suggestions (close spellings) are listed only when nothing matched, and never picked.
  */
 export function rankAndPick(catalog: readonly RankableFood[], custom: readonly RankableFood[], words: readonly string[]) {
   const boost = (food: RankableFood) => (food.kind === "custom" ? 1 : 0) + Math.min(2, food.recentCount);
   const matchable = catalog.filter((food) => !food.suggestion);
   const customMatches = matchFoods(custom, words, { boost });
+  const customByName = matchFoods(custom.map((food) => ({ ...food, keywords: [] })), words);
   const catalogMatches = matchFoods(matchable, words, { boost });
-  const pick = clearMatch(customMatches) ?? (customMatches.length ? null : clearMatch(catalogMatches));
+  const pick = clearMatch(customMatches) ?? (customByName.length ? null : clearMatch(catalogMatches));
   const ranked = matchFoods([...custom, ...matchable], words, { boost }).map((match) => match.food);
-  const suggestions = catalog.filter((food) => food.suggestion);
+  const suggestions = ranked.length ? [] : catalog.filter((food) => food.suggestion);
   return { foods: [...ranked, ...suggestions], pick };
 }
 
