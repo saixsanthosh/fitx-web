@@ -25,14 +25,29 @@ export type CustomFoodPayload = {
   protein_per_100g: number;
   carbs_per_100g: number;
   fat_per_100g: number;
+  /** custom_foods.value_basis (Nutrition v2): how the values were obtained. Written only where the column exists. */
+  value_basis: ValueBasis;
+  /** A licensed Open Food Facts product photo and its credit line, or null. */
+  image_url: string | null;
+  image_attribution: string | null;
+  /** What the values were copied from (a USDA FoodData Central id, an Open Food Facts barcode). */
+  source_ref: string | null;
 };
+
+/** The Nutrition v2 vocabulary for custom_foods.value_basis that coach foods use. */
+export type ValueBasis = "lab_analysed" | "compiled" | "recipe_calculated" | "label" | "ai_suggested";
 
 export type GroundedFood = {
   item: Omit<CoachFoodItem, "key" | "actionId">;
   per100: Macros;
   /** Gram-measured portions can be resized to fit the day's target; counted pieces are left alone. */
   scalable: boolean;
+  valueBasis: ValueBasis;
+  sourceRef: string | null;
 };
+
+/** FITX's own food data lists the dish as breaking the member's diet or allergies: it is left out of the plan. */
+export type GroundingConflict = { conflict: string; name: string };
 
 export type GroundingContext = {
   catalogue: readonly CatalogueFood[];
@@ -48,29 +63,40 @@ const DESCRIPTORS = new Set([
 const COOKED_TEXT = /\b(cooked|boiled|steamed|grilled|roasted|fried|baked|stewed|curry|sabzi|sabji|gravy)\b/i;
 const COUNT_UNITS = new Set(["piece", "slice", "serving"]);
 
-export async function groundFood(food: ModelFood, context: GroundingContext): Promise<GroundedFood> {
-  const safe = (match: CatalogueFood) => plausible(match, food) && !foodConflict(`${match.name} ${match.brand ?? ""}`, context.diet, context.allergies);
+export async function groundFood(food: ModelFood, context: GroundingContext): Promise<GroundedFood | GroundingConflict> {
+  // The first plausible match is what the food most likely is. If FITX's data says that breaks the member's
+  // diet or allergies, the dish is left out rather than kept as an unchecked estimate.
+  const pick = (matches: readonly CatalogueFood[]): GroundedFood | GroundingConflict | null => {
+    const match = matches.find((candidate) => plausible(candidate, food));
+    if (!match) return null;
+    const conflict = foodConflict(`${match.name} ${match.brand ?? ""}`, context.diet, context.allergies);
+    return conflict ? { conflict, name: food.name } : fromMatch(food, match);
+  };
 
   if (food.brand && context.live?.openFoodFacts) {
     const brand = normalize(food.brand);
     const products = await context.live.openFoodFacts(`${food.brand} ${food.name}`);
-    const product = products.find((item) => item.brand && normalize(item.brand).includes(brand) && safe(item));
-    if (product) return fromMatch(food, product);
+    const found = pick(products.filter((item) => item.brand && normalize(item.brand).includes(brand)));
+    if (found) return found;
   }
 
   for (const words of wordLists(food)) {
-    const match = searchCatalogue(context.catalogue, words).find(safe);
-    if (match) return fromMatch(food, match);
+    const found = pick(searchCatalogue(context.catalogue, words));
+    if (found) return found;
   }
 
   if (context.live?.usda) {
     const words = parseFoodQuery(food.search).words;
     const results = await context.live.usda(words.join(" "));
-    const match = rankFoods(results, words).find(safe);
-    if (match) return fromMatch(food, match);
+    const found = pick(rankFoods(results, words));
+    if (found) return found;
   }
 
   return estimate(food);
+}
+
+export function isConflict(value: GroundedFood | GroundingConflict): value is GroundingConflict {
+  return "conflict" in value;
 }
 
 /** Resizes gram-measured portions, keeping per-100 g values. */
@@ -85,7 +111,8 @@ export function resize(grounded: GroundedFood, factor: number): GroundedFood {
 }
 
 /** The custom food row "Add to My Food Plan" creates: per-100 g values plus the suggested serving. */
-export function customFoodFor(item: Omit<CoachFoodItem, "key" | "actionId">, per100: Macros): CustomFoodPayload {
+export function customFoodFor(food: GroundedFood): CustomFoodPayload {
+  const { item, per100 } = food;
   // Nutrition's "My custom foods" shows this line under the name, so the origin and basis stay visible there.
   const brand = item.basis === "ai_estimate" ? "FITX Coach · AI estimate" : item.basis === "label" ? "Package label · via FITX Coach" : `FITX Coach · ${item.basisLabel}`;
   return {
@@ -93,30 +120,52 @@ export function customFoodFor(item: Omit<CoachFoodItem, "key" | "actionId">, per
     brand: brand.slice(0, 160),
     serving_size: item.portion.slice(0, 80),
     serving_grams: Math.max(1, round1(item.grams)),
-    calories_per_100g: nonNegative(per100.calories),
-    protein_per_100g: nonNegative(per100.protein),
-    carbs_per_100g: nonNegative(per100.carbs),
-    fat_per_100g: nonNegative(per100.fat),
+    ...per100Values(per100),
+    value_basis: food.valueBasis,
+    image_url: item.image,
+    image_attribution: item.image ? "Photo: Open Food Facts contributors (CC BY-SA)" : null,
+    source_ref: food.sourceRef,
   };
 }
 
 /** A whole meal as one custom food: the summed values over the summed weight. */
-export function customMealFor(mealName: string, items: ReadonlyArray<Omit<CoachFoodItem, "key" | "actionId">>): CustomFoodPayload | null {
+export function customMealFor(mealName: string, foods: readonly GroundedFood[]): CustomFoodPayload | null {
+  const items = foods.map((food) => food.item);
   const grams = items.reduce((sum, item) => sum + item.grams, 0);
   if (!items.length || grams <= 0) return null;
   const totals = sumItems(items);
-  const estimated = items.some((item) => item.basis === "ai_estimate");
+  const estimated = foods.some((food) => food.valueBasis === "ai_suggested");
   const names = items.map((item) => item.name).join(", ");
   return {
     name: `${mealName}: ${names}`.slice(0, 160),
     brand: estimated ? "FITX Coach · includes AI estimates" : "FITX Coach · database values",
     serving_size: `1 meal (${formatAmount(Math.round(grams))} g)`,
     serving_grams: Math.round(grams),
-    calories_per_100g: nonNegative((totals.calories / grams) * 100),
-    protein_per_100g: nonNegative((totals.protein / grams) * 100),
-    carbs_per_100g: nonNegative((totals.carbs / grams) * 100),
-    fat_per_100g: nonNegative((totals.fat / grams) * 100),
+    ...per100Values({ calories: (totals.calories / grams) * 100, protein: (totals.protein / grams) * 100, carbs: (totals.carbs / grams) * 100, fat: (totals.fat / grams) * 100 }),
+    // Worked out from its foods' values; with any AI estimate in it, the whole meal is an AI suggestion.
+    value_basis: estimated ? "ai_suggested" : "recipe_calculated",
+    image_url: null,
+    image_attribution: null,
+    source_ref: null,
   };
+}
+
+/** Per-100 g values within what food can hold (pure fat is about 900 kcal; no macro passes 100 g). */
+function per100Values(per100: Macros) {
+  return {
+    calories_per_100g: Math.min(900, nonNegative(per100.calories)),
+    protein_per_100g: Math.min(100, nonNegative(per100.protein)),
+    carbs_per_100g: Math.min(100, nonNegative(per100.carbs)),
+    fat_per_100g: Math.min(100, nonNegative(per100.fat)),
+  };
+}
+
+/** USDA data types and package labels in the Nutrition v2 value_basis words. */
+function valueBasisOf(match: CatalogueFood): ValueBasis {
+  if (match.source === "Open Food Facts" || match.dataType === "Branded") return "label";
+  if (match.dataType === "Foundation") return "lab_analysed";
+  if (match.dataType === "SR Legacy") return "compiled";
+  return "recipe_calculated";
 }
 
 export function sumItems(items: ReadonlyArray<Pick<CoachFoodItem, "calories" | "protein" | "carbs" | "fat">>): Macros {
@@ -151,6 +200,9 @@ function fromMatch(food: ModelFood, match: CatalogueFood): GroundedFood {
   return {
     per100,
     scalable: !COUNT_UNITS.has(food.unit),
+    valueBasis: valueBasisOf(match),
+    // The Open Food Facts barcode or the USDA FoodData Central id, as Nutrition's own food_catalog rows store it.
+    sourceRef: match.id.slice(0, 64) || null,
     item: {
       name: food.name,
       portion,
@@ -182,6 +234,8 @@ function estimate(food: ModelFood): GroundedFood {
   return {
     per100,
     scalable: !COUNT_UNITS.has(food.unit),
+    valueBasis: "ai_suggested",
+    sourceRef: null,
     item: {
       name: food.name,
       portion: food.unit === "g" ? `${formatAmount(grams)} g` : `${formatAmount(food.quantity)} ${unitLabel(food.unit as FoodUnit, food.quantity)} (about ${formatAmount(grams)} g)`,

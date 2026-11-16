@@ -7,6 +7,10 @@ import type { ProviderId } from "./types";
  *
  *   AI_COACH_ENABLED     kill switch: "false", "0", "off" or "no" pauses every AI feature at once.
  *   AI_ALLOW_PAID        "true" allows models that are not on a free tier. Off unless set.
+ *   AI_GEMINI_WITH_MEMBER_DATA
+ *                        "true" also sends requests that carry a member's FITX summary to Gemini. Off unless set:
+ *                        on Google's unpaid tier prompts may be used to improve Google's products and read by
+ *                        people at Google, so by default Gemini only gets "Questions only" requests.
  *   GEMINI_API_KEY       Google AI Studio key (free tier while the Cloud project has no billing).
  *   GROQ_API_KEY         GroqCloud key (free plan).
  *   OPENROUTER_API_KEY   OpenRouter key; only ":free" models and the free router are used.
@@ -19,6 +23,8 @@ import type { ProviderId } from "./types";
 export type AiConfig = {
   enabled: boolean;
   allowPaid: boolean;
+  /** Owner opt-in: requests carrying member data may also go to Gemini's unpaid tier. */
+  geminiWithMemberData: boolean;
   keys: Partial<Record<ProviderId, string>>;
   models: Partial<Record<ProviderId, string[]>>;
   ollama: { baseUrl: string; model: string } | null;
@@ -54,6 +60,7 @@ export function readAiConfig(env: Env = process.env): AiConfig {
   return {
     enabled: !OFF.has((env.AI_COACH_ENABLED ?? "").trim().toLowerCase()),
     allowPaid: ON.has((env.AI_ALLOW_PAID ?? "").trim().toLowerCase()),
+    geminiWithMemberData: ON.has((env.AI_GEMINI_WITH_MEMBER_DATA ?? "").trim().toLowerCase()),
     keys,
     models,
     ollama: localOllama(env),

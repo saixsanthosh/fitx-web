@@ -15,11 +15,32 @@ export type SafetyCaution = "medical" | "pregnancy" | "injury" | "extreme_diet";
 export type SafetyScreen = { kind: "stop"; topic: SafetyStopTopic; message: string } | { kind: "ok"; cautions: SafetyCaution[] };
 
 const SELF_HARM =
-  /\b(kill(?:ing)? myself|suicid(?:e|al)|end(?:ing)? my life|end it all|want to die|wanna die|don'?t want to (?:live|be alive|exist)|self[- ]?harm(?:ing)?|hurt(?:ing)? myself|cut(?:ting)? myself|no reason to live|better off dead)\b/i;
+  /\b(kill(?:ing)? myself|suicid(?:e|al)|end(?:ing)? my life|end it all|want to die|wanna die|wish (?:i|i'd) (?:was|were|had) (?:dead|never been born)|don'?t want to (?:live|be alive|exist)|self[- ]?harm(?:ing)?|hurt(?:ing)? myself|cut(?:ting)? myself|no reason to live|better off dead|overdos(?:e|ing)|take all (?:my|the) pills|aa?tm(?:a|aa)?hatya|khud ?k(?:h)?ushi|(?:mujhe|main|mai|mein) marna (?:hai|chahta|chahti)|marna chah(?:ta|ti) (?:hoon|hun|hu)|mar jaana chah|mar jana chah|jeena nah(?:i|in) chah(?:ta|ti)|jine ka (?:mann?|man) nah(?:i|in))\b/i;
 const EATING_DISORDER =
   /\b(make myself (?:throw up|vomit|sick)|throw(?:ing)? up after (?:eating|meals?|food)|vomit(?:ing)? after (?:eating|meals?|food)|purg(?:e|ing) (?:after|food|meals?|calories)|binge(?:ing)? and purg|(?:laxatives?|diuretics?|diet pills?)\b[^.?!]{0,40}\b(?:lose|losing|weight|slim|thin|fat)|starv(?:e|ing) myself|pro[- ]?ana\b|thinspo|anorexi\w*|bulimi\w*|stop eating (?:completely|entirely|for days)|not eat(?:ing)? anything for (?:days|a week)|punish myself (?:for eating|with exercise)|hate (?:myself|my body) (?:when|after) i eat)\b/i;
 const EMERGENCY =
-  /\b(chest (?:pain|tightness)|heart attack|can'?t breathe|cannot breathe|trouble breathing|struggling to breathe|faint(?:ed|ing)|passed out|blacked out|seizures?|(?:having|had|signs of) a stroke|anaphyla\w*|throat (?:is )?(?:closing|swelling)|severe allergic|coughing (?:up )?blood)\b/i;
+  /\b(chest (?:pain|tightness)|heart attack|can'?t breathe|cannot breathe|trouble breathing|struggling to breathe|faint(?:ed|ing)|passed out|blacked out|seizures?|(?:having|had|signs of) a stroke|anaphyla\w*|throat (?:is )?(?:closing|swelling)|severe allergic|coughing (?:up )?blood|seene (?:mein|me|main) dard|chhati (?:mein|me) dard|saa?ns (?:nah(?:i|in)|lene mein) (?:aa|aa rahi|le pa|takleef|dikkat)|behosh)\b/i;
+/**
+ * Devanagari with its nukta marks removed: "ख़ुदकुशी" can arrive precomposed or as क + ़, and both read
+ * as "खुदकुशी" here. Applied to the message and to the phrases below alike.
+ */
+function plainDevanagari(text: string) {
+  return text.normalize("NFKC").replace(/\u093C/g, "");
+}
+/** JavaScript's \b only knows ASCII letters, so Devanagari phrases are plain substrings. */
+function devanagari(...phrases: string[]) {
+  return new RegExp(phrases.map(plainDevanagari).join("|"));
+}
+/**
+ * The same topics in Devanagari: आत्महत्या/ख़ुदकुशी (suicide), मरना चाहता/चाहती and मुझे मरना है (want to die),
+ * जीना नहीं चाहता/चाहती (don't want to live); सीने/छाती में दर्द (chest pain), सांस नहीं (can't breathe),
+ * बेहोश (fainted); जानबूझकर उल्टी (making myself vomit), खाना छोड़ दिया (stopped eating).
+ */
+const SELF_HARM_DEVANAGARI = devanagari("आत्महत्या", "ख़ुदकुशी", "मरना चाहता", "मरना चाहती", "मुझे मरना है", "जीना नहीं चाहता", "जीना नहीं चाहती", "मर जाना चाहता", "मर जाना चाहती");
+const EMERGENCY_DEVANAGARI = devanagari("सीने में दर्द", "छाती में दर्द", "सांस नहीं", "साँस नहीं", "बेहोश");
+const EATING_DISORDER_DEVANAGARI = devanagari("जानबूझकर उल्टी", "खाने के बाद उल्टी कर", "खाना छोड़ दिया", "भूखा रहता", "भूखी रहती");
+/** Hinglish eating-disorder phrases. */
+const EATING_DISORDER_HINGLISH = /\b(khane ke baad ulti kar(?:ta|ti|leta|leti)|jaan ?(?:boojh|bujh) ?kar ulti|khana (?:chhod|chod) (?:diya|dunga|dungi|deta|deti)|bhookha reh(?:ta|ti) (?:hoon|hun|hu)|bhookhi reh(?:ti) (?:hoon|hun|hu))\b/i;
 
 const MEDICAL =
   /\b(diabet\w*|insulin|metformin|kidney|renal|liver disease|heart (?:disease|condition|problem)|blood pressure|hypertension|cholesterol|thyroid|pcos|pcod|cancer|chemo\w*|medications?|medicines?(?! ball)|surgery|asthma|epilep\w*|arthritis|gout|crohn'?s|coeliac|celiac|doctor said|prescribed)\b/i;
@@ -42,7 +63,7 @@ const STOP_MESSAGES: Record<SafetyStopTopic, string> = {
   eating_disorder: [
     "Thank you for telling me. What you describe can be a sign of an eating disorder, and it deserves care from someone qualified, not a diet plan from an app.",
     "Please talk to a doctor or someone you trust about it. " + HELP_LINES,
-    "FITX Coach won't make calorie-cutting plans while this is going on, but it's here for gentle, general questions about moving and eating well.",
+    "For the next 30 days FITX Coach won't make meal plans or swaps, or give calorie targets, but it's here for gentle, general questions about moving and eating well.",
   ].join("\n\n"),
   emergency: [
     "This could be a medical emergency. Stop exercising and call 112 (India) or your local emergency number now, or ask someone nearby to help you.",
@@ -57,16 +78,25 @@ const CAUTION_NOTES: Record<SafetyCaution, string> = {
   extreme_diet: "FITX Coach doesn't make crash diets, fasting plans or supplement-cutting plans. Slow, steady changes are safer and last longer.",
 };
 
-export function screenMessage(text: string): SafetyScreen {
+/** How long an eating-disorder note pauses meal plans, swaps and calorie targets (FITX's own note promises this). */
+export const CARE_DAYS = 30;
+
+/**
+ * `floor` is the member's own minimum (calorieFloor): asking to eat less than it is a crash-diet request.
+ */
+export function screenMessage(text: string, options: { floor?: number } = {}): SafetyScreen {
   const value = text.normalize("NFKC");
-  if (SELF_HARM.test(value)) return { kind: "stop", topic: "self_harm", message: STOP_MESSAGES.self_harm };
-  if (EMERGENCY.test(value)) return { kind: "stop", topic: "emergency", message: STOP_MESSAGES.emergency };
-  if (EATING_DISORDER.test(value)) return { kind: "stop", topic: "eating_disorder", message: STOP_MESSAGES.eating_disorder };
+  const hindi = plainDevanagari(value);
+  if (SELF_HARM.test(value) || SELF_HARM_DEVANAGARI.test(hindi)) return { kind: "stop", topic: "self_harm", message: STOP_MESSAGES.self_harm };
+  if (EMERGENCY.test(value) || EMERGENCY_DEVANAGARI.test(hindi)) return { kind: "stop", topic: "emergency", message: STOP_MESSAGES.emergency };
+  if (EATING_DISORDER.test(value) || EATING_DISORDER_HINGLISH.test(value) || EATING_DISORDER_DEVANAGARI.test(hindi)) {
+    return { kind: "stop", topic: "eating_disorder", message: STOP_MESSAGES.eating_disorder };
+  }
   const cautions: SafetyCaution[] = [];
   if (MEDICAL.test(value)) cautions.push("medical");
   if (PREGNANCY.test(value)) cautions.push("pregnancy");
   if (INJURY.test(value)) cautions.push("injury");
-  if (EXTREME.test(value) || asksForVeryLowCalories(value) || asksForFastLoss(value)) cautions.push("extreme_diet");
+  if (EXTREME.test(value) || asksForVeryLowCalories(value, options.floor ?? 1200) || asksForFastLoss(value)) cautions.push("extreme_diet");
   return { kind: "ok", cautions };
 }
 
@@ -74,10 +104,11 @@ export function cautionNotes(cautions: readonly SafetyCaution[]): string[] {
   return cautions.map((caution) => CAUTION_NOTES[caution]);
 }
 
-/** "800 calories a day", "eat 500 kcal per day". */
-function asksForVeryLowCalories(text: string) {
-  const match = /\b(\d{2,4})\s*(?:k?cals?|calories)\s*(?:a|per|each|\/)\s*day\b/i.exec(text);
-  return Boolean(match && Number(match[1]) < 1000);
+/** "800 calories a day", "eat 500 kcal per day", "keep it under 900 calories", "max 1000 kcal": below the member's minimum. */
+function asksForVeryLowCalories(text: string, floor: number) {
+  const perDay = /\b(\d{2,4})\s*(?:k?cals?|calories)\s*(?:a|per|each|\/)\s*day\b/i.exec(text);
+  const capped = /\b(?:under|below|less than|fewer than|at most|max(?:imum)?|only|upto|up to|within)\s*(\d{2,4})\s*(?:k?cals?|calories)\b/i.exec(text);
+  return [perDay, capped].some((match) => Boolean(match && Number(match[1]) < floor));
 }
 
 /** "lose 10 kg in 2 weeks": faster than about 1 kg a week. */
@@ -97,6 +128,7 @@ export function safetyRules(options: { minor: boolean; calorieFloor: number }) {
     `Never suggest eating fewer than ${options.calorieFloor} kcal a day, fasting longer than 14 hours, dehydrating, purging, laxatives, diuretics, fat burners, steroids or SARMs, or losing more than about 1% of body weight a week.`,
     "If the member mentions a medical condition, pregnancy, an injury, pain or medication, keep advice general and safe and recommend checking with a doctor, physiotherapist or registered dietitian.",
     "If the member seems distressed about food, weight or their body, be kind, do not give calorie targets, and suggest talking to someone they trust or a professional.",
+    "If the member mentions suicide, self-harm, wanting to die, an eating disorder or a medical emergency, in any language, do not coach. Reply only, kindly and in their language, that they should call 112 now if they are in danger, that Tele-MANAS is free and open day and night on 14416 or 1-800-891-4416, and that talking to someone they trust can help.",
   ];
   if (options.minor) {
     rules.push(

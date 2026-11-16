@@ -300,9 +300,10 @@ describe("privacy wording elsewhere", () => {
   });
 
   test("the food sources page and the AI suggestion badge say unmatched coach foods keep the coach's own estimate", async () => {
-    const { groundFood } = await import("@/lib/ai/grounding");
+    const { groundFood, isConflict } = await import("@/lib/ai/grounding");
     // A food FITX's data does not have keeps the model's own numbers (grounding.ts falls back to estimate()).
     const unmatched = await groundFood({ name: "Grandma's special laddoo", search: "grandma special laddoo", quantity: 1, unit: "piece", grams: 40, calories: 180, protein: 3, carbs: 22, fat: 9, cost: "low", brand: "", note: "" } as never, { catalogue: [], live: null, diet: [], allergies: { rules: [], other: [] } } as never);
+    if (isConflict(unmatched)) assert.fail("a food FITX has no data for is kept, not left out");
     assert.equal(unmatched.item.basis, "ai_estimate");
     assert.equal(unmatched.item.calories, 180, "the coach's own value");
     const sourcesPage = readFileSync(new URL("../../src/app/(dashboard)/nutrition/sources/page.tsx", import.meta.url), "utf8").replace(/\s+/g, " ");

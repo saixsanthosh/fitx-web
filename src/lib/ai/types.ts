@@ -1,4 +1,5 @@
 import "server-only";
+import type { SafetyCaution, SafetyStopTopic } from "./safety";
 
 /**
  * Shapes shared by the AI router, the coach endpoints and (as `import type`) the coach page.
@@ -32,6 +33,8 @@ export type AiRequest = {
   temperature: number;
   /** Set for structured tasks: the reply must be one JSON object matching this schema. */
   json?: { name: string; schema: JsonSchema };
+  /** The request carries the member's FITX summary. It then never goes to a provider that may read or train on it (see registry.ts). */
+  personalData?: boolean;
 };
 
 export type AiUsage = { inputTokens?: number; outputTokens?: number };
@@ -44,7 +47,7 @@ export type AttemptLog = { provider: ProviderId; model: string; outcome: Attempt
 export type AiTextResult = { text: string; provider: ProviderId; model: string; usage?: AiUsage; attempts: AttemptLog[] };
 
 /** Why the coach cannot answer right now. Each maps to an honest message on the page. */
-export type UnavailableReason = "disabled" | "not_configured" | "at_capacity" | "refused";
+export type UnavailableReason = "disabled" | "not_configured" | "at_capacity" | "refused" | "private";
 
 export type CoachQuota = { kind: "chat" | "plan"; used: number; limit: number; resetsAt: string };
 
@@ -132,7 +135,16 @@ export type CoachSwap = {
  * Structured parts of a message: a checked plan, and FITX's own notes (safety reminders, what its
  * checks changed). Notes are written by FITX, never by the model.
  */
-export type CoachMessageData = { plan?: CoachMealPlan | CoachWorkoutPlan; notes?: string[] };
+export type CoachMessageData = {
+  plan?: CoachMealPlan | CoachWorkoutPlan;
+  notes?: string[];
+  /** On a FITX safety note: what it was about. An eating-disorder note pauses meal plans for 30 days. */
+  safety?: SafetyStopTopic;
+  /** On a member message the safety screen stopped: it is never sent to a model, now or in later turns. */
+  safetyStop?: SafetyStopTopic;
+  /** On a member message: health topics it raised (pregnancy, a medical condition…), which change what FITX plans. */
+  cautions?: SafetyCaution[];
+};
 
 /** A message as the page renders it. */
 export type CoachMessageView = {

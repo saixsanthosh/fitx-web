@@ -46,6 +46,36 @@ describe("safety screen", () => {
     assert.equal(cautionNotes(["injury"]).length, 1);
   });
 
+  test("crisis messages in Hindi (Devanagari) and Hinglish stop too", () => {
+    const selfHarm = ["mujhe marna hai", "main marna chahta hoon", "jeena nahi chahti ab", "aatmhatya ke khayal aate hain", "मैं मरना चाहता हूँ", "मुझे आत्महत्या के ख्याल आते हैं", "ख़ुदकुशी", "ख\u093Cुदकुशी"];
+    for (const text of selfHarm) {
+      const result = screenMessage(text);
+      assert.ok(result.kind === "stop" && result.topic === "self_harm", text);
+    }
+    for (const text of ["seene mein dard ho raha hai", "सीने में दर्द है", "wo behosh ho gaya"]) {
+      const result = screenMessage(text);
+      assert.ok(result.kind === "stop" && result.topic === "emergency", text);
+    }
+    for (const text of ["khane ke baad ulti karti hoon", "maine khana chhod diya hai", "मैंने खाना छोड़ दिया"]) {
+      const result = screenMessage(text);
+      assert.ok(result.kind === "stop" && result.topic === "eating_disorder", text);
+    }
+    assert.equal(screenMessage("mujhe protein chahiye, kya khaun?").kind, "ok");
+    // Languages FITX can't screen are covered by the prompt's own fallback.
+    assert.ok(safetyRules({ minor: false, calorieFloor: 1200 }).some((rule) => /in any language/.test(rule) && /14416/.test(rule) && /112/.test(rule)));
+  });
+
+  test("asking for less than the member's own minimum is a crash-diet request", () => {
+    const male = screenMessage("Plan my meals, keep it under 1400 calories", { floor: 1500 });
+    assert.ok(male.kind === "ok" && male.cautions.includes("extreme_diet"));
+    const female = screenMessage("Plan my meals, keep it under 1400 calories", { floor: 1200 });
+    assert.ok(female.kind === "ok" && !female.cautions.includes("extreme_diet"));
+    for (const text of ["max 900 kcal", "only 1000 calories", "eat 700 kcal per day"]) {
+      const result = screenMessage(text, { floor: 1200 });
+      assert.ok(result.kind === "ok" && result.cautions.includes("extreme_diet"), text);
+    }
+  });
+
   test("teens get stricter rules and no adult calorie floors are lowered", () => {
     assert.ok(safetyRules({ minor: true, calorieFloor: 1350 }).some((rule) => rule.includes("under 18")));
     assert.ok(!safetyRules({ minor: false, calorieFloor: 1350 }).some((rule) => rule.includes("under 18")));
@@ -57,6 +87,24 @@ describe("safety screen", () => {
 
 describe("diet and allergy rules", () => {
   const none = { rules: [], other: [] };
+  test("common Indian dishes whose names hide an ingredient are caught", () => {
+    const cases: Array<[string, Parameters<typeof foodConflict>[1], Parameters<typeof foodConflict>[2]["rules"]]> = [
+      ["Dal makhani", ["vegan"], []], ["Dal makhani", [], ["dairy"]], ["Murgh makhani", ["vegetarian"], []], ["Murg malai tikka", ["vegetarian"], []],
+      ["Kaleji fry", ["vegetarian"], []], ["Kadhi chawal", [], ["dairy"]], ["Sandesh", [], ["dairy"]], ["Veg korma", ["vegan"], []],
+      ["Navratan korma", [], ["dairy"]], ["Gajar halwa", [], ["dairy"]], ["Phirni", [], ["dairy"]], ["Mishti doi", [], ["dairy"]], ["Chaach", ["vegan"], []],
+      ["Veg momos", [], ["wheat"]], ["Rawa dosa", [], ["wheat"]], ["Veg chowmein", [], ["wheat"]], ["Veg chow mein", [], ["wheat"]], ["Rusk", [], ["wheat"]],
+      ["Chole bhature", [], ["wheat"]], ["Kerala parotta", [], ["wheat"]], ["Puran poli", [], ["wheat"]], ["Paneer kathi roll", [], ["wheat"]],
+      ["Veg tortilla wrap", [], ["wheat"]], ["Sabudana khichdi", [], ["peanuts"]], ["Kanda poha", [], ["peanuts"]], ["Chivda", [], ["peanuts"]],
+      ["Shorshe ilish", [], ["mustard"]], ["Chingri malai curry", [], ["shellfish"]],
+    ];
+    for (const [dish, diet, rules] of cases) assert.ok(foodConflict(dish, diet, { rules, other: [] }), `${dish} for ${[...diet, ...rules].join(", ")}`);
+    // Similar names that are fine.
+    assert.equal(foodConflict("Roasted makhana", ["vegan"], { rules: ["dairy"], other: [] }), null, "fox nuts are not makhani");
+    assert.equal(foodConflict("Masala dosa", [], { rules: ["wheat"], other: [] }), null);
+    assert.equal(foodConflict("Idli sambar", ["vegan"], { rules: ["peanuts", "dairy", "wheat"], other: [] }), null);
+    assert.equal(foodConflict("Raita", [], { rules: ["mustard"], other: [] }), null, "the word rai (mustard) is not matched inside raita");
+  });
+
   test("reads FITX's stored choices", () => {
     assert.deepEqual(dietRulesFrom(["Vegetarian"]), ["vegetarian"]);
     assert.deepEqual(dietRulesFrom(["non_vegetarian"]), []);

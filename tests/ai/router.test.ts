@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { geminiQuotaPerDay, geminiStream, geminiText, mockFetch, openAiStream, openAiText, providerOf, rateLimited, serverError } from "./support/mock-providers.ts";
 
 const { readAiConfig } = await import("@/lib/ai/config");
-const { candidatesFor, isFreeModel } = await import("@/lib/ai/registry");
+const { candidatesFor, canSendMemberData, isFreeModel } = await import("@/lib/ai/registry");
 const { createAiRouter, AiUnavailableError, parseJsonText } = await import("@/lib/ai/router");
 const { createCooldownStore } = await import("@/lib/ai/cooldown");
 
@@ -58,6 +58,34 @@ describe("configuration and the free-only guard", () => {
     ]);
     // Only providers with a key are used.
     assert.deepEqual(candidatesFor("chat", readAiConfig({ GROQ_API_KEY: "k" })).map((c) => c.provider), ["groq", "groq"]);
+  });
+
+  test("requests with the member's FITX data skip Gemini's free tier unless the owner allows it", async () => {
+    const config = readAiConfig(KEYS);
+    assert.ok(candidatesFor("meal_plan", config, { personalData: true }).every((c) => c.provider !== "gemini"), "people at Google may read free-tier prompts");
+    assert.equal(candidatesFor("meal_plan", config, { personalData: true })[0].provider, "groq");
+    assert.equal(candidatesFor("chat", config)[1].provider, "gemini", "questions without member data may still go to Gemini");
+    const optedIn = readAiConfig({ ...KEYS, AI_GEMINI_WITH_MEMBER_DATA: "true" });
+    assert.equal(candidatesFor("meal_plan", optedIn, { personalData: true })[0].provider, "gemini");
+    assert.equal(canSendMemberData(readAiConfig({ GEMINI_API_KEY: "g" })), false);
+    assert.equal(canSendMemberData(readAiConfig({ GEMINI_API_KEY: "g", GROQ_API_KEY: "q" })), true);
+
+    // Only Gemini connected: a request with member data is refused as "private", before any call.
+    const { mock, router: ai } = router({ GEMINI_API_KEY: "test-gemini-key" }, () => geminiText('{"ok":true}'));
+    assert.throws(() => ai.candidates("meal_plan", { personalData: true }), (error: unknown) => error instanceof AiUnavailableError && error.reason === "private");
+    await assert.rejects(ai.json({ ...planRequest, personalData: true }, () => ({})), (error: unknown) => error instanceof AiUnavailableError && error.reason === "private");
+    assert.equal(mock.calls.length, 0);
+    assert.ok((await ai.json(planRequest, (value) => value)).value, "the same request without member data is answered");
+  });
+
+  test("a structured request stops trying more models when its time is up", async () => {
+    let clock = 1_000_000;
+    const { mock, router: ai } = router(KEYS, () => {
+      clock += 9_000; // every model takes 9 s and answers badly
+      return openAiText("not json");
+    }, () => clock);
+    await assert.rejects(ai.json({ ...planRequest, personalData: true }, () => null, { deadlineMs: 20_000 }), (error: unknown) => error instanceof AiUnavailableError);
+    assert.ok(mock.calls.length < candidatesFor("meal_plan", readAiConfig(KEYS), { personalData: true }).length, `stopped after ${mock.calls.length} calls`);
   });
 
   test("Ollama is used only for a local URL, and never on Vercel", () => {
