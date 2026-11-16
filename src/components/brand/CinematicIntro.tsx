@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Logo } from "@/components/ui/Logo";
 import { FILM_DURATION, STAGE, STAGE_START, stageAt } from "./intro/timeline";
+import { FitxIntroVideo } from "./FitxIntroVideo";
 import { BrandEndCard, DebugBackdrop, FilmGraphics } from "./IntroFilmOverlay";
 import { clampStage, type FilmFreeze } from "./introOverlayTiming";
 import styles from "./CinematicIntro.module.css";
 
 type Playback = "idle" | "loading" | "three" | "static";
+/** Where the film comes from: rendered live (WebGL) or the pre-rendered cut of the same film. */
+type FilmSource = "live" | "video";
 type Theme = "light" | "dark";
 type IntroSceneComponent = typeof import("./FitxIntroScene")["FitxIntroScene"];
 type DebugConfig = { freeze: FilmFreeze | null; image: string | null };
@@ -15,12 +18,12 @@ type DebugConfig = { freeze: FilmFreeze | null; image: string | null };
 const SESSION_KEY = "fitx-cinematic-seen";
 const REPLAY_EVENT = "fitx:intro:replay";
 /**
- * How long the logo may hold while the film loads before the static brand takes over. Devices
- * without WebGL or below the film's requirements fall back immediately (onUnsupported); this only
- * bounds slow-but-capable ones (cold chunk download, slower CPUs generating the cast). Skip/Esc
- * stay available throughout.
+ * How long the logo may hold while the live film prepares before the intro switches to the
+ * pre-rendered cut (Chrome on a recent laptop is ready in ~2 s; slower GPUs/drivers are not).
  */
-const READY_TIMEOUT_MS = 5000;
+const LIVE_READY_TIMEOUT_MS = 4500;
+/** How long the pre-rendered cut may take to start playing before the static brand takes over. */
+const VIDEO_READY_TIMEOUT_MS = 6000;
 /**
  * Once the film plays, every stage change re-arms this; if none arrives for this long while the tab
  * is visible (a frame loop that died without reporting), the intro ends instead of covering the
@@ -47,6 +50,23 @@ function filmAllowed(): boolean {
   if (nav.connection?.saveData === true) return false;
   if (nav.connection?.effectiveType === "slow-2g" || nav.connection?.effectiveType === "2g") return false;
   return true;
+}
+
+/**
+ * Devices that get the pre-rendered film instead of rendering it live: phones and tablets (heat,
+ * memory, slow shader compilers) and Safari, whose WebGL takes ~10 s to compile the film's shaders.
+ * `?intro=live` / `?intro=video` force either path (testing on any device).
+ */
+function chooseSource(): FilmSource {
+  const forced = new URLSearchParams(window.location.search).get("intro");
+  if (forced === "live" || forced === "video") return forced;
+  const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
+  const ua = nav.userAgent;
+  const appleMobile = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && nav.maxTouchPoints > 1);
+  const mobile = appleMobile || nav.userAgentData?.mobile === true || /Android|Mobile|Silk|Kindle/i.test(ua);
+  const safari = /Safari\//.test(ua) && !/Chrome\/|Chromium\/|CriOS\/|Edg\/|OPR\/|Firefox\/|FxiOS\//.test(ua);
+  const touchOnly = window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(pointer: fine)").matches;
+  return mobile || safari || touchOnly ? "video" : "live";
 }
 
 /**
@@ -114,6 +134,9 @@ export function CinematicIntro() {
   const [run, setRun] = useState(0);
   const [debug, setDebug] = useState<DebugConfig | null>(null);
   const [IntroScene, setIntroScene] = useState<IntroSceneComponent | null>(null);
+  const [source, setSource] = useState<FilmSource>("live");
+  const sourceRef = useRef<FilmSource>("live");
+  const holdRef = useRef(false);
   const sectionRef = useRef<HTMLElement>(null);
   const activeRef = useRef(false);
   const leaveTimer = useRef<number | null>(null);
@@ -179,6 +202,23 @@ export function CinematicIntro() {
     if (readinessTimer.current !== null) window.clearTimeout(readinessTimer.current);
   }, [clearWatchdog]);
 
+  /**
+   * The live film could not start (no WebGL, device below its requirements, or not ready in time):
+   * play the pre-rendered cut instead. Once the live film is already playing, a failure falls back
+   * to the static mark rather than restarting the film.
+   */
+  const switchToVideo = useCallback(() => {
+    if (!activeRef.current || fallbackStarted.current) return;
+    if (sourceRef.current === "video" || filmPlayingRef.current) {
+      showStaticFallback();
+      return;
+    }
+    sourceRef.current = "video";
+    setSource("video");
+    if (readinessTimer.current !== null) window.clearTimeout(readinessTimer.current);
+    readinessTimer.current = window.setTimeout(showStaticFallback, VIDEO_READY_TIMEOUT_MS);
+  }, [showStaticFallback]);
+
   const begin = useCallback((force: boolean) => {
     if (activeRef.current) return;
     if (!force && document.documentElement.dataset.fitxIntro !== "pending") return;
@@ -204,6 +244,10 @@ export function CinematicIntro() {
     // Devices the film can never run on (low memory/cores, Save-Data, 2G) get the static mark
     // straight away instead of downloading the scene chunk first.
     const film = !reduced && filmAllowed();
+    const chosen = chooseSource();
+    sourceRef.current = chosen;
+    holdRef.current = false;
+    setSource(chosen);
     setPlayback(film ? "loading" : "static");
 
     try {
@@ -212,13 +256,13 @@ export function CinematicIntro() {
       // The intro still works; the root-level safety timer prevents a stuck overlay.
     }
 
-    if (film) readinessTimer.current = window.setTimeout(showStaticFallback, READY_TIMEOUT_MS);
-  }, [showStaticFallback]);
+    if (film) readinessTimer.current = window.setTimeout(chosen === "live" ? switchToVideo : showStaticFallback, chosen === "live" ? LIVE_READY_TIMEOUT_MS : VIDEO_READY_TIMEOUT_MS);
+  }, [showStaticFallback, switchToVideo]);
 
   const onSceneReady = useCallback(() => {
     if (!activeRef.current || fallbackStarted.current) return;
     if (readinessTimer.current !== null) window.clearTimeout(readinessTimer.current);
-    document.documentElement.dataset.fitxIntroReady = "three";
+    document.documentElement.dataset.fitxIntroReady = sourceRef.current === "video" ? "video" : "three";
     setStage(0);
     setPlayback("three");
     filmPlayingRef.current = true;
@@ -229,6 +273,12 @@ export function CinematicIntro() {
     setStage(next);
     armWatchdog();
   }, [armWatchdog]);
+
+  /** The pre-rendered cut is buffering: hold the overlay's CSS clocks with it. */
+  const onVideoHold = useCallback((holding: boolean) => {
+    holdRef.current = holding;
+    sectionRef.current?.toggleAttribute("data-intro-paused", document.hidden || holding);
+  }, []);
 
   useEffect(() => {
     // Focus Skip once the overlay is visible (it is visibility:hidden while idle).
@@ -247,7 +297,7 @@ export function CinematicIntro() {
   }, [releasePage]);
 
   useEffect(() => {
-    if (playback !== "loading" || IntroScene) return;
+    if (playback !== "loading" || IntroScene || source !== "live") return;
     if (process.env.NODE_ENV !== "production" && debug) {
       // Review mode: no WebGL. Behave as if the scene became ready after a short load.
       const timer = window.setTimeout(() => {
@@ -261,10 +311,10 @@ export function CinematicIntro() {
       if (mounted) setIntroScene(() => module.FitxIntroScene);
     }).catch((error: unknown) => {
       if (process.env.NODE_ENV !== "production") console.warn("[FITX intro] Scene chunk failed to load", error);
-      if (mounted) showStaticFallback();
+      if (mounted) switchToVideo();
     });
     return () => { mounted = false; };
-  }, [IntroScene, debug, onSceneReady, playback, showStaticFallback]);
+  }, [IntroScene, debug, onSceneReady, playback, source, switchToVideo]);
 
   useEffect(() => {
     // Review mode stands in for the scene's onStage/onComplete with timers on the film clock.
@@ -293,7 +343,7 @@ export function CinematicIntro() {
     // The scene stops its film clock while the tab is hidden; the overlay's CSS clocks must stop too
     // or titles and callouts would run ahead of the picture on return.
     const syncVisibility = () => {
-      sectionRef.current?.toggleAttribute("data-intro-paused", document.hidden);
+      sectionRef.current?.toggleAttribute("data-intro-paused", document.hidden || holdRef.current);
       armWatchdog();
     };
     document.addEventListener("visibilitychange", syncVisibility);
@@ -355,13 +405,24 @@ export function CinematicIntro() {
       data-intro-debug={debug ? "overlay" : undefined}
     >
       {debug && <DebugBackdrop image={debug.image} theme={theme} />}
-      {(playback === "loading" || filmPlaying) && IntroScene && !debug && (
+      {(playback === "loading" || filmPlaying) && source === "live" && IntroScene && !debug && (
         <IntroScene
           theme={theme}
           onStage={onFilmStage}
           onReady={onSceneReady}
           onComplete={finish}
+          onUnsupported={switchToVideo}
+        />
+      )}
+      {(playback === "loading" || filmPlaying) && source === "video" && !debug && (
+        <FitxIntroVideo
+          key={`video-${run}`}
+          theme={theme}
+          onStage={onFilmStage}
+          onReady={onSceneReady}
+          onComplete={finish}
           onUnsupported={showStaticFallback}
+          onHold={onVideoHold}
         />
       )}
 
