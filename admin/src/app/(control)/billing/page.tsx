@@ -69,8 +69,8 @@ function Pager({ page, total, href }: { page: number; total: number; href: (page
         Page {page} of {pages} · {total.toLocaleString("en-IN")} records
       </span>
       <div className="pagination-actions">
-        {page > 1 && <a className="quiet-button" href={href(page - 1)}>Previous</a>}
-        {page < pages && <a className="quiet-button" href={href(page + 1)}>Next</a>}
+        {page > 1 && <a className={`quiet-button ${styles.chip}`} href={href(page - 1)}>Previous</a>}
+        {page < pages && <a className={`quiet-button ${styles.chip}`} href={href(page + 1)}>Next</a>}
       </div>
     </div>
   );
@@ -100,10 +100,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       </div>
 
       <nav aria-label="Razorpay mode" className={styles.modeSwitch}>
-        <a className={testMode ? "quiet-button" : "primary-button"} aria-current={testMode ? undefined : "page"} href={billingHref(query, { mode: "live", sp: 1, pp: 1 })}>
+        <a className={`${testMode ? "quiet-button" : "primary-button"} ${styles.chip}`} aria-current={testMode ? undefined : "page"} href={billingHref(query, { mode: "live", sp: 1, pp: 1 })}>
           Live records
         </a>
-        <a className={testMode ? "primary-button" : "quiet-button"} aria-current={testMode ? "page" : undefined} href={billingHref(query, { mode: "test", sp: 1, pp: 1 })}>
+        <a className={`${testMode ? "primary-button" : "quiet-button"} ${styles.chip}`} aria-current={testMode ? "page" : undefined} href={billingHref(query, { mode: "test", sp: 1, pp: 1 })}>
           Test records
         </a>
       </nav>

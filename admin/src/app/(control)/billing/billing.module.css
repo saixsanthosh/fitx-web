@@ -14,14 +14,19 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* 44 px touch targets for the mode switch, payment filters and paging. */
 .chip {
-  min-height: 36px;
+  min-height: 44px;
+  padding-inline: 14px;
 }
 
 .money {
-  color: var(--ink);
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+td.money {
+  color: var(--ink);
 }
 
 .healthList {
