@@ -20,8 +20,9 @@ import { equipmentLabel, expandOwnedEquipment, missingEquipment } from "@/lib/tr
 import { generateDay } from "@/lib/training/generator";
 import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { startSessionWithRpc } from "@/lib/training/plans";
+import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
-import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
+import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS, SESSION_PLANNER_COLUMNS } from "./_lib/workout-columns";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
@@ -197,6 +198,10 @@ export default function WorkoutsPage() {
   const [autoSeed, setAutoSeed] = useState(0);
   const [autoNote, setAutoNote] = useState("");
   const contextInitialized = useRef(false);
+  // A planner item's Start link (/workouts?plan=<plan>&event=<item>): starting that plan here keeps the item on
+  // the session, so finishing ticks it off. Read when the page opens, before the address is reset to /workouts.
+  const startLink = useRef<StartLink | null>(null);
+  useEffect(() => { startLink.current = startLinkFrom(window.location.search); }, []);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -746,8 +751,9 @@ export default function WorkoutsPage() {
     if (activeSession) { window.location.assign("/workouts/active?session=" + activeSession.id); return; }
     setError(""); setNotice("");
     setStarting(planId);
+    const plannerEventId = plannerEventForStart(startLink.current, planId);
     // One transaction when the database has fitx_start_workout_session.
-    const viaRpc = await startSessionWithRpc(supabase, planId);
+    const viaRpc = await startSessionWithRpc(supabase, planId, plannerEventId);
     if (viaRpc.sessionId) { window.location.assign("/workouts/active?session=" + viaRpc.sessionId); return; }
     if (!viaRpc.fallback) {
       setStarting("");
@@ -762,9 +768,20 @@ export default function WorkoutsPage() {
     const planExercises = await readPlanExercises(planId);
     if (planExercises.error) { setStarting(""); return setError("This plan’s exercises couldn’t be loaded, so the workout wasn’t started. Check your connection and try again."); }
     if (!planExercises.rows.length) { setStarting(""); return setError("This plan doesn’t have any exercises yet. Edit it to add some, then start it."); }
-    const started = await supabase.from("workout_sessions").insert({ user_id: userId, plan_id: planId, name: plan.title, status: "in_progress" }).select("id").single();
+    // The planner item this Start came from, kept on the session as the database function does: only while it
+    // is still this plan's scheduled workout, and only when the database has the column (planner migration).
+    const linkedItem = plannerEventId
+      ? await supabase.from("planner_events").select("id").eq("id", plannerEventId).eq("user_id", userId).eq("workout_plan_id", planId)
+        .eq("event_type", "workout").eq("status", "scheduled").maybeSingle()
+      : null;
+    const startedFrom = linkedItem && !linkedItem.error && linkedItem.data ? plannerEventId : null;
+    const sessionRow = { user_id: userId, plan_id: planId, name: plan.title, status: "in_progress", planner_event_id: startedFrom };
+    const startedQuery = await withOptionalColumns(SESSION_PLANNER_COLUMNS, (include) =>
+      supabase.from("workout_sessions").insert(payloadFor(sessionRow, SESSION_PLANNER_COLUMNS, include)).select("id").single(),
+    { includeOptional: startedFrom !== null });
+    const started = startedQuery.result;
     if (started.error || !started.data) { setStarting(""); return setError("Your workout could not be started. Please try again."); }
-    const sessionId: string = started.data.id;
+    const sessionId: string = (started.data as { id: string }).id;
     const sessionExercises = planExercises.rows.map((row, index) => ({
       user_id: userId, session_id: sessionId, exercise_id: row.exercise_id, exercise_name: row.exercise_name,
       sort_order: index, target_sets: row.target_sets, reps_min: row.reps_min, reps_max: row.reps_max, rest_seconds: row.rest_seconds,
