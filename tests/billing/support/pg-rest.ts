@@ -94,6 +94,52 @@ export class PgRest {
     return text ? JSON.parse(text) : undefined;
   }
 
+  /** The foreign key from `table` to `target` (single column), for PostgREST-style to-one embedding. */
+  private async foreignKey(table: string, target: string) {
+    const rows = await this.db.rows<{ fk: string; pk: string }>(
+      `select a.attname as fk, af.attname as pk from pg_constraint c
+         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+         join pg_attribute af on af.attrelid = c.confrelid and af.attnum = c.confkey[1]
+        where c.contype = 'f' and c.conrelid = ${lit(`public.${table}`)}::regclass and c.confrelid = ${lit(`public.${target}`)}::regclass
+        limit 1`,
+    );
+    if (!rows[0]) throw new Error(`no foreign key from ${table} to ${target}`);
+    return rows[0];
+  }
+
+  /** "a,b,rel(c,d)" -> SQL select items over alias t; rel(...) becomes a to-one JSON object like PostgREST's. */
+  private async selectList(table: string, select: string) {
+    const items: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const char of select) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === "," && depth === 0) {
+        items.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    if (current.trim()) items.push(current.trim());
+    const sql: string[] = [];
+    for (const item of items) {
+      const embed = /^([a-z_][a-z0-9_]*)\(([a-z0-9_,]+)\)$/.exec(item);
+      if (embed) {
+        const [, target, columns] = embed;
+        const { fk, pk } = await this.foreignKey(table, target);
+        const inner = columns.split(",").map((column) => `e.${column}`).join(", ");
+        sql.push(`(select row_to_json(x) from (select ${inner} from public.${target} e where e.${pk} = t.${fk}) x) as ${target}`);
+      } else if (item === "*" || IDENT.test(item)) {
+        sql.push(item === "*" ? "t.*" : `t.${item}`);
+      } else {
+        throw new Error(`unsupported select item ${item}`);
+      }
+    }
+    return sql.join(", ");
+  }
+
   private async returnsSet(fn: string) {
     if (!this.setReturning.has(fn)) {
       const rows = await this.db.rows<{ proretset: boolean }>(`select proretset from pg_proc where proname = ${lit(fn)} and pronamespace = 'public'::regnamespace`);
@@ -127,7 +173,16 @@ export class PgRest {
       if (url.pathname === "/auth/v1/user") {
         const user = this.users.get((req.headers.authorization ?? "").replace(/^Bearer /, ""));
         if (!user) return send(403, { code: 403, error_code: "bad_jwt", msg: "invalid JWT" });
-        return send(200, { id: user.id, email: user.email, aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: user.name ? { full_name: user.name } : {} });
+        return send(200, {
+          id: user.id,
+          email: user.email,
+          email_confirmed_at: "2026-11-01T00:00:00Z",
+          aud: "authenticated",
+          role: "authenticated",
+          app_metadata: { provider: "google" },
+          user_metadata: user.name ? { full_name: user.name } : {},
+          identities: [{ provider: "google", identity_data: { email: user.email, email_verified: true } }],
+        });
       }
 
       const rpc = /^\/rest\/v1\/rpc\/([a-z_][a-z0-9_]*)$/.exec(url.pathname);
@@ -147,8 +202,12 @@ export class PgRest {
 
       const table = /^\/rest\/v1\/([a-z_][a-z0-9_]*)$/.exec(url.pathname);
       if (table && req.method === "GET") {
-        const columns = (url.searchParams.get("select") ?? "*").split(",").map((column) => column.trim());
-        if (!columns.every((column) => column === "*" || IDENT.test(column))) return send(400, { code: "PGRST100", message: "unsupported select in test server" });
+        let columns: string;
+        try {
+          columns = await this.selectList(table[1], url.searchParams.get("select") ?? "*");
+        } catch (error) {
+          return send(400, { code: "PGRST100", message: error instanceof Error ? error.message : "unsupported select in test server" });
+        }
         const where: string[] = [];
         let order = "";
         let limit = "";
@@ -160,18 +219,18 @@ export class PgRest {
               .map((part) => {
                 const [column, direction] = part.split(".");
                 if (!IDENT.test(column)) throw new Error("bad order");
-                return `${column} ${direction === "desc" ? "desc" : "asc"}`;
+                return `t.${column} ${direction === "desc" ? "desc" : "asc"}`;
               })
               .join(", ")}`;
           } else if (key === "limit") {
             limit = ` limit ${Number.parseInt(value, 10)}`;
           } else if (IDENT.test(key) && value.startsWith("eq.")) {
-            where.push(`${key} = ${lit(value.slice(3))}`);
+            where.push(`t.${key} = ${lit(value.slice(3))}`);
           } else {
             return send(400, { code: "PGRST100", message: `unsupported filter ${key} in test server` });
           }
         }
-        const sql = `select ${columns.join(", ")} from public.${table[1]}${where.length ? ` where ${where.join(" and ")}` : ""}${order}${limit}`;
+        const sql = `select ${columns} from public.${table[1]} t${where.length ? ` where ${where.join(" and ")}` : ""}${order}${limit}`;
         return send(200, await this.db.rows(sql, role));
       }
 

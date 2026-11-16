@@ -270,6 +270,8 @@ export function SubscriptionPanel({
             : "Subscription cancelled. You won’t be charged again.",
         });
         setConfirmingCancel(false);
+        // A checkout finished earlier in this visit no longer hides the plans.
+        setPhase({ kind: "idle" });
         router.refresh();
       } else if (body?.error === "nothing_to_cancel") {
         setConfirmingCancel(false);
