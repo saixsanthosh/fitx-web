@@ -226,7 +226,9 @@ test("pending uploads go up and leave the device; failures stay for a retry", as
 
 test("data the database refuses for good is not retried, and says so", async () => {
   assert.equal(isPermanentRejection({ code: "23514", message: "violates check constraint" }), true);
-  assert.equal(isPermanentRejection({ code: "P0001", message: "activity limit reached" }), true);
+  assert.equal(isPermanentRejection({ code: "P0001", message: "chunk number outside the activity's chunk_count" }), true);
+  // The daily caps pass: the upload is tried again later.
+  assert.equal(isPermanentRejection({ code: "54000", message: "activity limit reached: at most 50 activities a day" }), false);
   assert.equal(isPermanentRejection({ code: "42501", message: "permission denied" }), false);
   const db = new FakeDb();
   const store = new MemoryRecordingStore(true);

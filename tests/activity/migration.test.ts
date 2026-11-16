@@ -56,8 +56,10 @@ test("one account cannot fill the database: limits match what the app produces",
   assert.match(text, /char_length\(points\) between 1 and 40000/);
   assert.match(text, /create trigger fitx_activities_daily_limit before insert on public\.activities/);
   assert.match(text, /create trigger fitx_activity_chunks_limit before insert or update on public\.activity_track_chunks/);
-  assert.match(text, />= 50 then/);
-  assert.match(text, />= 1000 then/);
+  assert.match(text, />= 50 then\s+raise exception using errcode = '54000'/);
+  assert.match(text, />= 1000 then\s+raise exception using errcode = '54000'/);
+  // A chunk outside its activity can never be stored: that one is final.
+  assert.match(text, /new\.seq >= allowed then\s+raise exception using errcode = 'P0001'/);
 });
 
 test("an activity's detailed points are pruned together, by when the activity ended", () => {

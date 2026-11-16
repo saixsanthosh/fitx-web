@@ -422,4 +422,38 @@ test("a recording running in another window is not offered for resume, finish or
 
   await running.recorder.finish(null);
   assert.equal(locks.held.has(recordingLockName(clientId)), false, "released at the finish");
+  // Coming back to the other window: Start is offered again without a reload.
+  other.document.visibilityState = "visible";
+  other.document.dispatch("visibilitychange");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(other.recorder.getSnapshot().elsewhere, false);
+  assert.equal(other.recorder.getSnapshot().restorable, null, "a finished activity is not offered for resume");
+});
+
+test("when the recording window closes mid-way, the other window offers to resume it once shown", async () => {
+  const store = new MemoryRecordingStore(true);
+  const locks = new FakeLocks();
+  const running = setup({ locks }, store);
+  await running.recorder.init("u1");
+  running.recorder.warmUp();
+  await running.recorder.start("run", null);
+  walk(running, 0, T0 + 1000, 30, 3);
+  await running.recorder.flush();
+  const clientId = running.recorder.getSnapshot().clientId!;
+
+  const other = setup({ locks, randomId: () => "00000000-0000-4000-8000-0000000000aa" }, store);
+  await other.recorder.init("u1");
+  assert.equal(other.recorder.getSnapshot().elsewhere, true);
+
+  await running.recorder.dispose();
+  assert.equal(locks.held.has(recordingLockName(clientId)), false);
+  // Side-by-side windows stay visible: focusing this one is enough.
+  other.window.dispatch("focus");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const snapshot = other.recorder.getSnapshot();
+  assert.equal(snapshot.elsewhere, false);
+  assert.equal(snapshot.restorable?.clientId, clientId);
+  assert.equal(snapshot.restorable?.canResume, true);
+  assert.ok(await other.recorder.resumeRestored(null), "it can be resumed here");
+  assert.ok(locks.held.has(recordingLockName(clientId)), "and is now held by this window");
 });

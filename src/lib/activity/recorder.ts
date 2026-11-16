@@ -161,8 +161,11 @@ export class ActivityRecorder {
     this.snapshotCache = this.buildSnapshot();
     this.onVisibility = this.onVisibility.bind(this);
     this.onPageHide = this.onPageHide.bind(this);
+    this.onFocus = this.onFocus.bind(this);
     deps.document?.addEventListener("visibilitychange", this.onVisibility);
     deps.window?.addEventListener("pagehide", this.onPageHide);
+    // Two windows side by side are both visible: switching between them is only a focus change.
+    deps.window?.addEventListener("focus", this.onFocus);
   }
 
   subscribe = (listener: Listener): (() => void) => {
@@ -227,26 +230,49 @@ export class ActivityRecorder {
       const active = recordings.filter((recording) => recording.state === "active");
       this.elsewhere = active.some((recording) => busy.has(recording.clientId));
       const candidate = active.find((recording) => !busy.has(recording.clientId));
-      if (candidate) {
-        const entries = await this.deps.store.readEntries(candidate.clientId);
-        const engine = ActivityEngine.replay(entries);
-        const last = entries.length ? entryTime(entries[entries.length - 1]) : candidate.startedAt;
-        if (engine.status === "recording" || engine.status === "paused") {
-          this.restorable = {
-            clientId: candidate.clientId,
-            sport: candidate.sport,
-            startedAt: candidate.startedAt,
-            lastActivityAt: last,
-            distanceM: engine.distanceM,
-            paused: engine.status === "paused",
-            canResume: this.deps.now() - candidate.startedAt < RESUME_LIMIT_MS,
-          };
-        }
-      }
+      if (candidate) this.restorable = await this.restorableFrom(candidate);
     } catch {
       // Without readable device storage there is simply nothing to restore.
     }
     this.emit();
+  }
+
+  /** The banner's offer for an unfinished recording no window is running (null: nothing to resume). */
+  private async restorableFrom(candidate: StoredRecording): Promise<RestorableRecording | null> {
+    const entries = await this.deps.store.readEntries(candidate.clientId);
+    const engine = ActivityEngine.replay(entries);
+    if (engine.status !== "recording" && engine.status !== "paused") return null;
+    return {
+      clientId: candidate.clientId,
+      sport: candidate.sport,
+      startedAt: candidate.startedAt,
+      lastActivityAt: entries.length ? entryTime(entries[entries.length - 1]) : candidate.startedAt,
+      distanceM: engine.distanceM,
+      paused: engine.status === "paused",
+      canResume: this.deps.now() - candidate.startedAt < RESUME_LIMIT_MS,
+    };
+  }
+
+  /**
+   * Back on this page (shown or focused) while another window had a recording: look again, so Start (or that
+   * recording's Resume, if the window closed mid-way) is offered without a reload. Read-only: rows
+   * are tidied only at init, so this can't race a recording this window is starting.
+   */
+  private async refreshElsewhere(): Promise<void> {
+    const idle = () => !this.disposed && (this.phase === "idle" || this.phase === "locating");
+    if (!this.elsewhere || !this.userId || !idle()) return;
+    try {
+      const busy = await busyRecordings(this.deps.locks);
+      const active = (await this.deps.store.listRecordings(this.userId)).filter((recording) => recording.state === "active");
+      const candidate = this.restorable ? undefined : active.find((recording) => !busy.has(recording.clientId));
+      const restorable = candidate ? await this.restorableFrom(candidate) : this.restorable;
+      if (!idle()) return;
+      this.elsewhere = active.some((recording) => busy.has(recording.clientId));
+      this.restorable = restorable;
+      this.emit();
+    } catch {
+      // Unchanged: it is checked again the next time the page is shown.
+    }
   }
 
   setSport(sport: Sport): void {
@@ -467,6 +493,7 @@ export class ActivityRecorder {
     this.stopTicker();
     this.deps.document?.removeEventListener("visibilitychange", this.onVisibility);
     this.deps.window?.removeEventListener("pagehide", this.onPageHide);
+    this.deps.window?.removeEventListener("focus", this.onFocus);
     await this.releaseWakeLock();
     await this.flush();
     this.releaseLock();
@@ -559,12 +586,17 @@ export class ActivityRecorder {
         this.lastFixAt = now;
       }
       if (this.phase === "recording" || this.phase === "paused") void this.acquireWakeLock();
+      void this.refreshElsewhere();
     }
     this.emit();
   }
 
   private onPageHide(): void {
     void this.flush();
+  }
+
+  private onFocus(): void {
+    void this.refreshElsewhere();
   }
 }
 

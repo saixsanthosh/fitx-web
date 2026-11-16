@@ -9,7 +9,9 @@
 --                               fewer than 7). The next migration schedules it daily with pg_cron.
 --
 -- Size limits match what the app produces, and each account may add at most 50 activities and
--- 1,000 chunks a day, so one account cannot fill the database.
+-- 1,000 chunks a day, so one account cannot fill the database. The daily caps raise SQLSTATE 54000
+-- (program_limit_exceeded), which the app retries later; data that can never fit raises 23514 or
+-- P0001, which it keeps on the device without retrying.
 --
 -- Both tables are owner-only (row-level security with (select auth.uid())); anon gets nothing.
 -- Additive only: no existing table, policy or function is changed.
@@ -147,7 +149,7 @@ set search_path = ''
 as $$
 begin
   if (select count(*) from public.activities where user_id = new.user_id and created_at > now() - interval '1 day') >= 50 then
-    raise exception using errcode = 'P0001', message = 'activity limit reached: at most 50 activities a day';
+    raise exception using errcode = '54000', message = 'activity limit reached: at most 50 activities a day';
   end if;
   return new;
 end $$;
@@ -165,7 +167,7 @@ begin
     raise exception using errcode = 'P0001', message = 'chunk number outside the activity''s chunk_count';
   end if;
   if tg_op = 'INSERT' and (select count(*) from public.activity_track_chunks where user_id = new.user_id and created_at > now() - interval '1 day') >= 1000 then
-    raise exception using errcode = 'P0001', message = 'GPS data limit reached: at most 1000 chunks a day';
+    raise exception using errcode = '54000', message = 'GPS data limit reached: at most 1000 chunks a day';
   end if;
   return new;
 end $$;

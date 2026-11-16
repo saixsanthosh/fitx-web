@@ -266,7 +266,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
         <section className="fitx-alert flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" aria-label="Saved on this device">
           <p className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">Saved on this device only.</span>{" "}
             {state.rejected
-              ? "It can’t be uploaded to your account because it breaks a limit (an activity can last at most 48 hours). It stays here: you can share it or download its GPX."
+              ? "It can’t be uploaded to your account: it’s outside what an activity can hold (for example, longer than 48 hours). It stays here: you can share it or download its GPX."
               : state.uploadNote === "Activity history is not available yet" ? "Activity history isn’t available yet; it uploads once it is." : "It uploads to your account when you’re online."}</span></p>
           {!state.rejected && <button type="button" onClick={() => void upload()} disabled={busy === "upload"} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />{busy === "upload" ? "Uploading…" : "Upload now"}</button>}
         </section>
