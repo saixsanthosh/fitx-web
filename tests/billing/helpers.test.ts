@@ -4,9 +4,9 @@ import "./support/server-only.mjs";
 
 const { billingCyclesForTenYears, formatAmount, formatInr, periodLabel, periodLength } = await import("@/lib/billing/money");
 const { checkoutAllowedFor, modeOfKey, parseEmailList, readBillingConfig, RAZORPAY_API_BASE } = await import("@/lib/billing/config");
-const { formatBillingDate, paymentStatusLabel, subscriptionStatusLabel } = await import("@/lib/billing/status");
-const { pickCurrentSubscription } = await import("@/lib/billing/view");
-const { planMismatch } = await import("@/lib/billing/checkout");
+const { formatBillingDate, formatPaidThrough, paymentStatusLabel, subscriptionStatusLabel } = await import("@/lib/billing/status");
+const { pickCurrentSubscription, toSubscriptionView } = await import("@/lib/billing/view");
+const { checkoutRetryAfterSeconds, CHECKOUTS_PER_DAY, planMismatch } = await import("@/lib/billing/checkout");
 
 describe("money", () => {
   test("formats paise as Indian rupees", () => {
@@ -94,6 +94,14 @@ describe("labels and dates", () => {
     assert.equal(formatBillingDate(null), null);
     assert.equal(formatBillingDate("nonsense"), null);
   });
+
+  test("a paid period ending at 00:00 India time is shown through the day before", () => {
+    // Razorpay ends cycles at midnight IST: 18:30 UTC on 5 Dec is 00:00 on 6 Dec in India.
+    assert.equal(formatPaidThrough("2026-12-05T18:30:00Z"), "5 Dec 2026");
+    assert.equal(formatPaidThrough("2026-12-06T09:00:00Z"), "6 Dec 2026");
+    assert.equal(formatPaidThrough(null), null);
+    assert.equal(formatPaidThrough("nonsense"), null);
+  });
 });
 
 describe("which subscription the page shows", () => {
@@ -102,13 +110,35 @@ describe("which subscription the page shows", () => {
 
   test("prefers one Razorpay still bills, then one still paid for, and skips unpaid checkouts", () => {
     const rows = [
-      { ...base, id: "unpaid", status: "created" as const, paidUntil: null, createdAt: "2026-11-16T00:00:00Z" },
-      { ...base, id: "ended", status: "cancelled" as const, paidUntil: "2026-12-01T00:00:00Z", createdAt: "2026-10-01T00:00:00Z" },
-      { ...base, id: "live", status: "pending" as const, paidUntil: "2026-11-10T00:00:00Z", createdAt: "2026-09-01T00:00:00Z" },
+      { ...base, id: "unpaid", status: "created" as const, paidCount: 0, paidUntil: null, createdAt: "2026-11-16T00:00:00Z" },
+      { ...base, id: "ended", status: "cancelled" as const, paidCount: 1, paidUntil: "2026-12-01T00:00:00Z", createdAt: "2026-10-01T00:00:00Z" },
+      { ...base, id: "live", status: "pending" as const, paidCount: 2, paidUntil: "2026-11-10T00:00:00Z", createdAt: "2026-09-01T00:00:00Z" },
     ];
     assert.equal(pickCurrentSubscription(rows, now)?.id, "live");
     assert.equal(pickCurrentSubscription(rows.filter((row) => row.id !== "live"), now)?.id, "ended");
     assert.equal(pickCurrentSubscription(rows.filter((row) => row.id === "unpaid"), now), null);
+  });
+
+  test("the renewal price is the subscription's own, not the plan row's current one", () => {
+    const row = {
+      id: "s1", plan_id: "p1", mode: "live" as const, status: "active", amount_paise: 19900, billing_period: "monthly" as const, billing_interval: 1,
+      paid_count: 3, paid_until: "2026-12-01T00:00:00Z", charge_at: "2026-12-01T00:00:00Z", cancel_requested_at: null, abandoned_at: null,
+      created_at: "2026-09-01T00:00:00Z", billing_plans: { name: "Premium monthly", amount_paise: 29900, billing_period: "monthly" as const, billing_interval: 1 },
+    };
+    assert.deepEqual(
+      (({ amountPaise, period, interval, planName }) => ({ amountPaise, period, interval, planName }))(toSubscriptionView(row)!),
+      { amountPaise: 19900, period: "monthly", interval: 1, planName: "Premium monthly" },
+    );
+    const older = { ...row, amount_paise: null, billing_period: null, billing_interval: null };
+    assert.equal(toSubscriptionView(older)!.amountPaise, 29900, "rows without a stored price fall back to the plan");
+  });
+
+  test("a checkout that expired or was cancelled before any charge is not shown as a subscription", () => {
+    const expired = { ...base, id: "expired", status: "expired" as const, paidCount: 0, paidUntil: null, createdAt: "2026-11-16T00:00:00Z" };
+    const refunded = { ...base, id: "refunded", status: "cancelled" as const, paidCount: 1, paidUntil: null, createdAt: "2026-10-01T00:00:00Z" };
+    assert.equal(pickCurrentSubscription([expired], now), null);
+    assert.equal(pickCurrentSubscription([{ ...expired, status: "cancelled" as const }], now), null);
+    assert.equal(pickCurrentSubscription([expired, refunded], now)?.id, "refunded", "a paid, fully refunded one still is");
   });
 });
 
@@ -126,5 +156,21 @@ describe("plan check before checkout", () => {
     assert.equal(planMismatch(plan, { ...remote, interval: 3 }, "plan_TestMonthly01"), "interval");
     assert.equal(planMismatch(plan, { ...remote, item: { amount: 19900, currency: "USD" } }, "plan_TestMonthly01"), "currency");
     assert.equal(planMismatch(plan, remote, "plan_Other0000001"), "plan id");
+  });
+});
+
+describe("daily checkout limit", () => {
+  const now = new Date("2026-11-17T12:00:00Z");
+  const hoursAgo = (hours: number) => ({ created_at: new Date(now.getTime() - hours * 3_600_000).toISOString() });
+
+  test("counts only checkouts started in the last 24 hours", () => {
+    assert.equal(CHECKOUTS_PER_DAY, 10);
+    assert.equal(checkoutRetryAfterSeconds(Array.from({ length: 9 }, (_, i) => hoursAgo(i)), now), null);
+    assert.equal(checkoutRetryAfterSeconds([...Array.from({ length: 9 }, (_, i) => hoursAgo(i)), hoursAgo(25)], now), null);
+  });
+
+  test("says when the oldest counted checkout stops counting", () => {
+    const rows = Array.from({ length: 10 }, (_, i) => hoursAgo(i * 2)); // the oldest is 18 hours old
+    assert.equal(checkoutRetryAfterSeconds(rows, now), 6 * 60 * 60);
   });
 });

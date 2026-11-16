@@ -26,7 +26,7 @@ export default async function RefundsPage() {
     <section><h2>Free features</h2><p>A FITX account and its free features cost nothing, so there is nothing to refund for them.</p></section>
     <section>
       <h2>Premium subscriptions</h2>
-      {!open && <p>Paid subscriptions are not on sale yet, so no FITX payment has been collected. This policy applies once they are.</p>}
+      {!open && <p>New Premium subscriptions are not on sale right now. If you already pay for Premium, this policy applies to your payments.</p>}
       <ul className="mt-3 space-y-3">
         <li><strong>Cancelling is not a refund.</strong> Cancelling on the <Link href="/subscription">Subscription page</Link> stops every future charge at once. The current period is not refunded automatically; you keep Premium until it ends.</li>
         <li><strong>Asking for a refund.</strong> If you were charged in a way you did not expect, for example twice for the same period or for a renewal you had meant to cancel, email {support ? <a href={`mailto:${support}`}>{support}</a> : "FITX support"} with the date and amount of the charge and the email address of your FITX account. FITX checks the payment in its Razorpay records and replies to you.

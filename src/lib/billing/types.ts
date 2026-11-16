@@ -62,6 +62,8 @@ export type SubscriptionView = {
   interval: number | null;
   status: SubscriptionStatus;
   mode: BillingMode;
+  /** Successful charges Razorpay reports for this subscription. */
+  paidCount: number;
   paidUntil: string | null;
   chargeAt: string | null;
   cancelRequestedAt: string | null;

@@ -6,6 +6,7 @@ import {
   providerPlanId,
   recordCheckout,
   type PlanRow,
+  type SubscriptionRow,
 } from "./db";
 import type { BillingDeps } from "./deps";
 import { normalizeSubscription } from "./events";
@@ -13,6 +14,7 @@ import { isRazorpayId } from "./ids";
 import { billingCyclesForTenYears } from "./money";
 import { RazorpayApiError, type RazorpayEntity } from "./razorpay";
 import { verifyCheckoutSignature } from "./signature";
+import { syncCheckoutSubscription } from "./sync";
 import { LIVE_SUBSCRIPTION_STATUSES, type BillingMode, type BillingPeriod } from "./types";
 
 export type CheckoutUser = { id: string; email: string | null; name: string | null };
@@ -32,10 +34,31 @@ export type CheckoutOutcome =
   | { kind: "plan_not_found" }
   | { kind: "plan_unavailable" }
   | { kind: "unavailable" }
+  /** The account started CHECKOUTS_PER_DAY new checkouts in the last 24 hours. */
+  | { kind: "rate_limited"; retryAfterSeconds: number }
   | { kind: "provider_error"; retryable: boolean };
 
 /** An unpaid checkout for the same plan is offered again for this long instead of creating another. */
 const REUSE_OPEN_CHECKOUT_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * New checkouts (new Razorpay subscriptions) one account may start per mode in any 24 hours, so a
+ * script cannot flood Razorpay or the nightly reconciliation with abandoned checkouts. The same limit
+ * is enforced in billing_record_checkout() for bursts of parallel requests.
+ */
+export const CHECKOUTS_PER_DAY = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * When the account has used up its new checkouts for the last 24 hours, the seconds until the oldest
+ * of them no longer counts; otherwise null.
+ */
+export function checkoutRetryAfterSeconds(subscriptions: Pick<SubscriptionRow, "created_at">[], now: Date): number | null {
+  const since = now.getTime() - DAY_MS;
+  const recent = subscriptions.map((subscription) => Date.parse(subscription.created_at)).filter((at) => at > since);
+  if (recent.length < CHECKOUTS_PER_DAY) return null;
+  return Math.max(1, Math.ceil((Math.min(...recent) - since) / 1000));
+}
 
 export const PLAN_CODE_RE = /^[a-z0-9][a-z0-9-]{1,39}$/;
 
@@ -100,7 +123,31 @@ export async function startCheckout(deps: BillingDeps, user: CheckoutUser, planC
     open.provider_plan_id === remotePlanId &&
     deps.now().getTime() - Date.parse(open.created_at) < REUSE_OPEN_CHECKOUT_MS
   ) {
+    // Offered again as it is, without a Razorpay call: reopening Checkout for the same subscription
+    // never creates a second one, so even if it was paid in an earlier visit only one can renew.
     return { kind: "ready", session: sessionFor(deps, plan, open.provider_subscription_id, user), reused: true };
+  }
+
+  // From here on a new Razorpay subscription is created, at most CHECKOUTS_PER_DAY a day.
+  const retryAfterSeconds = checkoutRetryAfterSeconds(subscriptions, deps.now());
+  if (retryAfterSeconds !== null) {
+    console.warn("[fitx-billing] checkout refused: the account reached the daily limit of new checkouts");
+    return { kind: "rate_limited", retryAfterSeconds };
+  }
+
+  if (open) {
+    // The open checkout is about to be replaced (marked abandoned). It may have been paid in an earlier
+    // visit while Razorpay's webhook is still on its way: ask Razorpay first, and never start a second
+    // subscription without knowing.
+    let remoteStatus;
+    try {
+      remoteStatus = await syncCheckoutSubscription(deps, open.provider_subscription_id, `api:checkout:${open.provider_subscription_id}:${deps.now().getTime()}`);
+    } catch (error) {
+      logFailure("checkout open subscription lookup", error);
+      if (!(error instanceof RazorpayApiError)) throw error;
+      return { kind: "provider_error", retryable: error.retryable };
+    }
+    if (remoteStatus && LIVE_SUBSCRIPTION_STATUSES.has(remoteStatus)) return { kind: "already_subscribed" };
   }
 
   // Charge exactly what FITX shows: the Razorpay plan must match the plan row.
@@ -149,6 +196,10 @@ export async function startCheckout(deps: BillingDeps, user: CheckoutUser, planC
     });
   } catch (error) {
     if (error instanceof BillingStoreError && error.kind === "already_subscribed") return { kind: "already_subscribed" };
+    if (error instanceof BillingStoreError && error.kind === "rate_limited") {
+      // Parallel requests got past the check above; Razorpay's new subscription is never shown or paid.
+      return { kind: "rate_limited", retryAfterSeconds: checkoutRetryAfterSeconds(subscriptions, deps.now()) ?? 3600 };
+    }
     if (error instanceof BillingStoreError && error.kind === "conflict") {
       // Another tab recorded a checkout at the same moment: offer that one.
       const again = (await listUserSubscriptions(deps.db, user.id, mode)).find(
@@ -166,8 +217,11 @@ export async function startCheckout(deps: BillingDeps, user: CheckoutUser, planC
 export type CheckoutConfirmation = { paymentId: string; subscriptionId: string; signature: string };
 
 /**
- * Checks the signature Checkout returned against the subscription FITX stored for this account. For
- * display only ("payment received, confirming…"): access still waits for Razorpay's webhook.
+ * Checks the signature Checkout returned against the subscription FITX stored for this account. The
+ * browser's answer itself changes nothing and grants nothing. When it is genuine and the checkout is
+ * still "created" in FITX, the server reads the subscription from Razorpay and applies Razorpay's own
+ * answer, so a paid checkout stops looking unpaid without waiting for the webhook. Premium still
+ * starts only from the captured payment Razorpay reports.
  */
 export async function verifyCheckout(deps: BillingDeps, userId: string, input: CheckoutConfirmation): Promise<boolean> {
   if (!isRazorpayId("payment", input.paymentId) || !isRazorpayId("subscription", input.subscriptionId)) return false;
@@ -175,8 +229,17 @@ export async function verifyCheckout(deps: BillingDeps, userId: string, input: C
     (subscription) => subscription.provider_subscription_id === input.subscriptionId,
   );
   if (!owned) return false;
-  return verifyCheckoutSignature(
+  const verified = verifyCheckoutSignature(
     { paymentId: input.paymentId, subscriptionId: owned.provider_subscription_id, signature: input.signature },
     deps.config.keySecret,
   );
+  if (verified && owned.status === "created") {
+    try {
+      await syncCheckoutSubscription(deps, owned.provider_subscription_id, `api:verify:${owned.provider_subscription_id}:${input.paymentId}`);
+    } catch (error) {
+      // The webhook (or the nightly reconciliation) brings the same state; the answer stays "verified".
+      logFailure("checkout verify read", error);
+    }
+  }
+  return verified;
 }

@@ -14,6 +14,9 @@ const DEV = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const ERIN = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const FARID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const GITA = "99999999-9999-4999-8999-999999999999";
+const HANA = "12121212-1212-4212-8212-121212121212";
+const IRIS = "13131313-1313-4313-8313-131313131313";
+const JAY = "14141414-1414-4414-8414-141414141414";
 const PLAN_ID = "plan_TestMonthly01";
 
 type Event = Record<string, unknown>;
@@ -47,7 +50,7 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
 
   before(async () => {
     db = await TestDatabase.start();
-    for (const [id, email] of [[ALICE, "alice@example.test"], [BOB, "bob@example.test"], [CARA, "cara@example.test"], [DEV, "dev@example.test"], [ERIN, "erin@example.test"], [FARID, "farid@example.test"], [GITA, "gita@example.test"]]) {
+    for (const [id, email] of [[ALICE, "alice@example.test"], [BOB, "bob@example.test"], [CARA, "cara@example.test"], [DEV, "dev@example.test"], [ERIN, "erin@example.test"], [FARID, "farid@example.test"], [GITA, "gita@example.test"], [HANA, "hana@example.test"], [IRIS, "iris@example.test"], [JAY, "jay@example.test"]]) {
       await addUser(db, id, email);
     }
     planId = await addPlan(db, { code: "premium-monthly", name: "Premium monthly", amount: 19900, period: "monthly", testPlanId: PLAN_ID, features: ["Premium home programmes"] });
@@ -242,5 +245,79 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
     assert.deepEqual(failed.map((row) => [row.email, row.error_description]), [["dev@example.test", "Payment declined by the bank"]]);
     const refunds = await db.rows<{ provider_refund_id: string }>(`select * from public.billing_admin_refunds('test', 50, 0)`, AS_SERVICE);
     assert.equal(refunds.length, 2);
+  });
+
+  test("an account records at most 10 checkouts per mode in 24 hours, even from a parallel burst", async () => {
+    const results = await Promise.allSettled(
+      Array.from({ length: 12 }, (_, i) => checkout(HANA, `sub_TestHanaBurst${String(i).padStart(2, "0")}`)),
+    );
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 10);
+    const refused = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    assert.equal(refused.length, 2);
+    assert.ok(refused.every((result) => result.reason instanceof SqlError && result.reason.message.includes("billing_checkout_limit")));
+    assert.equal(await db.value(`select count(*) from public.billing_subscriptions where user_id = ${lit(HANA)} and status = 'created' and abandoned_at is null`), 1);
+    assert.ok(await checkout(HANA, "sub_LiveHana000001", "live"), "test and live are counted apart");
+    // Checkouts older than a day no longer count.
+    await db.exec(`update public.billing_subscriptions set created_at = now() - interval '25 hours' where user_id = ${lit(HANA)} and mode = 'test'`);
+    assert.ok(await checkout(HANA, "sub_TestHanaLater01"));
+  });
+
+  test("reconciliation checks what Razorpay still bills first, and ended subscriptions age out", async () => {
+    await checkout(IRIS, "sub_TestIris00001");
+    await apply(charged({ id: "evt_iris_1", sub: "sub_TestIris00001", pay: "pay_TestIris00001", start: at(-71), end: at(-41), createdAt: at(-71) }));
+    await apply(subscriptionEvent("evt_iris_cancel", "sub_TestIris00001", "cancelled", at(-41), { ended_at: at(-41) }));
+    const touched = () => db.value<string>(`select updated_at::text from public.billing_subscriptions where provider_subscription_id = 'sub_TestIris00001'`);
+    const before = await touched();
+    // The nightly read of an ended subscription changes nothing, so it does not count as a change.
+    const read = await apply({ event_id: "reconcile:run2:sub_TestIris00001", source: "reconcile", event_type: "fitx.reconcile.subscription", mode: "test", event_created_at: at(0), payload: {}, subscription: { provider_subscription_id: "sub_TestIris00001", status: "cancelled", ended_at: at(-41) } });
+    assert.equal(read.detail, "subscription_already_final");
+    assert.equal(await touched(), before);
+
+    const candidates = await db.rows<{ provider_subscription_id: string; bucket: number }>(
+      `select c.provider_subscription_id,
+              case when s.status = 'created' and s.abandoned_at is not null then 2
+                   when s.status in ('cancelled', 'completed', 'expired') then 1 else 0 end as bucket
+       from public.billing_reconcile_candidates('test', 500) with ordinality as c(id, provider_subscription_id, status, n)
+       join public.billing_subscriptions s on s.id = c.id
+       order by c.n`,
+      AS_SERVICE,
+    );
+    assert.equal(candidates.some((row) => row.provider_subscription_id === "sub_TestIris00001"), false, "ended more than 40 days ago");
+    assert.ok(candidates.some((row) => row.provider_subscription_id === "sub_TestCara00001"), "ended recently: refunds are still plausible");
+    const buckets = candidates.map((row) => row.bucket);
+    assert.deepEqual([...new Set(buckets)], [0, 1, 2], "still billed and open checkouts first, then ended ones, then replaced checkouts");
+    assert.deepEqual(buckets, [...buckets].sort((a, b) => a - b));
+  });
+
+  test("within one second, a late 'authenticated' never undoes 'active'", async () => {
+    await checkout(JAY, "sub_TestJay000001");
+    // Razorpay's webhook times are whole seconds; these three events share one.
+    const second = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+    await apply(charged({ id: "evt_jay_charged", sub: "sub_TestJay000001", pay: "pay_TestJay000001", start: at(-1), end: at(29), createdAt: second }));
+    const late = await apply(subscriptionEvent("evt_jay_authenticated", "sub_TestJay000001", "authenticated", second));
+    assert.equal(late.detail, "older_than_applied_snapshot");
+    assert.equal(await status("sub_TestJay000001"), "active");
+    // Later steps in the same second still apply in arrival order.
+    const pending = await apply(subscriptionEvent("evt_jay_pending", "sub_TestJay000001", "pending", second));
+    assert.equal(pending.detail, null);
+    assert.equal(await status("sub_TestJay000001"), "pending");
+  });
+
+  test("a subscription keeps the price it started at when the plan row changes later", async () => {
+    const price = (subscriptionId: string) =>
+      db.rows(`select amount_paise, currency, billing_period, billing_interval from public.billing_subscriptions where provider_subscription_id = ${lit(subscriptionId)}`);
+    assert.deepEqual(await price("sub_TestJay000001"), [{ amount_paise: 19900, currency: "INR", billing_period: "monthly", billing_interval: 1 }]);
+    await db.exec(`update public.billing_plans set amount_paise = 29900 where id = ${lit(planId)}`);
+    try {
+      assert.deepEqual(await price("sub_TestJay000001"), [{ amount_paise: 19900, currency: "INR", billing_period: "monthly", billing_interval: 1 }]);
+      const admin = await db.rows<{ email: string; amount_paise: number }>(`select email, amount_paise from public.billing_admin_subscriptions('test', 200, 0)`, AS_SERVICE);
+      assert.deepEqual(admin.filter((row) => row.email === "jay@example.test").map((row) => row.amount_paise), [19900]);
+      await assert.rejects(
+        db.value(`select public.billing_record_checkout(${lit(JAY)}, '00000000-0000-4000-8000-000000000000', 'live', 'sub_LiveJay000001', ${lit(PLAN_ID)}, 120)`, AS_SERVICE),
+        (error) => error instanceof SqlError && error.message.includes("unknown plan"),
+      );
+    } finally {
+      await db.exec(`update public.billing_plans set amount_paise = 19900 where id = ${lit(planId)}`);
+    }
   });
 });

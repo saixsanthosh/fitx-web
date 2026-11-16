@@ -48,6 +48,11 @@ export async function POST(request: NextRequest) {
       case "plan_unavailable":
       case "unavailable":
         return route.applyTo(noStore({ error: "unavailable" }, 503));
+      case "rate_limited": {
+        const response = noStore({ error: "rate_limited" }, 429);
+        response.headers.set("Retry-After", String(outcome.retryAfterSeconds));
+        return route.applyTo(response);
+      }
       case "provider_error":
         return route.applyTo(noStore({ error: "provider_error", retryable: outcome.retryable }, 502));
     }

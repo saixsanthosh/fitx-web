@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   count,
   formatInr,
+  lastCoveredInstant,
   formatSignedInr,
   monthLabel,
   netPaise,
@@ -83,5 +84,13 @@ describe("Admin billing rows and query parameters", () => {
     assert.equal(parsePage("3"), 3);
     assert.equal(parsePage("-1"), 1);
     assert.equal(parsePage("99999"), 1);
+  });
+});
+
+describe("paid through", () => {
+  test("a period ending at 00:00 India time covers the day before", () => {
+    assert.equal(lastCoveredInstant("2026-12-05T18:30:00Z"), "2026-12-05T18:29:59.999Z");
+    assert.equal(lastCoveredInstant(null), null);
+    assert.equal(lastCoveredInstant("not a date"), null);
   });
 });

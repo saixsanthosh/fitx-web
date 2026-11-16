@@ -29,10 +29,12 @@ const REFUND_WINDOW_MS = 40 * 24 * 60 * 60 * 1000;
 const MAX_PAYMENT_LOOKUPS = 6;
 
 /**
- * Nightly comparison with Razorpay. For each subscription that is live or changed recently, it reads
- * the subscription, its invoices and (where needed) payments and refunds from Razorpay's API with the
- * server's secret key, and applies them through the same billing_apply_event() as webhooks. A missed
- * or failed webhook is repaired here; anything already applied is a no-op.
+ * Nightly comparison with Razorpay. For each candidate (subscriptions Razorpay may still bill and open
+ * checkouts first, then ones that ended in the last 40 days, then replaced checkouts; see
+ * billing_reconcile_candidates), it reads the subscription, its invoices and (where needed) payments
+ * and refunds from Razorpay's API with the server's secret key, and applies them through the same
+ * billing_apply_event() as webhooks. A missed or failed webhook is repaired here; anything already
+ * applied is a no-op.
  */
 export async function reconcileSubscriptions(
   deps: BillingDeps,

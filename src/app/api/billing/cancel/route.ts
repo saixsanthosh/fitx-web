@@ -33,7 +33,10 @@ export async function POST(request: NextRequest) {
       case "unavailable":
         return route.applyTo(noStore({ error: "unavailable" }, 503));
       case "provider_error":
-        return route.applyTo(noStore({ error: "provider_error", retryable: outcome.retryable }, 502));
+        // still_billing: Razorpay was asked and still bills the subscription, so nothing was cancelled.
+        return outcome.stillBilling
+          ? route.applyTo(noStore({ error: "still_billing", retryable: outcome.retryable }, 409))
+          : route.applyTo(noStore({ error: "provider_error", retryable: outcome.retryable }, 502));
     }
   } catch (error) {
     console.error(`[fitx-billing] cancel failed: ${error instanceof Error ? error.message : "error"}`);

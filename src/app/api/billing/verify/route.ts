@@ -8,8 +8,9 @@ import { createRouteSupabase } from "@/lib/supabase/route-client";
 
 /**
  * POST the fields Razorpay Checkout's success handler returned -> { verified }.
- * Display only: it lets the page say "payment received, confirming…". It never changes the
- * subscription or grants access; that waits for Razorpay's signed webhook.
+ * The browser's fields never change the subscription or grant access. When their signature is genuine,
+ * the server reads that subscription from Razorpay itself and records Razorpay's answer (for example
+ * "active"); Premium still starts only from the captured payment Razorpay reports.
  */
 export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) return noStore({ error: "forbidden" }, 403);
