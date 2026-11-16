@@ -3,12 +3,17 @@ import { accountDeletionConfigured, createAdminClient, removeUserFiles } from "@
 import { DELETE_CONFIRMATION, isRecentSignIn, RECENT_SIGN_IN_MINUTES, sessionSignedInAt, type DeletionStatus } from "@/lib/account/deletion";
 import { AUTH_HINT_COOKIE, hintCookieOptions, ONBOARDED_COOKIE, SESSION_COOKIE_RE, sessionCookieOptions } from "@/lib/auth/cookies";
 import { isSameOriginRequest } from "@/lib/auth/same-origin";
+import { cancelForUser } from "@/lib/billing/cancel";
+import { readBillingConfig } from "@/lib/billing/config";
+import { createBillingDeps } from "@/lib/billing/deps";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 
 /**
  * GET    whether this account can be deleted right now (configured, and a recent enough sign-in).
- * DELETE deletes the signed-in account: its files in private storage, then the login itself, which
- *        removes every FITX row (all user tables cascade from auth.users). Body: { "confirm": "DELETE" }.
+ * DELETE deletes the signed-in account: it stops Razorpay renewals (when billing is configured), removes
+ *        its files in private storage, then the login itself, which removes every FITX row (user tables
+ *        cascade from auth.users; billing records stay, without the link to the person, as the money
+ *        trail). Body: { "confirm": "DELETE" }.
  * The account is always the session's own; nothing in the request can name another one.
  */
 
@@ -66,6 +71,14 @@ export async function DELETE(request: NextRequest) {
     return route.applyTo(json({ error: "reauth_required", windowMinutes: RECENT_SIGN_IN_MINUTES }, 403));
   }
 
+  // Razorpay would keep charging a deleted account, so renewals stop first; if they can't be stopped,
+  // nothing is deleted and the member can try again.
+  const billing = await stopBilling(user.id);
+  if (!billing.stopped) {
+    console.warn("[fitx-account] Razorpay renewals could not be stopped; the account was kept", billing.reason);
+    return route.applyTo(json({ error: "billing_not_stopped" }, 502));
+  }
+
   const files = await removeUserFiles(admin, user.id);
   if (files.error) {
     console.warn("[fitx-account] private files were not removed; the account was kept", codeOf(files.error));
@@ -86,6 +99,20 @@ export async function DELETE(request: NextRequest) {
   response.cookies.set(AUTH_HINT_COOKIE, "", hintCookieOptions(route.secure, { maxAge: 0 }));
   response.cookies.set(ONBOARDED_COOKIE, "", hintCookieOptions(route.secure, { httpOnly: true, maxAge: 0 }));
   return response;
+}
+
+/** Cancels the account's live Razorpay subscription when billing is configured (nothing to do otherwise). */
+async function stopBilling(userId: string): Promise<{ stopped: true } | { stopped: false; reason: string }> {
+  const billing = readBillingConfig();
+  if (!billing.ok) return { stopped: true };
+  try {
+    const outcome = await cancelForUser(createBillingDeps(billing.config), userId);
+    // "unavailable": the billing tables don't exist yet, so there is no subscription to stop.
+    if (outcome.kind === "provider_error") return { stopped: false, reason: outcome.retryable ? "razorpay_retryable" : "razorpay" };
+    return { stopped: true };
+  } catch (error) {
+    return { stopped: false, reason: error instanceof Error ? error.name : codeOf(error) };
+  }
 }
 
 function codeOf(error: unknown) {
