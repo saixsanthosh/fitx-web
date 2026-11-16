@@ -102,13 +102,21 @@ describe("which subscription the page shows", () => {
 
   test("prefers one Razorpay still bills, then one still paid for, and skips unpaid checkouts", () => {
     const rows = [
-      { ...base, id: "unpaid", status: "created" as const, paidUntil: null, createdAt: "2026-11-16T00:00:00Z" },
-      { ...base, id: "ended", status: "cancelled" as const, paidUntil: "2026-12-01T00:00:00Z", createdAt: "2026-10-01T00:00:00Z" },
-      { ...base, id: "live", status: "pending" as const, paidUntil: "2026-11-10T00:00:00Z", createdAt: "2026-09-01T00:00:00Z" },
+      { ...base, id: "unpaid", status: "created" as const, paidCount: 0, paidUntil: null, createdAt: "2026-11-16T00:00:00Z" },
+      { ...base, id: "ended", status: "cancelled" as const, paidCount: 1, paidUntil: "2026-12-01T00:00:00Z", createdAt: "2026-10-01T00:00:00Z" },
+      { ...base, id: "live", status: "pending" as const, paidCount: 2, paidUntil: "2026-11-10T00:00:00Z", createdAt: "2026-09-01T00:00:00Z" },
     ];
     assert.equal(pickCurrentSubscription(rows, now)?.id, "live");
     assert.equal(pickCurrentSubscription(rows.filter((row) => row.id !== "live"), now)?.id, "ended");
     assert.equal(pickCurrentSubscription(rows.filter((row) => row.id === "unpaid"), now), null);
+  });
+
+  test("a checkout that expired or was cancelled before any charge is not shown as a subscription", () => {
+    const expired = { ...base, id: "expired", status: "expired" as const, paidCount: 0, paidUntil: null, createdAt: "2026-11-16T00:00:00Z" };
+    const refunded = { ...base, id: "refunded", status: "cancelled" as const, paidCount: 1, paidUntil: null, createdAt: "2026-10-01T00:00:00Z" };
+    assert.equal(pickCurrentSubscription([expired], now), null);
+    assert.equal(pickCurrentSubscription([{ ...expired, status: "cancelled" as const }], now), null);
+    assert.equal(pickCurrentSubscription([expired, refunded], now)?.id, "refunded", "a paid, fully refunded one still is");
   });
 });
 

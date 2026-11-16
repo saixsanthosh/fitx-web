@@ -13,6 +13,7 @@ import { isRazorpayId } from "./ids";
 import { billingCyclesForTenYears } from "./money";
 import { RazorpayApiError, type RazorpayEntity } from "./razorpay";
 import { verifyCheckoutSignature } from "./signature";
+import { syncCheckoutSubscription } from "./sync";
 import { LIVE_SUBSCRIPTION_STATUSES, type BillingMode, type BillingPeriod } from "./types";
 
 export type CheckoutUser = { id: string; email: string | null; name: string | null };
@@ -94,13 +95,26 @@ export async function startCheckout(deps: BillingDeps, user: CheckoutUser, planC
   if (subscriptions.some((subscription) => LIVE_SUBSCRIPTION_STATUSES.has(subscription.status))) return { kind: "already_subscribed" };
 
   const open = subscriptions.find((subscription) => subscription.status === "created" && !subscription.abandoned_at);
-  if (
-    open &&
-    open.plan_id === plan.id &&
-    open.provider_plan_id === remotePlanId &&
-    deps.now().getTime() - Date.parse(open.created_at) < REUSE_OPEN_CHECKOUT_MS
-  ) {
-    return { kind: "ready", session: sessionFor(deps, plan, open.provider_subscription_id, user), reused: true };
+  if (open) {
+    // The open checkout may have been paid in an earlier visit while Razorpay's webhook is still on its
+    // way. Ask Razorpay before offering it again or replacing it with a second subscription.
+    let remoteStatus;
+    try {
+      remoteStatus = await syncCheckoutSubscription(deps, open.provider_subscription_id, `api:checkout:${open.provider_subscription_id}:${deps.now().getTime()}`);
+    } catch (error) {
+      logFailure("checkout open subscription lookup", error);
+      if (!(error instanceof RazorpayApiError)) throw error;
+      return { kind: "provider_error", retryable: error.retryable };
+    }
+    if (remoteStatus && LIVE_SUBSCRIPTION_STATUSES.has(remoteStatus)) return { kind: "already_subscribed" };
+    if (
+      remoteStatus === "created" &&
+      open.plan_id === plan.id &&
+      open.provider_plan_id === remotePlanId &&
+      deps.now().getTime() - Date.parse(open.created_at) < REUSE_OPEN_CHECKOUT_MS
+    ) {
+      return { kind: "ready", session: sessionFor(deps, plan, open.provider_subscription_id, user), reused: true };
+    }
   }
 
   // Charge exactly what FITX shows: the Razorpay plan must match the plan row.
@@ -166,8 +180,11 @@ export async function startCheckout(deps: BillingDeps, user: CheckoutUser, planC
 export type CheckoutConfirmation = { paymentId: string; subscriptionId: string; signature: string };
 
 /**
- * Checks the signature Checkout returned against the subscription FITX stored for this account. For
- * display only ("payment received, confirming…"): access still waits for Razorpay's webhook.
+ * Checks the signature Checkout returned against the subscription FITX stored for this account. The
+ * browser's answer itself changes nothing and grants nothing. When it is genuine and the checkout is
+ * still "created" in FITX, the server reads the subscription from Razorpay and applies Razorpay's own
+ * answer, so a paid checkout stops looking unpaid without waiting for the webhook. Premium still
+ * starts only from the captured payment Razorpay reports.
  */
 export async function verifyCheckout(deps: BillingDeps, userId: string, input: CheckoutConfirmation): Promise<boolean> {
   if (!isRazorpayId("payment", input.paymentId) || !isRazorpayId("subscription", input.subscriptionId)) return false;
@@ -175,8 +192,17 @@ export async function verifyCheckout(deps: BillingDeps, userId: string, input: C
     (subscription) => subscription.provider_subscription_id === input.subscriptionId,
   );
   if (!owned) return false;
-  return verifyCheckoutSignature(
+  const verified = verifyCheckoutSignature(
     { paymentId: input.paymentId, subscriptionId: owned.provider_subscription_id, signature: input.signature },
     deps.config.keySecret,
   );
+  if (verified && owned.status === "created") {
+    try {
+      await syncCheckoutSubscription(deps, owned.provider_subscription_id, `api:verify:${owned.provider_subscription_id}:${input.paymentId}`);
+    } catch (error) {
+      // The webhook (or the nightly reconciliation) brings the same state; the answer stays "verified".
+      logFailure("checkout verify read", error);
+    }
+  }
+  return verified;
 }

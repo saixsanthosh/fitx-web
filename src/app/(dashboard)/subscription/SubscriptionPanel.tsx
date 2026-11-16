@@ -312,7 +312,9 @@ export function SubscriptionPanel({
     }
   }
 
-  const busy = phase.kind === "starting" || phase.kind === "paying" || phase.kind === "confirming";
+  // A payment that went through but is not confirmed yet: offering the plans again invites a second one.
+  const awaitingConfirmation = phase.kind === "confirming" || phase.kind === "slow";
+  const busy = phase.kind === "starting" || phase.kind === "paying" || awaitingConfirmation;
 
   return (
     <div className="space-y-5">
@@ -345,7 +347,7 @@ export function SubscriptionPanel({
         )}
       </div>
 
-      {canSubscribe && phase.kind !== "confirmed" && (
+      {canSubscribe && phase.kind !== "confirmed" && !awaitingConfirmation && (
         <section aria-labelledby="subscription-plans" className="space-y-3">
           <div>
             <h2 id="subscription-plans" className="text-base font-semibold text-fitx-text">

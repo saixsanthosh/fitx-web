@@ -24,6 +24,8 @@ const SECOND: TestUser = { id: "22222222-2222-4222-8222-222222222222", email: "s
 const STRANGER: TestUser = { id: "33333333-3333-4333-8333-333333333333", email: "stranger@example.test" };
 const THIRD: TestUser = { id: "44444444-4444-4444-8444-444444444444", email: "third@example.test" };
 const FOURTH: TestUser = { id: "66666666-6666-4666-8666-666666666666", email: "fourth@example.test" };
+const FIFTH: TestUser = { id: "77777777-7777-4777-8777-777777777777", email: "fifth@example.test" };
+const SIXTH: TestUser = { id: "88888888-8888-4888-8888-888888888888", email: "sixth@example.test" };
 
 type AppRequest = InstanceType<typeof import("next/server").NextRequest>;
 type Route = { POST?: (request: AppRequest) => Promise<Response>; GET?: (request: AppRequest) => Promise<Response> };
@@ -45,7 +47,7 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     razorpay = await new FakeRazorpay(KEY_ID, KEY_SECRET).start();
     razorpay.addPlan(MONTHLY, 19900, "monthly");
     razorpay.addPlan(YEARLY, 199900, "yearly");
-    for (const user of [MEMBER, SECOND, STRANGER, THIRD, FOURTH]) await addUser(db, user.id, user.email);
+    for (const user of [MEMBER, SECOND, STRANGER, THIRD, FOURTH, FIFTH, SIXTH]) await addUser(db, user.id, user.email);
     await addPlan(db, { code: "premium-monthly", name: "Premium monthly", amount: 19900, period: "monthly", testPlanId: MONTHLY });
     await addPlan(db, { code: "premium-yearly", name: "Premium yearly", amount: 199900, period: "yearly", testPlanId: YEARLY });
 
@@ -58,7 +60,7 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
       RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET,
       RAZORPAY_API_BASE: razorpay.url,
       CRON_SECRET,
-      BILLING_TEST_EMAILS: "member@example.test, second@example.test, third@example.test, fourth@example.test",
+      BILLING_TEST_EMAILS: "member@example.test, second@example.test, third@example.test, fourth@example.test, fifth@example.test, sixth@example.test",
     });
     delete process.env.VERCEL_ENV;
     ({ NextRequest } = await import("next/server"));
@@ -197,6 +199,48 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     assert.deepEqual((await verify(STRANGER, valid)).body, { verified: false });
     assert.equal((await rowsFor(memberSubscription))[0].status, "created");
     assert.equal((await status(MEMBER)).body.premium, false);
+  });
+
+  const activate = (subscriptionId: string) =>
+    razorpay.subscriptions.set(subscriptionId, { ...razorpay.subscriptions.get(subscriptionId)!, status: "active", current_start: PERIOD_START, current_end: PERIOD_END, charge_at: PERIOD_END, paid_count: 1 });
+  const subscriptionCreates = () => razorpay.callsTo("POST", /^\/v1\/subscriptions$/).length;
+
+  test("a genuine Checkout payment is read back from Razorpay, so the checkout stops looking unpaid", async () => {
+    const subscriptionId = String(((await checkout(FIFTH, "premium-monthly")).body.checkout as Record<string, unknown>).subscriptionId);
+    const paymentId = "pay_TestFifth00001";
+    activate(subscriptionId); // Razorpay took the payment; its webhooks are late.
+    const verified = await call(routes.verify, "POST", appRequest("/api/billing/verify", {
+      user: FIFTH,
+      method: "POST",
+      body: { razorpay_payment_id: paymentId, razorpay_subscription_id: subscriptionId, razorpay_signature: signBody(`${paymentId}|${subscriptionId}`, KEY_SECRET) },
+    }));
+    assert.deepEqual(verified.body, { verified: true });
+    assert.deepEqual(await rowsFor(subscriptionId), [{ status: "active", abandoned: false, requested: false, paid_until: null }]);
+    assert.equal((await status(FIFTH)).body.premium, false, "Premium still waits for the captured payment");
+    const creates = subscriptionCreates();
+    assert.deepEqual((await checkout(FIFTH, "premium-yearly")).body, { error: "already_subscribed" });
+    assert.equal(subscriptionCreates(), creates);
+  });
+
+  test("a checkout paid while its webhook is late blocks a second subscription", async () => {
+    const subscriptionId = String(((await checkout(SIXTH, "premium-monthly")).body.checkout as Record<string, unknown>).subscriptionId);
+    activate(subscriptionId); // paid, but neither the webhook nor the verify call reached FITX
+    const creates = subscriptionCreates();
+    const second = await checkout(SIXTH, "premium-yearly");
+    assert.equal(second.status, 409);
+    assert.deepEqual(second.body, { error: "already_subscribed" });
+    assert.equal(subscriptionCreates(), creates, "no second Razorpay subscription");
+    assert.deepEqual(await rowsFor(subscriptionId), [{ status: "active", abandoned: false, requested: false, paid_until: null }]);
+  });
+
+  test("checkout refuses to replace an open checkout whose state Razorpay cannot report", async () => {
+    // SECOND's open yearly checkout is still unpaid at Razorpay, but Razorpay doesn't answer.
+    razorpay.failNext = { path: new RegExp(`^/v1/subscriptions/${secondSubscription}$`), status: 503 };
+    const creates = subscriptionCreates();
+    const result = await checkout(SECOND, "premium-monthly");
+    assert.equal(result.status, 502);
+    assert.equal(subscriptionCreates(), creates);
+    assert.equal((await rowsFor(secondSubscription))[0].abandoned, false);
   });
 
   const chargedEvent = (createdAt: number) =>
