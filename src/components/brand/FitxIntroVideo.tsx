@@ -83,8 +83,9 @@ type BufferResult = "ready" | "slow" | "timeout";
 
 /**
  * Buffers ahead of playback. "ready" once the browser expects to play through; "slow" if media is
- * arriving slower than ~1.25x real time (measured from ~1 s in, only once data flows), so playing
- * this cut would stall; "timeout" after `capMs` (e.g. browsers that only fetch once playing).
+ * arriving slower than ~1.25x real time, so playing this cut would stall; "timeout" after `capMs`
+ * (e.g. browsers that only fetch once playing). The rate is measured from the first buffered data
+ * over at least 0.75 s, so server latency (time to first byte) never reads as a slow connection.
  */
 function bufferAhead(video: HTMLVideoElement, capMs: number) {
   return new Promise<BufferResult>((resolve) => {
@@ -92,7 +93,8 @@ function bufferAhead(video: HTMLVideoElement, capMs: number) {
       resolve("ready");
       return;
     }
-    const started = performance.now();
+    let firstAt = 0;
+    let firstAhead = 0;
     let settled = false;
     const settle = (result: BufferResult) => {
       if (settled) return;
@@ -105,11 +107,18 @@ function bufferAhead(video: HTMLVideoElement, capMs: number) {
     const onEnough = () => settle("ready");
     const timer = window.setTimeout(() => settle("timeout"), capMs);
     const poll = window.setInterval(() => {
-      const elapsed = (performance.now() - started) / 1000;
-      if (elapsed < 1 || video.buffered.length === 0) return;
+      if (video.buffered.length === 0) return;
       const ahead = video.buffered.end(video.buffered.length - 1);
-      if (ahead / elapsed < 1.25) settle("slow");
-    }, 250);
+      const now = performance.now();
+      if (!firstAt) {
+        firstAt = now;
+        firstAhead = ahead;
+        return;
+      }
+      const span = (now - firstAt) / 1000;
+      if (span < 0.75 || ahead >= 5) return;
+      if ((ahead - firstAhead) / span < 1.25) settle("slow");
+    }, 125);
     video.addEventListener("canplaythrough", onEnough);
   });
 }
@@ -196,7 +205,7 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
       load(first);
       // A short head start so the opening seconds never stall (the opening frame covers it). If the
       // connection cannot keep up with this cut, switch to the light one before anything plays.
-      const result = await bufferAhead(video, 1800);
+      const result = await bufferAhead(video, 2000);
       if (finished) return;
       if (result === "slow" && first !== lite) {
         load(lite);
