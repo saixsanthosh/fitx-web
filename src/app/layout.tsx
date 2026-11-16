@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import { Inter, JetBrains_Mono, Manrope } from "next/font/google";
 import { BRAND } from "@/config/brand";
 import { Toaster } from "@/components/ui/Toaster";
 import { AnalyticsConsent } from "@/components/layout/AnalyticsConsent";
+import { INTRO_BOOTSTRAP_SCRIPT } from "@/components/brand/introBootstrap";
 import "./globals.css";
 
 const inter = Inter({
@@ -81,8 +81,11 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${inter.variable} ${manrope.variable} ${jetbrains.variable} h-full antialiased`}
     >
+      <head>
+        {/* Theme + intro start, before the first paint (see introBootstrap.ts). */}
+        <script dangerouslySetInnerHTML={{ __html: INTRO_BOOTSTRAP_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col font-body bg-background text-foreground">
-        <Script id="fitx-bootstrap" src="/brand/fitx-bootstrap.js" strategy="beforeInteractive" />
         {children}
         <Toaster />
         <AnalyticsConsent />

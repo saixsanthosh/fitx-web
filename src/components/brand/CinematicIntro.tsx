@@ -53,20 +53,14 @@ function filmAllowed(): boolean {
 }
 
 /**
- * Devices that get the pre-rendered film instead of rendering it live: phones and tablets (heat,
- * memory, slow shader compilers) and Safari, whose WebGL takes ~10 s to compile the film's shaders.
- * `?intro=live` / `?intro=video` force either path (testing on any device).
+ * Every device plays the pre-rendered cut of the film: hardware video decoding is smooth on any
+ * phone or laptop, starts in a fraction of a second and costs no GPU/battery, while rendering the
+ * film live needs a strong GPU (and Safari takes ~10 s to compile its shaders). `?intro=live`
+ * renders it live instead (it falls back to the video if it cannot start); `?intro=video` is the
+ * default, explicit.
  */
 function chooseSource(): FilmSource {
-  const forced = new URLSearchParams(window.location.search).get("intro");
-  if (forced === "live" || forced === "video") return forced;
-  const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
-  const ua = nav.userAgent;
-  const appleMobile = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && nav.maxTouchPoints > 1);
-  const mobile = appleMobile || nav.userAgentData?.mobile === true || /Android|Mobile|Silk|Kindle/i.test(ua);
-  const safari = /Safari\//.test(ua) && !/Chrome\/|Chromium\/|CriOS\/|Edg\/|OPR\/|Firefox\/|FxiOS\//.test(ua);
-  const touchOnly = window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(pointer: fine)").matches;
-  return mobile || safari || touchOnly ? "video" : "live";
+  return new URLSearchParams(window.location.search).get("intro") === "live" ? "live" : "video";
 }
 
 /**
@@ -236,7 +230,10 @@ export function CinematicIntro() {
     focusSkipOnShow.current = returnFocus.current?.matches(":focus-visible") ?? false;
     releaseInert(inertMarked.current);
     if (sectionRef.current) inertMarked.current = inertOutside(sectionRef.current);
-    setTheme(readTheme());
+    const startTheme = readTheme();
+    // The opening-frame poster (CSS) follows this, also on Replay.
+    document.documentElement.dataset.fitxIntroTheme = startTheme;
+    setTheme(startTheme);
     setStage(0);
     setRun((value) => value + 1);
     setLeaving(false);
@@ -405,6 +402,8 @@ export function CinematicIntro() {
       data-intro-debug={debug ? "overlay" : undefined}
     >
       {debug && <DebugBackdrop image={debug.image} theme={theme} />}
+      {/* The film's opening frame from the first paint (bootstrap "pending") until the film covers it. */}
+      {!debug && <div className={styles.poster} aria-hidden="true" />}
       {(playback === "loading" || filmPlaying) && source === "live" && IntroScene && !debug && (
         <IntroScene
           theme={theme}
@@ -433,25 +432,17 @@ export function CinematicIntro() {
       )}
 
       <div className={styles.topline}>
-        <button ref={skipRef} className={styles.skip} type="button" onClick={finish} aria-keyshortcuts="Escape">
+        <button ref={skipRef} className={styles.skip} type="button" onClick={finish} aria-keyshortcuts="Escape" data-fitx-skip>
           <span>Skip intro</span><kbd aria-hidden="true">ESC</kbd>
         </button>
       </div>
 
-      <div className={styles.bootstrapBrand} aria-hidden="true">
-        <Logo size={68} className={styles.logo} />
-      </div>
-
-      {playback === "static" ? (
+      {/* Only when the film cannot play (reduced motion, unsupported device): the static mark. */}
+      {playback === "static" && (
         <div className={styles.staticBrand} ref={brandRef}>
           <Logo size={68} className={styles.logo} animateMark />
         </div>
-      ) : playback === "loading" || (filmPlaying && filmStage === STAGE.coldOpen) ? (
-        // The loading mark hands off to the film's first frame instead of cutting away.
-        <div className={`${styles.staticBrand} ${filmPlaying ? styles.handoff : ""}`} ref={brandRef}>
-          <Logo size={68} className={styles.logo} />
-        </div>
-      ) : null}
+      )}
     </section>
   );
 }

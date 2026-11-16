@@ -47,9 +47,9 @@
   background: radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(5, 6, 5, .24) 100%);
 }
 
-/* Stacking with IntroFilmOverlay.module.css: film graphics 3, letterbox 4, brand 5, controls 6. */
+/* Stacking with IntroFilmOverlay.module.css: opening frame + film 0, film graphics 3, letterbox 4,
+   brand 5, controls 6. */
 .topline,
-.bootstrapBrand,
 .staticBrand {
   position: absolute;
   z-index: 5;
@@ -57,18 +57,30 @@
 
 .topline { z-index: 6; }
 
-.bootstrapBrand {
-  top: 50%;
-  left: 50%;
+/*
+ * The film's opening frame (the same picture as the video's first frame), from the first paint
+ * (bootstrap "pending") until the film plays over it: the intro starts on the film, never on a logo.
+ * The bootstrap preloads the matching file; theme comes from data-fitx-intro-theme.
+ */
+.poster {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
   display: none;
-  align-items: center;
-  justify-content: center;
-  width: min(84vw, 520px);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
+  background: var(--fitx-bg) center / cover no-repeat;
+  background-image: url("/brand/intro/fitx-intro-light-landscape.webp");
 }
 
-:global(:root[data-fitx-intro="pending"]) .bootstrapBrand { display: flex; }
+:global(:root[data-fitx-intro="pending"]) .poster,
+.intro[data-intro-playback="loading"] .poster,
+.intro[data-intro-playback="three"] .poster { display: block; }
+
+:global(:root[data-fitx-intro-theme="dark"]) .poster { background-image: url("/brand/intro/fitx-intro-dark-landscape.webp"); }
+
+@media (orientation: portrait) {
+  .poster { background-image: url("/brand/intro/fitx-intro-light-portrait.webp"); }
+  :global(:root[data-fitx-intro-theme="dark"]) .poster { background-image: url("/brand/intro/fitx-intro-dark-portrait.webp"); }
+}
 
 .topline {
   top: calc(24px + env(safe-area-inset-top));
@@ -115,19 +127,27 @@
 .skip:hover { color: var(--intro-accent); transition-delay: 0s; }
 .skip:focus-visible { outline: 2px solid var(--intro-accent); outline-offset: 4px; border-radius: 2px; }
 
-/* While the film plays the control sits on the letterbox or the picture: quiet dark glass in both themes. */
-.cine .skip {
+/*
+ * Over the picture (opening frame or film) the control is quiet dark glass in both themes. A solid
+ * tint rather than backdrop-filter: blurring the moving film behind it every frame costs low-end
+ * phones frames.
+ */
+.cine .skip,
+:global(:root[data-fitx-intro="pending"]) .skip,
+.intro[data-intro-playback="loading"] .skip {
   padding-right: 9px;
   transition-delay: 0s;
-  color: rgba(251, 246, 238, .86);
-  background: rgba(12, 13, 12, .62);
+  color: rgba(251, 246, 238, .9);
+  background: rgba(12, 13, 12, .72);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .13);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
 }
 
-.cine .skip kbd { color: rgba(251, 246, 238, .6); border-color: rgba(255, 255, 255, .2); transition-delay: 0s; }
-.cine .skip:hover { color: #fff; }
+.cine .skip kbd,
+:global(:root[data-fitx-intro="pending"]) .skip kbd,
+.intro[data-intro-playback="loading"] .skip kbd { color: rgba(251, 246, 238, .6); border-color: rgba(255, 255, 255, .2); transition-delay: 0s; }
+.cine .skip:hover,
+:global(:root[data-fitx-intro="pending"]) .skip:hover,
+.intro[data-intro-playback="loading"] .skip:hover { color: #fff; }
 
 .staticBrand {
   top: 50%;
@@ -141,15 +161,9 @@
   animation: brand-arrive 600ms cubic-bezier(.16,.84,.22,1) both;
 }
 
-.handoff {
-  pointer-events: none;
-  animation: brand-handoff 320ms cubic-bezier(.4, 0, .2, 1) both;
-}
-
 .logo { color: var(--fitx-text) !important; }
 .logo :global(.fitx-wordmark) { letter-spacing: .12em; font-weight: 750; }
 @keyframes brand-arrive { from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(.98); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
-@keyframes brand-handoff { from { opacity: 1; transform: translate(-50%, -50%); } to { opacity: 0; transform: translate(-50%, -50%) scale(1.03); filter: blur(4px); } }
 
 @media (max-width: 600px) {
   .topline { top: calc(12px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
@@ -157,7 +171,6 @@
   .skip kbd { display: none; }
   .cine .skip { padding-right: 14px; }
   .staticBrand { width: min(86vw, 420px); }
-  .bootstrapBrand { width: min(86vw, 420px); }
 }
 
 /* Portrait mattes are thin: during the film a slimmer pill (same 44px+ hit area) sits inside the top bar. */
