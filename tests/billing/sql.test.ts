@@ -16,6 +16,7 @@ const FARID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const GITA = "99999999-9999-4999-8999-999999999999";
 const HANA = "12121212-1212-4212-8212-121212121212";
 const IRIS = "13131313-1313-4313-8313-131313131313";
+const JAY = "14141414-1414-4414-8414-141414141414";
 const PLAN_ID = "plan_TestMonthly01";
 
 type Event = Record<string, unknown>;
@@ -49,7 +50,7 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
 
   before(async () => {
     db = await TestDatabase.start();
-    for (const [id, email] of [[ALICE, "alice@example.test"], [BOB, "bob@example.test"], [CARA, "cara@example.test"], [DEV, "dev@example.test"], [ERIN, "erin@example.test"], [FARID, "farid@example.test"], [GITA, "gita@example.test"], [HANA, "hana@example.test"], [IRIS, "iris@example.test"]]) {
+    for (const [id, email] of [[ALICE, "alice@example.test"], [BOB, "bob@example.test"], [CARA, "cara@example.test"], [DEV, "dev@example.test"], [ERIN, "erin@example.test"], [FARID, "farid@example.test"], [GITA, "gita@example.test"], [HANA, "hana@example.test"], [IRIS, "iris@example.test"], [JAY, "jay@example.test"]]) {
       await addUser(db, id, email);
     }
     planId = await addPlan(db, { code: "premium-monthly", name: "Premium monthly", amount: 19900, period: "monthly", testPlanId: PLAN_ID, features: ["Premium home programmes"] });
@@ -286,5 +287,19 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
     const buckets = candidates.map((row) => row.bucket);
     assert.deepEqual([...new Set(buckets)], [0, 1, 2], "still billed and open checkouts first, then ended ones, then replaced checkouts");
     assert.deepEqual(buckets, [...buckets].sort((a, b) => a - b));
+  });
+
+  test("within one second, a late 'authenticated' never undoes 'active'", async () => {
+    await checkout(JAY, "sub_TestJay000001");
+    // Razorpay's webhook times are whole seconds; these three events share one.
+    const second = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+    await apply(charged({ id: "evt_jay_charged", sub: "sub_TestJay000001", pay: "pay_TestJay000001", start: at(-1), end: at(29), createdAt: second }));
+    const late = await apply(subscriptionEvent("evt_jay_authenticated", "sub_TestJay000001", "authenticated", second));
+    assert.equal(late.detail, "older_than_applied_snapshot");
+    assert.equal(await status("sub_TestJay000001"), "active");
+    // Later steps in the same second still apply in arrival order.
+    const pending = await apply(subscriptionEvent("evt_jay_pending", "sub_TestJay000001", "pending", second));
+    assert.equal(pending.detail, null);
+    assert.equal(await status("sub_TestJay000001"), "pending");
   });
 });

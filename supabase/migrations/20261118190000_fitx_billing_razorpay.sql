@@ -299,6 +299,17 @@ as $$
   select case p_status when 'pending' then 0 when 'failed' then 1 when 'processed' then 2 else -1 end
 $$;
 
+-- Lifecycle order of a subscription, used only between snapshots from the same second: created, then
+-- authenticated, then any later status.
+create or replace function public.billing_subscription_rank(p_status text)
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select case p_status when 'created' then 0 when 'authenticated' then 1 else 2 end
+$$;
+
 -- Applying Razorpay events ----------------------------------------------------------------------
 
 -- Applies one normalised Razorpay event in a single transaction and returns what happened.
@@ -386,7 +397,14 @@ begin
 
     if v_sub_row.status in ('cancelled', 'completed', 'expired') then
       v_detail := 'subscription_already_final';
-    elsif v_sub_row.provider_synced_at is not null and v_at < v_sub_row.provider_synced_at then
+    elsif v_sub_row.provider_synced_at is not null and (
+      v_at < v_sub_row.provider_synced_at
+      -- Webhook times are whole seconds. Within one second the start of the lifecycle never wins
+      -- over a later step: an "authenticated" arriving after "charged" must not undo it.
+      or (v_at = v_sub_row.provider_synced_at
+          and public.billing_subscription_rank(coalesce(v_sub->>'status', v_sub_row.status))
+            < public.billing_subscription_rank(v_sub_row.status))
+    ) then
       v_detail := 'older_than_applied_snapshot';
     else
       update public.billing_subscriptions s set
@@ -858,6 +876,7 @@ $$;
 revoke all on function public.billing_grants_access(text, timestamptz) from public, anon, authenticated, service_role;
 revoke all on function public.billing_payment_rank(text) from public, anon, authenticated, service_role;
 revoke all on function public.billing_refund_rank(text) from public, anon, authenticated, service_role;
+revoke all on function public.billing_subscription_rank(text) from public, anon, authenticated, service_role;
 
 revoke all on function public.has_premium(uuid) from public, anon;
 grant execute on function public.has_premium(uuid) to authenticated, service_role;
