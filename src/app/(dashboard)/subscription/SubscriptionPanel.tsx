@@ -76,20 +76,29 @@ const FAST_POLL = { every: 2000, until: 90_000 };
 const SLOW_POLL = { every: 15_000, until: 15 * 60_000 };
 
 /**
- * Asks the server whether Razorpay's webhook has confirmed the payment. Calls onSlow once when the
- * fast phase ends without a confirmation. Returns a function that stops polling.
+ * Asks the server whether Razorpay has confirmed the payment of this subscription (not whether the
+ * account has Premium, which it may still have from an earlier one). Calls onSlow once when the fast
+ * phase ends without a confirmation. Returns a function that stops polling.
  */
-function pollForPremium({ onConfirmed, onSlow }: { onConfirmed: () => void; onSlow: () => void }): () => void {
+function pollForConfirmation({
+  subscriptionId,
+  onConfirmed,
+  onSlow,
+}: {
+  subscriptionId: string;
+  onConfirmed: () => void;
+  onSlow: () => void;
+}): () => void {
   const started = Date.now();
   let timer: number | null = null;
   let stopped = false;
   let slow = false;
   const check = async () => {
     try {
-      const response = await fetch("/api/billing/status", { cache: "no-store" });
-      const body = (await response.json().catch(() => null)) as { premium?: boolean } | null;
+      const response = await fetch(`/api/billing/status?subscription=${encodeURIComponent(subscriptionId)}`, { cache: "no-store" });
+      const body = (await response.json().catch(() => null)) as { confirmed?: boolean } | null;
       if (stopped) return;
-      if (response.ok && body?.premium) return onConfirmed();
+      if (response.ok && body?.confirmed === true) return onConfirmed();
     } catch {
       // keep waiting; a network blip is not a failed payment
     }
@@ -164,9 +173,10 @@ export function SubscriptionPanel({
     if (confirmingCancel) keepSubscriptionRef.current?.focus();
   }, [confirmingCancel]);
 
-  function waitForConfirmation() {
+  function waitForConfirmation(subscriptionId: string) {
     stopPolling.current?.();
-    stopPolling.current = pollForPremium({
+    stopPolling.current = pollForConfirmation({
+      subscriptionId,
       onConfirmed: () => {
         setPhase({ kind: "confirmed" });
         setNotice({ tone: "success", text: "Razorpay confirmed your payment. Premium is on." });
@@ -244,7 +254,8 @@ export function SubscriptionPanel({
           headers: { "content-type": "application/json" },
           body: JSON.stringify(result),
         }).catch(() => undefined);
-        waitForConfirmation();
+        // The id FITX's server issued for this checkout, not the one Checkout handed back.
+        waitForConfirmation(session.subscriptionId);
       },
     });
     checkout.on("payment.failed", (failure) => {

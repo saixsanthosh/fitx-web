@@ -335,6 +335,30 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     assert.equal((await rowsFor(subscriptionId))[0].status, "cancelled");
   });
 
+  test("after subscribing again, only the new subscription's own payment confirms it", async () => {
+    // MEMBER cancelled above and keeps Premium until the paid period ends.
+    const started = await checkout(MEMBER, "premium-yearly");
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+    const renewed = String((started.body.checkout as Record<string, unknown>).subscriptionId);
+    assert.notEqual(renewed, memberSubscription);
+    const watch = (user: TestUser) => call(routes.status, "GET", appRequest(`/api/billing/status?subscription=${renewed}`, { user }));
+
+    const waiting = await watch(MEMBER);
+    assert.equal(waiting.body.premium, true, "the cancelled subscription's paid period still runs");
+    assert.equal(waiting.body.confirmed, false, "but the new payment is not confirmed yet");
+    assert.equal((await watch(SECOND)).body.confirmed, false, "another account learns nothing about it");
+    assert.equal((await call(routes.status, "GET", appRequest("/api/billing/status?subscription=not-an-id", { user: MEMBER }))).body.confirmed, false);
+
+    const cycle = { status: "active", current_start: PERIOD_START, current_end: PERIOD_START + 365 * DAY, charge_at: PERIOD_START + 365 * DAY, paid_count: 1 };
+    razorpay.subscriptions.set(renewed, { ...razorpay.subscriptions.get(renewed)!, ...cycle });
+    const charged = webhookBody("subscription.charged", {
+      subscription: subscriptionEntity({ id: renewed, plan_id: YEARLY, ...cycle, remaining_count: 9 }),
+      payment: paymentEntity({ id: "pay_TestMemberNew1", amount: 199900, status: "captured", invoice_id: "inv_TestMemberNew1" }),
+    });
+    assert.deepEqual((await deliver(charged, { eventId: "evt_MemberRenewed1" })).body, { outcome: "applied" });
+    assert.equal((await watch(MEMBER)).body.confirmed, true);
+  });
+
   test("reconciliation needs the cron secret", async () => {
     const reconcile = (authorization?: string) =>
       call(routes.reconcile, "GET", new NextRequest("https://fitnessx.vercel.app/api/billing/reconcile", { headers: authorization ? { authorization } : {} }));
