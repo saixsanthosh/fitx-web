@@ -184,7 +184,7 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
   }
 
   return (
-    <SectionCard id="body" title="Body and goal" description="Used for your calorie and protein targets." icon={<Ruler size={18} />} editing={editing} onEdit={start} canEdit>
+    <SectionCard id="body" title="Body and goal" description="Used for your calorie and protein targets, and in the AI coach’s advice if you use it." icon={<Ruler size={18} />} editing={editing} onEdit={start} canEdit>
       {!editing ? (
         <DetailList>
           <Detail label="Age">{profile?.age != null ? `${profile.age} years` : <NotSet />}</Detail>
