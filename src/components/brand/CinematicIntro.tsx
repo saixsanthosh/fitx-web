@@ -185,12 +185,14 @@ export function CinematicIntro() {
     filmPlayingRef.current = false;
     document.documentElement.dataset.fitxIntro = "active";
     document.documentElement.removeAttribute("data-fitx-intro-ready");
-    // Modal while it covers the page: remember focus, shut the page behind, focus Skip once shown.
+    // Modal while it covers the page: remember focus and shut the page behind (Skip is then the
+    // only Tab stop). Move focus to Skip only for keyboard users (e.g. Replay pressed with Enter):
+    // programmatic focus on first load would draw a focus ring over the film for everyone.
     const focused = document.activeElement;
     returnFocus.current = focused instanceof HTMLElement && focused !== document.body ? focused : null;
+    focusSkipOnShow.current = returnFocus.current?.matches(":focus-visible") ?? false;
     releaseInert(inertMarked.current);
     if (sectionRef.current) inertMarked.current = inertOutside(sectionRef.current);
-    focusSkipOnShow.current = true;
     setTheme(readTheme());
     setStage(0);
     setRun((value) => value + 1);
