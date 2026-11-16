@@ -20,21 +20,6 @@ type Orientation = "landscape" | "portrait";
 /** One encoded cut of the film (rendered offline from `intro/`, frame-exact with the live film). */
 type Variant = { src: string; type: string; width: number; height: number; framerate: number; bitrate: number };
 
-/** Set by the inline bootstrap (introBootstrap.ts): the film already buffering before hydration. */
-type EarlyVideo = { el: HTMLVideoElement; src: string };
-declare global {
-  interface Window {
-    __fitxIntroVideo?: EarlyVideo | null;
-  }
-}
-
-/** Takes the bootstrap's early element (once): a replay or a second mount creates its own. */
-function takeEarlyVideo(): EarlyVideo | null {
-  const early = window.__fitxIntroVideo ?? null;
-  window.__fitxIntroVideo = null;
-  return early;
-}
-
 type NavigatorHints = Navigator & {
   deviceMemory?: number;
   connection?: { effectiveType?: string; downlink?: number };
@@ -144,7 +129,7 @@ function bufferAhead(video: HTMLVideoElement, capMs: number) {
  * The opening-frame poster (CinematicIntro) shows until the first frame plays over it.
  */
 export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsupported, onHold }: Props) {
-  const hostRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const callbacks = useRef({ onStage, onReady, onComplete, onUnsupported, onHold });
   const themeRef = useRef(theme);
 
@@ -153,24 +138,8 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
   }, [onStage, onReady, onComplete, onUnsupported, onHold]);
 
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    // Adopt the element the bootstrap started buffering before hydration, else make one. Managed
-    // imperatively (React renders only the host), so the in-flight download is never interrupted.
-    const early = takeEarlyVideo();
-    const video = early?.el ?? document.createElement("video");
-    video.className = styles.surface;
-    video.muted = true;
-    video.setAttribute("muted", "");
-    video.playsInline = true;
-    video.setAttribute("playsinline", "");
-    video.preload = "auto";
-    video.disablePictureInPicture = true;
-    video.setAttribute("disableremoteplayback", "");
-    video.tabIndex = -1;
-    // Hidden until its first frame plays over the identical opening-frame poster.
-    video.style.visibility = "hidden";
-    host.appendChild(video);
+    const video = videoRef.current;
+    if (!video) return;
     let raf = 0;
     let stage = -1;
     let started = false;
@@ -219,7 +188,12 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
     video.addEventListener("error", onError);
     document.addEventListener("visibilitychange", onVisibility);
 
-    const orientation: Orientation = window.matchMedia("(orientation: portrait)").matches ? "portrait" : "landscape";
+    // Hidden until its first frame plays over the identical opening-frame poster.
+    video.style.visibility = "hidden";
+    video.muted = true;
+    video.playsInline = true;
+
+    const orientation: Orientation = window.innerHeight > window.innerWidth ? "portrait" : "landscape";
     const load = (variant: Variant) => {
       video.dataset.variant = variant.src.split("/").pop();
       video.src = variant.src;
@@ -228,8 +202,7 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
     void (async () => {
       const { first, lite } = await chooseVariants(themeRef.current, orientation);
       if (finished) return;
-      if (early && early.src === first.src) video.dataset.variant = first.src.split("/").pop();
-      else load(first);
+      load(first);
       // A short head start so the opening seconds never stall (the opening frame covers it). If the
       // connection cannot keep up with this cut, switch to the light one before anything plays.
       const result = await bufferAhead(video, 3000);
@@ -259,9 +232,21 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
       // Stop any download in flight.
       video.removeAttribute("src");
       video.load();
-      video.remove();
     };
   }, []);
 
-  return <div ref={hostRef} className={styles.canvas} aria-hidden="true" />;
+  return (
+    <div className={styles.canvas} aria-hidden="true">
+      <video
+        ref={videoRef}
+        className={styles.surface}
+        muted
+        playsInline
+        preload="auto"
+        disablePictureInPicture
+        disableRemotePlayback
+        tabIndex={-1}
+      />
+    </div>
+  );
 }
