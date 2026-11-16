@@ -6,6 +6,9 @@
 -- update, so one old out-of-range value would block unrelated saves. Count such rows first; see the runbook.)
 begin;
 
+-- The grant below names this column, so it is added here too when 20261117090000 has not run. Never a
+-- backfill here: only the step that first adds the column in 20261117090000 marks existing accounts as
+-- having seen the film, so applying either migration again leaves a null intro_completed_at null.
 alter table public.profiles add column if not exists intro_completed_at timestamptz;
 
 drop policy if exists profiles_self on public.profiles;

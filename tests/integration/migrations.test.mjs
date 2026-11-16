@@ -5,7 +5,8 @@
 //     away from the fully migrated state (tables, columns, constraints, indexes, policies, triggers,
 //     functions, grants, comments, row counts), except the problems listed below with their reason;
 //   * every table in public must have row level security on and at least one policy, except the tables
-//     listed below with the reason they need none.
+//     listed below with the reason they need none;
+//   * an account created between the two runs must still have its intro film unseen after the second.
 // The first migration that fails stops the run: later ones may depend on it, so they are not applied
 // and the checks that need the whole schema are skipped with the reason.
 // Skipped when the PostgreSQL server binaries (initdb, pg_ctl, psql) are not on PATH.
@@ -212,6 +213,9 @@ function diff(before, after, reference) {
 
 const indent = (text) => `    ${text.replaceAll("\n", "\n    ")}`;
 
+/** An account that signs up after the migrations were applied, before they are applied again. */
+const LATER_MEMBER = "c0000000-0000-4000-8000-000000000001";
+
 const skip = available() ? false : "Postgres binaries (initdb, pg_ctl, psql) are not installed";
 
 test("migration files are named <14-digit version>_<name>.sql with unique versions", () => {
@@ -233,6 +237,8 @@ describe("every migration on a fresh Supabase-shaped database", { skip }, () => 
   let rls = null;
   /** How the database differs from the fully migrated one after the second run. */
   let drift = [];
+  /** LATER_MEMBER's profile flag, read before and after the second run. */
+  const laterMember = { beforeSecondRun: null, afterSecondRun: null };
 
   before(() => {
     pg = new LocalPostgres().start();
@@ -256,6 +262,12 @@ describe("every migration on a fresh Supabase-shaped database", { skip }, () => 
     if (firstFailure) return;
     rls = pg.json(RLS);
 
+    // Someone signs up after the release (sign-up's trigger creates the profile), so the second run
+    // meets an account that has not seen its intro film yet.
+    pg.exec(`insert into auth.users (id, email) values ('${LATER_MEMBER}', 'later@example.test');`);
+    const introFlag = () => pg.json(`select json_build_object('intro_completed_at', intro_completed_at) from public.profiles where id = '${LATER_MEMBER}';`);
+    laterMember.beforeSecondRun = introFlag();
+
     // Second run: every migration again, in order. Each one is judged by what it moves away from the
     // fully migrated database; putting back what an earlier re-run changed is listed apart.
     const migrated = pg.json(SNAPSHOT);
@@ -269,6 +281,7 @@ describe("every migration on a fresh Supabase-shaped database", { skip }, () => 
       previous = next;
     }
     drift = diff(migrated, previous).moved;
+    laterMember.afterSecondRun = introFlag();
   });
 
   after(() => pg?.stop());
@@ -334,6 +347,12 @@ describe("every migration on a fresh Supabase-shaped database", { skip }, () => 
     assert.ok(problems.length === 0, problems.join("\n"));
   });
 
+  test("applying the migrations again never marks an account as having seen its intro film", (t) => {
+    if (firstFailure) return t.skip(`not checked: ${firstFailure.name} failed on the first run`);
+    assert.deepEqual(laterMember.beforeSecondRun, { intro_completed_at: null }, "a new account starts with the film unseen");
+    assert.deepEqual(laterMember.afterSecondRun, { intro_completed_at: null }, "the second run must leave it null, or the account never gets its film");
+  });
+
   test("every public table has row level security on and at least one policy", (t) => {
     if (firstFailure) return t.skip(`not checked: ${firstFailure.name} failed on the first run`);
     const problems = [];
@@ -353,5 +372,48 @@ describe("every migration on a fresh Supabase-shaped database", { skip }, () => 
     for (const [name, reason] of Object.entries(NO_POLICY_BY_DESIGN)) t.diagnostic(`no policy by design: public.${name}: ${reason}`);
     t.diagnostic(`${names.length} public tables checked`);
     assert.ok(problems.length === 0, problems.join("\n"));
+  });
+});
+
+// 20261117090000 adds profiles.intro_completed_at and marks the accounts that already exist as having seen
+// the film (it used to play on every visit). Only the step that adds the column may do that: run again,
+// a backfill would take the film away from everyone who signed up since. 20261117100000 adds the same
+// column (its grant names it) and never backfills.
+describe("the intro film flag on a database that already has accounts", { skip }, () => {
+  const FLAG = "20261117090000_fitx_profiles_intro_flag.sql";
+  const PRIVILEGES = "20261117100000_fitx_profiles_column_privileges.sql";
+  /** @type {LocalPostgres} */
+  let pg;
+  const apply = (name) => pg.applyFile(path.join(MIGRATIONS_DIR, name), { singleTransaction: true });
+  // Per account email: the flag, and whether it equals the profile's creation time.
+  const flags = () => pg.json(`
+    select json_object_agg(email, json_build_object('seen', intro_completed_at, 'at_creation', intro_completed_at = created_at))
+    from public.profiles;`);
+
+  before(() => {
+    pg = new LocalPostgres().start();
+    pg.applyMigrations({ before: FLAG.slice(0, 14) });
+    pg.exec(`insert into auth.users (id, email) values ('e0000000-0000-4000-8000-000000000001', 'early@example.test');`);
+  });
+
+  after(() => pg?.stop());
+
+  test("accounts that exist when the column is added count as having seen the film; later ones never do", () => {
+    apply(FLAG);
+    apply(PRIVILEGES);
+    pg.exec(`insert into auth.users (id, email) values ('e0000000-0000-4000-8000-000000000002', 'later@example.test');`);
+    const first = flags();
+    assert.equal(first["early@example.test"].at_creation, true, "an account from before the migration counts as having seen it since it was created");
+    assert.deepEqual(first["later@example.test"], { seen: null, at_creation: null });
+    apply(FLAG);
+    apply(PRIVILEGES);
+    assert.deepEqual(flags(), first, "applying both again changes no account");
+  });
+
+  test("when 20261117100000 adds the column first, neither migration marks anyone", () => {
+    pg.exec(`alter table public.profiles drop column intro_completed_at;`);
+    apply(PRIVILEGES);
+    apply(FLAG);
+    assert.deepEqual(Object.values(flags()).map((flag) => flag.seen), [null, null]);
   });
 });
