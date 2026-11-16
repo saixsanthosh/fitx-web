@@ -68,6 +68,7 @@ export function workoutSystemPrompt(input: PromptInput & { facts: MemberFacts; c
     `- The session should take about ${facts.sessionMinutes} minutes for a ${facts.level} member training at ${facts.location} with this goal: ${facts.goal.replace(/_/g, " ")}.`,
     facts.recentMuscles.length ? `- In the last 7 days the member trained: ${facts.recentMuscles.join(", ")}. Favour muscle groups that have had more rest.` : "- Train the whole body in a balanced way.",
     "- Pick sets, reps and rest for the goal: strength 3-6 reps with 2-3 minutes rest; muscle gain 6-12 reps with 60-120 seconds; endurance or general fitness 10-20 reps with 30-60 seconds.",
+    "- For holds such as a plank or wall sit, set reps to 1 and put the seconds per set in hold_seconds; for every other exercise hold_seconds is 0.",
     "- Put a short cue in note where it helps technique. Tips: at most three, including a short warm-up.",
     "Safety:",
     ...safetyRules({ minor: facts.minor, calorieFloor: facts.calorieFloor }).map((rule) => `- ${rule}`),

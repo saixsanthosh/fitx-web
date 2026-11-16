@@ -333,6 +333,15 @@ begin
       coalesce((e ->> 'reps_max')::smallint, 12), coalesce((e ->> 'rest_seconds')::smallint, 90)
     from jsonb_array_elements(plan -> 'exercises') with ordinality as t(e, ord)
     where t.ord <= 20;
+    -- Holds (a plank, a wall sit) keep their seconds once the workouts migration 20261115110000 is in.
+    if exists (select 1 from pg_catalog.pg_attribute
+               where attrelid = 'public.workout_plan_exercises'::regclass and attname = 'target_duration_seconds' and not attisdropped) then
+      execute 'update public.workout_plan_exercises x set target_duration_seconds = h.seconds'
+        || ' from (select (t.ord - 1)::smallint as sort_order, (e ->> ''hold_seconds'')::integer as seconds'
+        || ' from jsonb_array_elements($3) with ordinality as t(e, ord)) h'
+        || ' where x.plan_id = $2 and x.user_id = $1 and x.sort_order = h.sort_order and h.seconds between 1 and 7200'
+        using uid, new_id, plan -> 'exercises';
+    end if;
   else
     raise exception using errcode = '22023', message = 'unknown coach action';
   end if;

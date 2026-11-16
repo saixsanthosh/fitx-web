@@ -39,6 +39,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const [focusKey, setFocusKey] = useState(0);
   const stopper = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
 
@@ -126,6 +127,8 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
       else if (event.type === "message") {
         setMessages((old) => [...old, event.message]);
         recordActions(event.actions);
+        // A plan is long: show its start, not its end, once it is on the page.
+        if (event.message.data?.plan) requestAnimationFrame(() => document.getElementById(`coach-message-${event.message.id}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
       } else if (event.type === "done") updateQuota(event.quota);
       else if (event.type === "error") {
         failed = true;
@@ -303,7 +306,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
               <ul className="mt-5 grid gap-2 sm:grid-cols-3">
                 {suggestions.map((suggestion) => (
                   <li key={suggestion}>
-                    <button type="button" onClick={() => { setMode("chat"); setDraft(suggestion); }} className="min-h-11 w-full rounded-xl border border-fitx-border bg-fitx-card px-3.5 py-3 text-left text-sm leading-5 text-fitx-text transition-colors hover:border-fitx-primary hover:bg-fitx-hover">
+                    <button type="button" onClick={() => { setMode("chat"); setDraft(suggestion); setFocusKey((key) => key + 1); }} className="min-h-11 w-full rounded-xl border border-fitx-border bg-fitx-card px-3.5 py-3 text-left text-sm leading-5 text-fitx-text transition-colors hover:border-fitx-primary hover:bg-fitx-hover">
                       {suggestion}
                     </button>
                   </li>
@@ -311,7 +314,11 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
               </ul>
             </div>
           ) : (
-            messages.map((message) => <MessageView key={message.id} message={message} actions={planActions} />)
+            messages.map((message) => (
+              <div key={message.id} id={`coach-message-${message.id}`} className="scroll-mt-24">
+                <MessageView message={message} actions={planActions} />
+              </div>
+            ))
           )}
 
           {pending && (
@@ -336,7 +343,8 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
               <button type="button" onClick={() => setProblem(null)} aria-label="Dismiss" className="-m-2 grid h-11 w-11 shrink-0 place-items-center rounded-lg hover:bg-fitx-hover"><X size={16} aria-hidden="true" /></button>
             </div>
           )}
-          <div ref={end} />
+          {/* Clears the sticky composer when scrolled to. */}
+          <div ref={end} className="scroll-mb-48" />
         </section>
 
         <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+76px)] z-20 bg-gradient-to-t from-fitx-bg from-70% to-transparent pb-1 pt-4 lg:bottom-4">
@@ -353,6 +361,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
             onSend={() => void send()}
             onStop={() => stopper.current?.abort()}
             hint={quotaHint}
+            focusKey={focusKey}
           />
         </div>
       </div>

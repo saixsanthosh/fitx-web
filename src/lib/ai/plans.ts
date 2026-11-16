@@ -32,7 +32,7 @@ export type ModelMealPlan = { title: string; summary: string; meals: Array<{ nam
 export type ModelWorkout = {
   title: string;
   summary: string;
-  exercises: Array<{ id: string; sets: number; repsMin: number; repsMax: number; restSeconds: number; note: string | null }>;
+  exercises: Array<{ id: string; sets: number; repsMin: number; repsMax: number; restSeconds: number; holdSeconds: number | null; note: string | null }>;
   tips: string[];
 };
 export type ModelSwap = { options: Array<ModelFood & { why: string | null }> };
@@ -92,6 +92,7 @@ export const WORKOUT_SCHEMA: JsonSchema = {
           reps_min: { type: "integer" },
           reps_max: { type: "integer" },
           rest_seconds: { type: "integer" },
+          hold_seconds: { type: "integer", description: "For holds such as a plank or wall sit: seconds per set (then reps are 1). Otherwise 0" },
           note: { type: "string", description: "Optional short cue, or an empty string" },
         },
         required: ["id", "sets", "reps_min", "reps_max", "rest_seconds"],
@@ -169,14 +170,16 @@ export function parseWorkout(value: unknown, allowedIds: ReadonlySet<string>): M
     const id = raw.id.trim();
     if (!allowedIds.has(id) || seen.has(id)) continue;
     seen.add(id);
-    const repsMin = Math.round(clampNumber(raw.reps_min, 1, 100) ?? 8);
-    const repsMax = Math.max(repsMin, Math.round(clampNumber(raw.reps_max, 1, 100) ?? repsMin + 4));
+    const hold = Math.round(clampNumber(raw.hold_seconds, 0, 600) ?? 0);
+    const repsMin = hold ? 1 : Math.round(clampNumber(raw.reps_min, 1, 100) ?? 8);
+    const repsMax = hold ? 1 : Math.max(repsMin, Math.round(clampNumber(raw.reps_max, 1, 100) ?? repsMin + 4));
     exercises.push({
       id,
       sets: Math.round(clampNumber(raw.sets, 1, 10) ?? 3),
       repsMin,
       repsMax,
       restSeconds: Math.round(clampNumber(raw.rest_seconds, 15, 600) ?? 90),
+      holdSeconds: hold >= 5 ? hold : null,
       note: cleanText(raw.note, 140),
     });
     if (exercises.length === 12) break;

@@ -249,7 +249,7 @@ async function workoutTurn(state: TurnState, emit: Emit) {
     location: facts.location,
     exercises: workout.exercises.map((exercise) => {
       const known = byId.get(exercise.id)!;
-      return { exerciseId: exercise.id, name: known.name, primaryMuscle: known.primary_muscle, equipment: known.equipment, sets: exercise.sets, repsMin: exercise.repsMin, repsMax: exercise.repsMax, restSeconds: exercise.restSeconds, note: exercise.note };
+      return { exerciseId: exercise.id, name: known.name, primaryMuscle: known.primary_muscle, equipment: known.equipment, sets: exercise.sets, repsMin: exercise.repsMin, repsMax: exercise.repsMax, restSeconds: exercise.restSeconds, holdSeconds: exercise.holdSeconds, note: exercise.note };
     }),
     tips: workout.tips,
     checks: ["Every exercise is from FITX's exercise library and fits the equipment and location in your profile."],
@@ -262,7 +262,7 @@ async function workoutTurn(state: TurnState, emit: Emit) {
     threadId: state.thread.id,
     role: "assistant",
     task: "workout_plan",
-    content: `Workout: ${plan.title}. ${plan.summary} ${plan.exercises.map((exercise) => `${exercise.name} ${exercise.sets}×${exercise.repsMin}-${exercise.repsMax}`).join("; ")}.`.slice(0, 2000),
+    content: `Workout: ${plan.title}. ${plan.summary} ${plan.exercises.map((exercise) => `${exercise.name} ${exercise.sets}×${exercise.holdSeconds ? `${exercise.holdSeconds}s` : `${exercise.repsMin}-${exercise.repsMax}`}`).join("; ")}.`.slice(0, 2000),
     data: { plan, ...(notes.length ? { notes } : {}) },
     provider: PROVIDER_LABELS[result.provider],
     model: result.model,
@@ -271,7 +271,7 @@ async function workoutTurn(state: TurnState, emit: Emit) {
     workout: {
       title: plan.title,
       location: ["gym", "home", "both", "outdoor"].includes(facts.location) ? facts.location : "gym",
-      exercises: plan.exercises.map((exercise) => ({ exercise_id: exercise.exerciseId, exercise_name: exercise.name, sets: exercise.sets, reps_min: exercise.repsMin, reps_max: exercise.repsMax, rest_seconds: exercise.restSeconds })),
+      exercises: plan.exercises.map((exercise) => ({ exercise_id: exercise.exerciseId, exercise_name: exercise.name, sets: exercise.sets, reps_min: exercise.repsMin, reps_max: exercise.repsMax, rest_seconds: exercise.restSeconds, hold_seconds: exercise.holdSeconds ?? 0 })),
     },
   };
   await saveProposals(state, messageId, [{ id: actionId, kind: "workout_plan", payload }]);
@@ -402,6 +402,11 @@ function buildMealPlan(model: ModelMealPlan, grounded: GroundedFood[][], facts: 
     const gap = after - target.calories;
     if (Math.abs(gap) > target.calories * 0.15) {
       checks.push(`This plan comes to about ${after.toLocaleString("en-IN")} kcal, ${Math.abs(gap).toLocaleString("en-IN")} kcal ${gap < 0 ? "below" : "above"} your daily target. ${gap < 0 ? "Add a snack or larger portions." : "Use smaller portions."}`);
+    }
+    const protein = Math.round(foods.flat().reduce((sum, food) => sum + food.item.protein, 0));
+    if (protein < target.protein * 0.85) {
+      const ideas = ["dal", "chana", "curd", "paneer", "tofu", "eggs", "chicken", "fish"].filter((food) => !foodConflict(food, facts.diet, facts.allergies)).slice(0, 3);
+      checks.push(`Protein comes to about ${protein} g, under your target of ${target.protein} g.${ideas.length ? ` A little more ${ideas.join(", ")} would close the gap.` : ""}`);
     }
   }
   const estimates = foods.flat().filter((food) => food.item.basis === "ai_estimate").length;

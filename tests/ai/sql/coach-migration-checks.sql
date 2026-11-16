@@ -39,7 +39,7 @@ insert into public.ai_coach_actions (id, user_id, thread_id, message_id, kind, p
  ('cccccccc-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000001', 'food',
   '{"custom_food": {"name": "Idli", "serving_size": "3 pieces (114 g)", "serving_grams": 114, "calories_per_100g": 128, "protein_per_100g": 6.36, "carbs_per_100g": 24.98, "fat_per_100g": 0.35}}'),
  ('cccccccc-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000001', 'workout_plan',
-  '{"workout": {"title": "Push day", "location": "home", "exercises": [{"exercise_id": "push_up_t", "exercise_name": "Push-Up T", "sets": 3, "reps_min": 8, "reps_max": 12, "rest_seconds": 90}]}}');
+  '{"workout": {"title": "Push day", "location": "home", "exercises": [{"exercise_id": "push_up_t", "exercise_name": "Push-Up T", "sets": 3, "reps_min": 8, "reps_max": 12, "rest_seconds": 90, "hold_seconds": 0}, {"exercise_id": "push_up_t", "exercise_name": "Push-Up hold", "sets": 3, "reps_min": 1, "reps_max": 1, "rest_seconds": 45, "hold_seconds": 30}]}}');
 
 -- quota: 30 chats, the 31st is refused, release hands one back
 select pg_temp.check((select allowed from public.ai_coach_take_quota('chat')), 'first chat allowed');
@@ -62,7 +62,9 @@ select pg_temp.check((select count(*) = 0 from public.meals), 'no meal was logge
 select pg_temp.check((select status = 'applied' and applied_ref is not null from public.ai_coach_actions where id = 'cccccccc-0000-4000-8000-000000000001'), 'action marked applied');
 select pg_temp.check((select not already_applied from public.ai_coach_apply_action('cccccccc-0000-4000-8000-000000000002')), 'apply workout creates a draft');
 select pg_temp.check((select count(*) = 1 from public.workout_plans where status = 'draft' and title = 'Push day' and workout_location = 'home'), 'one draft plan');
-select pg_temp.check((select count(*) = 1 from public.workout_plan_exercises where exercise_id = 'push_up_t'), 'plan has the exercise');
+select pg_temp.check((select count(*) = 2 from public.workout_plan_exercises where exercise_id = 'push_up_t'), 'plan has both exercises');
+select pg_temp.check((select target_duration_seconds is null from public.workout_plan_exercises where sort_order = 0), 'a rep exercise has no hold time');
+select pg_temp.check((select target_duration_seconds = 30 and reps_min = 1 from public.workout_plan_exercises where sort_order = 1), 'a hold keeps its seconds');
 -- deleting the custom food lets the member add it again
 delete from public.custom_foods where name = 'Idli';
 select pg_temp.check((select not already_applied from public.ai_coach_apply_action('cccccccc-0000-4000-8000-000000000001')), 'apply again after the food was deleted');

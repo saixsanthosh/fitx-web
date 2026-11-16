@@ -159,7 +159,11 @@ describe("model output parsers", () => {
     }, allowed);
     assert.ok(workout);
     assert.deepEqual(workout.exercises.map((exercise) => exercise.id), ["push_up", "goblet_squat"]);
-    assert.deepEqual(workout.exercises[0], { id: "push_up", sets: 10, repsMin: 12, repsMax: 12, restSeconds: 15, note: null });
+    assert.deepEqual(workout.exercises[0], { id: "push_up", sets: 10, repsMin: 12, repsMax: 12, restSeconds: 15, holdSeconds: null, note: null });
+    const hold = parseWorkout({ exercises: [{ id: "plank", sets: 3, reps_min: 1, reps_max: 1, rest_seconds: 45, hold_seconds: 30 }, { id: "push_up", sets: 3, reps_min: 8, reps_max: 12, rest_seconds: 60, hold_seconds: 0 }] }, allowed);
+    assert.equal(hold?.exercises[0].holdSeconds, 30);
+    assert.equal(hold?.exercises[0].repsMax, 1);
+    assert.equal(hold?.exercises[1].holdSeconds, null);
     assert.equal(parseWorkout({ exercises: [{ id: "made_up_move" }] }, allowed), null);
   });
 

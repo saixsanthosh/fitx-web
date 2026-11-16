@@ -103,6 +103,8 @@ export type CoachWorkoutExercise = {
   repsMin: number;
   repsMax: number;
   restSeconds: number;
+  /** Seconds per set for holds such as a plank; null for rep-based exercises. */
+  holdSeconds: number | null;
   note: string | null;
 };
 

@@ -32,6 +32,7 @@ export function Composer({
   onSend,
   onStop,
   hint,
+  focusKey = 0,
 }: {
   draft: string;
   onDraft: (value: string) => void;
@@ -45,6 +46,8 @@ export function Composer({
   onSend: () => void;
   onStop: () => void;
   hint: string | null;
+  /** Changing this moves focus into the message box (after a suggestion is chosen). */
+  focusKey?: number;
 }) {
   const area = useRef<HTMLTextAreaElement>(null);
   const budgetId = useId();
@@ -58,6 +61,13 @@ export function Composer({
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 168)}px`;
   }, [draft]);
+
+  useEffect(() => {
+    if (!focusKey) return;
+    const element = area.current;
+    element?.focus();
+    element?.setSelectionRange(element.value.length, element.value.length);
+  }, [focusKey]);
 
   function submit(event: FormEvent) {
     event.preventDefault();

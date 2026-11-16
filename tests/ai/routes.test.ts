@@ -252,6 +252,9 @@ describe("meal plans, Add to My Food Plan and swaps", () => {
     assert.equal(ragi.basis, "ai_estimate");
     assert.ok(plan.checks.some((check) => check.includes("estimate")));
     assert.equal(plan.budget, "₹200");
+    const proteinNote = plan.checks.find((check) => check.startsWith("Protein comes to about"));
+    assert.ok(proteinNote, "an honest protein note when the plan falls short");
+    assert.ok(!/eggs|chicken|fish/.test(proteinNote), "suggestions respect the vegetarian diet");
     assert.ok(plan.target.calories > 1200);
     assert.equal(proposed.filter((action) => action.kind === "food").length, 5);
     assert.equal(proposed.filter((action) => action.kind === "meal").length, 2);

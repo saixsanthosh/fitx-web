@@ -7,7 +7,7 @@ import { ActionButton, type ActionState } from "./ActionButton";
 
 /** A suggested session built only from FITX's exercise library. */
 export function WorkoutPlanCard({ plan, state, onSave }: { plan: CoachWorkoutPlan; state: ActionState; onSave: () => void }) {
-  const minutes = Math.round(plan.exercises.reduce((sum, exercise) => sum + exercise.sets * (40 + exercise.restSeconds), 0) / 60);
+  const minutes = Math.round(plan.exercises.reduce((sum, exercise) => sum + exercise.sets * ((exercise.holdSeconds ?? 40) + exercise.restSeconds), 0) / 60);
   return (
     <article className="fitx-panel overflow-hidden" aria-label={`Workout: ${plan.title}`}>
       <header className="border-b border-fitx-divider p-4 sm:p-5">
@@ -26,7 +26,7 @@ export function WorkoutPlanCard({ plan, state, onSave }: { plan: CoachWorkoutPla
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <Link href={`/exercises/${encodeURIComponent(exercise.exerciseId)}`} className="text-sm font-semibold text-fitx-text underline-offset-4 hover:text-fitx-primary-text hover:underline">{exercise.name}</Link>
                 <span className="text-sm font-medium text-fitx-text">
-                  {exercise.sets} × {exercise.repsMin === exercise.repsMax ? exercise.repsMin : `${exercise.repsMin}–${exercise.repsMax}`} <span className="font-normal text-fitx-text-secondary">· rest {exercise.restSeconds} s</span>
+                  {exercise.sets} × {exercise.holdSeconds ? `${exercise.holdSeconds} s hold` : exercise.repsMin === exercise.repsMax ? exercise.repsMin : `${exercise.repsMin}–${exercise.repsMax}`} <span className="font-normal text-fitx-text-secondary">· rest {exercise.restSeconds} s</span>
                 </span>
               </div>
               <p className="mt-0.5 text-xs capitalize text-fitx-text-secondary">{exercise.primaryMuscle.replace(/_/g, " ")} · {exercise.equipment.length ? exercise.equipment.join(", ").replace(/_/g, " ") : "no equipment"}</p>

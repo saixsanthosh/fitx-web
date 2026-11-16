@@ -100,6 +100,8 @@ function Stat({ label, value, target }: { label: string; value: string; target: 
   );
 }
 
+const COST_LABEL: Record<NonNullable<CoachFoodItem["cost"]>, string> = { low: "Low cost", medium: "Medium cost", high: "Higher cost" };
+
 const BASIS_STYLE: Record<CoachFoodItem["basis"], string> = {
   database: "border-fitx-success-border bg-fitx-success-bg text-fitx-success",
   label: "border-fitx-border text-fitx-info",
@@ -111,6 +113,7 @@ function FoodRow({ item, actions, nested = false }: { item: CoachFoodItem; actio
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [swapError, setSwapError] = useState("");
+  const [imageFailed, setImageFailed] = useState(false);
   const noteId = useId();
   const detailId = useId();
   const swaps = actions.swapsFor(item.actionId);
@@ -130,8 +133,9 @@ function FoodRow({ item, actions, nested = false }: { item: CoachFoodItem; actio
     <li className={cn("rounded-lg border border-fitx-border bg-fitx-card p-3", nested && "border-dashed")}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="flex min-w-0 flex-1 gap-3">
-          {item.image ? (
-            <Image src={item.image} alt="" width={44} height={44} className="h-11 w-11 shrink-0 rounded-md border border-fitx-border bg-fitx-surface object-cover" />
+          {item.image && !imageFailed ? (
+            // Small label photos load straight from Open Food Facts: no optimizer round trip to time out.
+            <Image src={item.image} alt="" width={44} height={44} unoptimized onError={() => setImageFailed(true)} className="h-11 w-11 shrink-0 rounded-md border border-fitx-border bg-fitx-surface object-cover" />
           ) : (
             <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-fitx-surface-variant text-fitx-text-disabled"><Utensils size={18} /></span>
           )}
@@ -146,7 +150,7 @@ function FoodRow({ item, actions, nested = false }: { item: CoachFoodItem; actio
                 {item.basisLabel}
               </span>
               {item.portionEstimated && item.basis !== "ai_estimate" && <span className="rounded-full border border-fitx-border px-2 py-0.5 text-[11px] text-fitx-text-secondary">Portion weight estimated</span>}
-              {item.cost && <span className="rounded-full border border-fitx-border px-2 py-0.5 text-[11px] capitalize text-fitx-text-secondary">{item.cost} cost</span>}
+              {item.cost && <span className="rounded-full border border-fitx-border px-2 py-0.5 text-[11px] text-fitx-text-secondary">{COST_LABEL[item.cost]}</span>}
             </div>
             {item.source && <p className="mt-1.5 text-[11px] leading-4 text-fitx-text-secondary">Source: {item.source}{item.matchedName ? ` (${item.matchedName})` : ""}</p>}
             {item.note && <p className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">{item.note}</p>}
