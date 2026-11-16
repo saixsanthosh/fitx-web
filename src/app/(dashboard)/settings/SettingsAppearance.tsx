@@ -30,6 +30,8 @@ export function SettingsAppearance() {
     applyTheme(next);
     setMessage(MESSAGES.saving);
     const result = await saveAccountTheme(next);
+    // A newer choice was made while this one saved; its own result will show.
+    if (result.stale) return;
     setMessage(result.saved ? MESSAGES.saved : MESSAGES[result.reason]);
   }
 
@@ -42,10 +44,12 @@ export function SettingsAppearance() {
           {OPTIONS.map(({ value, label, hint, icon: Icon }) => (
             <label key={value} className="fitx-choice">
               <input type="radio" name="fitx-theme" value={value} checked={mode === value} onChange={() => void choose(value)} />
-              <Icon size={18} aria-hidden="true" className="fitx-choice__icon" />
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-fitx-text">{label}</span>
-                <span className="block text-xs text-fitx-text-secondary">{hint}</span>
+              <span className="fitx-choice__box">
+                <Icon size={18} aria-hidden="true" className="fitx-choice__icon" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-fitx-text">{label}</span>
+                  <span className="block text-xs text-fitx-text-secondary">{hint}</span>
+                </span>
               </span>
             </label>
           ))}
