@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { BookOpen, CalendarDays, ChartNoAxesColumn, Dumbbell, Ellipsis, House, Target, UserRound, Utensils } from "lucide-react";
+import { BookOpen, CalendarDays, ChartNoAxesColumn, Dumbbell, Ellipsis, House, Settings, Target, UserRound, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -16,14 +16,15 @@ const items = [
 const moreItems = [
   { href: "/goals", label: "Goals", icon: Target },
   { href: "/planner", label: "Planner", icon: CalendarDays },
-  { href: "/profile", label: "Profile & settings", icon: UserRound },
+  { href: "/profile", label: "Profile", icon: UserRound },
+  { href: "/settings", label: "Settings", icon: Settings },
   { href: "/exercises", label: "Exercise library", icon: BookOpen },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreActive = moreItems.some(({ href }) => pathname === href || pathname.startsWith(`${href}/`)) || pathname === "/settings";
+  const moreActive = moreItems.some(({ href }) => pathname === href || pathname.startsWith(`${href}/`));
 
   if (pathname === "/workouts/active") return null;
 
