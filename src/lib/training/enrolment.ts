@@ -164,19 +164,53 @@ export async function enrolInProgramme(supabase: Db, input: { userId: string; pr
   return { enrolment: result.data as Enrolment, alreadyActive: false, error: null };
 }
 
+type DatedPlan = { id: string; planned_for: string | null };
+type LinkedItem = { id: string; workout_plan_id: string | null; starts_at: string | null };
+
+/** The programme days a member leaving it drops: those not started (no finished or running session). */
+export function programmeDaysToRemove<T extends DatedPlan>(days: readonly T[], startedPlanIds: ReadonlySet<string>): T[] {
+  return days.filter((day) => !startedPlanIds.has(day.id));
+}
+
 /**
- * Stops following a programme: plans dated after today that were created for it are removed and their
- * planner events cancelled. Today's and earlier plans stay, so finished workouts keep their history.
+ * The planner items FITX scheduled for these programme days: each day's timed workout item on its own
+ * date (the rule plan saves use, see plannerEventsForPlan). To-Do items a member linked to a day, untimed
+ * or on another day, are theirs and are not among them.
+ */
+export function ownProgrammeItems(items: readonly LinkedItem[], days: readonly DatedPlan[]): string[] {
+  const dateOf = new Map(days.map((day) => [day.id, day.planned_for]));
+  return items.filter((item) => {
+    const date = item.workout_plan_id ? dateOf.get(item.workout_plan_id) : undefined;
+    return Boolean(date && item.starts_at && localKey(new Date(item.starts_at)) === date);
+  }).map((item) => item.id);
+}
+
+/**
+ * Stops following a programme. Its days from today on that were not started are removed, and the
+ * planner items FITX scheduled for them are cancelled; To-Do items the member linked to those days stay
+ * in the planner (the plan link is cleared with the plan). Days with a finished or running session, and
+ * earlier days, stay, so workouts keep their history.
  */
 export async function leaveProgramme(supabase: Db, input: { userId: string; enrolmentId: string; todayKey: string }): Promise<{ error: unknown }> {
-  const future = await supabase.from("workout_plans").select("id").eq("user_id", input.userId).eq("programme_enrolment_id", input.enrolmentId).gt("planned_for", input.todayKey);
-  if (future.error) return { error: future.error };
-  const ids = ((future.data ?? []) as Array<{ id: string }>).map((row) => row.id);
-  if (ids.length) {
-    const cancelled = await supabase.from("planner_events").update({ status: "cancelled" }).eq("user_id", input.userId).eq("status", "scheduled").in("workout_plan_id", ids);
-    if (cancelled.error) return { error: cancelled.error };
-    const removed = await supabase.from("workout_plans").delete().eq("user_id", input.userId).in("id", ids);
-    if (removed.error) return { error: removed.error };
+  const ahead = await supabase.from("workout_plans").select("id,planned_for").eq("user_id", input.userId).eq("programme_enrolment_id", input.enrolmentId).gte("planned_for", input.todayKey);
+  if (ahead.error) return { error: ahead.error };
+  const days = (ahead.data ?? []) as DatedPlan[];
+  if (days.length) {
+    const started = await supabase.from("workout_sessions").select("plan_id").eq("user_id", input.userId).in("status", ["completed", "in_progress"]).in("plan_id", days.map((day) => day.id));
+    if (started.error) return { error: started.error };
+    const removable = programmeDaysToRemove(days, new Set(((started.data ?? []) as Array<{ plan_id: string | null }>).flatMap((row) => (row.plan_id ? [row.plan_id] : []))));
+    const ids = removable.map((day) => day.id);
+    if (ids.length) {
+      const linked = await supabase.from("planner_events").select("id,workout_plan_id,starts_at").eq("user_id", input.userId).eq("event_type", "workout").eq("status", "scheduled").in("workout_plan_id", ids);
+      if (linked.error) return { error: linked.error };
+      const own = ownProgrammeItems((linked.data ?? []) as LinkedItem[], removable);
+      if (own.length) {
+        const cancelled = await supabase.from("planner_events").update({ status: "cancelled" }).eq("user_id", input.userId).eq("status", "scheduled").in("id", own);
+        if (cancelled.error) return { error: cancelled.error };
+      }
+      const removed = await supabase.from("workout_plans").delete().eq("user_id", input.userId).in("id", ids);
+      if (removed.error) return { error: removed.error };
+    }
   }
   const left = await supabase.from("programme_enrolments").update({ status: "left", updated_at: new Date().toISOString() }).eq("id", input.enrolmentId).eq("user_id", input.userId);
   return { error: left.error };
