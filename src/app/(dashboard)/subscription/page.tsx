@@ -7,6 +7,9 @@ import { SubscriptionPanel } from "./SubscriptionPanel";
 
 export const metadata: Metadata = { title: "Subscription" };
 
+// Per-account billing details: always rendered for the request, never prerendered or cached.
+export const dynamic = "force-dynamic";
+
 function OpensSoon() {
   return (
     <section className="fitx-panel p-6 sm:p-8" aria-labelledby="subscription-soon">
