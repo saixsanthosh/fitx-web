@@ -1,13 +1,11 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 export type TrendPoint = { day: string; label: string; value: number };
 
-const WIDTH = 640;
 const HEIGHT = 196;
 const MARGIN = { top: 18, right: 44, bottom: 26, left: 40 };
-const PLOT_W = WIDTH - MARGIN.left - MARGIN.right;
 const PLOT_H = HEIGHT - MARGIN.top - MARGIN.bottom;
 const TIP_W = 132;
 const TIP_H = 40;
@@ -26,10 +24,28 @@ function niceCeiling(value: number) {
  * crosshair that snaps to the nearest day; the readout is drawn inside the SVG so the strict
  * Content-Security-Policy needs no inline styles. Every value is also in the table view.
  */
-export function TrendChart({ title, points }: { title: string; points: TrendPoint[] }) {
+export function TrendChart({ title, points, initialWidth = 640 }: { title: string; points: TrendPoint[]; initialWidth?: number }) {
   const [active, setActive] = useState<number | null>(null);
+  // Drawn at the width it is shown at, so axis text stays readable on a phone instead of shrinking.
+  const [width, setWidth] = useState(initialWidth);
+  const svgRef = useRef<SVGSVGElement>(null);
   const gradientId = useId();
+
+  useEffect(() => {
+    const element = svgRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const measured = Math.round(entry.contentRect.width);
+      if (measured > 0) setWidth(Math.min(Math.max(measured, 280), 1200));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   if (!points.length) return null;
+
+  const WIDTH = width;
+  const PLOT_W = WIDTH - MARGIN.left - MARGIN.right;
 
   const max = niceCeiling(Math.max(...points.map((point) => point.value)));
   const x = (index: number) => MARGIN.left + (points.length === 1 ? PLOT_W / 2 : (index / (points.length - 1)) * PLOT_W);
@@ -38,7 +54,7 @@ export function TrendChart({ title, points }: { title: string; points: TrendPoin
   const area = `${line} L${x(points.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`;
   const last = points.length - 1;
   const ticks = [0, max / 2, max].filter((tick, index, all) => Number.isInteger(tick) && all.indexOf(tick) === index);
-  const xLabels = [...new Set([0, Math.floor(last / 2), last])];
+  const xLabels = [...new Set(WIDTH < 420 ? [0, last] : [0, Math.floor(last / 2), last])];
 
   function pick(event: PointerEvent<SVGSVGElement>) {
     const box = event.currentTarget.getBoundingClientRect();
@@ -65,6 +81,7 @@ export function TrendChart({ title, points }: { title: string; points: TrendPoin
 
   return (
     <svg
+      ref={svgRef}
       aria-label={`${title}, daily. Use the left and right arrow keys to read each day.`}
       className="trend-chart"
       onBlur={() => setActive(null)}
