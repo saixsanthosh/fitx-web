@@ -11,10 +11,12 @@ function dayLabel(key: string, todayKey: string) {
 }
 
 /** The programme the user follows: this week's planned days, what is next, and planning ahead. */
-export function ProgrammeCard({ programme, enrolment, plans, todayKey, busy, starting, onStart, onPlanAhead, onLeave }: {
+export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false, todayKey, busy, starting, onStart, onPlanAhead, onLeave }: {
   programme: Programme;
   enrolment: Enrolment;
   plans: readonly ProgrammePlan[];
+  /** The planned days could not be loaded: say so, and do not offer to plan (it could double a week). */
+  plansFailed?: boolean;
   todayKey: string;
   busy: boolean;
   starting: string;
@@ -52,8 +54,8 @@ export function ProgrammeCard({ programme, enrolment, plans, todayKey, busy, sta
             );
           })}
         </ol>
-      ) : <p className="mt-4 text-sm text-fitx-text-secondary">Nothing is planned for this week yet.</p>}
-      {!upcoming.length && <button type="button" onClick={onPlanAhead} disabled={busy} className="fitx-button fitx-button-secondary mt-3 min-h-11"><CalendarPlus size={15} aria-hidden="true" />{busy ? "Planning…" : "Plan the next 7 days"}</button>}
+      ) : <p className="mt-4 text-sm text-fitx-text-secondary">{plansFailed ? "This week’s programme days couldn’t be loaded." : "Nothing is planned for this week yet."}</p>}
+      {!upcoming.length && !plansFailed && <button type="button" onClick={onPlanAhead} disabled={busy} className="fitx-button fitx-button-secondary mt-3 min-h-11"><CalendarPlus size={15} aria-hidden="true" />{busy ? "Planning…" : "Plan the next 7 days"}</button>}
     </section>
   );
 }

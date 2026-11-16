@@ -10,6 +10,7 @@ import { ProgrammeBrowser } from "@/components/workouts/ProgrammeBrowser";
 import { ProgrammeCard } from "@/components/workouts/ProgrammeCard";
 import { Sheet } from "@/components/workouts/Sheet";
 import { SwapSheet } from "@/components/workouts/SwapSheet";
+import { programmeById } from "@/data/programmes";
 import { createClient } from "@/lib/supabase/client";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { columnList, hasValuesIn, isMissingColumnError, isMissingFunctionError, isMissingRelationshipError, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
@@ -77,6 +78,15 @@ function programmeNotice(created: number, unfilled: readonly string[], error: un
   const planned = created ? `Planned ${created} workout${created === 1 ? "" : "s"} for the next 7 days.` : "None of your training days fall in the next 7 days.";
   const gaps = unfilled.length ? ` Nothing in the library fits ${unfilled.join(", ").toLowerCase()} with your equipment, so ${unfilled.length === 1 ? "it was" : "those were"} left out.` : "";
   return planned + gaps + (error ? " Some days couldn’t be planned; try “Plan the next 7 days” again." : "");
+}
+
+/**
+ * The programme an enrolment follows: as loaded, else the copy bundled with the app (a member can still
+ * read a programme they follow after it is unpublished, but an older database may not allow that yet).
+ */
+function followedProgramme(programmes: readonly Programme[], enrolment: Pick<Enrolment, "programme_id"> | null): Programme | undefined {
+  if (!enrolment) return undefined;
+  return programmes.find((programme) => programme.id === enrolment.programme_id) ?? programmeById(enrolment.programme_id);
 }
 
 /** Programme days are listed in the programme card, not here; until that column exists, every plan shows. */
@@ -184,6 +194,10 @@ export default function WorkoutsPage() {
   const [programmePlans, setProgrammePlans] = useState<ProgrammePlan[]>([]);
   const [recentDays, setRecentDays] = useState<Map<string, number>>(() => new Map());
   const [programmeBusy, setProgrammeBusy] = useState(false);
+  // A list that failed to load is not shown as empty: saving the equipment list, following a programme
+  // and planning its next week wait for a load that worked, so nothing saved is overwritten or doubled.
+  const [equipmentLoadFailed, setEquipmentLoadFailed] = useState(false);
+  const [programmeLoadFailed, setProgrammeLoadFailed] = useState(false);
   const [equipmentEditor, setEquipmentEditor] = useState<{ context: TrainingContext; keys: string[] } | null>(null);
   const [equipmentSaving, setEquipmentSaving] = useState(false);
   const [swapIndex, setSwapIndex] = useState<number | null>(null);
@@ -239,6 +253,8 @@ export default function WorkoutsPage() {
     setEnrolAvailable(programmeResult.enrolAvailable && enrolmentResult.available);
     setEnrolment(activeEnrolment);
     setProgrammePlans(enrolmentPlans.plans);
+    setEquipmentLoadFailed(Boolean(profileResult.error));
+    setProgrammeLoadFailed(Boolean(enrolmentResult.error || enrolmentPlans.error));
     setRecentDays(recent);
     // The first load opens the section that matches the user's programme or where they said they train.
     if (!contextInitialized.current) {
@@ -411,7 +427,7 @@ export default function WorkoutsPage() {
 
   async function saveEquipment() {
     const supabase = createClient();
-    if (!supabase || !userId || !equipmentEditor) return;
+    if (!supabase || !userId || !equipmentEditor || equipmentLoadFailed) return;
     setEquipmentSaving(true);
     const result = await saveEquipmentProfile(supabase, userId, equipmentEditor.context, equipmentEditor.keys);
     setEquipmentSaving(false);
@@ -442,8 +458,8 @@ export default function WorkoutsPage() {
 
   async function planAhead() {
     const supabase = createClient();
-    const programme = programmes.find((item) => item.id === enrolment?.programme_id);
-    if (!supabase || !userId || !enrolment || !programme) return;
+    const programme = followedProgramme(programmes, enrolment);
+    if (!supabase || !userId || !enrolment || !programme || programmeLoadFailed) return;
     setProgrammeBusy(true); setError(""); setNotice("");
     const todayKey = localDateKey();
     const start = nextScheduleStart(programmePlans, enrolment.next_day_index, todayKey, programme.days.length);
@@ -458,7 +474,7 @@ export default function WorkoutsPage() {
 
   async function leave() {
     const supabase = createClient();
-    const programme = programmes.find((item) => item.id === enrolment?.programme_id);
+    const programme = followedProgramme(programmes, enrolment);
     if (!supabase || !userId || !enrolment) return;
     if (!window.confirm(`Stop following ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner. Finished workouts stay in your history.`)) return;
     setProgrammeBusy(true);
@@ -774,7 +790,7 @@ export default function WorkoutsPage() {
   const showTargets = targetsSupported !== false;
   const contextEquipment = equipmentFor(profiles, context, preferences.equipment);
   const contextProgrammes = programmes.filter((programme) => programme.context === context);
-  const enrolledProgramme = enrolment ? programmes.find((programme) => programme.id === enrolment.programme_id) : undefined;
+  const enrolledProgramme = followedProgramme(programmes, enrolment);
   const builderContext = contextForLocation(planLocation);
   const builderOwned = ownedFor(builderContext);
   const builderProgramme = mode === "auto" && !editingPlanId ? autoProgramme(builderContext) : undefined;
@@ -812,13 +828,23 @@ export default function WorkoutsPage() {
             </div>
           </div>
           {!catalogCurated && <p className="mt-3 text-xs text-fitx-text-secondary">Equipment matching is approximate until FITX’s exercise catalogue update is applied.</p>}
+          {(equipmentLoadFailed || programmeLoadFailed) && <p role="status" className="fitx-alert mt-3">
+            {equipmentLoadFailed && programmeLoadFailed ? "Your equipment lists and programme couldn’t be loaded" : equipmentLoadFailed ? "Your saved equipment lists couldn’t be loaded, so this shows starting lists" : "Your programme couldn’t be loaded"}. Saving and planning wait until they load, so nothing you saved is replaced.
+            <button type="button" onClick={() => { setLoading(true); void load(); }} className="fitx-alert-action">Try again</button>
+          </p>}
           <div className="mt-6">
             <h3 className="text-sm font-semibold">{context === "home" ? "Home programmes" : "Gym programmes"}</h3>
-            <p className="mt-1 mb-3 text-xs text-fitx-text-secondary">Pick a programme and FITX plans each week on your days, with exercises you can do with your equipment.</p>
-            {enrolment && enrolledProgramme && enrolment.context === context
-              ? <ProgrammeCard programme={enrolledProgramme} enrolment={enrolment} plans={programmePlans} todayKey={listDayKey} busy={programmeBusy} starting={starting} onStart={(planId) => void startWorkout(planId)} onPlanAhead={() => void planAhead()} onLeave={() => void leave()} />
-              : <ProgrammeBrowser programmes={contextProgrammes} enrolAvailable={enrolAvailable && !enrolment} busy={programmeBusy} onEnrol={enrol}
-                  disabledNote={enrolment && enrolledProgramme ? `You follow ${enrolledProgramme.title}. Leave it on the ${enrolment.context === "home" ? "Home" : "Gym"} Workout tab to start another.` : !enrolAvailable ? "You can browse these now. Following a programme becomes available with the next FITX update." : undefined} />}
+            <p className="mt-1 mb-3 text-xs text-fitx-text-secondary">Pick a programme and FITX plans the next 7 days on your training days, with exercises you can do with your equipment. Plan each week after that from your programme card.</p>
+            {enrolment && enrolment.context === context
+              ? enrolledProgramme
+                ? <ProgrammeCard programme={enrolledProgramme} enrolment={enrolment} plans={programmePlans} plansFailed={programmeLoadFailed} todayKey={listDayKey} busy={programmeBusy} starting={starting} onStart={(planId) => void startWorkout(planId)} onPlanAhead={() => void planAhead()} onLeave={() => void leave()} />
+                : <section aria-label="Your programme" className="rounded-xl border border-fitx-border bg-fitx-surface p-4 sm:p-5">
+                    <p className="font-medium">The programme you follow is no longer available</p>
+                    <p className="mt-1 text-sm text-fitx-text-secondary">Your finished workouts stay in your history. Leave it to follow another programme.</p>
+                    <button type="button" onClick={() => void leave()} disabled={programmeBusy} className="fitx-button fitx-button-secondary mt-3 min-h-11 text-sm">Leave programme</button>
+                  </section>
+              : <ProgrammeBrowser programmes={contextProgrammes} enrolAvailable={enrolAvailable && !enrolment && !programmeLoadFailed} busy={programmeBusy} onEnrol={enrol}
+                  disabledNote={enrolment ? `You follow ${enrolledProgramme?.title ?? "a programme"}. Leave it on the ${enrolment.context === "home" ? "Home" : "Gym"} Workout tab to start another.` : programmeLoadFailed ? "Following a programme waits until your current one has loaded." : !enrolAvailable ? "You can browse these now. Following a programme becomes available with the next FITX update." : undefined} />}
           </div>
         </div>
       </section>
@@ -871,8 +897,9 @@ export default function WorkoutsPage() {
       {rowToSwap && <SwapSheet target={rowToSwap.exercise} catalog={catalog} owned={builderOwned} level={level} exclude={new Set(preview.map((row) => row.exercise.id))} contextLabel={builderContext} onPick={(exercise) => swapPreview(swapIndex!, exercise)} onClose={() => setSwapIndex(null)} />}
       {equipmentEditor && <Sheet title={equipmentEditor.context === "home" ? "Your home equipment" : "Your gym equipment"} size="lg" onClose={() => setEquipmentEditor(null)}
         description={equipmentEditor.context === "home" ? "Choose what you have at home. Workouts, programmes and swaps only use exercises you can do with it." : "Choose what your gym has. Remove anything it lacks and FITX picks alternatives."}
-        footer={<><button type="button" onClick={() => setEquipmentEditor(null)} className="fitx-button fitx-button-quiet">Cancel</button><button type="button" disabled={equipmentSaving || !profiles.available} onClick={() => void saveEquipment()} className="fitx-button">{equipmentSaving ? "Saving…" : "Save list"}</button></>}>
+        footer={<><button type="button" onClick={() => setEquipmentEditor(null)} className="fitx-button fitx-button-quiet">Cancel</button><button type="button" disabled={equipmentSaving || !profiles.available || equipmentLoadFailed} onClick={() => void saveEquipment()} className="fitx-button">{equipmentSaving ? "Saving…" : "Save list"}</button></>}>
         {!profiles.available && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Saving equipment lists arrives with the next FITX update. Until then FITX uses the equipment from your profile at home and a full gym otherwise.</p>}
+        {profiles.available && equipmentLoadFailed && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Your saved list couldn’t be loaded, so this shows a starting list and saving is off for now. Close this and choose Try again.</p>}
         <EquipmentPicker value={equipmentEditor.keys} context={equipmentEditor.context} onChange={(keys) => setEquipmentEditor({ context: equipmentEditor.context, keys })} />
       </Sheet>}
     </div>
