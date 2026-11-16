@@ -1,0 +1,62 @@
+.week { min-width: 0; border: 1px solid var(--fitx-border); border-radius: 16px; background: var(--fitx-card-bg); padding: clamp(12px, 2vw, 20px); }
+.bar { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 10px; margin-bottom: 16px; }
+.nav { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--fitx-border); border-radius: 12px; color: var(--fitx-text-secondary); }
+.nav:hover { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); color: var(--fitx-text); }
+.title { text-align: center; }
+.title h2 { color: var(--fitx-text); font-size: clamp(.98rem, 2vw, 1.12rem); font-weight: 700; font-variant-numeric: tabular-nums; }
+.title p { min-height: 22px; margin-top: 2px; color: var(--fitx-text-secondary); font-size: .8rem; }
+.thisWeek { color: var(--fitx-primary-text); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.note { margin: -6px 0 14px; color: var(--fitx-text-secondary); font-size: .8rem; text-align: center; }
+.loading { height: 260px; border-radius: 12px; background: var(--fitx-surface-variant); }
+
+.grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.mobile { display: none; }
+.day { display: flex; min-width: 0; min-height: 220px; flex-direction: column; border: 1px solid var(--fitx-divider); border-radius: 12px; background: var(--fitx-surface-variant); padding: 8px; }
+.today { border-color: color-mix(in srgb, var(--fitx-primary) 45%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--fitx-primary) 7%, transparent), transparent 40%), var(--fitx-surface-variant); }
+.dayHeader { display: grid; justify-items: center; gap: 1px; border-bottom: 1px solid var(--fitx-divider); padding: 4px 0 8px; }
+.dayHeader span { color: var(--fitx-text-secondary); font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.dayHeader strong { color: var(--fitx-text); font-size: 1.3rem; font-weight: 750; letter-spacing: -.03em; line-height: 1.1; }
+.dayHeader em { color: var(--fitx-primary-text); font-size: .66rem; font-style: normal; font-weight: 700; }
+.items { display: grid; flex: 1; align-content: start; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.item { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 2px; border: 1px solid var(--fitx-divider); border-radius: 9px; background: var(--fitx-surface); padding: 4px 4px 4px 2px; }
+.item .start { grid-column: 2; justify-self: start; }
+.check { position: relative; display: grid; width: 30px; height: 44px; place-items: center; cursor: pointer; }
+.check input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.check span { display: grid; width: 18px; height: 18px; place-items: center; border: 2px solid color-mix(in srgb, var(--fitx-text-secondary) 70%, transparent); border-radius: 50%; color: transparent; }
+.check input:checked + span { border-color: var(--fitx-primary); background: var(--fitx-primary); color: var(--fitx-on-primary); }
+.check input:focus-visible + span { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.itemText { display: grid; min-width: 0; min-height: 44px; align-content: center; gap: 1px; border-radius: 6px; padding: 3px 4px; text-align: left; }
+.itemTitle { overflow-wrap: anywhere; color: var(--fitx-text); font-size: .76rem; font-weight: 600; line-height: 1.3; }
+.itemMeta { display: inline-flex; align-items: center; gap: 4px; color: var(--fitx-text-secondary); font-size: .66rem; }
+.itemMeta svg { color: var(--fitx-primary); }
+.done .itemTitle { color: var(--fitx-text-secondary); text-decoration: line-through; }
+.start { display: inline-flex; min-height: 44px; align-items: center; border: 1px solid color-mix(in srgb, var(--fitx-primary) 40%, var(--fitx-border)); border-radius: 8px; margin: 0 0 2px 4px; padding: 0 10px; color: var(--fitx-primary-text); font-size: .72rem; font-weight: 700; }
+.add { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 5px; margin-top: 8px; border-top: 1px dashed var(--fitx-border); color: var(--fitx-text-secondary); font-size: .76rem; font-weight: 600; }
+.add:hover { color: var(--fitx-primary-text); }
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  .grid { grid-template-columns: repeat(7, minmax(150px, 1fr)); overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; }
+  .day { scroll-snap-align: start; }
+}
+@media (max-width: 767px) {
+  .grid { display: none; }
+  .mobile { display: grid; gap: 12px; }
+  .picker { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  .pick { display: grid; min-height: 62px; justify-items: center; align-content: center; gap: 2px; border: 1px solid transparent; border-radius: 12px; color: var(--fitx-text-secondary); }
+  .pick span { font-size: .66rem; font-weight: 700; text-transform: uppercase; }
+  .pick strong { color: var(--fitx-text); font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .pick i { width: 5px; height: 5px; border-radius: 50%; }
+  .pickDot { background: var(--fitx-primary); }
+  .pick[aria-pressed="true"] { border-color: color-mix(in srgb, var(--fitx-primary) 45%, transparent); background: color-mix(in srgb, var(--fitx-primary) 9%, transparent); }
+  .pick[aria-pressed="true"] span, .pickToday strong { color: var(--fitx-primary-text); }
+  .mobileDay { min-height: 260px; padding: 12px; }
+  .mobileDay .dayHeader { grid-template-columns: auto auto 1fr; justify-items: start; align-items: baseline; gap: 8px; }
+  .mobileDay .dayHeader em { justify-self: end; }
+  .mobileDay .item { grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; padding: 4px 6px 4px 2px; }
+  .mobileDay .item .start { grid-column: 3; min-height: 44px; margin: 0; }
+  .mobileDay .check { width: 44px; height: 44px; }
+  .mobileDay .check span { width: 22px; height: 22px; }
+  .mobileDay .itemText { min-height: 44px; }
+  .mobileDay .itemTitle { font-size: .9rem; }
+  .mobileDay .itemMeta { font-size: .74rem; }
+}

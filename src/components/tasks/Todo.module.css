@@ -31,8 +31,9 @@
 .text { display: grid; min-width: 0; min-height: 44px; flex: 1; align-content: center; gap: 2px; border-radius: 8px; padding: 4px 6px; text-align: left; }
 .text:hover .title { color: var(--fitx-text); }
 .title { overflow-wrap: anywhere; color: var(--fitx-text); font-size: .92rem; font-weight: 550; line-height: 1.35; }
-.meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--fitx-text-secondary); font-size: .74rem; line-height: 1.4; }
-.meta svg { color: var(--fitx-primary); }
+.meta { display: flex; min-width: 0; align-items: center; gap: 5px; color: var(--fitx-text-secondary); font-size: .74rem; line-height: 1.4; }
+.meta > span { min-width: 0; }
+.meta svg { flex: 0 0 auto; color: var(--fitx-primary); }
 .done .title { color: var(--fitx-text-secondary); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--fitx-text-secondary) 60%, transparent); }
 .done { background: color-mix(in srgb, var(--fitx-surface-variant) 55%, var(--fitx-surface)); }
 

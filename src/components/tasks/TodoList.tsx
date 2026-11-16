@@ -220,7 +220,7 @@ function TodoRow({ item, index, count, canReorder, reduceMotion, goalTitle, sche
       </label>
       <button type="button" className={styles.text} onClick={onEdit} disabled={saving} aria-label={`Edit ${item.title}`}>
         <span className={styles.title}>{item.title}</span>
-        {meta && <span className={styles.meta}><KindIcon kind={item.kind} />{meta}</span>}
+        {meta && <span className={styles.meta}><KindIcon kind={item.kind} /><span>{meta}</span></span>}
       </button>
       {item.kind === "workout" && item.workoutPlanId && !done && (
         <Link href={`/workouts?plan=${item.workoutPlanId}`} className={styles.start} aria-label={`Start ${item.title}`}>Start</Link>

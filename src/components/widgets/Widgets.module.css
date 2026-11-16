@@ -113,8 +113,7 @@
 
 /* Customize panel */
 .panelHeading { margin: 4px 0 10px; color: var(--fitx-text-secondary); font-size: .72rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
-.panelHeading + * { margin-bottom: 22px; }
-.panelList { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.panelList { display: grid; gap: 8px; margin: 0 0 22px; padding: 0; list-style: none; }
 .panelRow { display: flex; min-height: 64px; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 14px; background: var(--fitx-surface); padding: 6px 6px 6px 4px; }
 .panelRowHidden { padding-left: 12px; background: transparent; border-style: dashed; }
 .panelHandle { display: grid; width: 32px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: 8px; color: var(--fitx-text-disabled); cursor: grab; touch-action: none; }

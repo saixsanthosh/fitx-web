@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
-export default function RemovedPage() {
-  redirect("/planner");
+/** Tasks live in the To-Do list on the Today tab of Goals. */
+export default function TasksPage() {
+  redirect("/goals?tab=today");
 }
