@@ -1,7 +1,8 @@
 "use client";
 
 import type { CSSProperties, KeyboardEvent } from "react";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { Check, LoaderCircle, Play, SwitchCamera, Volume2, VolumeX, X } from "lucide-react";
 import type { CoachSnapshot } from "@/lib/form-rules/session";
 import type { ExerciseRule } from "@/lib/form-rules/types";
@@ -14,6 +15,8 @@ export function formatClock(totalSeconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+const subscribeNothing = () => () => undefined;
+
 interface CoachStageProps {
   rule: ExerciseRule;
   coach: FormCoachController;
@@ -25,7 +28,8 @@ interface CoachStageProps {
 
 /**
  * The live camera view: full screen, always dark (the camera picture reads best on black), with
- * the skeleton overlay, the count, a range meter, the current cue and the controls.
+ * the skeleton overlay, the count, a range meter, the current cue and the controls. Rendered into
+ * document.body, so no ancestor (a sheet, a transformed card) can trap it below other layers.
  */
 export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canvasRef, meter: meterRef }, mode, target }: CoachStageProps) {
   const { stage, snapshot, frame } = coach;
@@ -33,6 +37,7 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
   const titleId = useId();
   const finishRef = useRef<HTMLButtonElement>(null);
   const reps = rule.motion.kind === "reps";
+  const onClient = useSyncExternalStore(subscribeNothing, () => true, () => false);
 
   useEffect(() => {
     if (!open) return;
@@ -67,7 +72,8 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
   const ratio = frame ? `${frame.width} / ${frame.height}` : "4 / 3";
   const frameStyle: CSSProperties = { aspectRatio: ratio, width: `min(100cqw, calc(100cqh * ${ratio}))` };
 
-  return (
+  if (!onClient) return null;
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -155,7 +161,8 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
         </button>
       </footer>
       <p className="sr-only" aria-live="polite">{coach.announcement}</p>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
