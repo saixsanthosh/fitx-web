@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowRight, Bell, Search, UserRound, X } from "lucide-react";
+import { ArrowRight, Search, UserRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Logo } from "@/components/ui/Logo";
@@ -52,16 +52,13 @@ export function WorkspaceHeader() {
       <form id="workspace-search" onSubmit={search} role="search" className={`${searchOpen ? "flex" : "hidden"} order-3 h-10 w-full basis-full items-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-3 sm:order-none sm:flex sm:w-full sm:max-w-[350px] sm:basis-auto`}>
         <Search size={16} aria-hidden="true" className="shrink-0 text-fitx-text-disabled" />
         <input type="search" enterKeyHint="search" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search exercises" placeholder="Search exercises…" className="h-10 min-w-0 w-full bg-transparent text-sm text-fitx-text outline-none placeholder:text-fitx-text-disabled" />
-        <button type="submit" aria-label="Search exercise library" className="grid min-h-9 min-w-9 shrink-0 place-items-center rounded-md text-fitx-text-secondary transition-colors hover:bg-white/[.05] hover:text-fitx-primary sm:min-h-10 sm:min-w-10"><ArrowRight size={16} aria-hidden="true"/></button>
+        <button type="submit" aria-label="Search exercise library" className="grid min-h-9 min-w-9 shrink-0 place-items-center rounded-md text-fitx-text-secondary transition-colors hover:bg-fitx-hover hover:text-fitx-primary sm:min-h-10 sm:min-w-10"><ArrowRight size={16} aria-hidden="true"/></button>
       </form>
       <div className="ml-auto flex items-center gap-1.5 sm:gap-4">
-        <button type="button" aria-label={searchOpen ? "Close search" : "Open search"} aria-expanded={searchOpen} aria-controls="workspace-search" onClick={() => setSearchOpen((open) => !open)} className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-white/[.04] hover:text-fitx-text sm:hidden">
+        <button type="button" aria-label={searchOpen ? "Close search" : "Open search"} aria-expanded={searchOpen} aria-controls="workspace-search" onClick={() => setSearchOpen((open) => !open)} className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text sm:hidden">
           {searchOpen ? <X size={18} aria-hidden="true"/> : <Search size={18} aria-hidden="true"/>}
         </button>
         <ThemeSwitcher />
-        <button type="button" aria-label="Notifications" title="Notifications" className="relative grid h-10 w-10 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-surface-variant hover:text-fitx-text">
-          <Bell size={18} />
-        </button>
         <button type="button" onClick={() => router.push("/profile")} aria-label="Open profile" className="flex items-center gap-2 rounded-full focus-visible:outline">
           {avatar ? <Image src={avatar} alt="" width={36} height={36} unoptimized className="h-9 w-9 rounded-full border border-fitx-border object-cover" /> : <span className="grid h-9 w-9 place-items-center rounded-full border border-fitx-border bg-fitx-surface-variant text-fitx-text-secondary"><UserRound size={17} /></span>}
           <span className="hidden max-w-28 truncate text-sm text-fitx-text-secondary md:block">{name}</span>

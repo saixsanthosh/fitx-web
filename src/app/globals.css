@@ -1,25 +1,82 @@
 @import "tailwindcss";
 
+/*
+ * FITX colour tokens. Components use these instead of hex/rgb values; scripts/check-raw-colors.mjs
+ * enforces that outside this file and src/components/brand, and scripts/check-contrast.mjs checks
+ * every text/background pairing in light, dark, system-dark and the inverse band.
+ *
+ * Surfaces  --fitx-bg (page), --fitx-surface and --fitx-card-bg (cards, fields), --fitx-surface-variant
+ *           (chips, insets, secondary buttons), --fitx-elevated (menus, popovers, dialogs) and
+ *           --fitx-nav-bg (the translucent mobile bar).
+ * Text      --fitx-text, --fitx-text-secondary, --fitx-text-disabled (tertiary text, still 4.5:1).
+ * Brand     --fitx-primary: fills, icons, indicators, focus rings, large text, and small text on plain
+ *           surface/card. Small brand-coloured text on the page background, a tint or a variant surface
+ *           uses --fitx-primary-text. Text on a primary fill uses --fitx-on-primary; hover fills use
+ *           --fitx-primary-bright. (The intro film reads --fitx-primary, so its value stays fixed.)
+ * Status    --fitx-danger with --fitx-on-danger, --fitx-danger-bg and --fitx-danger-border (see
+ *           .fitx-alert-danger); --fitx-success with -bg and -border; --fitx-info; --fitx-warning.
+ * States    --fitx-hover (hovered rows and icon buttons) and --fitx-track (progress and ring tracks).
+ * Strong    --fitx-strong-bg/-hover/-border with --fitx-on-strong: the high-emphasis neutral button
+ *           ("Continue with Google").
+ * Inverse   --fitx-inverse-* and --fitx-on-inverse*: intentionally dark bands (footer, photo heroes) in
+ *           every theme. Put class "fitx-inverse" on a band and every token inside it switches to the
+ *           band palette, so the usual components and utilities keep working inside it.
+ * Scrim     --fitx-scrim: the near-black behind photo shades and modal backdrops; mix it with alpha.
+ *
+ * The dark block and the system-dark block must stay identical; the contrast script fails if they drift.
+ */
 :root {
   color-scheme: light;
   --fitx-bg: #f7f7f4;
   --fitx-surface: #ffffff;
   --fitx-surface-variant: #f0f1ec;
   --fitx-card-bg: #ffffff;
+  --fitx-elevated: #ffffff;
+  --fitx-nav-bg: rgba(255, 255, 255, 0.94);
   --fitx-primary: #c44933;
   --fitx-primary-bright: #a83b28;
+  --fitx-primary-text: #a83b28;
+  --fitx-on-primary: #ffffff;
   --fitx-red-glow: #c44933;
   --fitx-gold: #9a6500;
   --fitx-gold-bright: #7c5000;
   --fitx-ember: #c44933;
-  --fitx-success: #2d7b50;
+  --fitx-success: #276d47;
+  --fitx-success-bg: rgba(39, 109, 71, 0.08);
+  --fitx-success-border: rgba(39, 109, 71, 0.3);
   --fitx-info: #3569a8;
   --fitx-warning: #8d5d00;
+  --fitx-danger: #b3261e;
+  --fitx-on-danger: #ffffff;
+  --fitx-danger-bg: rgba(179, 38, 30, 0.07);
+  --fitx-danger-border: rgba(179, 38, 30, 0.3);
   --fitx-text: #191c19;
   --fitx-text-secondary: #525952;
-  --fitx-text-disabled: #737b74;
+  --fitx-text-disabled: #666d67;
   --fitx-border: rgba(25, 28, 25, 0.14);
   --fitx-divider: rgba(25, 28, 25, 0.09);
+  --fitx-hover: rgba(25, 28, 25, 0.05);
+  --fitx-track: #e4e6e0;
+  --fitx-strong-bg: #1c201d;
+  --fitx-strong-hover: #303530;
+  --fitx-strong-border: #1c201d;
+  --fitx-on-strong: #ffffff;
+
+  /* Theme-independent: the same in every theme. */
+  --fitx-scrim: #050808;
+  --fitx-inverse-bg: #0f110f;
+  --fitx-inverse-surface: #1a1d1a;
+  --fitx-inverse-surface-variant: #242824;
+  --fitx-on-inverse: #f3f3ef;
+  --fitx-on-inverse-secondary: #b8bdb8;
+  --fitx-on-inverse-disabled: #939a93;
+  --fitx-inverse-border: rgba(243, 243, 239, 0.16);
+  --fitx-inverse-divider: rgba(243, 243, 239, 0.11);
+  --fitx-inverse-hover: rgba(243, 243, 239, 0.07);
+  --fitx-inverse-track: #343a35;
+  --fitx-inverse-primary: #f28a77;
+  --fitx-inverse-primary-bright: #f6a594;
+  --fitx-on-inverse-primary: #191c19;
 }
 
 :root[data-theme="dark"] {
@@ -28,20 +85,36 @@
   --fitx-surface: #1c201d;
   --fitx-surface-variant: #252a26;
   --fitx-card-bg: #1c201d;
+  --fitx-elevated: #232824;
+  --fitx-nav-bg: rgba(28, 32, 29, 0.94);
   --fitx-primary: #ed725c;
   --fitx-primary-bright: #f28a77;
+  --fitx-primary-text: #f28a77;
+  --fitx-on-primary: #191c19;
   --fitx-red-glow: #ed725c;
   --fitx-gold: #e2b85f;
   --fitx-gold-bright: #f1cc7e;
   --fitx-ember: #ed725c;
   --fitx-success: #8bcba3;
+  --fitx-success-bg: rgba(139, 203, 163, 0.09);
+  --fitx-success-border: rgba(139, 203, 163, 0.3);
   --fitx-info: #8bb8e9;
   --fitx-warning: #f0c875;
+  --fitx-danger: #f2b8b5;
+  --fitx-on-danger: #601410;
+  --fitx-danger-bg: rgba(242, 184, 181, 0.08);
+  --fitx-danger-border: rgba(242, 184, 181, 0.32);
   --fitx-text: #f3f3ef;
   --fitx-text-secondary: #b8bdb8;
   --fitx-text-disabled: #929992;
   --fitx-border: rgba(243, 243, 239, 0.15);
   --fitx-divider: rgba(243, 243, 239, 0.1);
+  --fitx-hover: rgba(243, 243, 239, 0.07);
+  --fitx-track: #343a35;
+  --fitx-strong-bg: #131314;
+  --fitx-strong-hover: #202322;
+  --fitx-strong-border: #8e918f;
+  --fitx-on-strong: #e3e3e3;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -51,43 +124,115 @@
     --fitx-surface: #1c201d;
     --fitx-surface-variant: #252a26;
     --fitx-card-bg: #1c201d;
+    --fitx-elevated: #232824;
+    --fitx-nav-bg: rgba(28, 32, 29, 0.94);
     --fitx-primary: #ed725c;
     --fitx-primary-bright: #f28a77;
+    --fitx-primary-text: #f28a77;
+    --fitx-on-primary: #191c19;
     --fitx-red-glow: #ed725c;
     --fitx-gold: #e2b85f;
     --fitx-gold-bright: #f1cc7e;
     --fitx-ember: #ed725c;
     --fitx-success: #8bcba3;
+    --fitx-success-bg: rgba(139, 203, 163, 0.09);
+    --fitx-success-border: rgba(139, 203, 163, 0.3);
     --fitx-info: #8bb8e9;
     --fitx-warning: #f0c875;
+    --fitx-danger: #f2b8b5;
+    --fitx-on-danger: #601410;
+    --fitx-danger-bg: rgba(242, 184, 181, 0.08);
+    --fitx-danger-border: rgba(242, 184, 181, 0.32);
     --fitx-text: #f3f3ef;
     --fitx-text-secondary: #b8bdb8;
     --fitx-text-disabled: #929992;
     --fitx-border: rgba(243, 243, 239, 0.15);
     --fitx-divider: rgba(243, 243, 239, 0.1);
+    --fitx-hover: rgba(243, 243, 239, 0.07);
+    --fitx-track: #343a35;
+    --fitx-strong-bg: #131314;
+    --fitx-strong-hover: #202322;
+    --fitx-strong-border: #8e918f;
+    --fitx-on-strong: #e3e3e3;
   }
+}
+
+/* An intentionally dark band (footer, photo hero). Everything inside reads the band palette. */
+.fitx-inverse {
+  color-scheme: dark;
+  --fitx-bg: var(--fitx-inverse-bg);
+  --fitx-surface: var(--fitx-inverse-surface);
+  --fitx-surface-variant: var(--fitx-inverse-surface-variant);
+  --fitx-card-bg: var(--fitx-inverse-surface);
+  --fitx-elevated: var(--fitx-inverse-surface-variant);
+  --fitx-primary: var(--fitx-inverse-primary);
+  --fitx-primary-bright: var(--fitx-inverse-primary-bright);
+  --fitx-primary-text: var(--fitx-inverse-primary);
+  --fitx-on-primary: var(--fitx-on-inverse-primary);
+  --fitx-red-glow: var(--fitx-inverse-primary);
+  --fitx-ember: var(--fitx-inverse-primary);
+  --fitx-gold: #e2b85f;
+  --fitx-gold-bright: #f1cc7e;
+  --fitx-success: #8bcba3;
+  --fitx-success-bg: rgba(139, 203, 163, 0.09);
+  --fitx-success-border: rgba(139, 203, 163, 0.3);
+  --fitx-info: #8bb8e9;
+  --fitx-warning: #f0c875;
+  --fitx-danger: #f2b8b5;
+  --fitx-on-danger: #601410;
+  --fitx-danger-bg: rgba(242, 184, 181, 0.08);
+  --fitx-danger-border: rgba(242, 184, 181, 0.32);
+  --fitx-text: var(--fitx-on-inverse);
+  --fitx-text-secondary: var(--fitx-on-inverse-secondary);
+  --fitx-text-disabled: var(--fitx-on-inverse-disabled);
+  --fitx-border: var(--fitx-inverse-border);
+  --fitx-divider: var(--fitx-inverse-divider);
+  --fitx-hover: var(--fitx-inverse-hover);
+  --fitx-track: var(--fitx-inverse-track);
+  color: var(--fitx-text);
 }
 
 @theme inline {
   --color-background: var(--fitx-bg);
   --color-foreground: var(--fitx-text);
+  --color-fitx-bg: var(--fitx-bg);
   --color-fitx-primary: var(--fitx-primary);
   --color-fitx-primary-bright: var(--fitx-primary-bright);
+  --color-fitx-primary-text: var(--fitx-primary-text);
+  --color-fitx-on-primary: var(--fitx-on-primary);
   --color-fitx-glow: var(--fitx-red-glow);
   --color-fitx-surface: var(--fitx-surface);
   --color-fitx-surface-variant: var(--fitx-surface-variant);
   --color-fitx-card: var(--fitx-card-bg);
+  --color-fitx-elevated: var(--fitx-elevated);
+  --color-fitx-nav: var(--fitx-nav-bg);
   --color-fitx-gold: var(--fitx-gold);
   --color-fitx-gold-bright: var(--fitx-gold-bright);
   --color-fitx-ember: var(--fitx-ember);
   --color-fitx-success: var(--fitx-success);
+  --color-fitx-success-bg: var(--fitx-success-bg);
+  --color-fitx-success-border: var(--fitx-success-border);
   --color-fitx-info: var(--fitx-info);
   --color-fitx-warning: var(--fitx-warning);
+  --color-fitx-danger: var(--fitx-danger);
+  --color-fitx-on-danger: var(--fitx-on-danger);
+  --color-fitx-danger-bg: var(--fitx-danger-bg);
+  --color-fitx-danger-border: var(--fitx-danger-border);
   --color-fitx-text: var(--fitx-text);
   --color-fitx-text-secondary: var(--fitx-text-secondary);
   --color-fitx-text-disabled: var(--fitx-text-disabled);
   --color-fitx-border: var(--fitx-border);
   --color-fitx-divider: var(--fitx-divider);
+  --color-fitx-hover: var(--fitx-hover);
+  --color-fitx-track: var(--fitx-track);
+  --color-fitx-strong: var(--fitx-strong-bg);
+  --color-fitx-on-strong: var(--fitx-on-strong);
+  --color-fitx-scrim: var(--fitx-scrim);
+  --color-fitx-inverse: var(--fitx-inverse-bg);
+  --color-fitx-inverse-surface: var(--fitx-inverse-surface);
+  --color-fitx-on-inverse: var(--fitx-on-inverse);
+  --color-fitx-on-inverse-secondary: var(--fitx-on-inverse-secondary);
+  --color-fitx-inverse-divider: var(--fitx-inverse-divider);
   --font-heading: var(--font-manrope);
   --font-body: var(--font-inter);
   --font-display: var(--font-manrope);
@@ -164,6 +309,7 @@ a { color: inherit; text-decoration: none; }
 select.fitx-field { color-scheme: light; }
 :root[data-theme="dark"] select.fitx-field { color-scheme: dark; }
 @media (prefers-color-scheme: dark) { :root[data-theme="system"] select.fitx-field { color-scheme: dark; } }
+.fitx-inverse select.fitx-field { color-scheme: dark; }
 textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px; }
 .fitx-button {
   min-height: 48px;
@@ -174,7 +320,7 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: var(--fitx-primary);
-  color: #fff;
+  color: var(--fitx-on-primary);
   padding: 0 18px;
   font-weight: 680;
   transition: background-color .18s ease, border-color .18s ease, transform .18s ease;
@@ -185,9 +331,14 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 .fitx-button-secondary { border-color: var(--fitx-border); background: var(--fitx-surface-variant); color: var(--fitx-text); }
 .fitx-button-secondary:hover { border-color: color-mix(in srgb, var(--fitx-primary) 48%, var(--fitx-border)); background: var(--fitx-surface-variant); }
 .fitx-button-quiet { border-color: var(--fitx-border); background: transparent; color: var(--fitx-text-secondary); }
-.fitx-button-danger { border-color: rgba(190, 52, 52, .3); background: rgba(190, 52, 52, .09); color: #9f2727; }
-.fitx-progress-track { overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--fitx-text-secondary) 18%, var(--fitx-surface-variant)); }
+.fitx-button-danger { border-color: var(--fitx-danger-border); background: var(--fitx-danger-bg); color: var(--fitx-danger); }
+.fitx-button-danger:hover { border-color: var(--fitx-danger); background: var(--fitx-danger-bg); }
+.fitx-progress-track { overflow: hidden; border-radius: 999px; background: var(--fitx-track); }
 .fitx-progress-fill { height: 100%; border-radius: inherit; background: var(--fitx-primary); transition: width .35s ease; }
+.fitx-alert { border: 1px solid var(--fitx-border); border-radius: 10px; background: var(--fitx-surface); color: var(--fitx-text); padding: 11px 14px; font-size: .875rem; line-height: 1.5; }
+.fitx-alert-danger { border-color: var(--fitx-danger-border); background: var(--fitx-danger-bg); color: var(--fitx-danger); }
+.fitx-alert-success { border-color: var(--fitx-success-border); background: var(--fitx-success-bg); color: var(--fitx-success); }
+.fitx-alert-action { margin-left: 6px; color: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 
 .theme-switcher {
   display: inline-flex;
@@ -225,11 +376,11 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 .auth-toolbar { display: flex; min-height: 76px; align-items: center; justify-content: flex-end; padding: 16px clamp(18px, 4vw, 54px) 0; }
 .auth-content { width: min(100%, 548px); margin: auto; padding: 28px clamp(20px, 4.5vw, 56px) 58px; }
 .auth-page-brand { display: flex; justify-content: flex-start; margin-bottom: 30px; }
-.auth-eyebrow { margin: 0 0 9px; color: var(--fitx-primary); font-size: .66rem; font-weight: 750; letter-spacing: .15em; }
+.auth-eyebrow { margin: 0 0 9px; color: var(--fitx-primary-text); font-size: .66rem; font-weight: 750; letter-spacing: .15em; }
 .auth-content h1 { margin: 0; font-family: var(--font-manrope), sans-serif; font-size: clamp(1.8rem, 3vw, 2.25rem); font-weight: 750; letter-spacing: -.055em; line-height: 1.1; }
 .auth-subtitle { margin: 11px 0 25px; color: var(--fitx-text-secondary); font-size: .92rem; line-height: 1.6; }
-.auth-google-button { display: flex; width: 100%; min-height: 54px; align-items: center; justify-content: center; gap: 12px; border: 1px solid #1c201d; border-radius: 8px; background: #1c201d; color: #fff; padding: 0 16px; font-size: .9rem; font-weight: 680; transition: background-color .18s ease, transform .18s ease; }
-.auth-google-button:hover { background: #303530; }
+.auth-google-button { display: flex; width: 100%; min-height: 54px; align-items: center; justify-content: center; gap: 12px; border: 1px solid var(--fitx-strong-border); border-radius: 8px; background: var(--fitx-strong-bg); color: var(--fitx-on-strong); padding: 0 16px; font-size: .9rem; font-weight: 680; transition: background-color .18s ease, transform .18s ease; }
+.auth-google-button:hover { background: var(--fitx-strong-hover); }
 .auth-google-button:active { transform: translateY(1px); }
 .auth-google-button:disabled { cursor: wait; opacity: .68; }
 .auth-google-button:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 3px; }
@@ -248,19 +399,18 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 .auth-email-details { border-top: 1px solid var(--fitx-divider); border-bottom: 1px solid var(--fitx-divider); }
 .auth-email-details summary { display: flex; min-height: 50px; align-items: center; justify-content: space-between; color: var(--fitx-text-secondary); cursor: pointer; font-size: .82rem; font-weight: 600; list-style: none; }
 .auth-email-details summary::-webkit-details-marker { display: none; }
-.auth-email-details summary::after { content: "+"; color: var(--fitx-primary); font-size: 1.15rem; font-weight: 400; }
+.auth-email-details summary::after { content: "+"; color: var(--fitx-primary-text); font-size: 1.15rem; font-weight: 400; }
 .auth-email-details[open] summary::after { content: "−"; }
 .auth-email-form { display: grid; gap: 13px; padding: 4px 0 20px; }
 .auth-field-label { display: grid; gap: 7px; color: var(--fitx-text-secondary); font-size: .75rem; font-weight: 600; }
 .auth-field-wrap { position: relative; }
 .auth-field-wrap .fitx-field { min-height: 46px; }
 .auth-form-row { display: flex; justify-content: flex-end; }
-.auth-form-link { color: var(--fitx-primary); font-size: .76rem; font-weight: 650; text-underline-offset: 3px; }
+.auth-form-link { color: var(--fitx-primary-text); font-size: .76rem; font-weight: 650; text-underline-offset: 3px; }
 .auth-form-link:hover { text-decoration: underline; }
-.auth-error { margin: 14px 0 0; border: 1px solid rgba(178, 52, 41, .25); border-radius: 7px; background: rgba(196, 73, 51, .075); color: #8a2e22; padding: 11px 12px; font-size: .8rem; line-height: 1.5; }
-:root[data-theme="dark"] .auth-error { color: #ffb3a4; }
+.auth-error { margin: 14px 0 0; border: 1px solid var(--fitx-danger-border); border-radius: 7px; background: var(--fitx-danger-bg); color: var(--fitx-danger); padding: 11px 12px; font-size: .8rem; line-height: 1.5; }
 .auth-account-note { margin: 22px 0 0; color: var(--fitx-text-secondary); font-size: .82rem; line-height: 1.6; }
-.auth-account-note a { color: var(--fitx-primary); font-weight: 700; text-underline-offset: 3px; }
+.auth-account-note a { color: var(--fitx-primary-text); font-weight: 700; text-underline-offset: 3px; }
 .auth-account-note a:hover { text-decoration: underline; }
 .auth-success { border: 1px solid var(--fitx-border); border-radius: 10px; background: var(--fitx-surface); padding: 20px; }
 .auth-success strong { overflow-wrap: anywhere; color: var(--fitx-text); }

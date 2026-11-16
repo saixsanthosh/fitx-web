@@ -7,12 +7,12 @@ import styles from "./PublicFooter.module.css";
 
 const links = [["Features", "/features"], ["About", "/about"], ["Pricing", "/pricing"], ["Privacy", "/privacy"], ["Terms", "/terms"], ["Cookies", "/cookies"], ["Refunds", "/refunds"]] as const;
 export function PublicFooter() {
-  return <footer className="border-t border-fitx-divider bg-[#080b0c]"><div className="mx-auto grid max-w-7xl gap-8 px-4 py-9 sm:px-6 md:grid-cols-[1fr_auto] lg:px-8">
-    <div><Link href="/" className="inline-flex items-center gap-2"><Logo size={31}/><span className="font-medium">FITX</span></Link><p className="mt-3 max-w-sm text-xs leading-5 text-fitx-text-secondary">Workout planning, food logging, and progress tracking in one personal fitness workspace.</p></div>
+  return <footer className="fitx-inverse border-t border-fitx-divider bg-background"><div className="mx-auto grid max-w-7xl gap-8 px-4 py-9 sm:px-6 md:grid-cols-[1fr_auto] lg:px-8">
+    <div><Link href="/" aria-label="FITX home" className="inline-flex items-center gap-2"><Logo size={31}/></Link><p className="mt-3 max-w-sm text-xs leading-5 text-fitx-text-secondary">Workout planning, food logging, and progress tracking in one personal fitness workspace.</p></div>
     <nav aria-label="Footer navigation" className="grid grid-cols-2 gap-x-8 gap-y-3 text-xs text-fitx-text-secondary sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">{links.map(([label, href]) => <Link key={href} href={href} className="hover:text-fitx-text">{label}</Link>)}</nav>
-    <section aria-labelledby="footer-contact-title" className="border-t-2 border-t-fitx-primary border-x border-b border-fitx-divider bg-[#0d1312] p-4 sm:p-5 md:col-span-2">
+    <section aria-labelledby="footer-contact-title" className="border-t-2 border-t-fitx-primary border-x border-b border-fitx-divider bg-fitx-surface p-4 sm:p-5 md:col-span-2">
       <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-fitx-primary">FITX / Stay connected</p><h2 id="footer-contact-title" className="mt-1 text-lg font-semibold text-fitx-text">We’re easy to reach.</h2></div>
+        <div><p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fitx-primary-text">FITX / Stay connected</p><h2 id="footer-contact-title" className="mt-1 text-lg font-semibold text-fitx-text">We’re easy to reach.</h2></div>
         <p className="text-xs text-fitx-text-secondary">Follow along or get a hand with your account.</p>
       </div>
       <div className={styles.contactGrid}>

@@ -84,7 +84,7 @@ export default function PlannerPage() {
   return (
     <div className={styles.page + " mx-auto max-w-6xl space-y-5"}>
       <PageHeading title="Planner" description="Schedule training and personal events in your week." actions={<button onClick={() => { setForm((old) => ({ ...old, date: localDateKey(selectedDay) })); setShowForm((value) => !value); }} className="fitx-button"><Plus size={15}/>Add event</button>}/>
-      {error && <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/5 px-4 py-3 text-sm text-red-200">{error}</p>}
+      {error && <p role="alert" className="fitx-alert fitx-alert-danger">{error}</p>}
       {showForm && <form onSubmit={(event) => void createEvent(event)} className={styles.eventForm + " fitx-panel grid gap-3 p-4 sm:grid-cols-2"}>
         <div className={styles.formHeading}><span>Plan ahead</span><h2>Schedule an event</h2></div>
         <label className={`${styles.fieldWide} text-xs text-fitx-text-secondary`}>Event name<input className="fitx-field mt-1.5" maxLength={120} required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Workout, rest day, appointment"/></label>

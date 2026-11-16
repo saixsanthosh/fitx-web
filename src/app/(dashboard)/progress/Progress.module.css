@@ -1,30 +1,30 @@
 .page { min-width: 0; }
-.performanceStrip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); overflow: hidden; border: 1px solid var(--fitx-border); border-radius: 1rem; background: linear-gradient(110deg,rgba(121,223,131,.05),transparent 62%),var(--fitx-surface); }
+.performanceStrip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); overflow: hidden; border: 1px solid var(--fitx-border); border-radius: 1rem; background: linear-gradient(110deg,color-mix(in srgb,var(--fitx-primary) 5%,transparent),transparent 62%),var(--fitx-surface); }
 .performanceMetric { position: relative; display: grid; min-width: 0; min-height: 6.2rem; align-content: center; padding: 1rem 1.1rem; transition: background-color .18s ease; }
 .performanceMetric + .performanceMetric { border-left: 1px solid var(--fitx-border); }
-.performanceMetric:hover { background: rgba(121,223,131,.035); }
-.performanceMetric > svg { color: #79df83; }
+.performanceMetric:hover { background: color-mix(in srgb,var(--fitx-primary) 4%,transparent); }
+.performanceMetric > svg { color: var(--fitx-primary); }
 .performanceMetric > p:nth-of-type(1) { margin-top: .45rem; color: var(--fitx-text); font-size: clamp(1.25rem,2vw,1.7rem); font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: -.04em; line-height: 1; }
 .performanceMetric > p:nth-of-type(2) { margin-top: .35rem; color: var(--fitx-text-secondary); font-size: .65rem; letter-spacing: .07em; text-transform: uppercase; }
 .frequencyPanel { min-width: 0; }
 .frequencyChart { display: grid; height: 9rem; grid-template-columns: repeat(7,minmax(0,1fr)); gap: clamp(.35rem,1.6vw,1.2rem); }
 .frequencyChart > div { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: flex-end; gap: .45rem; }
 .frequencyChart > div > span:first-child { color: var(--fitx-text-secondary); font-size: .7rem; font-variant-numeric: tabular-nums; }
-.frequencyChart > div > div { display: flex; width: 100%; max-width: 3rem; height: 6.4rem; align-items: flex-end; overflow: hidden; border: 1px solid rgba(255,255,255,.035); border-radius: .5rem .5rem .25rem .25rem; background: rgba(255,255,255,.025); }
-.frequencyChart > div > div > div { width: 100%; min-height: 3px; border-radius: .45rem .45rem .15rem .15rem; background: linear-gradient(180deg,#9aeea0,#4fa95c); transition: height .32s ease; }
+.frequencyChart > div > div { display: flex; width: 100%; max-width: 3rem; height: 6.4rem; align-items: flex-end; overflow: hidden; border: 1px solid var(--fitx-divider); border-radius: .5rem .5rem .25rem .25rem; background: var(--fitx-surface-variant); }
+.frequencyChart > div > div > div { width: 100%; min-height: 3px; border-radius: .45rem .45rem .15rem .15rem; background: linear-gradient(180deg,var(--fitx-primary),color-mix(in srgb,var(--fitx-primary) 84%,var(--fitx-surface-variant))); transition: height .32s ease; }
 .frequencyChart > div > span:last-child { color: var(--fitx-text-disabled); font-size: .65rem; text-transform: uppercase; }
 .measurementLayout { align-items: start; }
 .bodyPanel,.measurementForm,.recordsPanel,.recentPanel { min-width: 0; }
 .bodyPanel > div:first-child button { min-width: 3.5rem; min-height: 2.7rem; border-radius: .55rem; font-size: .68rem; transition: color .16s ease,background-color .16s ease; }
-.bodyPanel > div:first-child button[aria-pressed="true"] { background: rgba(121,223,131,.1); color: #9aeea0; }
-.weightChart { margin: 1rem 0; border: 1px solid rgba(121,223,131,.16); border-radius: .8rem; background: linear-gradient(135deg,rgba(121,223,131,.045),transparent 70%),#0d1314; padding: .85rem .9rem .65rem; }
+.bodyPanel > div:first-child button[aria-pressed="true"] { background: color-mix(in srgb,var(--fitx-primary) 10%,transparent); color: var(--fitx-primary-text); }
+.weightChart { margin: 1rem 0; border: 1px solid color-mix(in srgb,var(--fitx-primary) 18%,var(--fitx-border)); border-radius: .8rem; background: linear-gradient(135deg,color-mix(in srgb,var(--fitx-primary) 4%,transparent),transparent 70%),var(--fitx-surface); padding: .85rem .9rem .65rem; }
 .weightChartHeading { display: flex; align-items: baseline; justify-content: space-between; gap: .7rem; }
 .weightChartHeading > span { color: var(--fitx-text-disabled); font-size: .62rem; letter-spacing: .13em; }
 .weightChartHeading > strong { color: var(--fitx-text); font-size: 1.35rem; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
 .weightChartHeading small { color: var(--fitx-text-secondary); font-size: .7rem; font-weight: 500; }
-.weightChart svg { width: 100%; height: 6.5rem; overflow: visible; color: #79df83; }
+.weightChart svg { width: 100%; height: 6.5rem; overflow: visible; color: var(--fitx-primary); }
 .chartDates { display: flex; justify-content: space-between; color: var(--fitx-text-disabled); font-size: .63rem; }
-.recordsPanel { border-color: rgba(121,223,131,.13); }
+.recordsPanel { border-color: color-mix(in srgb,var(--fitx-primary) 14%,var(--fitx-border)); }
 .recentPanel { overflow: hidden; }
 .measurementForm button { min-height: 2.9rem; }
 @media(max-width: 767px) {

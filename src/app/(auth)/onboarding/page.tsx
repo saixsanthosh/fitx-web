@@ -127,9 +127,9 @@ export default function OnboardingPage() {
 
   return (
     <div className="mx-auto w-full max-w-[610px]">
-      <div className="mb-6 text-center"><Logo size={52} className="mx-auto mb-3"/><p className="text-xs font-medium uppercase tracking-[.16em] text-fitx-primary">Set up FITX</p><h1 className="mt-2 text-2xl font-semibold">A plan that fits your life</h1><p className="mt-1 text-sm text-fitx-text-secondary">Step {step} of 3</p></div>
-      <div className="mb-5 grid grid-cols-3 gap-2" aria-label="Onboarding progress">{[1,2,3].map((item) => <div key={item} className={`h-1.5 rounded-full ${item <= step ? "bg-fitx-primary" : "bg-fitx-surface-variant"}`} />)}</div>
-      <form onSubmit={step === 3 ? save : (event) => { event.preventDefault(); setError(""); setStep(step + 1); }} className="rounded-2xl border border-fitx-border bg-[#0b1012] p-4 sm:p-7">
+      <div className="mb-6 text-center"><Logo size={52} className="mx-auto mb-3"/><p className="text-xs font-medium uppercase tracking-[.16em] text-fitx-primary-text">Set up FITX</p><h1 className="mt-2 text-2xl font-semibold">A plan that fits your life</h1><p className="mt-1 text-sm text-fitx-text-secondary">Step {step} of 3</p></div>
+      <div className="mb-5 grid grid-cols-3 gap-2" aria-label="Onboarding progress">{[1,2,3].map((item) => <div key={item} className={`h-1.5 rounded-full ${item <= step ? "bg-fitx-primary" : "bg-fitx-track"}`} />)}</div>
+      <form onSubmit={step === 3 ? save : (event) => { event.preventDefault(); setError(""); setStep(step + 1); }} className="rounded-2xl border border-fitx-border bg-fitx-card p-4 shadow-sm sm:p-7">
         {step === 1 && <div className="space-y-6">
           <div><h2 className="text-lg font-semibold">Where do you work out?</h2><div className="mt-3 grid grid-cols-2 gap-2">{[["gym","Gym"],["home","Home"],["both","Both"],["outdoor","Outdoors"]].map(([key,label]) => <Choice key={key} selected={location === key} onClick={() => setLocation(key)}>{label}</Choice>)}</div></div>
           <div><h2 className="text-lg font-semibold">What equipment can you use?</h2><p className="mt-1 text-sm text-fitx-text-secondary">Choose everything you have available.</p><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{equipmentOptions.map(([key,label]) => <Choice key={key} selected={equipment.includes(key)} onClick={() => toggle(equipment,setEquipment,key)}>{label}</Choice>)}</div></div>
@@ -157,7 +157,7 @@ export default function OnboardingPage() {
           </div>
           <fieldset><legend className="text-sm text-fitx-text-secondary">Allergies or intolerances</legend><div className="mt-2 flex flex-wrap gap-2">{allergyOptions.map((value) => <Choice key={value} selected={allergies.includes(value)} onClick={() => toggle(allergies,setAllergies,value)}>{value}</Choice>)}</div></fieldset>
         </div>}
-        {error && <p role="alert" className="mt-5 rounded-lg border border-red-300/20 bg-red-300/5 px-3 py-2 text-sm text-red-200">{error}</p>}
+        {error && <p role="alert" className="fitx-alert fitx-alert-danger mt-5">{error}</p>}
         <div className="mt-7 flex items-center justify-between gap-3 border-t border-fitx-divider pt-5">
           {step > 1 ? <button type="button" onClick={() => {setStep(step-1);setError("");}} className="fitx-button fitx-button-secondary"><ArrowLeft size={16}/>Back</button> : <span/>}
           <button type="submit" disabled={saving} className="fitx-button">{step === 3 ? (saving ? "Saving…" : "Finish setup") : "Continue"}{step === 3 ? <Check size={16}/> : <ArrowRight size={16}/>}</button>
@@ -168,5 +168,5 @@ export default function OnboardingPage() {
 }
 
 function Choice({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" aria-pressed={selected} onClick={onClick} className={`flex min-h-10 items-center justify-center rounded-lg border px-3 py-2 text-sm transition-colors ${selected ? "border-fitx-primary/50 bg-fitx-primary/10 text-fitx-primary" : "border-fitx-border bg-fitx-surface text-fitx-text-secondary hover:border-fitx-primary/30 hover:text-fitx-text"}`}>{children}</button>;
+  return <button type="button" aria-pressed={selected} onClick={onClick} className={`flex min-h-10 items-center justify-center rounded-lg border px-3 py-2 text-sm transition-colors ${selected ? "border-fitx-primary/50 bg-fitx-primary/10 text-fitx-primary-text" : "border-fitx-border bg-fitx-surface-variant text-fitx-text-secondary hover:border-fitx-primary/30 hover:text-fitx-text"}`}>{children}</button>;
 }

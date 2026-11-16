@@ -1,26 +1,40 @@
+/*
+ * Rules in this file read only the --story-* palette. .page maps it to the theme tokens; the photo
+ * heroes, dark story bands and the scan panel map it to the inverse (always-dark) tokens, so they stay
+ * dark bands with light text in every theme. --story-accent is for fills, icons and display text;
+ * small accent-coloured text uses --story-accent-text.
+ */
 .page {
+  --story-bg: var(--fitx-bg);
+  --story-surface: var(--fitx-surface);
+  --story-surface-variant: var(--fitx-surface-variant);
   --story-ink: var(--fitx-text);
   --story-muted: var(--fitx-text-secondary);
   --story-line: var(--fitx-divider);
   --story-accent: var(--fitx-primary);
+  --story-accent-text: var(--fitx-primary-text);
+  --story-accent-hover: var(--fitx-primary-bright);
+  --story-on-accent: var(--fitx-on-primary);
   overflow: clip;
-  background: var(--fitx-bg);
+  background: var(--story-bg);
   color: var(--story-ink);
 }
 
 .hero,
-.finalCta {
-  --story-ink: #f0f2ef;
-  --story-muted: #d5dad5;
-  --story-accent: #f28a77;
-  color: var(--story-ink);
-}
-
-.darkStory.story {
-  --story-ink: #f0f2ef;
-  --story-muted: #a9b0aa;
-  --story-line: rgba(238, 242, 236, 0.15);
-  --story-accent: #f28a77;
+.finalCta,
+.darkStory.story,
+.scanPanel {
+  --story-bg: var(--fitx-inverse-bg);
+  --story-surface: var(--fitx-inverse-surface);
+  --story-surface-variant: var(--fitx-inverse-surface-variant);
+  --story-ink: var(--fitx-on-inverse);
+  --story-muted: var(--fitx-on-inverse-secondary);
+  --story-line: var(--fitx-inverse-divider);
+  --story-accent: var(--fitx-inverse-primary);
+  --story-accent-text: var(--fitx-inverse-primary);
+  --story-accent-hover: var(--fitx-inverse-primary-bright);
+  --story-on-accent: var(--fitx-on-inverse-primary);
+  color-scheme: dark;
   color: var(--story-ink);
 }
 
@@ -31,7 +45,7 @@
   min-height: clamp(650px, calc(100svh - 68px), 880px);
   align-items: center;
   overflow: hidden;
-  background: #080b0b;
+  background: var(--story-bg);
 }
 
 .heroMedia,
@@ -52,7 +66,7 @@
   position: absolute;
   z-index: 1;
   inset: 0;
-  background: linear-gradient(90deg, rgba(5, 8, 8, 0.91) 0%, rgba(5, 8, 8, 0.79) 35%, rgba(5, 8, 8, 0.32) 62%, rgba(5, 8, 8, 0.06) 100%), linear-gradient(0deg, rgba(5, 8, 8, 0.58), transparent 38%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--fitx-scrim) 91%, transparent) 0%, color-mix(in srgb, var(--fitx-scrim) 79%, transparent) 35%, color-mix(in srgb, var(--fitx-scrim) 32%, transparent) 62%, color-mix(in srgb, var(--fitx-scrim) 6%, transparent) 100%), linear-gradient(0deg, color-mix(in srgb, var(--fitx-scrim) 58%, transparent), transparent 38%);
 }
 
 .heroContent,
@@ -69,7 +83,7 @@
 .sectionEyebrow,
 .miniLabel {
   margin: 0;
-  color: var(--story-accent);
+  color: var(--story-accent-text);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.2em;
@@ -77,7 +91,7 @@
   text-transform: uppercase;
 }
 
-.heroEyebrow span { padding: 0 0.45rem; color: #f0f2ef; }
+.heroEyebrow span { padding: 0 0.45rem; color: var(--story-ink); }
 
 .heroTitle,
 .finalTitle {
@@ -97,7 +111,7 @@
 .heroCopy {
   max-width: 465px;
   margin: 25px 0 0;
-  color: #e1e3de;
+  color: var(--story-ink);
   font-size: clamp(0.98rem, 1.18vw, 1.12rem);
   line-height: 1.68;
 }
@@ -122,23 +136,22 @@
   border: 1px solid var(--story-accent);
   border-radius: 7px;
   background: var(--story-accent);
-  color: #fff;
+  color: var(--story-on-accent);
   padding: 0 20px;
 }
 
-.primaryAction:hover { transform: translateY(-2px); background: var(--fitx-primary-bright); }
-.hero .primaryAction,
-.finalCta .primaryAction { color: #191c19; }
+.primaryAction:hover { transform: translateY(-2px); border-color: var(--story-accent-hover); background: var(--story-accent-hover); }
 .primaryAction:focus-visible,
 .secondaryAction:focus-visible,
 .inlineAction:focus-visible,
-.planAction:focus-visible { outline: 2px solid var(--fitx-primary-bright); outline-offset: 4px; }
+.planAction:focus-visible { outline: 2px solid var(--story-accent); outline-offset: 4px; }
 
 .secondaryAction { color: var(--story-ink); }
 .secondaryAction:hover,
-.inlineAction:hover { color: var(--fitx-primary-bright); }
+.inlineAction:hover,
+.planAction:hover { color: var(--story-accent-hover); text-decoration: underline; text-underline-offset: 4px; }
 
-.heroNote { margin: 22px 0 0; color: rgba(238, 242, 236, 0.65); font-size: 0.73rem; letter-spacing: 0.03em; }
+.heroNote { margin: 22px 0 0; color: color-mix(in srgb, var(--story-ink) 68%, transparent); font-size: 0.73rem; letter-spacing: 0.03em; }
 
 .heroIndex,
 .finalIndex {
@@ -149,13 +162,13 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: rgba(238, 242, 236, 0.7);
+  color: color-mix(in srgb, var(--story-ink) 72%, transparent);
   font-size: 0.61rem;
   font-weight: 650;
   letter-spacing: 0.15em;
 }
 
-.heroIndex span { color: var(--story-accent); }
+.heroIndex span { color: var(--story-accent-text); }
 .heroIndex i { width: 32px; height: 1px; background: var(--story-accent); }
 
 .story {
@@ -203,10 +216,10 @@
   aspect-ratio: 16 / 10;
   margin: 0;
   overflow: hidden;
-  background: linear-gradient(140deg, var(--fitx-surface-variant), color-mix(in srgb, var(--fitx-text) 12%, var(--fitx-surface)) 58%, var(--fitx-bg));
+  background: linear-gradient(140deg, var(--story-surface-variant), color-mix(in srgb, var(--story-ink) 12%, var(--story-surface)) 58%, var(--story-bg));
 }
 
-.mediaFallback { position: absolute; inset: 0; background: radial-gradient(ellipse at 72% 35%, color-mix(in srgb, var(--fitx-primary) 20%, transparent), transparent 55%), linear-gradient(140deg, var(--fitx-surface-variant), var(--fitx-bg)); }
+.mediaFallback { position: absolute; inset: 0; background: radial-gradient(ellipse at 72% 35%, color-mix(in srgb, var(--story-accent) 20%, transparent), transparent 55%), linear-gradient(140deg, var(--story-surface-variant), var(--story-bg)); }
 
 .hero > .heroMedia,
 .finalCta > .finalMedia {
@@ -221,7 +234,7 @@
   position: absolute;
   z-index: 1;
   inset: 0;
-  background: linear-gradient(0deg, rgba(4, 7, 6, 0.34), transparent 45%);
+  background: linear-gradient(0deg, color-mix(in srgb, var(--fitx-scrim) 34%, transparent), transparent 45%);
   content: "";
   pointer-events: none;
 }
@@ -246,15 +259,15 @@
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: rgba(255, 255, 255, 0.86);
+  color: color-mix(in srgb, var(--fitx-on-inverse) 90%, transparent);
   font-size: 0.57rem;
   font-weight: 650;
   letter-spacing: 0.16em;
-  text-shadow: 0 1px 8px #000;
+  text-shadow: 0 1px 8px var(--fitx-scrim);
 }
 
 .personalVisual { max-width: 515px; }
-.personalVisual .mediaFrame { box-shadow: 18px 18px 0 var(--fitx-surface-variant); }
+.personalVisual .mediaFrame { box-shadow: 18px 18px 0 var(--story-surface-variant); }
 .storyCopy { min-width: 0; }
 .placeChoices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 34px; border-block: 1px solid var(--story-line); }
 .placeChoices span { padding: 14px 6px; color: var(--story-ink); font-size: 0.68rem; font-weight: 650; letter-spacing: 0.12em; text-align: center; text-transform: uppercase; }
@@ -264,14 +277,14 @@
 .preferenceRow { display: grid; grid-template-columns: 24px 104px 1fr; align-items: center; gap: 12px; min-height: 52px; border-bottom: 1px solid var(--story-line); color: var(--story-accent); }
 .preferenceLabel { color: var(--story-ink); font-size: 0.83rem; font-weight: 650; }
 .preferenceDetail { color: var(--story-muted); font-size: 0.76rem; }
-.inlineAction { min-height: 42px; margin-top: 19px; color: var(--story-accent); }
+.inlineAction { min-height: 42px; margin-top: 19px; color: var(--story-accent-text); }
 
 .darkStory.story {
   width: 100%;
   max-width: none;
   margin: 0;
   padding-inline: max(calc((100vw - 1180px) / 2), 24px);
-  background: #101513;
+  background: var(--story-bg);
 }
 
 .workoutIntro { max-width: 720px; }
@@ -279,34 +292,34 @@
 .workoutFlow { display: grid; grid-template-columns: 1fr; }
 .flowStep { position: relative; display: flex; align-items: center; gap: 20px; min-height: 69px; border-top: 1px solid var(--story-line); }
 .flowStep:last-child { border-bottom: 1px solid var(--story-line); }
-.flowStep > span { color: var(--story-accent); font-size: 0.64rem; letter-spacing: 0.1em; }
+.flowStep > span { color: var(--story-accent-text); font-size: 0.64rem; letter-spacing: 0.1em; }
 .flowStep strong { font-size: clamp(1rem, 1.7vw, 1.28rem); font-weight: 550; letter-spacing: -0.02em; }
-.flowStep i { position: absolute; right: 11px; bottom: -11px; z-index: 1; width: 20px; height: 20px; border-right: 1px solid rgba(238, 242, 236, 0.34); border-bottom: 1px solid rgba(238, 242, 236, 0.34); background: #101513; transform: rotate(45deg) scale(0.6); }
+.flowStep i { position: absolute; right: 11px; bottom: -11px; z-index: 1; width: 20px; height: 20px; border-right: 1px solid color-mix(in srgb, var(--story-ink) 34%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--story-ink) 34%, transparent); background: var(--story-bg); transform: rotate(45deg) scale(0.6); }
 
 .planCard,
 .exerciseCard,
 .foodCard,
 .progressPreview {
   border: 1px solid var(--story-line);
-  background: var(--fitx-surface);
+  background: var(--story-surface);
   padding: clamp(19px, 3vw, 30px);
 }
 
-.planCard { box-shadow: 0 20px 70px rgba(0, 0, 0, 0.24); }
+.planCard { box-shadow: 0 20px 70px color-mix(in srgb, var(--fitx-scrim) 24%, transparent); }
 .planCardHead,
-.foodCardHead { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--story-accent); }
+.foodCardHead { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--story-accent-text); }
 .planCardHead h3,
 .foodCardHead h3 { margin: 9px 0 0; color: var(--story-ink); font-size: 1.32rem; font-weight: 650; letter-spacing: -0.035em; }
 .planDescription { margin: 15px 0 0; color: var(--story-muted); font-size: 0.78rem; line-height: 1.6; }
 .planInputs { margin-top: 23px; border-top: 1px solid var(--story-line); }
 .planInput { display: grid; grid-template-columns: 78px 1fr 26px; align-items: center; gap: 12px; min-height: 48px; border-bottom: 1px solid var(--story-line); }
-.planInput span { color: var(--story-accent); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.planInput span { color: var(--story-accent-text); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
 .planInput strong { color: var(--story-ink); font-size: 0.73rem; font-weight: 500; }
 .planInput b { color: var(--story-muted); font-size: 0.62rem; font-weight: 500; text-align: right; }
-.planAction { min-height: 42px; margin-top: 18px; color: var(--story-accent); }
+.planAction { min-height: 42px; margin-top: 18px; color: var(--story-accent-text); }
 .workoutMedia { position: relative; margin-top: clamp(44px, 7vw, 88px); }
 .workoutMedia .mediaFrame { aspect-ratio: 2.25 / 1; }
-.mediaNote { position: absolute; right: 15px; bottom: 13px; z-index: 2; color: rgba(255, 255, 255, 0.84); font-size: 0.58rem; font-weight: 650; letter-spacing: 0.15em; text-shadow: 0 1px 8px #000; }
+.mediaNote { position: absolute; right: 15px; bottom: 13px; z-index: 2; color: color-mix(in srgb, var(--fitx-on-inverse) 88%, transparent); font-size: 0.58rem; font-weight: 650; letter-spacing: 0.15em; text-shadow: 0 1px 8px var(--fitx-scrim); }
 
 .exerciseStory { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.78fr); align-items: center; gap: clamp(38px, 8vw, 108px); }
 .exerciseMedia { margin-top: 35px; }
@@ -322,7 +335,7 @@
 .exerciseDetails dd { margin: 6px 0 0; color: var(--story-ink); font-size: 0.76rem; line-height: 1.45; }
 .exerciseFootnote { margin: 14px 0 0; color: var(--story-muted); font-size: 0.68rem; line-height: 1.6; }
 
-.foodStory { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); background: var(--fitx-surface-variant); }
+.foodStory { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); background: var(--story-surface-variant); }
 .foodPhoto { max-width: 465px; }
 .foodPhoto .mediaFrame { aspect-ratio: 4 / 4.55; }
 .foodContent { min-width: 0; }
@@ -346,16 +359,15 @@
 .barcodeVisual { position: relative; min-width: 0; min-height: 370px; }
 .barcodePhoto { position: absolute; inset: 0; width: 100%; height: 100%; }
 .barcodePhoto .mediaFrame { height: 100%; aspect-ratio: auto; }
-.barcodePhoto::after { background: linear-gradient(90deg, rgba(5, 8, 7, 0.2), rgba(5, 8, 7, 0.72)); }
-.scanPanel { position: relative; z-index: 2; width: min(370px, 80%); margin: 32px 0 32px auto; border: 1px solid rgba(238, 242, 236, 0.24); background: rgba(8, 12, 10, 0.92); padding: 22px; }
-.scanPanelHead { display: flex; align-items: center; gap: 10px; color: var(--story-accent); font-size: 0.63rem; font-weight: 700; letter-spacing: 0.15em; }
-.scanFrame { position: relative; display: grid; height: 150px; place-items: center; margin-top: 19px; border: 1px solid rgba(238, 242, 236, 0.13); background: repeating-linear-gradient(90deg, transparent 0 9px, rgba(238, 242, 236, 0.08) 9px 11px, transparent 11px 16px), #0b100e; }
-.scanFrame span { width: 72%; height: 2px; background: var(--story-accent); box-shadow: 0 0 20px rgba(196, 73, 51, 0.28); }
-.scanFrame i { position: absolute; inset: 20px 17%; border: 1px solid rgba(196, 73, 51, 0.42); }
+.barcodePhoto::after { background: linear-gradient(90deg, color-mix(in srgb, var(--fitx-scrim) 20%, transparent), color-mix(in srgb, var(--fitx-scrim) 72%, transparent)); }
+.scanPanel { position: relative; z-index: 2; width: min(370px, 80%); margin: 32px 0 32px auto; border: 1px solid color-mix(in srgb, var(--story-ink) 24%, transparent); background: color-mix(in srgb, var(--story-bg) 92%, transparent); padding: 22px; }
+.scanPanelHead { display: flex; align-items: center; gap: 10px; color: var(--story-accent-text); font-size: 0.63rem; font-weight: 700; letter-spacing: 0.15em; }
+.scanFrame { position: relative; display: grid; height: 150px; place-items: center; margin-top: 19px; border: 1px solid var(--story-line); background: repeating-linear-gradient(90deg, transparent 0 9px, color-mix(in srgb, var(--story-ink) 8%, transparent) 9px 11px, transparent 11px 16px), var(--story-bg); }
+.scanFrame span { width: 72%; height: 2px; background: var(--story-accent); box-shadow: 0 0 20px color-mix(in srgb, var(--story-accent) 28%, transparent); }
+.scanFrame i { position: absolute; inset: 20px 17%; border: 1px solid color-mix(in srgb, var(--story-accent) 42%, transparent); }
 .scanSteps { gap: 7px; margin-top: 17px; font-size: 0.57rem; letter-spacing: 0.06em; }
-.barcodeStory .scanSteps { color: #dce2dc; }
 .scanSteps svg { flex: 0 0 auto; }
-.scanPanel > p { margin: 15px 0 0; color: #a9b0aa; font-size: 0.66rem; }
+.scanPanel > p { margin: 15px 0 0; color: var(--story-muted); font-size: 0.66rem; }
 
 .progressIntro { display: flex; align-items: end; justify-content: space-between; gap: 28px; }
 .progressIntro .lede { max-width: 380px; margin-bottom: 4px; }
@@ -367,27 +379,27 @@
 .progressPreviewHead .miniLabel { font-size: 0.58rem; }
 .progressCategories { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 17px; }
 .progressCategories span { padding: 8px 3px; border-bottom: 1px solid color-mix(in srgb, var(--story-accent) 36%, transparent); color: var(--story-ink); font-size: 0.57rem; text-align: center; }
-.emptyProgress { position: relative; display: grid; min-height: 146px; place-items: center; margin-top: 13px; overflow: hidden; border: 1px solid rgba(238, 242, 236, 0.08); background: linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0)); }
+.emptyProgress { position: relative; display: grid; min-height: 146px; place-items: center; margin-top: 13px; overflow: hidden; border: 1px solid var(--story-line); background: linear-gradient(180deg, color-mix(in srgb, var(--story-ink) 2%, transparent), transparent); }
 .emptyGrid { position: absolute; inset: 16px 12px 34px; display: grid; grid-template-rows: repeat(4, 1fr); }
-.emptyGrid i { border-top: 1px solid rgba(238, 242, 236, 0.08); }
-.emptyProgress p { position: relative; max-width: 230px; margin: 0; padding: 12px; background: var(--fitx-surface); color: var(--story-muted); font-size: 0.7rem; line-height: 1.55; text-align: center; }
+.emptyGrid i { border-top: 1px solid color-mix(in srgb, var(--story-ink) 8%, transparent); }
+.emptyProgress p { position: relative; max-width: 230px; margin: 0; padding: 12px; background: var(--story-surface); color: var(--story-muted); font-size: 0.7rem; line-height: 1.55; text-align: center; }
 .progressPreview .planAction { margin-top: 12px; }
 
 .contextStory { grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr); }
 .contextVisual .mediaFrame { aspect-ratio: 1.3 / 1; }
-.contextStamp { position: absolute; right: -12px; bottom: 18px; display: flex; align-items: center; gap: 9px; padding: 13px 16px; background: var(--story-accent); color: #fff; font-size: 0.59rem; font-weight: 750; letter-spacing: 0.12em; }
+.contextStamp { position: absolute; right: -12px; bottom: 18px; display: flex; align-items: center; gap: 9px; padding: 13px 16px; background: var(--story-accent); color: var(--story-on-accent); font-size: 0.59rem; font-weight: 750; letter-spacing: 0.12em; }
 .contextStamp svg { flex: 0 0 auto; }
 .contextLinks { margin-top: 27px; border-top: 1px solid var(--story-line); }
 .contextLinks a { display: grid; grid-template-columns: 24px 1fr 16px; align-items: center; gap: 11px; min-height: 52px; border-bottom: 1px solid var(--story-line); color: var(--story-ink); font-size: 0.78rem; }
 .contextLinks a svg:first-child { color: var(--story-accent); }
 .contextLinks a svg:last-child { color: var(--story-muted); }
-.contextLinks a:hover { color: var(--story-accent); }
+.contextLinks a:hover { color: var(--story-accent-text); }
 
-.finalCta { position: relative; display: flex; min-height: 540px; align-items: center; overflow: hidden; background: #080b0b; }
+.finalCta { position: relative; display: flex; min-height: 540px; align-items: center; overflow: hidden; background: var(--story-bg); }
 .finalMedia .mediaImage { object-position: center 58%; }
-.finalShade { background: linear-gradient(90deg, rgba(5, 8, 8, 0.92), rgba(5, 8, 8, 0.58) 51%, rgba(5, 8, 8, 0.23)), linear-gradient(0deg, rgba(5, 8, 8, 0.4), transparent 55%); }
+.finalShade { background: linear-gradient(90deg, color-mix(in srgb, var(--fitx-scrim) 92%, transparent), color-mix(in srgb, var(--fitx-scrim) 58%, transparent) 51%, color-mix(in srgb, var(--fitx-scrim) 23%, transparent)), linear-gradient(0deg, color-mix(in srgb, var(--fitx-scrim) 40%, transparent), transparent 55%); }
 .finalTitle { max-width: 900px; margin: 21px 0 30px; font-size: clamp(3.3rem, 8vw, 7.2rem); }
-.finalContent .sectionEyebrow { color: #f3b4a7; }
+.finalContent .sectionEyebrow { color: var(--story-accent-hover); }
 .finalIndex { right: max(calc((100vw - 1260px) / 2), 24px); }
 
 @supports (animation-timeline: view()) {
@@ -404,18 +416,13 @@
 }
 
 @media (min-width: 768px) {
-  .hasVideo .mediaVideo { position: absolute; z-index: 2; inset: 0; display: block; width: 100%; height: 100%; background: #080b0b; object-fit: cover; }
+  .hasVideo .mediaVideo { position: absolute; z-index: 2; inset: 0; display: block; width: 100%; height: 100%; background: var(--story-bg); object-fit: cover; }
 }
-
-.darkStory .planCard,
-.darkStory .exerciseCard,
-.darkStory .foodCard,
-.darkStory .progressPreview { background: #0b100e; }
 
 @media (max-width: 900px) {
   .heroContent { padding-inline: 8px; }
   .heroTitle { max-width: 680px; font-size: clamp(4.4rem, 10.2vw, 6.6rem); }
-  .heroShade { background: linear-gradient(90deg, rgba(5, 8, 8, 0.92), rgba(5, 8, 8, 0.66) 50%, rgba(5, 8, 8, 0.23)), linear-gradient(0deg, rgba(5, 8, 8, 0.66), transparent 42%); }
+  .heroShade { background: linear-gradient(90deg, color-mix(in srgb, var(--fitx-scrim) 92%, transparent), color-mix(in srgb, var(--fitx-scrim) 66%, transparent) 50%, color-mix(in srgb, var(--fitx-scrim) 23%, transparent)), linear-gradient(0deg, color-mix(in srgb, var(--fitx-scrim) 66%, transparent), transparent 42%); }
   .story { padding-block: 86px; }
   .personalization,
   .foodStory { gap: 42px; }
@@ -428,7 +435,7 @@
 @media (max-width: 767px) {
   .hero { min-height: max(700px, calc(94svh - 68px)); align-items: end; }
   .heroMedia .mediaImage { object-position: 64% 28%; }
-  .heroShade { background: linear-gradient(0deg, rgba(5, 8, 8, 0.97) 0%, rgba(5, 8, 8, 0.9) 40%, rgba(5, 8, 8, 0.43) 70%, rgba(5, 8, 8, 0.16) 100%); }
+  .heroShade { background: linear-gradient(0deg, color-mix(in srgb, var(--fitx-scrim) 97%, transparent) 0%, color-mix(in srgb, var(--fitx-scrim) 90%, transparent) 40%, color-mix(in srgb, var(--fitx-scrim) 43%, transparent) 70%, color-mix(in srgb, var(--fitx-scrim) 16%, transparent) 100%); }
   .heroContent { width: calc(100% - 40px); max-width: 560px; margin: 0 auto 84px; padding: 0; }
   .heroTitle { max-width: 560px; margin-top: 18px; font-size: clamp(2.45rem, 12.2vw, 4.9rem); line-height: 0.88; }
   .heroCopy { max-width: 430px; margin-top: 18px; font-size: 0.96rem; line-height: 1.6; }
@@ -486,7 +493,7 @@
   .contextStamp { right: -4px; bottom: 12px; padding: 11px 12px; font-size: 0.53rem; }
   .finalCta { min-height: 500px; align-items: end; }
   .finalMedia .mediaImage { object-position: 58% center; }
-  .finalShade { background: linear-gradient(0deg, rgba(5, 8, 8, 0.95), rgba(5, 8, 8, 0.67) 48%, rgba(5, 8, 8, 0.18)); }
+  .finalShade { background: linear-gradient(0deg, color-mix(in srgb, var(--fitx-scrim) 95%, transparent), color-mix(in srgb, var(--fitx-scrim) 67%, transparent) 48%, color-mix(in srgb, var(--fitx-scrim) 18%, transparent)); }
   .finalContent { width: calc(100% - 40px); max-width: 560px; margin: 0 auto 86px; }
   .finalTitle { font-size: clamp(3rem, 13vw, 5.5rem); }
   .finalIndex { right: 20px; bottom: 19px; font-size: 0.53rem; }
