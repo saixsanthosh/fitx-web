@@ -160,7 +160,7 @@ export class CoachMachine {
     if (!this.isCurrent(generation) || !(await this.openStream(run, generation))) return;
     this.setStage({ name: "starting", step: "model", progress: 0 });
     if (!(await this.loadEngine(run, generation))) return;
-    this.begin(run, generation);
+    await this.begin(run, generation);
   }
 
   /** Restarts the camera after a pause; the counts so far are kept. */
@@ -175,7 +175,7 @@ export class CoachMachine {
       this.setStage({ name: "starting", step: "model", progress: 0 });
       if (!(await this.loadEngine(run, generation))) return;
     }
-    this.begin(run, generation);
+    await this.begin(run, generation);
   }
 
   /** Stops the camera and shows the summary. */
@@ -215,7 +215,7 @@ export class CoachMachine {
     if (!run.deviceId) run.facing = run.facing === "user" ? "environment" : "user";
     this.setStage({ name: "starting", step: "camera", progress: 0 });
     if (!(await this.openStream(run, generation))) return;
-    this.begin(run, generation);
+    await this.begin(run, generation);
   }
 
   reset(): void {
@@ -330,8 +330,24 @@ export class CoachMachine {
     }
   }
 
-  private begin(run: Run, generation: number) {
+  private async begin(run: Run, generation: number) {
     if (!this.isCurrent(generation) || this.run !== run) return;
+    const video = this.ui.video();
+    if (run.engine && video && !run.engine.warmed) {
+      // The first detection compiles the model's GPU programs and can take seconds: do it behind the
+      // "preparing" screen, so counting starts at full speed and the governor judges real frames.
+      this.setStage({ name: "starting", step: "model", progress: 1 });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (!this.isCurrent(generation) || this.run !== run || !run.engine) return;
+      const timestamp = Math.max(performance.now(), run.lastTs + 1);
+      run.lastTs = timestamp;
+      try {
+        run.engine.detect(video, timestamp);
+      } catch {
+        // A broken engine is handled by the frame loop's recovery.
+      }
+      if (!this.isCurrent(generation) || this.run !== run) return;
+    }
     const canvas = this.ui.canvas();
     run.palette = readOverlayPalette(canvas ?? document.documentElement);
     run.governor.restart();

@@ -95,8 +95,11 @@ export interface CoachSession {
 }
 
 const MOVING: readonly RepPhase[] = ["outbound", "target", "inbound"];
-/** Frame gaps longer than this (a stalled tab, a paused camera) are not added to any clock. */
-const MAX_FRAME_GAP_MS = 250;
+/**
+ * Frame gaps longer than this (a stalled tab) are not added to any clock. Slow devices analyse a
+ * frame every few hundred milliseconds, and that time must still count towards a plank.
+ */
+const MAX_FRAME_GAP_MS = 1000;
 /** A measurement not seen for this long restarts its smoothing instead of blending with stale values. */
 const SMOOTHING_GAP_MS = 300;
 /** Leaving the exercise posture between reps for this long means the set is paused. */

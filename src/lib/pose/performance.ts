@@ -50,8 +50,10 @@ export function readDeviceHints(): DeviceHints {
   return { cores: nav.hardwareConcurrency || undefined, memoryGb: nav.deviceMemory, mobile, saveData: nav.connection?.saveData };
 }
 
-/** The first frames after start-up include model warm-up (shader compilation) and are not judged. */
-const WARM_UP_MS = 3000;
+/** The first frames after start-up or a switch may still be settling and are not judged. */
+const WARM_UP_MS = 2000;
+/** Slowness must last this long before advice is given. */
+const SUSTAIN_MS = 2500;
 const WINDOW_MS = 2000;
 
 export class FrameGovernor {
@@ -119,7 +121,7 @@ export class FrameGovernor {
     if (this.startedAt === null || now - this.startedAt < WARM_UP_MS) return null;
     const fps = this.fps(now);
     let advice: PerformanceAdvice | null = null;
-    if (onGpu && this.averageMs > SLOW_GPU_MS && !this.given.has("use-cpu")) advice = "use-cpu";
+    if (onGpu && (this.averageMs > SLOW_GPU_MS || fps < 10) && !this.given.has("use-cpu")) advice = "use-cpu";
     else if (profile.model === "full" && fps < 15 && !this.given.has("use-lite")) advice = "use-lite";
     else if (profile.width > 480 && fps < 12 && !this.given.has("lower-resolution")) advice = "lower-resolution";
     else if (fps < 8 && !this.given.has("too-slow")) advice = "too-slow";
@@ -128,7 +130,7 @@ export class FrameGovernor {
       return null;
     }
     this.slowSince ??= now;
-    if (now - this.slowSince < 4000) return null;
+    if (now - this.slowSince < SUSTAIN_MS) return null;
     this.slowSince = null;
     this.given.add(advice);
     return advice;

@@ -23,6 +23,8 @@ export class PoseEngineError extends Error {
 export interface PoseEngine {
   readonly variant: ModelVariant;
   readonly delegate: "GPU" | "CPU";
+  /** The first detection (which compiles GPU programs and can take seconds) has run. */
+  readonly warmed: boolean;
   /** Landmarks of the most prominent person in this video frame, or null. `timestampMs` must increase. */
   detect(video: HTMLVideoElement, timestampMs: number): PosePoint[] | null;
   close(): void;
@@ -113,14 +115,19 @@ function webglIsSoftware(): boolean {
 function wrap(landmarker: PoseLandmarker, variant: ModelVariant, delegate: "GPU" | "CPU"): PoseEngine {
   let failures = 0;
   let closed = false;
+  let warmed = false;
   return {
     variant,
     delegate,
+    get warmed() {
+      return warmed;
+    },
     detect(video, timestampMs) {
       if (closed) return null;
       try {
         const result = landmarker.detectForVideo(video, timestampMs);
         failures = 0;
+        warmed = true;
         const person = result.landmarks[0];
         // 0.10.x reports each landmark's visibility; a separate presence score only exists in later versions.
         return person ? person.map((point) => ({ x: point.x, y: point.y, z: point.z, visibility: point.visibility })) : null;

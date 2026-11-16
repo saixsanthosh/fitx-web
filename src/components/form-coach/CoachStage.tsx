@@ -88,6 +88,8 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
       </header>
       {coach.notice && <p className="mx-4 mb-2 rounded-lg border border-fitx-border bg-fitx-surface px-3 py-2 text-xs leading-5 text-fitx-text-secondary sm:mx-6">{coach.notice}</p>}
 
+      {/* The count and messages sit on the camera area, not the picture: over the video when it fills the
+          screen, in the black bars when it doesn't (a landscape picture on an upright phone). */}
       <div className="relative min-h-0 flex-1">
         <div className="absolute inset-2 grid place-items-center [container-type:size] sm:inset-4">
           <div className="relative overflow-hidden rounded-2xl bg-fitx-surface" style={frameStyle}>
@@ -100,34 +102,33 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
               className={cn("absolute inset-0 h-full w-full object-cover", coach.mirrored && "-scale-x-100")}
             />
             <canvas ref={canvasRef} aria-hidden="true" className={cn("pointer-events-none absolute inset-0 h-full w-full", coach.mirrored && "-scale-x-100")} />
-
-            {stage.name === "running" && (
-              <>
-                <CountBlock rule={rule} snapshot={snapshot} target={mode === "workout" ? target : null} />
-                {reps && (
-                  <div className="absolute bottom-24 right-3 top-3 flex w-3 flex-col sm:right-4 sm:top-4" aria-hidden="true">
-                    <div className="relative flex-1 overflow-hidden rounded-full bg-fitx-bg/70">
-                      <div ref={meterRef} className="absolute inset-0 origin-bottom scale-y-0 rounded-full bg-fitx-primary transition-transform duration-100 ease-out" />
-                    </div>
-                  </div>
-                )}
-                <Banner snapshot={snapshot} />
-              </>
-            )}
-            {stage.name === "starting" && <StartingOverlay coach={coach} />}
-            {stage.name === "paused" && (
-              <div className="absolute inset-0 grid place-items-center bg-fitx-bg/85 p-6 text-center backdrop-blur-sm">
-                <div className="max-w-xs">
-                  <p className="text-lg font-semibold">Paused</p>
-                  <p className="mt-2 text-sm leading-6 text-fitx-text-secondary">
-                    {stage.detail ?? (stage.reason === "hidden" ? "The camera turned off while FITX was in the background." : "The camera stopped, perhaps because another app took it.")} Your count so far is kept.
-                  </p>
-                  <button type="button" onClick={coach.resume} className="fitx-button mt-5 w-full"><Play size={16} aria-hidden="true" />Resume camera</button>
+            {stage.name === "running" && reps && (
+              <div className="absolute bottom-3 right-3 top-3 flex w-3 flex-col sm:right-4 sm:top-4" aria-hidden="true">
+                <div className="relative flex-1 overflow-hidden rounded-full bg-fitx-bg/70">
+                  <div ref={meterRef} className="absolute inset-0 origin-bottom scale-y-0 rounded-full bg-fitx-primary transition-transform duration-100 ease-out" />
                 </div>
               </div>
             )}
           </div>
         </div>
+        {stage.name === "running" && (
+          <>
+            <CountBlock rule={rule} snapshot={snapshot} target={mode === "workout" ? target : null} />
+            <Banner snapshot={snapshot} />
+          </>
+        )}
+        {stage.name === "starting" && <StartingOverlay coach={coach} />}
+        {stage.name === "paused" && (
+          <div className="absolute inset-0 grid place-items-center bg-fitx-bg/85 p-6 text-center backdrop-blur-sm">
+            <div className="max-w-xs">
+              <p className="text-lg font-semibold">Paused</p>
+              <p className="mt-2 text-sm leading-6 text-fitx-text-secondary">
+                {stage.detail ?? (stage.reason === "hidden" ? "The camera turned off while FITX was in the background." : "The camera stopped, perhaps because another app took it.")} Your count so far is kept.
+              </p>
+              <button type="button" onClick={coach.resume} className="fitx-button mt-5 w-full"><Play size={16} aria-hidden="true" />Resume camera</button>
+            </div>
+          </div>
+        )}
       </div>
 
       <footer className="flex items-center gap-2 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-2 sm:px-6">
@@ -164,7 +165,8 @@ function StatusChip({ coach }: { coach: FormCoachController }) {
   let tone: "go" | "wait" | "quiet" = "quiet";
   if (stage.name === "paused") label = "Paused";
   else if (stage.name === "starting") label = stage.step === "camera" ? "Starting camera" : "Loading model";
-  else if (!snapshot || snapshot.status === "searching") label = "Looking for you";
+  else if (!snapshot) label = "Warming up";
+  else if (snapshot.status === "searching") label = "Looking for you";
   else if (snapshot.status === "unclear") {
     label = "Can't see you clearly";
     tone = "wait";
@@ -202,7 +204,7 @@ function CountBlock({ rule, snapshot, target }: { rule: ExerciseRule; snapshot: 
 
 function Banner({ snapshot }: { snapshot: CoachSnapshot | null }) {
   if (!snapshot) {
-    return <BannerText tone="info">Step into view so the camera can see your whole body.</BannerText>;
+    return <BannerText tone="info">Getting the first picture ready. Step into view meanwhile.</BannerText>;
   }
   if (snapshot.cue) return <BannerText tone="cue">{snapshot.cue.text}</BannerText>;
   if (snapshot.status !== "active" || snapshot.phase === "adjust") return <BannerText tone="wait">{snapshot.guidance}</BannerText>;
@@ -233,9 +235,13 @@ function StartingOverlay({ coach }: { coach: FormCoachController }) {
     <div className="absolute inset-0 grid place-items-center bg-fitx-bg/70 p-6 text-center backdrop-blur-sm" role="status">
       <div className="w-full max-w-xs">
         <LoaderCircle size={28} className="mx-auto animate-spin text-fitx-primary motion-reduce:animate-none" aria-hidden="true" />
-        <p className="mt-3 text-base font-semibold">{model ? "Loading the pose model" : "Starting the camera"}</p>
+        <p className="mt-3 text-base font-semibold">{model ? (stage.progress >= 1 ? "Preparing the pose model" : "Loading the pose model") : "Starting the camera"}</p>
         <p className="mt-1.5 text-sm leading-6 text-fitx-text-secondary">
-          {model ? `The first time takes a moment (about ${firstLoadMegabytes("lite")}–${firstLoadMegabytes("full")} MB); after that it's saved on this device.` : "Allow camera access if your browser asks."}
+          {!model
+            ? "Allow camera access if your browser asks."
+            : stage.progress >= 1
+              ? "Getting it ready on this device. The first time can take a few seconds."
+              : `The first time takes a moment (about ${firstLoadMegabytes("lite")}–${firstLoadMegabytes("full")} MB); after that it's saved on this device.`}
         </p>
         {model && (
           <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-fitx-track" role="progressbar" aria-label="Pose model download" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>

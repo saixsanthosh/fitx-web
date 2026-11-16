@@ -59,3 +59,8 @@ test("standing or unclear time is never counted", () => {
   near(hidden.last.holdMs, 6000, 300, "hold with 4 s unseen");
   assert.equal(hidden.summary.unclearSeconds, 4);
 });
+
+test("a slow device analysing three frames a second still credits the whole hold", () => {
+  const result = play(createCoachSession(rule), sequence(12_000, () => plank(), { fps: 3 }));
+  near(result.last.holdMs, 12_000, 400, "hold at 3 fps");
+});
