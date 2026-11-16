@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 import { Activity, Search } from "lucide-react";
 import { requireAdmin } from "@/lib/admin-auth";
-import { listExercises } from "@/lib/admin-data";
+import { listExercises } from "@/lib/data/exercises";
 import { ModuleState } from "@/components/module-state";
 import { setExerciseActive } from "./actions";
 
 export const metadata: Metadata = { title: "Training" };
 
 export default async function TrainingPage({ searchParams }: { searchParams: Promise<{ q?: string; state?: string }> }) {
-  await requireAdmin();
+  await requireAdmin("content.manage");
   const params = await searchParams;
   const term = (params.q ?? "").slice(0, 80);
   const result = await listExercises(term);
-  const notices: Record<string, string> = { saved: "Exercise visibility updated.", save_failed: "The exercise update could not be saved.", invalid: "The submitted exercise was not valid.", configuration: "Server data access is not configured." };
+  const notices: Record<string, string> = { saved: "Exercise visibility updated.", save_failed: "The exercise update could not be saved.", invalid: "The submitted exercise was not valid.", configuration: "Server data access is not configured.", forbidden: "Your role cannot change exercise visibility." };
   return (
     <div className="page-stack">
       <div className="page-heading-row"><div><p className="eyebrow">MOVEMENT LIBRARY</p><h1>Training</h1><p className="page-lede">Manage the live FITX exercise catalog and its visibility.</p></div><span className="page-heading-icon"><Activity aria-hidden="true" size={20} /></span></div>

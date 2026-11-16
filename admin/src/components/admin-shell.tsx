@@ -2,10 +2,10 @@ import Link from "next/link";
 import { FitxMark } from "@/components/fitx-mark";
 import { AdminNavigation } from "@/components/admin-navigation";
 import { signOut } from "@/app/signin/actions";
-import type { AdminRole } from "@/lib/roles";
+import { ROLE_LABELS, type AdminRole } from "@/lib/roles";
 
-export function AdminShell({ children, email, role }: { children: React.ReactNode; email: string; role: AdminRole }) {
-  const roleLabel = role === "super_admin" ? "Super admin" : "Admin";
+export function AdminShell({ children, email, role, pages }: { children: React.ReactNode; email: string; role: AdminRole; pages: readonly string[] }) {
+  const roleLabel = ROLE_LABELS[role];
 
   return (
     <div className="admin-shell">
@@ -14,7 +14,7 @@ export function AdminShell({ children, email, role }: { children: React.ReactNod
           <span className="brand-mark"><FitxMark /></span>
           <span className="brand-copy"><strong>FITX</strong><small>ADMIN</small></span>
         </Link>
-        <AdminNavigation />
+        <AdminNavigation allowed={pages} />
         <div className="sidebar-bottom">
           <div className="system-status"><span className="status-dot" />Private workspace</div>
           <p>Operations console</p>
@@ -26,7 +26,7 @@ export function AdminShell({ children, email, role }: { children: React.ReactNod
           <details className="mobile-menu">
             <summary aria-label="Open navigation"><span className="menu-glyph" /></summary>
             <div className="mobile-menu-panel">
-              <AdminNavigation mobile />
+              <AdminNavigation mobile allowed={pages} />
             </div>
           </details>
           <Link href="/overview" className="mobile-brand" aria-label="FITX Admin overview">

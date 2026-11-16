@@ -11,6 +11,7 @@ const messages: Record<SignInError, string> = {
   configuration: "Admin sign-in is not configured on this environment yet.",
   service_key_missing: "Server data access is not configured. The owner needs to add the server-only Supabase secret key to the Admin project.",
   oauth: "Google sign-in could not start. Please try again.",
+  session_expired: "Your Admin session reached its 12-hour limit. Sign in again to continue.",
 };
 
 export function SignInForm({ initialError }: { initialError?: keyof typeof messages }) {

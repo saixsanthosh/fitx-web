@@ -8,10 +8,12 @@ const states: Record<string, { title: string; detail: string }> = {
   setup_pending: { title: "Owner setup is pending", detail: "The role and audit schema has not been initialized. No administrator can grant access from this screen." },
   service_key_missing: { title: "Secure data access is not configured", detail: "The server-only Supabase secret key is missing from this environment." },
   not_authorized: { title: "This account does not have Admin access", detail: "Ask the FITX owner to approve this Google account. Admin registration is closed." },
+  forbidden: { title: "Your role does not include this page", detail: "Your Admin role does not grant this area. Ask a super-admin if you need it." },
 };
 
 export default async function AccessPage({ searchParams }: { searchParams: Promise<{ state?: string }> }) {
   const params = await searchParams;
+  const forbidden = params.state === "forbidden";
   const state = states[params.state ?? ""] ?? states.not_authorized;
 
   return (
@@ -23,7 +25,7 @@ export default async function AccessPage({ searchParams }: { searchParams: Promi
         <h1>{state.title}</h1>
         <p>{state.detail}</p>
         <div className="access-actions">
-          <Link href="/signin" className="text-link">Return to sign in</Link>
+          {forbidden ? <Link href="/overview" className="text-link">Back to the overview</Link> : <Link href="/signin" className="text-link">Return to sign in</Link>}
           <form action={signOut}><button className="quiet-button" type="submit">Sign out</button></form>
         </div>
       </div>

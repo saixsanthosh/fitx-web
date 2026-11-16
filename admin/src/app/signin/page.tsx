@@ -5,7 +5,7 @@ import type { SignInError } from "@/app/signin/actions";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-const knownErrors = ["invalid_email", "not_authorized", "setup_pending", "configuration", "service_key_missing", "oauth"] as const satisfies readonly SignInError[];
+const knownErrors = ["invalid_email", "not_authorized", "setup_pending", "configuration", "service_key_missing", "oauth", "session_expired"] as const satisfies readonly SignInError[];
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const params = await searchParams;
