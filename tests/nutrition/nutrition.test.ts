@@ -36,8 +36,48 @@ test("reads kJ typed into the kcal field as kJ when that fits the label's nutrie
   // A biscuit's 2042 kJ in the kcal field: no food has 2042 kcal per 100 g.
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 2042, proteins_100g: 7, carbohydrates_100g: 70, fat_100g: 20 })?.calories, 488);
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 3700, fat_100g: 100 })?.calories, 884, "olive oil in kJ");
-  // The same number in both fields can only be the kJ value.
+  // With no nutrients to check against, the same number in both fields is read as the kJ value.
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 1046, "energy-kj_100g": 1046 })?.calories, 250);
+});
+
+// Regression: a 900 kcal cap dropped real pure-fat labels, so their barcode lookup found "no nutrition label".
+// US labels round per serving, which puts these at 902-929 kcal per 100 g.
+test("keeps pure fats above 900 kcal when their nutrients account for it", () => {
+  // Crisco shortening, "1 Tbsp (12 g), 110 Calories, Total Fat 12 g", as Open Food Facts stores it.
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 916.666666666667, energy_100g: 3835, fat_100g: 100 })?.calories, 917, "Crisco shortening");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 916.666666666667, "energy-kj_100g": 3700, fat_100g: 100 })?.calories, 917, "shortening stick");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 928.571428571429, energy_100g: 3885, fat_100g: 100 })?.calories, 929, "coconut oil or ghee, 130 kcal per 14 g");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 923.1, fat_100g: 100 })?.calories, 923, "120 kcal per 13 g");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 902, fat_100g: 100 })?.calories, 902, "lard, as USDA lists it");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kj_100g": 3766, fat_100g: 100 })?.calories, 900, "a kJ-only pure fat label");
+  // kJ typed into the kcal field is still caught, and a value nothing on the label vouches for is still left out.
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 3700, "energy-kj_100g": 3700, fat_100g: 100 })?.calories, 884, "olive oil in kJ in both fields");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 1000 }), null, "over the 950 kcal ceiling with no nutrients");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kj_100g": 4100 }), null, "kJ that comes to over the 950 kcal ceiling with no nutrients");
+});
+
+// Regression: a blank nutrient counted as 0 g, so a correct kcal looked "far above the nutrients" and was divided
+// by 4.184 (paneer logged at 69 kcal per 100 g), or the product was left out.
+test("a blank protein, carbs or fat value is unknown, not 0 g", () => {
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kj_100g": 1205, "energy-kcal_100g": 288, proteins_100g: 18.3, carbohydrates_100g: 1.2 })?.calories, 288, "paneer with no fat field");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kj_100g": 1674, "energy-kcal_100g": 400, proteins_100g: 22, carbohydrates_100g: 1 })?.calories, 400, "salami with no fat field");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 660, proteins_100g: 6.9, carbohydrates_100g: 23.7, fiber_100g: 16.3 })?.calories, 660, "desiccated coconut with no fat field");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 165, carbohydrates_100g: 0, fat_100g: 3.6 })?.calories, 165, "chicken breast with no protein field");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 579, proteins_100g: 21.2, carbohydrates_100g: 21.6 })?.calories, 579, "almonds with no fat field");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 380, "energy-kj_100g": 1590, proteins_100g: 8, fat_100g: 2 })?.calories, 380, "cereal with no carbs field");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 380, proteins_100g: 10 })?.calories, 380, "a label that lists only protein");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 288, proteins_100g: 18.3, carbohydrates_100g: 1.2, fat_100g: "n/a" })?.calories, 288, "a fat value that is not a number");
+  // A label that lists all three still has kJ in its kcal field caught.
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 1205, proteins_100g: 18.3, carbohydrates_100g: 1.2, fat_100g: 22 })?.calories, 288, "paneer in kJ");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 1580, proteins_100g: 13, carbohydrates_100g: 68, fat_100g: 6.5 })?.calories, 378, "oats in kJ");
+});
+
+// Regression: with the kcal figure typed into both energy fields only the kJ reading was checked, so these were left out.
+test("keeps the kcal when both energy fields hold it and the nutrients confirm it", () => {
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 480, "energy-kj_100g": 480, proteins_100g: 7, carbohydrates_100g: 68, fat_100g: 20 })?.calories, 480, "biscuit");
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 58, "energy-kj_100g": 58, proteins_100g: 3, carbohydrates_100g: 4.7, fat_100g: 3 })?.calories, 58, "toned milk");
+  // The kJ figure in both fields is still converted when that is what the nutrients agree with.
+  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 1046, "energy-kj_100g": 1046, proteins_100g: 3, carbohydrates_100g: 50, fat_100g: 3 })?.calories, 250);
 });
 
 test("drops labels whose energy or nutrients can't be right", () => {
