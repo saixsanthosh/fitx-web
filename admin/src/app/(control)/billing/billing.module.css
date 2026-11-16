@@ -1,0 +1,74 @@
+/* Small additions for the Billing page; everything else uses the shared Admin classes. */
+
+.modeSwitch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 44 px touch targets for the mode switch, payment filters and paging. */
+.chip {
+  min-height: 44px;
+  padding-inline: 14px;
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+td.money {
+  color: var(--ink);
+}
+
+.healthList {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.healthList div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.healthList dt {
+  color: var(--ink-soft);
+}
+
+.healthList dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 650;
+  text-align: right;
+}
+
+.reason {
+  display: block;
+  max-width: 280px;
+  overflow: hidden;
+  color: var(--ink-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthTable td,
+.monthTable th {
+  height: 40px;
+}
+
+@media (max-width: 620px) {
+  .filterRow {
+    padding: 10px 14px;
+  }
+}
