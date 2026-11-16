@@ -109,6 +109,15 @@ describe("Nutrition v2 SQL on a local Postgres", { skip }, () => {
     assert.deepEqual(forB.map((row) => row.id), ["11111111-0000-4000-8000-000000000002"]);
   });
 
+  test("editing a logged entry works under RLS and keeps meals.updated_at current", () => {
+    const id = "22222222-0000-4000-8000-000000000001";
+    pg.exec(`insert into public.meals (id, user_id, date, meal, food_name, calories, updated_at) values ('${id}', '${A}', current_date, 'Lunch', 'Dal', 120, '2026-01-01T00:00:00Z');`);
+    pg.exec(`update public.meals set meal = 'Dinner', quantity_grams = 150 where id = '${id}';`, asA);
+    assert.deepEqual(pg.json(`select json_build_object('meal', meal, 'touched', updated_at > '2026-01-02') from public.meals where id = '${id}';`), { meal: "Dinner", touched: true });
+    const byB = pg.run(`update public.meals set meal = 'Snack' where id = '${id}';`, asB);
+    assert.equal(pg.json(`select to_json(meal) from public.meals where id = '${id}';`), "Dinner", `B cannot edit A's entry (${byB.ok ? "no rows" : "denied"})`);
+  });
+
   test("a typo gets close spellings, marked as suggestions", () => {
     const rows = pg.json(`select json_agg(json_build_object('id', r.id, 'fuzzy', r.fuzzy)) from public.search_foods('idlly', array['idlly'], 50) r;`, asA);
     assert.ok(rows?.length, "close spellings are offered when nothing contains every word");
