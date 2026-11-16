@@ -5,8 +5,8 @@ import Image from "next/image";
 import { X } from "lucide-react";
 import { formatAmount } from "@/lib/domain/food-query";
 import { checkBarcode, barcodeProblem } from "@/lib/food/barcode";
-import { customFoodWarning, type CustomFoodInput, type CustomFoodRow } from "@/lib/food/client-data";
-import type { CustomFoodOrigin, ValueBasis } from "@/lib/food/types";
+import { customFoodWarning, savedFoodSource, type CustomFoodInput, type CustomFoodRow } from "@/lib/food/client-data";
+import type { CustomFoodOrigin } from "@/lib/food/types";
 import styles from "./FoodUi.module.css";
 
 /** What a new food can start from: a scanned barcode, or a package found on Open Food Facts. */
@@ -112,12 +112,8 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
     }
     const asNumber = (value: string) => (value.trim() === "" ? 0 : Number(value));
     const valueKeys = ["grams", "calories", "protein", "carbs", "fat"] as const;
-    const unchanged = valueKeys.every((key) => asNumber(form[key]) === asNumber(start[key])) && form.fromLabel === start.fromLabel;
-    const typedBasis: ValueBasis = form.fromLabel ? "label" : "user_entered";
-    // Changed values are the user's own, also for a food the AI coach saved.
-    const origin: CustomFoodOrigin = editing
-      ? (unchanged || editing.origin !== "ai_coach" ? editing.origin ?? "user" : "user")
-      : prefill?.origin ?? (barcode ? "barcode" : "user");
+    const changed = valueKeys.some((key) => asNumber(form[key]) !== asNumber(start[key])) || form.fromLabel !== start.fromLabel;
+    const { origin, valueBasis } = savedFoodSource(editing, changed, form.fromLabel, prefill?.origin ?? (barcode ? "barcode" : "user"));
     onSave({
       name: form.name,
       brand: form.brand,
@@ -128,7 +124,7 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
       carbs,
       fat,
       barcode,
-      valueBasis: editing && unchanged ? editing.value_basis ?? typedBasis : typedBasis,
+      valueBasis,
       origin,
       ...(image && !removePhoto ? { imageUrl: image, imageAttribution: imageCredit } : {}),
       ...(prefill?.sourceRef !== undefined && !editing ? { sourceRef: prefill.sourceRef } : {}),

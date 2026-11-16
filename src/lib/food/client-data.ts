@@ -209,6 +209,24 @@ export interface CustomFoodInput {
   sourceRef?: string | null;
 }
 
+/**
+ * Where a saved food's values come from. An edit that leaves the serving and values alone keeps the food's own
+ * origin and basis (a typical recipe the AI coach saved stays one, and stays the coach's). Values the user typed or
+ * changed are theirs: "Your entry", or "Package label" when they say they copied the label.
+ */
+export function savedFoodSource(
+  editing: Pick<CustomFoodRow, "origin" | "value_basis"> | null,
+  valuesChanged: boolean,
+  fromLabel: boolean,
+  newOrigin: CustomFoodOrigin,
+): { origin: CustomFoodOrigin; valueBasis: ValueBasis } {
+  const typed: ValueBasis = fromLabel ? "label" : "user_entered";
+  if (!editing) return { origin: newOrigin, valueBasis: typed };
+  const origin = editing.origin ?? "user";
+  if (!valuesChanged) return { origin, valueBasis: editing.value_basis ?? typed };
+  return { origin: origin === "ai_coach" ? "user" : origin, valueBasis: typed };
+}
+
 export function customFoodRowValues(input: CustomFoodInput, v2: boolean) {
   const per100 = (value: number) => Math.round((value * 100 / input.servingGrams) * 100) / 100;
   const base = {

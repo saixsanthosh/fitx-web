@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   customFoodResult, customFoodRowValues, customFoodWarning, detectCapabilities, entryBasis, entryPer100g, entryUpdate, isMissingSchema, loadRecentFoods,
-  removeCustomFood, removeCustomFoodPhoto, rowsFromItems, targetProblem, withCurrentCustomFoods, type CustomFoodRow, type MealEntry, type MealTemplateItem,
+  removeCustomFood, removeCustomFoodPhoto, rowsFromItems, savedFoodSource, targetProblem, withCurrentCustomFoods, type CustomFoodRow, type MealEntry,
+  type MealTemplateItem,
 } from "@/lib/food/client-data";
 
 const idliEntry: MealEntry = {
@@ -136,4 +137,14 @@ test("deleting a food deletes the row and then its photo; removing a photo clear
   const elsewhere = recordingSupabase();
   await removeCustomFood(elsewhere.client, USER, { id: "c3", image_path: "someone-else/foods/x.webp" });
   assert.deepEqual(elsewhere.log, ["custom_foods.delete"], "only files in the user's own folder are removed");
+});
+
+test("an edit keeps where unchanged values came from; changed values become the user's", () => {
+  const coachRecipe = { origin: "ai_coach" as const, value_basis: "recipe_calculated" as const };
+  assert.deepEqual(savedFoodSource(coachRecipe, false, false, "user"), { origin: "ai_coach", valueBasis: "recipe_calculated" }, "a rename keeps the typical recipe");
+  assert.deepEqual(savedFoodSource(coachRecipe, true, false, "user"), { origin: "user", valueBasis: "user_entered" }, "corrected numbers are the user's, not the coach's");
+  assert.deepEqual(savedFoodSource(coachRecipe, true, true, "user"), { origin: "user", valueBasis: "label" });
+  assert.deepEqual(savedFoodSource({ origin: "barcode", value_basis: "label" }, true, false, "user"), { origin: "barcode", valueBasis: "user_entered" }, "a scanned food stays a scanned food");
+  assert.deepEqual(savedFoodSource({ origin: null, value_basis: null }, false, false, "user"), { origin: "user", valueBasis: "user_entered" }, "a food saved before the v2 columns");
+  assert.deepEqual(savedFoodSource(null, true, true, "barcode"), { origin: "barcode", valueBasis: "label" }, "a new food from a scanned pack");
 });
