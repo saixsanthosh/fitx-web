@@ -100,6 +100,12 @@ export interface ExerciseRule {
   name: string;
   /** "side" = side-on to the camera, "front" = facing it. */
   view: "side" | "front";
+  /**
+   * A floor exercise filmed with the phone on its side, so the picture is landscape and its bottom
+   * edge is the floor. In a portrait picture the coach asks for that (and for auto-rotate, which
+   * the picture needs in order to turn with the phone) instead of only repeating the posture hint.
+   */
+  landscape?: boolean;
   /** One line on what the camera checks, shown before starting. */
   checks: string;
   /** Camera placement, in order. */

@@ -8,7 +8,11 @@ export function speechSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
 }
 
+/** The choice made on this visit when the browser refused to store it (blocked site data, full storage). */
+let unsaved: boolean | null = null;
+
 export function readVoicePreference(): boolean {
+  if (unsaved !== null) return unsaved;
   try {
     return window.localStorage.getItem(STORAGE_KEY) === "on";
   } catch {
@@ -19,8 +23,10 @@ export function readVoicePreference(): boolean {
 export function writeVoicePreference(on: boolean): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, on ? "on" : "off");
+    unsaved = null;
   } catch {
     // Private mode or blocked storage: the switch still works for this visit.
+    unsaved = on;
   }
 }
 

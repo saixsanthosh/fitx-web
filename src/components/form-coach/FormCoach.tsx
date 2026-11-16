@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type { ExerciseId, ExerciseRule } from "@/lib/form-rules/types";
 import { CoachSetup } from "./CoachSetup";
 import { CoachStage } from "./CoachStage";
@@ -30,6 +31,22 @@ export function FormCoach({ rule, mode, target, context, onChangeExercise, onUse
   const refs = useCoachRefs();
   const coach = useFormCoach(refs);
   const { stage } = coach;
+  const live = stage.name === "starting" || stage.name === "running" || stage.name === "paused";
+  const wasLive = useRef(false);
+  const summaryHeading = useRef<HTMLHeadingElement>(null);
+  const setupAction = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (live) {
+      wasLive.current = true;
+      return;
+    }
+    if (!wasLive.current) return;
+    wasLive.current = false;
+    // The live view closed with focus inside it: carry on from what replaced it (the summary, or
+    // the set-up card with its error), not from the top of the page.
+    (summaryHeading.current ?? setupAction.current)?.focus();
+  }, [live]);
 
   return (
     <>
@@ -38,6 +55,8 @@ export function FormCoach({ rule, mode, target, context, onChangeExercise, onUse
           rule={rule}
           summary={stage.summary}
           mode={mode}
+          endedEarly={stage.endedEarly}
+          headingRef={summaryHeading}
           onAgain={() => coach.start(rule)}
           onSecondary={() => {
             coach.reset();
@@ -52,7 +71,7 @@ export function FormCoach({ rule, mode, target, context, onChangeExercise, onUse
           } : undefined}
         />
       ) : (
-        <CoachSetup rule={rule} coach={coach} context={context} onChangeExercise={onChangeExercise} />
+        <CoachSetup rule={rule} coach={coach} context={context} onChangeExercise={onChangeExercise} actionRef={setupAction} />
       )}
       <CoachStage rule={rule} coach={coach} refs={refs} mode={mode} target={target} />
     </>

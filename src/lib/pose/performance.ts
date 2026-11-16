@@ -2,7 +2,9 @@
  * Keeps pose detection within what the device can sustain. It picks a starting model, camera
  * resolution and frame rate from coarse device hints, then measures real detection times: frames
  * are only analysed as often as the device keeps up with (leaving the page responsive), and it
- * advises a lighter model or a smaller picture when detection stays slow.
+ * advises a lighter model or a smaller picture when detection stays slow. A camera that itself
+ * sends few frames (cameras slow down in dim rooms) is told apart from slow detection, because a
+ * lighter model or a smaller picture would not help there.
  */
 
 export type ModelVariant = "lite" | "full";
@@ -25,7 +27,12 @@ export interface CaptureProfile {
   maxFps: number;
 }
 
-export type PerformanceAdvice = "use-cpu" | "use-lite" | "lower-resolution" | "too-slow";
+/**
+ * - "use-cpu", "use-lite", "lower-resolution": detection can't keep up; switch to something lighter
+ * - "too-slow": detection is still slow with everything light; tell the user
+ * - "slow-camera": detection keeps up, but the camera sends few frames; tell the user (more light helps)
+ */
+export type PerformanceAdvice = "use-cpu" | "use-lite" | "lower-resolution" | "too-slow" | "slow-camera";
 
 /** A real GPU runs this model in well under this; slower means the GPU path is emulated or broken. */
 const SLOW_GPU_MS = 200;
@@ -61,6 +68,9 @@ export class FrameGovernor {
   private averageMs = 0;
   private lastStart = -Infinity;
   private readonly analysed: number[] = [];
+  /** Frames the camera delivered: [time, running frame count]. */
+  private readonly delivered: Array<[number, number]> = [];
+  private deliveredCount = 0;
   private startedAt: number | null = null;
   private slowSince: number | null = null;
   private readonly given = new Set<PerformanceAdvice>();
@@ -104,9 +114,30 @@ export class FrameGovernor {
     this.analysed.push(startedAt);
   }
 
+  /**
+   * Records a frame the camera delivered, analysed or not. `presentedFrames` (from
+   * requestVideoFrameCallback) also counts frames that arrived while the page was busy detecting.
+   */
+  cameraFrame(now: number, presentedFrames?: number): void {
+    if (presentedFrames !== undefined && presentedFrames < this.deliveredCount) this.delivered.length = 0;
+    this.deliveredCount = presentedFrames ?? this.deliveredCount + 1;
+    this.delivered.push([now, this.deliveredCount]);
+    while (this.delivered.length > 2 && now - this.delivered[0][0] > WINDOW_MS) this.delivered.shift();
+  }
+
+  /** Frames per second the camera delivers, or null while that isn't measured. */
+  cameraFps(): number | null {
+    if (this.delivered.length < 2) return null;
+    const [firstAt, firstCount] = this.delivered[0];
+    const [lastAt, lastCount] = this.delivered[this.delivered.length - 1];
+    return lastAt - firstAt >= 500 ? ((lastCount - firstCount) * 1000) / (lastAt - firstAt) : null;
+  }
+
   /** Restarts the measurements (after a pause, a model switch or a camera change). */
   restart(): void {
     this.analysed.length = 0;
+    this.delivered.length = 0;
+    this.deliveredCount = 0;
     this.startedAt = null;
     this.slowSince = null;
     this.lastStart = -Infinity;
@@ -120,11 +151,17 @@ export class FrameGovernor {
   advise(now: number, profile: CaptureProfile, onGpu = false): PerformanceAdvice | null {
     if (this.startedAt === null || now - this.startedAt < WARM_UP_MS) return null;
     const fps = this.fps(now);
+    const cameraFps = this.cameraFps();
+    // A low analysed rate is detection's doing only when frames the camera offers (within the cap)
+    // go unanalysed because detection takes longer than the gap between them.
+    const offeredFps = Math.max(1, Math.min(this.maxFps, cameraFps ?? this.maxFps));
+    const detectionBound = this.intervalMs() > 1000 / offeredFps;
     let advice: PerformanceAdvice | null = null;
-    if (onGpu && (this.averageMs > SLOW_GPU_MS || fps < 10) && !this.given.has("use-cpu")) advice = "use-cpu";
-    else if (profile.model === "full" && fps < 15 && !this.given.has("use-lite")) advice = "use-lite";
-    else if (profile.width > 480 && fps < 12 && !this.given.has("lower-resolution")) advice = "lower-resolution";
-    else if (fps < 8 && !this.given.has("too-slow")) advice = "too-slow";
+    if (onGpu && (this.averageMs > SLOW_GPU_MS || (detectionBound && fps < 10)) && !this.given.has("use-cpu")) advice = "use-cpu";
+    else if (detectionBound && profile.model === "full" && fps < 15 && !this.given.has("use-lite")) advice = "use-lite";
+    else if (detectionBound && profile.width > 480 && fps < 12 && !this.given.has("lower-resolution")) advice = "lower-resolution";
+    else if (detectionBound && fps < 8 && !this.given.has("too-slow")) advice = "too-slow";
+    else if (!detectionBound && cameraFps !== null && cameraFps < 8 && !this.given.has("slow-camera")) advice = "slow-camera";
     if (!advice) {
       this.slowSince = null;
       return null;
