@@ -45,6 +45,32 @@ export const POSTGRES_UNDEFINED_COLUMN = "42703";
 export const POSTGREST_UNKNOWN_COLUMN = "PGRST204";
 export const POSTGREST_RELATIONSHIP_NOT_FOUND = "PGRST200";
 export const POSTGREST_RELATIONSHIP_AMBIGUOUS = "PGRST201";
+export const POSTGREST_FUNCTION_NOT_FOUND = "PGRST202";
+export const POSTGREST_TABLE_NOT_FOUND = "PGRST205";
+export const POSTGRES_UNDEFINED_TABLE = "42P01";
+export const POSTGRES_UNDEFINED_FUNCTION = "42883";
+
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const { code } = error as PostgrestErrorLike;
+  return typeof code === "string" && code ? code : null;
+}
+
+/**
+ * True when the table or view a request names does not exist yet: PostgREST PGRST205 ("Could not
+ * find the table 'public.x' in the schema cache") or Postgres 42P01. The feature's migration has
+ * not been applied; the app shows its fallback instead of an error.
+ */
+export function isMissingTableError(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === POSTGREST_TABLE_NOT_FOUND || code === POSTGRES_UNDEFINED_TABLE;
+}
+
+/** True when an RPC's function does not exist yet: PostgREST PGRST202 or Postgres 42883. */
+export function isMissingFunctionError(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === POSTGREST_FUNCTION_NOT_FOUND || code === POSTGRES_UNDEFINED_FUNCTION;
+}
 
 // column workout_sets.duration_seconds does not exist
 // column "duration_seconds" does not exist

@@ -3,6 +3,14 @@
 .primaryAction { min-height: 2.9rem; box-shadow: 0 7px 22px color-mix(in srgb,var(--fitx-primary) 12%,transparent); }
 .secondaryAction { min-height: 2.9rem; }
 .activeSession { box-shadow: inset 3px 0 var(--fitx-primary); }
+.contextSection { min-width: 0; }
+.contextTabs { display: inline-grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .25rem; margin-bottom: .75rem; padding: .25rem; border: 1px solid var(--fitx-border); border-radius: .75rem; background: var(--fitx-surface-variant); }
+.contextTab { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; padding: 0 1rem; border: 1px solid transparent; border-radius: .55rem; color: var(--fitx-text-secondary); font-size: .875rem; font-weight: 600; transition: background-color .18s ease, color .18s ease, border-color .18s ease; }
+.contextTab:hover { color: var(--fitx-text); }
+.contextTabActive { border-color: var(--fitx-border); background: var(--fitx-surface); color: var(--fitx-text); box-shadow: 0 1px 3px color-mix(in srgb, var(--fitx-text) 8%, transparent); }
+.contextTabActive > svg { color: var(--fitx-primary); }
+.contextPanel { padding: 1.1rem; }
+.contextHeader { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem; }
 .metricsStrip { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); overflow: hidden; border: 1px solid var(--fitx-border); border-radius: .8rem; background: linear-gradient(120deg,color-mix(in srgb,var(--fitx-primary) 5%,transparent),transparent 68%),var(--fitx-surface); }
 .metric { position: relative; display: grid; min-width: 0; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: .7rem; align-content: center; padding: .9rem 1.1rem; }
 .metric + .metric { border-left: 1px solid var(--fitx-border); }
@@ -27,6 +35,8 @@
 .exerciseName { overflow: hidden; color: var(--fitx-text); font-size: .78rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .exerciseMeta { overflow: hidden; color: var(--fitx-text-secondary); font-size: .68rem; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
 @media(max-width: 767px) {
+  .contextTabs { display: grid; width: 100%; }
+  .contextPanel { padding: .9rem; }
   .headingActions { width: 100%; }
   .headingActions > button { min-width: 0; flex: 1; padding-inline: .7rem; }
   .metricsStrip { border-radius: .85rem; }
@@ -39,6 +49,6 @@
   .libraryGrid { grid-template-columns: minmax(0,1fr); }
 }
 @media(prefers-reduced-motion: reduce) {
-  .planCard,.exerciseCard,.exerciseCard > svg { transition: none; }
+  .planCard,.exerciseCard,.exerciseCard > svg,.contextTab { transition: none; }
   .planCard:hover,.exerciseCard:hover > svg { transform: none; }
 }
