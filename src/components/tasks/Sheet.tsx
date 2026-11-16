@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import styles from "./Sheet.module.css";
 
@@ -23,12 +23,32 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
   const fallbackId = useId();
   const titleId = labelledBy ?? `${fallbackId}-title`;
 
-  useEffect(() => {
+  const opener = useRef<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
+    if (open && !dialog.open) {
+      // Remember what opened the sheet, so focus can go back to it.
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      dialog.showModal();
+    }
+    if (!open && dialog.open) {
+      dialog.close();
+      if (opener.current?.isConnected) opener.current.focus();
+    }
   }, [open]);
+
+  // Most sheets close by being removed. Close the dialog first, so it behaves like close() and focus
+  // returns to the button that opened it instead of dropping to the top of the page.
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    return () => {
+      if (dialog?.open) dialog.close();
+      const target = opener.current;
+      if (target?.isConnected) target.focus();
+    };
+  }, []);
 
   useEffect(() => {
     const dialog = ref.current;

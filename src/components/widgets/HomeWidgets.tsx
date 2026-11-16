@@ -14,7 +14,7 @@ import { appliesOn, dailyGoalsMet, evaluateView, formatGoalValue, progressSummar
 import { todayTargets, weekStrip, weightView, type DailyTarget } from "@/lib/domain/today";
 import { workoutStartHref } from "@/lib/training/start-link";
 import type { GoalsData, Resource } from "./useHomeData";
-import { WidgetCard, WidgetError, WidgetNote, WidgetSkeleton } from "./WidgetCard";
+import { WidgetCard, WidgetError, WidgetNote, WidgetSkeleton, WidgetStale } from "./WidgetCard";
 import styles from "./Widgets.module.css";
 
 const shortDate = (key: string | null) => (key ? keyToLocalDate(key).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
@@ -22,13 +22,25 @@ const kcal = (value: number) => Math.round(value).toLocaleString();
 
 function SourceTag({ target }: { target: DailyTarget }) {
   if (!target.target || !target.source) return null;
-  const label = target.source === "goal" ? (target.direction === "limit" ? "Your limit" : "Your goal") : target.source === "preference" ? "Your setting" : "Estimate";
+  const label = target.source === "goal" ? (target.direction === "limit" ? "Your limit" : "Your goal")
+    : target.source === "target" ? "Your target"
+      : target.source === "preference" ? "Your setting" : "Estimate";
   return <span className={target.source === "estimate" ? styles.tagEstimate : styles.tag}>{label}</span>;
 }
 
-/** Summary-backed widgets share one request; each still shows its own loading and error state. */
+/**
+ * Summary-backed widgets share one request; each still shows its own loading and error state. A failed
+ * refresh of the same day keeps its numbers but says they could not be updated.
+ */
 function SummaryGate({ summary, label, children }: { summary: Resource<SummaryResult>; label: string; children: (data: SummaryResult) => React.ReactNode }) {
-  if (summary.data) return <>{children(summary.data)}</>;
+  if (summary.data) {
+    return (
+      <>
+        {summary.status === "error" && <WidgetStale onRetry={summary.reload} />}
+        {children(summary.data)}
+      </>
+    );
+  }
   if (summary.status === "error") return <WidgetError message={summary.error} onRetry={summary.reload} />;
   return <WidgetSkeleton label={label} />;
 }
@@ -73,7 +85,7 @@ export function TodayWidget({ summary, goals }: { summary: Resource<SummaryResul
               {!calories.target && !protein.target ? (
                 <WidgetNote href="/profile" action="Add them in Profile">Targets need your age, height and weight.</WidgetNote>
               ) : estimated ? (
-                <WidgetNote href="/goals?tab=goals&new=protein_day" action="Set your own">Estimates use your profile and latest weigh-in.</WidgetNote>
+                <WidgetNote href="/nutrition" action="Set your own in Nutrition">Estimates use your profile and latest weigh-in.</WidgetNote>
               ) : null}
             </div>
           );
@@ -352,7 +364,9 @@ export function MacrosWidget({ summary, goals }: { summary: Resource<SummaryResu
                   </div>
                 </div>
               ))}
-              {!targets.estimate && <WidgetNote href="/profile" action="Add them in Profile">Targets need your age, height and weight.</WidgetNote>}
+              {!targets.protein.target && !targets.carbs.target && !targets.fat.target && (
+                <WidgetNote href="/nutrition" action="Set targets in Nutrition">No targets yet. Set your own, or add your age, height and weight in Profile for an estimate.</WidgetNote>
+              )}
             </div>
           );
         }}

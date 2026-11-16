@@ -66,7 +66,9 @@
 .logForm { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: auto; }
 .logForm :global(.fitx-field) { min-height: 46px; }
 .logForm :global(.fitx-button) { min-height: 46px; padding: 0 16px; }
-.logForm small { grid-column: 1 / -1; color: var(--fitx-text-secondary); font-size: .72rem; }
+.logForm small { grid-column: 1 / -1; color: var(--fitx-text-secondary); font-size: .74rem; line-height: 1.5; }
+.logForm .logError { color: var(--fitx-danger); }
+.inlineButton { display: inline-flex; min-height: 32px; align-items: center; color: var(--fitx-primary-text); font-size: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 
 .confirmText { color: var(--fitx-text-secondary); font-size: .88rem; line-height: 1.55; }
 .history { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }

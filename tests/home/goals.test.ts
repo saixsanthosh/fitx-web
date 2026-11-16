@@ -7,6 +7,7 @@ import {
   formatGoalValue,
   goalDraft,
   parseGoalRow,
+  parseProgressAmount,
   periodLabel,
   progressSummary,
   remainingLabel,
@@ -188,4 +189,24 @@ test("an edit form round-trips the goal", () => {
   assert.deepEqual([draft.template, draft.target, draft.dueOn, draft.notes], ["calories_day", "2000", "2026-12-31", "Cutting"]);
   const value = validateGoalDraft(draft);
   assert.equal(value.ok && value.value.direction, "limit");
+});
+
+test("a weight goal needs a starting weight, since that decides gain or loss", () => {
+  const blank = validateGoalDraft({ ...goalDraft("weight", { ...context, latestWeight: null }), target: "62" });
+  assert.deepEqual(blank, { ok: false, error: "Enter your starting weight." });
+  const gain = validateGoalDraft({ ...goalDraft("weight", { ...context, latestWeight: null }), target: "62", baseline: "55" });
+  assert.equal(gain.ok && gain.value.direction, "increase");
+});
+
+test("progress amounts accept a typographic minus and thousands separators", () => {
+  assert.equal(parseProgressAmount("2"), 2);
+  assert.equal(parseProgressAmount(" 1.5 "), 1.5);
+  assert.equal(parseProgressAmount("-1"), -1);
+  assert.equal(parseProgressAmount("−1"), -1, "U+2212, as printed in hints");
+  assert.equal(parseProgressAmount("–2"), -2, "an en dash from a phone keyboard");
+  assert.equal(parseProgressAmount("1,500"), 1500);
+  assert.equal(parseProgressAmount("1,50,000"), 150000, "Indian grouping");
+  assert.equal(parseProgressAmount("12,345.5"), 12345.5);
+  assert.equal(parseProgressAmount("2,5"), 2.5, "a decimal comma");
+  for (const bad of ["", "0", "-0", "abc", "1-2", "--1", "1,2,3", "."]) assert.equal(parseProgressAmount(bad), null, JSON.stringify(bad));
 });

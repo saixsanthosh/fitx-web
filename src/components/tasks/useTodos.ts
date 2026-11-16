@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { deleteTodo, insertTodo, loadTodos, restoreTodo, saveTodoOrder, setTodoDone, updateTodo, type TodoSchema } from "@/lib/data/todo";
+import { createRequestGate } from "@/lib/domain/request-gate";
 import { moveTodo, nextSortOrder, reorderTodos, sameOrder, sortTodos, type TodoInput, type TodoItem } from "@/lib/domain/todo";
 import { dayName } from "./format";
 import { getSession, messageFor } from "./session";
@@ -33,13 +34,18 @@ export function useTodos({ from, to, onChanged }: { from: string; to: string; on
     });
   }, []);
 
+  // Moving between weeks quickly can leave an older load running: only the newest one is applied.
+  const gate = useRef(createRequestGate());
   const load = useCallback(async () => {
+    const ticket = gate.current.begin();
     try {
       const { db, userId } = await getSession();
       const result = await loadTodos(db, userId, from, to);
+      if (!gate.current.isCurrent(ticket)) return;
       itemsRef.current = result.items;
       setState({ status: "ready", items: result.items, schema: result.schema, error: "" });
     } catch (error) {
+      if (!gate.current.isCurrent(ticket)) return;
       setState((current) => ({ ...current, status: "error", error: messageFor(error, "Your To-Do list could not be loaded.") }));
     }
   }, [from, to]);
