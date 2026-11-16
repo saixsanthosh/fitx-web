@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { History, Loader2, MessageSquarePlus, Settings2, X } from "lucide-react";
 import type { CoachState, CoachStatus } from "@/lib/ai/status";
 import type { CoachActionView, CoachMessageView, CoachQuota, CoachStreamEvent, CoachSwap, CoachThreadSummary } from "@/lib/ai/types";
@@ -15,6 +15,7 @@ import { formatResetTime } from "./format";
 import type { PlanActions } from "./MealPlanCard";
 import { MessageView } from "./MessageView";
 import { RichText } from "./RichText";
+import { useHydrated } from "./use-hydrated";
 
 type Pending = { task: ComposerMode; status: string | null; text: string };
 type Problem = { message: string; retryAt?: string };
@@ -42,6 +43,8 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   const [focusKey, setFocusKey] = useState(0);
   const stopper = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  // Reset times are in the viewer's time zone, which the server can't know: they appear after hydration.
+  const hydrated = useHydrated();
 
   const plansAllowed = shareData && !status.minor;
   const busy = pending !== null;
@@ -89,9 +92,9 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
     const when = formatResetTime(failure.retryAt);
     const message =
       failure.code === "quota"
-        ? `${failure.message}${when ? ` You can ask again from ${when}.` : ""}`
+        ? `${failure.message}${when ? ` The next one is back at ${when}.` : ""}`
         : failure.code === "at_capacity"
-          ? `${failure.message} Nothing was used from today's limit.${when ? ` Try again after ${when}.` : " Try again in a few minutes."}`
+          ? `${failure.message} Nothing was used from your limit.${when ? ` Try again after ${when}.` : " Try again in a few minutes."}`
           : failure.message;
     setProblem({ message, retryAt: failure.retryAt });
   }
@@ -210,7 +213,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
         applyAction(id)
           .then((result) => {
             setActionStates((old) => ({ ...old, [id]: "applied" }));
-            setAnnouncement(result.kind === "workout_plan" ? "Saved as a workout draft in Workouts." : "Added to My Food Plan in Nutrition. Nothing was logged as eaten.");
+            setAnnouncement(result.kind === "workout_plan" ? "Saved as a workout draft in Workouts." : "Saved to My foods in Nutrition. Nothing was logged as eaten.");
           })
           .catch((error) => {
             setActionStates((old) => ({ ...old, [id]: "error" }));
@@ -237,13 +240,53 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
     [actionStates, swaps, plansAllowed, recordActions],
   );
 
-  if (UNAVAILABLE.has(status.state)) return <CoachUnavailable state={status.state as "paused" | "not_configured" | "not_available"} />;
+  const settings = (
+    <CoachSettings
+      open={settingsOpen}
+      onClose={() => setSettingsOpen(false)}
+      shareData={shareData}
+      minor={status.minor}
+      providers={status.providers}
+      onShareChange={(share) => {
+        setShareData(share);
+        if (!share) setMode("chat");
+        setAnnouncement(share ? "The coach can now use your FITX data." : "The coach no longer reads your FITX data.");
+      }}
+      onDeleted={() => {
+        setSettingsOpen(false);
+        newConversation();
+        setThreads([]);
+        setShareData(false);
+        setAnnouncement("Your coach data was deleted.");
+        void fetchStatus()
+          .then((fresh) => {
+            setStatus(fresh);
+            setThreads(fresh.threads);
+            setQuotas(fresh.quotas);
+          })
+          .catch(() => setStatus((old) => ({ ...old, state: UNAVAILABLE.has(old.state) ? old.state : "consent", consent: null, threads: [] })));
+      }}
+    />
+  );
+
+  if (UNAVAILABLE.has(status.state)) {
+    // Paused or not set up: a member who used the coach can still change sharing or delete their coach data.
+    const hasCoachData = status.state !== "not_available" && (status.consent !== null || threads.length > 0);
+    return (
+      <>
+        <CoachUnavailable state={status.state as "paused" | "not_configured" | "not_available"} onSettings={hasCoachData ? () => setSettingsOpen(true) : undefined} />
+        {hasCoachData && settings}
+        <p className="sr-only" aria-live="polite">{announcement}</p>
+      </>
+    );
+  }
   if (status.state === "consent") {
     return (
       <ConsentPanel
         providers={status.providers}
         sharedSummary={status.sharedSummary}
         minor={status.minor}
+        memberDataAvailable={status.memberDataAvailable}
         onDone={(share) => {
           setShareData(share);
           setStatus((old) => ({ ...old, state: "ready", consent: { shareData: share, consentedAt: new Date().toISOString() } }));
@@ -259,9 +302,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   const chatQuota = quotas.find((quota) => quota.kind === "chat");
   const planQuota = quotas.find((quota) => quota.kind === "plan");
   const activeQuota = mode === "chat" ? chatQuota : planQuota;
-  const quotaHint = activeQuota
-    ? `${Math.max(0, activeQuota.limit - activeQuota.used)} of ${activeQuota.limit} ${mode === "chat" ? "messages" : "plans"} left today${formatResetTime(activeQuota.resetsAt) ? ` · resets ${formatResetTime(activeQuota.resetsAt)}` : ""}`
-    : null;
+  const quotaHint = activeQuota ? quotaText(activeQuota, mode === "chat" ? "messages" : "plans", hydrated ? formatResetTime(activeQuota.resetsAt) : null) : null;
   const suggestions = status.minor
     ? ["What should I eat before sports practice?", "How can I get stronger safely?", "How much sleep do I need?"]
     : shareData
@@ -371,49 +412,77 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
           <div className="fitx-panel max-h-[calc(100dvh-220px)] overflow-y-auto p-3">{list}</div>
           {(chatQuota || planQuota) && (
             <div className="fitx-panel p-4 text-sm">
-              <h2 className="text-xs font-semibold uppercase tracking-[.1em] text-fitx-text-secondary">Today</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-[.1em] text-fitx-text-secondary">Last 24 hours</h2>
               {chatQuota && <QuotaLine label="Messages" quota={chatQuota} />}
               {planQuota && <QuotaLine label="Plans" quota={planQuota} />}
-              <p className="mt-3 text-xs leading-5 text-fitx-text-secondary">The coach runs on free AI services, so each account has a daily limit.</p>
+              <p className="mt-3 text-xs leading-5 text-fitx-text-secondary">The coach runs on free AI services, so each account has a limit over any 24 hours.</p>
             </div>
           )}
         </div>
       </aside>
 
-      {historyOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Coach conversations">
-          <button type="button" aria-label="Close conversations" onClick={() => setHistoryOpen(false)} className="absolute inset-0 bg-fitx-scrim/55" />
-          <div className="absolute inset-y-0 left-0 flex w-[min(86vw,340px)] flex-col bg-fitx-elevated p-4 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-fitx-text">Conversations</h2>
-              <button type="button" onClick={() => setHistoryOpen(false)} aria-label="Close conversations" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover"><X size={18} aria-hidden="true" /></button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
-          </div>
-        </div>
-      )}
+      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)}>{list}</HistoryDrawer>
 
-      <CoachSettings
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        shareData={shareData}
-        minor={status.minor}
-        providers={status.providers}
-        onShareChange={(share) => {
-          setShareData(share);
-          if (!share) setMode("chat");
-          setAnnouncement(share ? "The coach can now use your FITX data." : "The coach no longer reads your FITX data.");
-        }}
-        onDeleted={() => {
-          setSettingsOpen(false);
-          newConversation();
-          setThreads([]);
-          setShareData(false);
-          void fetchStatus().then(setStatus).catch(() => setStatus((old) => ({ ...old, state: "consent", consent: null })));
-        }}
-      />
+      {settings}
       <p className="sr-only" aria-live="polite">{announcement}</p>
     </div>
+  );
+}
+
+/** The composer's limit line. The limit counts the last 24 hours, so a used-up limit frees one request at a time. */
+function quotaText(quota: CoachQuota, noun: "messages" | "plans", nextAt: string | null) {
+  const left = Math.max(0, quota.limit - quota.used);
+  if (left > 0) return `${left} of ${quota.limit} ${noun} left in the last 24 hours`;
+  return nextAt ? `No ${noun} left · the next one is back at ${nextAt}` : `No ${noun} left for now`;
+}
+
+/**
+ * Conversations on phones and tablets: a native modal dialog, so focus moves into it, Tab stays inside,
+ * Escape closes it and focus returns to the History button.
+ */
+function HistoryDrawer({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const element = dialog.current;
+    if (!element) return;
+    if (open && !element.open) element.showModal();
+    if (!open && element.open) element.close();
+  }, [open]);
+
+  // The drawer is for narrow screens; widening the window to the desktop layout closes it.
+  useEffect(() => {
+    if (!open) return;
+    const wide = window.matchMedia("(min-width: 1024px)");
+    const closeWhenWide = () => {
+      if (wide.matches) onClose();
+    };
+    wide.addEventListener("change", closeWhenWide);
+    return () => wide.removeEventListener("change", closeWhenWide);
+  }, [open, onClose]);
+
+  return (
+    <dialog
+      ref={dialog}
+      onClose={onClose}
+      onCancel={onClose}
+      // A press on the backdrop lands on the dialog itself, outside the panel.
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      aria-labelledby="coach-history-title"
+      className="fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(86vw,340px)] max-w-none border-0 bg-fitx-elevated p-0 text-fitx-text shadow-2xl backdrop:bg-fitx-scrim/55"
+    >
+      <div className="flex h-full flex-col p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 id="coach-history-title" className="text-base font-semibold text-fitx-text">Conversations</h2>
+          <button type="button" onClick={onClose} aria-label="Close conversations" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover">
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      </div>
+    </dialog>
   );
 }
 

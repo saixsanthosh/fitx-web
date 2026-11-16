@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CirclePause, Clock, Sparkles, Wrench } from "lucide-react";
+import { CirclePause, Clock, Settings2, Sparkles, Wrench } from "lucide-react";
 
 /** Honest states for when the coach cannot answer. Nothing here pretends to be a reply. */
 const COPY = {
@@ -9,7 +9,8 @@ const COPY = {
   failed: { icon: Clock, title: "The coach couldn't load", text: "Something went wrong while opening the coach. Reload the page to try again." },
 } as const;
 
-export function CoachUnavailable({ state }: { state: keyof typeof COPY }) {
+/** onSettings: the member has coach data, so Coach settings (sharing, "Delete my coach data") stay reachable. */
+export function CoachUnavailable({ state, onSettings }: { state: keyof typeof COPY; onSettings?: () => void }) {
   const { icon: Icon, title, text } = COPY[state];
   return (
     <section className="fitx-panel mx-auto max-w-xl px-6 py-10 text-center" aria-labelledby="coach-unavailable-title">
@@ -18,8 +19,18 @@ export function CoachUnavailable({ state }: { state: keyof typeof COPY }) {
       </span>
       <h2 id="coach-unavailable-title" className="mt-4 text-lg font-semibold text-fitx-text">{title}</h2>
       <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-fitx-text-secondary">{text}</p>
+      {onSettings && (
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-fitx-text-secondary">
+          You can still change what the coach may read, or delete your coach conversations, in Coach settings.
+        </p>
+      )}
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         {state === "failed" ? <Link href="/ai-coach" className="fitx-button">Reload</Link> : null}
+        {onSettings && (
+          <button type="button" onClick={onSettings} className="fitx-button">
+            <Settings2 size={17} aria-hidden="true" /> Coach settings
+          </button>
+        )}
         <Link href="/dashboard" className="fitx-button fitx-button-secondary">Back to Home</Link>
       </div>
     </section>
