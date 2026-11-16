@@ -96,8 +96,8 @@ export class TestDatabase {
     return findBinDir() !== null;
   }
 
-  /** Starts a fresh cluster with the Supabase baseline and the billing migration applied. */
-  static async start(): Promise<TestDatabase> {
+  /** Starts a fresh cluster with the Supabase baseline and (unless told otherwise) the billing migration. */
+  static async start({ migrate = true }: { migrate?: boolean } = {}): Promise<TestDatabase> {
     const bin = findBinDir();
     if (!bin) throw new Error("PostgreSQL binaries not found");
     const dir = mkdtempSync(path.join(tmpdir(), "fxpg-"));
@@ -110,7 +110,7 @@ export class TestDatabase {
       "-w", "start",
     ], { env: C_LOCALE });
     await db.exec(SUPABASE_BASELINE);
-    await db.file(BILLING_MIGRATION);
+    if (migrate) await db.file(BILLING_MIGRATION);
     return db;
   }
 
