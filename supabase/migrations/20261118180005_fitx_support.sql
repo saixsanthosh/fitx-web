@@ -118,6 +118,9 @@ begin
   if uid is null then
     raise exception using errcode = '42501', message = 'authentication required';
   end if;
+  -- Same per-account lock as new requests, taken before the row lock, so parallel replies are
+  -- counted one at a time and cannot pass the hourly limit.
+  perform pg_advisory_xact_lock(hashtextextended('fitx_support:' || uid::text, 0));
   select status into current_status
   from public.support_requests
   where id = p_request_id and user_id = uid

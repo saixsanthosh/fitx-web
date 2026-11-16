@@ -279,4 +279,3 @@ do $$ declare ex text; d jsonb; begin
   exception when insufficient_privilege then null; end;
 end $$;
 \echo ok exercise visibility audited with before and after
-\echo ALL PHASE 10 DATABASE CHECKS PASSED
