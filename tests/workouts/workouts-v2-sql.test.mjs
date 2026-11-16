@@ -1,9 +1,9 @@
 // Runs every repo migration on a throwaway local Postgres (the Supabase stand-in in tests/support, no network,
 // no real data) and checks the Workouts v2 functions in 20261118130050 as a signed-in member: a timed
 // movement (a target in seconds) starts without a rep target and never counts as a lift when the workout
-// finishes, a programme day done before its date ticks off its own planner item, and a member still
-// reads the programme they follow after it is unpublished. Plans are saved, started and finished with the
-// same functions the app calls.
+// finishes, a programme day done before its date ticks off its own planner item, a member still reads the
+// programme they follow after it is unpublished, and a plan's item keeps the day picked when only its time
+// changes. Plans are saved, started and finished with the same functions the app calls.
 // Skipped when the Postgres binaries (initdb, pg_ctl, psql) are not on PATH.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -118,5 +118,21 @@ describe("Workouts v2 database functions", { skip }, () => {
     const progress = pg.json(`select json_build_object('next', next_day_index, 'done', sessions_completed) from public.programme_enrolments where id = '${enrolment}';`);
     assert.deepEqual(progress, { next: 3 % days, done: 2 }, "the day count still comes from the programme's days");
     pg.exec(`update public.training_programmes set status = 'published' where id = 'ppl-3';`);
+  });
+
+  test("a plan's item keeps the day picked on the Workouts page when only its time changes, wherever the phone is", () => {
+    // A member saved in India plans from London: 1 December at 18:00 London (18:00 UTC), then moves it to 22:00,
+    // which is already 2 December in India. The page writes the new start with the same day, then the day alone.
+    const plan = savePlan({ title: "Evening push", planned_for: "2026-12-01" }, [BENCH]);
+    const item = pg.json(`with item as (insert into public.planner_events (user_id, event_type, title, workout_plan_id, starts_at, ends_at, local_date)
+      values ('${A}', 'workout', 'Evening push', '${plan}', '2026-12-01T18:00:00Z', '2026-12-01T19:00:00Z', '2026-12-01') returning id)
+      select to_json(id) from item;`, asA);
+    const day = () => pg.json(`select json_build_object('day', local_date, 'starts', to_char(starts_at at time zone 'UTC', 'HH24:MI')) from public.planner_events where id = '${item}';`);
+    assert.deepEqual(day(), { day: "2026-12-01", starts: "18:00" });
+    pg.exec(`update public.planner_events set title = 'Evening push', starts_at = '2026-12-01T22:00:00Z', ends_at = '2026-12-01T23:00:00Z',
+      status = 'scheduled', local_date = '2026-12-01' where id = '${item}' and status = 'scheduled';`, asA);
+    assert.deepEqual(day(), { day: "2026-12-02", starts: "22:00" }, "the planner's trigger works the day out again in the saved zone");
+    pg.exec(`update public.planner_events set local_date = '2026-12-01' where id = '${item}' and status = 'scheduled';`, asA);
+    assert.deepEqual(day(), { day: "2026-12-01", starts: "22:00" }, "the page's second write keeps the day the member picked");
   });
 });

@@ -720,6 +720,13 @@ export default function WorkoutsPage() {
         const updated = await withOptionalColumns(PLANNER_DAY_COLUMNS, (include) =>
           supabase.from("planner_events").update(payloadFor(eventPatch(), PLANNER_DAY_COLUMNS, include)).in("id", ownScheduled).eq("user_id", userId).eq("status", "scheduled"));
         if (updated.result.error) scheduleWarning = "Workout saved, but its planner event could not be updated.";
+        else if (updated.includedOptional) {
+          // When only the time changes, the planner's trigger works the day out again from the new start in
+          // the saved time zone, which can be another day for a member whose phone is elsewhere. A second
+          // write that leaves the start alone keeps the day picked here.
+          const pinned = await supabase.from("planner_events").update({ local_date: plannedFor }).in("id", ownScheduled).eq("user_id", userId).eq("status", "scheduled");
+          if (pinned.error) scheduleWarning = "Workout saved, but its planner day could not be confirmed. Check the day in your planner.";
+        }
       } else if (change === "insert") {
         const scheduled = await withOptionalColumns(PLANNER_DAY_COLUMNS, (include) =>
           supabase.from("planner_events").insert(payloadFor({ user_id: userId, event_type: "workout", workout_plan_id: planId, ...eventPatch() }, PLANNER_DAY_COLUMNS, include)));
