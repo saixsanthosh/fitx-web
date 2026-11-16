@@ -1,0 +1,99 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { CameraError, cameraHelp, cameraProblemFromError, detectPlatform } from "@/lib/pose/camera";
+import { FrameGovernor, initialProfile } from "@/lib/pose/performance";
+
+const named = (name: string) => Object.assign(new Error(name), { name });
+
+test("camera failures map to problems the user can act on", () => {
+  assert.equal(cameraProblemFromError(named("NotAllowedError")), "denied");
+  assert.equal(cameraProblemFromError(named("SecurityError")), "denied");
+  assert.equal(cameraProblemFromError(named("NotFoundError")), "no-camera");
+  assert.equal(cameraProblemFromError(named("NotReadableError")), "busy");
+  assert.equal(cameraProblemFromError(named("OverconstrainedError")), "constraints");
+  assert.equal(cameraProblemFromError(named("AbortError")), "interrupted");
+  assert.equal(cameraProblemFromError(new CameraError("insecure")), "insecure");
+  assert.equal(cameraProblemFromError("weird"), "unknown");
+  assert.equal(cameraProblemFromError(null), "unknown");
+});
+
+test("denied-camera help is specific to the phone", () => {
+  assert.match(cameraHelp("denied", "ios").body, /Website Settings/);
+  assert.match(cameraHelp("denied", "android").body, /Permissions/);
+  assert.match(cameraHelp("denied", "other").body, /address bar/);
+  for (const problem of ["insecure", "unsupported", "no-camera", "busy", "constraints", "interrupted", "unknown"] as const) {
+    const help = cameraHelp(problem, "other");
+    assert.ok(help.title && help.body, problem);
+  }
+});
+
+test("platform detection recognises iPhone, iPad (desktop mode) and Android", () => {
+  assert.equal(detectPlatform("Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X)"), "ios");
+  assert.equal(detectPlatform("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", 5), "ios");
+  assert.equal(detectPlatform("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", 0), "other");
+  assert.equal(detectPlatform("Mozilla/5.0 (Linux; Android 15; Pixel 8)"), "android");
+});
+
+test("weak devices and data saver start light; strong desktops get the full model", () => {
+  assert.deepEqual(initialProfile({ mobile: true, cores: 2 }), { model: "lite", width: 480, height: 360, maxFps: 15 });
+  assert.deepEqual(initialProfile({ mobile: true, memoryGb: 2, cores: 8 }), { model: "lite", width: 480, height: 360, maxFps: 15 });
+  assert.deepEqual(initialProfile({ mobile: false, cores: 12, saveData: true }), { model: "lite", width: 480, height: 360, maxFps: 15 });
+  assert.deepEqual(initialProfile({ mobile: true, cores: 8, memoryGb: 8 }), { model: "lite", width: 640, height: 480, maxFps: 24 });
+  assert.deepEqual(initialProfile({ mobile: false, cores: 10 }), { model: "full", width: 640, height: 480, maxFps: 30 });
+  assert.deepEqual(initialProfile({ mobile: false, cores: 4 }), { model: "lite", width: 640, height: 480, maxFps: 30 });
+});
+
+/** Feeds the governor frames every 16 ms (a 60 Hz camera) whose detection takes `inferenceMs`. */
+function drive(governor: FrameGovernor, inferenceMs: number, fromMs: number, toMs: number, profile = initialProfile({ mobile: false, cores: 10 })) {
+  const advice: string[] = [];
+  for (let now = fromMs; now < toMs; now += 16) {
+    if (!governor.due(now)) continue;
+    governor.record(now, inferenceMs);
+    const next = governor.advise(now + inferenceMs, profile);
+    if (next) advice.push(next);
+  }
+  return advice;
+}
+
+test("frames are analysed no faster than the cap, nor faster than the device keeps up", () => {
+  const quick = new FrameGovernor(30);
+  drive(quick, 8, 0, 4000);
+  assert.ok(Math.abs(quick.fps(4000) - 30) <= 3, `fast device runs at ${quick.fps(4000).toFixed(1)} fps`);
+  const slow = new FrameGovernor(30);
+  drive(slow, 60, 0, 4000);
+  assert.ok(slow.fps(4000) <= 1000 / 90 + 1, `60 ms detections leave headroom (${slow.fps(4000).toFixed(1)} fps)`);
+  assert.ok(slow.intervalMs() >= 89);
+});
+
+test("slow detection advises a lighter model once, after warm-up and a sustained slump", () => {
+  const governor = new FrameGovernor(30);
+  assert.deepEqual(drive(governor, 10, 0, 6000), [], "a fast device gets no advice");
+  const slow = new FrameGovernor(30);
+  const advice = drive(slow, 90, 0, 12_000);
+  assert.equal(advice[0], "use-lite");
+  assert.equal(advice.filter((a) => a === "use-lite").length, 1);
+  const lite = initialProfile({ mobile: true, cores: 8 });
+  const stuck = new FrameGovernor(24);
+  const later = drive(stuck, 130, 0, 30_000, lite);
+  assert.deepEqual(later, ["lower-resolution", "too-slow"]);
+  stuck.restart();
+  assert.equal(stuck.fps(31_000), 0);
+});
+
+test("a GPU path slower than any real GPU switches to the CPU first; CPU slowness never blames the GPU", () => {
+  const profile = initialProfile({ mobile: false, cores: 10 });
+  const run = (onGpu: boolean) => {
+    const governor = new FrameGovernor(30);
+    const advice: string[] = [];
+    for (let now = 0; now < 20_000; now += 16) {
+      if (!governor.due(now)) continue;
+      governor.record(now, 400);
+      const next = governor.advise(now + 400, profile, onGpu);
+      if (next) advice.push(next);
+    }
+    return advice;
+  };
+  assert.equal(run(true)[0], "use-cpu");
+  assert.ok(!run(false).includes("use-cpu"));
+  assert.equal(run(false)[0], "use-lite");
+});
