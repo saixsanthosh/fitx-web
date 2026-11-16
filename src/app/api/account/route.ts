@@ -1,6 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { accountDeletionConfigured, createAdminClient, removeUserFiles } from "@/lib/account/admin";
-import { DELETE_CONFIRMATION, isRecentSignIn, RECENT_SIGN_IN_MINUTES, sessionSignedInAt, type DeletionStatus } from "@/lib/account/deletion";
+import {
+  DELETE_CONFIRMATION,
+  isAllowedStatusRequest,
+  isAuthOutage,
+  isRecentSignIn,
+  RECENT_SIGN_IN_MINUTES,
+  sessionSignedInAt,
+  type DeletionStatus,
+} from "@/lib/account/deletion";
 import { AUTH_HINT_COOKIE, hintCookieOptions, ONBOARDED_COOKIE, SESSION_COOKIE_RE, sessionCookieOptions } from "@/lib/auth/cookies";
 import { isSameOriginRequest } from "@/lib/auth/same-origin";
 import { cancelForUser } from "@/lib/billing/cancel";
@@ -13,8 +21,11 @@ import { createRouteSupabase } from "@/lib/supabase/route-client";
  * DELETE deletes the signed-in account: it stops Razorpay renewals (when billing is configured), removes
  *        its files in private storage, then the login itself, which removes every FITX row (user tables
  *        cascade from auth.users; billing records stay, without the link to the person, as the money
- *        trail). Body: { "confirm": "DELETE" }.
- * The account is always the session's own; nothing in the request can name another one.
+ *        trail). Body: { "confirm": "DELETE", "expectedUserId": "<the id GET returned>" }; a different
+ *        signed-in account (switched in another tab, or a different Google account at re-sign-in) is
+ *        refused with 409 before anything is removed.
+ * The account deleted is always the session's own; the request can only refuse, never name another one.
+ * When Supabase Auth can't be reached, both answer 503 rather than "signed out".
  */
 
 const json = (body: unknown, status = 200) => {
@@ -26,26 +37,31 @@ const json = (body: unknown, status = 200) => {
 async function readSession(request: NextRequest) {
   const route = createRouteSupabase(request);
   if (!route) return null;
-  const { data: claimsData } = await route.supabase.auth.getClaims();
+  const { data: claimsData, error: claimsError } = await route.supabase.auth.getClaims();
+  if (isAuthOutage(claimsError)) return { route, user: null, signedInAt: null, outage: true };
   const claims = claimsData?.claims ?? null;
   const userId = typeof claims?.sub === "string" ? claims.sub : null;
-  if (!userId) return { route, user: null, signedInAt: null };
+  if (!userId) return { route, user: null, signedInAt: null, outage: false };
   // Ask Supabase Auth too: the account must still exist and match the token.
   const { data, error } = await route.supabase.auth.getUser();
-  if (error || !data.user || data.user.id !== userId) return { route, user: null, signedInAt: null };
-  return { route, user: data.user, signedInAt: sessionSignedInAt(claims, data.user.last_sign_in_at) };
+  if (isAuthOutage(error)) return { route, user: null, signedInAt: null, outage: true };
+  if (error || !data.user || data.user.id !== userId) return { route, user: null, signedInAt: null, outage: false };
+  return { route, user: data.user, signedInAt: sessionSignedInAt(claims, data.user.last_sign_in_at), outage: false };
 }
 
 export async function GET(request: NextRequest) {
-  if (!isSameOriginRequest(request)) return json({ error: "forbidden" }, 403);
+  if (!isAllowedStatusRequest(request.headers, request.nextUrl.origin)) return json({ error: "forbidden" }, 403);
   const session = await readSession(request);
   if (!session) return json({ error: "unavailable" }, 503);
+  if (session.outage) return session.route.applyTo(json({ error: "auth_unavailable" }, 503));
   if (!session.user) return session.route.applyTo(json({ error: "signed_out" }, 401));
   const deletion: DeletionStatus = {
     available: accountDeletionConfigured(),
     recentSignIn: isRecentSignIn(session.signedInAt),
     signedInAt: session.signedInAt,
     windowMinutes: RECENT_SIGN_IN_MINUTES,
+    userId: session.user.id,
+    email: session.user.email ?? null,
   };
   return session.route.applyTo(json({ deletion }));
 }
@@ -55,18 +71,21 @@ export async function DELETE(request: NextRequest) {
   const session = await readSession(request);
   if (!session) return json({ error: "unavailable" }, 503);
   const { route, user } = session;
+  if (session.outage) return route.applyTo(json({ error: "auth_unavailable" }, 503));
   if (!user) return route.applyTo(json({ error: "signed_out" }, 401));
 
   const admin = createAdminClient();
   if (!admin) return route.applyTo(json({ error: "not_configured" }, 503));
 
-  let body: { confirm?: unknown } = {};
+  let body: { confirm?: unknown; expectedUserId?: unknown } = {};
   try {
     body = (await request.json()) as typeof body;
   } catch {
     body = {};
   }
   if (body?.confirm !== DELETE_CONFIRMATION) return route.applyTo(json({ error: "confirmation_required" }, 400));
+  // The screen confirmed one account; if this session is now another one, delete nothing.
+  if (body?.expectedUserId !== user.id) return route.applyTo(json({ error: "account_changed" }, 409));
   if (!isRecentSignIn(session.signedInAt)) {
     return route.applyTo(json({ error: "reauth_required", windowMinutes: RECENT_SIGN_IN_MINUTES }, 403));
   }

@@ -74,7 +74,17 @@ export type AccountExport = {
   format: "fitx-account-export";
   version: 1;
   exported_at: string;
-  account: { id: string; email: string | null; created_at: string | null; last_sign_in_at: string | null; sign_in_methods: string[] };
+  account: {
+    id: string;
+    email: string | null;
+    created_at: string | null;
+    last_sign_in_at: string | null;
+    sign_in_methods: string[];
+    /** What the sign-in provider gave FITX (for Google: name, picture, email, the Google account id). */
+    profile_from_sign_in: Record<string, unknown>;
+    /** Each linked sign-in, with the details the provider shared. No tokens are stored here. */
+    identities: Array<{ provider: string | null; details: Record<string, unknown>; created_at: string | null; last_sign_in_at: string | null }>;
+  };
   tables: Record<string, Record<string, unknown>[]>;
   files: ExportedFile[];
   notes: string[];
@@ -105,9 +115,13 @@ type AccountUser = {
   email?: string | null;
   created_at?: string | null;
   last_sign_in_at?: string | null;
-  identities?: Array<{ provider?: string | null }> | null;
+  identities?: Array<{ provider?: string | null; identity_data?: Record<string, unknown> | null; created_at?: string | null; last_sign_in_at?: string | null }> | null;
   app_metadata?: { provider?: unknown } | null;
+  user_metadata?: Record<string, unknown> | null;
 };
+
+const plainObject = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? JSON.parse(JSON.stringify(value)) as Record<string, unknown> : {};
 
 async function readTable(supabase: SupabaseClient, spec: ExportTable, userId: string) {
   const rows: Record<string, unknown>[] = [];
@@ -191,6 +205,13 @@ export async function exportAccountData(
       created_at: user.created_at ?? null,
       last_sign_in_at: user.last_sign_in_at ?? null,
       sign_in_methods: [...new Set(providers.length ? providers : fallback)],
+      profile_from_sign_in: plainObject(user.user_metadata),
+      identities: (user.identities ?? []).map((identity) => ({
+        provider: typeof identity.provider === "string" ? identity.provider : null,
+        details: plainObject(identity.identity_data),
+        created_at: identity.created_at ?? null,
+        last_sign_in_at: identity.last_sign_in_at ?? null,
+      })),
     },
     tables,
     files: listed.files,

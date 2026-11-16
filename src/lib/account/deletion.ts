@@ -16,7 +16,38 @@ export type DeletionStatus = {
   /** When this session last signed in (seconds since 1970), if known. */
   signedInAt: number | null;
   windowMinutes: number;
+  /** The account this session belongs to, as the server sees it (null when signed out). */
+  userId: string | null;
+  email: string | null;
 };
+
+/** sessionStorage key: which account a "sign in again" for deletion started from. */
+export const DELETE_STARTED_FOR_KEY = "fitx_delete_for";
+
+type AuthErrorLike = { name?: unknown; status?: unknown; __isAuthError?: unknown } | null | undefined;
+
+/**
+ * True when Supabase Auth itself could not answer (network failure or a 5xx), as opposed to an answer
+ * that the session is invalid. An outage must never be treated as "signed out".
+ */
+export function isAuthOutage(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const value = error as AuthErrorLike;
+  if (value?.name === "AuthRetryableFetchError") return true;
+  return typeof value?.status === "number" && value.status >= 500;
+}
+
+/**
+ * For the read-only status request: refuse what the browser marks as cross-site, but allow requests
+ * that carry neither fetch metadata nor an Origin header (older Safari sends neither on a same-origin
+ * GET). Other sites still can't read the answer, because no CORS headers are sent.
+ */
+export function isAllowedStatusRequest(headers: { get(name: string): string | null }, origin: string) {
+  const site = headers.get("sec-fetch-site");
+  if (site) return site === "same-origin" || site === "none";
+  const sentOrigin = headers.get("origin");
+  return !sentOrigin || sentOrigin === origin;
+}
 
 type AmrEntry = { method?: unknown; timestamp?: unknown };
 
