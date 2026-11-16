@@ -21,6 +21,12 @@ test("rejects control characters the URL parser would strip", () => {
   }
 });
 
+test("rejects dot segments that resolve to a protocol-relative URL", () => {
+  for (const value of ["/..//evil.example", "/.//evil.example", "/%2e%2e//evil.example", "/a/../..//evil.example", "/././/evil.example/phish"]) {
+    assert.equal(safeNext(value), "/dashboard", value);
+  }
+});
+
 test("never returns to sign-in, auth, API or the marketing home", () => {
   for (const value of ["/", "/signin", "/signup", "/forgot-password", "/auth/callback?code=1", "/api/foods/search"]) {
     assert.equal(safeNext(value), "/dashboard", value);

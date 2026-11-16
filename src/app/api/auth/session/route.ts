@@ -38,11 +38,11 @@ export async function POST(request: NextRequest) {
     return response;
   };
 
-  if (body.intent !== "sign-in") return route.applyTo(restamp(json({ ok: true })));
-
+  // Only a session that still verifies is re-sent (a request racing a sign-out must not revive it).
   const { data } = await route.supabase.auth.getClaims();
   const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
   if (!userId) return route.applyTo(json({ error: "signed_out" }, 401));
+  if (body.intent !== "sign-in") return route.applyTo(restamp(json({ ok: true })));
 
   const result = await resolvePostSignIn({
     supabase: route.supabase,

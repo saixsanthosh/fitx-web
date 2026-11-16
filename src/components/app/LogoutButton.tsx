@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { LogOut } from "lucide-react";
-import { AUTH_HINT_COOKIE } from "@/lib/auth/cookies";
+import { AUTH_HINT_COOKIE, SESSION_COOKIE_RE } from "@/lib/auth/cookies";
 import { createClient } from "@/lib/supabase/client";
 
 type Scope = "local" | "global";
@@ -29,11 +29,16 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
       const { error: signOutError } = await supabase.auth.signOut({ scope });
       if (signOutError) throw signOutError;
     } catch {
-      setBusy(false);
-      setError(everywhere
-        ? "We couldn’t sign out your devices. Check your connection and try again."
-        : "We couldn’t sign you out. Check your connection and try again.");
-      return;
+      if (everywhere) {
+        setBusy(false);
+        setError("We couldn’t sign out your devices. Check your connection and try again.");
+        return;
+      }
+      // Supabase unreachable: still end the session on this device (its cookies are readable here).
+      for (const part of document.cookie.split(";")) {
+        const name = part.split("=")[0]?.trim();
+        if (name && SESSION_COOKIE_RE.test(name)) document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
+      }
     }
     document.cookie = `${AUTH_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
     window.location.replace("/signin?signed_out=1");
