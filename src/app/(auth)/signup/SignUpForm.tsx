@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { Apple, LockKeyhole, Mail, UserRound } from "lucide-react";
 import { GoogleIcon } from "@/components/ui/GoogleIcon";
+import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
 const appleEnabled = process.env.NEXT_PUBLIC_APPLE_OAUTH_ENABLED === "true";
@@ -32,7 +34,7 @@ export default function SignUpPage() {
         password,
         options: {
           data: { name: name.trim() },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=%2Fonboarding`,
+          emailRedirectTo: authCallbackUrl("/onboarding"),
         },
       });
       if (authError) {
@@ -40,7 +42,7 @@ export default function SignUpPage() {
         setLoading(false);
         return;
       }
-      if (data.session) window.location.assign("/onboarding");
+      if (data.session) window.location.assign(await finishPasswordSignIn("/onboarding"));
       else setSent(true);
     } catch {
       setError("We couldn’t connect to FITX. Check your connection and try again.");
@@ -58,7 +60,7 @@ export default function SignUpPage() {
       const { error: authError } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=%2Fdashboard`,
+          redirectTo: authCallbackUrl("/dashboard"),
           ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {}),
         },
       });

@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import { stampSessionCookies } from "@/lib/auth/session-stamp";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/ui/Logo";
 
@@ -23,6 +24,7 @@ export default function ResetPasswordPage() {
     const { error: updateError } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (updateError) return setError(updateError.message);
+    void stampSessionCookies();
     setSaved(true);
   }
 

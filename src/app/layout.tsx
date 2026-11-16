@@ -4,6 +4,7 @@ import { BRAND } from "@/config/brand";
 import { Toaster } from "@/components/ui/Toaster";
 import { AnalyticsConsent } from "@/components/layout/AnalyticsConsent";
 import { INTRO_BOOTSTRAP_SCRIPT } from "@/components/brand/introBootstrap";
+import { BrandLoader } from "@/components/brand/BrandLoader";
 import "./globals.css";
 
 const inter = Inter({
@@ -86,6 +87,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: INTRO_BOOTSTRAP_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col font-body bg-background text-foreground">
+        <BrandLoader />
         {children}
         <Toaster />
         <AnalyticsConsent />

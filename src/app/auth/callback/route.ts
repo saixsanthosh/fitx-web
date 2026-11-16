@@ -1,29 +1,44 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { isAuthPKCECodeVerifierMissingError } from "@supabase/supabase-js";
+import { NextResponse, type NextRequest } from "next/server";
+import { applySignInCookies, resolvePostSignIn } from "@/lib/auth/post-sign-in";
+import { createRouteSupabase } from "@/lib/supabase/route-client";
 
-function safeNext(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/dashboard";
-  const parsed = new URL(value, "https://fitx.invalid");
-  if (parsed.origin !== "https://fitx.invalid" || parsed.pathname.startsWith("/auth/") || parsed.pathname === "/signin") return "/dashboard";
-  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-}
+const noStore = <T extends NextResponse>(response: T) => {
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+};
 
-export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get("code");
+/**
+ * Finishes Google sign-in, sign-up confirmation and password-reset links: exchanges the one-time code
+ * for a session (the session cookies ride on this redirect) and sends the user to the right page.
+ */
+export async function GET(request: NextRequest) {
+  const { origin, searchParams } = request.nextUrl;
+  const back = (reason: string) => noStore(NextResponse.redirect(new URL(`/signin?error=${reason}`, origin)));
+
   const providerError = searchParams.get("error");
-  if (providerError) {
-    const cancelled = providerError === "access_denied" || /cancel|denied/i.test(searchParams.get("error_description") ?? "");
-    return NextResponse.redirect(new URL(`/signin?error=${cancelled ? "cancelled" : "callback"}`, origin));
+  const errorCode = searchParams.get("error_code");
+  if (providerError || errorCode) {
+    // Supabase reports an expired or reused e-mail link as access_denied + otp_expired.
+    if (errorCode === "otp_expired") return back("expired");
+    const description = searchParams.get("error_description") ?? "";
+    if (providerError === "access_denied" || /cancel|denied/i.test(description)) return back("cancelled");
+    return back("callback");
   }
-  if (!code) return NextResponse.redirect(new URL("/signin?error=callback", origin));
-  const supabase = await createClient();
-  if (!supabase) return NextResponse.redirect(new URL("/signin?setup=supabase", origin));
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) return NextResponse.redirect(new URL("/signin?error=callback", origin));
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.redirect(new URL("/signin?error=callback", origin));
-  const { data: profile } = await supabase.from("profiles").select("onboarded").eq("id", user.id).maybeSingle();
-  const destination = profile?.onboarded ? safeNext(searchParams.get("next")) : "/onboarding";
-  return NextResponse.redirect(new URL(destination, origin));
+
+  const code = searchParams.get("code");
+  if (!code) return back("callback");
+  const route = createRouteSupabase(request);
+  if (!route) return noStore(NextResponse.redirect(new URL("/signin?setup=supabase", origin)));
+
+  const { data, error } = await route.supabase.auth.exchangeCodeForSession(code);
+  if (error || !data.user) {
+    // The code was opened in a different browser (or app) from the one that started sign-in.
+    return route.applyTo(back(isAuthPKCECodeVerifierMissingError(error) ? "browser" : "callback"));
+  }
+
+  const result = await resolvePostSignIn({ supabase: route.supabase, userId: data.user.id, requestedNext: searchParams.get("next") });
+  const response = NextResponse.redirect(new URL(result.destination, origin));
+  applySignInCookies(response, { userId: data.user.id, onboarded: result.onboarded, intro: result.intro, secure: route.secure });
+  return route.applyTo(noStore(response));
 }

@@ -1,14 +1,19 @@
 /**
- * Runs inline in <head> (root layout) before the first paint, so the intro's opening frame is the
- * first thing a visitor sees: no flash of the page underneath, no logo. It
+ * Runs inline in <head> (root layout) before the first paint. It
  *  - applies the saved site theme (`data-theme`),
- *  - decides whether the intro plays (home page, first visit this tab, motion allowed) and marks
+ *  - marks signed-in visitors (`data-fitx-auth`, from the fitx_auth hint cookie) so static pages can
+ *    show "Open dashboard" instead of "Log in" without a flash,
+ *  - decides whether the intro film plays: once per account, on the first app page after that
+ *    account's first sign-in (the server sets `fitx_intro=play`; this script consumes it at once, so a
+ *    reload or a new tab never replays it), or on request with `?intro=live|video|play`. It then marks
  *    `<html data-fitx-intro="pending" data-fitx-intro-theme="light|dark">`, which CSS turns into the
- *    full-screen overlay showing the film's first frame,
- *  - preloads that first-frame image for the current theme and orientation,
+ *    full-screen overlay showing the film's first frame, and preloads that frame,
+ *  - otherwise, on a returning device (`fitx_intro=seen`), shows the short brand loader
+ *    (`data-fitx-loader`) until the app hydrates, for at most about a second,
  *  - keeps Skip/Escape working before React hydrates, and gives the page back if the app never
  *    starts the intro (e.g. its JavaScript failed to load).
- * Keep it tiny, dependency-free and ES5-safe: it blocks parsing while it runs.
+ * Keep it tiny, dependency-free and ES5-safe: it blocks parsing while it runs. No backslashes in it:
+ * this is a template literal.
  */
 export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
   var root = document.documentElement;
@@ -19,10 +24,42 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
   } catch (e) {}
   root.setAttribute("data-theme", mode);
   try {
+    var cookie = function (name) {
+      var parts = (document.cookie || "").split(";");
+      for (var i = 0; i < parts.length; i++) {
+        var part = parts[i].replace(/^ +/, "");
+        if (part.indexOf(name + "=") === 0) return part.slice(name.length + 1);
+      }
+      return null;
+    };
+    if (cookie("fitx_auth") === "1") root.setAttribute("data-fitx-auth", "1");
+    var path = window.location.pathname;
+    var section = path.split("/")[1] || "";
+    var appPath = ["dashboard", "workouts", "nutrition", "progress", "goals", "planner", "profile", "settings", "exercises"].indexOf(section) !== -1 && path.indexOf("/workouts/active") !== 0;
     var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    var seen = false;
-    try { seen = window.sessionStorage.getItem("fitx-cinematic-seen") === "1"; } catch (e) {}
-    if (window.location.pathname !== "/" || reduce || seen) return;
+    var intro = cookie("fitx_intro");
+    var asked = (window.location.search.match(/[?&]intro=([a-z]+)/) || [])[1];
+    var forced = (path === "/" || appPath) && (asked === "live" || asked === "video" || asked === "play");
+    var gate = reduce ? null : forced ? "replay" : intro === "play" && appPath ? "account" : null;
+    if (!gate) {
+      if (reduce || intro !== "seen" || path.indexOf("/workouts/active") === 0) return;
+      root.setAttribute("data-fitx-loader", "on");
+      var shownAt = Date.now();
+      var hidden = false;
+      var hide = function () {
+        if (hidden) return;
+        hidden = true;
+        root.setAttribute("data-fitx-loader", "leaving");
+        window.setTimeout(function () { root.removeAttribute("data-fitx-loader"); }, 220);
+      };
+      window.__fitxReleaseLoader = function () { window.setTimeout(hide, Math.max(0, 650 - (Date.now() - shownAt))); };
+      window.setTimeout(hide, 1000);
+      return;
+    }
+    if (gate === "account") {
+      document.cookie = "fitx_intro=seen; Path=/; Max-Age=34560000; SameSite=Lax" + (window.location.protocol === "https:" ? "; Secure" : "");
+    }
+    root.setAttribute("data-fitx-intro-gate", gate);
     var dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
     var theme = dark ? "dark" : "light";
     var orientation = window.matchMedia("(orientation: portrait)").matches ? "portrait" : "landscape";
@@ -34,16 +71,15 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
     link.href = "/brand/intro/fitx-intro-" + theme + "-" + orientation + ".webp";
     link.setAttribute("fetchpriority", "high");
     document.head.appendChild(link);
-    var release = function (remember) {
+    var release = function () {
       if (root.getAttribute("data-fitx-intro") !== "pending") return;
       root.removeAttribute("data-fitx-intro");
-      if (remember) { try { window.sessionStorage.setItem("fitx-cinematic-seen", "1"); } catch (e) {} }
     };
     document.addEventListener("click", function (event) {
       var target = event.target;
-      if (target && target.closest && target.closest("[data-fitx-skip]")) release(true);
+      if (target && target.closest && target.closest("[data-fitx-skip]")) release();
     });
-    document.addEventListener("keydown", function (event) { if (event.key === "Escape") release(true); });
-    window.setTimeout(function () { release(false); }, 8000);
+    document.addEventListener("keydown", function (event) { if (event.key === "Escape") release(); });
+    window.setTimeout(release, 8000);
   } catch (e) {}
 })();`;

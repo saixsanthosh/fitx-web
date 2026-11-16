@@ -20,7 +20,7 @@ npm run dev
 
 Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) to the project URL and public client key. Never place Supabase service-role keys or other private credentials in client-side variables.
 
-Google and Apple sign-in buttons are hidden unless their matching `NEXT_PUBLIC_*_OAUTH_ENABLED` flag is set to `true` and the provider is configured in Supabase. `USDA_API_KEY` is optional and must remain server-side. Food searches use Open Food Facts without it.
+Google sign-in is always offered and must be enabled in Supabase; the Apple button appears only when `NEXT_PUBLIC_APPLE_OAUTH_ENABLED=true` and Apple is configured in Supabase. In production every sign-in redirect uses `NEXT_PUBLIC_SITE_URL` (default `https://fitnessx.vercel.app`), which must be listed in Supabase → Authentication → URL Configuration. `USDA_API_KEY` is optional and must remain server-side. Food searches use Open Food Facts without it.
 
 ## Product areas
 

@@ -120,7 +120,8 @@ export default function OnboardingPage() {
     const { data: priorWeight } = await supabase.from("body_metrics").select("id").eq("user_id", userId).not("weight", "is", null).limit(1).maybeSingle();
     if (!priorWeight) await supabase.from("body_metrics").insert({ user_id: userId, date: new Date().toISOString().slice(0, 10), weight: Number(weight), note: "Starting weight" });
     setSaving(false);
-    router.replace("/dashboard");
+    // A full load, so the head script can play the account's one-time intro on the first dashboard visit.
+    window.location.assign("/dashboard");
   }
 
   if (loading) return <div className="py-14 text-center text-sm text-fitx-text-secondary">Loading your profile…</div>;

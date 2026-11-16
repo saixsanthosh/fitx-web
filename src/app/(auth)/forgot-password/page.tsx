@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { ArrowLeft, Mail } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
+import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ForgotPasswordPage() {
@@ -19,7 +20,7 @@ export default function ForgotPasswordPage() {
     if (!supabase) return setError("Password reset is temporarily unavailable.");
     setLoading(true);
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+      redirectTo: authCallbackUrl("/reset-password"),
     });
     setLoading(false);
     if (resetError) return setError(resetError.message);
