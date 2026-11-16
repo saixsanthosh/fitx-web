@@ -3,20 +3,22 @@ import { Activity, Search } from "lucide-react";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listExercises } from "@/lib/data/exercises";
 import { ModuleState } from "@/components/module-state";
+import { firstParam } from "@/lib/search-params";
 import { setExerciseActive } from "./actions";
 
 export const metadata: Metadata = { title: "Training" };
 
-export default async function TrainingPage({ searchParams }: { searchParams: Promise<{ q?: string; state?: string }> }) {
+export default async function TrainingPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireAdmin("content.manage");
   const params = await searchParams;
-  const term = (params.q ?? "").slice(0, 80);
+  const term = firstParam(params.q).slice(0, 80);
+  const state = firstParam(params.state);
   const result = await listExercises(term);
   const notices: Record<string, string> = { saved: "Exercise visibility updated.", save_failed: "The exercise update could not be saved.", invalid: "The submitted exercise was not valid.", configuration: "Server data access is not configured.", forbidden: "Your role cannot change exercise visibility." };
   return (
     <div className="page-stack">
       <div className="page-heading-row"><div><p className="eyebrow">MOVEMENT LIBRARY</p><h1>Training</h1><p className="page-lede">Manage the live FITX exercise catalog and its visibility.</p></div><span className="page-heading-icon"><Activity aria-hidden="true" size={20} /></span></div>
-      {params.state && notices[params.state] && <p className={`inline-notice ${params.state === "saved" ? "notice-success" : "notice-error"}`} role="status">{notices[params.state]}</p>}
+      {state && notices[state] && <p className={`inline-notice ${state === "saved" ? "notice-success" : "notice-error"}`} role="status">{notices[state]}</p>}
       {result.state === "ready" ? <section className="table-panel">
         <div className="table-heading"><div><h2>Exercise catalog</h2><p>Records from <code>exercise_library</code>; visibility updates are written to the audit log.</p></div><span className="data-badge">Live records</span></div>
         <form action="/training" className="table-search"><label className="search-label" htmlFor="exercise-search"><Search aria-hidden="true" size={17} />Search exercises</label><div><input id="exercise-search" name="q" defaultValue={term} maxLength={80} placeholder="Name contains…" /><button className="quiet-button" type="submit">Search</button></div></form>

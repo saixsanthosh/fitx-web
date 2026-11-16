@@ -53,11 +53,14 @@ export async function saveAnnouncement(_previous: AnnouncementFormState, formDat
     p_link_label: value.linkLabel,
     p_starts_at: value.startsAt,
     p_ends_at: value.endsAt,
+    // A published announcement changes for signed-in people as soon as it is saved; the form asks first.
+    p_confirm_live: formData.get("confirm_live") === "yes",
   });
   if (error) {
     if (isMissingFunction(error)) return { error: `Announcements need migration ${MIGRATIONS.announcements}.` };
     if (isPermissionError(error)) return { error: "Your role cannot change announcements." };
     if (error.code === "P0002") return { error: "This announcement no longer exists." };
+    if (error.code === "55000") return { error: "This announcement is published, so saving changes what signed-in people see. Tick the confirmation and save again, or choose Back to draft first." };
     if (error.code === "23514") return { error: "The database refused these values. Check the lengths, the link and the times, then save again." };
     logServerError("announcements.save", error);
     return { error: "The announcement was not saved. The server log has the details." };

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MessagesSquare } from "lucide-react";
 import { ModuleState } from "@/components/module-state";
+import { PendingButton } from "@/components/pending-button";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getSupportThread } from "@/lib/data/support";
 import { can } from "@/lib/roles";
@@ -26,6 +27,7 @@ const notices: Record<string, { tone: "success" | "error"; text: string }> = {
   reply_length: { tone: "error", text: `A reply needs 1 to ${SUPPORT_REPLY_MAX} characters.` },
   invalid: { tone: "error", text: "Check the status, priority and assignee." },
   assignee: { tone: "error", text: "The assignee must be an active Admin member with support access." },
+  changed: { tone: "error", text: "Nothing was saved: this request changed after you opened it (for example, the person replied). Check the latest version below and save again." },
   forbidden: { tone: "error", text: "Your role cannot change help requests." },
   migration: { tone: "error", text: `This needs migration ${MIGRATIONS.support}.` },
   configuration: { tone: "error", text: "Server data access is not configured." },
@@ -69,7 +71,7 @@ export default async function SupportRequestPage({ params, searchParams }: { par
               <label>Reply as FITX Support<textarea name="body" required maxLength={SUPPORT_REPLY_MAX} rows={5} placeholder="The person sees this on their Help page. Your name and email are not shown to them." /></label>
               <div className="form-row">
                 <label>Then set the status to<select name="status" defaultValue="waiting_on_user">{SUPPORT_STATUSES.map((status) => <option key={status} value={status}>{SUPPORT_STATUS_LABELS[status]}</option>)}</select></label>
-                <button className="primary-button" type="submit">Send reply</button>
+                <PendingButton className="primary-button" pendingLabel="Sending…">Send reply</PendingButton>
               </div>
             </form>
           )}
@@ -80,10 +82,18 @@ export default async function SupportRequestPage({ params, searchParams }: { par
           {mayReply ? (
             <form action={updateRequest} className="stack-form">
               <input type="hidden" name="requestId" value={thread.id} />
+              <input type="hidden" name="seenUpdatedAt" value={thread.updatedAt} />
               <label>Status<select name="status" defaultValue={thread.status}>{SUPPORT_STATUSES.map((status) => <option key={status} value={status}>{SUPPORT_STATUS_LABELS[status]}</option>)}</select></label>
               <label>Priority<select name="priority" defaultValue={thread.priority}>{SUPPORT_PRIORITIES.map((priority) => <option key={priority} value={priority}>{SUPPORT_PRIORITY_LABELS[priority]}</option>)}</select></label>
-              <label>Assigned to<select name="assignee" defaultValue={thread.assignedTo ?? ""}><option value="">Nobody</option>{thread.assignees.map((member) => <option key={member.userId} value={member.userId}>{member.email ?? member.userId.slice(0, 8)}</option>)}</select></label>
-              <button className="quiet-button" type="submit">Save</button>
+              <label>Assigned to<select name="assignee" defaultValue={thread.assignedTo ?? ""}>
+                <option value="">Nobody</option>
+                {thread.assignees.map((member) => <option key={member.userId} value={member.userId}>{member.email ?? member.userId.slice(0, 8)}</option>)}
+                {/* The current assignee always stays selectable, so saving other details never drops them. */}
+                {thread.assignedTo && !thread.assignees.some((member) => member.userId === thread.assignedTo) && (
+                  <option value={thread.assignedTo}>{thread.assignedToEmail ?? thread.assignedTo.slice(0, 8)} (current assignee)</option>
+                )}
+              </select></label>
+              <PendingButton className="quiet-button" pendingLabel="Saving…">Save</PendingButton>
             </form>
           ) : (
             <dl className="detail-list"><div className="detail-field"><dt>Status</dt><dd>{SUPPORT_STATUS_LABELS[thread.status]}</dd></div><div className="detail-field"><dt>Priority</dt><dd>{SUPPORT_PRIORITY_LABELS[thread.priority]}</dd></div></dl>

@@ -163,3 +163,34 @@ test("Phase 10 migrations use the agreed prefix and lock down every privileged f
     }
   }
 });
+
+test("a repeated query parameter is read as its first value", async () => {
+  const { firstParam } = await importTypeScriptModule("src/lib/search-params.ts");
+  assert.equal(firstParam("a"), "a");
+  assert.equal(firstParam(["a", "b"]), "a");
+  assert.equal(firstParam([]), "");
+  assert.equal(firstParam(undefined), "");
+});
+
+test("an authenticator reset is recorded before anything changes and then ends the member's sessions", async () => {
+  const source = await readFile(new URL("../src/app/(control)/access-control/actions.ts", import.meta.url), "utf8");
+  const reset = source.slice(source.indexOf("export async function resetAuthenticator"));
+  const order = ["admin_mfa_reset_requested", "if (!intent.ok)", "mfa.listFactors", "mfa.deleteFactor", "fitx_admin_revoke_user_sessions", "action: \"admin_mfa_reset\","];
+  // The completion row is the last "admin_mfa_reset" write; an earlier one records a partial failure.
+  const positions = order.map((needle, index) => (index === order.length - 1 ? reset.lastIndexOf(needle) : reset.indexOf(needle)));
+  for (const [index, position] of positions.entries()) assert.ok(position >= 0, `${order[index]} is missing`);
+  for (let index = 1; index < positions.length; index += 1) {
+    assert.ok(positions[index - 1] < positions[index], `${order[index - 1]} must come before ${order[index]}`);
+  }
+  assert.ok(audit.isAuditAction("admin_mfa_reset_requested"));
+});
+
+test("the audit log keeps its actor: no foreign key, and the trigger refuses every change", () => {
+  const controlPlane = phase10Sql.find(({ name }) => name.endsWith("_fitx_admin_control_plane.sql")).sql;
+  const auditLog = phase10Sql.find(({ name }) => name.endsWith("_fitx_admin_audit_log.sql")).sql;
+  assert.match(controlPlane, /^\s*actor_id uuid,$/m);
+  assert.match(auditLog, /contype = 'f'[\s\S]*drop constraint/);
+  const trigger = auditLog.slice(auditLog.indexOf("create or replace function public.fitx_admin_audit_logs_append_only"));
+  const body = trigger.slice(trigger.indexOf("begin"), trigger.indexOf("$function$;"));
+  assert.doesNotMatch(body, /return new/, "the trigger must not let any update through");
+});

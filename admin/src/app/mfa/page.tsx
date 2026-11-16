@@ -23,7 +23,7 @@ export default async function MfaPage() {
         <h1>Enter your authenticator code</h1>
         <p>Open the authenticator app you set up for FITX Admin and enter the six-digit code shown for <strong>{identity.email}</strong>.</p>
         <AuthenticatorCodeForm />
-        <p className="mfa-note">Admin asks for a code once per sign-in, and sessions end {ADMIN_MAX_SESSION_HOURS} hours after you sign in with Google. Entering the code also signs this account out of the FITX app on every device. Lost your phone? Ask a super-admin to reset your authenticator on the Access screen.</p>
+        <p className="mfa-note">Admin asks for a code once per sign-in, and sessions end {ADMIN_MAX_SESSION_HOURS} hours after you sign in with Google. Entering the code also signs this account out of the FITX app on every device. Lost your phone? Sign it out of your Google account, then ask a super-admin to reset your authenticator on the Access screen; that also signs you out on every device.</p>
         <div className="access-actions">
           <form action={signOut}><button className="quiet-button" type="submit">Sign out</button></form>
         </div>
