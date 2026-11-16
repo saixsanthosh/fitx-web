@@ -249,8 +249,12 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
       providers={status.providers}
       onShareChange={(share) => {
         setShareData(share);
-        if (!share) setMode("chat");
-        setAnnouncement(share ? "The coach can now use your FITX data." : "The coach no longer reads your FITX data.");
+        // Replies written from the member's data are not sent again once sharing is off (the server leaves
+        // them out), so the next message starts a new conversation rather than seeming to continue this one.
+        if (!share) { setMode("chat"); newConversation(); }
+        setAnnouncement(share
+          ? "The coach can now use your FITX data."
+          : "Questions only: the coach now gets your questions and the lowest daily calories it may suggest, not your logs or profile. Your next message starts a new conversation.");
       }}
       onDeleted={() => {
         setSettingsOpen(false);

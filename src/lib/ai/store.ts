@@ -36,12 +36,13 @@ function fail(error: unknown, what: string): never {
   throw new CoachStoreError(code === "P0002" ? "not_found" : code === "22023" || code === "23514" ? "invalid" : "failed", `${what} failed (${String(code ?? "unknown")})`);
 }
 
-export type Consent = { shareData: boolean; consentedAt: string };
+/** `updatedAt`: when the consent was last saved, which is when "Use my FITX data" was last switched. */
+export type Consent = { shareData: boolean; consentedAt: string; updatedAt: string | null };
 
 export async function getConsent(db: Db, userId: string): Promise<Consent | null> {
-  const { data, error } = await db.from("ai_coach_consents").select("share_personal_data, consented_at").eq("user_id", userId).maybeSingle();
+  const { data, error } = await db.from("ai_coach_consents").select("share_personal_data, consented_at, updated_at").eq("user_id", userId).maybeSingle();
   if (error) fail(error, "read consent");
-  return data ? { shareData: data.share_personal_data !== false, consentedAt: String(data.consented_at) } : null;
+  return data ? { shareData: data.share_personal_data !== false, consentedAt: String(data.consented_at), updatedAt: data.updated_at ? String(data.updated_at) : null } : null;
 }
 
 export async function saveConsent(db: Db, userId: string, shareData: boolean) {
@@ -161,22 +162,28 @@ export async function deleteMessage(db: Db, userId: string, messageId: string) {
   await db.from("ai_coach_messages").delete().eq("user_id", userId).eq("id", messageId);
 }
 
-/** The last few turns, oldest first, as model input. Safety notes are left out. */
 /**
- * The last few turns, oldest first, as model input. A member message the safety screen stopped never
- * goes to a model, now or later: it is marked `safetyStop`, and any member message answered by a FITX
- * safety note is left out as well. Safety notes themselves are FITX's text, not conversation.
+ * The last few turns, oldest first, as model input. Safety notes are FITX's own text, not conversation,
+ * and are left out. A member message the safety screen stopped never goes to a model, now or later: it is
+ * marked `safetyStop`, and any member message answered by a FITX safety note is left out as well.
+ *
+ * With `since` (a request that does not share the member's FITX data), only messages created after it are
+ * included: replies the coach wrote from the member's data before "Use my FITX data" was turned off are not
+ * sent again. `keep`, the message being answered, is always included, whatever the clocks say.
  */
-export async function recentTurns(db: Db, userId: string, threadId: string, limit = 12): Promise<AiMessage[]> {
+export async function recentTurns(db: Db, userId: string, threadId: string, options: { since?: string | null; keep?: string | null; limit?: number } = {}): Promise<AiMessage[]> {
+  const { since = null, keep = null, limit = 12 } = options;
   const { data, error } = await db
     .from("ai_coach_messages")
-    .select("role, content, data, created_at")
+    .select("id, role, content, data, created_at")
     .eq("user_id", userId)
     .eq("thread_id", threadId)
     .order("created_at", { ascending: false })
     .limit(limit + 6);
   if (error) fail(error, "read history");
-  const rows = (data ?? []) as Array<{ role: string; content: string; data: unknown }>;
+  const rows = (data ?? []) as Array<{ id: string; role: string; content: string; data: unknown; created_at: string }>;
+  const after = since ? Date.parse(since) : Number.NaN;
+  const filtered = Number.isFinite(after);
   let budget = 8000;
   const turns: AiMessage[] = [];
   for (let index = 0; index < rows.length && turns.length < limit; index += 1) {
@@ -188,11 +195,14 @@ export async function recentTurns(db: Db, userId: string, threadId: string, limi
       const answeredBySafetyNote = rows[index - 1]?.role === "safety";
       if (stopped || answeredBySafetyNote) continue;
     }
+    if (filtered && row.id !== keep && !(Date.parse(row.created_at) > after)) continue;
     const content = row.content.length > 1500 ? `${row.content.slice(0, 1500)}…` : row.content;
     budget -= content.length;
     if (budget < 0) break;
     turns.unshift({ role: row.role, content });
   }
+  // A reply saved after the switch to a question asked before it was still written from the member's data.
+  if (filtered) while (turns.length && turns[0].role === "assistant") turns.shift();
   return turns;
 }
 

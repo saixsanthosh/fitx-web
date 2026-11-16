@@ -187,7 +187,22 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
 
     const full = sharesData ? buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: true }), now) : buildCoachContext(basics, now);
     const context = careMode ? withoutCalorieNumbers(full) : full;
-    const turnState: TurnState = { ...deps, thread, context, sharesData, careMode, cautions, input, deadline: startedAt + TURN_BUDGET_MS, clock };
+    // Without "Use my FITX data", the conversation so far is sent only from when it was switched off, so the
+    // coach's earlier replies built from the member's data do not go out again.
+    const historySince = consent.shareData ? null : consent.updatedAt ?? consent.consentedAt;
+    const turnState: TurnState = {
+      ...deps,
+      thread,
+      context,
+      sharesData,
+      careMode,
+      cautions,
+      historySince,
+      userMessageId: userMessage.id,
+      input,
+      deadline: startedAt + TURN_BUDGET_MS,
+      clock,
+    };
     let reply: { message: CoachMessageView; actions: CoachActionView[] };
     if (task === "meal_plan") reply = await mealPlanTurn(turnState, emit);
     else if (task === "workout_plan") reply = await workoutTurn(turnState, emit);
@@ -210,6 +225,10 @@ type TurnState = CoachDeps & {
   context: CoachContext;
   sharesData: boolean;
   careMode: boolean;
+  /** Earlier messages from before this time are left out of the request (null: none are). */
+  historySince: string | null;
+  /** The member's message being answered. */
+  userMessageId: string;
   cautions: SafetyCaution[];
   input: TurnInput;
   /** When this turn's model and food checks must be done (ms since epoch). */
@@ -223,7 +242,7 @@ function modelBudget(state: { deadline: number; clock: () => number }) {
 }
 
 async function chatTurn(state: TurnState, emit: Emit) {
-  const history = await store.recentTurns(state.db, state.userId, state.thread.id);
+  const history = await store.recentTurns(state.db, state.userId, state.thread.id, { since: state.historySince, keep: state.userMessageId });
   const result = await state.router.stream(
     {
       task: "chat",

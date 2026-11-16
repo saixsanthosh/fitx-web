@@ -5,6 +5,7 @@ import { useState, type FormEvent, type KeyboardEvent, type PointerEvent } from 
 import { Reorder, useDragControls, useReducedMotion } from "framer-motion";
 import { ArrowDown, ArrowUp, Check, Dumbbell, GripVertical, Moon, Pencil, Plus, Target, Trash2, Utensils } from "lucide-react";
 import { emptyTodoDraft, draftFromTodo, sortTodos, todoProgress, type TodoDraft, type TodoItem } from "@/lib/domain/todo";
+import { workoutStartHref } from "@/lib/training/start-link";
 import type { TodoSchema } from "@/lib/data/todo";
 import { TodoEditor } from "./TodoEditor";
 import { RowMenu } from "./RowMenu";
@@ -223,7 +224,7 @@ function TodoRow({ item, index, count, canReorder, reduceMotion, goalTitle, sche
         {meta && <span className={styles.meta}><KindIcon kind={item.kind} /><span>{meta}</span></span>}
       </button>
       {item.kind === "workout" && item.workoutPlanId && !done && (
-        <Link href={`/workouts?plan=${item.workoutPlanId}`} className={styles.start} aria-label={`Start ${item.title}`}>Start</Link>
+        <Link href={workoutStartHref(item.workoutPlanId, item.id)} className={styles.start} aria-label={`Start ${item.title}`}>Start</Link>
       )}
       {!saving && (
         <RowMenu

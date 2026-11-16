@@ -91,7 +91,7 @@ type StepId = "body" | "goal" | "training" | "schedule" | "food" | "budget";
 type Errors = Partial<Record<string, string>>;
 
 const STEP_COPY: Record<StepId, { label: string; title: string; description: string }> = {
-  body: { label: "About you", title: "Tell us about you", description: "FITX uses these to estimate your daily calories and protein. Only you can see them." },
+  body: { label: "About you", title: "Tell us about you", description: "FITX uses these to estimate your daily calories and protein. Only you can see them, except what the AI coach sends to outside AI services if you use it." },
   goal: { label: "Your goal", title: "What are you working toward?", description: "Your goal sets your calorie target and shapes your plan. You can change it any time in Profile." },
   training: { label: "Training", title: "Where and how do you train?", description: "FITX only suggests exercises that fit your space, equipment and experience." },
   schedule: { label: "Schedule", title: "How much time do you have?", description: "Plans are sized to the days and session length you can keep up." },

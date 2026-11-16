@@ -249,6 +249,36 @@ describe("POST /api/coach/chat: answers", () => {
     assert.ok(!JSON.stringify(providers.calls[0].body).includes("Upma"));
   });
 
+  test("after “Use my FITX data” is switched off, replies written from the member's data are not sent again", async () => {
+    seedMember();
+    consentTo();
+    const answer = (text: string) => (url: string) => (providerOf(url) === "groq" ? openAiStream([text]) : { status: 500 });
+    route = answer("You logged Poha, 250 kcal so far.");
+    const first = await events(await chat.POST(request("/api/coach/chat", { body: { message: "How am I doing today?" } })));
+    const threadId = (first[0] as unknown as { threadId: string }).threadId;
+    assert.equal((await consent.POST(request("/api/coach/consent", { body: { shareData: false } }))).status, 200);
+
+    route = answer("Creatine is well studied.");
+    await events(await chat.POST(request("/api/coach/chat", { body: { threadId, message: "Is creatine safe?" } })));
+    const questionsOnly = JSON.stringify(providers.calls.at(-1)?.body);
+    assert.ok(questionsOnly.includes("Is creatine safe?"), "the question goes");
+    assert.ok(questionsOnly.includes("chose not to share"));
+    assert.ok(!questionsOnly.includes("250 kcal so far") && !questionsOnly.includes("How am I doing today?"), "the conversation from before the switch does not");
+    assert.equal(db.rows("ai_coach_messages").length, 4, "the conversation itself is kept");
+
+    route = answer("Keep it up.");
+    await events(await chat.POST(request("/api/coach/chat", { body: { threadId, message: "And tomorrow?" } })));
+    const later = JSON.stringify(providers.calls.at(-1)?.body);
+    assert.ok(later.includes("Is creatine safe?") && later.includes("Creatine is well studied."), "messages after the switch still give context");
+    assert.ok(!later.includes("250 kcal so far"));
+
+    assert.equal((await consent.POST(request("/api/coach/consent", { body: { shareData: true } }))).status, 200);
+    route = answer("Here is your week.");
+    await events(await chat.POST(request("/api/coach/chat", { body: { threadId, message: "How was my week?" } })));
+    const shared = JSON.stringify(providers.calls.at(-1)?.body);
+    assert.ok(shared.includes("<fitx_data>") && shared.includes("250 kcal so far"), "switched back on, the summary and the whole recent conversation go");
+  });
+
   test("at capacity: an honest error, the request does not count and no half conversation is kept", async () => {
     seedMember();
     consentTo();

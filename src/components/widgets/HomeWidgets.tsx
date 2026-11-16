@@ -12,6 +12,7 @@ import { logWater, logWeight, type SummaryResult } from "@/lib/data/today";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import { appliesOn, dailyGoalsMet, evaluateView, formatGoalValue, progressSummary, remainingLabel, sortGoals } from "@/lib/domain/goals";
 import { todayTargets, weekStrip, weightView, type DailyTarget } from "@/lib/domain/today";
+import { workoutStartHref } from "@/lib/training/start-link";
 import type { GoalsData, Resource } from "./useHomeData";
 import { WidgetCard, WidgetError, WidgetNote, WidgetSkeleton } from "./WidgetCard";
 import styles from "./Widgets.module.css";
@@ -286,7 +287,7 @@ export function WorkoutWidget({ summary }: { summary: Resource<SummaryResult> })
                         <p className={styles.plannedTitle}>{item.title}</p>
                         <p className={styles.subtle}>{item.status === "completed" ? "Done" : clockTime(item.startsAt) ?? "Any time today"}</p>
                       </div>
-                      {item.status !== "completed" && item.workoutPlanId && <Link href={`/workouts?plan=${item.workoutPlanId}`} className={styles.secondaryAction}>Open</Link>}
+                      {item.status !== "completed" && item.workoutPlanId && <Link href={workoutStartHref(item.workoutPlanId, item.id)} className={styles.secondaryAction}>Open</Link>}
                     </li>
                   ))}
                 </ul>

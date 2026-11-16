@@ -214,16 +214,31 @@ describe("privacy page", () => {
     assert.ok(sentences.some((sentence) => /\bcalorie\b/.test(sentence) && /\bsex\b/.test(sentence) && /\boff\b/.test(sentence)), "every request carries the calorie minimum set from sex, sharing on or off");
     assert.ok(sentences.some((sentence) => /\bunder 18\b/.test(sentence) && /\bcalorie\b/.test(sentence)), "what an under-18 account's requests carry");
     assert.ok(!sentences.some((sentence) => /\bonly the question\.$/.test(sentence)), "an under-18 request carries more than the question");
+    // A chat message also carries the conversation's recent messages, the coach's earlier replies included
+    // (store.recentTurns); with sharing off, only those from after it was switched off.
+    assert.ok(sentences.some((sentence) => /\brecent messages of that conversation\b/.test(sentence) && /\bcoach’s replies\b/.test(sentence)), "the conversation history is named");
+    assert.ok(sentences.some((sentence) => /\boff\b/.test(sentence) && /\bmessages from before that are no longer sent\b/.test(sentence)), "and what turning sharing off changes");
+    assert.ok(sentences.some((sentence) => /\bunder 18\b/.test(sentence) && /\brecent messages of that conversation\b/.test(sentence)), "under-18 requests carry the conversation too");
   });
 
-  test("the activity section says location is used while the Record screen is open", () => {
-    // The Record screen starts location updates as soon as it opens (once allowed), to show the GPS signal before
-    // any recording. If that changes, re-check the page's wording and this test.
+  test("the activity section, the Record screen and the Activity page say location is used while the Record screen is open", () => {
+    // The Record screen starts location updates as soon as it opens (once allowed), and "Allow location" starts
+    // them too, to show the GPS signal before any recording; they keep running while paused and after Discard,
+    // until the member finishes or leaves. If that changes, re-check the wording here and this test.
     const recorder = readFileSync(new URL("../../src/components/activity/ActivityRecorderScreen.tsx", import.meta.url), "utf8");
     assert.match(recorder, /permission === "granted"\) instance\.warmUp\(\)/);
+    assert.match(recorder, /onClick=\{\(\) => recorder\?\.warmUp\(\)\}[^>]*>Allow location</);
+    const engine = readFileSync(new URL("../../src/lib/activity/recorder.ts", import.meta.url), "utf8");
+    assert.match(engine.match(/async discard\(\)[\s\S]*?\n {2}\}/)?.[0] ?? "", /this\.watchId !== null \? "locating"/, "Discard keeps the location updates going");
     const activity = section("Activity tracking and location");
     assert.match(activity, /\bwhile the Record screen is open\b/);
     assert.doesNotMatch(activity, /\bonly while the recorder is running\b/);
+    // The note next to "Allow location", and the privacy card on the Activity page.
+    assert.match(recorder, /\buses your location while this screen is open\b/);
+    assert.doesNotMatch(recorder, /\bonly while this screen is recording\b/);
+    const hub = readFileSync(new URL("../../src/components/activity/ActivityHome.tsx", import.meta.url), "utf8");
+    assert.match(hub, /\bLocation is used while the Record screen is open\b/);
+    assert.doesNotMatch(hub, /\bonly while you record\b/);
   });
 
   test("the page names the outside food databases that food search and the coach's food checks call", () => {
@@ -258,6 +273,45 @@ describe("privacy wording elsewhere", () => {
     const panel = readFileSync(new URL("../../src/components/coach/ConsentPanel.tsx", import.meta.url), "utf8");
     assert.doesNotMatch(panel, /never reads your FITX data/);
     assert.equal(panel.match(/lowest daily calories it may suggest \(FITX sets this from your sex\)/g)?.length, 2, "both the under-18 note and “Questions only”");
+    assert.equal(panel.match(/\byour questions with the recent messages of that conversation\b/g)?.length, 2, "both say the conversation's recent messages go too");
+    // Switching sharing off in Coach settings says what is still sent, and starts a new conversation.
+    const app = readFileSync(new URL("../../src/components/coach/CoachApp.tsx", import.meta.url), "utf8");
+    assert.doesNotMatch(app, /no longer reads your FITX data/);
+    assert.match(app, /if \(!share\) \{ setMode\("chat"\); newConversation\(\); \}/);
+  });
+
+  test("onboarding's “About you” step does not promise the body details stay in the account without the coach exception", () => {
+    const { summary } = buildCoachContext(sources() as never, NOW);
+    assert.deepEqual(Object.keys(summary.member as Record<string, unknown>).filter((key) => key !== "experience").sort(), ["age", "height_cm", "sex", "target_weight_kg", "weight_kg"], "the coach summary carries the step's answers");
+    const onboarding = readFileSync(new URL("../../src/app/(auth)/onboarding/OnboardingFlow.tsx", import.meta.url), "utf8");
+    const about = onboarding.match(/\bbody: \{ label: "About you"[^}]*\bdescription: "([^"]+)"/)?.[1] ?? "";
+    assert.ok(about, "the step's description is found");
+    if (/\bonly you can see\b/i.test(about)) assert.match(about, /\bAI coach\b/, `"${about}" needs the AI coach exception`);
+  });
+
+  test("saved foods are not promised private without the coach exception: the coach sends their names", () => {
+    const { summary } = buildCoachContext(sources() as never, NOW);
+    assert.deepEqual(summary.my_custom_foods, ["Mom's poha"], "the summary carries saved food names");
+    const myFoods = readFileSync(new URL("../../src/components/nutrition/MyFoods.tsx", import.meta.url), "utf8");
+    const sourcesPage = readFileSync(new URL("../../src/app/(dashboard)/nutrition/sources/page.tsx", import.meta.url), "utf8").replace(/\s+/g, " ");
+    const promises = [myFoods, sourcesPage].flatMap((text) => text.split(/(?<=\.)\s+/)).filter((sentence) => /\bOnly you can see them\b|\bprivate to your account\b/.test(sentence));
+    assert.equal(promises.length, 2, "My foods and the food sources page");
+    for (const sentence of promises) assert.match(sentence, /\bexcept their names, which the AI coach sends\b/, `"${sentence}" needs the AI coach exception`);
+  });
+
+  test("the food sources page and the AI suggestion badge say unmatched coach foods keep the coach's own estimate", async () => {
+    const { groundFood, isConflict } = await import("@/lib/ai/grounding");
+    // A food FITX's data does not have keeps the model's own numbers (grounding.ts falls back to estimate()).
+    const unmatched = await groundFood({ name: "Grandma's special laddoo", search: "grandma special laddoo", quantity: 1, unit: "piece", grams: 40, calories: 180, protein: 3, carbs: 22, fat: 9, cost: "low", brand: "", note: "" } as never, { catalogue: [], live: null, diet: [], allergies: { rules: [], other: [] } } as never);
+    if (isConflict(unmatched)) assert.fail("a food FITX has no data for is kept, not left out");
+    assert.equal(unmatched.item.basis, "ai_estimate");
+    assert.equal(unmatched.item.calories, 180, "the coach's own value");
+    const sourcesPage = readFileSync(new URL("../../src/app/(dashboard)/nutrition/sources/page.tsx", import.meta.url), "utf8").replace(/\s+/g, " ");
+    assert.doesNotMatch(sourcesPage, /never from the AI\b/);
+    assert.match(sourcesPage, /otherwise they keep the coach’s own estimate and are labelled “AI estimate”/);
+    const { VALUE_BASIS } = await import("@/lib/food/value-basis");
+    assert.doesNotMatch(VALUE_BASIS.ai_suggested.detail, /not from the AI\b/);
+    assert.match(VALUE_BASIS.ai_suggested.detail, /\bthe coach's own estimate\b/);
   });
 
   test("the consent list names every part of the summary, injuries and limitations included", async () => {
@@ -281,9 +335,11 @@ describe("privacy wording elsewhere", () => {
       "food_preferences.budget": /\bfood budget: /, "food_preferences.cuisines": /\bcuisines\b/, "food_preferences.dislikes": /\bfoods you avoid\b/,
       "food_preferences.prefers_low_carb": /\bDiet: /,
       daily_targets: /\byour daily targets\b/, nutrition: /\bfood you logged\b/, my_custom_foods: /\bnames of foods you saved\b/, weight_trend: /\bweight trend\b/,
-      training_last_28_days: /\b4 weeks of workouts\b/, personal_records: /\bpersonal records\b/, active_goals: /\bactive goals\b/, next_7_days: /\bplanned for the next 7 days\b/,
+      training_last_28_days: /\b4 weeks of workouts\b/, personal_records: /\bpersonal records\b/, active_goals: /\bactive goals\b/,
+      "next_7_days.planned_workouts": /\bhow many workouts and other planner items you have in the next 7 days\b/,
+      "next_7_days.other_events": /\bother planner items you have in the next 7 days\b/,
     };
-    const nested = ["member", "training_setup", "food_preferences"];
+    const nested = ["member", "training_setup", "food_preferences", "next_7_days"];
     const fields = Object.entries(context.summary).flatMap(([key, value]) => (nested.includes(key) && value && typeof value === "object" ? Object.keys(value).map((inner) => `${key}.${inner}`) : [key]));
     for (const field of fields) {
       assert.ok(field in named, `decide how the consent screen names ${field}`);
