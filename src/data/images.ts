@@ -1,5 +1,4 @@
 // Curated, verified real fitness imagery (Unsplash CDN). All return 200 / image-jpeg.
-// SmartImage falls back to a themed gradient if any URL ever fails to load.
 
 const u = (id: string, w = 800) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=${w}&q=80`;
 
@@ -40,16 +39,4 @@ export const muscleImage: Record<string, string> = {
   Core: IMG.core,
   Cardio: IMG.cardio,
   "Full Body": IMG.fullBody,
-};
-
-// Gradient fallbacks per muscle group (used by SmartImage on error)
-export const muscleGradient: Record<string, string> = {
-  Chest: "from-fitx-primary/40 to-fitx-surface",
-  Back: "from-blue-500/40 to-fitx-surface",
-  Legs: "from-fitx-primary/25 to-fitx-surface",
-  Shoulders: "from-fitx-gold/40 to-fitx-surface",
-  Arms: "from-fitx-primary/40 to-fitx-surface",
-  Core: "from-fitx-success/40 to-fitx-surface",
-  Cardio: "from-orange-500/40 to-fitx-surface",
-  "Full Body": "from-fitx-primary/40 to-fitx-surface",
 };
