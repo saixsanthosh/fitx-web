@@ -50,7 +50,8 @@ export function BottomNav() {
         </div>
         <button type="button" aria-expanded={moreOpen} aria-controls="mobile-more-links" onClick={() => setMoreOpen((open) => !open)} className={cn("flex min-h-12 w-full flex-col items-center justify-center gap-1 text-[11px]", moreActive || moreOpen ? "text-fitx-primary-text" : "text-fitx-text-disabled")}>
           <Ellipsis size={19} strokeWidth={moreActive || moreOpen ? 2.2 : 1.8} aria-hidden="true"/>
-          <span>More</span>
+          {/* Sized on the span: the global button font reset would otherwise override text-[11px] on the button. */}
+          <span className="text-[11px]">More</span>
         </button>
       </div>
     </nav>
