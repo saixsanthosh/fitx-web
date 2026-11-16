@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { FitxMark } from "@/components/fitx-mark";
 import { SignInForm } from "@/components/sign-in-form";
+import type { SignInError } from "@/app/signin/actions";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-const knownErrors = ["invalid_email", "not_authorized", "setup_pending", "configuration", "oauth"] as const;
-type SignInError = (typeof knownErrors)[number];
+const knownErrors = ["invalid_email", "not_authorized", "setup_pending", "configuration", "service_key_missing", "oauth"] as const satisfies readonly SignInError[];
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const params = await searchParams;

@@ -4,10 +4,10 @@ import { signOut } from "@/app/signin/actions";
 import { FitxMark } from "@/components/fitx-mark";
 
 const states: Record<string, { title: string; detail: string }> = {
-  configuration: { title: "Admin setup is incomplete", detail: "The Admin environment is missing required Supabase configuration." },
+  configuration: { title: "Admin setup is incomplete", detail: "The Admin environment is missing required configuration, such as the Supabase settings or the approved email list." },
   setup_pending: { title: "Owner setup is pending", detail: "The role and audit schema has not been initialized. No administrator can grant access from this screen." },
-  service_key_missing: { title: "Secure data access is not configured", detail: "The server-only Supabase key is missing from this environment." },
-  not_authorized: { title: "This account does not have Admin access", detail: "Ask the FITX owner to approve this account. Admin registration is closed." },
+  service_key_missing: { title: "Secure data access is not configured", detail: "The server-only Supabase secret key is missing from this environment." },
+  not_authorized: { title: "This account does not have Admin access", detail: "Ask the FITX owner to approve this Google account. Admin registration is closed." },
 };
 
 export default async function AccessPage({ searchParams }: { searchParams: Promise<{ state?: string }> }) {

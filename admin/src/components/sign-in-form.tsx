@@ -6,9 +6,10 @@ import { beginGoogleSignIn, type SignInError } from "@/app/signin/actions";
 
 const messages: Record<SignInError, string> = {
   invalid_email: "Enter a valid work email address.",
-  not_authorized: "This account is not on the owner-managed Admin sign-in allowlist.",
+  not_authorized: "This Google account does not have FITX Admin access. Admin access is granted by the FITX owner.",
   setup_pending: "Admin access is not initialized yet. The owner must approve the setup first.",
   configuration: "Admin sign-in is not configured on this environment yet.",
+  service_key_missing: "Server data access is not configured. The owner needs to add the server-only Supabase secret key to the Admin project.",
   oauth: "Google sign-in could not start. Please try again.",
 };
 
@@ -30,10 +31,10 @@ export function SignInForm({ initialError }: { initialError?: keyof typeof messa
       {state?.error && <p role="alert" className="form-error">{messages[state.error]}</p>}
       <button className="google-button" disabled={pending} type="submit">
         {pending ? <LoaderCircle aria-hidden="true" className="spin" size={18} /> : <GoogleGlyph />}
-        <span>{pending ? "Checking access…" : "Continue with Google"}</span>
+        <span>{pending ? "Opening Google…" : "Continue with Google"}</span>
         {!pending && <ArrowRight aria-hidden="true" className="button-arrow" size={18} />}
       </button>
-      <p className="signin-assurance">Your Google account is checked against FITX Admin roles before sign-in.</p>
+      <p className="signin-assurance">After you choose a Google account, FITX Admin checks it against the owner’s approved list and Admin roles.</p>
     </form>
   );
 }
