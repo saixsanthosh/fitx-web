@@ -59,28 +59,56 @@ export function goalProgress(current: number, target: number) {
 }
 
 export const KJ_PER_KCAL = 4.184;
+/** Pure fat is 9 kcal per gram, so no food has more than about 900 kcal per 100 g. */
+const MAX_KCAL_PER_100G = 900;
 
 /**
- * Per-100 g values from an Open Food Facts `nutriments` object, or null when the label gives no energy.
+ * Per-100 g values from an Open Food Facts `nutriments` object, or null when the label can't be trusted.
  * Only the `_100g` fields are used: the plain `energy-kcal` field follows the label's own basis, which
  * can be per serving. Labels that give only kJ are converted; a declared 0 kcal (water, black coffee) is kept.
  */
 export function per100gFromOpenFoodFacts(nutriments: unknown): FoodMacros | null {
   const values = (nutriments && typeof nutriments === "object" ? nutriments : {}) as Record<string, unknown>;
+  const protein = labelAmount(values.proteins_100g);
+  const carbs = labelAmount(values.carbohydrates_100g);
+  const fat = labelAmount(values.fat_100g);
+  // Protein, carbs and fat can't weigh more than the 100 g they are part of (1 g allowed for label rounding).
+  if (protein + carbs + fat > 101) return null;
+  // The energy the label's own nutrients account for: 4 kcal per gram of protein and carbs, 9 of fat, 2 of fibre,
+  // and alcohol at 7 kcal per gram (OFF gives it in % vol; 1 % vol is 0.789 g per 100 ml).
+  const expected = 4 * protein + 4 * carbs + 9 * fat + 2 * labelAmount(values.fiber_100g) + 5.5 * labelAmount(values.alcohol_100g);
+  const calories = labelKcal(values, expected);
+  if (calories === null) return null;
+  const macros = { calories: Math.round(calories), protein, carbs, fat };
+  // A "0 kcal" label that lists real protein, carbs or fat was entered wrongly; treat it as having no energy value.
+  if (macros.calories === 0 && protein + carbs + fat > 1) return null;
+  return macros;
+}
+
+/**
+ * kcal per 100 g, or null when the label's energy can't be trusted. Contributors sometimes type the kJ figure
+ * into the kcal field, which would log 4.2 times too much. A kcal value equal to the kJ value, above what any
+ * food can have, or far above what the label's own nutrients allow is read as kJ when that fits those
+ * nutrients; otherwise the product is left out.
+ */
+function labelKcal(values: Record<string, unknown>, expected: number): number | null {
   const kcal = labelNumber(values["energy-kcal_100g"]);
   // OFF stores `energy_100g` in kJ.
   const kj = labelNumber(values["energy-kj_100g"]) ?? labelNumber(values["energy_100g"]);
-  const calories = kcal ?? (kj === null ? null : kj / KJ_PER_KCAL);
-  if (calories === null || calories < 0) return null;
-  const macros = {
-    calories: Math.round(calories),
-    protein: labelAmount(values.proteins_100g),
-    carbs: labelAmount(values.carbohydrates_100g),
-    fat: labelAmount(values.fat_100g),
-  };
-  // A "0 kcal" label that lists real protein, carbs or fat was entered wrongly; treat it as having no energy value.
-  if (macros.calories === 0 && macros.protein + macros.carbs + macros.fat > 1) return null;
-  return macros;
+  if (kcal === null) {
+    if (kj === null || kj < 0) return null;
+    const fromKj = kj / KJ_PER_KCAL;
+    return fromKj <= MAX_KCAL_PER_100G ? fromKj : null;
+  }
+  if (kcal < 0) return null;
+  // Below 20 kcal the nutrients say too little to check against (drinks, and labels that list energy only).
+  const checkable = expected >= 20;
+  const sameAsKj = kj !== null && kj >= 20 && Math.abs(kcal - kj) <= kj * 0.02;
+  const tooHigh = kcal > MAX_KCAL_PER_100G || (checkable && kcal > expected * 2.5 + 20);
+  if (!sameAsKj && !tooHigh) return kcal;
+  const asKcal = kcal / KJ_PER_KCAL;
+  if (checkable) return Math.abs(asKcal - expected) <= Math.max(8, expected * 0.15) ? asKcal : null;
+  return sameAsKj ? asKcal : null;
 }
 
 function labelNumber(value: unknown): number | null {
