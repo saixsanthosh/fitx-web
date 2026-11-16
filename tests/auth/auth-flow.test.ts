@@ -84,6 +84,10 @@ describe("proxy", () => {
     const cookies = { ...sessionCookies(ONBOARDED.id), fitx_onboarded: ONBOARDED.id };
     assert.equal(location(await proxy(request("/signin?next=%2Fnutrition", { cookies }))), "/nutrition");
     assert.equal(location(await proxy(request("/signin?next=https%3A%2F%2Fevil.example", { cookies }))), "/dashboard");
+    for (const next of ["/..//evil.example", "%2F.%2F%2Fevil.example%2Fphish", "/%2e%2e//evil.example"]) {
+      const response = await proxy(request(`/signin?next=${next}`, { cookies }));
+      assert.equal(new URL(response.headers.get("location")!).host, "fitnessx.vercel.app", next);
+    }
   });
 
   test("never bounces anyone when the profile can't be read", async () => {
@@ -120,6 +124,8 @@ describe("proxy", () => {
       const response = await proxy(request("/signin?next=%2Fgoals", { host: "fitnessx-abc123-team.vercel.app" }));
       assert.equal(response.status, 307);
       assert.equal(response.headers.get("location"), `${SITE}/signin?next=%2Fgoals`);
+      const sneaky = await proxy(request("//evil.example/phish", { host: "fitnessx-abc123-team.vercel.app" }));
+      assert.equal(new URL(sneaky.headers.get("location")!).host, "fitnessx.vercel.app");
       const local = await proxy(request("/", { host: "localhost:3000" }));
       assert.equal(location(local), null, "non-Vercel hosts are never redirected");
     } finally {

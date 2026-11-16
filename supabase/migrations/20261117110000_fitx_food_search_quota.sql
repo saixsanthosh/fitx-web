@@ -31,14 +31,17 @@ begin
   values (uid, 'food_search_minute', minute_start, 1)
   on conflict (user_id, bucket, window_start) do update set hits = r.hits + 1
   returning r.hits into minute_hits;
+  delete from public.fitx_rate_limits where user_id = uid and window_start < now() - interval '2 days';
+  if minute_hits > 30 then
+    return query select false, greatest(1, ceil(extract(epoch from (minute_start + interval '1 minute' - now())))::integer);
+    return;
+  end if;
+  -- Only searches that pass the per-minute limit count towards the daily one.
   insert into public.fitx_rate_limits as r (user_id, bucket, window_start, hits)
   values (uid, 'food_search_day', day_start, 1)
   on conflict (user_id, bucket, window_start) do update set hits = r.hits + 1
   returning r.hits into day_hits;
-  delete from public.fitx_rate_limits where user_id = uid and window_start < now() - interval '2 days';
-  if minute_hits > 30 then
-    return query select false, greatest(1, ceil(extract(epoch from (minute_start + interval '1 minute' - now())))::integer);
-  elsif day_hits > 500 then
+  if day_hits > 500 then
     return query select false, greatest(1, ceil(extract(epoch from (day_start + interval '1 day' - now())))::integer);
   else
     return query select true, 0;

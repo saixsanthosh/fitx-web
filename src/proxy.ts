@@ -20,6 +20,7 @@ const PRIVATE_ROOTS = [
 const AUTH_ENTRY = new Set(["/signin", "/signup", "/forgot-password"]);
 /** Parameters Supabase Auth appends when it sends a browser back after sign-in or an e-mail link. */
 const AUTH_PARAMS = ["code", "error", "error_code", "error_description"] as const;
+const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_CODE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const isPrivate = (pathname: string) => PRIVATE_ROOTS.some((root) => pathname === root || pathname.startsWith(`${root}/`));
@@ -46,7 +47,11 @@ export async function proxy(request: NextRequest) {
   const canonical = canonicalOrigin();
   const host = request.headers.get("host");
   if (canonical && host && host.endsWith(".vercel.app") && host !== new URL(canonical).host) {
-    return NextResponse.redirect(new URL(`${pathname}${search}`, canonical), 307);
+    // Assign the path instead of resolving it, so a "//other.example" path stays a path on the canonical host.
+    const target = new URL(canonical);
+    target.pathname = pathname;
+    target.search = search;
+    return NextResponse.redirect(target, 307);
   }
 
   if (pathname.startsWith("/auth/")) return NextResponse.next();
@@ -97,9 +102,19 @@ export async function proxy(request: NextRequest) {
     for (const [header, value] of Object.entries(cacheHeaders)) result.headers.set(header, value);
     return result;
   };
-  const redirect = (to: string) => finish(NextResponse.redirect(new URL(to, request.url)));
+  const redirect = (to: string) => {
+    const target = new URL(to, request.url);
+    // Never leave this site, whatever a ?next= resolved to.
+    return finish(NextResponse.redirect(target.origin === request.nextUrl.origin ? target : new URL("/dashboard", request.url)));
+  };
 
-  const { data, error } = await supabase.auth.getClaims();
+  // An Auth outage must not hold every page for the client's full retry budget (~25 s).
+  const claims = await Promise.race([
+    supabase.auth.getClaims(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), SESSION_CHECK_TIMEOUT_MS)),
+  ]);
+  if (claims === null) return finish(response);
+  const { data, error } = claims;
   const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
   if (!userId && error && (isAuthRetryableFetchError(error) || (typeof error.status === "number" && error.status >= 500))) {
     return finish(response);

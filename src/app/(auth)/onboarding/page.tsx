@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { LogoutButton } from "@/components/app/LogoutButton";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { createClient } from "@/lib/supabase/client";
@@ -164,6 +165,8 @@ export default function OnboardingPage() {
           <button type="submit" disabled={saving} className="fitx-button">{step === 3 ? (saving ? "Saving…" : "Finish setup") : "Continue"}{step === 3 ? <Check size={16}/> : <ArrowRight size={16}/>}</button>
         </div>
       </form>
+      {/* Signed in with the wrong Google account? Onboarding is the only page such an account can reach. */}
+      <div className="mt-4 flex justify-center"><LogoutButton label="Use a different account" /></div>
     </div>
   );
 }
