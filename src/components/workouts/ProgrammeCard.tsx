@@ -2,7 +2,7 @@
 
 import { ArrowRight, CalendarPlus, Check } from "lucide-react";
 import { readableDate } from "@/lib/domain/dates";
-import type { Enrolment, ProgrammePlan } from "@/lib/training/enrolment";
+import { programmeDayDone, upcomingProgrammeDays, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
 import type { Programme } from "@/lib/training/programmes";
 
 function dayLabel(key: string, todayKey: string) {
@@ -23,7 +23,7 @@ export function ProgrammeCard({ programme, enrolment, plans, todayKey, busy, sta
   onLeave: () => void;
 }) {
   const nextDay = programme.days[enrolment.next_day_index % Math.max(1, programme.days.length)];
-  const upcoming = plans.filter((plan) => plan.planned_for && plan.planned_for >= todayKey && !(plan.last_done_key && plan.last_done_key >= plan.planned_for));
+  const upcoming = upcomingProgrammeDays(plans, todayKey);
   return (
     <section aria-label="Your programme" className="rounded-xl border border-fitx-primary/30 bg-fitx-primary/[.05] p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -37,7 +37,8 @@ export function ProgrammeCard({ programme, enrolment, plans, todayKey, busy, sta
       {plans.length > 0 ? (
         <ol className="mt-4 space-y-2">
           {plans.map((plan) => {
-            const done = Boolean(plan.planned_for && plan.last_done_key && plan.last_done_key >= plan.planned_for);
+            // A programme day is single-use: a workout done before its date counts too.
+            const done = programmeDayDone(plan);
             const past = Boolean(plan.planned_for && plan.planned_for < todayKey);
             return (
               <li key={plan.id} className="flex items-center gap-3 rounded-lg border border-fitx-border bg-fitx-surface p-3">

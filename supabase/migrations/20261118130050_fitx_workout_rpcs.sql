@@ -4,7 +4,8 @@
 -- one transaction. They are SECURITY INVOKER: row level security still applies, and every statement
 -- is scoped to auth.uid(). The app falls back to its older multi-request path until this is applied.
 -- Needs 20261115110000 (target and duration columns), 20261118120000 (fitx_complete_workout_event, which
--- ticks off the planner item behind a finished workout) and 20261118130030 (programme columns).
+-- ticks off the planner item behind a finished workout, planner days and the item a session is linked
+-- to) and 20261118130030 (programme columns).
 
 -- One workout in progress per user. Older duplicates, if any exist, are closed as abandoned (newest kept).
 with ranked as (
@@ -75,6 +76,10 @@ end $$;
 
 -- Starts a session from a plan: the session, its exercises and their sets in one step. Returns
 -- {session_id, resumed}; resumed is true when a workout was already in progress (its id is returned).
+-- A programme day is a single-date plan with its own planner item, and its session is linked to that
+-- item (workout_sessions.planner_event_id), so finishing ticks the item off on any day, also when the
+-- workout is done early: fitx_complete_workout_event ticks a session's linked item first. Reusable plans
+-- are not linked; finishing one ticks that day's item, and a workout done early leaves a later day planned.
 create or replace function public.fitx_start_workout_session(p_plan_id uuid)
 returns jsonb
 language plpgsql
@@ -85,6 +90,9 @@ declare
   v_user uuid := auth.uid();
   v_session uuid;
   v_title text;
+  v_enrolment uuid;
+  v_planned_for date;
+  v_event uuid;
 begin
   if v_user is null then
     raise exception using errcode = '42501', message = 'authentication required';
@@ -93,7 +101,8 @@ begin
   if v_session is not null then
     return jsonb_build_object('session_id', v_session, 'resumed', true);
   end if;
-  select title into v_title from public.workout_plans where id = p_plan_id and user_id = v_user;
+  select title, programme_enrolment_id, planned_for into v_title, v_enrolment, v_planned_for
+  from public.workout_plans where id = p_plan_id and user_id = v_user;
   if v_title is null then
     raise exception using errcode = 'P0002', message = 'workout plan not found';
   end if;
@@ -101,8 +110,17 @@ begin
     raise exception using errcode = '22023', message = 'this plan has no exercises';
   end if;
 
-  insert into public.workout_sessions (user_id, plan_id, name, status)
-  values (v_user, p_plan_id, v_title, 'in_progress')
+  if v_enrolment is not null then
+    -- The programme day's own item (on its date) first, else another scheduled workout item for it.
+    select pe.id into v_event
+    from public.planner_events pe
+    where pe.user_id = v_user and pe.workout_plan_id = p_plan_id and pe.event_type = 'workout' and pe.status = 'scheduled'
+    order by (pe.local_date = v_planned_for) desc nulls last, pe.local_date, pe.starts_at nulls last
+    limit 1;
+  end if;
+
+  insert into public.workout_sessions (user_id, plan_id, name, status, planner_event_id)
+  values (v_user, p_plan_id, v_title, 'in_progress', v_event)
   returning id into v_session;
 
   insert into public.workout_session_exercises (user_id, session_id, exercise_id, exercise_name, sort_order, target_sets, reps_min,

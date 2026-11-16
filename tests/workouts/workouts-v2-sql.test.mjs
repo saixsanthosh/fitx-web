@@ -1,7 +1,8 @@
 // Runs every repo migration on a throwaway local Postgres (the Supabase stand-in in tests/support, no network,
 // no real data) and checks the Workouts v2 functions in 20261118130050 as a signed-in member: a timed
 // movement (a target in seconds) starts without a rep target and never counts as a lift when the workout
-// finishes. Plans are saved, started and finished with the same functions the app calls.
+// finishes, and a programme day done before its date ticks off its own planner item. Plans are saved,
+// started and finished with the same functions the app calls.
 // Skipped when the Postgres binaries (initdb, pg_ctl, psql) are not on PATH.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -64,5 +65,33 @@ describe("Workouts v2 database functions", { skip }, () => {
     const records = pg.json(`select json_agg(exercise_name order by exercise_name) from public.personal_records where user_id = '${A}';`);
     assert.deepEqual(records, ["Barbell Bench Press"], "no record for the plank");
     assert.equal(Number(pg.json(`select to_json(total_volume) from public.workout_sessions where id = '${session}';`)), 900);
+  });
+
+  test("a programme day done a day early ticks off its own planner item; a reusable plan's later item stays planned", () => {
+    const enrolment = pg.json(`with e as (insert into public.programme_enrolments (user_id, programme_id, context, weekdays)
+      values ('${A}', 'ppl-3', 'gym', '{1,3,5}') returning id) select to_json(id) from e;`, asA);
+    const tomorrow = pg.json(`select to_json(((now() at time zone '${IST}')::date + 1)::text);`);
+    const pull = savePlan({ title: "Pull · Push, Pull, Legs", planned_for: tomorrow, programme_enrolment_id: enrolment, programme_day_index: 1 }, [BENCH]);
+    const reusable = savePlan({ title: "My push day", planned_for: tomorrow }, [BENCH]);
+    // As the app schedules them: a one-hour workout item at 18:00 on the plan's date.
+    const item = (plan, title) => pg.json(`with item as (insert into public.planner_events (user_id, event_type, title, workout_plan_id, starts_at)
+      values ('${A}', 'workout', '${title}', '${plan}', ('${tomorrow}'::date + time '18:00') at time zone '${IST}') returning id)
+      select to_json(id) from item;`, asA);
+    const pullItem = item(pull, "Pull tomorrow");
+    item(reusable, "Push tomorrow");
+    const linkedTo = {};
+    for (const plan of [pull, reusable]) {
+      const session = start(plan);
+      linkedTo[plan] = pg.json(`select to_json(planner_event_id) from public.workout_sessions where id = '${session}';`);
+      pg.exec(`update public.workout_sets ws set reps = 8, weight_kg = 60, completed_at = now() from public.workout_session_exercises se
+        where se.id = ws.session_exercise_id and se.session_id = '${session}' and ws.set_number = 1;`, asA);
+      pg.json(`select public.fitx_finish_workout_session('${session}', 1800, '${IST}');`, asA);
+    }
+    assert.equal(linkedTo[pull], pullItem, "the programme day's session is linked to its own item when it starts");
+    assert.equal(linkedTo[reusable], null, "a reusable plan's session is not");
+    const status = pg.json(`select json_object_agg(title, status) from public.planner_events where user_id = '${A}';`);
+    assert.deepEqual(status, { "Pull tomorrow": "completed", "Push tomorrow": "scheduled" });
+    const progress = pg.json(`select json_build_object('next', next_day_index, 'done', sessions_completed) from public.programme_enrolments where id = '${enrolment}';`);
+    assert.deepEqual(progress, { next: 2, done: 1 });
   });
 });

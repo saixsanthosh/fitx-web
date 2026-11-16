@@ -69,6 +69,20 @@ export async function loadEnrolmentPlans(supabase: Db, userId: string, enrolment
 }
 
 /**
+ * Whether a programme day is done. Each programme day is its own single-date plan, so any finished
+ * session of it counts, also one done before its date. (A reusable plan differs: a workout done early
+ * leaves that day planned.)
+ */
+export function programmeDayDone(plan: Pick<ProgrammePlan, "last_done_key">): boolean {
+  return Boolean(plan.last_done_key);
+}
+
+/** The programme days still to do: dated today or later, and not done. */
+export function upcomingProgrammeDays<T extends Pick<ProgrammePlan, "planned_for" | "last_done_key">>(plans: readonly T[], todayKey: string): T[] {
+  return plans.filter((plan) => Boolean(plan.planned_for && plan.planned_for >= todayKey) && !programmeDayDone(plan));
+}
+
+/**
  * Where the next scheduling run starts: the day after the last plan already scheduled (continuing
  * its programme sequence), or today at the enrolment's next day when nothing is scheduled ahead.
  */
