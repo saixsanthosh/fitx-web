@@ -69,4 +69,6 @@ Packaged products and barcode results come from [Open Food Facts](https://world.
 - Only per-100 g fields are used, because the plain energy field can be per serving.
 - Labels that give only kJ are converted at 4.184 kJ per kcal.
 - A declared 0 kcal (water, diet drinks) is kept, unless the same label lists more than 1 g of protein, carbohydrate and fat per 100 g, which marks an entry error.
+- Contributors sometimes type the kJ figure into the kcal field, which would log 4.2 times too much. A kcal value that equals the kJ value, is above 900 per 100 g (pure fat is about 900), or is far above what the label's own protein, carbohydrate, fat, fibre and alcohol allow (4, 4, 9, 2 and 7 kcal per gram) is read as kJ when that fits those nutrients; otherwise the product is left out of the results.
+- A label whose protein, carbohydrate and fat add up to more than 101 g per 100 g (1 g allowed for label rounding) is left out.
 - The User-Agent comes from `OPEN_FOOD_FACTS_USER_AGENT`. Open Food Facts asks for "AppName/Version (contact email)"; a value without a contact gets `(https://fitnessx.vercel.app)` added, and the default is `FITX/1.0 (https://fitnessx.vercel.app)`.
