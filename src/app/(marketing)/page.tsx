@@ -38,7 +38,8 @@ const featuredExercise = {
   rest: 150,
 };
 
-const featuredFood = usdaFoundationFoods.find((food) => food.id === "1105073");
+// A common staple, shown exactly as USDA FoodData Central lists it (per 100 g).
+const featuredFood = usdaFoundationFoods.find((food) => food.id === "748967");
 
 const preferenceFields = [
   { icon: Target, label: "Goal", detail: "Choose a focus" },
@@ -49,9 +50,13 @@ const preferenceFields = [
 
 const personalizationPlaces = ["Gym", "Home", "Both", "Outdoors"];
 
-function mobilePhoto(src: string) {
-  return src.replace(/([?&]w=)\d+/, (_match, prefix: string) => `${prefix}720`);
+function photoAt(src: string, width: number) {
+  return src.replace(/([?&]w=)\d+/, (_match, prefix: string) => `${prefix}${width}`);
 }
+
+const mobilePhoto = (src: string) => photoAt(src, 720);
+/** Full-bleed photos are requested at 2400 px so large and high-density screens stay sharp. */
+const widePhoto = (src: string) => photoAt(src, 2400);
 
 export default function HomePage() {
   const websiteSchema = {
@@ -65,11 +70,11 @@ export default function HomePage() {
   return (
     <>
     <CinematicIntro />
-    <main className={styles.page}>
+    <main id="main-content" className={styles.page}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema).replace(/</g, "\\u003c") }} />
       <section className={styles.hero} aria-labelledby="hero-title">
         <CinematicMedia
-          src={IMG.workoutMan}
+          src={widePhoto(IMG.workoutMan)}
           alt="An athlete performing a dynamic workout in a gym"
           ratio="cinema"
           priority
@@ -98,7 +103,7 @@ export default function HomePage() {
           <p className={styles.heroNote}>A training and nutrition record shaped by you.</p>
         </div>
         <div className={styles.heroIndex} aria-hidden="true">
-          <span>01</span><i /> FITX / YOUR ROUTINE
+          <i /> FITX / YOUR ROUTINE
         </div>
       </section>
 
@@ -114,7 +119,7 @@ export default function HomePage() {
           <div className={styles.imageCaption}><span>01 / PREFERENCES</span><span>MADE FOR YOUR ROUTINE</span></div>
         </div>
         <div className={styles.storyCopy}>
-          <SectionEyebrow>Start with how you train</SectionEyebrow>
+          <SectionEyebrow>01 / Your preferences</SectionEyebrow>
           <h2 id="personalization-title" className={styles.storyTitle}>Built around you.</h2>
           <p className={styles.lede}>FITX adapts your plan to how you actually train.</p>
           <div className={styles.placeChoices} aria-label="Available workout locations">
@@ -183,7 +188,7 @@ export default function HomePage() {
           <SectionEyebrow>03 / Exercise library</SectionEyebrow>
           <h2 id="exercise-title" className={styles.storyTitle}>Know the movement.</h2>
           <p className={styles.lede}>Look up a movement, see the target muscles and equipment, then follow its instructions.</p>
-          <Link href="/exercises" className={styles.inlineAction}>Explore the exercise library <ArrowUpRight size={15} aria-hidden="true" /></Link>
+          <Link href="/exercises" className={styles.inlineAction}><AuthLabel signedOut="Sign in to explore the library" signedIn="Explore the exercise library" /> <ArrowUpRight size={15} aria-hidden="true" /></Link>
           <div className={styles.exerciseMedia}>
             <CinematicMedia
               src={IMG.athlete}
@@ -225,7 +230,7 @@ export default function HomePage() {
           <div className={styles.imageCaption}><span>04 / NUTRITION</span><span>SEARCH · SELECT · LOG</span></div>
         </div>
         <div className={styles.foodContent}>
-          <SectionEyebrow>Food, in context</SectionEyebrow>
+          <SectionEyebrow>04 / Nutrition</SectionEyebrow>
           <h2 id="nutrition-title" className={styles.storyTitle}>Eat with purpose.</h2>
           <p className={styles.lede}>Search food, set a portion, and save the nutrition to your daily log.</p>
           <div className={styles.nutritionFlow} aria-label="Nutrition workflow">
@@ -245,7 +250,7 @@ export default function HomePage() {
               </div>
             </article>
           ) : <p className={styles.foodCard}>Food data preview unavailable.</p>}
-          <Link href="/nutrition" className={styles.inlineAction}>Open nutrition tracking <ArrowUpRight size={15} aria-hidden="true" /></Link>
+          <Link href="/nutrition" className={styles.inlineAction}><AuthLabel signedOut="Sign in to start logging food" signedIn="Open nutrition tracking" /> <ArrowUpRight size={15} aria-hidden="true" /></Link>
         </div>
       </section>
 
@@ -254,7 +259,7 @@ export default function HomePage() {
           <SectionEyebrow>05 / Packaged food lookup</SectionEyebrow>
           <h2 id="barcode-title" className={styles.storyTitle}>Scan it. Log it.</h2>
           <p className={styles.lede}>Use the camera to read a product barcode. FITX looks up available food information before you choose what to log.</p>
-          <Link href="/nutrition" className={styles.inlineAction}>Find food in FITX <ArrowUpRight size={15} aria-hidden="true" /></Link>
+          <Link href="/nutrition" className={styles.inlineAction}><AuthLabel signedOut="Sign in to scan or search food" signedIn="Find food in FITX" /> <ArrowUpRight size={15} aria-hidden="true" /></Link>
         </div>
         <div className={styles.barcodeVisual}>
           <CinematicMedia
@@ -290,7 +295,7 @@ export default function HomePage() {
             className={styles.roundedMedia}
           />
           <div className={styles.progressPreview}>
-            <div className={styles.progressPreviewHead}><span className={styles.miniLabel}>YOUR TRAINING RECORD</span><span>LIVE FROM YOUR LOGS</span></div>
+            <div className={styles.progressPreviewHead}><span className={styles.miniLabel}>YOUR TRAINING RECORD</span><span>PREVIEW</span></div>
             <div className={styles.progressCategories}>
               {["Strength", "Consistency", "Volume", "Bodyweight"].map((item) => <span key={item}>{item}</span>)}
             </div>
@@ -298,7 +303,7 @@ export default function HomePage() {
               <div className={styles.emptyGrid} aria-hidden="true"><i /><i /><i /><i /></div>
               <p>Records and trends appear as you log your training.</p>
             </div>
-            <Link href="/progress" className={styles.planAction}>View progress tools <ArrowRight size={15} aria-hidden="true" /></Link>
+            <Link href="/progress" className={styles.planAction}><AuthLabel signedOut="Sign in to see your progress" signedIn="View your progress" /> <ArrowRight size={15} aria-hidden="true" /></Link>
           </div>
         </div>
       </section>
@@ -318,6 +323,7 @@ export default function HomePage() {
           <SectionEyebrow>07 / Your training context</SectionEyebrow>
           <h2 id="context-title" className={styles.storyTitle}>Your data.<br />Your next move.</h2>
           <p className={styles.lede}>Bring your workout plans, nutrition entries, and progress history together. Review what you have logged, then choose what comes next.</p>
+          <p className={`${styles.contextNote} fitx-when-signed-out`}>These open after you sign in.</p>
           <div className={styles.contextLinks}>
             <Link href="/workouts"><Dumbbell size={17} aria-hidden="true"/><span>Plans and sessions</span><ArrowUpRight size={14} aria-hidden="true"/></Link>
             <Link href="/nutrition"><Utensils size={17} aria-hidden="true"/><span>Food and daily logs</span><ArrowUpRight size={14} aria-hidden="true"/></Link>
@@ -328,9 +334,9 @@ export default function HomePage() {
 
       <section className={styles.finalCta} aria-labelledby="final-title">
         <CinematicMedia
-          src={IMG.gymEquipment}
-          mobileSrc={mobilePhoto(IMG.gymEquipment)}
-          alt="Strength training equipment in a gym"
+          src={widePhoto(IMG.heroGym)}
+          mobileSrc={mobilePhoto(IMG.heroGym)}
+          alt="A gym floor with racks and free weights"
           ratio="cinema"
           className={styles.finalMedia}
         />
@@ -345,6 +351,11 @@ export default function HomePage() {
     </main>
     </>
   );
+}
+
+/** One link label for signed-out visitors and another for signed-in ones, chosen before first paint. */
+function AuthLabel({ signedOut, signedIn }: { signedOut: string; signedIn: string }) {
+  return <><span className="fitx-when-signed-out">{signedOut}</span><span className="fitx-when-signed-in">{signedIn}</span></>;
 }
 
 function SectionEyebrow({ children }: { children: React.ReactNode }) {

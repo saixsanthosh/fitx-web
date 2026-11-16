@@ -1,3 +1,21 @@
+.footerLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  transition: color .16s ease;
+}
+
+.footerLink:hover {
+  color: var(--fitx-text);
+}
+
+/* Mouse-only screens keep the original compact rhythm; touch screens keep 44px targets. */
+@media (pointer: fine) {
+  .footerLink {
+    min-height: 32px;
+  }
+}
+
 .contactGrid {
   display: grid;
   gap: 12px;
@@ -80,7 +98,6 @@
   overflow: hidden;
   border-radius: 50%;
   padding: 2px;
-  animation: portrait-ring 3.6s ease-in-out infinite;
 }
 
 .portrait {
@@ -95,7 +112,17 @@
 .mailMark {
   border-radius: 11px;
   background: color-mix(in srgb, var(--fitx-primary) 8%, transparent);
-  animation: mail-breathe 3.2s ease-in-out infinite;
+}
+
+/* The rings breathe only while the card is hovered or focused, never as an endless loop. */
+.contactCard:hover .portraitRing,
+.contactCard:focus-visible .portraitRing {
+  animation: portrait-ring 1.8s ease-in-out infinite;
+}
+
+.contactCard:hover .mailMark,
+.contactCard:focus-visible .mailMark {
+  animation: mail-breathe 1.6s ease-in-out infinite;
 }
 
 .contactLabel {
@@ -178,17 +205,6 @@
   font-size: 11px;
 }
 
-/*
- * While the intro film covers the page these loops would repaint unseen every frame, the largest
- * per-frame cost left on a low-end phone during the film. They hold their current frame (the first
- * keyframe on a first visit, wherever they were on Replay) and run again when the intro releases the
- * page.
- */
-:global(:root[data-fitx-intro]) .portraitRing,
-:global(:root[data-fitx-intro]) .mailMark {
-  animation-play-state: paused;
-}
-
 @keyframes portrait-ring {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fitx-primary) 8%, transparent); }
   50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--fitx-primary) 15%, transparent); }
@@ -200,8 +216,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .portraitRing,
-  .mailMark {
+  .contactCard .portraitRing,
+  .contactCard .mailMark {
     animation: none;
   }
+}
+
+:global(:root[data-fitx-lite]) .contactCard .portraitRing,
+:global(:root[data-fitx-lite]) .contactCard .mailMark {
+  animation: none;
 }
