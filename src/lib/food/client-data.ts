@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FoodPortion } from "@/lib/domain/food-query";
 import { scaleMacros } from "@/lib/domain/nutrition";
 import type { CustomFoodOrigin, FoodResult, ValueBasis } from "@/lib/food/types";
-import { basisForDataType, basisInfo } from "@/lib/food/value-basis";
+import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
 
 export const CUSTOM_SOURCE = "FITX custom food";
 export const MEAL_SLOTS = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
@@ -228,8 +228,8 @@ export async function removeCustomFood(supabase: SupabaseClient, userId: string,
 export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = null): FoodResult {
   const serving = Number(row.serving_grams) > 0 ? Number(row.serving_grams) : 100;
   const label = row.serving_size && !/^\d+(\.\d+)?\s*g$/i.test(row.serving_size) ? `1 serving (${row.serving_size}, ${round1(serving)} g)` : `1 serving (${round1(serving)} g)`;
-  const valueBasis = row.value_basis ?? "user_entered";
   const origin = row.origin ?? "user";
+  const valueBasis = customValueBasis(origin, row.value_basis);
   return {
     id: row.id,
     kind: "custom",

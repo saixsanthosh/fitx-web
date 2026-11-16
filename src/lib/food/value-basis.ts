@@ -39,6 +39,15 @@ export function basisForDataType(dataType: string | null | undefined): ValueBasi
   return "estimated";
 }
 
+/**
+ * A saved food's value basis. A food the AI coach saved without one (the column default, "user_entered") counts
+ * as an AI suggestion: the coach's foods are never the user's own entry.
+ */
+export function customValueBasis(origin: string | null | undefined, valueBasis: string | null | undefined): ValueBasis {
+  const basis = valueBasis && Object.hasOwn(VALUE_BASIS, valueBasis) ? (valueBasis as ValueBasis) : "user_entered";
+  return origin === "ai_coach" && basis === "user_entered" ? "ai_suggested" : basis;
+}
+
 export const DIET_LABEL: Record<DietType, string> = {
   vegan: "Vegan",
   veg: "Vegetarian",

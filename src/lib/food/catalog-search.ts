@@ -6,7 +6,7 @@
 import { clearMatch, inferFoodState, matchFoods, singular } from "@/lib/domain/food-query";
 import type { FoodPortion } from "@/lib/domain/food-query";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
-import { basisForDataType, basisInfo } from "@/lib/food/value-basis";
+import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
 
 export const USDA_SOURCE = "USDA FoodData Central";
 export const CUSTOM_SOURCE = "FITX custom food";
@@ -133,8 +133,8 @@ export function searchRowToFood(row: Row): RankableFood {
 /** A custom_foods row (values per 100 g, a saved serving) as a result. */
 export function customRowToFood(row: Row, recentCount = 0): RankableFood {
   const serving = (num(row.serving_grams) ?? 0) > 0 ? (num(row.serving_grams) as number) : 100;
-  const valueBasis = (BASES.has(String(row.value_basis)) ? row.value_basis : "user_entered") as ValueBasis;
   const origin = row.origin === "barcode" || row.origin === "ai_coach" || row.origin === "user" ? (row.origin as CustomFoodOrigin) : "user";
+  const valueBasis = customValueBasis(origin, text(row.value_basis));
   const image = text(row.image_url);
   return {
     id: String(row.id),
