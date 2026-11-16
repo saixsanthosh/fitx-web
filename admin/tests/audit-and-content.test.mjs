@@ -69,6 +69,11 @@ test("announcement input is trimmed and checked like the database checks it", ()
   assert.equal(announcements.validateAnnouncement({ ...base, linkUrl: "//evil.example", linkLabel: "Go" }).ok, false);
   assert.equal(announcements.validateAnnouncement({ ...base, body: "x".repeat(601) }).ok, false);
   assert.equal(announcements.validateAnnouncement({ ...base, startsAt: "2026-11-18T10:00:00Z", endsAt: "2026-11-18T09:00:00Z" }).ok, false);
+  // Lengths are counted in characters, like Postgres char_length: two emoji are 2, not 4.
+  assert.equal(announcements.validateAnnouncement({ ...base, title: "🎉🎉" }).ok, false);
+  assert.equal(announcements.validateAnnouncement({ ...base, title: "🎉".repeat(120) }).ok, true);
+  assert.equal(announcements.validateAnnouncement({ ...base, title: "🎉".repeat(121) }).ok, false);
+  assert.equal(announcements.validateAnnouncement({ ...base, body: "Hi\u0000 there" }).value.body, "Hi there");
 });
 
 test("announcement status follows publication and its time window", () => {
@@ -93,6 +98,27 @@ test("Help requests from the customer app are validated before they reach the da
   assert.deepEqual(reply, { ok: true, value: { requestId: "9f1c2b3a-1111-4222-8333-444455556666", body: "thanks" } });
   assert.equal(support.validateSupportReply({ requestId: "1", body: "x" }).ok, false);
   assert.equal(support.validateSupportReply({ requestId: "9f1c2b3a-1111-4222-8333-444455556666", body: "  " }).ok, false);
+  // Lengths are counted in characters, like Postgres char_length, so the table checks never refuse
+  // what these checks accepted. NUL, which Postgres text cannot hold, is removed.
+  const request = { category: "question", body: "Long enough body" };
+  assert.equal(support.characterCount("😀😀"), 2);
+  assert.equal(support.validateSupportRequest({ ...request, subject: "😀😀" }).ok, false);
+  assert.equal(support.validateSupportRequest({ ...request, subject: "😀".repeat(120) }).ok, true);
+  assert.equal(support.validateSupportRequest({ ...request, subject: "😀".repeat(121) }).ok, false);
+  assert.equal(support.validateSupportRequest({ ...request, subject: "Hello", body: "😀".repeat(9) }).ok, false);
+  assert.equal(support.validateSupportRequest({ ...request, subject: "Hel\u0000lo" }).value.subject, "Hello");
+  assert.equal(support.validateSupportReply({ requestId: "9f1c2b3a-1111-4222-8333-444455556666", body: "😀".repeat(4000) }).ok, true);
+});
+
+test("rate-limited support functions take the per-account lock before they count", () => {
+  const sql = phase10Sql.find(({ name }) => name.endsWith("_fitx_support.sql")).sql;
+  for (const fn of ["fitx_submit_support_request", "fitx_reply_support_request"]) {
+    const body = sql.slice(sql.indexOf(`create or replace function public.${fn}(`)).split("$function$;")[0];
+    const lock = body.indexOf("pg_advisory_xact_lock(hashtextextended('fitx_support:' || uid::text, 0))");
+    assert.ok(lock > 0, `${fn} must take the per-account lock`);
+    assert.ok(lock < body.indexOf("count(*)"), `${fn} must take the lock before counting`);
+    if (body.includes("for update")) assert.ok(lock < body.indexOf("for update"), `${fn} must take the lock before any row lock`);
+  }
 });
 
 test("IST form values convert exactly", () => {

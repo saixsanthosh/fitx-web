@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
   if (error) {
     if (isMissingFunctionError(error)) return NextResponse.json({ error: "unavailable" }, { status: 503, headers: noStore });
     if (error.code === "PT429") return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: noStore });
+    // A table check (length or category) refused the values the checks above let through.
+    if (error.code === "23514") return NextResponse.json({ error: "invalid" }, { status: 400, headers: noStore });
     console.warn("FITX support request failed", error.code);
     return NextResponse.json({ error: "failed" }, { status: 500, headers: noStore });
   }

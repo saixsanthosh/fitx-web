@@ -24,9 +24,14 @@ export type AnnouncementValue = {
   endsAt: string | null;
 };
 
+/** Length in characters (code points), as Postgres char_length counts it; an emoji is 1, not 2. */
+export function characterCount(value: string): number {
+  return Array.from(value).length;
+}
+
 /** A link inside FITX ("/workouts", not "//elsewhere") or any https:// address. */
 export function isSafeAnnouncementLink(url: string): boolean {
-  if (url.length > ANNOUNCEMENT_LIMITS.linkUrl || /\s/.test(url)) return false;
+  if (characterCount(url) > ANNOUNCEMENT_LIMITS.linkUrl || /\s/.test(url)) return false;
   if (url.startsWith("/")) return url === "/" || !/^\/[/\\]/.test(url);
   if (!url.startsWith("https://")) return false;
   try {
@@ -46,19 +51,21 @@ export function validateAnnouncement(input: {
   startsAt: string | null;
   endsAt: string | null;
 }): { ok: true; value: AnnouncementValue } | { ok: false; error: string } {
-  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  // Control characters other than tab and newline are dropped; Postgres text cannot hold NUL.
+  const text = (value: unknown) => (typeof value === "string" ? value.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim() : "");
   const title = text(input.title);
   const body = text(input.body);
   const linkUrl = text(input.linkUrl);
   const linkLabel = text(input.linkLabel);
   const tone = (ANNOUNCEMENT_TONES as readonly string[]).includes(text(input.tone)) ? (text(input.tone) as AnnouncementTone) : null;
 
-  if (title.length < 3 || title.length > ANNOUNCEMENT_LIMITS.title) return { ok: false, error: `The title needs 3 to ${ANNOUNCEMENT_LIMITS.title} characters.` };
-  if (!body || body.length > ANNOUNCEMENT_LIMITS.body) return { ok: false, error: `The message needs 1 to ${ANNOUNCEMENT_LIMITS.body} characters.` };
+  const titleLength = characterCount(title);
+  if (titleLength < 3 || titleLength > ANNOUNCEMENT_LIMITS.title) return { ok: false, error: `The title needs 3 to ${ANNOUNCEMENT_LIMITS.title} characters.` };
+  if (!body || characterCount(body) > ANNOUNCEMENT_LIMITS.body) return { ok: false, error: `The message needs 1 to ${ANNOUNCEMENT_LIMITS.body} characters.` };
   if (!tone) return { ok: false, error: "Choose a style for the announcement." };
   if (Boolean(linkUrl) !== Boolean(linkLabel)) return { ok: false, error: "A link needs both an address and a button label." };
   if (linkUrl && !isSafeAnnouncementLink(linkUrl)) return { ok: false, error: "Links must start with / (a FITX page) or https://." };
-  if (linkLabel.length > ANNOUNCEMENT_LIMITS.linkLabel) return { ok: false, error: `The button label can have at most ${ANNOUNCEMENT_LIMITS.linkLabel} characters.` };
+  if (characterCount(linkLabel) > ANNOUNCEMENT_LIMITS.linkLabel) return { ok: false, error: `The button label can have at most ${ANNOUNCEMENT_LIMITS.linkLabel} characters.` };
   if (input.startsAt && input.endsAt && Date.parse(input.endsAt) <= Date.parse(input.startsAt)) {
     return { ok: false, error: "The end time must be after the start time." };
   }

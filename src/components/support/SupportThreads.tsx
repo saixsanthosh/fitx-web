@@ -15,9 +15,19 @@ export type SupportThreadView = {
   messages: Array<{ id: string; fromTeam: boolean; body: string; createdAt: string }>;
 };
 
-const dateTime = new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" });
+// Times are shown in India Standard Time with the zone label, the same as the FITX team sees them in
+// Admin. The zone is set explicitly so the server (UTC on Vercel) and the browser print the same time.
+const dateTime = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "Asia/Kolkata",
+  timeZoneName: "short",
+});
 
-/** Local date and time; the server renders UTC first, so the browser's own time replaces it on hydration. */
+/** Date and time in IST, for example "17 Nov 2026, 1:35 am IST". Browsers can space "am" differently from the server; React keeps the server text. */
 function When({ value }: { value: string }) {
   const date = new Date(value);
   return <time dateTime={value} suppressHydrationWarning>{Number.isNaN(date.valueOf()) ? "" : dateTime.format(date)}</time>;

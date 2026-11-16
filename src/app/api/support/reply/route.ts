@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
     if (error.code === "PT429") return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: noStore });
     if (error.code === "PT409") return NextResponse.json({ error: "closed" }, { status: 409, headers: noStore });
     if (error.code === "PT404") return NextResponse.json({ error: "not_found" }, { status: 404, headers: noStore });
+    // A table check (the reply length) refused a value the checks above let through.
+    if (error.code === "23514") return NextResponse.json({ error: "invalid" }, { status: 400, headers: noStore });
     console.warn("FITX support reply failed", error.code);
     return NextResponse.json({ error: "failed" }, { status: 500, headers: noStore });
   }

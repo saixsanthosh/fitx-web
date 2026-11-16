@@ -46,13 +46,11 @@ async function resolveActor(admin: AdminClient, actor: string): Promise<{ id: st
     : { id: "00000000-0000-0000-0000-000000000000", note: "No FITX account uses that email." };
 }
 
-async function queryAudit(admin: AdminClient, filters: AuditFilters, offset: number, limit: number, actorId: string | null) {
+/** Audit rows matching the filters; the caller adds ordering and paging. */
+function filteredAudit(admin: AdminClient, filters: AuditFilters, actorId: string | null, withCount: boolean) {
   let query = admin
     .from("fitx_admin_audit_logs")
-    .select("id,actor_id,action,resource_type,resource_id,details,created_at", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .select("id,actor_id,action,resource_type,resource_id,details,created_at", withCount ? { count: "exact" } : {});
   if (filters.action) query = query.eq("action", filters.action);
   if (actorId) query = query.eq("actor_id", actorId);
   if (filters.resourceType) query = query.eq("resource_type", filters.resourceType);
@@ -87,7 +85,10 @@ export async function listAuditEvents(filters: AuditFilters): Promise<AuditResul
 
   const actor = await resolveActor(admin, filters.actor);
   const offset = (filters.page - 1) * AUDIT_PAGE_SIZE;
-  const { data, error, count } = await queryAudit(admin, filters, offset, AUDIT_PAGE_SIZE, actor.id);
+  const { data, error, count } = await filteredAudit(admin, filters, actor.id, true)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(offset, offset + AUDIT_PAGE_SIZE - 1);
   if (error) {
     if (isMissingTable(error)) return { state: "migration_pending" };
     logServerError("data.audit_events", error);
@@ -99,26 +100,38 @@ export async function listAuditEvents(filters: AuditFilters): Promise<AuditResul
   return { state: "ready", rows: toRows(rows, emails), total, page: filters.page, hasNext: offset + rows.length < total, actorNote: actor.note };
 }
 
-/** Up to AUDIT_EXPORT_LIMIT rows matching the filters, newest first, for the CSV export. */
+/** Up to AUDIT_EXPORT_LIMIT rows matching the filters, newest first (by ID), for the CSV export. */
 export async function exportAuditEvents(filters: AuditFilters): Promise<{ state: "ready"; rows: AuditRow[]; total: number } | { state: "service_key_missing" | "migration_pending" | "query_failed" }> {
   await requireAdmin("audit.export");
   const admin = createAdminSupabase();
   if (!admin) return { state: "service_key_missing" };
 
+  const failed = (error: { code?: string; message?: string }) => {
+    if (isMissingTable(error)) return { state: "migration_pending" } as const;
+    logServerError("data.audit_export", error);
+    return { state: "query_failed" } as const;
+  };
+  // The export covers the log up to its newest row when the export starts. PostgREST returns at
+  // most 1,000 rows per request, so each page continues below the last ID read: rows written while
+  // the export runs can neither repeat rows nor push them out, as page offsets would.
+  const newest = await admin.from("fitx_admin_audit_logs").select("id").order("id", { ascending: false }).limit(1);
+  if (newest.error) return failed(newest.error);
   const actor = await resolveActor(admin, filters.actor);
   const collected: Record<string, unknown>[] = [];
   let total = 0;
-  // PostgREST returns at most 1,000 rows per request, so read in pages.
-  for (let offset = 0; offset < AUDIT_EXPORT_LIMIT; offset += 1000) {
-    const { data, error, count } = await queryAudit(admin, filters, offset, Math.min(1000, AUDIT_EXPORT_LIMIT - offset), actor.id);
-    if (error) {
-      if (isMissingTable(error)) return { state: "migration_pending" };
-      logServerError("data.audit_export", error);
-      return { state: "query_failed" };
-    }
-    total = count ?? total;
-    collected.push(...(data ?? []));
-    if (!data || data.length < 1000) break;
+  let below = newest.data?.length ? Number(newest.data[0].id) + 1 : 0;
+  for (let page = 0; below > 0 && collected.length < AUDIT_EXPORT_LIMIT; page += 1) {
+    const size = Math.min(1000, AUDIT_EXPORT_LIMIT - collected.length);
+    const { data, error, count } = await filteredAudit(admin, filters, actor.id, page === 0)
+      .lt("id", below)
+      .order("id", { ascending: false })
+      .limit(size);
+    if (error) return failed(error);
+    const rows = data ?? [];
+    if (page === 0) total = count ?? rows.length;
+    collected.push(...rows);
+    if (rows.length < size) break;
+    below = Number(rows[rows.length - 1].id);
   }
   const emails = await emailsFor(collected.map((row) => row.actor_id as string | null));
   return { state: "ready", rows: toRows(collected, emails), total };

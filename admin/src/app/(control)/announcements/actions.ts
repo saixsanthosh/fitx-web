@@ -58,6 +58,7 @@ export async function saveAnnouncement(_previous: AnnouncementFormState, formDat
     if (isMissingFunction(error)) return { error: `Announcements need migration ${MIGRATIONS.announcements}.` };
     if (isPermissionError(error)) return { error: "Your role cannot change announcements." };
     if (error.code === "P0002") return { error: "This announcement no longer exists." };
+    if (error.code === "23514") return { error: "The database refused these values. Check the lengths, the link and the times, then save again." };
     logServerError("announcements.save", error);
     return { error: "The announcement was not saved. The server log has the details." };
   }

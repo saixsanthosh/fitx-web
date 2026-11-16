@@ -28,8 +28,14 @@ export const SUPPORT_MAX_BODY_BYTES = 20_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Trimmed text with Windows line ends normalised and control characters other than tab and newline removed (Postgres text cannot hold NUL). */
 function text(value: unknown): string {
-  return typeof value === "string" ? value.replace(/\r\n?/g, "\n").trim() : "";
+  return typeof value === "string" ? value.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim() : "";
+}
+
+/** Length in characters (code points), as Postgres char_length counts it; an emoji is 1, not 2. */
+export function characterCount(value: string): number {
+  return Array.from(value).length;
 }
 
 /** The page the person was on, as a plain in-app path (no query string, which could hold personal data). */
@@ -46,11 +52,13 @@ export function validateSupportRequest(input: unknown): { ok: true; value: Suppo
   const category = (SUPPORT_CATEGORIES as readonly unknown[]).includes(record.category) ? (record.category as SupportCategory) : null;
   const subject = text(record.subject).replace(/\s+/g, " ");
   const body = text(record.body);
+  const subjectLength = characterCount(subject);
+  const bodyLength = characterCount(body);
   if (!category) return { ok: false, error: "Choose what your message is about." };
-  if (subject.length < SUPPORT_LIMITS.subjectMin || subject.length > SUPPORT_LIMITS.subjectMax) {
+  if (subjectLength < SUPPORT_LIMITS.subjectMin || subjectLength > SUPPORT_LIMITS.subjectMax) {
     return { ok: false, error: `Give your message a subject of ${SUPPORT_LIMITS.subjectMin} to ${SUPPORT_LIMITS.subjectMax} characters.` };
   }
-  if (body.length < SUPPORT_LIMITS.bodyMin || body.length > SUPPORT_LIMITS.bodyMax) {
+  if (bodyLength < SUPPORT_LIMITS.bodyMin || bodyLength > SUPPORT_LIMITS.bodyMax) {
     return { ok: false, error: `Write ${SUPPORT_LIMITS.bodyMin} to ${SUPPORT_LIMITS.bodyMax.toLocaleString("en-IN")} characters so we can help.` };
   }
   return { ok: true, value: { category, subject, body, pagePath: safePagePath(record.pagePath) } };
@@ -61,13 +69,14 @@ export function validateSupportReply(input: unknown): { ok: true; value: { reque
   const requestId = typeof record.requestId === "string" && UUID.test(record.requestId) ? record.requestId.toLowerCase() : null;
   const body = text(record.body);
   if (!requestId) return { ok: false, error: "That conversation could not be found." };
-  if (!body || body.length > SUPPORT_LIMITS.replyMax) return { ok: false, error: `Write 1 to ${SUPPORT_LIMITS.replyMax.toLocaleString("en-IN")} characters.` };
+  if (!body || characterCount(body) > SUPPORT_LIMITS.replyMax) return { ok: false, error: `Write 1 to ${SUPPORT_LIMITS.replyMax.toLocaleString("en-IN")} characters.` };
   return { ok: true, value: { requestId, body } };
 }
 
 /** Error codes the support routes return, in the words the Help page shows. */
 export const SUPPORT_ERROR_MESSAGES: Record<string, string> = {
   rate_limited: "You have sent several messages recently. Please wait a little before sending another.",
+  invalid: "Check the length of what you wrote and try again.",
   unavailable: "Help requests are not switched on yet.",
   closed: "This conversation is closed. Start a new message instead.",
   not_found: "That conversation could not be found.",
