@@ -92,3 +92,31 @@ test("the AI coach's food plan copies values from the catalogue, never from the 
   assert.equal(fromResult.source_ref, local.staples[0].id);
   assert.throws(() => customFoodFromCatalog({ id: "x", name: "Bad", kcal: Number.NaN, protein_g: 1, carbs_g: 1, fat_g: 1, value_basis: "label" }));
 });
+
+test("short plurals keep enough letters to stay specific", () => {
+  assert.deepEqual(stemsFor(["fries"]), ["frie"], "not \"fr\", which matches fresh, frozen and french");
+  assert.deepEqual(stemsFor(["flies"]), ["flie"]);
+  assert.deepEqual(stemsFor(["pies", "teas"]), ["pie", "tea"]);
+  assert.deepEqual(stemsFor(["cherries"]), ["cherr"], "longer -ies words still find the singular");
+});
+
+/** Rows the way search_foods sends them: shortest names first among equal matches. */
+const seedShaped = (names: Array<[string, Partial<RankableFood>?]>) => names.map(([name, extra], index) => catalogFood(String(index), name, extra ?? {}));
+
+test("the plain food comes before dishes that start with its name", () => {
+  const first = (phrase: string, rows: RankableFood[]) => rankAndPick(rows, [], parseFoodQuery(phrase).words).foods[0]?.name;
+  assert.match(first("1 banana", seedShaped([["Banana split", { portions: [{ label: "1 banana split", unit: "piece", grams: 490, countDefault: true }] }], ["Banana pudding"], ["Bananas, overripe, raw"]])) ?? "", /^Bananas,/);
+  assert.match(first("almonds", seedShaped([["Almond chicken"], ["Nuts, almonds, whole, raw"], ["Almond butter, creamy"]])) ?? "", /^Nuts, almonds/);
+  assert.match(first("salmon", seedShaped([["Salmon salad"], ["Lomi salmon"], ["Fish, salmon, raw"]])) ?? "", /^Fish, salmon/);
+  assert.match(first("chicken", seedShaped([["Chicken fillet sandwich, grilled, on wheat bun", { state: "cooked" }], ["Chicken skin"], ["Chicken, ground"]])) ?? "", /^Chicken, ground/,
+    "a sandwich on a wheat bun is not ranked as a grain");
+  assert.match(first("rice", seedShaped([["Rice, white, raw", { state: "raw" }], ["Rice, white, cooked", { state: "cooked" }]])) ?? "", /cooked/, "grains still put cooked first");
+});
+
+test("a brand that shares a word with the food typed doesn't stop the catalogue's exact match being selected", () => {
+  const milk = catalogFood("746782", "Milk, whole, 3.25% milkfat", { aliases: ["milk"] });
+  const paneer = customRowToFood({ id: "c9", name: "Paneer", brand: "Milky Mist", serving_grams: 100, calories_per_100g: 290, protein_per_100g: 18, carbs_per_100g: 3, fat_per_100g: 23 });
+  const ranked = rankAndPick([milk], [paneer], parseFoodQuery("2 milk").words);
+  assert.equal(ranked.pick?.id, "746782");
+  assert.deepEqual(ranked.foods.map((food) => food.id), ["746782", "c9"], "the brand match is still listed");
+});

@@ -32,7 +32,7 @@ export default function NutritionSourcesPage() {
             <span className="text-sm text-fitx-text-secondary">{PORTION_ESTIMATE.detail} For example, &ldquo;3 idli&rdquo; uses USDA&apos;s 38 g per idli, so it logs 114 g.</span>
           </li>
         </ul>
-        <p className="text-sm text-fitx-text-secondary">Vegetarian and non-veg labels come from USDA&apos;s ingredient lists, or from FITX&apos;s own check of them for common foods. When a list can&apos;t tell, FITX shows no label. Check the package if it matters to you.</p>
+        <p className="text-sm text-fitx-text-secondary">&ldquo;Non-veg&rdquo; and &ldquo;Contains egg&rdquo; come from a food&apos;s USDA name, category and ingredient list; &ldquo;Vegetarian&rdquo; and &ldquo;Vegan&rdquo; only from FITX&apos;s own check of common foods. When FITX can&apos;t tell, it shows no label, and the diet filter on the food search can&apos;t hide that food: it is shown as &ldquo;Diet not checked&rdquo;. Check the package if it matters to you.</p>
       </section>
 
       <section className="fitx-panel space-y-3 p-5" aria-labelledby="sources-usda">
@@ -71,7 +71,8 @@ export default function NutritionSourcesPage() {
           Foods you save keep the values you entered and are private to your account, except their names, which the AI coach sends
           to outside AI services if you use it with “Use my FITX data” on. Foods the AI coach adds to your plan take their values
           from FITX’s food data (this catalogue, USDA FoodData Central or Open Food Facts) when FITX finds a match; otherwise they
-          keep the coach’s own estimate and are labelled “AI estimate”. Either way they are marked as AI suggestions.
+          keep the coach’s own estimate and are labelled “AI estimate”. Either way they are marked as AI suggestions, until you change
+          their values. Deleting one of your foods deletes it and its photo; meals you already logged keep their values.
         </p>
         <p className="text-sm text-fitx-text-secondary">
           FITX does not include the Indian Food Composition Tables (IFCT 2017) or the Indian Nutrient Databank, because their licences

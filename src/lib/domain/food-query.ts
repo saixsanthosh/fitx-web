@@ -132,6 +132,11 @@ const FORM_WORDS = new Set([
 ]);
 const FORM_SPELLINGS: Record<string, string> = { dehydrated: "dried", powdered: "powder", concentrated: "concentrate" };
 const FORM_PENALTY = 3;
+/**
+ * Measures that are a container, not one of the food: a bare count ("2 milk", "2 marie biscuits") never means two
+ * school cartons, two cans, two cubic inches of cheese or two whole packs.
+ */
+export const NOT_A_COUNT = /cubic inch|container|carton|\bpacks?\b|package|packet|\bcans?\b|bottle|\bjar\b|\bbox\b|\bbag\b|\bpouch\b/i;
 
 /** Splits a typed phrase into the food words and the amount. */
 export function parseFoodQuery(input: string): ParsedFoodQuery {
@@ -201,7 +206,7 @@ export function matchFoods<T extends MatchableFood>(
       const { score, exact } = scoreFood(food, words);
       const penalty = !exact && hasUnaskedForm(food.name, asked) ? FORM_PENALTY : 0;
       const boost = score > 0 && options.boost ? options.boost(food) : 0;
-      return { food, index, exact, matched: score > 0, score: score - penalty + boost, state: grainStateRank(food) };
+      return { food, index, exact, matched: score > 0, score: score - penalty + boost, state: grainStateRank(food, words) };
     })
     .filter((item) => item.matched)
     // An exact name or alias always comes first, whatever a boost adds to looser matches.
@@ -285,10 +290,13 @@ export function portionFromLabel(label: string, grams: number): FoodPortion | nu
   return { label: label.trim(), unit, grams: round2(grams) };
 }
 
-/** Picks which piece portion a bare count uses when a source does not say: the only one, else a medium or regular one. */
+/**
+ * Picks which piece portion a bare count uses when a source does not say: the only one, else a medium or regular
+ * one. A container ("1 can", "1 pack") is never picked.
+ */
 export function withCountDefault(portions: FoodPortion[]): FoodPortion[] {
   if (portions.some((portion) => portion.countDefault)) return portions;
-  const pieces = portions.filter((portion) => portion.unit === "piece");
+  const pieces = portions.filter((portion) => portion.unit === "piece" && !NOT_A_COUNT.test(portion.label));
   const choice = pieces.length === 1 ? pieces[0] : pieces.find((portion) => labelHasSize(portion.label, "medium"));
   return choice ? portions.map((portion) => (portion === choice ? { ...portion, countDefault: true } : portion)) : portions;
 }
@@ -418,7 +426,11 @@ function pickPortion(portions: readonly FoodPortion[], unit: FoodUnit | null, si
     const sized = candidates.find((portion) => labelHasSize(portion.label, size));
     if (sized) return sized;
   }
-  return candidates.find((portion) => portion.countDefault) ?? (candidates.length === 1 || !countable ? candidates[0] : null);
+  const preferred = candidates.find((portion) => portion.countDefault);
+  if (preferred) return preferred;
+  if (!countable) return candidates[0];
+  // A bare count uses a lone piece measure only when it is one of the food, not its can, carton or pack.
+  return candidates.length === 1 && !NOT_A_COUNT.test(candidates[0].label) ? candidates[0] : null;
 }
 
 /** The volume measure nearest in size to the one asked for, so "2 tsp ghee" scales USDA's tablespoon, not its cup. */
@@ -469,7 +481,13 @@ function scoreFood(food: MatchableFood, words: readonly string[]): { score: numb
   const samePhrase = (tokens: string[]) => tokens.map(singular).join(" ") === phrase;
   const exact = samePhrase(nameTokens) || aliasPhrases.some(samePhrase);
   if (exact) score += 4;
-  if (nameTokens[0] && singular(nameTokens[0]) === singular(words[0])) score += 2;
+  // The food itself heads its name: "Bananas, raw", "Cheese, Brie", or one group word and then the food ("Nuts,
+  // almonds", "Fish, salmon"). A dish that only starts with the word ("Banana split", "Almond chicken") gets less.
+  const head = singular(words[0]);
+  const parts = food.name.replace(/\([^)]*\)/g, " ").split(",").map((part) => splitText(part).map(singular).join(" ")).filter(Boolean);
+  const names = (part: string | undefined) => part === head || part === phrase;
+  if (names(parts[0]) || (parts.length > 1 && !parts[0].includes(" ") && names(parts[1]))) score += 2;
+  else if (nameTokens[0] && singular(nameTokens[0]) === head) score += 1;
   return { score, exact };
 }
 
@@ -491,9 +509,14 @@ function formWord(word: string): string {
   return FORM_SPELLINGS[word] ?? word;
 }
 
-/** Raw and cooked grains and pulses differ about 2-3x per 100 g, so cooked comes first for them only. */
-function grainStateRank(food: MatchableFood): number {
-  return splitText(food.name).some((token) => DRY_MEANS_RAW.has(token)) ? stateRank(food.state) : 1;
+/**
+ * Raw and cooked grains and pulses differ about 2-3x per 100 g, so cooked comes first for them only: when the food's
+ * name starts with one ("Rice, white, cooked") or one was typed. A dish that merely mentions one ("Chicken fillet
+ * sandwich, grilled, on wheat bun") keeps its place.
+ */
+function grainStateRank(food: MatchableFood, words: readonly string[]): number {
+  const grain = (word: string | undefined) => word !== undefined && (DRY_MEANS_RAW.has(word) || DRY_MEANS_RAW.has(singular(word)));
+  return grain(splitText(food.name)[0]) || words.some(grain) ? stateRank(food.state) : 1;
 }
 
 function splitText(text: string): string[] {

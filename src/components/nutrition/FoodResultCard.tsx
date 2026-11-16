@@ -4,8 +4,11 @@ import type { FoodResult } from "@/lib/food/types";
 import { BasisBadge, DietBadge, StateTag } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
 
-/** One search result: name, where the values come from, raw or cooked, a typical piece, and kcal per 100 g. */
-export function FoodResultCard({ food, active, onSelect }: { food: FoodResult; active: boolean; onSelect: (food: FoodResult) => void }) {
+/**
+ * One search result: name, where the values come from, raw or cooked, a typical piece, and kcal per 100 g.
+ * `dietUnchecked` marks a food without a diet label while the diet filter is on, since the filter can't hide it.
+ */
+export function FoodResultCard({ food, active, dietUnchecked = false, onSelect }: { food: FoodResult; active: boolean; dietUnchecked?: boolean; onSelect: (food: FoodResult) => void }) {
   const piece = food.portions.find((portion) => portion.countDefault) ?? food.portions[0];
   const meta = [food.brand, food.kind === "custom" ? "Your food" : food.source === "Open Food Facts" ? "Open Food Facts" : food.kind === "catalog" ? "USDA" : food.source]
     .filter(Boolean)
@@ -20,6 +23,7 @@ export function FoodResultCard({ food, active, onSelect }: { food: FoodResult; a
           <BasisBadge basis={food.valueBasis}/>
           <StateTag state={food.state}/>
           <DietBadge diet={food.dietType}/>
+          {dietUnchecked && <span className={styles.tag} title="FITX has no diet label for this food, so the diet filter can't hide it. Check its ingredients.">Diet not checked</span>}
           {piece && <span className={styles.tag}>{piece.label} · {formatAmount(piece.grams)} g</span>}
         </span>
         <span className={styles.foodMacros}>P {formatAmount(food.protein)} g · C {formatAmount(food.carbs)} g · F {formatAmount(food.fat)} g</span>

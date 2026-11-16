@@ -50,11 +50,13 @@ export function TargetsEditor({ estimated, manual, ready, busy, onSave, onReset,
         <div className={styles.dialogHeader}>
           <div>
             <h2 id="targets-title">Daily targets</h2>
-            <p className={styles.muted}>{manual ? "You set these by hand." : "Now using an estimate from your profile: weight, height, age, activity and goal."}</p>
+            <p className={styles.muted}>{manual ? "You set these by hand."
+              : estimated ? "Now using an estimate from your profile: weight, height, age, activity and goal."
+              : "No daily target yet. Add your age, height and weight to your profile for an estimate, or set your own below."}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className={styles.iconButton}><X size={16}/></button>
         </div>
-        {!ready ? <div className={styles.callout}><p>Setting your own targets needs a database update that hasn&apos;t been applied yet. Until then FITX uses the estimate from your profile.</p></div> : (
+        {!ready ? <div className={styles.callout}><p>Setting your own targets needs a database update that hasn&apos;t been applied yet. {estimated ? "Until then FITX uses the estimate from your profile." : "Until then, adding your age, height and weight to your profile gives you an estimated target."}</p></div> : (
           <form className={styles.form} onSubmit={(event) => { event.preventDefault(); if (!blank && !check.error) onSave(values); }}>
             {field("calories", "Calories", "kcal")}
             {field("protein", "Protein", "g")}

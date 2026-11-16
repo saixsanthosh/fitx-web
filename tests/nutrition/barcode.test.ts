@@ -26,3 +26,12 @@ test("rejects misreads and typos before any lookup", () => {
   assert.match(barcodeProblem("check-digit"), /misread or mistyped/);
   assert.match(barcodeProblem("length"), /8, 12 or 13 digits/);
 });
+
+test("an 8-digit code read as UPC-E is looked up as its UPC-A number", () => {
+  assert.deepEqual(checkBarcode("01234565"), { ok: true, code: "012345000065", format: "UPC-E" }, "valid both ways, but retail EAN-8 never starts with 0");
+  assert.deepEqual(checkBarcode("01234565", "ean_8"), { ok: true, code: "01234565", format: "EAN-8" }, "unless the scanner read EAN-8");
+  assert.deepEqual(checkBarcode("12345670"), { ok: true, code: "12345670", format: "EAN-8" });
+  assert.deepEqual(checkBarcode("12345670", "upc_e"), { ok: true, code: "123456000070", format: "UPC-E" }, "the BarcodeDetector format");
+  assert.deepEqual(checkBarcode("12345670", "UPC_E"), { ok: true, code: "123456000070", format: "UPC-E" }, "the ZXing format name");
+  assert.deepEqual(checkBarcode("96385074", "upc_e"), { ok: true, code: "96385074", format: "EAN-8" }, "a code that can't be UPC-E stays EAN-8");
+});
