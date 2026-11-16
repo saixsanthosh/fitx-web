@@ -74,13 +74,19 @@ begin
   return v_plan;
 end $$;
 
--- Starts a session from a plan: the session, its exercises and their sets in one step. Returns
+-- Starts a session from a plan: the session, its exercises and their sets in one step. p_planner_event_id
+-- is the planner item the member pressed Start on (a To-Do, the week view or Home), if any. The session
+-- keeps it (workout_sessions.planner_event_id) when it is the member's scheduled workout for this plan, so
+-- finishing ticks off that item (fitx_complete_workout_event); any other id is ignored. Returns
 -- {session_id, resumed}; resumed is true when a workout was already in progress (its id is returned).
--- A programme day is a single-date plan with its own planner item, and its session is linked to that
--- item (workout_sessions.planner_event_id), so finishing ticks the item off on any day, also when the
--- workout is done early: fitx_complete_workout_event ticks a session's linked item first. Reusable plans
--- are not linked; finishing one ticks that day's item, and a workout done early leaves a later day planned.
-create or replace function public.fitx_start_workout_session(p_plan_id uuid)
+-- Without one, a programme day's session is linked to that day's own scheduled item: a programme day is a
+-- single-date plan, so finishing ticks its item off on any day, also when the workout is done early
+-- (fitx_complete_workout_event ticks a session's linked item, and only that one). Reusable plans are not
+-- linked; finishing one ticks that day's item, and a workout done early leaves a later day planned.
+-- Earlier drafts took only the plan; that version is removed wherever it was applied, so a call with only
+-- the plan is never ambiguous.
+drop function if exists public.fitx_start_workout_session(uuid);
+create or replace function public.fitx_start_workout_session(p_plan_id uuid, p_planner_event_id uuid default null)
 returns jsonb
 language plpgsql
 security invoker
@@ -110,8 +116,13 @@ begin
     raise exception using errcode = '22023', message = 'this plan has no exercises';
   end if;
 
-  if v_enrolment is not null then
-    -- The programme day's own item (on its date) first, else another scheduled workout item for it.
+  -- The item the member pressed Start on, when it is their scheduled workout for this plan.
+  select pe.id into v_event
+  from public.planner_events pe
+  where pe.id = p_planner_event_id and pe.user_id = v_user and pe.workout_plan_id = p_plan_id
+    and pe.event_type = 'workout' and pe.status = 'scheduled';
+  if v_event is null and v_enrolment is not null then
+    -- A programme day: its own item (on its date) first, else another scheduled workout item for it.
     select pe.id into v_event
     from public.planner_events pe
     where pe.user_id = v_user and pe.workout_plan_id = p_plan_id and pe.event_type = 'workout' and pe.status = 'scheduled'
@@ -145,11 +156,11 @@ end $$;
 
 -- Finishes a session: totals from the saved sets, personal records, the planner item behind it and the
 -- programme's next day, in one step. The planner item is ticked off by fitx_complete_workout_event, the
--- rule the whole app shares: the item the session was started from, else the plan's scheduled workout on
--- the session's day (nearest time first, untimed To-Do workouts included), else its most recent overdue
--- one; never a later day's, and one item at most. p_tz is the browser's time zone, which decides the
--- session's day (else the saved one, else UTC). Returns {duration_seconds, total_volume, sets, records,
--- planner_event_id}, the last null when no item was ticked.
+-- rule the whole app shares: the item the session was started from (only that one), else the plan's
+-- scheduled workout on the session's day (nearest time first, untimed To-Do workouts included), else its
+-- most recent overdue one; never a later day's, and one item at most. p_tz is the browser's time zone,
+-- which decides the days (else the saved one, else UTC). Returns {duration_seconds, total_volume, sets,
+-- records, planner_event_id}, the last null when no item was ticked.
 -- An earlier draft took the session's day as two timestamps instead of p_tz; it is removed wherever it
 -- was applied, so only this version can be called.
 drop function if exists public.fitx_finish_workout_session(uuid, integer, timestamptz, timestamptz);
@@ -262,8 +273,8 @@ begin
 end $$;
 
 revoke all on function public.fitx_save_workout_plan(jsonb, jsonb) from public, anon;
-revoke all on function public.fitx_start_workout_session(uuid) from public, anon;
+revoke all on function public.fitx_start_workout_session(uuid, uuid) from public, anon;
 revoke all on function public.fitx_finish_workout_session(uuid, integer, text) from public, anon;
 grant execute on function public.fitx_save_workout_plan(jsonb, jsonb) to authenticated;
-grant execute on function public.fitx_start_workout_session(uuid) to authenticated;
+grant execute on function public.fitx_start_workout_session(uuid, uuid) to authenticated;
 grant execute on function public.fitx_finish_workout_session(uuid, integer, text) to authenticated;

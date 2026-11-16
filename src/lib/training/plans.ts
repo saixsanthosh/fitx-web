@@ -55,22 +55,33 @@ export async function createPlanRecord(supabase: Db, userId: string, plan: NewPl
   return { planId, error: null, includedTargets: saved.includedOptional };
 }
 
-/** A one-hour planner event for a dated plan. */
+/** `planner_events.local_date` (see workouts/_lib/workout-columns.ts), sent when the database has it. */
+const PLANNER_DAY_COLUMNS = ["local_date"] as const;
+
+/**
+ * A one-hour planner event for a dated plan, at `time` on `date` (the browser's YYYY-MM-DD). It is listed
+ * on that day: local_date is sent too, so the database does not work the day out from the start time in
+ * the saved time zone, which can differ from the browser's.
+ */
 export async function schedulePlannerEvent(supabase: Db, userId: string, planId: string, title: string, date: string, time: string) {
   const startsAt = new Date(`${date}T${time || "18:00"}:00`);
   if (Number.isNaN(startsAt.getTime())) return { error: new Error("invalid date") };
-  return supabase.from("planner_events").insert({
+  const row = {
     user_id: userId, event_type: "workout", workout_plan_id: planId, title: title.slice(0, 120), status: "scheduled",
-    starts_at: startsAt.toISOString(), ends_at: new Date(startsAt.getTime() + 3600000).toISOString(),
-  });
+    starts_at: startsAt.toISOString(), ends_at: new Date(startsAt.getTime() + 3600000).toISOString(), local_date: date,
+  };
+  const saved = await withOptionalColumns(PLANNER_DAY_COLUMNS, (include) => supabase.from("planner_events").insert(payloadFor(row, PLANNER_DAY_COLUMNS, include)));
+  return saved.result;
 }
 
 /**
- * Starts a session from a plan with fitx_start_workout_session when the database has it. Returns
+ * Starts a session from a plan with fitx_start_workout_session when the database has it. `plannerEventId`
+ * is the planner item the member pressed Start on, if any (see start-link.ts): the database keeps it on the
+ * session when it is still that plan's scheduled workout, so finishing ticks off that item. Returns
  * `fallback: true` when the function does not exist yet, so the caller runs its own multi-step start.
  */
-export async function startSessionWithRpc(supabase: Db, planId: string): Promise<{ sessionId: string | null; resumed: boolean; error: unknown; fallback: boolean }> {
-  const rpc = await supabase.rpc("fitx_start_workout_session", { p_plan_id: planId });
+export async function startSessionWithRpc(supabase: Db, planId: string, plannerEventId: string | null = null): Promise<{ sessionId: string | null; resumed: boolean; error: unknown; fallback: boolean }> {
+  const rpc = await supabase.rpc("fitx_start_workout_session", plannerEventId ? { p_plan_id: planId, p_planner_event_id: plannerEventId } : { p_plan_id: planId });
   if (rpc.error) return { sessionId: null, resumed: false, error: isMissingFunctionError(rpc.error) ? null : rpc.error, fallback: isMissingFunctionError(rpc.error) };
   const result = (rpc.data ?? {}) as { session_id?: string; resumed?: boolean };
   return { sessionId: result.session_id ?? null, resumed: Boolean(result.resumed), error: result.session_id ? null : new Error("no session returned"), fallback: false };
