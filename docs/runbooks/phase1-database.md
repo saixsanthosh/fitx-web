@@ -57,3 +57,9 @@ grant select, insert, update, delete on table public.profiles to authenticated;
 commit;
 notify pgrst, 'reload schema';
 ```
+
+## 4. Food search limit
+
+Apply `20261117110000_fitx_food_search_quota.sql`, then `notify pgrst, 'reload schema';`. Until it is applied the
+search route skips the limit. Check: `select * from public.fitx_take_food_search_quota();` run as a signed-in user
+returns `allowed = true`; as the SQL editor's service role it raises "authentication required".

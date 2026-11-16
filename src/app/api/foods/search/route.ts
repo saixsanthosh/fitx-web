@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isMissingFunctionError } from "@/lib/supabase/errors";
 import usdaFoundationFoods from "@/data/usda-foundation-foods.json";
 import fitxStaples from "@/data/fitx-staples.json";
 import { gramsInLabel, inferFoodState, parseFoodQuery, portionFromLabel, rankFoods, singular, withCountDefault } from "@/lib/domain/food-query";
@@ -87,6 +88,21 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const barcode = (params.get("barcode") || "").replace(/\D/g, "").slice(0, 14);
   const browse = params.get("browse") === "1";
+
+  // Per-account limit, so one account can't use up the shared Open Food Facts and USDA quotas for
+  // everyone. Until the database function exists (migration 20261117110000) searches stay unlimited.
+  if (!browse && supabase) {
+    const { data: quota, error: quotaError } = await supabase.rpc("fitx_take_food_search_quota");
+    if (quotaError) {
+      if (!isMissingFunctionError(quotaError)) console.warn("FITX food search quota check failed", quotaError.code);
+    } else {
+      const row = (Array.isArray(quota) ? quota[0] : quota) as { allowed?: boolean; retry_after_seconds?: number } | null;
+      if (row?.allowed === false) {
+        const retry = Math.max(1, Math.round(Number(row.retry_after_seconds) || 60));
+        return NextResponse.json({ error: `You’re searching quickly. Try again in ${retry} s.` }, { status: 429, headers: { "Retry-After": String(retry) } });
+      }
+    }
+  }
   const usdaKey = process.env.USDA_API_KEY?.trim() || "";
   const sources: SourceStatus[] = [
     { id: "fitx-staples", label: "FITX staples (USDA)", status: "not_used", count: 0 },

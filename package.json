@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=ExperimentalWarning --import ./tests/setup/globals.mjs --import ./tests/setup/hooks.mjs --test \"tests/**/*.test.ts\""
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=ExperimentalWarning --import ./tests/setup/globals.mjs --import ./tests/setup/hooks.mjs --test \"tests/**/*.test.ts\" \"tests/**/*.test.mjs\" \"scripts/**/*.test.mjs\"",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "check:colors": "node scripts/check-raw-colors.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
