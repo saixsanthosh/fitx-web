@@ -44,7 +44,11 @@ Vercel → **admin** → Logs shows a `[fitx-admin]` line for each refused or fa
 
 ### Lost your phone?
 
-Another super-admin opens Access and chooses **Reset authenticator** for you; you set up a new one at your next sign-in. If you are the only super-admin, the coordinating session can remove your authenticator through the Supabase connector with your OK (`delete from auth.mfa_factors where user_id = '<your account ID>'`), and you set up a new one at the next sign-in.
+1. If the lost phone is still signed in to your Google account, sign it out first (Google Account → Security → Your devices). Once the authenticator is gone, a Google sign-in alone reaches the set-up page, so whoever holds a signed-in phone could otherwise set one up before you do.
+2. Another super-admin opens Access and chooses **Reset authenticator** for you. Admin records the request, removes the authenticator and signs your account out on every device, the lost phone included (the FITX app too).
+3. Sign in to Admin with Google again and set up the new authenticator.
+
+If you are the only super-admin, the coordinating session can do the same through the Supabase connector with your OK: `delete from auth.mfa_factors where user_id = '<your account ID>'; delete from auth.sessions where user_id = '<your account ID>';`. Then sign in again and set up the new authenticator.
 
 ### One Google account or two
 
@@ -59,11 +63,11 @@ Everyone you add to Admin faces the same choice, so tell new members before they
 
 - **Overview:** counts with their exact definitions (see [Metrics](#metrics)): accounts, fresh sign-ins in the last 24 hours, 7 and 30 days, active accounts from real app activity, workout and meal volume, published exercises, and help requests that need attention.
 - **Reports:** daily trends for the last 14, 30 or 90 days (new accounts, active accounts, workouts completed, meals logged), with the numbers also shown as a table.
-- **People:** search accounts by part of an email or by account ID, and open an account to see account details only: email, sign-in methods, creation and last sign-in time, confirmation, authenticator and suspension status. No profile, workout, meal, body or other health data. Depending on role: sign the person out everywhere, send a password reset email (see [Password reset emails](#password-reset-emails)), suspend or lift a suspension, and delete the account. Every view and action is recorded in the audit log, and account actions record the request before they run.
+- **People:** search accounts by part of an email or by account ID, and open an account to see account details only: email, sign-in methods, creation and last sign-in time, confirmation, authenticator and suspension status. No profile, workout, meal, body or other health data. Depending on role: sign the person out everywhere, send a password reset email (see [Password reset emails](#password-reset-emails)), suspend or lift a suspension, and delete the account. Views and actions are recorded in the audit log, and account actions record the request before they run; if a view could not be recorded, the page says so. Deleting an account also removes its private photos, subfolders included, and is refused while Razorpay is still billing a live subscription for it.
 - **Support:** the queue of Help requests sent from the FITX app's Help page, with status tabs and counts, category and "assigned to me" filters, the conversation, replies as "FITX team", status, priority and assignee. Replies appear on the person's Help page; no email is sent.
 - **Training:** publish or hide exercises in `exercise_library` (up to 100 per search). Exercise editing and the food catalogue come later.
 - **Announcements:** write a message, preview it, publish it for a time window, return it to draft or archive it. Signed-in people see the newest one at the top of the FITX app and can dismiss it. The list shows how many accounts dismissed each one; nothing tracks views.
-- **Access:** grant or change access by email, five roles, reduce access only with a confirmation, reset a member's authenticator, and see whether each member is on `FITX_ADMIN_ALLOWED_EMAILS` and has an authenticator.
+- **Access:** grant or change access by email, five roles, lower an existing member's access only with a confirmation (on the grant form too), reset a member's authenticator (recorded before it runs, and it signs the account out on every device), and see whether each member is on `FITX_ADMIN_ALLOWED_EMAILS` and has an authenticator.
 - **Audit log:** every privileged action, sign-in, refusal and authenticator event, filtered by action, actor (email or ID), resource and IST date range, 50 per page. Super-admins can export the filtered rows as CSV (up to 5,000 rows); the export is itself recorded. Rows can be added but never changed or deleted.
 - **Billing:** owned by the payments stream (Phase 11). **Nutrition:** explains that no admin food catalogue exists yet. **Settings:** shows which environment variables are set, never their values.
 
@@ -79,7 +83,7 @@ Admin has no public registration. Every page, data read and change checks the si
 | Content editor | Overview, Training, Announcements. |
 | Viewer | Overview and Reports, read-only. |
 
-The table lives in two places that a test keeps identical: `src/lib/roles.ts` and `fitx_admin_role_permissions` in migration `20261118180001`. Admin team accounts can only be suspended, signed out or changed by a super-admin, and nobody can act on their own account from People. A deletion needs the person's Admin access removed first.
+The table lives in two places that a test keeps identical: `src/lib/roles.ts` and `fitx_admin_role_permissions` in migration `20261118180001`. Admin team accounts can only be suspended, signed out or changed by a super-admin, and nobody can act on their own account from People. A deletion needs the person's Admin membership set to Inactive first; the inactive membership is deleted with the account, and the audit log keeps the account ID on the rows it wrote.
 
 ## Metrics
 
@@ -102,15 +106,15 @@ All files are in the root `supabase/migrations/` folder. Apply them in this orde
 
 | File | What it does | Until it is applied |
 | --- | --- | --- |
-| `20261118180000_fitx_admin_control_plane.sql` | The original Admin tables and functions (from `admin/supabase/migrations/20261116000000…`), created only if missing. | Admin cannot sign anyone in ("Admin access is not initialized yet"). |
+| `20261118180000_fitx_admin_control_plane.sql` | The original Admin tables and functions, created only if missing. | Admin cannot sign anyone in ("Admin access is not initialized yet"). |
 | `20261118180001_fitx_admin_roles.sql` | Five roles, one permission check used by every function, grant by email, member list with emails. | Only Admin and Super-admin exist, and Access grants by account ID. |
-| `20261118180002_fitx_admin_audit_log.sql` | Makes the audit log append-only (a trigger blocks edits and deletes, except the foreign key clearing a deleted account's ID) and adds `fitx_admin_log_event`. | Sign-in and view events are not recorded, and People actions refuse to run because they must be recorded first. |
+| `20261118180002_fitx_admin_audit_log.sql` | Makes the audit log append-only (a trigger blocks every edit and delete, and rows keep the actor's account ID after that account is deleted) and adds `fitx_admin_log_event`. | Sign-in and view events are not recorded (People pages say so), and People actions and authenticator resets refuse to run because they must be recorded first. |
 | `20261118180003_fitx_admin_metrics.sql` | The defined metrics and daily trends. | Overview shows the original five counts; Reports waits. |
 | `20261118180004_fitx_admin_people.sql` | People search and "sign out everywhere". | People pages through all accounts without search; signing out everywhere is unavailable. |
 | `20261118180005_fitx_support.sql` | Help requests and replies, row-level security, rate limits (3 requests an hour and 10 a day per account, 10 replies an hour), and the audited support functions. | The FITX Help page shows the support email instead of the form; the Support queue waits. |
 | `20261118180006_fitx_announcements.sql` | Announcements and dismissals, with row-level security and audited functions. | The FITX banner stays hidden; Announcements waits. |
 
-The file `admin/supabase/migrations/20261116000000_fitx_admin_control_plane.sql` is kept for history; `20261118180000` replaces it in the root migration history.
+Apply only these seven root files. The old draft `admin/supabase/migrations/20261116000000_fitx_admin_control_plane.sql` has been removed: `20261118180000` replaces it, and running the draft after `20261118180001` would put back its two-role access functions. If the draft was ever applied by hand, the seven files still apply cleanly on top of it.
 
 ## Environment variables
 
@@ -210,8 +214,7 @@ admin/
   src/lib/data/                Server data access, one module per area; each calls requireAdmin itself
   src/proxy.ts                 Canonical-host redirect, CSP nonce, Supabase session refresh
   scripts/                     Path-based deploy filter for both Vercel projects
-  supabase/migrations/         The original Admin schema (superseded by the root migrations)
-  tests/                       node --test suites
+  tests/                       node --test suites and local database checks
   vercel.json                  Admin project's Ignored Build Step
 ```
 

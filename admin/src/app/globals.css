@@ -441,3 +441,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   :root { --chart-series: #db735c; }
   .attention-banner, .filter-tabs a, .stack-form input, .stack-form select, .stack-form textarea, .filter-bar select, .filter-grid input, .filter-grid select, .code-field input { background: var(--surface); }
 }
+
+/* Read by screen readers, not shown. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }

@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { listMembers } from "@/lib/data/members";
 import { ADMIN_ROLES, can, LEGACY_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, type AdminRole } from "@/lib/roles";
 import { MIGRATIONS } from "@/lib/schema";
+import { firstParam } from "@/lib/search-params";
 import { formatIstDate } from "@/lib/time";
 import { grantAccessByEmail, grantAccessById, resetAuthenticator, updateMember } from "./actions";
 
@@ -12,14 +13,18 @@ export const metadata: Metadata = { title: "Access control" };
 
 const notices: Record<string, { tone: "success" | "error"; text: string }> = {
   saved: { tone: "success", text: "Admin access updated and recorded in the audit log." },
-  mfa_reset: { tone: "success", text: "Authenticator removed. The member sets up a new one at their next visit." },
+  mfa_reset: { tone: "success", text: "Authenticator removed and the account signed out on every device. The member signs in with Google again and sets up a new one." },
+  mfa_reset_sessions_pending: { tone: "error", text: `Authenticator removed, but open sessions were not ended: signing out everywhere needs migration ${MIGRATIONS.people}. A device that is still signed in could set up an authenticator first, so set the member to Inactive and back to Active after 12 hours, when every Admin session has run out.` },
+  mfa_reset_sessions_failed: { tone: "error", text: "Authenticator removed, but Supabase refused to end the open sessions (the server log has the details). A device that is still signed in could set up an authenticator first, so set the member to Inactive and back to Active after 12 hours, when every Admin session has run out." },
+  audit_migration: { tone: "error", text: `Nothing was changed: authenticator resets are recorded first, and the audit function needs migration ${MIGRATIONS.audit}.` },
+  audit_failed: { tone: "error", text: "Nothing was changed because the audit log could not record the reset." },
   forbidden: { tone: "error", text: "Only an active super-admin can make that change." },
   invalid: { tone: "error", text: "Check the email, role and status." },
   no_account: { tone: "error", text: "No FITX account uses that email. The person must sign in to FITX with Google once first." },
   ambiguous: { tone: "error", text: "More than one account uses that email. Grant access by account ID instead." },
   user_not_found: { tone: "error", text: "No FITX account was found for that ID." },
   last_super_admin: { tone: "error", text: "That would leave no active super-admin, so nothing changed." },
-  confirm_needed: { tone: "error", text: "Tick the confirmation box to reduce someone's access or reset their authenticator." },
+  confirm_needed: { tone: "error", text: "Tick the confirmation box to lower an existing member's access or reset their authenticator." },
   roles_migration: { tone: "error", text: `Granting by email needs migration ${MIGRATIONS.roles}.` },
   role_needs_migration: { tone: "error", text: `That role needs migration ${MIGRATIONS.roles}.` },
   configuration: { tone: "error", text: "Server data access is not configured." },
@@ -30,12 +35,13 @@ function RoleSelect({ roles, defaultValue, label }: { roles: readonly AdminRole[
   return <select aria-label={label} name="role" defaultValue={defaultValue}>{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select>;
 }
 
-export default async function AccessControlPage({ searchParams }: { searchParams: Promise<{ state?: string }> }) {
+export default async function AccessControlPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const actor = await requireAdmin("access.view");
   const params = await searchParams;
   const result = await listMembers();
   const manage = can(actor.role, "access.manage");
-  const notice = params.state ? notices[params.state] : undefined;
+  const state = firstParam(params.state);
+  const notice = state ? notices[state] : undefined;
 
   return <div className="page-stack">
     <div className="page-heading-row"><div><p className="eyebrow">IDENTITY & PERMISSIONS</p><h1>Access control</h1><p className="page-lede">Who can use FITX Admin and what each role allows. Roles live in the database, never in profile data.</p></div><span className="page-heading-icon"><Shield aria-hidden="true" size={20} /></span></div>
@@ -48,6 +54,7 @@ export default async function AccessControlPage({ searchParams }: { searchParams
             <label>Account email<input autoComplete="off" name="email" required type="email" placeholder="name@example.com" /></label>
             <label>Role<RoleSelect roles={ADMIN_ROLES} defaultValue="support_agent" /></label>
             <label>Status<select name="active" defaultValue="true"><option value="true">Active</option><option value="false">Inactive</option></select></label>
+            <label className="check-label"><input type="checkbox" name="confirm" value="yes" />Confirm if this lowers an existing member&apos;s access</label>
             <button className="primary-button" type="submit">Save access</button>
           </form>
         ) : (
@@ -55,6 +62,7 @@ export default async function AccessControlPage({ searchParams }: { searchParams
             <label>Account ID<input autoComplete="off" name="userId" required pattern="[0-9a-fA-F-]{36}" placeholder="Supabase Auth UUID" /></label>
             <label>Role<RoleSelect roles={LEGACY_ROLES} defaultValue="admin" /></label>
             <label>Status<select name="active" defaultValue="true"><option value="true">Active</option><option value="false">Inactive</option></select></label>
+            <label className="check-label"><input type="checkbox" name="confirm" value="yes" />Confirm if this lowers an existing member&apos;s access</label>
             <button className="primary-button" type="submit">Save access</button>
           </form>
         )}
@@ -74,8 +82,6 @@ export default async function AccessControlPage({ searchParams }: { searchParams
             {manage && <td className="member-actions">
               <form action={updateMember} className="inline-member-form">
                 <input type="hidden" name="userId" value={member.userId} />
-                <input type="hidden" name="currentRole" value={member.role} />
-                <input type="hidden" name="currentActive" value={String(member.isActive)} />
                 <RoleSelect label={`Role for ${member.email ?? member.userId}`} roles={result.rolesMigrationApplied ? ADMIN_ROLES : LEGACY_ROLES} defaultValue={member.role} />
                 <select aria-label={`Status for ${member.email ?? member.userId}`} name="active" defaultValue={String(member.isActive)}><option value="true">Active</option><option value="false">Inactive</option></select>
                 <label className="check-label"><input type="checkbox" name="confirm" value="yes" />Confirm</label>

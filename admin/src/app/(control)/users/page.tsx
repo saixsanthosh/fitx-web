@@ -3,9 +3,10 @@ import Link from "next/link";
 import { Search, Users } from "lucide-react";
 import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
-import { isSuspended, searchPeople } from "@/lib/data/people";
+import { isSuspended, searchPeople, type PeopleResult } from "@/lib/data/people";
 import { ROLE_LABELS } from "@/lib/roles";
 import { MIGRATIONS } from "@/lib/schema";
+import { firstParam } from "@/lib/search-params";
 import { formatIstDate } from "@/lib/time";
 
 export const metadata: Metadata = { title: "People" };
@@ -17,17 +18,26 @@ function dateLabel(value: string | null | undefined, empty = "Never signed in") 
   return formatIstDate(value) ?? "Date unavailable";
 }
 
-export default async function UsersPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; notice?: string }> }) {
+/** Says whether this view reached the audit log; it is only claimed when the row was written. */
+function viewNote(result: PeopleResult): string {
+  if (result.state !== "ready") return "";
+  if (result.viewLogged.ok) return "Opening this list or an account is recorded in the audit log. ";
+  return result.viewLogged.reason === "migration_pending"
+    ? `Views are not being recorded yet: the audit log needs migration ${MIGRATIONS.audit}. `
+    : "This view could not be recorded in the audit log; the server log has the details. ";
+}
+
+export default async function UsersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireAdmin("people.view");
   const params = await searchParams;
-  const query = (params.q ?? "").slice(0, 120);
-  const result = await searchPeople(query, Number(params.page ?? "1"));
+  const query = firstParam(params.q).slice(0, 120);
+  const result = await searchPeople(query, Number(firstParam(params.page) || "1"));
   const pageLink = (page: number) => `/users?${new URLSearchParams({ ...(query ? { q: query } : {}), page: String(page) }).toString()}`;
 
   return (
     <div className="page-stack">
       <div className="page-heading-row"><div><p className="eyebrow">ACCOUNT DIRECTORY</p><h1>People</h1><p className="page-lede">FITX accounts from Supabase Auth: sign-in details only, never profiles or health data.</p></div><span className="page-heading-icon"><Users aria-hidden="true" size={20} /></span></div>
-      {params.notice === "deleted" && <p className="inline-notice notice-success" role="status">The account was deleted and recorded in the audit log.</p>}
+      {firstParam(params.notice) === "deleted" && <p className="inline-notice notice-success" role="status">The account was deleted and recorded in the audit log.</p>}
       {result.state === "ready" ? (
         <section className="table-panel" aria-label="FITX accounts">
           <form action="/users" className="table-search">
@@ -53,7 +63,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
           </div>
         </section>
       ) : <ModuleState state={result.state} />}
-      <p className="privacy-note">Opening this list or an account is recorded in the audit log. Workout, nutrition and body data stay outside Admin.</p>
+      <p className="privacy-note">{viewNote(result)}Workout, nutrition and body data stay outside Admin.</p>
     </div>
   );
 }

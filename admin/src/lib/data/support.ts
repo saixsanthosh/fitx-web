@@ -118,7 +118,10 @@ export type SupportThread = {
   requesterId: string;
   requesterEmail: string | null;
   assignedTo: string | null;
+  assignedToEmail: string | null;
   createdAt: string;
+  /** When the request last changed; the Details form sends it back so a stale page cannot overwrite newer changes. */
+  updatedAt: string;
   messages: Array<{ id: string; authorKind: "user" | "staff"; authorEmail: string | null; body: string; createdAt: string }>;
   assignees: Array<{ userId: string; email: string | null }>;
 };
@@ -133,7 +136,7 @@ export async function getSupportThread(id: string): Promise<SupportThreadResult>
 
   const request = await admin
     .from("support_requests")
-    .select("id,user_id,category,subject,body,status,priority,assigned_to,page_path,created_at")
+    .select("id,user_id,category,subject,body,status,priority,assigned_to,page_path,created_at,updated_at")
     .eq("id", id)
     .maybeSingle();
   if (request.error) {
@@ -154,7 +157,11 @@ export async function getSupportThread(id: string): Promise<SupportThreadResult>
     return { state: "query_failed" };
   }
   const row = request.data;
-  const emails = await emailsFor([row.user_id as string, ...(messages.data ?? []).map((message) => message.author_id as string | null)]);
+  const emails = await emailsFor([
+    row.user_id as string,
+    row.assigned_to as string | null,
+    ...(messages.data ?? []).map((message) => message.author_id as string | null),
+  ]);
   return {
     state: "ready",
     thread: {
@@ -168,7 +175,9 @@ export async function getSupportThread(id: string): Promise<SupportThreadResult>
       requesterId: String(row.user_id),
       requesterEmail: emails.get(String(row.user_id)) ?? null,
       assignedTo: typeof row.assigned_to === "string" ? row.assigned_to : null,
+      assignedToEmail: typeof row.assigned_to === "string" ? (emails.get(row.assigned_to) ?? null) : null,
       createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
       messages: (messages.data ?? []).map((message) => ({
         id: String(message.id),
         authorKind: message.author_kind === "staff" ? "staff" : "user",

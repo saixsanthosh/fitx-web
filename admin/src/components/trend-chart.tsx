@@ -80,6 +80,7 @@ export function TrendChart({ title, points, initialWidth = 640 }: { title: strin
   const tipX = active === null ? 0 : Math.min(Math.max(x(active) - TIP_W / 2, MARGIN.left), WIDTH - MARGIN.right - TIP_W + 30);
 
   return (
+    <>
     <svg
       ref={svgRef}
       aria-label={`${title}, daily. Use the left and right arrow keys to read each day.`}
@@ -124,5 +125,8 @@ export function TrendChart({ title, points, initialWidth = 640 }: { title: strin
         </g>
       )}
     </svg>
+    {/* The drawn readout is hidden from screen readers; this says the same day and value aloud. */}
+    <p aria-live="polite" className="sr-only">{shown ? `${shown.label}: ${shown.value.toLocaleString("en-IN")}` : ""}</p>
+    </>
   );
 }

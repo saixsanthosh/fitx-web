@@ -1,7 +1,7 @@
 import "server-only";
 import type { User } from "@supabase/supabase-js";
 import { requireAdmin } from "@/lib/admin-auth";
-import { logAdminEvent } from "@/lib/audit";
+import { logAdminEvent, type AuditWrite } from "@/lib/audit";
 import { logServerError } from "@/lib/log";
 import { isAdminRole, type AdminRole } from "@/lib/roles";
 import { isMissingFunction } from "@/lib/schema";
@@ -33,6 +33,8 @@ export type PeopleResult =
       hasNext: boolean;
       /** False until migration 20261118180004 is applied: the list then pages through Auth without search. */
       searchAvailable: boolean;
+      /** Whether this view was written to the audit log; the page says so either way. */
+      viewLogged: AuditWrite;
     }
   | { state: "service_key_missing" | "query_failed" };
 
@@ -86,7 +88,7 @@ export async function searchPeople(rawQuery: string, rawPage: number): Promise<P
     p_offset: (page - 1) * PEOPLE_PAGE_SIZE,
   });
 
-  let result: PeopleResult;
+  let result: Omit<Extract<PeopleResult, { state: "ready" }>, "viewLogged">;
   if (!error) {
     const rows = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
     const people = rows.map((row) => ({
@@ -130,16 +132,16 @@ export async function searchPeople(rawQuery: string, rawPage: number): Promise<P
     return { state: "query_failed" };
   }
 
-  await logAdminEvent({
+  const viewLogged = await logAdminEvent({
     actorId: actor.id,
     action: "users_listed",
     resourceType: "user",
     details: { page, searched: Boolean(query), results: result.people.length },
   });
-  return result;
+  return { ...result, viewLogged };
 }
 
-export type PersonResult = { state: "ready"; person: PersonDetail } | { state: "not_found" | "service_key_missing" | "query_failed" };
+export type PersonResult = { state: "ready"; person: PersonDetail; viewLogged: AuditWrite } | { state: "not_found" | "service_key_missing" | "query_failed" };
 
 export async function getPerson(id: string): Promise<PersonResult> {
   const { user: actor } = await requireAdmin("people.view");
@@ -172,6 +174,6 @@ export async function getPerson(id: string): Promise<PersonResult> {
     hasAuthenticator: (user.factors ?? []).some((factor) => factor.status === "verified"),
   };
 
-  await logAdminEvent({ actorId: actor.id, action: "user_viewed", resourceType: "user", resourceId: id });
-  return { state: "ready", person };
+  const viewLogged = await logAdminEvent({ actorId: actor.id, action: "user_viewed", resourceType: "user", resourceId: id });
+  return { state: "ready", person, viewLogged };
 }

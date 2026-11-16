@@ -33,7 +33,8 @@ export async function replyToRequest(formData: FormData) {
   const id = readRequestId(formData);
   const body = typeof formData.get("body") === "string" ? String(formData.get("body")).trim() : "";
   const status = formData.get("status");
-  if (!body || body.length > SUPPORT_REPLY_MAX) back(id, "reply_length");
+  // Counted in characters (code points), as the database's char_length check counts them.
+  if (!body || Array.from(body).length > SUPPORT_REPLY_MAX) back(id, "reply_length");
   if (!isSupportStatus(status)) back(id, "invalid");
 
   const admin = createAdminSupabase();
@@ -51,8 +52,10 @@ export async function updateRequest(formData: FormData) {
   const status = formData.get("status");
   const priority = formData.get("priority");
   const assignee = formData.get("assignee");
+  const seen = formData.get("seenUpdatedAt");
   if (!isSupportStatus(status) || !isSupportPriority(priority)) back(id, "invalid");
   if (assignee !== "" && !isUuid(assignee)) back(id, "invalid");
+  const seenUpdatedAt = typeof seen === "string" && !Number.isNaN(Date.parse(seen)) ? seen : null;
 
   const admin = createAdminSupabase();
   if (!admin) back(id, "configuration");
@@ -62,8 +65,11 @@ export async function updateRequest(formData: FormData) {
     p_status: status,
     p_priority: priority,
     p_assigned_to: assignee === "" ? null : assignee,
+    // The request as the agent saw it; the database refuses the save if it changed since (40001).
+    p_expected_updated_at: seenUpdatedAt,
   });
   if (error) {
+    if (error.code === "40001") back(id, "changed");
     if (error.code === "22023") back(id, "assignee");
     failure(id, "support.update", error);
   }

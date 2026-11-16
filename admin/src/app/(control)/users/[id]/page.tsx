@@ -17,6 +17,7 @@ const PROVIDER_LABELS: Record<string, string> = { email: "Email and password", g
 const notices: Record<string, { tone: "success" | "error"; text: string }> = {
   suspended: { tone: "success", text: "The account is suspended and signed out on every device." },
   suspended_sessions_pending: { tone: "success", text: `The account is suspended. Its open sessions stop at their next refresh, within an hour, because signing out everywhere needs migration ${MIGRATIONS.people}.` },
+  suspended_sessions_failed: { tone: "error", text: "The account is suspended, but Supabase refused to end its open sessions (the server log has the details). They stop at their next refresh, within an hour." },
   unsuspended: { tone: "success", text: "The suspension is lifted. The person can sign in again." },
   sessions_revoked: { tone: "success", text: "Signed out on every device. Access already granted runs out within an hour." },
   reset_sent: { tone: "success", text: "Supabase sent a password reset email to this address." },
@@ -27,7 +28,8 @@ const notices: Record<string, { tone: "success" | "error"; text: string }> = {
   reason_required: { tone: "error", text: "Give a reason of 3 to 200 characters. It is kept in the audit log." },
   self: { tone: "error", text: "You cannot do that to your own account here." },
   admin_account: { tone: "error", text: "This is an Admin team account. Only a super-admin can act on it." },
-  remove_access_first: { tone: "error", text: "Remove this person's Admin access on the Access screen before deleting the account." },
+  remove_access_first: { tone: "error", text: "Set this person's Admin access to Inactive on the Access screen before deleting the account." },
+  billing_active: { tone: "error", text: "Nothing was deleted: Razorpay is still billing this account's FITX subscription. Ask the person to cancel it on the Subscription page in FITX, or cancel it in the Razorpay dashboard, then try again." },
   confirm_mismatch: { tone: "error", text: "The email you typed does not match this account, so nothing was deleted." },
   audit_migration: { tone: "error", text: `Nothing was changed: account actions are recorded first, and the audit function needs migration ${MIGRATIONS.audit}.` },
   audit_failed: { tone: "error", text: "Nothing was changed because the audit log could not record the action." },
@@ -63,7 +65,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
   return (
     <div className="page-stack">
       {back}
-      <div className="page-heading-row"><div><p className="eyebrow">ACCOUNT</p><h1 className="break-anywhere">{person.email ?? "No email"}</h1><p className="page-lede">Account and sign-in details from Supabase Auth. Opening this page is recorded in the audit log.</p></div><span className="page-heading-icon"><UserRound aria-hidden="true" size={20} /></span></div>
+      <div className="page-heading-row"><div><p className="eyebrow">ACCOUNT</p><h1 className="break-anywhere">{person.email ?? "No email"}</h1><p className="page-lede">Account and sign-in details from Supabase Auth. {result.viewLogged.ok ? "Opening this page is recorded in the audit log." : result.viewLogged.reason === "migration_pending" ? `This view was not recorded: the audit log needs migration ${MIGRATIONS.audit}.` : "This view could not be recorded in the audit log; the server log has the details."}</p></div><span className="page-heading-icon"><UserRound aria-hidden="true" size={20} /></span></div>
       {message && <p className={`inline-notice ${message.tone === "success" ? "notice-success" : "notice-error"}`} role="status">{message.text}</p>}
 
       <section className="table-panel detail-panel" aria-label="Account details">
@@ -120,7 +122,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
           {can(actor.role, "people.delete") && (
             <article className="table-panel action-card action-danger">
               <h2>Delete the account</h2>
-              <p>Permanently deletes the account, all of its FITX data and its profile photos. This cannot be undone.</p>
+              <p>Permanently deletes the account, its FITX data and its private photos. Payment records stay without the link to the person, and the audit log keeps the account ID. This cannot be undone.</p>
               <form action={deleteAccount} className="stack-form">
                 <input type="hidden" name="userId" value={person.id} />
                 <label>Reason (kept in the audit log)<input name="reason" required minLength={3} maxLength={200} /></label>

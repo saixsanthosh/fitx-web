@@ -46,7 +46,9 @@ export default async function AnnouncementPage({ params, searchParams }: { param
 
   const row = result.row;
   const status = announcementStatus(row);
-  const message = notice ? notices[notice] : undefined;
+  const message = notice === "saved" && row.status === "published"
+    ? { tone: "success" as const, text: "Saved and recorded in the audit log. Signed-in people see these changes from their next visit, during its time window." }
+    : notice ? notices[notice] : undefined;
 
   return (
     <div className="page-stack narrow-stack">
@@ -74,7 +76,8 @@ export default async function AnnouncementPage({ params, searchParams }: { param
       <section className="table-panel form-panel" aria-label="Edit">
         <h2>Edit</h2>
         <AnnouncementForm
-          submitLabel="Save changes"
+          submitLabel={row.status === "published" ? "Save and update the live announcement" : "Save changes"}
+          status={row.status}
           defaults={{
             id: row.id,
             title: row.title,

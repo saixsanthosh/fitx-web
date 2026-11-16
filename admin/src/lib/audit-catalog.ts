@@ -10,6 +10,7 @@ export const AUDIT_ACTIONS = {
   admin_mfa_enrolled: { label: "Authenticator app set up", group: "Sign-in", source: "server" },
   admin_mfa_verified: { label: "Authenticator code accepted", group: "Sign-in", source: "server" },
   admin_mfa_failed: { label: "Authenticator code refused", group: "Sign-in", source: "server" },
+  admin_mfa_reset_requested: { label: "Authenticator reset requested", group: "Access", source: "server" },
   admin_mfa_reset: { label: "Authenticator app reset", group: "Access", source: "server" },
   admin_member_updated: { label: "Admin access changed", group: "Access", source: "database" },
   admin_member_bootstrapped: { label: "First super-admin set up", group: "Access", source: "database" },
