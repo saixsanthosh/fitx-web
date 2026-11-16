@@ -20,7 +20,7 @@
 .libraryGrid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .55rem; }
 .exerciseCard { display: flex; min-width: 0; min-height: 4.25rem; align-items: center; gap: .65rem; border: 1px solid var(--fitx-border); border-radius: .7rem; background: var(--fitx-surface); padding: .7rem; transition: border-color .18s ease, background-color .18s ease; }
 .exerciseCard:hover { border-color: color-mix(in srgb,var(--fitx-primary) 38%,transparent); background: color-mix(in srgb,var(--fitx-primary) 4%,var(--fitx-surface)); }
-.exerciseCard > svg { flex: 0 0 auto; color: #8c9997; transition: transform .18s ease,color .18s ease; }
+.exerciseCard > svg { flex: 0 0 auto; color: var(--fitx-text-secondary); transition: transform .18s ease,color .18s ease; }
 .exerciseCard:hover > svg { transform: translateX(2px); color: var(--fitx-primary); }
 .exerciseMark { display: grid; width: 2rem; height: 2rem; flex: 0 0 auto; place-items: center; border-radius: .55rem; background: color-mix(in srgb,var(--fitx-primary) 8%,transparent); color: var(--fitx-primary); }
 .exerciseText { display: grid; min-width: 0; gap: .2rem; }
