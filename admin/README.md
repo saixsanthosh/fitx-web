@@ -152,7 +152,7 @@ Then set `FITX_ADMIN_PASSWORD_RESET_EMAILS=on` in the Admin project and redeploy
 
 These customer-side pieces live in the root app; the coordinating session wires them in:
 
-- **Help page:** `src/app/(dashboard)/help/page.tsx` with `src/components/support/*` and the API routes `src/app/api/support/route.ts` and `src/app/api/support/reply/route.ts`. Add `"/help"` to `PRIVATE_ROOTS` in `src/proxy.ts`; the page also sends signed-out visitors to sign in on its own. Link to it from the sidebar and the More menu (for example "Help and feedback" with the `CircleHelp` icon), and from Settings. A link can carry the page the person came from: `/help?from=/workouts`.
+- **Help page:** `src/app/(dashboard)/help/page.tsx` with `src/components/support/*` and the API routes `src/app/api/support/route.ts` and `src/app/api/support/reply/route.ts`. Add `"/help"` to `PRIVATE_ROOTS` in `src/proxy.ts`; the page also sends signed-out visitors to sign in on its own. Link to it as "Help and feedback" with the `CircleHelp` icon: in `src/config/navigation.ts` once the Phase 2 shell lands (one entry reaches the sidebar, the tablet rail and the phone's More sheet), otherwise in `Sidebar.tsx` and the More menu, and from Settings. A link can carry the page the person came from: `/help?from=/workouts`.
 - **Announcements:** `src/components/announcements/AnnouncementBanner.tsx`. Mount it once in `src/app/(dashboard)/layout.tsx`, directly under `<WorkspaceHeader />` and above `<main>`. It renders nothing when there is no announcement, when signed out, or before migration `20261118180006` is applied.
 
 ## First super-admin
