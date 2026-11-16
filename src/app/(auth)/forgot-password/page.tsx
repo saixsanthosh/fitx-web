@@ -29,12 +29,12 @@ export default function ForgotPasswordPage() {
   return (
     <div className="mx-auto w-full max-w-[448px]">
       <Link href="/signin" className="mb-7 flex justify-center" aria-label="FITX"><Logo size={64} /></Link>
-      <section className="rounded-2xl border border-fitx-border bg-[#0b1012] p-6 sm:p-8">
+      <section className="rounded-2xl border border-fitx-border bg-fitx-card p-6 sm:p-8">
         <h1 className="mb-2 text-center text-xl font-semibold text-fitx-text">{sent ? "Check your email" : "Reset password"}</h1>
         <p className="mb-6 text-center text-sm leading-6 text-fitx-text-secondary">{sent ? "If an account matches that address, a secure reset link is on its way." : "Enter the email address for your account and we’ll send a reset link."}</p>
         {!sent && <form onSubmit={submit} className="space-y-3">
           <label className="relative block"><span className="sr-only">Email address</span><Mail size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-fitx-text-disabled" /><input className="fitx-field pl-11" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" /></label>
-          {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+          {error && <p role="alert" className="auth-error">{error}</p>}
           <button className="fitx-button w-full" disabled={loading}>{loading ? "Sending…" : "Send reset link"}</button>
         </form>}
         <Link href="/signin" className="mt-6 flex items-center justify-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} />Back to Login</Link>
