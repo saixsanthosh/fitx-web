@@ -30,7 +30,7 @@ export default async function TermsPage() {
     <section><h2>Availability and changes</h2><p>FITX is provided as an evolving service. Features may be changed, interrupted, or removed. We will update these terms when material changes are made.</p></section>
     <section>
       <h2>Premium subscriptions</h2>
-      <p>A FITX account is free. Premium is an optional, paid subscription. {open ? "" : "Paid subscriptions are not on sale yet; this section describes how they work once they are, and no payment is collected until then."}</p>
+      <p>A FITX account is free. Premium is an optional, paid subscription. {open ? "" : "New Premium subscriptions are not on sale right now. This section applies to every Premium subscription already bought."}</p>
       <ul className="mt-3 space-y-3">
         <li><strong>Price.</strong> Each plan’s price is shown in Indian rupees on the Pricing and Subscription pages before you pay, and that amount is what is charged for each billing period. A subscription keeps the price it started with.
           <ToConfirm>whether prices include GST, the business name shown on receipts, and how FITX tells existing subscribers about a price change.</ToConfirm></li>
