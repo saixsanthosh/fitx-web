@@ -34,7 +34,7 @@ export function Sidebar() {
               aria-current={active ? "page" : undefined}
               className={cn(
                 "relative flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm transition-colors",
-                active ? "bg-fitx-primary/10 text-fitx-primary" : "text-fitx-text-secondary hover:bg-white/[.04] hover:text-fitx-text"
+                active ? "bg-fitx-primary/10 text-fitx-primary-text" : "text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text"
               )}
             >
               {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-fitx-primary" />}
