@@ -8,10 +8,13 @@
  * animation per property on an element (two would both drop to the main thread), and nothing
  * animates filter, backdrop-filter, letter-spacing, clip-path (bar the one-step mask release) or
  * size. Blurs and shadows are painted once (text-shadow on transparent text) and cross-faded, so a
- * low-end phone composites the overlay over the film without restyling, relaying out or repainting
- * anything per frame. Entrances end on the element's own resting style and fill `backwards` only:
- * a finished `both`/`forwards` animation keeps its element on a compositor layer for good, and a
- * fading parent over several such layers needs an offscreen pass every frame.
+ * low-end phone composites the overlay over the film with no per-frame layout or paint (the main
+ * thread only restyles elements that are mid-animation, on the frames it renders at all).
+ * Entrances end on the element's own resting style and fill `backwards` only: a finished
+ * `both`/`forwards` animation keeps its element on a compositor layer for good. Group fades go on
+ * only while they run: a wrapper with an opacity animation (even one still waiting out its delay)
+ * over several animating layers costs an offscreen pass every frame, so the titles' and callouts'
+ * exit fades are attached when the exit starts (`data-exiting`, IntroFilmOverlay.tsx).
  *
  * Stacking (shared with CinematicIntro.module.css): canvas 0 · brand backdrop 0 · vignette 1 ·
  * titles/callouts 3 · letterbox 4 · brand lockup / static brand 5 · skip 6.
@@ -153,8 +156,13 @@
   animation: title-drift var(--dur) cubic-bezier(.25, .6, .35, 1) var(--at) backwards;
 }
 
-/* The exit moves with the old easing; its fade is the sharp half of the exit's cross-fade (below). */
-.titleExit {
+/*
+ * The exit moves with the old easing; its fade is the sharp half of the exit's cross-fade (below),
+ * attached when the move starts (`data-exiting`), on the same clock and delay.
+ */
+.titleExit { animation: title-exit-move var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards; }
+
+.titleExit[data-exiting] {
   animation:
     title-exit-move var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards,
     title-exit-fade var(--exit) linear var(--exit-at) forwards;
@@ -191,8 +199,10 @@
  *   twin  — transparent letters with a blur-sized text-shadow: the out-of-focus letter;
  *   fill  — the sharp letters.
  * Each letter rises out of a hard mask just below the baseline while its twin hands over to the
- * sharp fill (a cross-fade standing in for the old animated blur, timed from the old blur radius);
- * the mask releases once the letters land so the shadow is never cut. A fourth copy, blurred, sits
+ * sharp fill (a cross-fade standing in for the old animated blur, fitted to it below); the mask
+ * releases once the letters land so the shadow is never cut. The mask is the element's own style
+ * and the release a one-step animation (`both`): applied from an animation's fill instead, the clip
+ * repaints the word again and again while the letters rise. A fourth copy, blurred, sits
  * outside the exit's fade and takes over as the title leaves. Blurs are rasterized once, at mount.
  */
 .titleWord {
@@ -214,12 +224,16 @@
   text-box: trim-both cap alphabetic;
 }
 
+/*
+ * One animation per letter moves both its rise (transform) and its fade (opacity): every animation
+ * is an object the main thread updates and that fires start/end events, so the copies don't double
+ * that per letter. Each property eases over its own keyframes: the rise over the whole reveal with
+ * the 0% keyframe's easing, the cross-fades linearly between their sampled keyframes.
+ */
 .rowShade .glyph {
   color: transparent;
   text-shadow: 0 .01em .06em rgba(8, 9, 8, .3), 0 .03em .33em rgba(8, 9, 8, .26);
-  animation:
-    glyph-rise var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards,
-    glyph-fade var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards;
+  animation: glyph-in-shade var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards;
 }
 
 /* Blur .04em (text-shadow radius = 2σ): half the old starting blur, held until the old blur fell to it. */
@@ -227,25 +241,18 @@
   color: transparent;
   text-shadow: 0 0 .08em var(--title-glow);
   opacity: 0;
-  animation:
-    glyph-rise var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards,
-    glyph-twin var(--reveal) linear var(--glyph-at) backwards;
+  animation: glyph-in-twin var(--reveal) linear var(--glyph-at) backwards;
 }
 
-.rowFill .glyph {
-  animation:
-    glyph-rise var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards,
-    glyph-sharp var(--reveal) linear var(--glyph-at) backwards;
-}
+.rowFill .glyph { animation: glyph-in-fill var(--reveal) linear var(--glyph-at) backwards; }
 
-/* The exit's blurred copy (6px): same box and transform origin as .titleExit, so it moves in register. */
+/* The exit's blurred copy (6px): same box, transform origin and move as .titleExit, so it moves in
+   register; one animation carries its move and its fade. */
 .rowExit {
   position: absolute;
   inset: 0;
   opacity: 0;
-  animation:
-    title-exit-move var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at),
-    title-exit-blur var(--exit) linear var(--exit-at);
+  animation: title-exit-copy var(--exit) linear var(--exit-at);
 }
 
 .rowExit .glyph {
@@ -285,55 +292,65 @@
 @keyframes title-drift { from { transform: scale(1); } to { transform: scale(1.035); } }
 @keyframes title-exit-move { to { transform: translate3d(0, -.05em, 0) scale(1.015); } }
 /*
- * The exit as a cross-fade, sampled from the old curves (opacity 1 − e, blur 10e px, e eased in):
- * the sharp title hands over to the 6px copy while the old blur grows from .6px to 6px.
+ * The exit as a cross-fade standing in for the old one (opacity 1 − e, blur 10e px, e eased in): the
+ * weights of the sharp title and the 6px copy are least-squares fits to the old frames' coverage,
+ * averaged over phone and desktop title sizes. The blur copy comes in from 30% and leads from ~70%
+ * while the sharp title holds as long as it did, so the title blurs out instead of staying crisp.
  */
 @keyframes title-exit-fade {
   0% { opacity: 1; }
-  30% { opacity: .972; }
-  40% { opacity: .943; }
-  45% { opacity: .893; }
-  50% { opacity: .827; }
-  55% { opacity: .748; }
-  60% { opacity: .657; }
-  65% { opacity: .552; }
-  70% { opacity: .434; }
-  75% { opacity: .307; }
-  80% { opacity: .177; }
-  85% { opacity: .055; }
+  30% { opacity: .965; }
+  40% { opacity: .92; }
+  45% { opacity: .88; }
+  50% { opacity: .825; }
+  55% { opacity: .75; }
+  60% { opacity: .665; }
+  65% { opacity: .545; }
+  70% { opacity: .395; }
+  75% { opacity: .245; }
+  80% { opacity: .115; }
+  85% { opacity: .03; }
   88% { opacity: 0; }
   100% { opacity: 0; }
 }
-@keyframes title-exit-blur {
-  0% { opacity: 0; }
-  40% { opacity: 0; }
-  45% { opacity: .029; }
-  50% { opacity: .071; }
-  55% { opacity: .118; }
-  60% { opacity: .171; }
-  65% { opacity: .23; }
-  70% { opacity: .29; }
-  75% { opacity: .346; }
-  80% { opacity: .391; }
-  85% { opacity: .409; }
-  88% { opacity: .391; }
-  92% { opacity: .279; }
-  96% { opacity: .15; }
-  100% { opacity: 0; }
+/* The 6px copy: the exit's move (eased like .titleExit's, from the 0% keyframe) and its fade-in-out. */
+@keyframes title-exit-copy {
+  0% { opacity: 0; transform: none; animation-timing-function: cubic-bezier(.55, 0, .8, .2); }
+  30% { opacity: .02; }
+  40% { opacity: .075; }
+  45% { opacity: .125; }
+  50% { opacity: .185; }
+  55% { opacity: .27; }
+  60% { opacity: .34; }
+  65% { opacity: .42; }
+  70% { opacity: .49; }
+  75% { opacity: .525; }
+  80% { opacity: .515; }
+  85% { opacity: .45; }
+  88% { opacity: .39; }
+  92% { opacity: .27; }
+  96% { opacity: .14; }
+  100% { opacity: 0; transform: translate3d(0, -.05em, 0) scale(1.015); }
 }
 @keyframes kicker-in { from { opacity: 0; transform: translate3d(-10px, 0, 0); } to { opacity: 1; transform: none; } }
 @keyframes mask-release { from { clip-path: inset(-.6em -.6em -.1em -.6em); } to { clip-path: none; } }
-/* Rise, lean and close up: each letter starts a little wider apart, so the word tightens as it lands. */
-@keyframes glyph-rise { from { transform: translate3d(calc(var(--i) * .045em), 132%, 0) skewY(6deg); } }
-@keyframes glyph-fade { from { opacity: 0; } 45% { opacity: 1; } }
+/*
+ * Rise, lean and close up: each letter starts a little wider apart, so the word tightens as it lands
+ * (the shadow fades in with the old letter's opacity curve, eased like the rise over its first 45%).
+ */
+@keyframes glyph-in-shade {
+  from { opacity: 0; transform: translate3d(calc(var(--i) * .045em), 132%, 0) skewY(6deg); }
+  45% { opacity: 1; }
+}
 /*
  * The focus pull as a cross-fade, sampled from the old curves: opacity o(t) (eased in by 45%) and the
  * old blur .08em·(1 − e(t)) (e = the rise's easing). The twin alone carries the letter until the old
  * blur had shrunk to its own .04em (e = .5); the sharp fill then comes in over it (by e = .7) while
- * the twin, behind it, fades out like the last of the old blur (gone by e = .95).
+ * the twin, behind it, fades out like the last of the old blur (gone by e = .95). Each copy's rise
+ * rides on the same animation, from the 0% keyframe's easing.
  */
-@keyframes glyph-sharp {
-  0% { opacity: 0; }
+@keyframes glyph-in-fill {
+  0% { opacity: 0; transform: translate3d(calc(var(--i) * .045em), 132%, 0) skewY(6deg); animation-timing-function: cubic-bezier(.16, 1, .3, 1); }
   10% { opacity: 0; }
   12% { opacity: .261; }
   14% { opacity: .533; }
@@ -347,8 +364,8 @@
   42% { opacity: 1; }
   100% { opacity: 1; }
 }
-@keyframes glyph-twin {
-  0% { opacity: 0; }
+@keyframes glyph-in-twin {
+  0% { opacity: 0; transform: translate3d(calc(var(--i) * .045em), 132%, 0) skewY(6deg); animation-timing-function: cubic-bezier(.16, 1, .3, 1); }
   2% { opacity: .253; }
   4% { opacity: .453; }
   6% { opacity: .602; }
@@ -375,16 +392,18 @@
 
 /* ---------------------------------------------------------------- data callouts */
 
-/* The leader and the chip used to fade out separately on the same curve: one group fade here instead
-   (the chip's exit keeps its slide below), so a callout holds one offscreen surface, not one per part. */
 .callout {
   position: absolute;
   z-index: 3;
   display: flex;
   align-items: flex-start;
   color: var(--film-paper);
-  animation: fade-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
 }
+
+/* The leader and the chip used to fade out separately on the same curve: one group fade instead (the
+   chip keeps its slide below), attached when that slide starts (`data-exiting`) so the callout needs
+   an offscreen pass only while it fades, not for its whole time on screen. */
+.callout[data-exiting] { animation: fade-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards; }
 
 .callout[data-placement="right"] { right: var(--safe-r); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); }
 .callout[data-placement="left"] { left: var(--safe-l); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); flex-direction: row-reverse; }
@@ -444,11 +463,13 @@
 .callout[data-placement="left"] .leaderDot { left: auto; right: -4px; }
 .callout[data-placement="bottom"] .leaderDot { top: -4px; left: -4px; }
 
-/* Carries the chip's exit slide (its fade is the callout's), so the chip itself runs one animation. */
+/* Carries the chip's exit slide (its fade is the callout's), so the chip itself runs one animation;
+   the slide starting is the cue for that fade, and it holds its end (`forwards`) so the fade can
+   still join its clock however late the start event arrives. */
 .chipExit {
   --chip-from: 0px;
   --chip-from-y: 0px;
-  animation: chip-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at);
+  animation: chip-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
 }
 
 .callout[data-placement="right"] .chipExit { --chip-from: 16px; }
@@ -647,6 +668,9 @@
   to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 @keyframes tagline-in { from { opacity: 0; transform: translate3d(calc(var(--o) * .48em), 0, 0); } }
+
+/* Resolves the titles' and tagline's computed fonts for kerning ahead of their mounts (no layout). */
+.kernProbe { display: none; }
 
 /* ---------------------------------------------------------------- dev review backdrop */
 
