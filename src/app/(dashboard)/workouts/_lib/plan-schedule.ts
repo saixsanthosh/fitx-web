@@ -1,9 +1,10 @@
 /**
  * How saving a workout plan changes the planner events linked to it.
  *
- * Plans are reusable: finishing a workout completes one planner event (see
- * `plannerEventToComplete`) and leaves the plan in the list. Completed and
- * cancelled events are history, so a later save never moves or reopens them.
+ * Plans are reusable: finishing a workout completes one planner item (in the
+ * database, fitx_complete_workout_event; without it, `plannerEventToComplete`)
+ * and leaves the plan in the list. Completed and cancelled events are history,
+ * so a later save never moves or reopens them.
  * Only the plan's upcoming ("scheduled") event follows the plan's date.
  *
  * No imports, so `node --test` can load this file directly.
@@ -49,7 +50,9 @@ export function plannerScheduleChange(events: readonly LinkedPlannerEvent[], pla
 export type TimedPlannerEvent = { id: string; status: string; startsAt: number };
 
 /**
- * The planner event a finished workout completes, or null for none.
+ * The planner event a finished workout completes, or null for none. The browser's rule
+ * for databases without fitx_complete_workout_event, which also covers untimed To-Do
+ * items and the item a session was started from.
  *
  * - The plan's scheduled event on the session's day; with several that day, the
  *   one nearest to when the session started.

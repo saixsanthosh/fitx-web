@@ -79,11 +79,13 @@ export async function startSessionWithRpc(supabase: Db, planId: string): Promise
 export type FinishSummary = { duration: number; volume: number; sets: number; records: number };
 
 /**
- * Finishes a session with fitx_finish_workout_session when available. `day` is the session's local
- * day. Returns `fallback: true` when the function does not exist yet.
+ * Finishes a session with fitx_finish_workout_session when available: totals, records, the planner item
+ * behind the workout (fitx_complete_workout_event's rule) and the programme's next day, in one
+ * transaction. `timeZone` is the browser's, which decides the session's day (the database falls back to
+ * the saved one). Returns `fallback: true` when the function does not exist yet.
  */
-export async function finishSessionWithRpc(supabase: Db, sessionId: string, durationSeconds: number, day: { start: string; end: string }): Promise<{ summary: FinishSummary | null; error: unknown; fallback: boolean }> {
-  const rpc = await supabase.rpc("fitx_finish_workout_session", { p_session_id: sessionId, p_duration_seconds: Math.max(0, Math.round(durationSeconds)), p_day_start: day.start, p_day_end: day.end });
+export async function finishSessionWithRpc(supabase: Db, sessionId: string, durationSeconds: number, timeZone: string | null): Promise<{ summary: FinishSummary | null; error: unknown; fallback: boolean }> {
+  const rpc = await supabase.rpc("fitx_finish_workout_session", { p_session_id: sessionId, p_duration_seconds: Math.max(0, Math.round(durationSeconds)), p_tz: timeZone });
   if (rpc.error) return { summary: null, error: isMissingFunctionError(rpc.error) ? null : rpc.error, fallback: isMissingFunctionError(rpc.error) };
   const data = (rpc.data ?? {}) as { duration_seconds?: number; total_volume?: number | string; sets?: number; records?: number };
   return { summary: { duration: Number(data.duration_seconds ?? durationSeconds), volume: Number(data.total_volume ?? 0), sets: Number(data.sets ?? 0), records: Number(data.records ?? 0) }, error: null, fallback: false };

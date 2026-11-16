@@ -3,7 +3,8 @@
 -- connection could leave a plan without exercises or a half-built session. Each function now runs as
 -- one transaction. They are SECURITY INVOKER: row level security still applies, and every statement
 -- is scoped to auth.uid(). The app falls back to its older multi-request path until this is applied.
--- Needs 20261115110000 (target and duration columns) and 20261118130030 (programme columns).
+-- Needs 20261115110000 (target and duration columns), 20261118120000 (fitx_complete_workout_event, which
+-- ticks off the planner item behind a finished workout) and 20261118130030 (programme columns).
 
 -- One workout in progress per user. Older duplicates, if any exist, are closed as abandoned (newest kept).
 with ranked as (
@@ -120,11 +121,17 @@ begin
   return jsonb_build_object('session_id', v_session, 'resumed', false);
 end $$;
 
--- Finishes a session: totals from the saved sets, personal records, the matching planner event and the
--- programme's next day, in one step. p_day_start/p_day_end bound the local day the session started, so
--- the planner event is chosen as in the app: that day's event (nearest to the start), otherwise the most
--- recent overdue one, never a later day's. Returns {duration_seconds, total_volume, sets, records}.
-create or replace function public.fitx_finish_workout_session(p_session_id uuid, p_duration_seconds integer, p_day_start timestamptz, p_day_end timestamptz)
+-- Finishes a session: totals from the saved sets, personal records, the planner item behind it and the
+-- programme's next day, in one step. The planner item is ticked off by fitx_complete_workout_event, the
+-- rule the whole app shares: the item the session was started from, else the plan's scheduled workout on
+-- the session's day (nearest time first, untimed To-Do workouts included), else its most recent overdue
+-- one; never a later day's, and one item at most. p_tz is the browser's time zone, which decides the
+-- session's day (else the saved one, else UTC). Returns {duration_seconds, total_volume, sets, records,
+-- planner_event_id}, the last null when no item was ticked.
+-- An earlier draft took the session's day as two timestamps instead of p_tz; it is removed wherever it
+-- was applied, so only this version can be called.
+drop function if exists public.fitx_finish_workout_session(uuid, integer, timestamptz, timestamptz);
+create or replace function public.fitx_finish_workout_session(p_session_id uuid, p_duration_seconds integer, p_tz text default null)
 returns jsonb
 language plpgsql
 security invoker
@@ -133,7 +140,6 @@ as $$
 declare
   v_user uuid := auth.uid();
   v_plan uuid;
-  v_started timestamptz;
   v_sets integer;
   v_volume numeric(12, 2);
   v_records integer := 0;
@@ -146,7 +152,7 @@ begin
   if v_user is null then
     raise exception using errcode = '42501', message = 'authentication required';
   end if;
-  select plan_id, started_at into v_plan, v_started
+  select plan_id into v_plan
   from public.workout_sessions
   where id = p_session_id and user_id = v_user and status = 'in_progress'
   for update;
@@ -204,20 +210,11 @@ begin
   )
   select count(*) into v_records from written;
 
-  if v_plan is not null then
-    select pe.id into v_event
-    from public.planner_events pe
-    where pe.user_id = v_user and pe.workout_plan_id = v_plan and pe.event_type = 'workout' and pe.status = 'scheduled'
-      and pe.starts_at < p_day_end
-    order by (pe.starts_at >= p_day_start) desc,
-      case when pe.starts_at >= p_day_start then abs(extract(epoch from (pe.starts_at - v_started))) end asc nulls last,
-      pe.starts_at desc
-    limit 1;
-    if v_event is not null then
-      update public.planner_events set status = 'completed', updated_at = now()
-      where id = v_event and user_id = v_user and status = 'scheduled';
-    end if;
+  -- The session is completed above, which fitx_complete_workout_event requires. It runs in this
+  -- transaction with the caller's rights, so it sees that change and only the caller's rows.
+  v_event := public.fitx_complete_workout_event(p_session_id, p_tz);
 
+  if v_plan is not null then
     select programme_enrolment_id, programme_day_index into v_enrolment, v_day
     from public.workout_plans where id = v_plan and user_id = v_user;
     if v_enrolment is not null and v_day is not null then
@@ -234,12 +231,13 @@ begin
     end if;
   end if;
 
-  return jsonb_build_object('duration_seconds', v_duration, 'total_volume', v_volume, 'sets', v_sets, 'records', v_records);
+  return jsonb_build_object('duration_seconds', v_duration, 'total_volume', v_volume, 'sets', v_sets, 'records', v_records,
+    'planner_event_id', v_event);
 end $$;
 
 revoke all on function public.fitx_save_workout_plan(jsonb, jsonb) from public, anon;
 revoke all on function public.fitx_start_workout_session(uuid) from public, anon;
-revoke all on function public.fitx_finish_workout_session(uuid, integer, timestamptz, timestamptz) from public, anon;
+revoke all on function public.fitx_finish_workout_session(uuid, integer, text) from public, anon;
 grant execute on function public.fitx_save_workout_plan(jsonb, jsonb) to authenticated;
 grant execute on function public.fitx_start_workout_session(uuid) to authenticated;
-grant execute on function public.fitx_finish_workout_session(uuid, integer, timestamptz, timestamptz) to authenticated;
+grant execute on function public.fitx_finish_workout_session(uuid, integer, text) to authenticated;

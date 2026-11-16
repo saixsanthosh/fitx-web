@@ -59,6 +59,7 @@ function browserTimeZone(): string | null {
  * migration): the item it was started from, else the plan's workout on the session's day (untimed To-Do
  * workouts included, nearest time first), else its latest overdue one; never a later day's. Nothing to
  * tick is still "done". "missing" means the database does not have the function yet.
+ * fitx_finish_workout_session calls it itself, so this is only for databases without that function.
  */
 async function completeWorkoutEvent(supabase: Supabase, sessionId: string): Promise<"done" | "missing" | "failed"> {
   const { error } = await supabase.rpc("fitx_complete_workout_event", { p_session_id: sessionId, p_tz: browserTimeZone() });
@@ -376,22 +377,11 @@ export default function ActiveWorkoutPage() {
     setSaving(true); setError("");
     const nowDate = new Date();
     const duration = elapsedSeconds;
-    const sessionDay = localDayRange(new Date(session.started_at));
-    // fitx_finish_workout_session ticks off the plan's scheduled timed event up to the end of the
-    // session's day by itself. fitx_complete_workout_event also knows untimed To-Do workouts and the item
-    // a session was started from, so it is asked only when there is no such timed event: one finished
-    // workout never ticks off two planner items. (A failed check counts as "there is one".)
-    const timedEvent = session.plan_id
-      ? await supabase.from("planner_events").select("id").eq("workout_plan_id", session.plan_id).eq("user_id", session.user_id)
-        .eq("event_type", "workout").eq("status", "scheduled").lt("starts_at", sessionDay.end).limit(1)
-      : null;
-    const finishTicksEvent = timedEvent !== null && (Boolean(timedEvent.error) || Boolean(timedEvent.data?.length));
     // One transaction when the database has fitx_finish_workout_session: totals, records, the planner
-    // event and the programme's next day are worked out from the saved sets.
-    const viaRpc = await finishSessionWithRpc(supabase, session.id, duration, sessionDay);
+    // item behind this workout (fitx_complete_workout_event, in the browser's time zone) and the
+    // programme's next day are worked out from the saved sets.
+    const viaRpc = await finishSessionWithRpc(supabase, session.id, duration, browserTimeZone());
     if (viaRpc.summary) {
-      // Best effort: the workout itself is saved either way.
-      if (!finishTicksEvent) await completeWorkoutEvent(supabase, session.id);
       try { window.localStorage.removeItem(sessionUiKey(session.id)); } catch { /* The completed server record is authoritative. */ }
       setSummary(viaRpc.summary); setSession({ ...session, status: "completed" }); setFinished(true); setSaving(false);
       return;
@@ -401,6 +391,7 @@ export default function ActiveWorkoutPage() {
       const message = String((viaRpc.error as { message?: string } | null)?.message ?? "");
       return setError(message.includes("at least one set") ? "Complete at least one set before finishing your workout." : "This session was already closed or could not be completed. Reload to check its status.");
     }
+    // Without fitx_finish_workout_session: the same steps, one request at a time.
     const volume = validSets.reduce((sum, set) => sum + Number(set.reps) * Number(set.weight_kg), 0);
     const sessionUpdate = await supabase.from("workout_sessions").update({ status: "completed", completed_at: nowDate.toISOString(), duration_seconds: duration, total_volume: volume }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress").select("id").maybeSingle();
     if (sessionUpdate.error || !sessionUpdate.data) { setSaving(false); return setError("This session was already closed or could not be completed. Reload to check its status."); }
@@ -424,9 +415,10 @@ export default function ActiveWorkoutPage() {
     const linked = await completeWorkoutEvent(supabase, session.id);
     if (session.plan_id) {
       if (linked === "missing") {
-        // Before the planner migration: the plan's scheduled event on the day this session started
-        // (today for a normal workout), else its most recent overdue one; never a later day's event
-        // (see plannerEventToComplete).
+        // Before the planner migration too: the plan's scheduled timed event on the day this session
+        // started (today for a normal workout), else its most recent overdue one; never a later day's
+        // event (see plannerEventToComplete).
+        const sessionDay = localDayRange(new Date(session.started_at));
         // Newest first, so the session day's events and the latest overdue one are within the limit.
         const candidates = await supabase.from("planner_events").select("id,status,starts_at")
           .eq("workout_plan_id", session.plan_id).eq("user_id", session.user_id)

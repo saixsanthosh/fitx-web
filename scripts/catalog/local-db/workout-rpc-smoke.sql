@@ -21,23 +21,25 @@ insert into planner_events (user_id, title, starts_at, workout_plan_id, status) 
   ('11111111-1111-1111-1111-111111111111', 'Push tomorrow', '2026-11-17 18:00+05:30', :'plan_id', 'scheduled');
 
 select (public.fitx_start_workout_session(:'plan_id'))->>'session_id' as session_id \gset
+-- 09:00 in India on the 16th, so "today" below is the 16th whenever this runs.
+update workout_sessions set started_at = '2026-11-16 09:00+05:30' where id = :'session_id';
 select 'started' as step, (select count(*) from workout_session_exercises where session_id = :'session_id') as exercises,
   (select count(*) from workout_sets ws join workout_session_exercises se on se.id = ws.session_exercise_id where se.session_id = :'session_id') as sets,
   (select string_agg(target_reps || '@' || weight_kg, ',' order by set_number) from workout_sets ws join workout_session_exercises se on se.id = ws.session_exercise_id where se.session_id = :'session_id' and se.exercise_id = 'bench_press') as bench_sets;
 select 'start again' as step, public.fitx_start_workout_session(:'plan_id') ->> 'resumed' as resumed;
 
 \set ON_ERROR_STOP 0
-select public.fitx_finish_workout_session(:'session_id', 1800, '2026-11-16 00:00+05:30', '2026-11-17 00:00+05:30');
+select public.fitx_finish_workout_session(:'session_id', 1800, 'Asia/Kolkata');
 \set ON_ERROR_STOP 1
 update workout_sets ws set reps = 8, weight_kg = 60, completed_at = now() from workout_session_exercises se where se.id = ws.session_exercise_id and se.session_id = :'session_id' and se.exercise_id = 'bench_press' and ws.set_number = 1;
 update workout_sets ws set reps = 6, weight_kg = 70, completed_at = now() from workout_session_exercises se where se.id = ws.session_exercise_id and se.session_id = :'session_id' and se.exercise_id = 'bench_press' and ws.set_number = 2;
 update workout_sets ws set duration_seconds = 40, completed_at = now() from workout_session_exercises se where se.id = ws.session_exercise_id and se.session_id = :'session_id' and se.exercise_id = 'plank';
-select 'finished' as step, public.fitx_finish_workout_session(:'session_id', 1800, '2026-11-16 00:00+05:30', '2026-11-17 00:00+05:30') as summary;
+select 'finished' as step, public.fitx_finish_workout_session(:'session_id', 1800, 'Asia/Kolkata') as summary;
 select 'session' as step, status, duration_seconds, total_volume from workout_sessions where id = :'session_id';
 select 'records' as step, exercise_name, best_weight_kg, best_reps, estimated_one_rep_max from personal_records;
 select 'planner' as step, title, status from planner_events order by starts_at;
 \set ON_ERROR_STOP 0
-select public.fitx_finish_workout_session(:'session_id', 1800, '2026-11-16 00:00+05:30', '2026-11-17 00:00+05:30');
+select public.fitx_finish_workout_session(:'session_id', 1800, 'Asia/Kolkata');
 select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false) \g /dev/null
 select public.fitx_save_workout_plan(jsonb_build_object('id', :'plan_id', 'title', 'Hijack'), '[{"exercise_id":"plank","exercise_name":"Front Plank","target_sets":1,"reps_min":1,"reps_max":1,"rest_seconds":45}]'::jsonb);
 select public.fitx_start_workout_session(:'plan_id');
@@ -49,5 +51,5 @@ select public.fitx_save_workout_plan(jsonb_build_object('title', 'PPL · Legs', 
   '[{"exercise_id":"bodyweight_squat","exercise_name":"Bodyweight Squat","target_sets":1,"reps_min":10,"reps_max":12,"rest_seconds":60}]'::jsonb) as legs_plan \gset
 select (public.fitx_start_workout_session(:'legs_plan'))->>'session_id' as legs_session \gset
 update workout_sets ws set reps = 12, completed_at = now() from workout_session_exercises se where se.id = ws.session_exercise_id and se.session_id = :'legs_session';
-select 'programme finish' as step, public.fitx_finish_workout_session(:'legs_session', 900, '2026-11-16 00:00+05:30', '2026-11-17 00:00+05:30');
+select 'programme finish' as step, public.fitx_finish_workout_session(:'legs_session', 900, 'Asia/Kolkata');
 select 'enrolment' as step, next_day_index, sessions_completed, last_session_at is not null as touched from programme_enrolments;
