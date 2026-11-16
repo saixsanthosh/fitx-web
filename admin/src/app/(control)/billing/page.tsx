@@ -77,7 +77,7 @@ function Pager({ page, total, href }: { page: number; total: number; href: (page
 }
 
 export default async function BillingPage({ searchParams }: { searchParams: Promise<Search> }) {
-  await requireAdmin();
+  await requireAdmin("billing.view");
   const params = await searchParams;
   const query: Query = {
     mode: parseMode(params.mode),
