@@ -43,6 +43,8 @@ export type OptionalColumnsOutcome<R> = {
 
 export const POSTGRES_UNDEFINED_COLUMN = "42703";
 export const POSTGREST_UNKNOWN_COLUMN = "PGRST204";
+export const POSTGREST_RELATIONSHIP_NOT_FOUND = "PGRST200";
+export const POSTGREST_RELATIONSHIP_AMBIGUOUS = "PGRST201";
 
 // column workout_sets.duration_seconds does not exist
 // column "duration_seconds" does not exist
@@ -102,6 +104,18 @@ export function isMissingColumnError(error: unknown, optionalColumns?: readonly 
   if (!optionalColumns || !missing.column) return true;
   const column = missing.column.toLowerCase();
   return optionalColumns.some((name) => name.toLowerCase() === column);
+}
+
+/**
+ * True when PostgREST could not resolve an embedded resource, the `table(columns)`
+ * part of a select: PGRST200 (no relationship found in the schema cache) or
+ * PGRST201 (more than one). Like a missing column, the request changed nothing,
+ * so it can be sent again without the embed.
+ */
+export function isMissingRelationshipError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const { code } = error as PostgrestErrorLike;
+  return code === POSTGREST_RELATIONSHIP_NOT_FOUND || code === POSTGREST_RELATIONSHIP_AMBIGUOUS;
 }
 
 /**
