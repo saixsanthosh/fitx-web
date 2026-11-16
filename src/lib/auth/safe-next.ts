@@ -21,6 +21,8 @@ export function safeNext(value: string | null | undefined, fallback = "/dashboar
     return fallback;
   }
   if (url.origin !== BASE) return fallback;
+  // Dot segments resolve "/..//evil.example" to "//evil.example": a protocol-relative URL once returned.
+  if (url.pathname.startsWith("//") || url.pathname.includes("\\")) return fallback;
   if (BLOCKED_PATHS.has(url.pathname) || url.pathname.startsWith("/auth/") || url.pathname.startsWith("/api/")) return fallback;
   return `${url.pathname}${url.search}${url.hash}`;
 }

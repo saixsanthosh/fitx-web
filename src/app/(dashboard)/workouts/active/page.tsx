@@ -11,6 +11,7 @@ import { estimateOneRepMax } from "@/lib/domain/workout";
 import { localDayRange } from "@/lib/domain/dates";
 import { columnList, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS } from "../_lib/workout-columns";
+import { plannerEventToComplete } from "../_lib/plan-schedule";
 
 type SetItem = { id: string; set_number: number; target_reps: number | null; reps: number | null; weight_kg: number; duration_seconds: number | null; completed_at: string | null; draftWeight: string; draftReps: string; draftDuration: string };
 type ExerciseItem = { id: string; exercise_id: string | null; name: string; target_sets: number; reps_min: number; reps_max: number; rest_seconds: number; target_weight_kg: number | null; target_duration_seconds: number | null; sort_order: number; sets: SetItem[] };
@@ -247,14 +248,19 @@ export default function ActiveWorkoutPage() {
       }
     }
     if (session.plan_id) {
-      // Completes the plan's scheduled planner event on the day this session started (today for a
-      // normal workout). The saved plan is left untouched so it stays in the list to be used again;
-      // other days' events and cancelled events keep their status.
+      // Completes one planner event: the plan's scheduled event on the day this session started
+      // (today for a normal workout), else its most recent overdue one; never a later day's event
+      // (see plannerEventToComplete). The saved plan is left untouched so it can be used again.
       const sessionDay = localDayRange(new Date(session.started_at));
-      await supabase.from("planner_events").update({ status: "completed" })
+      // Newest first, so the session day's events and the latest overdue one are within the limit.
+      const candidates = await supabase.from("planner_events").select("id,status,starts_at")
         .eq("workout_plan_id", session.plan_id).eq("user_id", session.user_id)
         .eq("event_type", "workout").eq("status", "scheduled")
-        .gte("starts_at", sessionDay.start).lt("starts_at", sessionDay.end);
+        .lt("starts_at", sessionDay.end)
+        .order("starts_at", { ascending: false }).limit(20);
+      const events = ((candidates.data || []) as Array<{ id: string; status: string; starts_at: string }>).map((event) => ({ id: event.id, status: event.status, startsAt: Date.parse(event.starts_at) }));
+      const eventId = candidates.error ? null : plannerEventToComplete(events, { start: Date.parse(sessionDay.start), end: Date.parse(sessionDay.end) }, Date.parse(session.started_at));
+      if (eventId) await supabase.from("planner_events").update({ status: "completed" }).eq("id", eventId).eq("user_id", session.user_id).eq("status", "scheduled");
     }
     try { window.localStorage.removeItem(sessionUiKey(session.id)); } catch { /* The completed server record is authoritative. */ }
     setSummary({ duration, volume, sets: validSets.length, records: recordCount }); setSession({ ...session, status: "completed" }); setFinished(true); setSaving(false);

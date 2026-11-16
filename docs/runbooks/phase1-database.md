@@ -19,6 +19,14 @@ select grantee, privilege_type from information_schema.role_table_grants
 where table_schema = 'public' and table_name = 'profiles' and grantee in ('anon','authenticated') order by 1, 2;
 
 select polname, polcmd from pg_policy where polrelid = 'public.profiles'::regclass order by 1;
+
+-- counts only: profile values outside the ranges the app accepts (needed before any future range checks)
+select count(*) filter (where age is not null and age not between 13 and 100) as age_out,
+       count(*) filter (where height is not null and height not between 90 and 250) as height_out,
+       count(*) filter (where weight is not null and weight not between 30 and 500) as weight_out,
+       count(*) filter (where target_weight is not null and target_weight not between 30 and 500) as target_out,
+       count(*) filter (where char_length(name) > 120) as name_out
+from public.profiles;
 ```
 
 ## 2. Workout columns (only if step 1 shows them missing)

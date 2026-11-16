@@ -99,7 +99,8 @@ export async function GET(request: Request) {
       const row = (Array.isArray(quota) ? quota[0] : quota) as { allowed?: boolean; retry_after_seconds?: number } | null;
       if (row?.allowed === false) {
         const retry = Math.max(1, Math.round(Number(row.retry_after_seconds) || 60));
-        return NextResponse.json({ error: `You’re searching quickly. Try again in ${retry} s.` }, { status: 429, headers: { "Retry-After": String(retry) } });
+        const error = retry > 3600 ? "You’ve reached today’s food search limit. Try again tomorrow." : `You’re searching quickly. Try again in ${retry} s.`;
+        return NextResponse.json({ error }, { status: 429, headers: { "Retry-After": String(retry) } });
       }
     }
   }

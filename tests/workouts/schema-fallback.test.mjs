@@ -4,6 +4,7 @@ import {
   columnList,
   hasValuesIn,
   isMissingColumnError,
+  isMissingRelationshipError,
   missingColumnFromError,
   omitColumns,
   payloadFor,
@@ -310,4 +311,12 @@ test("columnList, omitColumns, payloadFor and hasValuesIn", () => {
   assert.equal(hasValuesIn([row], TARGETS), true);
   assert.equal(hasValuesIn([{ target_weight_kg: 0 }], TARGETS), true, "zero is a value");
   assert.equal(hasValuesIn([{ id: "y", target_weight_kg: null }, { id: "z" }], TARGETS), false);
+});
+
+test("isMissingRelationshipError recognises an embed PostgREST cannot resolve, and nothing else", () => {
+  assert.equal(isMissingRelationshipError({ code: "PGRST200", details: "Searched for a foreign key relationship between 'workout_plans' and 'workout_sessions' in the schema 'public', but no matches were found.", hint: null, message: "Could not find a relationship between 'workout_plans' and 'workout_sessions' in the schema cache" }), true);
+  assert.equal(isMissingRelationshipError({ code: "PGRST201", details: null, hint: null, message: "Could not embed because more than one relationship was found for 'workout_plans' and 'workout_sessions'" }), true);
+  for (const error of [missingReadColumn, missingWriteColumn, networkFailure, { message: "" }, null, undefined, "PGRST200"]) {
+    assert.equal(isMissingRelationshipError(error), false, JSON.stringify(error));
+  }
 });

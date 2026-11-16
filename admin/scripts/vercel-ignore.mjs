@@ -5,6 +5,13 @@
 // Exit code 1 builds and exit code 0 skips. Anything unexpected builds: the exit code
 // starts at 1, and only a clear "no change affects this app" sets it to 0. This file
 // always runs when Node starts it, so it never needs a main-module check.
+//
+// Setting the project environment variable FITX_FORCE_BUILD=1 makes every deployment
+// build. vercel.json overrides the dashboard's Ignored Build Step field, so this is the
+// switch that needs no code change.
+//
+// The root `npm test` runs this filter's tests too: keep this file and deploy-filter.mjs
+// free of npm dependencies (Node built-ins and git only).
 
 import { execFileSync } from "node:child_process";
 import { TARGETS, parseNameStatusZ, relevantFiles, shouldBuild } from "./deploy-filter.mjs";
@@ -17,6 +24,7 @@ const LOCAL_TIMEOUT_MS = 15_000;
 const FETCH_TIMEOUT_MS = 60_000;
 const SHA_PATTERN = /^[0-9a-f]{7,64}$/i;
 const BRANCH_PATTERN = /^(?![-/.])(?!.*\.\.)[\w./-]{1,200}$/;
+const FORCE_VALUES = new Set(["1", "true"]);
 
 const target = process.argv[2];
 const label = `FITX deploy filter (${TARGETS.includes(target) ? target : "unknown target"})`;
@@ -119,6 +127,10 @@ function main() {
     build(`Unknown target "${String(target ?? "").slice(0, 40)}"; expected one of: ${TARGETS.join(", ")}.`);
     return;
   }
+  if (FORCE_VALUES.has((process.env.FITX_FORCE_BUILD ?? "").trim().toLowerCase())) {
+    build("FITX_FORCE_BUILD is set, so this deployment builds whatever changed.");
+    return;
+  }
 
   const current = (process.env.VERCEL_GIT_COMMIT_SHA ?? "").trim();
   const previous = (process.env.VERCEL_GIT_PREVIOUS_SHA ?? "").trim();
@@ -135,6 +147,13 @@ function main() {
   }
   if (previous && previous.toLowerCase() === current.toLowerCase()) {
     build("This commit is already deployed, so this is a redeploy or a promotion.");
+    return;
+  }
+  // Production normally builds only from master. A production build of another branch is
+  // a promotion, and its previous SHA belongs to that branch's own deployments, so a
+  // path diff cannot tell whether production is missing changes.
+  if ((process.env.VERCEL_ENV ?? "").trim() === "production" && branch !== BASE_BRANCH) {
+    build(`This is a production build of ${branch || "an unnamed branch"} rather than ${BASE_BRANCH}, so it is treated as a promotion.`);
     return;
   }
 
