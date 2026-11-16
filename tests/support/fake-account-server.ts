@@ -1,5 +1,5 @@
-// A stand-in for the Supabase Auth, Auth admin and Storage endpoints that /api/account uses, on
-// 127.0.0.1. Access tokens are HS256-shaped JWTs (so supabase-js verifies them through GET
+// A stand-in for the Supabase Auth, Auth admin, Storage and billing-ledger endpoints that /api/account
+// uses, on 127.0.0.1. Access tokens are HS256-shaped JWTs (so supabase-js verifies them through GET
 // /auth/v1/user) carrying an `amr` claim, which is how the route tells how recent a sign-in is.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -20,6 +20,10 @@ export class FakeAccountServer {
   deletedUsers: string[] = [];
   failRemove = false;
   failDelete = false;
+  /** Billing ledger rows for GET /rest/v1/billing_subscriptions (secret key only). */
+  subscriptions: Array<Record<string, unknown>> = [];
+  /** Bodies of POST /rest/v1/rpc/billing_apply_event. */
+  billingEvents: unknown[] = [];
   calls: Array<{ method: string; path: string; auth: string }> = [];
 
   async start() {
@@ -40,6 +44,8 @@ export class FakeAccountServer {
     this.failRemove = false;
     this.failDelete = false;
     this.files.clear();
+    this.subscriptions = [];
+    this.billingEvents = [];
   }
 
   addUser(id: string, email: string, lastSignInAt = new Date().toISOString()) {
@@ -115,6 +121,17 @@ export class FakeAccountServer {
       const { prefixes = [] } = ((await this.body(req)) ?? {}) as { prefixes?: string[] };
       this.removed.push(...prefixes);
       return send(200, prefixes.map((name) => ({ name })));
+    }
+    // The billing ledger, as the server-only billing code reads and writes it through PostgREST.
+    if (url.pathname === "/rest/v1/billing_subscriptions" && req.method === "GET") {
+      if (!admin) return send(401, { code: "42501", message: "permission denied for table billing_subscriptions" });
+      const value = (name: string) => url.searchParams.get(name)?.replace(/^eq\./, "");
+      return send(200, this.subscriptions.filter((row) => row.user_id === value("user_id") && row.mode === value("mode")));
+    }
+    if (url.pathname === "/rest/v1/rpc/billing_apply_event" && req.method === "POST") {
+      if (!admin) return send(401, { code: "42501", message: "permission denied for function billing_apply_event" });
+      this.billingEvents.push(await this.body(req));
+      return send(200, { outcome: "applied" });
     }
     return send(404, { message: `fake account server: no route for ${req.method} ${url.pathname}` });
   }

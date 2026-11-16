@@ -6,11 +6,12 @@ import { ArrowLeft, ArrowRight, ArrowRightLeft, Check, ChevronLeft, ChevronRight
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
 import { ExerciseMovementFrames } from "@/components/exercises/ExerciseMedia";
+import { CountWithCamera, cameraRuleFor, type CameraCountResult } from "@/components/form-coach";
 import { SwapSheet } from "@/components/workouts/SwapSheet";
 import { programmeById } from "@/data/programmes";
 import { createClient } from "@/lib/supabase/client";
 import { localDayRange } from "@/lib/domain/dates";
-import { columnList, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { columnList, isMissingFunctionError, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { loadCatalog, loadEquipmentProfiles, ownedEquipmentSet } from "@/lib/training/data";
 import { equipmentLabel, missingEquipment } from "@/lib/training/equipment";
@@ -18,7 +19,7 @@ import { advanceEnrolmentFallback } from "@/lib/training/enrolment";
 import { estimateOneRepMax } from "@/lib/training/one-rep-max";
 import { finishSessionWithRpc } from "@/lib/training/plans";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
-import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS } from "../_lib/workout-columns";
+import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS, SET_REP_SOURCE_COLUMNS } from "../_lib/workout-columns";
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { useScreenWakeLock, useWorkoutCues } from "./session-device";
 
@@ -40,6 +41,29 @@ function unavailableFieldsNotice(targetsSupported: boolean, timedSetsSupported: 
   if (targetsSupported && timedSetsSupported) return "";
   const subject = !targetsSupported && !timedSetsSupported ? "Weight and time targets and timed sets aren’t" : !targetsSupported ? "Weight and time targets aren’t" : "Timed sets aren’t";
   return `${subject} available yet while FITX finishes an update. Weight and reps still save as you train.`;
+}
+
+type Supabase = NonNullable<ReturnType<typeof createClient>>;
+
+/** The browser's time zone, so the database counts the session's day as the user does. */
+function browserTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ticks off the planner item behind a finished session with fitx_complete_workout_event (planner
+ * migration): the item it was started from, else the plan's workout on the session's day (untimed To-Do
+ * workouts included, nearest time first), else its latest overdue one; never a later day's. Nothing to
+ * tick is still "done". "missing" means the database does not have the function yet.
+ */
+async function completeWorkoutEvent(supabase: Supabase, sessionId: string): Promise<"done" | "missing" | "failed"> {
+  const { error } = await supabase.rpc("fitx_complete_workout_event", { p_session_id: sessionId, p_tz: browserTimeZone() });
+  if (!error) return "done";
+  return isMissingFunctionError(error) ? "missing" : "failed";
 }
 
 function sessionUiKey(sessionId: string) { return `fitx:workout:session-ui:v1:${sessionId}`; }
@@ -77,6 +101,10 @@ export default function ActiveWorkoutPage() {
   const [swapOpen, setSwapOpen] = useState(false);
   // A countdown for a timed set; when it ends the set's seconds are filled in and the cue plays.
   const [setTimer, setSetTimer] = useState<{ exerciseId: string; setId: string; seconds: number; startedAt: number; endsAt: number } | null>(null);
+  // Sets "Count with camera" filled, with the number it filled in, so a saved set can record where its count came from.
+  const [cameraCounts, setCameraCounts] = useState<Map<string, { kind: CameraCountResult["kind"]; value: number }>>(() => new Map());
+  // False once the database has said it lacks workout_sets.rep_source; sets then save without that label.
+  const [repSourceSupported, setRepSourceSupported] = useState(true);
   const cues = useWorkoutCues();
   const { cue } = cues;
   const wakeLock = useScreenWakeLock(Boolean(session && session.status === "in_progress" && !finished && clock && !clock.paused && cues.keepAwake));
@@ -246,6 +274,13 @@ export default function ActiveWorkoutPage() {
     }));
   }
 
+  /** A count confirmed in "Count with camera" fills the open set for review; the user still ticks it to log it. */
+  function applyCameraCount(exerciseId: string, setId: string, result: CameraCountResult) {
+    const value = result.kind === "reps" ? result.reps : result.seconds;
+    changeSet(exerciseId, setId, result.kind === "reps" ? "draftReps" : "draftDuration", String(value));
+    setCameraCounts((counts) => new Map(counts).set(setId, { kind: result.kind, value }));
+  }
+
   async function togglePause() {
     if (!session || !clock || clockSaving) return;
     setError("");
@@ -290,9 +325,19 @@ export default function ActiveWorkoutPage() {
     if (!Number.isFinite(weight) || weight < 0 || weight > 2000 || !Number.isInteger(reps) || reps < 0 || reps > 500 || !Number.isInteger(duration) || duration < 0 || duration > 86400 || (complete && (requiresDuration ? duration === 0 : reps === 0 && duration === 0))) { setError(requiresDuration ? "Enter the completed duration before logging this timed movement." : timedSetsSupported ? "Enter a positive rep count or duration before completing a set." : "Enter a positive rep count before completing a set."); return; }
     const supabase = createClient(); if (!supabase || !session) return;
     const patch = { weight_kg: weight, reps: reps > 0 ? reps : null, duration_seconds: duration > 0 ? duration : null, completed_at: complete ? new Date().toISOString() : null };
-    const updated = await withOptionalColumns(SET_DURATION_COLUMNS, (include) =>
-      supabase.from("workout_sets").update(payloadFor(patch, SET_DURATION_COLUMNS, include)).eq("id", set.id).eq("user_id", session.user_id).select("id").maybeSingle(),
-    { includeOptional: timedSetsSupported });
+    // "camera" while the number is still the one the camera counted and the user confirmed.
+    const counted = cameraCounts.get(set.id);
+    const repSource = counted && (counted.kind === "reps" ? reps : duration) === counted.value ? "camera" : "manual";
+    // Two optional columns from different migrations, each dropped on its own when the database lacks it.
+    let includeSource = repSourceSupported;
+    const updated = await withOptionalColumns(SET_DURATION_COLUMNS, async (includeDuration) => {
+      const attempt = await withOptionalColumns(SET_REP_SOURCE_COLUMNS, (withSource) =>
+        supabase.from("workout_sets").update(payloadFor(payloadFor({ ...patch, rep_source: repSource }, SET_REP_SOURCE_COLUMNS, withSource), SET_DURATION_COLUMNS, includeDuration)).eq("id", set.id).eq("user_id", session.user_id).select("id").maybeSingle(),
+      { includeOptional: includeSource });
+      if (!attempt.includedOptional) includeSource = false;
+      return attempt.result;
+    }, { includeOptional: timedSetsSupported });
+    if (!includeSource && repSourceSupported) setRepSourceSupported(false);
     if (!updated.includedOptional) setTimedSetsSupported(false);
     if (updated.result.error || !updated.result.data) { setError("That set could not be saved. Check your connection and try again."); return; }
     // What the database now holds: a duration it could not store is not kept as saved.
@@ -331,10 +376,22 @@ export default function ActiveWorkoutPage() {
     setSaving(true); setError("");
     const nowDate = new Date();
     const duration = elapsedSeconds;
+    const sessionDay = localDayRange(new Date(session.started_at));
+    // fitx_finish_workout_session ticks off the plan's scheduled timed event up to the end of the
+    // session's day by itself. fitx_complete_workout_event also knows untimed To-Do workouts and the item
+    // a session was started from, so it is asked only when there is no such timed event: one finished
+    // workout never ticks off two planner items. (A failed check counts as "there is one".)
+    const timedEvent = session.plan_id
+      ? await supabase.from("planner_events").select("id").eq("workout_plan_id", session.plan_id).eq("user_id", session.user_id)
+        .eq("event_type", "workout").eq("status", "scheduled").lt("starts_at", sessionDay.end).limit(1)
+      : null;
+    const finishTicksEvent = timedEvent !== null && (Boolean(timedEvent.error) || Boolean(timedEvent.data?.length));
     // One transaction when the database has fitx_finish_workout_session: totals, records, the planner
     // event and the programme's next day are worked out from the saved sets.
-    const viaRpc = await finishSessionWithRpc(supabase, session.id, duration, localDayRange(new Date(session.started_at)));
+    const viaRpc = await finishSessionWithRpc(supabase, session.id, duration, sessionDay);
     if (viaRpc.summary) {
+      // Best effort: the workout itself is saved either way.
+      if (!finishTicksEvent) await completeWorkoutEvent(supabase, session.id);
       try { window.localStorage.removeItem(sessionUiKey(session.id)); } catch { /* The completed server record is authoritative. */ }
       setSummary(viaRpc.summary); setSession({ ...session, status: "completed" }); setFinished(true); setSaving(false);
       return;
@@ -362,20 +419,24 @@ export default function ActiveWorkoutPage() {
         if (!record.error) recordCount++;
       }
     }
+    // Ticks off one planner item (see completeWorkoutEvent). The saved plan is left untouched so it can
+    // be used again.
+    const linked = await completeWorkoutEvent(supabase, session.id);
     if (session.plan_id) {
-      // Completes one planner event: the plan's scheduled event on the day this session started
-      // (today for a normal workout), else its most recent overdue one; never a later day's event
-      // (see plannerEventToComplete). The saved plan is left untouched so it can be used again.
-      const sessionDay = localDayRange(new Date(session.started_at));
-      // Newest first, so the session day's events and the latest overdue one are within the limit.
-      const candidates = await supabase.from("planner_events").select("id,status,starts_at")
-        .eq("workout_plan_id", session.plan_id).eq("user_id", session.user_id)
-        .eq("event_type", "workout").eq("status", "scheduled")
-        .lt("starts_at", sessionDay.end)
-        .order("starts_at", { ascending: false }).limit(20);
-      const events = ((candidates.data || []) as Array<{ id: string; status: string; starts_at: string }>).map((event) => ({ id: event.id, status: event.status, startsAt: Date.parse(event.starts_at) }));
-      const eventId = candidates.error ? null : plannerEventToComplete(events, { start: Date.parse(sessionDay.start), end: Date.parse(sessionDay.end) }, Date.parse(session.started_at));
-      if (eventId) await supabase.from("planner_events").update({ status: "completed" }).eq("id", eventId).eq("user_id", session.user_id).eq("status", "scheduled");
+      if (linked === "missing") {
+        // Before the planner migration: the plan's scheduled event on the day this session started
+        // (today for a normal workout), else its most recent overdue one; never a later day's event
+        // (see plannerEventToComplete).
+        // Newest first, so the session day's events and the latest overdue one are within the limit.
+        const candidates = await supabase.from("planner_events").select("id,status,starts_at")
+          .eq("workout_plan_id", session.plan_id).eq("user_id", session.user_id)
+          .eq("event_type", "workout").eq("status", "scheduled")
+          .lt("starts_at", sessionDay.end)
+          .order("starts_at", { ascending: false }).limit(20);
+        const events = ((candidates.data || []) as Array<{ id: string; status: string; starts_at: string }>).map((event) => ({ id: event.id, status: event.status, startsAt: Date.parse(event.starts_at) }));
+        const eventId = candidates.error ? null : plannerEventToComplete(events, { start: Date.parse(sessionDay.start), end: Date.parse(sessionDay.end) }, Date.parse(session.started_at));
+        if (eventId) await supabase.from("planner_events").update({ status: "completed" }).eq("id", eventId).eq("user_id", session.user_id).eq("status", "scheduled");
+      }
       // A programme day moves its programme on (the database function does this when it exists).
       const plan = await withOptionalColumns(["programme_enrolment_id", "programme_day_index"], (include) =>
         supabase.from("workout_plans").select(columnList(["id"], ["programme_enrolment_id", "programme_day_index"], include)).eq("id", session.plan_id!).eq("user_id", session.user_id).maybeSingle());
@@ -409,6 +470,8 @@ export default function ActiveWorkoutPage() {
   const swapTarget = currentExercise?.exercise_id ? catalog.find((exercise) => exercise.id === currentExercise.exercise_id) : undefined;
   const swapMissing = swapTarget ? missingEquipment(swapTarget.required_equipment, owned) : [];
   const nextOpenSet = currentExercise?.sets.find((set) => !set.completed_at);
+  // "Count with camera" for the six movements the form coach can count; a plank's seconds need timed sets.
+  const cameraRule = currentExercise ? cameraRuleFor({ id: currentExercise.exercise_id, name: currentExercise.name }) : null;
   const timerHere = Boolean(setTimer && currentExercise && setTimer.exerciseId === currentExercise.id);
   const timerRemaining = setTimer ? Math.max(0, Math.ceil((setTimer.endsAt - now) / 1000)) : 0;
   // Set · weight · reps (· seconds) · complete
@@ -438,15 +501,21 @@ export default function ActiveWorkoutPage() {
     {currentExercise && <section aria-labelledby="current-exercise-title" className="fitx-panel overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-fitx-divider p-4 sm:p-5"><div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-fitx-primary">Movement {String(currentExerciseIndex + 1).padStart(2, "0")} <span className="text-fitx-text-secondary">/ {String(exercises.length).padStart(2, "0")}</span></p><h2 id="current-exercise-title" className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">{currentExercise.name}</h2><p className="mt-1 text-xs text-fitx-text-secondary">Target: {currentExercise.target_sets} sets · {currentExercise.reps_min}–{currentExercise.reps_max} reps{targetsSupported && <> · {currentExercise.target_weight_kg == null ? "No load" : `${currentExercise.target_weight_kg} kg`} · {currentExercise.target_duration_seconds == null ? "No time target" : `${currentExercise.target_duration_seconds}s`}</>} · {currentExercise.rest_seconds}s rest</p>{swapMissing.length > 0 && <p className="mt-1 text-xs text-fitx-warning">Needs {swapMissing.map(equipmentLabel).join(", ").toLowerCase()}, not on your {ownedContext} list. Swap it for something you can do.</p>}</div><div className="flex items-center gap-2"><button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || clock?.paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-10 px-3 text-xs"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button><button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} aria-label="Previous exercise" className="grid h-10 w-10 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronLeft size={18} /></button><button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} aria-label="Next exercise" className="grid h-10 w-10 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronRight size={18} /></button></div></div>
       <div className="p-4 sm:p-5"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Working sets</h3><p className="mt-1 text-xs text-fitx-text-secondary">Completed entries save to this session.</p></div><button type="button" onClick={() => void addSet(currentExercise)} disabled={clock?.paused} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs"><Plus size={14} />Add set</button></div>
-        {/* Form coach mount point (Phase 8, src/components/form-coach): a "Count with camera" control goes here, beside "Add set",
-            for the movements the coach supports. It should fill the next open set's reps with
-            changeSet(currentExercise.id, set.id, "draftReps", String(count)) and leave logging to the user's tick. */}
         {timedSetsSupported && currentExercise.target_duration_seconds != null && nextOpenSet && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3" aria-live="polite">
           <div><p className="text-sm font-medium tabular-nums">{timerHere ? `Set ${nextOpenSet.set_number}: ${timerRemaining}s left` : `Set ${nextOpenSet.set_number}: ${currentExercise.target_duration_seconds}s`}</p><p className="text-xs text-fitx-text-secondary">{timerHere ? "The seconds fill in when the timer ends. Tick the set to log it." : "Start the timer as you begin."}</p></div>
           {timerHere ? <button type="button" onClick={stopSetTimer} className="fitx-button fitx-button-secondary min-h-11"><Square size={14} aria-hidden="true" />Stop</button> : <button type="button" disabled={clock?.paused || Boolean(setTimer)} onClick={() => startSetTimer(currentExercise.id, nextOpenSet.id, currentExercise.target_duration_seconds!)} className="fitx-button min-h-11"><Play size={14} aria-hidden="true" />Start timer</button>}
         </div>}
         <div className={`${setGridColumns} gap-2 px-1 pb-2 text-[10px] font-medium uppercase tracking-wide text-fitx-text-secondary`}><span>Set</span><span>Weight · kg</span><span>Reps</span>{timedSetsSupported && <span>Sec</span>}<span /></div>
         <div className="space-y-2">{currentExercise.sets.map((set) => <div key={set.id} className={`${setGridColumns} items-center gap-2`}><span className="text-sm font-medium tabular-nums text-fitx-text-secondary">{String(set.set_number).padStart(2, "0")}</span><input aria-label={`${currentExercise.name} set ${set.set_number} weight in kg`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="2000" step="0.5" value={set.draftWeight} onChange={(event) => changeSet(currentExercise.id, set.id, "draftWeight", event.target.value)} /><input aria-label={`${currentExercise.name} set ${set.set_number} repetitions`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="500" step="1" value={set.draftReps} onChange={(event) => changeSet(currentExercise.id, set.id, "draftReps", event.target.value)} />{timedSetsSupported && <input aria-label={`${currentExercise.name} set ${set.set_number} duration in seconds`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="86400" step="1" value={set.draftDuration} onChange={(event) => changeSet(currentExercise.id, set.id, "draftDuration", event.target.value)} />}<button type="button" disabled={clock?.paused} onClick={() => void saveSet(currentExercise.id, set, !set.completed_at)} aria-label={set.completed_at ? "Mark set incomplete" : "Complete set"} className={`grid h-12 w-12 place-items-center rounded-md border transition-colors disabled:opacity-50 ${set.completed_at ? "border-fitx-primary/50 bg-fitx-primary/10 text-fitx-primary" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-primary"}`}><Check size={19} /></button></div>)}</div>
+        {nextOpenSet && cameraRule && (cameraRule.motion.kind === "reps" || timedSetsSupported) && <div className="mt-3">
+          <CountWithCamera
+            exercise={{ id: currentExercise.exercise_id, name: currentExercise.name }}
+            target={cameraRule.motion.kind === "hold" ? currentExercise.target_duration_seconds : Math.round((currentExercise.reps_min + currentExercise.reps_max) / 2)}
+            setLabel={`Set ${nextOpenSet.set_number}`}
+            disabled={clock?.paused}
+            onUse={(result) => applyCameraCount(currentExercise.id, nextOpenSet.id, result)}
+          />
+        </div>}
         {currentExercise.exercise_id && <details className="mt-5 border-t border-fitx-divider pt-3"><summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-fitx-text-secondary">View movement reference frames</summary><div className="mt-2 max-w-2xl"><ExerciseMovementFrames exerciseId={currentExercise.exercise_id} name={currentExercise.name} /></div></details>}
       </div>
     </section>}

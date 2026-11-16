@@ -9,8 +9,22 @@
  * No imports, so `node --test` can load this file directly.
  */
 
-/** A planner event linked to the plan, with its start as a local date key (YYYY-MM-DD). */
-export type LinkedPlannerEvent = { status: string; dateKey: string };
+/**
+ * A planner event linked to the plan, with its start as a local date key (YYYY-MM-DD); null for an
+ * untimed To-Do item.
+ */
+export type LinkedPlannerEvent = { status: string; dateKey: string | null };
+
+/**
+ * The linked events a plan save may change, plus the history it must respect, for
+ * `plannerScheduleChange`. To-Do workouts can link to a plan too (on any day, timed or not); they keep
+ * their own day. Only the plan's own upcoming event follows the plan: the scheduled, timed event on the
+ * day the plan was planned for before this save (`previousPlannedFor`, null for a new or undated plan).
+ * Completed events all stay in: a day that is already done is not scheduled again.
+ */
+export function plannerEventsForPlan<T extends LinkedPlannerEvent>(events: readonly T[], previousPlannedFor: string | null): T[] {
+  return events.filter((event) => event.status !== "scheduled" || (previousPlannedFor !== null && event.dateKey === previousPlannedFor));
+}
 
 export type PlannerScheduleChange =
   /** Nothing to change. */

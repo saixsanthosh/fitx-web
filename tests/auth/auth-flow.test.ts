@@ -9,6 +9,7 @@ delete process.env.VERCEL_ENV;
 
 const { NextRequest } = await import("next/server");
 const { proxy, config } = await import("@/proxy");
+const { ACCOUNT_NAV, MAIN_NAV } = await import("@/config/navigation");
 const callback = await import("@/app/auth/callback/route");
 const sessionRoute = await import("@/app/api/auth/session/route");
 const introRoute = await import("@/app/api/intro/complete/route");
@@ -48,9 +49,16 @@ beforeEach(() => fake.reset());
 after(() => fake.stop());
 
 describe("proxy", () => {
-  test("matches pages but not assets, API routes or the film", async () => {
-    for (const url of ["/", "/dashboard", "/signin", "/workouts/active"]) assert.equal(unstable_doesMiddlewareMatch({ config, url }), true, url);
-    for (const url of ["/api/foods/search", "/brand/intro/fitx-intro-light-portrait-60.mp4", "/manifest.webmanifest", "/_next/static/chunks/a.js", "/icon.svg"]) {
+  test("matches pages but not assets, API routes, the film or the pose runtime", async () => {
+    for (const url of ["/", "/dashboard", "/signin", "/workouts/active", "/activity/record", "/form-coach", "/help"]) {
+      assert.equal(unstable_doesMiddlewareMatch({ config, url }), true, url);
+    }
+    for (const url of [
+      "/api/foods/search", "/brand/intro/fitx-intro-light-portrait-60.mp4", "/manifest.webmanifest", "/_next/static/chunks/a.js", "/icon.svg",
+      // The camera form coach's self-hosted MediaPipe runtime (11 MB) and models skip the session check.
+      "/models/pose/wasm-0.10.35/vision_wasm_internal.js", "/models/pose/wasm-0.10.35/vision_wasm_internal.wasm",
+      "/models/pose/landmarker-float16-v1/pose_landmarker_lite.task",
+    ]) {
       assert.equal(unstable_doesMiddlewareMatch({ config, url }), false, url);
     }
   });
@@ -59,6 +67,27 @@ describe("proxy", () => {
     const response = await proxy(request("/workouts?plan=1"));
     assert.equal(response.status, 307);
     assert.equal(location(response), "/signin?next=%2Fworkouts%3Fplan%3D1");
+  });
+
+  test("activity, the form coach and help need a sign-in too", async () => {
+    for (const [path, next] of [
+      ["/activity", "%2Factivity"],
+      ["/activity/record", "%2Factivity%2Frecord"],
+      ["/form-coach?exercise=squat", "%2Fform-coach%3Fexercise%3Dsquat"],
+      ["/help?from=%2Fworkouts", "%2Fhelp%3Ffrom%3D%252Fworkouts"],
+    ]) {
+      const response = await proxy(request(path));
+      assert.equal(response.status, 307, path);
+      assert.equal(location(response), `/signin?next=${next}`, path);
+    }
+    // A public page that only starts with a private root's name stays public.
+    assert.equal(location(await proxy(request("/helpful-tips"))), null);
+  });
+
+  test("every page in the app navigation is private", async () => {
+    for (const { href } of [...MAIN_NAV, ...ACCOUNT_NAV]) {
+      assert.equal(location(await proxy(request(href))), `/signin?next=${encodeURIComponent(href)}`, href);
+    }
   });
 
   test("lets signed-out visitors see the marketing home", async () => {

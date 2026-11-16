@@ -14,8 +14,8 @@ import { canonicalOrigin } from "@/lib/site-url";
 
 /** Signed-in areas. Everything else (marketing, legal, sign-in pages) is public. */
 const PRIVATE_ROOTS = [
-  "/dashboard", "/workouts", "/nutrition", "/progress", "/goals", "/planner", "/profile", "/settings", "/exercises",
-  "/onboarding", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
+  "/dashboard", "/workouts", "/nutrition", "/activity", "/progress", "/goals", "/planner", "/profile", "/settings", "/help",
+  "/exercises", "/form-coach", "/onboarding", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
 ];
 const AUTH_ENTRY = new Set(["/signin", "/signup", "/forgot-password"]);
 /** Parameters Supabase Auth appends when it sends a browser back after sign-in or an e-mail link. */
@@ -168,6 +168,6 @@ async function readOnboarded(
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|api/|favicon\\.ico|icon\\.svg|apple-icon|manifest\\.webmanifest|robots\\.txt|sitemap\\.xml|opengraph-image|twitter-image|brand/|images/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|mp4|webm|woff2?|txt|xml|json|map)$).*)",
+    "/((?!_next/static|_next/image|api/|favicon\\.ico|icon\\.svg|apple-icon|manifest\\.webmanifest|robots\\.txt|sitemap\\.xml|opengraph-image|twitter-image|brand/|images/|models/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|mp4|webm|woff2?|txt|xml|json|map)$).*)",
   ],
 };

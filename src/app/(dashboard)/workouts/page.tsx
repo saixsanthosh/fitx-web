@@ -21,8 +21,8 @@ import { generateDay } from "@/lib/training/generator";
 import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { startSessionWithRpc } from "@/lib/training/plans";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
-import { PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
-import { plannerScheduleChange } from "./_lib/plan-schedule";
+import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
+import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
 
@@ -160,6 +160,8 @@ export default function WorkoutsPage() {
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [mode, setMode] = useState<"auto" | "custom">("auto");
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  // The edited plan's date when it was opened: its own planner event is the one on that day.
+  const [editingPlannedFor, setEditingPlannedFor] = useState<string | null>(null);
   const [title, setTitle] = useState("Training session");
   const [planNotes, setPlanNotes] = useState("");
   const [split, setSplit] = useState("full_body");
@@ -543,8 +545,8 @@ export default function WorkoutsPage() {
     const [planResult, exercisesResult, eventResult] = await Promise.all([
       supabase.from("workout_plans").select("id,title,planned_for,status,split,notes,workout_location").eq("id", plan.id).eq("user_id", userId).maybeSingle(),
       readPlanExercises(plan.id),
-      // The upcoming event gives the start time; "scheduled" sorts before "completed".
-      supabase.from("planner_events").select("starts_at").eq("workout_plan_id", plan.id).eq("user_id", userId).eq("event_type", "workout").neq("status", "cancelled").order("status", { ascending: false }).order("starts_at", { ascending: true }).limit(1).maybeSingle(),
+      // The plan's own event gives the start time (see below); "scheduled" sorts before "completed".
+      supabase.from("planner_events").select("status,starts_at").eq("workout_plan_id", plan.id).eq("user_id", userId).eq("event_type", "workout").neq("status", "cancelled").not("starts_at", "is", null).order("status", { ascending: false }).order("starts_at", { ascending: true }).limit(20),
     ]);
     if (planResult.error || !planResult.data || exercisesResult.error) {
       setSaving(false); setError("This workout could not be opened for editing. Check your connection and try again."); return;
@@ -557,8 +559,12 @@ export default function WorkoutsPage() {
     if (rows.length && !nextPreview.length) {
       setSaving(false); setError("The saved movements are no longer available in the active library."); return;
     }
-    setMode("custom"); setEditingPlanId(plan.id); setTitle(planResult.data.title); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym");
-    setPlannedFor(planResult.data.planned_for || ""); setTime(eventResult.data?.starts_at ? new Date(eventResult.data.starts_at).toTimeString().slice(0, 5) : "18:00");
+    setMode("custom"); setEditingPlanId(plan.id); setEditingPlannedFor(planResult.data.planned_for || null); setTitle(planResult.data.title); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym");
+    // A To-Do workout linked to the plan has its own time: prefer the scheduled event on the plan's day.
+    const planDay = planResult.data.planned_for;
+    const timedEvents = (eventResult.data || []) as Array<{ status: string; starts_at: string }>;
+    const ownEvent = timedEvents.find((event) => event.status === "scheduled" && localDateKey(new Date(event.starts_at)) === planDay) ?? timedEvents[0];
+    setPlannedFor(planResult.data.planned_for || ""); setTime(ownEvent ? new Date(ownEvent.starts_at).toTimeString().slice(0, 5) : "18:00");
     setSelected(nextPreview.map((row) => row.exercise.id)); setPreview(nextPreview); setQuery(""); setCreatorOpen(true); setSaving(false);
   }
 
@@ -619,13 +625,14 @@ export default function WorkoutsPage() {
     let originalPlan: { title: string; split: string; workout_location: string; planned_for: string | null; status: string; notes: string | null } | null = null;
     // Tracked locally: state set during this save is not visible until the next render.
     let includeTargets = targetsSupported !== false;
+    const previousPlannedFor = editingPlanId ? editingPlannedFor : null;
 
     // One transaction when the database has fitx_save_workout_plan; on failure nothing changed.
     const rpc = await supabase.rpc("fitx_save_workout_plan", {
       p_plan: { id: editingPlanId, ...patch },
       p_exercises: preview.map((item) => ({ exercise_id: item.exercise.id, exercise_name: item.exercise.name, target_sets: item.target_sets, reps_min: item.reps_min, reps_max: item.reps_max, rest_seconds: item.rest_seconds, target_weight_kg: item.target_weight_kg, target_duration_seconds: item.target_duration_seconds })),
     });
-    if (!rpc.error) return afterSave(supabase, rpc.data as string, false, thenStart);
+    if (!rpc.error) return afterSave(supabase, rpc.data as string, false, thenStart, previousPlannedFor);
     if (!isMissingFunctionError(rpc.error)) {
       setSaving(false);
       return setError(editingPlanId ? "The workout could not be updated. Your saved plan is unchanged." : "The workout could not be saved. Please try again.");
@@ -685,31 +692,42 @@ export default function WorkoutsPage() {
     // Only possible when the builder showed target fields before the database said it lacks them.
     const droppedTargets = !savedExercises.includedOptional && hasValuesIn(rows, PRESCRIPTION_TARGET_COLUMNS);
     if (!planId) { setSaving(false); return setError("The workout could not be saved. Please try again."); }
-    return afterSave(supabase, planId, droppedTargets, thenStart);
+    return afterSave(supabase, planId, droppedTargets, thenStart, originalPlan ? originalPlan.planned_for : previousPlannedFor);
   }
 
-  /** After a plan is stored: keep its planner event in step, refresh, report, and optionally start it. */
-  async function afterSave(supabase: SupabaseBrowserClient, planId: string, droppedTargets: boolean, thenStart: boolean) {
-    // Completed and cancelled events are kept as history; only the upcoming event follows the plan.
+  /**
+   * After a plan is stored: keep its planner event in step, refresh, report, and optionally start it.
+   * `previousPlannedFor` is the plan's date before this save; its own event is the one on that day.
+   */
+  async function afterSave(supabase: SupabaseBrowserClient, planId: string, droppedTargets: boolean, thenStart: boolean, previousPlannedFor: string | null) {
+    // Completed and cancelled events are kept as history; only the plan's own upcoming event follows the
+    // plan. To-Do workouts linked to the plan keep their own day (see plannerEventsForPlan).
     const existingEvents = await supabase.from("planner_events").select("id,status,starts_at").eq("workout_plan_id", planId).eq("user_id", userId).eq("event_type", "workout").neq("status", "cancelled");
     let scheduleWarning = "";
     if (existingEvents.error) {
       scheduleWarning = "Workout saved, but the planner link could not be checked. Review your planner before scheduling it again.";
     } else {
-      const linkedEvents = ((existingEvents.data || []) as Array<{ status: string; starts_at: string }>).map((event) => ({ status: event.status, dateKey: localDateKey(new Date(event.starts_at)) }));
-      const change = plannerScheduleChange(linkedEvents, plannedFor);
+      // Untimed To-Do items (no starts_at) arrive with the planner migration.
+      const linkedEvents = ((existingEvents.data || []) as Array<{ id: string; status: string; starts_at: string | null }>)
+        .map((event) => ({ id: event.id, status: event.status, dateKey: event.starts_at ? localDateKey(new Date(event.starts_at)) : null }));
+      const planEvents = plannerEventsForPlan(linkedEvents, previousPlannedFor);
+      const ownScheduled = planEvents.filter((event) => event.status === "scheduled").map((event) => event.id);
+      const change = plannerScheduleChange(planEvents, plannedFor);
+      // local_date is the To-Do list's day; a database without it works the day out from starts_at.
       const eventPatch = () => {
         const startsAt = new Date(`${plannedFor}T${time || "18:00"}:00`);
-        return { title: title.trim(), starts_at: startsAt.toISOString(), ends_at: new Date(startsAt.getTime() + 3600000).toISOString(), status: "scheduled" };
+        return { title: title.trim(), starts_at: startsAt.toISOString(), ends_at: new Date(startsAt.getTime() + 3600000).toISOString(), status: "scheduled", local_date: plannedFor };
       };
       if (change === "update-scheduled") {
-        const updated = await supabase.from("planner_events").update(eventPatch()).eq("workout_plan_id", planId).eq("user_id", userId).eq("event_type", "workout").eq("status", "scheduled");
-        if (updated.error) scheduleWarning = "Workout saved, but its planner event could not be updated.";
+        const updated = await withOptionalColumns(PLANNER_DAY_COLUMNS, (include) =>
+          supabase.from("planner_events").update(payloadFor(eventPatch(), PLANNER_DAY_COLUMNS, include)).in("id", ownScheduled).eq("user_id", userId).eq("status", "scheduled"));
+        if (updated.result.error) scheduleWarning = "Workout saved, but its planner event could not be updated.";
       } else if (change === "insert") {
-        const scheduled = await supabase.from("planner_events").insert({ user_id: userId, event_type: "workout", workout_plan_id: planId, ...eventPatch() });
-        if (scheduled.error) scheduleWarning = "Workout saved, but its planner event could not be created.";
+        const scheduled = await withOptionalColumns(PLANNER_DAY_COLUMNS, (include) =>
+          supabase.from("planner_events").insert(payloadFor({ user_id: userId, event_type: "workout", workout_plan_id: planId, ...eventPatch() }, PLANNER_DAY_COLUMNS, include)));
+        if (scheduled.result.error) scheduleWarning = "Workout saved, but its planner event could not be created.";
       } else if (change === "cancel-scheduled") {
-        const cancelled = await supabase.from("planner_events").update({ status: "cancelled" }).eq("workout_plan_id", planId).eq("user_id", userId).eq("event_type", "workout").eq("status", "scheduled");
+        const cancelled = await supabase.from("planner_events").update({ status: "cancelled" }).in("id", ownScheduled).eq("user_id", userId).eq("status", "scheduled");
         if (cancelled.error) scheduleWarning = "Workout saved, but its planner event could not be cleared.";
       }
     }
@@ -836,7 +854,7 @@ export default function WorkoutsPage() {
         <div className={styles.metric}><span className={styles.metricMark} aria-hidden="true"/><p className={styles.metricValue}><CountValue value={counts.exercises}/></p><p className={styles.metricLabel}>Exercises</p></div>
       </section>
       <section className={styles.plansSection}>
-        <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Your plans</h2><p className="mt-1 text-xs text-fitx-text-secondary">Workouts you built or saved. Programme days are listed with your programme.</p></div><Link href="/planner" className="text-xs font-medium text-fitx-primary-text">Open planner<ArrowRight className="ml-1 inline" size={14}/></Link></div>
+        <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Your plans</h2><p className="mt-1 text-xs text-fitx-text-secondary">Workouts you built or saved. Programme days are listed with your programme.</p></div><Link href="/goals?tab=week" className="text-xs font-medium text-fitx-primary-text">Open your week<ArrowRight className="ml-1 inline" size={14}/></Link></div>
         {plans.length ? <div className={styles.planList}>{plans.map((plan) => <article key={plan.id} id={`workout-plan-${plan.id}`} className={`${styles.planCard} fitx-panel flex flex-col gap-4 p-4 transition-colors sm:flex-row sm:items-center sm:p-5`}><div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={20}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-medium">{plan.title}</h3><PlanStatusChip status={planCardStatus(plan.planned_for, listDayKey, plan.last_done_key)}/></div><p className="mt-1 flex items-center gap-1.5 text-xs capitalize text-fitx-text-secondary"><CalendarDays size={13}/>{plan.planned_for ? readableDate(new Date(plan.planned_for + "T12:00:00")) : "No date set"} · {plan.split.replaceAll("_", " ")}</p></div><div className="flex flex-wrap items-center gap-2"><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void editPlan(plan)} aria-label={"Edit " + plan.title}><Pencil size={14}/>Edit</button><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void duplicatePlan(plan)} aria-label={"Duplicate " + plan.title}><Copy size={14}/>Copy</button><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void deletePlan(plan)} aria-label={"Delete " + plan.title}><Trash2 size={14}/></button><button disabled={Boolean(starting)} className="fitx-button min-h-11 px-4 text-xs" onClick={() => void startWorkout(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15}/></button></div></article>)}{(planCursor || (counts.plans !== null && counts.plans > plans.length)) && <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-fitx-text-secondary">Showing {plans.length.toLocaleString()}{counts.plans !== null && counts.plans >= plans.length ? ` of ${counts.plans.toLocaleString()}` : ""} saved plans</p>{planCursor && <button type="button" onClick={() => void loadMorePlans()} disabled={loadingMorePlans} className="fitx-button fitx-button-secondary min-h-11 px-4 text-xs">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}</div>}</div> : <div className={styles.plansEmpty}><EmptyState title="No workout plans yet" description="Generate a plan that respects your equipment and training level, or build one movement by movement." action={<button className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16}/>Create a plan</button>} /></div>}
       </section>
       <section>

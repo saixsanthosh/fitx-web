@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { plannerEventToComplete, plannerScheduleChange } from "../../src/app/(dashboard)/workouts/_lib/plan-schedule.ts";
+import { plannerEventsForPlan, plannerEventToComplete, plannerScheduleChange } from "../../src/app/(dashboard)/workouts/_lib/plan-schedule.ts";
 
 const today = "2026-11-16";
 const nextWeek = "2026-11-23";
@@ -37,6 +37,32 @@ test("an overdue scheduled event is moved rather than duplicated", () => {
 
 test("a day that is already done is left alone even if an older event is still scheduled", () => {
   assert.equal(plannerScheduleChange([{ status: "scheduled", dateKey: "2026-11-12" }, { status: "completed", dateKey: today }], today), "none");
+});
+
+// To-Do workouts can link to a plan on any day, timed or not. Saving the plan moves only its own event.
+test("moving a plan moves its own event and leaves linked To-Do workouts on their days", () => {
+  const events = [
+    { id: "own", status: "scheduled", dateKey: today },
+    { id: "todo-thursday", status: "scheduled", dateKey: "2026-11-19" },
+    { id: "todo-untimed", status: "scheduled", dateKey: null },
+    { id: "done", status: "completed", dateKey: "2026-11-09" },
+  ];
+  const planEvents = plannerEventsForPlan(events, today);
+  assert.deepEqual(planEvents.map((event) => event.id), ["own", "done"]);
+  assert.equal(plannerScheduleChange(planEvents, nextWeek), "update-scheduled");
+  assert.equal(plannerScheduleChange(planEvents, ""), "cancel-scheduled", "clearing the date cancels only the plan's own event");
+});
+
+test("a plan whose only scheduled links are To-Dos gets its own event, and clearing its date leaves them", () => {
+  const todos = [{ id: "todo", status: "scheduled", dateKey: "2026-11-19" }, { id: "untimed", status: "scheduled", dateKey: null }];
+  assert.deepEqual(plannerEventsForPlan(todos, null), []);
+  assert.equal(plannerScheduleChange(plannerEventsForPlan(todos, null), today), "insert");
+  assert.equal(plannerScheduleChange(plannerEventsForPlan(todos, today), today), "insert", "an untimed To-Do on the plan's day is not its event");
+  assert.equal(plannerScheduleChange(plannerEventsForPlan(todos, null), ""), "none");
+});
+
+test("a linked To-Do already done that day still stops the day being scheduled again", () => {
+  assert.equal(plannerScheduleChange(plannerEventsForPlan([{ id: "todo", status: "completed", dateKey: today }], null), today), "none");
 });
 
 // plannerEventToComplete works on epoch milliseconds; the session's local day is passed in.

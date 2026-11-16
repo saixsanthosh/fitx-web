@@ -37,7 +37,7 @@ function isMissingBillingSchema(code: string | undefined) {
 
 /**
  * Billing data straight from the ledger the FITX app writes from verified Razorpay events. Read with
- * the server-only key after requireAdmin(); the browser never receives the key or raw rows.
+ * the server-only key after requireAdmin("billing.view"); the browser never receives the key or raw rows.
  */
 export async function loadBillingPage({
   mode,
@@ -50,7 +50,7 @@ export async function loadBillingPage({
   subscribersPage: number;
   paymentsPage: number;
 }): Promise<BillingPageData> {
-  await requireAdmin();
+  await requireAdmin("billing.view");
   const supabase = createAdminSupabase();
   if (!supabase) return { state: "service_key_missing" };
 

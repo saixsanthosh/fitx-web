@@ -5,6 +5,7 @@ import { Download, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { BRAND } from "@/config/brand";
 import { countRecords, exportAccountData, exportFileName, ExportError } from "@/lib/account/export";
 import { DELETE_CONFIRMATION, RECENT_SIGN_IN_MINUTES, type DeletionStatus } from "@/lib/account/deletion";
+import { recordingStore } from "@/lib/activity/local-store";
 import { createClient } from "@/lib/supabase/client";
 
 /**
@@ -25,6 +26,11 @@ export function SettingsData() {
   );
 }
 
+/** A section label inside a sentence: "Food log" becomes "food log", "AI coach messages" keeps its "AI". */
+function inSentence(label: string) {
+  return /^[A-Z][a-z]/.test(label) ? label[0].toLowerCase() + label.slice(1) : label;
+}
+
 function DownloadData() {
   const [state, setState] = useState<{ kind: "idle" | "working" | "done" | "error"; text: string }>({ kind: "idle", text: "" });
 
@@ -36,7 +42,7 @@ function DownloadData() {
     if (!auth.user) return setState({ kind: "error", text: "Your session has ended. Sign in again to download your data." });
     try {
       const data = await exportAccountData(supabase, auth.user, {
-        onProgress: ({ done, total, label }) => setState({ kind: "working", text: `Collecting ${label.toLowerCase()} (${done + 1} of ${total})…` }),
+        onProgress: ({ done, total, label }) => setState({ kind: "working", text: `Collecting ${inSentence(label)} (${done + 1} of ${total})…` }),
       });
       const name = exportFileName();
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
@@ -50,7 +56,7 @@ function DownloadData() {
       const records = countRecords(data);
       setState({ kind: "done", text: `Downloaded ${name}: ${records.toLocaleString("en-IN")} ${records === 1 ? "record" : "records"}${data.files.length ? ` and a list of ${data.files.length} uploaded ${data.files.length === 1 ? "image" : "images"}` : ""}.` });
     } catch (error) {
-      const section = error instanceof ExportError ? error.section.toLowerCase() : "your data";
+      const section = error instanceof ExportError ? inSentence(error.section) : "your data";
       setState({ kind: "error", text: `We couldn't read ${section}, so nothing was downloaded. Check your connection and try again.` });
     }
   }
@@ -59,7 +65,7 @@ function DownloadData() {
     <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <h3 className="text-sm font-semibold text-fitx-text">Download my data</h3>
-        <p className="mt-1 max-w-prose text-sm leading-6 text-fitx-text-secondary">A JSON file with your profile, preferences, workouts, food log, weigh-ins, goals and planner, plus the names of images you uploaded.</p>
+        <p className="mt-1 max-w-prose text-sm leading-6 text-fitx-text-secondary">A JSON file with your profile, preferences, workouts, activities, food log, weigh-ins, goals, planner, AI coach conversations and help requests, plus the names of images you uploaded.</p>
         {state.text && (
           <p role={state.kind === "error" ? "alert" : "status"} className={`mt-2 text-sm ${state.kind === "error" ? "text-fitx-danger" : state.kind === "done" ? "text-fitx-success" : "text-fitx-text-secondary"}`}>{state.text}</p>
         )}
@@ -72,6 +78,32 @@ function DownloadData() {
 }
 
 type DeleteStep = "checking" | "unavailable" | "reauth" | "confirm" | "deleting" | "deleted" | "error";
+
+/** The signed-in account's id from this browser's session (no network), or null. */
+async function sessionUserId() {
+  try {
+    const { data } = (await createClient()?.auth.getSession()) ?? { data: { session: null } };
+    return data.session?.user.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Removes the account's activity recordings kept on this device (unfinished ones, or finished ones not
+ * yet uploaded). The account is already deleted: if IndexedDB is unavailable or slow, this gives up
+ * after a few seconds rather than hold up the confirmation.
+ */
+async function forgetDeviceRecordings(userId: string) {
+  try {
+    await Promise.race([
+      recordingStore().then((store) => store.deleteAll(userId)),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ]);
+  } catch {
+    // Nothing more to do here: the recordings belong to an account that no longer exists and can't upload.
+  }
+}
 
 /** Whether this account can be deleted now; null when the check itself failed. A signed-out answer means "sign in again". */
 async function fetchDeletionStatus(): Promise<DeletionStatus | null> {
@@ -143,6 +175,8 @@ function DeleteAccount() {
     if (typed !== DELETE_CONFIRMATION) return;
     setStep("deleting");
     setError("");
+    // Read before the request: whose activity recordings on this device to clear once the account is gone.
+    const userId = await sessionUserId();
     let response: Response;
     try {
       response = await fetch("/api/account", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: DELETE_CONFIRMATION }) });
@@ -151,6 +185,7 @@ function DeleteAccount() {
       return setError("We couldn't reach FITX. Nothing was deleted. Check your connection and try again.");
     }
     if (response.ok) {
+      if (userId) await forgetDeviceRecordings(userId);
       setStep("deleted");
       // The server already ended the session; this clears what the browser still holds.
       await createClient()?.auth.signOut({ scope: "local" }).catch(() => undefined);
@@ -162,7 +197,9 @@ function DeleteAccount() {
     setStep("confirm");
     setError(code === "delete_failed"
       ? "Your uploaded images were removed, but the account itself couldn't be deleted. Please try again in a moment."
-      : "Nothing was deleted. Please try again in a moment.");
+      : code === "billing_not_stopped"
+        ? "Your FITX Premium renewals couldn't be stopped with Razorpay, so nothing was deleted. Please try again in a moment."
+        : "Nothing was deleted. Please try again in a moment.");
   }
 
   const unavailable = status !== null && !status.available;
@@ -218,8 +255,9 @@ function DeleteAccount() {
                   <p className="text-sm leading-6 text-fitx-text-secondary">This permanently deletes:</p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-6 text-fitx-text-secondary">
                     <li>your login and profile</li>
-                    <li>every workout, food log, weigh-in, goal and plan</li>
-                    <li>your uploaded images</li>
+                    <li>every workout, activity, food log, weigh-in, goal and plan</li>
+                    <li>your AI coach conversations and help requests</li>
+                    <li>your uploaded images, and activity recordings kept on this device</li>
                   </ul>
                   <p className="mt-2 text-sm leading-6 text-fitx-text-secondary">It can’t be undone. Download your data first if you want a copy.</p>
                   <label htmlFor="delete-confirm" className="mt-4 block text-sm font-medium text-fitx-text">Type {DELETE_CONFIRMATION} to confirm</label>
