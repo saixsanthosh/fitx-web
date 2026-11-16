@@ -25,6 +25,12 @@ export const SESSION_PAUSE_COLUMNS = ["active_duration_seconds", "resumed_at", "
 export const PLANNER_DAY_COLUMNS = ["local_date"] as const;
 
 /**
+ * `workout_sessions.planner_event_id`, the planner item a session was started from, from the same
+ * migration.
+ */
+export const SESSION_PLANNER_COLUMNS = ["planner_event_id"] as const;
+
+/**
  * `workout_sets.rep_source` ("manual" or "camera"), from
  * supabase/migrations/20261118170008_fitx_workout_sets_rep_source.sql.
  */
