@@ -1,12 +1,14 @@
-// Runs every repo migration on a throwaway local Postgres (Supabase stubs, no network, no real data) and checks
-// the Nutrition v2 SQL: the food catalogue and its access rules, search_foods, custom foods v2, saved meals and
-// routines, editable targets, re-running the migrations, and the catalogue seed parts when they are present.
-// Skipped when the Postgres binaries (initdb, pg_ctl, psql) are not on PATH.
+// Runs every repo migration on a throwaway local Postgres (the Supabase stand-in in tests/support, no network, no
+// real data) and checks the Nutrition v2 SQL: the food catalogue and its access rules, search_foods, custom foods
+// v2, saved meals and routines, editable targets, re-running the migrations, and the catalogue seed parts when they
+// are present. The exercise and food catalogue parts are only data: they are left out of the migration runs, and
+// the last test loads the food parts on their own. Skipped when the Postgres binaries (initdb, pg_ctl, psql) are not
+// on PATH.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import path from "node:path";
-import { LocalPostgres, MIGRATIONS_DIR, available } from "./support/local-postgres.mjs";
+import { LocalPostgres, MIGRATIONS_DIR, available } from "../support/local-postgres.mjs";
 
 const A = "aaaaaaaa-0000-4000-8000-000000000001";
 const B = "bbbbbbbb-0000-4000-8000-000000000002";
@@ -14,6 +16,8 @@ const asA = { role: "authenticated", sub: A };
 const asB = { role: "authenticated", sub: B };
 const anon = { role: "anon" };
 const SEED_PARTS = readdirSync(MIGRATIONS_DIR).filter((name) => /_fitx_food_catalog_seed_part_\d+\.sql$/.test(name)).sort();
+/** Data-only migrations: the exercise catalogue (not needed here) and the food catalogue seed (loaded by the last test). */
+const DATA_PARTS = /free_exercise_db_part|food_catalog_seed_part/;
 
 const skip = available() ? false : "Postgres binaries (initdb, pg_ctl, psql) are not installed";
 
@@ -23,7 +27,7 @@ describe("Nutrition v2 SQL on a local Postgres", { skip }, () => {
 
   before(() => {
     pg = new LocalPostgres().start();
-    pg.applyMigrations();
+    pg.applyMigrations({ skip: DATA_PARTS });
     pg.exec(`
       insert into auth.users (id, email) values ('${A}', 'a@example.test'), ('${B}', 'b@example.test');
       insert into public.food_catalog (id, name, aliases, keywords, state, kcal, protein_g, carbs_g, fat_g, value_basis, source_data_type, is_active) values
@@ -195,7 +199,7 @@ describe("Nutrition v2 SQL on a local Postgres", { skip }, () => {
   });
 
   test("the nutrition migrations can be applied again without errors", () => {
-    const files = pg.applyMigrations({ from: "20261118140000", skip: /food_catalog_seed_part/ });
+    const files = pg.applyMigrations({ from: "20261118140000", skip: DATA_PARTS });
     assert.deepEqual(files.filter((name) => /^2026111814000[0-2]_/.test(name)).length, 3);
     assert.equal(pg.json(`select count(*) from public.food_catalog where id = '2708346';`), 1);
   });
