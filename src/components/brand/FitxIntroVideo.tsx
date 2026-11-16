@@ -83,9 +83,10 @@ type BufferResult = "ready" | "slow" | "timeout";
 
 /**
  * Buffers ahead of playback. "ready" once the browser expects to play through; "slow" if media is
- * arriving slower than ~1.25x real time, so playing this cut would stall; "timeout" after `capMs`
- * (e.g. browsers that only fetch once playing). The rate is measured from the first buffered data
- * over at least 0.75 s, so server latency (time to first byte) never reads as a slow connection.
+ * arriving slower than ~1.1x real time, so playing this cut would stall; "timeout" after `capMs`
+ * (e.g. browsers that only fetch once playing). The rate is averaged from the first buffered data
+ * over at least 1.5 s, so latency and bursty delivery never read as a slow connection (fast
+ * connections reach "ready" long before that).
  */
 function bufferAhead(video: HTMLVideoElement, capMs: number) {
   return new Promise<BufferResult>((resolve) => {
@@ -116,8 +117,8 @@ function bufferAhead(video: HTMLVideoElement, capMs: number) {
         return;
       }
       const span = (now - firstAt) / 1000;
-      if (span < 0.75 || ahead >= 5) return;
-      if ((ahead - firstAhead) / span < 1.25) settle("slow");
+      if (span < 1.5 || ahead >= 5) return;
+      if ((ahead - firstAhead) / span < 1.1) settle("slow");
     }, 125);
     video.addEventListener("canplaythrough", onEnough);
   });
@@ -205,7 +206,7 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
       load(first);
       // A short head start so the opening seconds never stall (the opening frame covers it). If the
       // connection cannot keep up with this cut, switch to the light one before anything plays.
-      const result = await bufferAhead(video, 2000);
+      const result = await bufferAhead(video, 3000);
       if (finished) return;
       if (result === "slow" && first !== lite) {
         load(lite);
