@@ -68,8 +68,10 @@ export default function NutritionSourcesPage() {
       <section className="fitx-panel space-y-3 p-5" aria-labelledby="sources-yours">
         <h2 id="sources-yours" className="text-base font-semibold text-fitx-text">Your foods and the AI coach</h2>
         <p className="text-sm text-fitx-text-secondary">
-          Foods you save are private to your account and keep the values you entered. Foods the AI coach adds to your plan take their
-          values from this catalogue, never from the AI itself, and are marked as AI suggestions.
+          Foods you save keep the values you entered and are private to your account, except their names, which the AI coach sends
+          to outside AI services if you use it with “Use my FITX data” on. Foods the AI coach adds to your plan take their values
+          from FITX’s food data (this catalogue, USDA FoodData Central or Open Food Facts) when FITX finds a match; otherwise they
+          keep the coach’s own estimate and are labelled “AI estimate”. Either way they are marked as AI suggestions.
         </p>
         <p className="text-sm text-fitx-text-secondary">
           FITX does not include the Indian Food Composition Tables (IFCT 2017) or the Indian Nutrient Databank, because their licences

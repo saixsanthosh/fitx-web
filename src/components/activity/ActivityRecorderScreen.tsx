@@ -339,7 +339,7 @@ export function ActivityRecorderScreen() {
               {needsPermission ? (
                 <div className="mt-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-4">
                   <p className="flex items-center gap-2 text-sm font-semibold text-fitx-text"><LocateFixed size={16} aria-hidden="true" className="text-fitx-primary" />Allow location to record</p>
-                  <p className="mt-1.5 text-[13px] leading-5 text-fitx-text-secondary">FITX uses your location only while this screen is recording. Your routes are private to your account.</p>
+                  <p className="mt-1.5 text-[13px] leading-5 text-fitx-text-secondary">Once you allow it, FITX uses your location while this screen is open, to show the GPS signal and then to record, until you finish or leave. Only the positions from while you record are kept, and your routes are private to your account.</p>
                   <button type="button" onClick={() => recorder?.warmUp()} className="fitx-button mt-3 min-h-11 w-full">Allow location</button>
                 </div>
               ) : (
