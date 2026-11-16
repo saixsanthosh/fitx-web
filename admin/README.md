@@ -232,6 +232,8 @@ npm run build      # production Next.js build
 npm start          # run the production build on port 3100
 ```
 
+Before applying migrations to the real project, `tests/database/run-database-checks.sh` (from `admin/`, needs PostgreSQL 15 or newer installed locally) applies every root migration to a throwaway local database, with stand-ins for what Supabase provides, then runs the Phase 10 migrations a second time and checks roles, the append-only audit log, metric definitions, search, rate limits, row-level security and column grants. It never touches a real project.
+
 The site serves `robots.txt` disallowing all crawlers, sends `noindex` metadata, and sends `X-Robots-Tag: noindex, nofollow`. It is a private console, not public SEO content.
 
 ## Two Vercel projects, one repository

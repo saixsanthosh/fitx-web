@@ -82,81 +82,94 @@ $function$;
 revoke all on function public.fitx_admin_overview_metrics() from public, anon, authenticated;
 grant execute on function public.fitx_admin_overview_metrics() to service_role;
 
-create or replace function public.fitx_admin_set_member(
-  p_actor_id uuid,
-  p_user_id uuid,
-  p_role text,
-  p_is_active boolean
-)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $function$
-declare
-  target public.fitx_admin_members%rowtype;
+-- The two functions below are created only when missing. Migration 20261118180001 replaces them with
+-- role-aware versions, and running this file again must never put the originals back.
+do $do$
 begin
-  perform pg_catalog.pg_advisory_xact_lock(847281033);
-  if not exists (
-    select 1 from public.fitx_admin_members
-    where user_id = p_actor_id and role = 'super_admin' and is_active
-  ) then
-    raise exception using errcode = '42501', message = 'Active super-admin access required';
+  if to_regprocedure('public.fitx_admin_set_member(uuid,uuid,text,boolean)') is null then
+    execute $sql$
+      create function public.fitx_admin_set_member(
+        p_actor_id uuid,
+        p_user_id uuid,
+        p_role text,
+        p_is_active boolean
+      )
+      returns void
+      language plpgsql
+      security definer
+      set search_path = ''
+      as $function$
+      declare
+        target public.fitx_admin_members%rowtype;
+      begin
+        perform pg_catalog.pg_advisory_xact_lock(847281033);
+        if not exists (
+          select 1 from public.fitx_admin_members
+          where user_id = p_actor_id and role = 'super_admin' and is_active
+        ) then
+          raise exception using errcode = '42501', message = 'Active super-admin access required';
+        end if;
+
+        if p_role is null or p_role not in ('admin', 'super_admin') then
+          raise exception using errcode = '22023', message = 'Invalid Admin role';
+        end if;
+
+        select * into target from public.fitx_admin_members where user_id = p_user_id for update;
+        if target.user_id is not null and target.role = 'super_admin' and target.is_active
+           and (p_role <> 'super_admin' or not p_is_active)
+           and (select pg_catalog.count(*) from public.fitx_admin_members where role = 'super_admin' and is_active) <= 1 then
+          raise exception using errcode = '23514', message = 'Cannot remove the last active super-admin';
+        end if;
+
+        insert into public.fitx_admin_members (user_id, role, is_active, created_by)
+        values (p_user_id, p_role, p_is_active, p_actor_id)
+        on conflict (user_id) do update
+          set role = excluded.role, is_active = excluded.is_active, updated_at = pg_catalog.now();
+
+        insert into public.fitx_admin_audit_logs (actor_id, action, resource_type, resource_id, details)
+        values (p_actor_id, 'admin_member_updated', 'admin_member', p_user_id::text,
+          pg_catalog.jsonb_build_object('role', p_role, 'is_active', p_is_active));
+      end;
+      $function$;
+    $sql$;
   end if;
+  if to_regprocedure('public.fitx_admin_set_exercise_active(uuid,text,boolean)') is null then
+    execute $sql$
+      create function public.fitx_admin_set_exercise_active(
+        p_actor_id uuid,
+        p_exercise_id text,
+        p_is_active boolean
+      )
+      returns void
+      language plpgsql
+      security definer
+      set search_path = ''
+      as $function$
+      begin
+        if not exists (
+          select 1 from public.fitx_admin_members
+          where user_id = p_actor_id and role in ('admin', 'super_admin') and is_active
+        ) then
+          raise exception using errcode = '42501', message = 'Active Admin access required';
+        end if;
 
-  if p_role is null or p_role not in ('admin', 'super_admin') then
-    raise exception using errcode = '22023', message = 'Invalid Admin role';
+        update public.exercise_library set is_active = p_is_active where id = p_exercise_id;
+        if not found then
+          raise exception using errcode = 'P0002', message = 'Exercise not found';
+        end if;
+
+        insert into public.fitx_admin_audit_logs (actor_id, action, resource_type, resource_id, details)
+        values (p_actor_id, 'exercise_visibility_updated', 'exercise', p_exercise_id,
+          pg_catalog.jsonb_build_object('is_active', p_is_active));
+      end;
+      $function$;
+    $sql$;
   end if;
-
-  select * into target from public.fitx_admin_members where user_id = p_user_id for update;
-  if target.user_id is not null and target.role = 'super_admin' and target.is_active
-     and (p_role <> 'super_admin' or not p_is_active)
-     and (select pg_catalog.count(*) from public.fitx_admin_members where role = 'super_admin' and is_active) <= 1 then
-    raise exception using errcode = '23514', message = 'Cannot remove the last active super-admin';
-  end if;
-
-  insert into public.fitx_admin_members (user_id, role, is_active, created_by)
-  values (p_user_id, p_role, p_is_active, p_actor_id)
-  on conflict (user_id) do update
-    set role = excluded.role, is_active = excluded.is_active, updated_at = pg_catalog.now();
-
-  insert into public.fitx_admin_audit_logs (actor_id, action, resource_type, resource_id, details)
-  values (p_actor_id, 'admin_member_updated', 'admin_member', p_user_id::text,
-    pg_catalog.jsonb_build_object('role', p_role, 'is_active', p_is_active));
-end;
-$function$;
+end
+$do$;
 
 revoke all on function public.fitx_admin_set_member(uuid, uuid, text, boolean) from public, anon, authenticated;
 grant execute on function public.fitx_admin_set_member(uuid, uuid, text, boolean) to service_role;
-
-create or replace function public.fitx_admin_set_exercise_active(
-  p_actor_id uuid,
-  p_exercise_id text,
-  p_is_active boolean
-)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $function$
-begin
-  if not exists (
-    select 1 from public.fitx_admin_members
-    where user_id = p_actor_id and role in ('admin', 'super_admin') and is_active
-  ) then
-    raise exception using errcode = '42501', message = 'Active Admin access required';
-  end if;
-
-  update public.exercise_library set is_active = p_is_active where id = p_exercise_id;
-  if not found then
-    raise exception using errcode = 'P0002', message = 'Exercise not found';
-  end if;
-
-  insert into public.fitx_admin_audit_logs (actor_id, action, resource_type, resource_id, details)
-  values (p_actor_id, 'exercise_visibility_updated', 'exercise', p_exercise_id,
-    pg_catalog.jsonb_build_object('is_active', p_is_active));
-end;
-$function$;
 
 revoke all on function public.fitx_admin_set_exercise_active(uuid, text, boolean) from public, anon, authenticated;
 grant execute on function public.fitx_admin_set_exercise_active(uuid, text, boolean) to service_role;
