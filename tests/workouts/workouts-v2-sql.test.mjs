@@ -1,15 +1,19 @@
 // Runs every repo migration on a throwaway local Postgres (the Supabase stand-in in tests/support, no network,
 // no real data) and checks the Workouts v2 functions in 20261118130050 as a signed-in member: a timed
 // movement (a target in seconds) starts without a rep target and never counts as a lift when the workout
-// finishes, and a programme day done before its date ticks off its own planner item. Plans are saved,
-// started and finished with the same functions the app calls.
+// finishes, a programme day done before its date ticks off its own planner item, and a member still
+// reads the programme they follow after it is unpublished. Plans are saved, started and finished with the
+// same functions the app calls.
 // Skipped when the Postgres binaries (initdb, pg_ctl, psql) are not on PATH.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { LocalPostgres, available } from "../support/local-postgres.mjs";
 
 const A = "aaaaaaaa-0000-4000-8000-0000000000a1";
+const B = "bbbbbbbb-0000-4000-8000-0000000000b2";
 const asA = { role: "authenticated", sub: A };
+const asB = { role: "authenticated", sub: B };
+const asAnon = { role: "anon" };
 const IST = "Asia/Kolkata";
 
 const skip = available() ? false : "Postgres binaries (initdb, pg_ctl, psql) are not installed";
@@ -34,8 +38,8 @@ describe("Workouts v2 database functions", { skip }, () => {
     pg = new LocalPostgres().start();
     pg.applyMigrations();
     pg.exec(`
-      insert into auth.users (id, email) values ('${A}', 'timed@example.test');
-      insert into public.user_preferences (user_id, timezone) values ('${A}', '${IST}');
+      insert into auth.users (id, email) values ('${A}', 'timed@example.test'), ('${B}', 'other@example.test');
+      insert into public.user_preferences (user_id, timezone) values ('${A}', '${IST}'), ('${B}', '${IST}');
     `);
   });
 
@@ -93,5 +97,26 @@ describe("Workouts v2 database functions", { skip }, () => {
     assert.deepEqual(status, { "Pull tomorrow": "completed", "Push tomorrow": "scheduled" });
     const progress = pg.json(`select json_build_object('next', next_day_index, 'done', sessions_completed) from public.programme_enrolments where id = '${enrolment}';`);
     assert.deepEqual(progress, { next: 2, done: 1 });
+  });
+
+  test("after a programme is unpublished, only its followers still read it and its days, and their days still move on", () => {
+    const visible = (who) => pg.json(`select json_build_object(
+      'programme', (select count(*) from public.training_programmes where id = 'ppl-3'),
+      'days', (select count(*) from public.training_programme_days where programme_id = 'ppl-3'));`, who);
+    const days = visible(asA).days;
+    assert.ok(days > 0);
+    pg.exec(`update public.training_programmes set status = 'draft' where id = 'ppl-3';`);
+    assert.deepEqual(visible(asA), { programme: 1, days }, "A follows it (enrolled in the test before)");
+    assert.deepEqual(visible(asB), { programme: 0, days: 0 }, "B does not");
+    assert.deepEqual(visible(asAnon), { programme: 0, days: 0 }, "and the anonymous read works, without the enrolments table");
+    const enrolment = pg.json(`select to_json(id) from public.programme_enrolments where user_id = '${A}' and status = 'active';`);
+    const legs = savePlan({ title: "Legs · Push, Pull, Legs", programme_enrolment_id: enrolment, programme_day_index: 2 }, [BENCH]);
+    const session = start(legs);
+    pg.exec(`update public.workout_sets ws set reps = 8, weight_kg = 60, completed_at = now() from public.workout_session_exercises se
+      where se.id = ws.session_exercise_id and se.session_id = '${session}' and ws.set_number = 1;`, asA);
+    pg.json(`select public.fitx_finish_workout_session('${session}', 1800, '${IST}');`, asA);
+    const progress = pg.json(`select json_build_object('next', next_day_index, 'done', sessions_completed) from public.programme_enrolments where id = '${enrolment}';`);
+    assert.deepEqual(progress, { next: 3 % days, done: 2 }, "the day count still comes from the programme's days");
+    pg.exec(`update public.training_programmes set status = 'published' where id = 'ppl-3';`);
   });
 });
