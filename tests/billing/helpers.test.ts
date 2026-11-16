@@ -6,7 +6,7 @@ const { billingCyclesForTenYears, formatAmount, formatInr, periodLabel, periodLe
 const { checkoutAllowedFor, modeOfKey, parseEmailList, readBillingConfig, RAZORPAY_API_BASE } = await import("@/lib/billing/config");
 const { formatBillingDate, paymentStatusLabel, subscriptionStatusLabel } = await import("@/lib/billing/status");
 const { pickCurrentSubscription } = await import("@/lib/billing/view");
-const { planMismatch } = await import("@/lib/billing/checkout");
+const { checkoutRetryAfterSeconds, CHECKOUTS_PER_DAY, planMismatch } = await import("@/lib/billing/checkout");
 
 describe("money", () => {
   test("formats paise as Indian rupees", () => {
@@ -134,5 +134,21 @@ describe("plan check before checkout", () => {
     assert.equal(planMismatch(plan, { ...remote, interval: 3 }, "plan_TestMonthly01"), "interval");
     assert.equal(planMismatch(plan, { ...remote, item: { amount: 19900, currency: "USD" } }, "plan_TestMonthly01"), "currency");
     assert.equal(planMismatch(plan, remote, "plan_Other0000001"), "plan id");
+  });
+});
+
+describe("daily checkout limit", () => {
+  const now = new Date("2026-11-17T12:00:00Z");
+  const hoursAgo = (hours: number) => ({ created_at: new Date(now.getTime() - hours * 3_600_000).toISOString() });
+
+  test("counts only checkouts started in the last 24 hours", () => {
+    assert.equal(CHECKOUTS_PER_DAY, 10);
+    assert.equal(checkoutRetryAfterSeconds(Array.from({ length: 9 }, (_, i) => hoursAgo(i)), now), null);
+    assert.equal(checkoutRetryAfterSeconds([...Array.from({ length: 9 }, (_, i) => hoursAgo(i)), hoursAgo(25)], now), null);
+  });
+
+  test("says when the oldest counted checkout stops counting", () => {
+    const rows = Array.from({ length: 10 }, (_, i) => hoursAgo(i * 2)); // the oldest is 18 hours old
+    assert.equal(checkoutRetryAfterSeconds(rows, now), 6 * 60 * 60);
   });
 });

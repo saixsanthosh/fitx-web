@@ -577,8 +577,10 @@ end
 $$;
 
 -- Records the Razorpay subscription the server just created for a signed-in user's checkout.
--- Serialised per account; refuses when the account already has a subscription Razorpay is billing,
--- and marks any older unpaid checkout of the same mode as abandoned.
+-- Serialised per account; refuses when the account already has a subscription Razorpay is billing or
+-- has started 10 checkouts of this mode in the last 24 hours (the server checks the same limit before
+-- it contacts Razorpay; this catches a burst of parallel requests), and marks any older unpaid
+-- checkout of the same mode as abandoned.
 create or replace function public.billing_record_checkout(
   p_user_id uuid,
   p_plan_id uuid,
@@ -606,6 +608,12 @@ begin
       and status in ('authenticated', 'active', 'pending', 'halted', 'paused')
   ) then
     raise exception using errcode = 'P0001', message = 'billing_already_subscribed';
+  end if;
+  if (
+    select pg_catalog.count(*) from public.billing_subscriptions
+    where user_id = p_user_id and mode = p_mode and created_at > pg_catalog.now() - interval '1 day'
+  ) >= 10 then
+    raise exception using errcode = 'P0001', message = 'billing_checkout_limit';
   end if;
 
   update public.billing_subscriptions

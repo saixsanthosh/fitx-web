@@ -129,6 +129,7 @@ const CHECKOUT_ERRORS: Record<string, string> = {
   unavailable: "Subscriptions aren’t open right now. Nothing was charged.",
   plan_not_found: "That plan is no longer offered. The page has been refreshed.",
   provider_error: "Razorpay didn’t respond. Nothing was charged; try again in a moment.",
+  rate_limited: "You’ve started several checkouts in the last day. Nothing was charged; please try again later.",
 };
 
 function priceLine(amountPaise: number | null, period: PlanView["period"] | null, interval: number | null) {

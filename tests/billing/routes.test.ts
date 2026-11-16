@@ -26,6 +26,7 @@ const THIRD: TestUser = { id: "44444444-4444-4444-8444-444444444444", email: "th
 const FOURTH: TestUser = { id: "66666666-6666-4666-8666-666666666666", email: "fourth@example.test" };
 const FIFTH: TestUser = { id: "77777777-7777-4777-8777-777777777777", email: "fifth@example.test" };
 const SIXTH: TestUser = { id: "88888888-8888-4888-8888-888888888888", email: "sixth@example.test" };
+const SEVENTH: TestUser = { id: "99999999-9999-4999-8999-999999999999", email: "seventh@example.test" };
 
 type AppRequest = InstanceType<typeof import("next/server").NextRequest>;
 type Route = { POST?: (request: AppRequest) => Promise<Response>; GET?: (request: AppRequest) => Promise<Response> };
@@ -47,7 +48,7 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     razorpay = await new FakeRazorpay(KEY_ID, KEY_SECRET).start();
     razorpay.addPlan(MONTHLY, 19900, "monthly");
     razorpay.addPlan(YEARLY, 199900, "yearly");
-    for (const user of [MEMBER, SECOND, STRANGER, THIRD, FOURTH, FIFTH, SIXTH]) await addUser(db, user.id, user.email);
+    for (const user of [MEMBER, SECOND, STRANGER, THIRD, FOURTH, FIFTH, SIXTH, SEVENTH]) await addUser(db, user.id, user.email);
     await addPlan(db, { code: "premium-monthly", name: "Premium monthly", amount: 19900, period: "monthly", testPlanId: MONTHLY });
     await addPlan(db, { code: "premium-yearly", name: "Premium yearly", amount: 199900, period: "yearly", testPlanId: YEARLY });
 
@@ -60,7 +61,7 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
       RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET,
       RAZORPAY_API_BASE: razorpay.url,
       CRON_SECRET,
-      BILLING_TEST_EMAILS: "member@example.test, second@example.test, third@example.test, fourth@example.test, fifth@example.test, sixth@example.test",
+      BILLING_TEST_EMAILS: "member@example.test, second@example.test, third@example.test, fourth@example.test, fifth@example.test, sixth@example.test, seventh@example.test",
     });
     delete process.env.VERCEL_ENV;
     ({ NextRequest } = await import("next/server"));
@@ -241,6 +242,22 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     assert.equal(result.status, 502);
     assert.equal(subscriptionCreates(), creates);
     assert.equal((await rowsFor(secondSubscription))[0].abandoned, false);
+  });
+
+  test("one account can start only 10 new checkouts a day, and the rest never reach Razorpay", async () => {
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      const result = await checkout(SEVENTH, attempt % 2 ? "premium-monthly" : "premium-yearly");
+      assert.equal(result.status, 200, `attempt ${attempt}: ${JSON.stringify(result.body)}`);
+    }
+    const calls = razorpay.calls.length;
+    const refused = await checkout(SEVENTH, "premium-monthly");
+    assert.equal(refused.status, 429);
+    assert.deepEqual(refused.body, { error: "rate_limited" });
+    const retryAfter = Number(refused.headers.get("retry-after"));
+    assert.ok(retryAfter > 0 && retryAfter <= 24 * 60 * 60, String(retryAfter));
+    assert.equal(razorpay.calls.length, calls, "Razorpay is not contacted");
+    assert.equal(await db.value(`select count(*) from public.billing_subscriptions where user_id = ${lit(SEVENTH.id)}`), 10);
+    assert.equal((await checkout(SECOND, "premium-yearly")).status, 200, "other accounts are not affected");
   });
 
   const chargedEvent = (createdAt: number) =>

@@ -14,6 +14,7 @@ const DEV = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const ERIN = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const FARID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const GITA = "99999999-9999-4999-8999-999999999999";
+const HANA = "12121212-1212-4212-8212-121212121212";
 const PLAN_ID = "plan_TestMonthly01";
 
 type Event = Record<string, unknown>;
@@ -47,7 +48,7 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
 
   before(async () => {
     db = await TestDatabase.start();
-    for (const [id, email] of [[ALICE, "alice@example.test"], [BOB, "bob@example.test"], [CARA, "cara@example.test"], [DEV, "dev@example.test"], [ERIN, "erin@example.test"], [FARID, "farid@example.test"], [GITA, "gita@example.test"]]) {
+    for (const [id, email] of [[ALICE, "alice@example.test"], [BOB, "bob@example.test"], [CARA, "cara@example.test"], [DEV, "dev@example.test"], [ERIN, "erin@example.test"], [FARID, "farid@example.test"], [GITA, "gita@example.test"], [HANA, "hana@example.test"]]) {
       await addUser(db, id, email);
     }
     planId = await addPlan(db, { code: "premium-monthly", name: "Premium monthly", amount: 19900, period: "monthly", testPlanId: PLAN_ID, features: ["Premium home programmes"] });
@@ -242,5 +243,20 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
     assert.deepEqual(failed.map((row) => [row.email, row.error_description]), [["dev@example.test", "Payment declined by the bank"]]);
     const refunds = await db.rows<{ provider_refund_id: string }>(`select * from public.billing_admin_refunds('test', 50, 0)`, AS_SERVICE);
     assert.equal(refunds.length, 2);
+  });
+
+  test("an account records at most 10 checkouts per mode in 24 hours, even from a parallel burst", async () => {
+    const results = await Promise.allSettled(
+      Array.from({ length: 12 }, (_, i) => checkout(HANA, `sub_TestHanaBurst${String(i).padStart(2, "0")}`)),
+    );
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 10);
+    const refused = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    assert.equal(refused.length, 2);
+    assert.ok(refused.every((result) => result.reason instanceof SqlError && result.reason.message.includes("billing_checkout_limit")));
+    assert.equal(await db.value(`select count(*) from public.billing_subscriptions where user_id = ${lit(HANA)} and status = 'created' and abandoned_at is null`), 1);
+    assert.ok(await checkout(HANA, "sub_LiveHana000001", "live"), "test and live are counted apart");
+    // Checkouts older than a day no longer count.
+    await db.exec(`update public.billing_subscriptions set created_at = now() - interval '25 hours' where user_id = ${lit(HANA)} and mode = 'test'`);
+    assert.ok(await checkout(HANA, "sub_TestHanaLater01"));
   });
 });
