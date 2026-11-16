@@ -80,5 +80,8 @@ test("?intro= still plays the film on request without touching the cookie", () =
 
 test("applies the saved theme before first paint", () => {
   assert.equal(run({ theme: "dark" }).attrs.get("data-theme"), "dark");
-  assert.equal(run({ theme: "bogus" }).attrs.get("data-theme"), "light");
+  assert.equal(run({ theme: "light" }).attrs.get("data-theme"), "light");
+  // Visitors who never chose a theme (or whose saved value is unreadable) match their device.
+  assert.equal(run({ theme: "bogus" }).attrs.get("data-theme"), "system");
+  assert.equal(run().attrs.get("data-theme"), "system");
 });
