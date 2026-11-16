@@ -23,6 +23,7 @@ import { startSessionWithRpc } from "@/lib/training/plans";
 import { setTargetReps } from "@/lib/training/sets";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
+import { MAX_PLAN_EXERCISES, moveRow, plannedFrom, removeRow, selectedIds, swapRow, toggleRow, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
@@ -33,7 +34,6 @@ type PlanListRow = Omit<PlanRow, "last_done_key"> & { workout_sessions?: Array<{
 type SupabaseBrowserClient = NonNullable<ReturnType<typeof createClient>>;
 type SessionRow = { id: string; name: string; started_at: string; duration_seconds: number; total_volume: number; status: string; plan_id?: string | null };
 type WorkoutPreferences = { workout_location?: string; equipment?: string[] | null; fitness_level?: string; session_duration_minutes?: number; workout_split?: string };
-type PlannedExercise = { exercise: CatalogExercise; sort_order: number; target_sets: number; reps_min: number; reps_max: number; rest_seconds: number; target_weight_kg: number | null; target_duration_seconds: number | null };
 /** The target columns are absent when the database has not received the prescription-targets migration. */
 type PlanExerciseRow = { id: string; exercise_id: string | null; exercise_name: string; sort_order: number; target_sets: number; reps_min: number; reps_max: number; rest_seconds: number; target_weight_kg?: number | null; target_duration_seconds?: number | null };
 type WorkoutCounts = { completed: number | null; plans: number | null; exercises: number | null };
@@ -63,14 +63,6 @@ function toPlannedExercise(row: PlanExerciseRow, exercise: CatalogExercise): Pla
 function toPlanRow(row: PlanListRow): PlanRow {
   const lastDone = row.workout_sessions?.[0]?.started_at;
   return { id: row.id, title: row.title, planned_for: row.planned_for, status: row.status, split: row.split, last_done_key: lastDone ? localDateKey(new Date(lastDone)) : null };
-}
-/** A catalogue exercise as a builder row, with its own default prescription. */
-function plannedFrom(exercise: CatalogExercise, sort_order: number): PlannedExercise {
-  const timed = exercise.prescription_type === "time";
-  return {
-    exercise, sort_order, target_sets: exercise.recommended_sets, reps_min: timed ? 1 : exercise.reps_min, reps_max: timed ? 1 : exercise.reps_max,
-    rest_seconds: exercise.rest_seconds, target_weight_kg: null, target_duration_seconds: timed ? exercise.default_duration_seconds ?? 30 : null,
-  };
 }
 /** Builder locations map to the two equipment lists; outdoor training uses the home list. */
 function contextForLocation(location: string): TrainingContext {
@@ -170,8 +162,9 @@ export default function WorkoutsPage() {
   const [plannedFor, setPlannedFor] = useState(() => localDateKey());
   const [time, setTime] = useState("18:00");
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
+  // The plan being built, in order; the ticked library exercises are read from it.
   const [preview, setPreview] = useState<PlannedExercise[]>([]);
+  const selected = useMemo(() => selectedIds(preview), [preview]);
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState("");
   const [counts, setCounts] = useState<WorkoutCounts>({ completed: null, plans: null, exercises: null });
@@ -278,7 +271,7 @@ export default function WorkoutsPage() {
       const exercise = catalog.find((item) => item.id === exerciseId);
       if (!exercise) return;
       setMode("custom"); setEditingPlanId(null); setTitle("Custom workout"); setPlanNotes(""); setSplit(preferences.workout_split || "full_body"); setPlanLocation(preferences.workout_location || "gym");
-      setPlannedFor(localDateKey()); setSelected([exercise.id]);
+      setPlannedFor(localDateKey());
       setPreview([plannedFrom(exercise, 0)]); setAutoNote("");
       setCreatorOpen(true);
       window.history.replaceState(null, "", "/workouts");
@@ -368,7 +361,7 @@ export default function WorkoutsPage() {
 
   function applyAuto(target: TrainingContext, dayIndex: number, seed: number) {
     const auto = generateAuto(target, dayIndex, seed);
-    setPreview(auto.rows); setSelected(auto.rows.map((row) => row.exercise.id)); setAutoNote(auto.note); setTitle(auto.title);
+    setPreview(auto.rows); setAutoNote(auto.note); setTitle(auto.title);
     if (auto.programme) setSplit(auto.programme.split);
   }
 
@@ -381,7 +374,6 @@ export default function WorkoutsPage() {
     setPlanLocation(target === "home" ? "home" : "gym");
     setPlannedFor(localDateKey());
     setTime("18:00");
-    setSelected([]);
     setQuery("");
     setAutoDay(0); setAutoSeed(0); setAutoNote("");
     if (nextMode === "auto") applyAuto(target, 0, 0); else setPreview([]);
@@ -407,19 +399,13 @@ export default function WorkoutsPage() {
     if (!nextPreview.length) return setError("The movements from that workout are no longer in the library.");
     setMode("custom"); setEditingPlanId(null); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
     setPlanLocation(context === "home" ? "home" : "gym"); setPlannedFor(localDateKey()); setTime("18:00"); setAutoNote("");
-    setSelected(nextPreview.map((row) => row.exercise.id)); setPreview(nextPreview); setQuery(""); setCreatorOpen(true);
+    setPreview(nextPreview); setQuery(""); setCreatorOpen(true);
     if (nextPreview.length < rows.length) setNotice(`${rows.length - nextPreview.length} movement${rows.length - nextPreview.length === 1 ? " is" : "s are"} no longer in the library and ${rows.length - nextPreview.length === 1 ? "was" : "were"} left out.`);
   }
 
+  /** Keeps the user's sets and rest; reps or time follow the new movement when its type differs (see swapRow). */
   function swapPreview(index: number, replacement: CatalogExercise) {
-    setPreview((rows) => rows.map((row, rowIndex) => {
-      if (rowIndex !== index) return row;
-      const fresh = plannedFrom(replacement, row.sort_order);
-      // Keep the user's sets and rest; reps or time follow the new movement when its type differs.
-      const sameType = (row.exercise.prescription_type === "time") === (replacement.prescription_type === "time");
-      return { ...fresh, target_sets: row.target_sets, rest_seconds: row.rest_seconds, ...(sameType ? { reps_min: row.reps_min, reps_max: row.reps_max, target_duration_seconds: row.target_duration_seconds } : {}) };
-    }));
-    setSelected((ids) => ids.map((id, rowIndex) => (rowIndex === index ? replacement.id : id)));
+    setPreview((rows) => swapRow(rows, index, replacement));
     setSwapIndex(null);
   }
 
@@ -493,18 +479,11 @@ export default function WorkoutsPage() {
     return { error: outcome.result.error, rows: (outcome.result.data || []) as unknown as PlanExerciseRow[], includedTargets: outcome.includedOptional };
   }
 
+  /** Ticking adds the exercise at the end; unticking removes it. The other rows keep their order and edits. */
   function toggleSelected(exercise: CatalogExercise) {
-    const isSelected = selected.includes(exercise.id);
-    const nextIds = isSelected ? selected.filter((id) => id !== exercise.id) : [...selected, exercise.id];
-    if (nextIds.length > 20) { setError("A workout can contain up to 20 exercises."); return; }
-    const currentRows = new Map(preview.map((row) => [row.exercise.id, row]));
-    const nextPreview = nextIds.map((id, index) => {
-      const existing = currentRows.get(id);
-      const record = catalog.find((item) => item.id === id);
-      if (!record) return null;
-      return existing ? { ...existing, sort_order: index } : plannedFrom(record, index);
-    }).filter((row): row is PlannedExercise => Boolean(row));
-    setSelected(nextIds); setPreview(nextPreview);
+    const next = toggleRow(preview, exercise);
+    if (!next) { setError(`A workout can contain up to ${MAX_PLAN_EXERCISES} exercises.`); return; }
+    setPreview(next);
   }
 
   function updatePreview(index: number, field: "target_sets" | "reps_min" | "reps_max" | "rest_seconds", value: number) {
@@ -530,13 +509,7 @@ export default function WorkoutsPage() {
   }
 
   function movePreview(index: number, direction: -1 | 1) {
-    const destination = index + direction;
-    if (destination < 0 || destination >= preview.length) return;
-    setPreview((rows) => {
-      const next = [...rows];
-      [next[index], next[destination]] = [next[destination], next[index]];
-      return next.map((row, sort_order) => ({ ...row, sort_order }));
-    });
+    setPreview((rows) => moveRow(rows, index, direction));
   }
 
   async function editPlan(plan: PlanRow) {
@@ -566,7 +539,7 @@ export default function WorkoutsPage() {
     const timedEvents = (eventResult.data || []) as Array<{ status: string; starts_at: string }>;
     const ownEvent = timedEvents.find((event) => event.status === "scheduled" && localDateKey(new Date(event.starts_at)) === planDay) ?? timedEvents[0];
     setPlannedFor(planResult.data.planned_for || ""); setTime(ownEvent ? new Date(ownEvent.starts_at).toTimeString().slice(0, 5) : "18:00");
-    setSelected(nextPreview.map((row) => row.exercise.id)); setPreview(nextPreview); setQuery(""); setCreatorOpen(true); setSaving(false);
+    setPreview(nextPreview); setQuery(""); setCreatorOpen(true); setSaving(false);
   }
 
   async function duplicatePlan(plan: PlanRow) {
@@ -585,7 +558,7 @@ export default function WorkoutsPage() {
     });
     if (!nextPreview.length) { setSaving(false); setError("The saved movements are no longer available in the active library."); return; }
     setMode("custom"); setEditingPlanId(null); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
-    setSelected(nextPreview.map((row) => row.exercise.id)); setPreview(nextPreview); setQuery(""); setCreatorOpen(true); setSaving(false);
+    setPreview(nextPreview); setQuery(""); setCreatorOpen(true); setSaving(false);
   }
 
   async function loadMorePlans() {
@@ -805,7 +778,7 @@ export default function WorkoutsPage() {
   const builderContext = contextForLocation(planLocation);
   const builderOwned = ownedFor(builderContext);
   const builderProgramme = mode === "auto" && !editingPlanId ? autoProgramme(builderContext) : undefined;
-  const swapRow = swapIndex !== null ? preview[swapIndex] : undefined;
+  const rowToSwap = swapIndex !== null ? preview[swapIndex] : undefined;
   const equipmentNames = contextEquipment.keys.map(equipmentLabel);
   const equipmentSummary = equipmentNames.length
     ? `${equipmentNames.slice(0, 5).join(", ")}${equipmentNames.length > 5 ? ` and ${equipmentNames.length - 5} more` : ""}.`
@@ -887,7 +860,7 @@ export default function WorkoutsPage() {
               <div className="flex flex-col items-center justify-center gap-1"><button type="button" onClick={() => movePreview(index, -1)} disabled={index === 0} aria-label={`Move ${item.exercise.name} earlier`} className="grid h-7 w-8 place-items-center rounded border border-fitx-border disabled:opacity-35"><ArrowUp size={13}/></button><span className="text-xs tabular-nums text-fitx-text-secondary">{String(index + 1).padStart(2, "0")}</span><button type="button" onClick={() => movePreview(index, 1)} disabled={index === preview.length - 1} aria-label={`Move ${item.exercise.name} later`} className="grid h-7 w-8 place-items-center rounded border border-fitx-border disabled:opacity-35"><ArrowDown size={13}/></button></div>
               <span className="min-w-0 self-center"><span className="block truncate text-sm font-medium">{item.exercise.name}</span><span className="text-xs capitalize text-fitx-text-secondary">{item.exercise.primary_muscle.replaceAll("_", " ")}{item.exercise.prescription_type === "time" ? " · timed" : ""}</span>{missing.length > 0 && <span className="mt-1 block text-xs text-fitx-warning">Needs {missing.map(equipmentLabel).join(", ").toLowerCase()}, not on your {builderContext} list</span>}</span>
               <div className={showTargets ? "col-span-3 grid grid-cols-2 gap-2 lg:col-span-6 lg:grid-cols-6" : "col-span-3 grid grid-cols-2 gap-2 lg:col-span-4 lg:grid-cols-4"}><label className="grid grid-cols-2 items-center gap-1 text-[10px] text-fitx-text-secondary sm:grid-cols-1">Sets<input aria-label={`${item.exercise.name} target sets`} className="fitx-field min-h-10 px-2 text-center tabular-nums" type="number" min="1" max="10" value={item.target_sets} onChange={(event) => updatePreview(index, "target_sets", Number(event.target.value))}/></label><label className="grid grid-cols-2 items-center gap-1 text-[10px] text-fitx-text-secondary sm:grid-cols-1">Reps min<input aria-label={`${item.exercise.name} minimum reps`} className="fitx-field min-h-10 px-2 text-center tabular-nums" type="number" min="1" max="100" value={item.reps_min} onChange={(event) => updatePreview(index, "reps_min", Number(event.target.value))}/></label><label className="grid grid-cols-2 items-center gap-1 text-[10px] text-fitx-text-secondary sm:grid-cols-1">Reps max<input aria-label={`${item.exercise.name} maximum reps`} className="fitx-field min-h-10 px-2 text-center tabular-nums" type="number" min="1" max="100" value={item.reps_max} onChange={(event) => updatePreview(index, "reps_max", Number(event.target.value))}/></label><label className="grid grid-cols-2 items-center gap-1 text-[10px] text-fitx-text-secondary sm:grid-cols-1">Rest sec<input aria-label={`${item.exercise.name} rest seconds`} className="fitx-field min-h-10 px-2 text-center tabular-nums" type="number" min="15" max="600" step="15" value={item.rest_seconds} onChange={(event) => updatePreview(index, "rest_seconds", Number(event.target.value))}/></label>{showTargets && <><label className="grid grid-cols-2 items-center gap-1 text-[10px] text-fitx-text-secondary lg:grid-cols-1">Target kg<input aria-label={`${item.exercise.name} target weight in kilograms`} className="fitx-field min-h-10 px-2 text-center tabular-nums" type="number" min="0" max="2000" step="0.5" value={item.target_weight_kg ?? ""} onChange={(event) => updateOptionalTarget(index, "target_weight_kg", event.target.value)} placeholder="—"/></label><label className="grid grid-cols-2 items-center gap-1 text-[10px] text-fitx-text-secondary lg:grid-cols-1">Target sec<input aria-label={`${item.exercise.name} target duration in seconds`} className="fitx-field min-h-10 px-2 text-center tabular-nums" type="number" min="1" max="7200" step="5" value={item.target_duration_seconds ?? ""} onChange={(event) => updateOptionalTarget(index, "target_duration_seconds", event.target.value)} placeholder="—"/></label></>}</div>
-              <div className="col-span-3 flex items-center justify-end gap-2 self-center lg:col-span-1"><button type="button" onClick={() => setSwapIndex(index)} aria-label={`Swap ${item.exercise.name}`} className={`grid h-10 w-10 place-items-center rounded border ${missing.length ? "border-fitx-warning/50 text-fitx-warning" : "border-fitx-border text-fitx-text-secondary"} hover:text-fitx-primary`}><ArrowRightLeft size={15}/></button><button type="button" onClick={() => { const next = preview.filter((row) => row.exercise.id !== item.exercise.id).map((row, sort_order) => ({ ...row, sort_order })); setPreview(next); setSelected(next.map((row) => row.exercise.id)); }} aria-label={`Remove ${item.exercise.name}`} className="grid h-10 w-10 place-items-center rounded border border-fitx-border text-fitx-text-secondary hover:text-fitx-primary"><X size={15}/></button></div>
+              <div className="col-span-3 flex items-center justify-end gap-2 self-center lg:col-span-1"><button type="button" onClick={() => setSwapIndex(index)} aria-label={`Swap ${item.exercise.name}`} className={`grid h-10 w-10 place-items-center rounded border ${missing.length ? "border-fitx-warning/50 text-fitx-warning" : "border-fitx-border text-fitx-text-secondary"} hover:text-fitx-primary`}><ArrowRightLeft size={15}/></button><button type="button" onClick={() => setPreview((rows) => removeRow(rows, item.exercise.id))} aria-label={`Remove ${item.exercise.name}`} className="grid h-10 w-10 place-items-center rounded border border-fitx-border text-fitx-text-secondary hover:text-fitx-primary"><X size={15}/></button></div>
             </li>;
           })}</ol> : <EmptyState title="No exercises in the plan" description="Select movements from the library, or add equipment to your list for more options."/>}
         </div>
@@ -895,7 +868,7 @@ export default function WorkoutsPage() {
         <div className="mt-6 flex flex-col-reverse justify-end gap-2 border-t border-fitx-divider pt-4 sm:flex-row"><button onClick={() => setCreatorOpen(false)} className="fitx-button fitx-button-quiet">Close</button><button disabled={saving || !preview.length} onClick={() => void savePlan()} className={`fitx-button ${activeSession ? "" : "fitx-button-secondary"}`}>{saving ? "Saving…" : editingPlanId ? "Save changes" : "Save workout"}<CalendarDays size={16}/></button>{!activeSession && <button disabled={saving || !preview.length || Boolean(starting)} onClick={() => void savePlan(true)} className="fitx-button">{starting ? "Starting…" : "Save and start"}<ArrowRight size={16}/></button>}</div>
       </div></div>}
 
-      {swapRow && <SwapSheet target={swapRow.exercise} catalog={catalog} owned={builderOwned} level={level} exclude={new Set(preview.map((row) => row.exercise.id))} contextLabel={builderContext} onPick={(exercise) => swapPreview(swapIndex!, exercise)} onClose={() => setSwapIndex(null)} />}
+      {rowToSwap && <SwapSheet target={rowToSwap.exercise} catalog={catalog} owned={builderOwned} level={level} exclude={new Set(preview.map((row) => row.exercise.id))} contextLabel={builderContext} onPick={(exercise) => swapPreview(swapIndex!, exercise)} onClose={() => setSwapIndex(null)} />}
       {equipmentEditor && <Sheet title={equipmentEditor.context === "home" ? "Your home equipment" : "Your gym equipment"} size="lg" onClose={() => setEquipmentEditor(null)}
         description={equipmentEditor.context === "home" ? "Choose what you have at home. Workouts, programmes and swaps only use exercises you can do with it." : "Choose what your gym has. Remove anything it lacks and FITX picks alternatives."}
         footer={<><button type="button" onClick={() => setEquipmentEditor(null)} className="fitx-button fitx-button-quiet">Cancel</button><button type="button" disabled={equipmentSaving || !profiles.available} onClick={() => void saveEquipment()} className="fitx-button">{equipmentSaving ? "Saving…" : "Save list"}</button></>}>
