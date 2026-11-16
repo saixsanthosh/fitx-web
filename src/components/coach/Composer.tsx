@@ -7,10 +7,10 @@ import { cn } from "@/lib/utils";
 export type ComposerMode = "chat" | "meal_plan" | "workout_plan";
 const MAX = 2000;
 
-const MODES: Array<{ id: ComposerMode; label: string; icon: typeof MessageCircle }> = [
-  { id: "chat", label: "Ask", icon: MessageCircle },
-  { id: "meal_plan", label: "Plan my meals", icon: Utensils },
-  { id: "workout_plan", label: "Plan a workout", icon: Dumbbell },
+const MODES: Array<{ id: ComposerMode; label: string; short: string; icon: typeof MessageCircle }> = [
+  { id: "chat", label: "Ask", short: "Ask", icon: MessageCircle },
+  { id: "meal_plan", label: "Plan my meals", short: "Meal plan", icon: Utensils },
+  { id: "workout_plan", label: "Plan a workout", short: "Workout", icon: Dumbbell },
 ];
 
 const PLACEHOLDER: Record<ComposerMode, string> = {
@@ -83,8 +83,8 @@ export function Composer({
 
   return (
     <form onSubmit={submit} className="rounded-2xl border border-fitx-border bg-fitx-card p-2 shadow-lg" aria-label="Message the coach">
-      <div role="radiogroup" aria-label="What do you want?" className="flex gap-1 overflow-x-auto px-1 pb-2 pt-1">
-        {MODES.map(({ id, label, icon: Icon }) => {
+      <div role="radiogroup" aria-label="What do you want?" className="flex gap-1 overflow-x-auto px-1 pb-2 pt-1 [scrollbar-width:none]">
+        {MODES.map(({ id, label, short, icon: Icon }) => {
           const disabled = id !== "chat" && !plansAllowed;
           return (
             <button
@@ -100,7 +100,8 @@ export function Composer({
               )}
             >
               <Icon size={15} aria-hidden="true" />
-              {label}
+              <span className="sm:hidden" aria-hidden="true">{short}</span>
+              <span className="sr-only sm:not-sr-only">{label}</span>
             </button>
           );
         })}
@@ -135,7 +136,10 @@ export function Composer({
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-3 px-2.5 pb-1 pt-1 text-[11px] leading-5 text-fitx-text-secondary">
-        <span id={hintId}>{!plansAllowed && plansNote ? plansNote : hint ?? "Not medical advice."}</span>
+        <span id={hintId}>
+          {!plansAllowed && plansNote && mode === "chat" ? plansNote : hint ?? "Not medical advice."}
+          {hint && <span className="hidden sm:inline"> · not medical advice</span>}
+        </span>
         <span id={counterId} aria-live="polite" className={cn(draft.length > MAX - 200 ? "" : "sr-only", draft.length > MAX && "text-fitx-danger")}>
           {draft.length}/{MAX}
         </span>

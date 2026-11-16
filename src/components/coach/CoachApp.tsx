@@ -260,7 +260,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   const planQuota = quotas.find((quota) => quota.kind === "plan");
   const activeQuota = mode === "chat" ? chatQuota : planQuota;
   const quotaHint = activeQuota
-    ? `${Math.max(0, activeQuota.limit - activeQuota.used)} of ${activeQuota.limit} ${mode === "chat" ? "messages" : "plans"} left today${formatResetTime(activeQuota.resetsAt) ? ` · resets ${formatResetTime(activeQuota.resetsAt)}` : ""} · not medical advice`
+    ? `${Math.max(0, activeQuota.limit - activeQuota.used)} of ${activeQuota.limit} ${mode === "chat" ? "messages" : "plans"} left today${formatResetTime(activeQuota.resetsAt) ? ` · resets ${formatResetTime(activeQuota.resetsAt)}` : ""}`
     : null;
   const suggestions = status.minor
     ? ["What should I eat before sports practice?", "How can I get stronger safely?", "How much sleep do I need?"]
