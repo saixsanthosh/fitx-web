@@ -43,14 +43,13 @@ function variantsFor(theme: Theme, orientation: Orientation) {
 }
 
 /**
- * Low-end hardware, or a connection the browser already knows is slow: start on the light cut.
- * (Bandwidth itself is measured while the chosen cut buffers, see `bufferAhead`; the browser's own
- * early `downlink` guess is too unreliable to pick a cut from.)
+ * Low-end hardware: start on the light cut. Bandwidth is measured while the chosen cut buffers (see
+ * `bufferAhead`) rather than taken from the browser's guesses: Chrome's `downlink` starts out
+ * unreliable, and its "3g" effectiveType is driven by latency (a fast but far-away connection reads
+ * as 3g), which says little about whether a video can stream.
  */
 function prefersLite(): boolean {
   const nav = navigator as NavigatorHints;
-  const effective = nav.connection?.effectiveType;
-  if (effective === "slow-2g" || effective === "2g" || effective === "3g") return true;
   if (typeof nav.deviceMemory === "number" && nav.deviceMemory <= 3) return true;
   const android = /Android/i.test(nav.userAgent);
   return android && typeof nav.hardwareConcurrency === "number" && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 4;
