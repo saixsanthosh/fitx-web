@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Barcode, BookOpen, Droplets, PackageSearch, Search, Target, X } from "lucide-react";
@@ -24,12 +24,13 @@ import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTyp
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { estimateNutritionTargets, goalPercent, goalProgress, scaleMacros, sumMacros } from "@/lib/domain/nutrition";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
+import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
 import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
 import {
   clearTargets, customFoodResult, deleteTemplate, detectCapabilities, entryUpdate, insertEntries, loadCustomFoods,
-  loadRecentFoods, loadTargets, loadTemplates, MEAL_COLUMNS, MEAL_SLOTS, removeCustomFood, rowsFromItems, saveCustomFood, saveTargets,
-  saveTemplate, type CustomFoodInput, type CustomFoodRow, type ManualTargets, type MealEntry, type MealSlot, type MealTemplate,
-  type NutritionCapabilities,
+  loadRecentFoods, loadTargets, loadTemplates, MEAL_COLUMNS, MEAL_SLOTS, removeCustomFood, removeCustomFoodPhoto, rowsFromItems, saveCustomFood,
+  saveTargets, saveTemplate, withCurrentCustomFoods, type CustomFoodInput, type CustomFoodRow, type ManualTargets, type MealEntry, type MealSlot,
+  type MealTemplate, type NutritionCapabilities,
 } from "@/lib/food/client-data";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import styles from "./Nutrition.module.css";
@@ -45,6 +46,8 @@ type BarcodeMiss = { code: string; name: string | null; noLabel: boolean };
 const EXAMPLES = ["3 idli", "150 g rice", "2 roti", "1 cup dal", "2 eggs"];
 const NO_AMOUNT = parseFoodQuery("");
 const NO_CAPABILITIES: NutritionCapabilities = { customFoodsV2: false, templates: false, targets: false };
+/** Search answers hold the user's own foods, so the browser must not answer from its cache. */
+const SEARCH_FETCH: RequestInit = { cache: "no-store" };
 
 function sourceText(source: SourceStatus) {
   if (source.status === "ok") return `${source.label} · ${source.count}`;
@@ -78,7 +81,12 @@ export default function NutritionPage() {
   const [searchMode, setSearchMode] = useState<FoodSearchResponse["mode"]>("browse");
   const [sources, setSources] = useState<SourceStatus[]>([]);
   const [searchingFoods, setSearchingFoods] = useState(true);
-  const [hideNonVeg, setHideNonVeg] = useState(false);
+  const [dietFilter, setDietFilter] = useState<DietFilter>({ nonVeg: false, egg: false });
+  /** The diet filter starts from the user's diet once; after that it is whatever the user ticked. */
+  const dietFilterSet = useRef(false);
+  /** A log or water entry being saved, so a second tap before the button disables can't add it twice. */
+  const loggingFood = useRef(false);
+  const loggingWater = useRef(false);
   const [selected, setSelected] = useState<FoodResult | null>(null);
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
@@ -124,7 +132,7 @@ export default function NutritionPage() {
       const prefs = prefsResult.data as Prefs | null;
       setWaterGoal(prefs?.daily_water_goal_ml || 2500);
       setEstimated(estimateNutritionTargets((profileResult.data || {}) as Profile, prefs?.activity_level, prefs?.primary_goal));
-      setHideNonVeg((current) => current || (prefs?.dietary_preferences ?? []).some((diet) => /^(veg|vegetarian|vegan|eggetarian)$/i.test(String(diet))));
+      if (!dietFilterSet.current) { dietFilterSet.current = true; setDietFilter(dietFilterFor(prefs?.dietary_preferences)); }
       setCustomRows(custom.rows);
       if (caps.customFoodsV2) setPhotoUrls(await signedPhotoUrls(supabase, custom.rows.map((row) => row.image_path ?? "")));
       setManualTargets(targets);
@@ -152,10 +160,20 @@ export default function NutritionPage() {
   const grams = Number.isFinite(amountNumber) ? Math.round(amountNumber * (chosenPortion ? chosenPortion.grams : 1) * 10) / 10 : Number.NaN;
   const selectedMacros = selected && grams > 0 ? scaleMacros(selected, grams) : null;
   const calorieGoal = target ? goalProgress(totals.calories, target.calories) : null;
-  const shownResults = hideNonVeg ? results.filter((food) => food.dietType !== "non_veg") : results;
+  const filtering = dietFilter.nonVeg || dietFilter.egg;
+  const shownResults = results.filter((food) => !hiddenByDiet(food.dietType, dietFilter));
   const hiddenCount = results.length - shownResults.length;
 
   const photoFor = useCallback((row: CustomFoodRow | undefined) => (row?.image_path ? photoUrls.get(row.image_path) ?? null : null), [photoUrls]);
+  /** Recent foods, with your own foods as saved now (edits apply, deleted ones drop out), through the diet filter. */
+  const shownRecent = useMemo(
+    () => withCurrentCustomFoods(recentFoods, customRows, photoFor).filter((food) => !hiddenByDiet(food.dietType, dietFilter)),
+    [recentFoods, customRows, photoFor, dietFilter],
+  );
+  function changeDietFilter(change: Partial<DietFilter>) {
+    dietFilterSet.current = true;
+    setDietFilter((current) => ({ ...current, ...change }));
+  }
   /** Search results carry no photo links for your own foods; add the ones this page signed. */
   const withPhoto = useCallback((food: FoodResult): FoodResult => {
     if (food.kind !== "custom") return food;
@@ -242,7 +260,7 @@ export default function NutritionPage() {
     if (!checked.ok) { setError(barcodeProblem(checked.reason)); return; }
     setBusy(true); setError(""); setNotice(""); setBarcodeMiss(null);
     try {
-      const response = await fetch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`);
+      const response = await fetch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`, SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
       if (!response.ok) throw new Error(data.error || "Barcode lookup failed.");
       setResults(data.foods || []);
@@ -272,7 +290,7 @@ export default function NutritionPage() {
   const browseFoods = useCallback(async () => {
     setSearchingFoods(true);
     try {
-      const response = await fetch("/api/foods/search?browse=1");
+      const response = await fetch("/api/foods/search?browse=1", SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
       if (!response.ok) throw new Error(data.error || "Food search failed.");
       setResults(data.foods || []);
@@ -298,7 +316,7 @@ export default function NutritionPage() {
     }
     setSearchingFoods(true); setError(""); setNotice(""); setBarcodeMiss(null);
     try {
-      const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`);
+      const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`, SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
       if (!response.ok) throw new Error(data.error || "Food search failed.");
       const found = (data.foods || []).map(withPhoto);
@@ -318,15 +336,22 @@ export default function NutritionPage() {
         // Select a food only when it is clearly the one meant (its whole name or alias is what was typed); otherwise
         // the user taps one, and the typed amount is applied to it.
         const pick = data.pick ? found.find((food) => food.source === data.pick?.source && food.id === data.pick?.id) ?? null : null;
-        if (pick) chooseFood(pick, typed);
+        // The diet filter hides a food, so it is never selected behind the user's back either.
+        const hiddenPick = pick && hiddenByDiet(pick.dietType, dietFilter) ? pick : null;
+        const visible = found.filter((food) => !hiddenByDiet(food.dietType, dietFilter));
+        if (pick && !hiddenPick) chooseFood(pick, typed);
         else {
           setSelected(null);
           setDerived(null);
           setAmountPrompt(null);
           const amountText = describeTypedAmount(typed);
-          setNotice(found.length === 1
-            ? `Is “${found[0].name}” the food you mean? Tap it and FITX keeps your amount (${amountText}).`
-            : `More than one food matches “${typed.text}”. Tap the one you mean and FITX keeps your amount (${amountText}).`);
+          setNotice(hiddenPick
+            ? `“${hiddenPick.name}” is marked ${hiddenPick.dietType === "egg" ? "“Contains egg”" : "non-veg"}, so it is hidden. Untick “Hide foods marked ${hiddenPick.dietType === "egg" ? "egg" : "non-veg"}” to log it.`
+            : visible.length === 1
+              ? `Is “${visible[0].name}” the food you mean? Tap it and FITX keeps your amount (${amountText}).`
+              : visible.length
+                ? `More than one food matches “${typed.text}”. Tap the one you mean and FITX keeps your amount (${amountText}).`
+                : `Every food that matches “${typed.text}” is hidden by the diet filter.`);
         }
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
@@ -340,11 +365,23 @@ export default function NutritionPage() {
 
   async function logFood(food: FoodResult) {
     if (!Number.isFinite(grams) || grams < 1 || grams > 5000) { setError("Enter an amount that comes to between 1 and 5,000 grams."); return; }
+    if (loggingFood.current) return;
+    loggingFood.current = true;
+    try {
+      await insertLoggedFood(food);
+    } finally {
+      loggingFood.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function insertLoggedFood(food: FoodResult) {
     const supabase = createClient();
     if (!supabase) return setError("Nutrition tracking is not connected to Supabase.");
+    setBusy(true);
     const { data: auth } = await supabase.auth.getUser();
     if (!auth.user) return setError("Sign in to log food.");
-    setBusy(true); setError(""); setNotice("");
+    setError(""); setNotice("");
     const scaled = scaleMacros(food, grams);
     const portion = chosenPortion;
     const convertedFrom = derived && portion === derived.portion ? derived.from : null;
@@ -359,6 +396,7 @@ export default function NutritionPage() {
         source: food.source,
         kind: food.kind,
         value_basis: food.valueBasis,
+        ...(food.dietType ? { diet_type: food.dietType } : {}),
         ...(food.dataType ? { data_type: food.dataType } : {}),
         ...(food.basis ? { basis: food.basis } : {}),
         ...(portion ? {
@@ -371,18 +409,23 @@ export default function NutritionPage() {
     });
     if (inserted.error) setError("That food could not be logged. Please try again.");
     else { setSelected(null); setQuery(""); setNotice(`Added ${food.name} to ${meal}.`); await load(); void refreshRecent(); }
-    setBusy(false);
   }
 
   async function addWater(amountMl: number) {
-    const supabase = createClient();
-    if (!supabase) return setError("Water tracking is not connected to Supabase.");
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return setError("Sign in to log water.");
-    setBusy(true);
-    const result = await supabase.from("water_logs").insert({ user_id: auth.user.id, amount_ml: amountMl, local_date: dateKey });
-    if (result.error) setError("Water could not be logged."); else setWaterMl((current) => current + amountMl);
-    setBusy(false);
+    if (loggingWater.current) return;
+    loggingWater.current = true;
+    try {
+      const supabase = createClient();
+      if (!supabase) return setError("Water tracking is not connected to Supabase.");
+      setBusy(true);
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) return setError("Sign in to log water.");
+      const result = await supabase.from("water_logs").insert({ user_id: auth.user.id, amount_ml: amountMl, local_date: dateKey });
+      if (result.error) setError("Water could not be logged."); else setWaterMl((current) => current + amountMl);
+    } finally {
+      loggingWater.current = false;
+      setBusy(false);
+    }
   }
 
   async function removeMeal(entry: MealEntry) {
@@ -405,7 +448,7 @@ export default function NutritionPage() {
   }
 
   /** Saves a food to My foods only; logging it is a separate step. */
-  async function saveFood(input: CustomFoodInput, photo: File | null) {
+  async function saveFood(input: CustomFoodInput, photo: File | null, removePhoto: boolean) {
     const supabase = createClient();
     if (!supabase || !userId) return setError("Sign in to save your own foods.");
     const editing = foodForm?.editing ?? null;
@@ -419,6 +462,10 @@ export default function NutritionPage() {
     }
     let photoProblem = "";
     let photoUrl: string | null = null;
+    if (removePhoto && !photo && editing && capabilities.customFoodsV2) {
+      const removed = await removeCustomFoodPhoto(supabase, userId, editing);
+      if (removed.error) photoProblem = " The photo could not be removed. Please try again.";
+    }
     if (photo && capabilities.customFoodsV2) {
       try {
         const path = await uploadFoodPhoto(supabase, userId, row.id, photo, row.image_path ?? null);
@@ -439,15 +486,14 @@ export default function NutritionPage() {
   }
 
   async function removeFood(row: CustomFoodRow) {
-    const v2 = capabilities.customFoodsV2;
-    if (!window.confirm(v2 ? `Archive “${row.name}”? It disappears from My foods and search; past logs keep their values.` : `Delete “${row.name}” from My foods? Past logs keep their values. This can't be undone.`)) return;
+    if (!window.confirm(`Delete “${row.name}” from My foods${row.image_path ? ", with its photo" : ""}? Past logs keep their values. This can't be undone.`)) return;
     const supabase = createClient();
     if (!supabase || !userId) return;
     setBusy(true);
-    const result = await removeCustomFood(supabase, userId, row.id, v2);
+    const result = await removeCustomFood(supabase, userId, row);
     setBusy(false);
-    if (result.error) setError("That food could not be removed. Please try again.");
-    else { setNotice(v2 ? `Archived “${row.name}”.` : `Deleted “${row.name}”.`); await load(); }
+    if (result.error) setError("That food could not be deleted. Please try again.");
+    else { setNotice(`Deleted “${row.name}”.`); await load(); }
   }
 
   async function saveNamed(name: string) {
@@ -597,21 +643,23 @@ export default function NutritionPage() {
           <BarcodeScanner onDetected={onBarcodeDetected}/>
           <div className={styles.searchTools}>
             {lastSearch && searchMode !== "packaged" && <button type="button" className={ui.textButton} disabled={searchingFoods} onClick={() => void runFoodSearch(lastSearch, true)}><PackageSearch size={13} className="mr-1 inline"/>Search packaged products for “{parseFoodQuery(lastSearch).text}”</button>}
-            <label className={styles.filter}><input type="checkbox" checked={hideNonVeg} onChange={(event) => setHideNonVeg(event.target.checked)}/>Hide non-veg</label>
+            <label className={styles.filter}><input type="checkbox" checked={dietFilter.nonVeg} onChange={(event) => changeDietFilter({ nonVeg: event.target.checked })}/>Hide foods marked non-veg</label>
+            <label className={styles.filter}><input type="checkbox" checked={dietFilter.egg} onChange={(event) => changeDietFilter({ egg: event.target.checked })}/>Hide foods marked egg</label>
             <Link href="/nutrition/sources" className={ui.textButton}><BookOpen size={13} className="mr-1 inline"/>Sources</Link>
           </div>
           {visibleSources.length > 0 && <p className={styles.sources} aria-label="Sources for these results">{visibleSources.map((source) => <span key={source.id} className={source.status === "ok" || source.status === "no_results" ? styles.sourceChip : styles.sourceChipDown}>{sourceText(source)}</span>)}</p>}
           <div aria-live="polite" className={styles.foodResults}>
             {searchingFoods ? <p className="py-5 text-center text-xs text-fitx-text-secondary">Loading foods…</p> : <>
-              {showBrowse && recentFoods.length > 0 && <>
+              {showBrowse && shownRecent.length > 0 && <>
                 <p className={styles.listLabel}>Recent</p>
-                {recentFoods.filter((food) => !hideNonVeg || food.dietType !== "non_veg").map((food) => <FoodResultCard key={`recent-${food.source}-${food.id}`} food={food} active={selected?.id === food.id && selected?.source === food.source} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>)}
+                {shownRecent.map((food) => <FoodResultCard key={`recent-${food.source}-${food.id}`} food={food} active={selected?.id === food.id && selected?.source === food.source} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>)}
                 <p className={styles.listLabel}>Common foods</p>
               </>}
               {searchMode === "packaged" && <p className={ui.muted}>Packaged products from Open Food Facts, entered by its community from package labels.</p>}
               {shownResults.some((food) => food.suggestion) && <p className={ui.muted}>Nothing matched every word, so these are the closest spellings.</p>}
-              {shownResults.map((food) => <FoodResultCard key={`${food.source}-${food.id}`} food={food} active={selected?.id === food.id && selected?.source === food.source} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>)}
-              {hiddenCount > 0 && <p className={ui.muted}>{hiddenCount} non-veg {hiddenCount === 1 ? "food is" : "foods are"} hidden.</p>}
+              {shownResults.map((food) => <FoodResultCard key={`${food.source}-${food.id}`} food={food} active={selected?.id === food.id && selected?.source === food.source} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>)}
+              {hiddenCount > 0 && <p className={ui.muted}>{hiddenCount} {hiddenCount === 1 ? "food" : "foods"} marked {dietFilter.nonVeg && dietFilter.egg ? "non-veg or egg" : dietFilter.egg ? "egg" : "non-veg"} {hiddenCount === 1 ? "is" : "are"} hidden.</p>}
+              {filtering && shownResults.some((food) => !food.dietType) && <p className={ui.muted}>Foods without a diet label are still shown, marked “Diet not checked”. Check their ingredients if it matters to you.</p>}
             </>}
           </div>
         </section>
@@ -662,14 +710,14 @@ export default function NutritionPage() {
         onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} onLogFood={() => setTab("log")} onCopyYesterday={() => void copyYesterday()}
         onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
         onSaveDay={() => setNamePrompt({ kind: "day", initial: `${readableDate(date, { weekday: "long" })} routine` })}/>}
-      {tab === "foods" && <MyFoods rows={customRows} loading={loading} v2={capabilities.customFoodsV2} busy={busy}
+      {tab === "foods" && <MyFoods rows={customRows} loading={loading} busy={busy}
         photoFor={photoFor} onUse={(row) => { chooseFood(customFoodResult(row, photoFor(row))); setTab("log"); }} onAdd={() => setFoodForm({ editing: null, prefill: null })}
         onEdit={(row) => setFoodForm({ editing: row, prefill: null })} onRemove={(row) => void removeFood(row)}/>}
       {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
         onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
       {tab === "insights" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-2 font-medium">Daily nutrition insights</h2><p className="mb-5 text-sm text-fitx-text-secondary">This view summarizes the food you have logged for the selected day{estimateCount > 0 ? `, including ${estimateCount} estimated ${estimateCount === 1 ? "item" : "items"}` : ""}.</p>{entries.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{([["Energy", Math.round(totals.calories), "kcal", target?.calories], ["Protein", Math.round(totals.protein), "g", target?.protein], ["Carbohydrates", Math.round(totals.carbs), "g", target?.carbs], ["Fat", Math.round(totals.fat), "g", target?.fat]] as const).map(([label, value, unit, goal]) => { const progress = goal ? goalProgress(value, goal) : null; return <div key={label} className="rounded-xl border border-fitx-border bg-fitx-surface p-4"><p className="text-xs text-fitx-text-secondary">{label}</p><p className="mt-2 text-2xl font-semibold">{value} <span className="text-sm font-normal text-fitx-text-disabled">{unit}</span></p>{progress && <p className={`mt-2 text-xs ${progress.isOver ? styles.macroOver : "text-fitx-text-disabled"}`}>{progress.isOver ? `${progress.over} ${unit} over the ${manualTargets ? "" : "estimated "}target` : `${progress.percent}% of ${manualTargets ? "your" : "estimated"} target`}</p>}</div>; })}</div> : <EmptyState title="No nutrition data yet" description="Logged meals will be summarized here."/>}</section>}
       {editingEntry && <EntryEditor entry={editingEntry} busy={busy} onCancel={() => setEditingEntry(null)} onSave={(change) => void saveEntry(editingEntry, change)}/>}
-      {foodForm && <CustomFoodForm editing={foodForm.editing} prefill={foodForm.prefill} photoUrl={photoFor(foodForm.editing ?? undefined)} v2={capabilities.customFoodsV2} busy={busy} onCancel={() => setFoodForm(null)} onSave={(input, photo) => void saveFood(input, photo)}/>}
+      {foodForm && <CustomFoodForm editing={foodForm.editing} prefill={foodForm.prefill} photoUrl={photoFor(foodForm.editing ?? undefined)} v2={capabilities.customFoodsV2} busy={busy} onCancel={() => setFoodForm(null)} onSave={(input, photo, removePhoto) => void saveFood(input, photo, removePhoto)}/>}
       {namePrompt && <NameDialog title={namePrompt.kind === "meal" ? `Save ${namePrompt.slot.toLowerCase()} as a meal` : "Save this day as a routine"}
         description={namePrompt.kind === "meal" ? "Its foods and amounts are copied, so you can add the same meal to any day." : "Every meal of this day is copied, so you can add the whole day again in one tap."}
         initial={namePrompt.initial} busy={busy} onCancel={() => setNamePrompt(null)} onSave={(name) => void saveNamed(name)}/>}

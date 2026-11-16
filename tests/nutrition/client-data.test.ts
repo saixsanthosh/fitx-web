@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  customFoodResult, customFoodRowValues, customFoodWarning, entryBasis, entryPer100g, entryUpdate, isMissingSchema, rowsFromItems, targetProblem,
-  type MealEntry, type MealTemplateItem,
+  customFoodResult, customFoodRowValues, customFoodWarning, detectCapabilities, entryBasis, entryPer100g, entryUpdate, isMissingSchema, loadRecentFoods,
+  removeCustomFood, removeCustomFoodPhoto, rowsFromItems, targetProblem, withCurrentCustomFoods, type CustomFoodRow, type MealEntry, type MealTemplateItem,
 } from "@/lib/food/client-data";
 
 const idliEntry: MealEntry = {
@@ -71,4 +72,68 @@ test("recognises the errors for tables and columns that do not exist yet", () =>
   for (const code of ["PGRST205", "42P01", "PGRST204", "42703"]) assert.equal(isMissingSchema({ code }), true, code);
   assert.equal(isMissingSchema({ code: "42501" }), false);
   assert.equal(isMissingSchema(null), false);
+});
+
+/** A Supabase client that records every table write and storage removal, answering each table with a fixed result. */
+function recordingSupabase(results: Record<string, { data?: unknown; error: { code: string } | null }> = {}) {
+  const log: string[] = [];
+  const query = (table: string) => {
+    const builder: Record<string, unknown> = {};
+    for (const method of ["select", "eq", "is", "order", "limit", "update", "delete"]) {
+      builder[method] = (...args: unknown[]) => {
+        if (method === "update" || method === "delete") log.push(`${table}.${method}${method === "update" ? ` ${JSON.stringify(args[0])}` : ""}`);
+        return builder;
+      };
+    }
+    builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve(results[table] ?? { data: [], error: null }).then(resolve);
+    return builder;
+  };
+  const client = {
+    from: (table: string) => query(table),
+    storage: { from: (bucket: string) => ({ remove: async (paths: string[]) => { log.push(`storage ${bucket} remove ${paths.join(",")}`); return { data: [], error: null }; } }) },
+  };
+  return { client: client as unknown as SupabaseClient, log };
+}
+
+const USER = "aaaaaaaa-0000-4000-8000-000000000001";
+const shake: CustomFoodRow = { id: "c1", name: "Protein shake", brand: null, serving_size: "1 glass", serving_grams: 300, calories_per_100g: 40, protein_per_100g: 8, carbs_per_100g: 2, fat_per_100g: 0.5, image_path: `${USER}/foods/c1-1.webp` };
+
+test("Recent shows your own foods as saved now: edits apply and deleted foods drop out", () => {
+  const recentShake = { ...customFoodResult({ ...shake, calories_per_100g: 400 }), recentCount: 0 };
+  const recentGone = { ...customFoodResult({ ...shake, id: "c2", name: "Old bar" }) };
+  const idli = { ...customFoodResult({ ...shake, id: "2708346", name: "Idli" }), kind: "catalog" as const, source: "USDA FoodData Central" };
+  const shown = withCurrentCustomFoods([recentShake, recentGone, idli], [shake], (row) => `https://signed.example/${row.id}`);
+  assert.deepEqual(shown.map((food) => [food.name, food.calories]), [["Protein shake", 40], ["Idli", 40]], "the shake at 40 kcal, not the 400 logged before the fix");
+  assert.equal(shown[0].portions[0].label, "1 serving (1 glass, 300 g)");
+  assert.equal(shown[0].image, "https://signed.example/c1");
+  assert.equal(shown[1], idli, "catalogue foods pass through unchanged");
+});
+
+test("Recent keeps a food's diet label from when it was logged", async () => {
+  const entry = { ...idliEntry, id: "m2", provider_id: "2706538", food_name: "Biryani with chicken", nutrition_snapshot: { ...idliEntry.nutrition_snapshot, diet_type: "non_veg" as const } };
+  const { client } = recordingSupabase({ meals: { data: [entry, idliEntry], error: null } });
+  const recent = await loadRecentFoods(client, USER);
+  assert.deepEqual(recent.map((food) => [food.name, food.dietType]), [["Biryani with chicken", "non_veg"], ["Idli", null]]);
+});
+
+test("a missing table turns a feature off; a failed request does not", async () => {
+  const missing = recordingSupabase({ custom_foods: { error: { code: "42703" } }, meal_templates: { error: { code: "PGRST205" } }, nutrition_targets: { error: null } });
+  assert.deepEqual(await detectCapabilities(missing.client), { customFoodsV2: false, templates: false, targets: true });
+  const flaky = recordingSupabase({ custom_foods: { error: { code: "PGRST000" } }, meal_templates: { error: { code: "57014" } }, nutrition_targets: { error: { code: "503" } } });
+  assert.deepEqual(await detectCapabilities(flaky.client), { customFoodsV2: true, templates: true, targets: true });
+});
+
+test("deleting a food deletes the row and then its photo; removing a photo clears it first", async () => {
+  const deleted = recordingSupabase();
+  await removeCustomFood(deleted.client, USER, shake);
+  assert.deepEqual(deleted.log, ["custom_foods.delete", `storage fitx-user-media remove ${USER}/foods/c1-1.webp`]);
+  const failed = recordingSupabase({ custom_foods: { error: { code: "42501" } } });
+  await removeCustomFood(failed.client, USER, shake);
+  assert.deepEqual(failed.log, ["custom_foods.delete"], "the photo stays when the food could not be deleted");
+  const photo = recordingSupabase();
+  await removeCustomFoodPhoto(photo.client, USER, shake);
+  assert.deepEqual(photo.log, [`custom_foods.update {"image_path":null,"image_url":null,"image_attribution":null}`, `storage fitx-user-media remove ${USER}/foods/c1-1.webp`]);
+  const elsewhere = recordingSupabase();
+  await removeCustomFood(elsewhere.client, USER, { id: "c3", image_path: "someone-else/foods/x.webp" });
+  assert.deepEqual(elsewhere.log, ["custom_foods.delete"], "only files in the user's own folder are removed");
 });

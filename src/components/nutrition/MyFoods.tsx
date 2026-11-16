@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { Archive, Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { formatAmount } from "@/lib/domain/food-query";
 import type { CustomFoodRow } from "@/lib/food/client-data";
 import { BasisBadge } from "./FoodBadges";
@@ -11,8 +11,6 @@ import styles from "./FoodUi.module.css";
 interface MyFoodsProps {
   rows: CustomFoodRow[];
   loading: boolean;
-  /** Archiving, barcodes and labels need the nutrition v2 database update; until then removing deletes. */
-  v2: boolean;
   busy: boolean;
   /** A signed link to the food's photo, when it has one. */
   photoFor?: (row: CustomFoodRow) => string | null;
@@ -22,8 +20,8 @@ interface MyFoodsProps {
   onRemove: (row: CustomFoodRow) => void;
 }
 
-/** Your own foods: find, use, edit and archive them. */
-export function MyFoods({ rows, loading, v2, busy, photoFor, onUse, onAdd, onEdit, onRemove }: MyFoodsProps) {
+/** Your own foods: find, use, edit and delete them. */
+export function MyFoods({ rows, loading, busy, photoFor, onUse, onAdd, onEdit, onRemove }: MyFoodsProps) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
   const shown = needle ? rows.filter((row) => `${row.name} ${row.brand ?? ""} ${row.barcode ?? ""}`.toLowerCase().includes(needle)) : rows;
@@ -60,8 +58,8 @@ export function MyFoods({ rows, loading, v2, busy, photoFor, onUse, onAdd, onEdi
                 </div>
                 <button type="button" onClick={() => onUse(row)} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs">Use</button>
                 <button type="button" onClick={() => onEdit(row)} disabled={busy} aria-label={`Edit ${row.name}`} className={styles.iconButton}><Pencil size={15}/></button>
-                <button type="button" onClick={() => onRemove(row)} disabled={busy} aria-label={v2 ? `Archive ${row.name}` : `Delete ${row.name}`} title={v2 ? "Archive (past logs keep their values)" : "Delete (past logs keep their values)"} className={styles.iconButton}>
-                  {v2 ? <Archive size={15}/> : <Trash2 size={15}/>}
+                <button type="button" onClick={() => onRemove(row)} disabled={busy} aria-label={`Delete ${row.name}`} title="Delete (past logs keep their values)" className={styles.iconButton}>
+                  <Trash2 size={15}/>
                 </button>
               </div>
             );

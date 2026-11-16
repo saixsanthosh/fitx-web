@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { formatAmount } from "@/lib/domain/food-query";
 import { checkBarcode, barcodeProblem } from "@/lib/food/barcode";
 import { customFoodWarning, type CustomFoodInput, type CustomFoodRow } from "@/lib/food/client-data";
-import type { CustomFoodOrigin } from "@/lib/food/types";
+import type { CustomFoodOrigin, ValueBasis } from "@/lib/food/types";
 import styles from "./FoodUi.module.css";
 
 /** What a new food can start from: a scanned barcode, or a package found on Open Food Facts. */
@@ -33,12 +33,17 @@ interface CustomFoodFormProps {
   v2: boolean;
   busy: boolean;
   onCancel: () => void;
-  onSave: (input: CustomFoodInput, photo: File | null) => void;
+  /** `removePhoto`: take the food's current photo off (only when editing and no new photo was chosen). */
+  onSave: (input: CustomFoodInput, photo: File | null, removePhoto: boolean) => void;
 }
 
 const perServing = (per100: number, grams: number) => formatAmount(Math.round(per100 * grams) / 100);
 
-/** Create or edit one of your own foods. Values are for one serving, as printed on most labels. */
+/**
+ * Create or edit one of your own foods. Values are for one serving, as printed on most labels. An edit that leaves
+ * the serving and values alone keeps where the values came from (a typical recipe the AI coach saved stays one);
+ * changing them makes them your entry, or a package label when that box is ticked.
+ */
 export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, onCancel, onSave }: CustomFoodFormProps) {
   const [form, setForm] = useState(() => {
     const grams = editing ? Number(editing.serving_grams) || 100 : prefill?.servingGrams ?? 100;
@@ -59,23 +64,28 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
       fromLabel: editing ? editing.value_basis === "label" : Boolean(prefill?.per100g || prefill?.barcode),
     };
   });
+  /** The form as it opened, to tell whether an edit changed the values. */
+  const [start] = useState(form);
   const [problem, setProblem] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [removePhoto, setRemovePhoto] = useState(false);
   const first = useRef<HTMLInputElement>(null);
   const set = (key: keyof typeof form, value: string | boolean) => { setForm((old) => ({ ...old, [key]: value })); setProblem(""); };
   const numbers = [form.grams, form.calories, form.protein, form.carbs, form.fat].map((value) => (value.trim() === "" ? 0 : Number(value)));
   const warning = numbers.every(Number.isFinite) ? customFoodWarning(numbers[1], numbers[2], numbers[3], numbers[4]) : null;
   const image = editing?.image_url ?? prefill?.imageUrl ?? null;
   const imageCredit = editing?.image_attribution ?? prefill?.imageAttribution ?? null;
-  const shownPhoto = preview ?? photoUrl ?? image;
+  const shownPhoto = preview ?? (removePhoto ? null : photoUrl ?? image);
   const shownCredit = preview || photoUrl ? "Your photo" : imageCredit;
+  const canRemovePhoto = v2 && Boolean(editing) && !preview && Boolean(photoUrl || editing?.image_url);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   function choosePhoto(file: File | null) {
     setPhoto(file);
     setPreview(file ? URL.createObjectURL(file) : null);
+    if (file) setRemovePhoto(false);
     setProblem("");
   }
 
@@ -100,6 +110,14 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
       if (!checked.ok) return setProblem(barcodeProblem(checked.reason));
       barcode = checked.code;
     }
+    const asNumber = (value: string) => (value.trim() === "" ? 0 : Number(value));
+    const valueKeys = ["grams", "calories", "protein", "carbs", "fat"] as const;
+    const unchanged = valueKeys.every((key) => asNumber(form[key]) === asNumber(start[key])) && form.fromLabel === start.fromLabel;
+    const typedBasis: ValueBasis = form.fromLabel ? "label" : "user_entered";
+    // Changed values are the user's own, also for a food the AI coach saved.
+    const origin: CustomFoodOrigin = editing
+      ? (unchanged || editing.origin !== "ai_coach" ? editing.origin ?? "user" : "user")
+      : prefill?.origin ?? (barcode ? "barcode" : "user");
     onSave({
       name: form.name,
       brand: form.brand,
@@ -110,11 +128,11 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
       carbs,
       fat,
       barcode,
-      valueBasis: form.fromLabel ? "label" : "user_entered",
-      origin: editing?.origin ?? prefill?.origin ?? (barcode ? "barcode" : "user"),
-      ...(image ? { imageUrl: image, imageAttribution: imageCredit } : {}),
+      valueBasis: editing && unchanged ? editing.value_basis ?? typedBasis : typedBasis,
+      origin,
+      ...(image && !removePhoto ? { imageUrl: image, imageAttribution: imageCredit } : {}),
       ...(prefill?.sourceRef !== undefined && !editing ? { sourceRef: prefill.sourceRef } : {}),
-    }, photo);
+    }, photo, removePhoto && !photo);
   }
 
   const field = (key: "grams" | "calories" | "protein" | "carbs" | "fat", label: string, min = "0") => (
@@ -134,7 +152,9 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
         {shownPhoto && <div className={styles.photo}>
           <Image src={shownPhoto} alt="" width={72} height={72} unoptimized/>
           <p className={styles.credit}>{shownCredit}</p>
+          {canRemovePhoto && <button type="button" className={styles.textButton} onClick={() => setRemovePhoto(true)}>Remove photo</button>}
         </div>}
+        {removePhoto && !preview && <p className={styles.hint}>The photo is removed when you save. <button type="button" className={styles.textButton} onClick={() => setRemovePhoto(false)}>Keep it</button></p>}
         <form className={styles.form} onSubmit={(event) => { event.preventDefault(); submit(); }}>
           <label className={styles.wide}>Name<input ref={first} className="fitx-field" required maxLength={160} value={form.name} onChange={(event) => set("name", event.target.value)}/></label>
           <label className={styles.wide}>Brand (optional)<input className="fitx-field" maxLength={160} value={form.brand} onChange={(event) => set("brand", event.target.value)}/></label>

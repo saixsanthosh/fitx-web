@@ -6,7 +6,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FoodPortion } from "@/lib/domain/food-query";
 import { scaleMacros } from "@/lib/domain/nutrition";
-import type { CustomFoodOrigin, FoodResult, ValueBasis } from "@/lib/food/types";
+import { FOOD_PHOTO_BUCKET } from "@/lib/food/food-photos";
+import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
 import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
 
 export const CUSTOM_SOURCE = "FITX custom food";
@@ -26,13 +27,18 @@ export function isMissingSchema(error: unknown): boolean {
   return code === "PGRST205" || code === "42P01" || code === "PGRST204" || code === "42703" || code === "PGRST200";
 }
 
+/**
+ * Only a table or column that does not exist means the migration is missing. Any other failure (a timeout, a 5xx)
+ * says nothing about the schema, so the feature counts as there and its own load reports the problem.
+ */
 export async function detectCapabilities(supabase: SupabaseClient): Promise<NutritionCapabilities> {
   const [custom, templates, targets] = await Promise.all([
     supabase.from("custom_foods").select("archived_at").limit(1),
     supabase.from("meal_templates").select("id").limit(1),
     supabase.from("nutrition_targets").select("user_id").limit(1),
   ]);
-  return { customFoodsV2: !custom.error, templates: !templates.error, targets: !targets.error };
+  const present = (result: { error: unknown }) => !result.error || !isMissingSchema(result.error);
+  return { customFoodsV2: present(custom), templates: present(templates), targets: present(targets) };
 }
 
 /** A logged entry (public.meals). Totals are for the logged amount. */
@@ -62,6 +68,8 @@ export interface MealSnapshot {
   basis?: string;
   value_basis?: ValueBasis;
   kind?: string;
+  /** The food's diet label when it was logged, so the diet filter also applies to Recent. */
+  diet_type?: DietType;
   portion?: { count?: number; label?: string; unit?: FoodPortion["unit"]; grams_each?: number; estimate?: boolean; converted_from?: { label: string; grams: number } };
 }
 
@@ -125,7 +133,7 @@ export async function loadRecentFoods(supabase: SupabaseClient, userId: string, 
       valueBasis,
       basis: entry.nutrition_snapshot?.basis ?? basisInfo(valueBasis).label,
       state: null,
-      dietType: null,
+      dietType: DIET_TYPES.has(String(entry.nutrition_snapshot?.diet_type)) ? (entry.nutrition_snapshot?.diet_type as DietType) : null,
       portions,
       barcode: entry.barcode,
       origin: null,
@@ -135,6 +143,21 @@ export async function loadRecentFoods(supabase: SupabaseClient, userId: string, 
     if (foods.length >= limit) break;
   }
   return foods;
+}
+
+const DIET_TYPES = new Set(["vegan", "veg", "egg", "non_veg"]);
+
+/**
+ * Recent foods with your own foods as they are saved now: an edit applies at once, and a deleted food drops out,
+ * so Recent never re-logs values you have corrected. Other foods keep what was logged.
+ */
+export function withCurrentCustomFoods(recent: readonly FoodResult[], rows: readonly CustomFoodRow[], photoFor: (row: CustomFoodRow) => string | null = () => null): FoodResult[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return recent.flatMap((food) => {
+    if (food.kind !== "custom") return [food];
+    const row = byId.get(food.id);
+    return row ? [customFoodResult(row, photoFor(row))] : [];
+  });
 }
 
 /** A custom food as stored (values per 100 g), with the v2 fields when the migration is applied. */
@@ -178,7 +201,8 @@ export interface CustomFoodInput {
   carbs: number;
   fat: number;
   barcode: string | null;
-  valueBasis: "user_entered" | "label";
+  /** user_entered or label for typed values; an edit that leaves the values alone keeps the food's own basis. */
+  valueBasis: ValueBasis;
   origin: CustomFoodOrigin;
   imageUrl?: string | null;
   imageAttribution?: string | null;
@@ -218,10 +242,28 @@ export async function saveCustomFood(supabase: SupabaseClient, userId: string, i
   return { row: (result.data ?? null) as unknown as CustomFoodRow | null, error: result.error };
 }
 
-/** Archives a custom food (kept for past logs and restorable), or deletes it before the v2 migration exists. */
-export async function removeCustomFood(supabase: SupabaseClient, userId: string, id: string, v2: boolean) {
-  if (v2) return supabase.from("custom_foods").update({ archived_at: new Date().toISOString() }).eq("id", id).eq("user_id", userId);
-  return supabase.from("custom_foods").delete().eq("id", id).eq("user_id", userId);
+/**
+ * Deletes a custom food and its photo. Nothing else needs the row: past logs and saved meals keep their own
+ * per-100 g snapshots. The photo goes only after the row, so a failed delete never leaves a food without it.
+ */
+export async function removeCustomFood(supabase: SupabaseClient, userId: string, row: Pick<CustomFoodRow, "id" | "image_path">) {
+  const result = await supabase.from("custom_foods").delete().eq("id", row.id).eq("user_id", userId);
+  if (!result.error) await removePhotoFile(supabase, userId, row.image_path);
+  return result;
+}
+
+/**
+ * Takes the photo off a custom food: the user's own photo (deleted from storage once the row no longer points at
+ * it) and any linked package photo.
+ */
+export async function removeCustomFoodPhoto(supabase: SupabaseClient, userId: string, row: Pick<CustomFoodRow, "id" | "image_path">) {
+  const result = await supabase.from("custom_foods").update({ image_path: null, image_url: null, image_attribution: null }).eq("id", row.id).eq("user_id", userId);
+  if (!result.error) await removePhotoFile(supabase, userId, row.image_path);
+  return result;
+}
+
+async function removePhotoFile(supabase: SupabaseClient, userId: string, path: string | null | undefined) {
+  if (path && path.startsWith(`${userId}/foods/`)) await supabase.storage.from(FOOD_PHOTO_BUCKET).remove([path]);
 }
 
 /** A custom food as a search result; `photoUrl` is a signed link to the user's own photo of it. */
