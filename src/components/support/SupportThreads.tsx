@@ -76,36 +76,43 @@ function ReplyForm({ requestId }: { requestId: string }) {
   );
 }
 
+/** One conversation. It opens by itself when the team is waiting for a reply; after that the person decides. */
+function Thread({ thread, canReply }: { thread: SupportThreadView; canReply: boolean }) {
+  // Only the first render reads the status, so a refresh after sending a reply never closes it.
+  const [open, setOpen] = useState(thread.status === "waiting_on_user");
+  return (
+    <details className="fitx-panel p-4" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold text-fitx-text">{thread.subject}</span>
+          <span className="block text-xs text-fitx-text-secondary">{SUPPORT_CATEGORY_LABELS[thread.category]} · <When value={thread.createdAt} /></span>
+        </span>
+        <span className="rounded-full border border-fitx-border px-2.5 py-1 text-xs font-medium text-fitx-text-secondary">{SUPPORT_STATUS_LABELS[thread.status] ?? thread.status}</span>
+      </summary>
+      <ol className="mt-4 space-y-3 border-t border-fitx-divider pt-4">
+        <li>
+          <p className="text-xs font-semibold text-fitx-text-secondary">You · <When value={thread.createdAt} /></p>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fitx-text">{thread.body}</p>
+        </li>
+        {thread.messages.map((message) => (
+          <li key={message.id} className={message.fromTeam ? "rounded-lg border border-fitx-border bg-fitx-surface-variant p-3" : ""}>
+            <p className="text-xs font-semibold text-fitx-text-secondary">{message.fromTeam ? "FITX team" : "You"} · <When value={message.createdAt} /></p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fitx-text">{message.body}</p>
+          </li>
+        ))}
+      </ol>
+      {canReply && thread.status !== "closed" && <ReplyForm requestId={thread.id} />}
+    </details>
+  );
+}
+
 /** The person's own Help requests, newest activity first, with replies from the FITX team. */
 export function SupportThreads({ threads, canReply }: { threads: SupportThreadView[]; canReply: boolean }) {
   if (!threads.length) return null;
   return (
     <section className="space-y-3" aria-labelledby="help-history-title">
       <h2 id="help-history-title" className="text-base font-semibold text-fitx-text">Your messages</h2>
-      {threads.map((thread) => (
-        <details key={thread.id} className="fitx-panel p-4" open={thread.status === "waiting_on_user"}>
-          <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-fitx-text">{thread.subject}</span>
-              <span className="block text-xs text-fitx-text-secondary">{SUPPORT_CATEGORY_LABELS[thread.category]} · <When value={thread.createdAt} /></span>
-            </span>
-            <span className="rounded-full border border-fitx-border px-2.5 py-1 text-xs font-medium text-fitx-text-secondary">{SUPPORT_STATUS_LABELS[thread.status] ?? thread.status}</span>
-          </summary>
-          <ol className="mt-4 space-y-3 border-t border-fitx-divider pt-4">
-            <li>
-              <p className="text-xs font-semibold text-fitx-text-secondary">You · <When value={thread.createdAt} /></p>
-              <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fitx-text">{thread.body}</p>
-            </li>
-            {thread.messages.map((message) => (
-              <li key={message.id} className={message.fromTeam ? "rounded-lg border border-fitx-border bg-fitx-surface-variant p-3" : ""}>
-                <p className="text-xs font-semibold text-fitx-text-secondary">{message.fromTeam ? "FITX team" : "You"} · <When value={message.createdAt} /></p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fitx-text">{message.body}</p>
-              </li>
-            ))}
-          </ol>
-          {canReply && thread.status !== "closed" && <ReplyForm requestId={thread.id} />}
-        </details>
-      ))}
+      {threads.map((thread) => <Thread key={thread.id} thread={thread} canReply={canReply} />)}
     </section>
   );
 }
