@@ -98,3 +98,12 @@ export async function deleteGoalEntry(db: Db, userId: string, goal: GoalView, en
     if (updated.error) throw new DataError("The entry was deleted but the total did not update. Refresh to see it.", updated.error);
   }
 }
+
+export type GoalOption = { id: string; title: string };
+
+/** Goals a To-Do can count toward: active and paused ones. */
+export async function loadGoalOptions(db: Db, userId: string): Promise<GoalOption[]> {
+  const result = await db.from("goals").select("id,title").eq("user_id", userId).in("status", ["active", "paused"]).order("created_at").limit(100);
+  if (result.error) throw new DataError("Your goals could not be loaded.", result.error);
+  return (result.data ?? []) as GoalOption[];
+}
