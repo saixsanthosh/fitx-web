@@ -14,7 +14,7 @@ import type { ProviderId } from "./types";
  *                        optional comma-separated model lists that replace the defaults in registry.ts.
  *   OLLAMA_BASE_URL, OLLAMA_MODEL
  *                        local development only: an Ollama server on this machine (http://127.0.0.1:11434).
- *                        Ignored in production and for any host other than localhost.
+ *                        Ignored on Vercel (any environment) and for any host other than localhost.
  */
 export type AiConfig = {
   enabled: boolean;
@@ -74,10 +74,13 @@ function modelList(value: string | undefined) {
     .slice(0, 6);
 }
 
-/** Ollama runs on a developer's own machine. Vercel functions cannot reach it, so production ignores it. */
+/**
+ * Ollama runs on a developer's own machine. A Vercel function cannot reach that machine ("localhost"
+ * there is the function itself), so on Vercel it is always ignored, and only a localhost URL is used.
+ */
 function localOllama(env: Env) {
   const raw = (env.OLLAMA_BASE_URL ?? "").trim();
-  if (!raw || env.VERCEL_ENV === "production" || env.NODE_ENV === "production") return null;
+  if (!raw || env.VERCEL || env.VERCEL_ENV) return null;
   try {
     const url = new URL(raw);
     if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^https?:$/.test(url.protocol)) return null;

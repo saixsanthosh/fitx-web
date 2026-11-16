@@ -60,10 +60,13 @@ describe("configuration and the free-only guard", () => {
     assert.deepEqual(candidatesFor("chat", readAiConfig({ GROQ_API_KEY: "k" })).map((c) => c.provider), ["groq", "groq"]);
   });
 
-  test("Ollama is used only for a local URL outside production", () => {
+  test("Ollama is used only for a local URL, and never on Vercel", () => {
     assert.ok(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2" }).ollama);
     assert.equal(readAiConfig({ OLLAMA_BASE_URL: "https://my-tunnel.example.com", OLLAMA_MODEL: "llama3.2" }).ollama, null);
     assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2", VERCEL_ENV: "production" }).ollama, null);
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2", VERCEL_ENV: "preview" }).ollama, null);
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2", VERCEL: "1" }).ollama, null);
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://localhost:11434", OLLAMA_MODEL: "" }).ollama, null, "a model name is required");
     assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2" }).ollama?.baseUrl, "http://127.0.0.1:11434/v1");
   });
 });

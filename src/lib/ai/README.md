@@ -44,8 +44,8 @@ ollama pull llama3.2
 ```
 
 Then put `OLLAMA_BASE_URL=http://127.0.0.1:11434` and `OLLAMA_MODEL=llama3.2` in `.env.local` and run
-`npm run dev`. The router uses Ollama last, after any free cloud provider that has a key. It is ignored
-in production builds, on Vercel, and for any host other than localhost.
+`npm run dev`. The router uses Ollama last, after any free cloud provider that has a key. It is always
+ignored on Vercel (production and preview) and for any host other than localhost.
 
 ## What the coach sends
 
