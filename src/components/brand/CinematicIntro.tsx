@@ -32,24 +32,19 @@ const VIDEO_READY_TIMEOUT_MS = 6000;
 const WATCHDOG_MS = 8000;
 
 type NavigatorHints = Navigator & {
-  deviceMemory?: number;
   connection?: { saveData?: boolean; effectiveType?: string };
 };
 
 /**
- * Cheap capability gates, checked before the ~250 KB scene chunk is fetched. They mirror the
- * non-GPU checks in `detectQuality` (which stays the final word once WebGL exists).
+ * Whether to play the film at all. The video plays smoothly on any device (low-end phones get the
+ * light cut), so only an explicit "save data" request or a 2G connection skips it: the static mark
+ * shows instead. The live render (`?intro=live`) has its own device checks (`detectQuality`) and
+ * falls back to the video.
  */
 function filmAllowed(): boolean {
-  const nav = navigator as NavigatorHints;
-  if (typeof nav.deviceMemory === "number" && nav.deviceMemory <= 2) return false;
-  // WebKit on iOS/iPadOS reports at most 2 cores whatever the hardware (fingerprinting cap), so
-  // the core count says nothing about an iPhone or iPad.
-  const appleMobile = /iPhone|iPad|iPod/.test(nav.userAgent) || (/Macintosh/.test(nav.userAgent) && nav.maxTouchPoints > 1);
-  if (!appleMobile && typeof nav.hardwareConcurrency === "number" && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 2) return false;
-  if (nav.connection?.saveData === true) return false;
-  if (nav.connection?.effectiveType === "slow-2g" || nav.connection?.effectiveType === "2g") return false;
-  return true;
+  const connection = (navigator as NavigatorHints).connection;
+  if (connection?.saveData === true) return false;
+  return !(connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g");
 }
 
 /**
@@ -238,8 +233,7 @@ export function CinematicIntro() {
     setRun((value) => value + 1);
     setLeaving(false);
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // Devices the film can never run on (low memory/cores, Save-Data, 2G) get the static mark
-    // straight away instead of downloading the scene chunk first.
+    // Save-Data and 2G get the static mark straight away instead of downloading the film.
     const film = !reduced && filmAllowed();
     const chosen = chooseSource();
     sourceRef.current = chosen;
