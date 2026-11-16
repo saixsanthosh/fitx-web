@@ -8,12 +8,16 @@ import { EmptyState } from "@/components/app/EmptyState";
 import { createClient } from "@/lib/supabase/client";
 import { generateWorkout, type ExerciseRecord, type WorkoutPreferences } from "@/lib/domain/workout";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
-import { columnList, hasValuesIn, isMissingColumnError, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { columnList, hasValuesIn, isMissingColumnError, isMissingRelationshipError, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
 import { plannerScheduleChange } from "./_lib/plan-schedule";
+import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
 
-type PlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string };
+/** `last_done_key`: local day of the plan's latest finished session, or null when none is known. */
+type PlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; last_done_key: string | null };
+type PlanListRow = Omit<PlanRow, "last_done_key"> & { workout_sessions?: Array<{ started_at: string }> | null };
+type SupabaseBrowserClient = NonNullable<ReturnType<typeof createClient>>;
 type SessionRow = { id: string; name: string; started_at: string; duration_seconds: number; total_volume: number; status: string };
 type PlannedExercise = { exercise: ExerciseRecord; sort_order: number; target_sets: number; reps_min: number; reps_max: number; rest_seconds: number; target_weight_kg: number | null; target_duration_seconds: number | null };
 /** The target columns are absent when the database has not received the prescription-targets migration. */
@@ -21,9 +25,18 @@ type PlanExerciseRow = { id: string; exercise_id: string | null; exercise_name: 
 type WorkoutCounts = { completed: number | null; plans: number | null; exercises: number | null };
 
 const PLAN_EXERCISE_COLUMNS = ["id", "exercise_id", "exercise_name", "sort_order", "target_sets", "reps_min", "reps_max", "rest_seconds"] as const;
-const PLAN_LIST_LIMIT = 30;
+const PLAN_PAGE_SIZE = 30;
+const PLAN_LIST_STATUSES = ["draft", "scheduled"];
+const PLAN_LIST_COLUMNS = "id,title,planned_for,status,split";
+// Each plan's latest finished session, for the "Done" label: one embedded row per plan.
+const PLAN_LAST_DONE_EMBED = "workout_sessions(started_at)";
 const HISTORY_LIMIT = 6;
 const TARGETS_UNAVAILABLE_NOTICE = "Weight and time targets aren’t available yet while FITX finishes an update. Sets, reps, rest and exercise order still save as usual.";
+
+/** "Done" in the success colour; the other statuses stay neutral. */
+function PlanStatusChip({ status }: { status: ReturnType<typeof planCardStatus> }) {
+  return <span className={status === "Done" ? "rounded-sm bg-fitx-success/10 px-2 py-1 text-[10px] font-medium text-fitx-success" : "rounded-sm bg-fitx-surface-variant px-2 py-1 text-[10px] text-fitx-text-secondary"}>{status}</span>;
+}
 
 /** An exact total, or a dash when the count could not be loaded. */
 function CountValue({ value }: { value: number | null }) {
@@ -32,6 +45,48 @@ function CountValue({ value }: { value: number | null }) {
 }
 function toPlannedExercise(row: PlanExerciseRow, exercise: ExerciseRecord): PlannedExercise {
   return { exercise, sort_order: row.sort_order, target_sets: row.target_sets, reps_min: row.reps_min, reps_max: row.reps_max, rest_seconds: row.rest_seconds, target_weight_kg: row.target_weight_kg ?? null, target_duration_seconds: row.target_duration_seconds ?? null };
+}
+function toPlanRow(row: PlanListRow): PlanRow {
+  const lastDone = row.workout_sessions?.[0]?.started_at;
+  return { id: row.id, title: row.title, planned_for: row.planned_for, status: row.status, split: row.split, last_done_key: lastDone ? localDateKey(new Date(lastDone)) : null };
+}
+
+/** A plan query with, when `withLastDone`, each plan's latest finished session embedded. */
+function planListQuery(supabase: SupabaseBrowserClient, uid: string, withLastDone: boolean) {
+  const query = supabase.from("workout_plans").select(withLastDone ? `${PLAN_LIST_COLUMNS},${PLAN_LAST_DONE_EMBED}` : PLAN_LIST_COLUMNS).eq("user_id", uid).in("status", PLAN_LIST_STATUSES);
+  return withLastDone
+    ? query.eq("workout_sessions.status", "completed").order("started_at", { referencedTable: "workout_sessions", ascending: false }).limit(1, { referencedTable: "workout_sessions" })
+    : query;
+}
+
+function planSegmentQuery(supabase: SupabaseBrowserClient, uid: string, todayKey: string, request: PlanSegmentRequest, withLastDone: boolean) {
+  const spec = planSegmentSpec(request.segment, todayKey);
+  let query = planListQuery(supabase, uid, withLastDone);
+  query = spec.filter.op === "is" ? query.is("planned_for", null) : spec.filter.op === "gte" ? query.gte("planned_for", spec.filter.value) : query.lt("planned_for", spec.filter.value);
+  for (const order of spec.order) query = query.order(order.column, { ascending: order.ascending });
+  return query.range(request.from, request.to);
+}
+
+/**
+ * One page of "Your plans": upcoming first, then undated, then past (see _lib/plan-list.ts).
+ * If the database cannot embed the latest session, the page loads without the "Done" labels.
+ */
+async function fetchPlanPage(supabase: SupabaseBrowserClient, uid: string, todayKey: string, cursor: PlanPageCursor) {
+  const requests = planPageRequests(cursor, PLAN_PAGE_SIZE);
+  const run = (withLastDone: boolean) => Promise.all(requests.map((request) => planSegmentQuery(supabase, uid, todayKey, request, withLastDone)));
+  let responses = await run(true);
+  if (responses.some((response) => isMissingRelationshipError(response.error))) responses = await run(false);
+  const failed = responses.find((response) => response.error);
+  if (failed) return { error: failed.error, rows: [] as PlanRow[], next: cursor as PlanPageCursor | null };
+  const page = composePlanPage(requests.map((request, index) => ({ segment: request.segment, from: request.from, rows: (responses[index].data || []) as unknown as PlanListRow[] })), PLAN_PAGE_SIZE);
+  return { error: null, rows: page.rows.map(toPlanRow), next: page.next };
+}
+
+/** A single listed plan by id, for the dashboard's ?plan= link when it is not on the first page. */
+async function fetchPlanById(supabase: SupabaseBrowserClient, uid: string, planId: string) {
+  let result = await planListQuery(supabase, uid, true).eq("id", planId).maybeSingle();
+  if (isMissingRelationshipError(result.error)) result = await planListQuery(supabase, uid, false).eq("id", planId).maybeSingle();
+  return result.error || !result.data ? null : toPlanRow(result.data as unknown as PlanListRow);
 }
 
 export default function WorkoutsPage() {
@@ -62,6 +117,10 @@ export default function WorkoutsPage() {
   // Whether workout_plan_exercises has the weight and time target columns: null until known.
   const [targetsSupported, setTargetsSupported] = useState<boolean | null>(null);
   const [notice, setNotice] = useState("");
+  // The plan list is paged; `listDayKey` is the "today" its segments and labels were built with.
+  const [planCursor, setPlanCursor] = useState<PlanPageCursor | null>(null);
+  const [loadingMorePlans, setLoadingMorePlans] = useState(false);
+  const [listDayKey, setListDayKey] = useState("");
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -69,26 +128,32 @@ export default function WorkoutsPage() {
     const auth = await supabase.auth.getUser();
     if (!auth.data.user) { setError("Sign in to manage your workouts."); setLoading(false); return; }
     const uid = auth.data.user.id;
-    const planStatuses = ["draft", "scheduled"];
-    const [catalogResult, preferencesResult, plansResult, historyResult, activeResult, completedCount, planCount, exerciseCount, targetsProbe] = await Promise.all([
+    const todayKey = localDateKey();
+    // The dashboard links to /workouts?plan=<id>; that plan is fetched on its own in case it is not on the first page.
+    const linkedPlanId = new URLSearchParams(window.location.search).get("plan");
+    const [catalogResult, preferencesResult, planPage, historyResult, activeResult, completedCount, planCount, exerciseCount, targetsProbe, linkedPlan] = await Promise.all([
       supabase.from("exercise_library").select("id,name,description,primary_muscle,secondary_muscles,equipment,locations,difficulty,movement_pattern,recommended_sets,reps_min,reps_max,rest_seconds,alternatives").eq("is_active", true).order("name").limit(1000),
       supabase.from("user_preferences").select("workout_location,equipment,fitness_level,session_duration_minutes,workout_split").eq("user_id", uid).maybeSingle(),
-      supabase.from("workout_plans").select("id,title,planned_for,status,split").eq("user_id", uid).in("status", planStatuses).order("planned_for", { ascending: true, nullsFirst: false }).limit(PLAN_LIST_LIMIT),
+      fetchPlanPage(supabase, uid, todayKey, FIRST_PLAN_PAGE),
       supabase.from("workout_sessions").select("id,name,started_at,duration_seconds,total_volume,status").eq("user_id", uid).eq("status", "completed").order("started_at", { ascending: false }).limit(HISTORY_LIMIT),
       supabase.from("workout_sessions").select("id,name,started_at,duration_seconds,total_volume,status").eq("user_id", uid).eq("status", "in_progress").order("started_at", { ascending: false }).limit(1).maybeSingle(),
       // Exact totals for the tiles; the lists above stay short.
       supabase.from("workout_sessions").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "completed"),
-      supabase.from("workout_plans").select("id", { count: "exact", head: true }).eq("user_id", uid).in("status", planStatuses),
+      supabase.from("workout_plans").select("id", { count: "exact", head: true }).eq("user_id", uid).in("status", PLAN_LIST_STATUSES),
       supabase.from("exercise_library").select("id", { count: "exact", head: true }).eq("is_active", true),
       // Finds out before the builder opens whether weight and time targets can be saved.
       supabase.from("workout_plan_exercises").select(PRESCRIPTION_TARGET_COLUMNS.join(",")).eq("user_id", uid).limit(1),
+      linkedPlanId ? fetchPlanById(supabase, uid, linkedPlanId) : Promise.resolve(null),
     ]);
-    const failure = [catalogResult, preferencesResult, plansResult, historyResult, activeResult].find((result) => result.error);
+    const failure = [catalogResult, preferencesResult, planPage, historyResult, activeResult].find((result) => result.error);
     if (failure?.error) { setError("Workouts could not load. Check your connection and try again."); setLoading(false); return; }
     setUserId(uid);
     setCatalog((catalogResult.data || []) as ExerciseRecord[]);
     setPreferences((preferencesResult.data || {}) as WorkoutPreferences);
-    setPlans((plansResult.data || []) as PlanRow[]);
+    // A linked plan from a later page is shown first; it is not repeated when its page loads.
+    setPlans(linkedPlan && !planPage.rows.some((plan) => plan.id === linkedPlan.id) ? [linkedPlan, ...planPage.rows] : planPage.rows);
+    setPlanCursor(planPage.next);
+    setListDayKey(todayKey);
     setSessions((historyResult.data || []) as SessionRow[]);
     setActiveSession(activeResult.data as SessionRow | null);
     // A failed count shows a dash rather than a number it cannot vouch for.
@@ -126,8 +191,12 @@ export default function WorkoutsPage() {
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     card.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "center" });
     card.classList.add("plan-navigation-target");
-    const timeout = window.setTimeout(() => card.classList.remove("plan-navigation-target"), 3500);
-    return () => window.clearTimeout(timeout);
+    const timeout = window.setTimeout(() => {
+      card.classList.remove("plan-navigation-target");
+      // Done highlighting: later list changes (Show more plans, a save) must not scroll back here.
+      window.history.replaceState(null, "", "/workouts");
+    }, 3500);
+    return () => { window.clearTimeout(timeout); card.classList.remove("plan-navigation-target"); };
   }, [plans]);
 
   useEffect(() => {
@@ -277,6 +346,17 @@ export default function WorkoutsPage() {
     if (!nextPreview.length) { setSaving(false); setError("The saved movements are no longer available in the active library."); return; }
     setMode("custom"); setEditingPlanId(null); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
     setSelected(nextPreview.map((row) => row.exercise.id)); setPreview(nextPreview); setQuery(""); setCreatorOpen(true); setSaving(false);
+  }
+
+  async function loadMorePlans() {
+    const supabase = createClient();
+    if (!supabase || !userId || !planCursor || loadingMorePlans) return;
+    setLoadingMorePlans(true); setError("");
+    const page = await fetchPlanPage(supabase, userId, listDayKey, planCursor);
+    setLoadingMorePlans(false);
+    if (page.error) return setError("More plans couldn’t be loaded. Check your connection and try again.");
+    setPlans((current) => mergePlansById(current, page.rows));
+    setPlanCursor(page.next);
   }
 
   async function deletePlan(plan: PlanRow) {
@@ -452,7 +532,7 @@ export default function WorkoutsPage() {
       </section>
       <section className={styles.plansSection}>
         <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Your plans</h2><p className="mt-1 text-xs text-fitx-text-secondary">Auto plans use your level, available equipment, and session length.</p></div><Link href="/planner" className="text-xs font-medium text-fitx-primary">Open planner<ArrowRight className="ml-1 inline" size={14}/></Link></div>
-        {plans.length ? <div className={styles.planList}>{plans.map((plan) => <article key={plan.id} id={`workout-plan-${plan.id}`} className={`${styles.planCard} fitx-panel flex flex-col gap-4 p-4 transition-colors sm:flex-row sm:items-center sm:p-5`}><div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={20}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-medium">{plan.title}</h3><span className="rounded-sm bg-fitx-surface-variant px-2 py-1 text-[10px] capitalize text-fitx-text-secondary">{plan.status}</span></div><p className="mt-1 flex items-center gap-1.5 text-xs capitalize text-fitx-text-secondary"><CalendarDays size={13}/>{plan.planned_for ? readableDate(new Date(plan.planned_for + "T12:00:00")) : "No date set"} · {plan.split.replaceAll("_", " ")}</p></div><div className="flex flex-wrap items-center gap-2"><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void editPlan(plan)} aria-label={"Edit " + plan.title}><Pencil size={14}/>Edit</button><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void duplicatePlan(plan)} aria-label={"Duplicate " + plan.title}><Copy size={14}/>Copy</button><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void deletePlan(plan)} aria-label={"Delete " + plan.title}><Trash2 size={14}/></button><button disabled={Boolean(starting)} className="fitx-button min-h-11 px-4 text-xs" onClick={() => void startWorkout(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15}/></button></div></article>)}{counts.plans !== null && counts.plans > plans.length && <p className="text-xs text-fitx-text-secondary">Showing {plans.length} of {counts.plans.toLocaleString()} saved plans.</p>}</div> : <div className={styles.plansEmpty}><EmptyState title="No workout plans yet" description="Generate a plan that respects your equipment and training level, or build one movement by movement." action={<button className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16}/>Create a plan</button>} /></div>}
+        {plans.length ? <div className={styles.planList}>{plans.map((plan) => <article key={plan.id} id={`workout-plan-${plan.id}`} className={`${styles.planCard} fitx-panel flex flex-col gap-4 p-4 transition-colors sm:flex-row sm:items-center sm:p-5`}><div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={20}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-medium">{plan.title}</h3><PlanStatusChip status={planCardStatus(plan.planned_for, listDayKey, plan.last_done_key)}/></div><p className="mt-1 flex items-center gap-1.5 text-xs capitalize text-fitx-text-secondary"><CalendarDays size={13}/>{plan.planned_for ? readableDate(new Date(plan.planned_for + "T12:00:00")) : "No date set"} · {plan.split.replaceAll("_", " ")}</p></div><div className="flex flex-wrap items-center gap-2"><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void editPlan(plan)} aria-label={"Edit " + plan.title}><Pencil size={14}/>Edit</button><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void duplicatePlan(plan)} aria-label={"Duplicate " + plan.title}><Copy size={14}/>Copy</button><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs" onClick={() => void deletePlan(plan)} aria-label={"Delete " + plan.title}><Trash2 size={14}/></button><button disabled={Boolean(starting)} className="fitx-button min-h-11 px-4 text-xs" onClick={() => void startWorkout(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15}/></button></div></article>)}{(planCursor || (counts.plans !== null && counts.plans > plans.length)) && <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-fitx-text-secondary">Showing {plans.length.toLocaleString()}{counts.plans !== null && counts.plans >= plans.length ? ` of ${counts.plans.toLocaleString()}` : ""} saved plans</p>{planCursor && <button type="button" onClick={() => void loadMorePlans()} disabled={loadingMorePlans} className="fitx-button fitx-button-secondary min-h-11 px-4 text-xs">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}</div>}</div> : <div className={styles.plansEmpty}><EmptyState title="No workout plans yet" description="Generate a plan that respects your equipment and training level, or build one movement by movement." action={<button className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16}/>Create a plan</button>} /></div>}
       </section>
       <section>
         <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Recent history</h2><p className="mt-1 text-xs text-fitx-text-secondary">Sessions you’ve finished.</p></div><Link href="/progress" className="text-xs font-medium text-fitx-primary">View progress</Link></div>

@@ -1,5 +1,10 @@
+// The root `npm test` runs this file and vercel-ignore.test.mjs too, without
+// admin/node_modules, so the filter and both test files import only Node built-ins and
+// each other. The last test below enforces that.
+
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { normalizePath, parseNameStatusZ, relevantFiles, shouldBuild } from "../scripts/deploy-filter.mjs";
 
 test("FITX skips an Admin-only push, including additions, edits, and deletions", () => {
@@ -77,4 +82,21 @@ test("relevantFiles lists only the paths that matter to each app", () => {
 test("unknown filter target fails open", () => {
   assert.equal(shouldBuild("unknown", ["admin/src/app/page.tsx"]), true);
   assert.equal(shouldBuild(undefined, []), true);
+});
+
+test("the filter and its tests need only Node and git, so the root npm test can run them", async () => {
+  const files = ["../scripts/deploy-filter.mjs", "../scripts/vercel-ignore.mjs", "./deploy-filter.test.mjs", "./vercel-ignore.test.mjs"];
+  const allowedRelative = new Set(["./deploy-filter.mjs", "../scripts/deploy-filter.mjs"]);
+  const importPattern = /\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\bimport\s+["']([^"']+)["']|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
+
+  let checked = 0;
+  for (const file of files) {
+    const source = await readFile(new URL(file, import.meta.url), "utf8");
+    for (const match of source.matchAll(importPattern)) {
+      const specifier = match.slice(1).find(Boolean);
+      assert.ok(specifier.startsWith("node:") || allowedRelative.has(specifier), `${file} imports "${specifier}", which needs more than Node and git`);
+      checked++;
+    }
+  }
+  assert.ok(checked >= 10, `expected to check the imports of all four files, found ${checked}`);
 });

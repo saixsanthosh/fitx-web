@@ -2,7 +2,8 @@
 -- plan, level, xp, streak, best_streak, email, diet_mode, id and created_at become server-owned, so
 -- for example `plan` can never be raised from the browser. Rows are still created only by the
 -- handle_new_user trigger (security definer) and deleted with the auth user (on delete cascade).
--- Range checks are NOT VALID: they apply to new writes without rejecting any existing row.
+-- (Range checks on age, height and weight are deferred: a CHECK applies to the whole row on every
+-- update, so one old out-of-range value would block unrelated saves. Count such rows first; see the runbook.)
 begin;
 
 alter table public.profiles add column if not exists intro_completed_at timestamptz;
@@ -22,16 +23,6 @@ grant update (name, avatar, gender, age, height, weight, target_weight, experien
               onboarded, intro_completed_at, updated_at)
   on table public.profiles to authenticated;
 
-alter table public.profiles drop constraint if exists profiles_age_range;
-alter table public.profiles add constraint profiles_age_range check (age is null or age between 13 and 100) not valid;
-alter table public.profiles drop constraint if exists profiles_height_range;
-alter table public.profiles add constraint profiles_height_range check (height is null or height between 90 and 250) not valid;
-alter table public.profiles drop constraint if exists profiles_weight_range;
-alter table public.profiles add constraint profiles_weight_range check (weight is null or weight between 30 and 500) not valid;
-alter table public.profiles drop constraint if exists profiles_target_weight_range;
-alter table public.profiles add constraint profiles_target_weight_range check (target_weight is null or target_weight between 30 and 500) not valid;
-alter table public.profiles drop constraint if exists profiles_name_length;
-alter table public.profiles add constraint profiles_name_length check (name is null or char_length(name) <= 120) not valid;
 
 -- New accounts: no search_path lookups inside a security definer function, and bounded metadata.
 create or replace function public.handle_new_user()

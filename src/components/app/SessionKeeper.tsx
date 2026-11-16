@@ -17,10 +17,17 @@ export function SessionKeeper() {
     let timer: number | undefined;
     const soon = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => void stampSessionCookies(), 250);
+      timer = window.setTimeout(() => {
+        void supabase.auth.getSession().then(({ data: current }: { data: { session: Session | null } }) => {
+          if (current.session) void stampSessionCookies();
+        });
+      }, 250);
     };
     const { data } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
-      if (!session) return;
+      if (event === "SIGNED_OUT" || !session) {
+        window.clearTimeout(timer);
+        return;
+      }
       if (event === "TOKEN_REFRESHED") soon();
       else if ((event === "INITIAL_SESSION" || event === "SIGNED_IN") && !stampedRecently()) soon();
     });

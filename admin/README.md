@@ -15,20 +15,20 @@ Nobody can use Admin until these steps are done. Each one is a setting in Vercel
    - `FITX_ADMIN_ALLOWED_EMAILS` = the Google email address you will sign in with. Separate several addresses with commas.
    - Check that `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are already there.
 3. **Allow the new sign-in address in Supabase.** In Supabase, open Authentication → URL Configuration → Redirect URLs → Add URL, and add `https://fitnessx-admin.vercel.app/auth/callback`. Leave the Site URL and the existing FITX entries as they are. While you are there, check that Authentication → Sign In / Providers → **Google** is enabled, because Admin signs in with Google only.
-4. **Redeploy Admin** so it picks up the new variables. In the **admin** project, open Deployments, then the latest Production deployment → ⋯ → Redeploy. A push that changes Admin also deploys them. Before this branch's deploy-filter fix is live on `master`, untick **Use project's Ignore Build Step** in the Redeploy dialog. Otherwise Vercel cancels a redeploy of the same commit.
+4. **Redeploy Admin** so it picks up the new variables. In the **admin** project, open Deployments and find the Production deployment marked **Current**, with the status Ready. Do not choose a row marked Canceled: redeploying a skipped deployment is usually skipped again, so the new variables would never reach a build. Choose ⋯ → Redeploy, untick **Use project's Ignore Build Step** in the dialog, and confirm. Unticking it makes Vercel build no matter which files changed. A later push that changes Admin also picks up the variables.
 5. **Make yourself the first super-admin.** Sign in to FITX at https://fitnessx.vercel.app once with the same Google account, so that the account exists. Then run the SQL in [First super-admin](#first-super-admin) with your email address. The coordinating Claude session can run it for you through the Supabase connector once you give your OK.
 6. **Sign in** at https://fitnessx-admin.vercel.app with that Google account.
 
 After the switch, production visits to `admin-one-blond.vercel.app`, or to any other Admin address, are sent to `ADMIN_SITE_URL` automatically, so the old name keeps working as a shortcut. Once you have signed in on the new name, you can remove the old `https://admin-one-blond.vercel.app/auth/callback` entry from the Supabase Redirect URLs.
 
-If Admin stops loading after step 4 (for example, every page redirects to an address that does not open), set `ADMIN_SITE_URL` back to `https://admin-one-blond.vercel.app` and redeploy. Then check step 1 again.
+If Admin stops loading after step 4 (for example, every page redirects to an address that does not open), set `ADMIN_SITE_URL` back to `https://admin-one-blond.vercel.app` and redeploy as in step 4. Then check step 1 again.
 
 ### If sign-in does not work
 
 | Message on the sign-in page | What to check |
 | --- | --- |
-| Admin sign-in is not configured on this environment yet. | Step 2: `ADMIN_SITE_URL`, the two public Supabase variables and `FITX_ADMIN_ALLOWED_EMAILS` must all be set. Then redeploy. |
-| Server data access is not configured. | Step 2: `SUPABASE_SECRET_KEY` is missing in this environment. Preview deployments show this on purpose, because the key is Production-only. |
+| Admin sign-in is not configured on this environment yet. | Step 2: `ADMIN_SITE_URL`, the two public Supabase variables and `FITX_ADMIN_ALLOWED_EMAILS` must all be set. Then redeploy as in step 4. |
+| Server data access is not configured. | Step 2: `SUPABASE_SECRET_KEY` is missing in this environment. Then redeploy as in step 4. Preview deployments show this on purpose, because the key is Production-only. |
 | Google sign-in could not start. | Step 3: the redirect URL, and whether the Google provider is enabled. This also appears when the Google window is cancelled. |
 | This Google account does not have FITX Admin access. | The Google email must be on `FITX_ADMIN_ALLOWED_EMAILS` (step 2) and have an active super-admin or admin row (step 5). |
 | Admin access is not initialized yet. | The Admin tables are missing. See [First super-admin](#first-super-admin). |
@@ -103,7 +103,7 @@ Vercel supplies `VERCEL_ENV` and `VERCEL_URL`. Preview deployments use their own
    - the account has an active `admin` or `super_admin` row in `fitx_admin_members`, read with the server-only key.
 
    If any check fails, Admin signs that browser out and shows the same "no access" message.
-3. Every protected page, every data helper (`src/lib/admin-data.ts` and `src/lib/overview.ts`) and every Server Action calls `requireAdmin()`. It repeats the allowlist and membership checks on each request, so the layout is never the only guard. To remove someone's access, deactivate their membership on the Access screen, which takes effect on their next page load. Also remove their email from the allowlist and redeploy.
+3. Every protected page, every data helper (`src/lib/admin-data.ts` and `src/lib/overview.ts`) and every Server Action calls `requireAdmin()`. It repeats the allowlist and membership checks on each request, so the layout is never the only guard. To remove someone's access, deactivate their membership on the Access screen, which takes effect on their next page load. Also remove their email from the allowlist and redeploy as in step 4 of the checklist.
 4. Signing out, or being refused, ends only that Admin browser session (`signOut({ scope: "local" })`). Both apps share one Supabase project, but this does not sign the person out of FITX on their phone or other devices.
 5. RLS is enabled and forced on the Admin tables. The only user-session read policy on membership lets a user read their own row. Privileged RPCs are executable by `service_role` only and validate the actor again in Postgres.
 6. `fitx_admin_overview_metrics()` exposes aggregate counts only. Admin changes are audited. Users' health, workout, and individual meal details are not included in the directory or the aggregate reports.
@@ -190,10 +190,12 @@ How the filter decides (exit code 1 builds, exit code 0 skips):
 
 - It compares the commit being deployed with the last successfully deployed commit on that branch (`VERCEL_GIT_PREVIOUS_SHA`). Skipped pushes therefore add up until a relevant change arrives.
 - Changes under `admin/` build Admin only. Changes anywhere else build FITX, which lives at the root, so documentation outside `admin/` also builds FITX. Shared paths build both apps: the root `package.json`, `package-lock.json`, `.npmrc` and `tsconfig.base.json`, plus `packages/` and `shared/`.
-- A redeploy or promotion of a commit that is already deployed builds, and so does an empty diff.
+- A redeploy or promotion of a commit that is already deployed builds, and so does an empty diff. A production build of a branch other than `master` is a promotion, so it builds too.
+- Redeploying a Canceled (skipped) deployment is usually skipped again. Vercel compares it with the last Ready deployment, and if no relevant file changed in between, the filter skips it once more. To pick up new environment variables, redeploy the deployment marked Current (status Ready) and untick **Use project's Ignore Build Step**, as in step 4 of the checklist.
 - A branch's first deployment compares with the point where the branch left `master`.
 - Vercel clones only the last 10 commits. When the previous commit is older, the filter first fetches that commit, or the branch with more history.
 - Any error, missing information, or unknown target builds. The filter skips only when it is sure that nothing relevant changed.
+- Setting the project environment variable `FITX_FORCE_BUILD` to `1` makes every deployment of that project build. Because `vercel.json` overrides the dashboard's Ignored Build Step field, this is the switch that needs no code change, for example if the filter ever skips something it should not. Vercel documents only its own system variables for this step, so the first time you rely on it, check that the build log says "FITX_FORCE_BUILD is set". Remove the variable afterwards, or every push builds both apps.
 
 Skipped builds appear as "Canceled" in Vercel. They still count toward Vercel's deployment limits.
 
@@ -204,4 +206,5 @@ Skipped builds appear as "Canceled" in Vercel. They still count toward Vercel's 
 - Keep user health and activity details out of broad Admin lists and analytics.
 - Connect billing, support, food catalog, and notifications only after their authoritative source and permissions are defined.
 - Re-run lint, TypeScript, tests, and the production build after changes. When shared paths or the repository layout change, update `scripts/deploy-filter.mjs` and its tests.
+- The root `npm test` also runs `tests/deploy-filter.test.mjs` and `tests/vercel-ignore.test.mjs` without Admin's dependencies installed. Keep the filter scripts and those two test files limited to Node built-ins and `git`; a test enforces this.
 - Never commit `.env.local`, Vercel project linkage files, secrets, generated user exports, or screenshots containing personal data.
