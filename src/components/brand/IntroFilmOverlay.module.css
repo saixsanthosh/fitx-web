@@ -4,6 +4,15 @@
  * site theme. All timing comes from inline custom properties written by IntroFilmOverlay.tsx:
  * delays are seconds from the element's stage origin, so nothing here hard-codes the film's clock.
  *
+ * Compositor-only by contract: animations move transform and opacity only, never more than one
+ * animation per property on an element (two would both drop to the main thread), and nothing
+ * animates filter, backdrop-filter, letter-spacing, clip-path (bar the one-step mask release) or
+ * size. Blurs and shadows are painted once (text-shadow on transparent text) and cross-faded, so a
+ * low-end phone composites the overlay over the film without restyling, relaying out or repainting
+ * anything per frame. Entrances end on the element's own resting style and fill `backwards` only:
+ * a finished `both`/`forwards` animation keeps its element on a compositor layer for good, and a
+ * fading parent over several such layers needs an offscreen pass every frame.
+ *
  * Stacking (shared with CinematicIntro.module.css): canvas 0 · brand backdrop 0 · vignette 1 ·
  * titles/callouts 3 · letterbox 4 · brand lockup / static brand 5 · skip 6.
  */
@@ -79,15 +88,22 @@
   letter-spacing: .22em;
   transform: translateY(50%);
   white-space: nowrap;
-  animation:
-    slate-in .6s cubic-bezier(.16, 1, .3, 1) var(--at) both,
-    fade-out var(--out) ease-in calc(var(--at) + var(--hold)) forwards;
+  animation: fade-out var(--out) ease-in calc(var(--at) + var(--hold)) forwards;
 }
 
-.slate span:first-child { color: var(--film-paper); font-weight: 600; letter-spacing: .12em; }
+.slate > span:first-child { color: var(--film-paper); font-weight: 600; letter-spacing: .12em; }
 .slate i { width: 4px; height: 4px; background: var(--film-coral); }
 
-@keyframes slate-in { from { opacity: 0; letter-spacing: .4em; } to { opacity: 1; } }
+.slateFade { animation: fade-in .6s cubic-bezier(.16, 1, .3, 1) var(--at) backwards; }
+
+/* Tracking in from .4em to .22em, as transforms: letter i starts i × .18em further right. */
+.slateLetter {
+  display: inline-block;
+  white-space: pre;
+  animation: slate-track .6s cubic-bezier(.16, 1, .3, 1) var(--at) backwards;
+}
+
+@keyframes slate-track { from { opacity: 0; transform: translate3d(calc(var(--i) * .18em), 0, 0); } }
 
 /* Mattes thinner than the type (very wide or short screens) carry no super. */
 @media (min-aspect-ratio: 21/10), (max-height: 420px) { .slate { display: none; } }
@@ -101,6 +117,13 @@
   pointer-events: none;
 }
 
+/* Carries the scrim's exit, so the scrim itself animates its opacity only once (its entrance). */
+.scrimExit {
+  position: absolute;
+  inset: 0;
+  animation: fade-out var(--exit) cubic-bezier(.5, 0, .75, 0) var(--exit-at) forwards;
+}
+
 /* A soft grade-like falloff in the title corner keeps warm white legible on sunlit frames. */
 .titleScrim {
   position: absolute;
@@ -109,13 +132,11 @@
   width: min(100vw, 1500px);
   height: min(50%, 460px);
   background: radial-gradient(ellipse 64% 100% at 22% 100%, rgba(9, 11, 13, .4), rgba(9, 11, 13, .17) 46%, rgba(9, 11, 13, 0) 78%);
-  opacity: 0;
-  animation:
-    fade-in .5s cubic-bezier(.3, .7, .4, 1) var(--at) both,
-    fade-out var(--exit) cubic-bezier(.5, 0, .75, 0) var(--exit-at) forwards;
+  animation: fade-in .5s cubic-bezier(.3, .7, .4, 1) var(--at) backwards;
 }
 
 .title {
+  --title-glow: var(--title-ink, var(--film-paper));
   position: absolute;
   left: var(--safe-l);
   bottom: calc(var(--floor) + clamp(18px, 4.6vh, 54px));
@@ -129,11 +150,14 @@
   white-space: nowrap;
   transform-origin: 0 100%;
   /* A slow push over the whole beat, like the lens creeping in. */
-  animation: title-drift var(--dur) cubic-bezier(.25, .6, .35, 1) var(--at) both;
+  animation: title-drift var(--dur) cubic-bezier(.25, .6, .35, 1) var(--at) backwards;
 }
 
+/* The exit moves with the old easing; its fade is the sharp half of the exit's cross-fade (below). */
 .titleExit {
-  animation: title-exit var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
+  animation:
+    title-exit-move var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards,
+    title-exit-fade var(--exit) linear var(--exit-at) forwards;
 }
 
 .titleKicker {
@@ -148,7 +172,7 @@
 }
 
 .titleKicker span {
-  animation: kicker-in .55s cubic-bezier(.16, 1, .3, 1) var(--at) both;
+  animation: kicker-in .55s cubic-bezier(.16, 1, .3, 1) var(--at) backwards;
 }
 
 .titleKicker i {
@@ -157,28 +181,76 @@
   height: 2px;
   background: var(--film-coral);
   transform-origin: 0 50%;
-  animation: draw-x .6s cubic-bezier(.65, 0, .35, 1) calc(var(--at) + .06s) both;
+  animation: draw-x .6s cubic-bezier(.65, 0, .35, 1) calc(var(--at) + .06s) backwards;
 }
 
 /*
- * Letters rise out of a hard mask just below the baseline; the mask releases once they land so the
- * soft shadow is never cut. The shadow is one drop-shadow on the whole word (not per-letter text
- * shadows, which would paint each letter's shadow over its left neighbour).
+ * The word is three stacked copies of the same letters (one grid cell, identical layout and kerning):
+ *   shade — transparent letters whose text-shadows are the soft drop shadow, under every letter
+ *           (per-letter shadows on the fill would paint over the left neighbour);
+ *   twin  — transparent letters with a blur-sized text-shadow: the out-of-focus letter;
+ *   fill  — the sharp letters.
+ * Each letter rises out of a hard mask just below the baseline while its twin hands over to the
+ * sharp fill (a cross-fade standing in for the old animated blur, timed from the old blur radius);
+ * the mask releases once the letters land so the shadow is never cut. A fourth copy, blurred, sits
+ * outside the exit's fade and takes over as the title leaves. Blurs are rasterized once, at mount.
  */
 .titleWord {
-  display: flex;
-  align-items: flex-end;
-  filter: drop-shadow(0 .01em .03em rgba(8, 9, 8, .3)) drop-shadow(0 .03em .15em rgba(8, 9, 8, .24));
+  display: grid;
   clip-path: inset(-.6em -.6em -.1em -.6em);
   animation: mask-release 1ms step-end calc(var(--at) + var(--landed)) both;
 }
 
+.glyphRow {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: flex-end;
+}
+
 .glyph {
+  --glyph-at: calc(var(--at) + var(--i) * var(--stagger));
   display: inline-block;
   margin-left: var(--kern, 0);
   text-box: trim-both cap alphabetic;
-  will-change: transform, filter, opacity;
-  animation: glyph-in var(--reveal) cubic-bezier(.16, 1, .3, 1) calc(var(--at) + var(--i) * var(--stagger)) both;
+}
+
+.rowShade .glyph {
+  color: transparent;
+  text-shadow: 0 .01em .06em rgba(8, 9, 8, .3), 0 .03em .33em rgba(8, 9, 8, .26);
+  animation:
+    glyph-rise var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards,
+    glyph-fade var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards;
+}
+
+/* Blur .04em (text-shadow radius = 2σ): half the old starting blur, held until the old blur fell to it. */
+.rowTwin .glyph {
+  color: transparent;
+  text-shadow: 0 0 .08em var(--title-glow);
+  opacity: 0;
+  animation:
+    glyph-rise var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards,
+    glyph-twin var(--reveal) linear var(--glyph-at) backwards;
+}
+
+.rowFill .glyph {
+  animation:
+    glyph-rise var(--reveal) cubic-bezier(.16, 1, .3, 1) var(--glyph-at) backwards,
+    glyph-sharp var(--reveal) linear var(--glyph-at) backwards;
+}
+
+/* The exit's blurred copy (6px): same box and transform origin as .titleExit, so it moves in register. */
+.rowExit {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  animation:
+    title-exit-move var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at),
+    title-exit-blur var(--exit) linear var(--exit-at);
+}
+
+.rowExit .glyph {
+  color: transparent;
+  text-shadow: 0 0 12px var(--title-glow);
 }
 
 .titleDot {
@@ -187,18 +259,113 @@
   height: .115em;
   margin-left: .05em;
   background: var(--film-coral);
-  animation: dot-land .5s cubic-bezier(.34, 1.4, .64, 1) calc(var(--at) + var(--i) * var(--stagger) + var(--reveal) * .3) both;
+  animation: dot-land .5s cubic-bezier(.34, 1.4, .64, 1) calc(var(--at) + var(--i) * var(--stagger) + var(--reveal) * .3) backwards;
+}
+
+.rowShade .titleDot {
+  background: transparent;
+  box-shadow: 0 .01em .06em rgba(8, 9, 8, .3), 0 .03em .33em rgba(8, 9, 8, .26);
+}
+
+/* A blurred square: a zero-size shadow caster spread to the dot's size (nothing to clip inside). */
+.rowExit .titleDot {
+  position: relative;
+  background: transparent;
+  animation: none;
+}
+
+.rowExit .titleDot::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  content: "";
+  box-shadow: 0 0 12px calc(.115em / 2) var(--film-coral);
 }
 
 @keyframes title-drift { from { transform: scale(1); } to { transform: scale(1.035); } }
-@keyframes title-exit { to { opacity: 0; transform: translate3d(0, -.05em, 0) scale(1.015); filter: blur(10px); } }
+@keyframes title-exit-move { to { transform: translate3d(0, -.05em, 0) scale(1.015); } }
+/*
+ * The exit as a cross-fade, sampled from the old curves (opacity 1 − e, blur 10e px, e eased in):
+ * the sharp title hands over to the 6px copy while the old blur grows from .6px to 6px.
+ */
+@keyframes title-exit-fade {
+  0% { opacity: 1; }
+  30% { opacity: .972; }
+  40% { opacity: .943; }
+  45% { opacity: .893; }
+  50% { opacity: .827; }
+  55% { opacity: .748; }
+  60% { opacity: .657; }
+  65% { opacity: .552; }
+  70% { opacity: .434; }
+  75% { opacity: .307; }
+  80% { opacity: .177; }
+  85% { opacity: .055; }
+  88% { opacity: 0; }
+  100% { opacity: 0; }
+}
+@keyframes title-exit-blur {
+  0% { opacity: 0; }
+  40% { opacity: 0; }
+  45% { opacity: .029; }
+  50% { opacity: .071; }
+  55% { opacity: .118; }
+  60% { opacity: .171; }
+  65% { opacity: .23; }
+  70% { opacity: .29; }
+  75% { opacity: .346; }
+  80% { opacity: .391; }
+  85% { opacity: .409; }
+  88% { opacity: .391; }
+  92% { opacity: .279; }
+  96% { opacity: .15; }
+  100% { opacity: 0; }
+}
 @keyframes kicker-in { from { opacity: 0; transform: translate3d(-10px, 0, 0); } to { opacity: 1; transform: none; } }
 @keyframes mask-release { from { clip-path: inset(-.6em -.6em -.1em -.6em); } to { clip-path: none; } }
-@keyframes glyph-in {
-  /* Rise, lean and close up: each letter starts a little wider apart, so the word tightens as it lands. */
-  from { opacity: 0; filter: blur(.08em); transform: translate3d(calc(var(--i) * .045em), 132%, 0) skewY(6deg); }
-  45% { opacity: 1; }
-  to { opacity: 1; filter: blur(0); transform: none; }
+/* Rise, lean and close up: each letter starts a little wider apart, so the word tightens as it lands. */
+@keyframes glyph-rise { from { transform: translate3d(calc(var(--i) * .045em), 132%, 0) skewY(6deg); } }
+@keyframes glyph-fade { from { opacity: 0; } 45% { opacity: 1; } }
+/*
+ * The focus pull as a cross-fade, sampled from the old curves: opacity o(t) (eased in by 45%) and the
+ * old blur .08em·(1 − e(t)) (e = the rise's easing). The twin alone carries the letter until the old
+ * blur had shrunk to its own .04em (e = .5); the sharp fill then comes in over it (by e = .7) while
+ * the twin, behind it, fades out like the last of the old blur (gone by e = .95).
+ */
+@keyframes glyph-sharp {
+  0% { opacity: 0; }
+  10% { opacity: 0; }
+  12% { opacity: .261; }
+  14% { opacity: .533; }
+  16% { opacity: .783; }
+  18% { opacity: .94; }
+  20% { opacity: .957; }
+  23% { opacity: .974; }
+  26% { opacity: .985; }
+  30% { opacity: .994; }
+  35% { opacity: .998; }
+  42% { opacity: 1; }
+  100% { opacity: 1; }
+}
+@keyframes glyph-twin {
+  0% { opacity: 0; }
+  2% { opacity: .253; }
+  4% { opacity: .453; }
+  6% { opacity: .602; }
+  8% { opacity: .71; }
+  10% { opacity: .788; }
+  12% { opacity: .845; }
+  14% { opacity: .835; }
+  16% { opacity: .732; }
+  18% { opacity: .633; }
+  20% { opacity: .541; }
+  23% { opacity: .419; }
+  26% { opacity: .317; }
+  30% { opacity: .207; }
+  35% { opacity: .104; }
+  42% { opacity: .006; }
+  50% { opacity: 0; }
+  100% { opacity: 0; }
 }
 @keyframes dot-land {
   from { opacity: 0; transform: translate3d(0, .9em, 0); }
@@ -208,12 +375,15 @@
 
 /* ---------------------------------------------------------------- data callouts */
 
+/* The leader and the chip used to fade out separately on the same curve: one group fade here instead
+   (the chip's exit keeps its slide below), so a callout holds one offscreen surface, not one per part. */
 .callout {
   position: absolute;
   z-index: 3;
   display: flex;
   align-items: flex-start;
   color: var(--film-paper);
+  animation: fade-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
 }
 
 .callout[data-placement="right"] { right: var(--safe-r); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); }
@@ -234,7 +404,6 @@
   width: clamp(44px, 7.5vw, 128px);
   height: 1px;
   margin-top: 17px;
-  animation: fade-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
 }
 
 .callout[data-placement="bottom"] .leader { width: 1px; height: clamp(26px, 5.5vh, 60px); margin-top: 0; }
@@ -244,7 +413,7 @@
   inset: 0;
   background: var(--fitx-primary, var(--film-coral));
   transform-origin: 100% 50%;
-  animation: draw-x var(--line) cubic-bezier(.65, 0, .35, 1) var(--line-at) both;
+  animation: draw-x var(--line) cubic-bezier(.65, 0, .35, 1) var(--line-at) backwards;
 }
 
 .callout[data-placement="left"] .leaderLine { transform-origin: 0 50%; }
@@ -259,7 +428,7 @@
   height: 9px;
   border: 1.5px solid var(--fitx-primary, var(--film-coral));
   border-radius: 50%;
-  animation: lock-in var(--dot) cubic-bezier(.34, 1.56, .64, 1) var(--dot-at) both;
+  animation: lock-in var(--dot) cubic-bezier(.34, 1.56, .64, 1) var(--dot-at) backwards;
 }
 
 .leaderDot::after {
@@ -268,33 +437,37 @@
   content: "";
   border: 1px solid var(--fitx-primary, var(--film-coral));
   border-radius: 50%;
-  animation: ping calc(var(--dot) * 1.8) cubic-bezier(.2, .7, .3, 1) var(--dot-at) both;
+  opacity: 0;
+  animation: ping calc(var(--dot) * 1.8) cubic-bezier(.2, .7, .3, 1) var(--dot-at) backwards;
 }
 
 .callout[data-placement="left"] .leaderDot { left: auto; right: -4px; }
 .callout[data-placement="bottom"] .leaderDot { top: -4px; left: -4px; }
 
-.chip {
+/* Carries the chip's exit slide (its fade is the callout's), so the chip itself runs one animation. */
+.chipExit {
   --chip-from: 0px;
   --chip-from-y: 0px;
+  animation: chip-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at);
+}
+
+.callout[data-placement="right"] .chipExit { --chip-from: 16px; }
+.callout[data-placement="left"] .chipExit { --chip-from: -16px; }
+.callout[data-placement="bottom"] .chipExit { --chip-from-y: 10px; }
+
+/* Smoked glass without a backdrop blur (re-blurring the moving film every frame is the costliest thing
+   a phone could do here): a denser tint keeps the picture behind just as quiet. */
+.chip {
   position: relative;
   display: grid;
   overflow: hidden;
   min-width: clamp(150px, 12.5vw, 196px);
   padding: 12px 16px 13px 14px;
   border-radius: 6px;
-  background: linear-gradient(165deg, rgba(18, 20, 21, .84), rgba(8, 9, 10, .76));
+  background: linear-gradient(165deg, rgba(18, 20, 21, .88), rgba(8, 9, 10, .81));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .11), inset 0 1px 0 rgba(255, 255, 255, .07), 0 10px 26px -14px rgba(0, 0, 0, .45);
-  -webkit-backdrop-filter: blur(18px) saturate(1.1);
-  backdrop-filter: blur(18px) saturate(1.1);
-  animation:
-    chip-in var(--chip-in) cubic-bezier(.16, 1, .3, 1) var(--at) both,
-    chip-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
+  animation: chip-in var(--chip-in) cubic-bezier(.16, 1, .3, 1) var(--at) backwards;
 }
-
-.callout[data-placement="right"] .chip { --chip-from: 16px; }
-.callout[data-placement="left"] .chip { --chip-from: -16px; }
-.callout[data-placement="bottom"] .chip { --chip-from-y: 10px; }
 
 /* The reading's progress, drawn along the chip's foot in step with the count. */
 .chip::after {
@@ -306,16 +479,7 @@
   content: "";
   background: linear-gradient(90deg, var(--film-coral), rgba(237, 114, 92, .35));
   transform-origin: 0 50%;
-  animation: draw-x var(--count) cubic-bezier(.25, 1, .5, 1) var(--count-at) both;
-}
-
-/* Invisible clock whose CSS progress the count-up loop reads (see useCountUp). */
-.countClock {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  animation: count-clock var(--count) linear var(--count-at) both;
+  animation: draw-x var(--count) cubic-bezier(.25, 1, .5, 1) var(--count-at) backwards;
 }
 
 .label {
@@ -333,7 +497,7 @@
   height: 5px;
   background: var(--film-coral);
   box-shadow: 0 0 8px rgba(237, 114, 92, .75);
-  animation: pip-blink 1s steps(1, end) var(--at) infinite;
+  animation: pip-blink 1s steps(1, end) var(--at) var(--blinks, 1);
 }
 
 .value {
@@ -346,9 +510,24 @@
   white-space: nowrap;
 }
 
+/* A count-up reel: the ghost sizes the one-line window (and sets the baseline); the reel, one frame
+   of the count per line (--steps + 1 lines), steps up behind it by whole lines. Steps are fractions
+   of the reel's own height, not 1em: WebKit rounds line boxes to whole pixels (9.5px type → 10px
+   lines), so only the laid-out height keeps every frame in register with the window. */
 .num { display: inline-grid; }
 .num > * { grid-area: 1 / 1; }
 .numGhost { visibility: hidden; }
+.numWindow { position: relative; overflow: hidden; }
+
+.numReel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: pre;
+  /* Rests on the last line (the final reading); the count runs from the first. */
+  transform: translate3d(0, calc(100% / (var(--steps) + 1) - 100%), 0);
+  animation: count-roll var(--count) steps(var(--steps), end) var(--count-at) backwards;
+}
 
 .unit { white-space: pre; }
 
@@ -370,8 +549,11 @@
   letter-spacing: .08em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  animation: fade-in var(--detail) ease-out var(--detail-at) both;
 }
+
+/* The detail line fades in by its pieces (they never overlap): no group fade over the counting reels. */
+.badge,
+.detail > * { animation: fade-in var(--detail) ease-out var(--detail-at) backwards; }
 
 .detail .num { color: var(--film-paper); font-weight: 700; }
 
@@ -389,8 +571,8 @@
 @keyframes lock-in { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: none; } }
 @keyframes ping { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(3.4); } }
 @keyframes chip-in { from { opacity: 0; transform: translate3d(var(--chip-from), var(--chip-from-y), 0); } to { opacity: 1; transform: none; } }
-@keyframes chip-out { to { opacity: 0; transform: translate3d(calc(var(--chip-from) * .5), calc(var(--chip-from-y) * -.5), 0); } }
-@keyframes count-clock { from { opacity: 1; } to { opacity: 1; } }
+@keyframes chip-out { to { transform: translate3d(calc(var(--chip-from) * .5), calc(var(--chip-from-y) * -.5), 0); } }
+@keyframes count-roll { from { transform: translate3d(0, 0, 0); } }
 @keyframes pip-blink { 0% { opacity: 1; } 50% { opacity: .3; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fade-out { to { opacity: 0; } }
@@ -409,7 +591,7 @@
   z-index: 0;
   inset: 0;
   background: var(--fitx-bg);
-  animation: fade-in var(--backdrop) cubic-bezier(.3, .7, .4, 1) var(--at) both;
+  animation: fade-in var(--backdrop) cubic-bezier(.3, .7, .4, 1) var(--at) backwards;
 }
 
 .brandLockup {
@@ -423,7 +605,7 @@
   align-items: center;
   text-align: center;
   transform: translate(-50%, -50%);
-  animation: brand-arrive 600ms cubic-bezier(.16, .84, .22, 1) var(--at) both;
+  animation: brand-arrive 600ms cubic-bezier(.16, .84, .22, 1) var(--at) backwards;
 }
 
 /* The film opens on a start line; it closes on a finish line. */
@@ -433,7 +615,7 @@
   height: 2px;
   margin-top: 22px;
   background: var(--fitx-primary);
-  animation: draw-x var(--line) cubic-bezier(.65, 0, .35, 1) var(--line-at) both;
+  animation: draw-x var(--line) cubic-bezier(.65, 0, .35, 1) var(--line-at) backwards;
 }
 
 .tagline {
@@ -441,22 +623,30 @@
   color: var(--fitx-text-secondary);
   font: 700 12px/1 var(--font-manrope), Arial, sans-serif;
   letter-spacing: .24em;
-  /* Balances the trailing letter-space so the line stays optically centred while it tightens. */
+  /* Balances the trailing letter-space so the line stays optically centred. */
   text-indent: .24em;
   white-space: nowrap;
-  animation: tagline-in var(--tagline) cubic-bezier(.16, 1, .3, 1) var(--tagline-at) both;
 }
 
 .tagline b { color: var(--fitx-primary); font-weight: 800; }
+
+/*
+ * Tracking in from .72em to .24em as transforms: the centred line contracts symmetrically, so letter
+ * i starts (i − middle) × .48em out (--o) and slides home while it fades in.
+ */
+.tagLetter {
+  display: inline-block;
+  margin-left: var(--kern, 0);
+  text-indent: 0;
+  white-space: pre;
+  animation: tagline-in var(--tagline) cubic-bezier(.16, 1, .3, 1) var(--tagline-at) backwards;
+}
 
 @keyframes brand-arrive {
   from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(.98); }
   to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
-@keyframes tagline-in {
-  from { opacity: 0; letter-spacing: .72em; text-indent: .72em; filter: blur(4px); }
-  to { opacity: 1; letter-spacing: .24em; text-indent: .24em; filter: blur(0); }
-}
+@keyframes tagline-in { from { opacity: 0; transform: translate3d(calc(var(--o) * .48em), 0, 0); } }
 
 /* ---------------------------------------------------------------- dev review backdrop */
 

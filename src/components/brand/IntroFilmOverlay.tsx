@@ -29,6 +29,13 @@ import styles from "./IntroFilmOverlay.module.css";
  * element then runs CSS animations whose delays are film times measured from the *origin* (the
  * `STAGE_START` of the stage in which it mounted). Each element captures its origin once, so a
  * later stage never retimes an animation that is already running.
+ *
+ * Performance contract (the film plays on low-end phones): every animation here moves only
+ * `transform` and `opacity`, at most one animation per property per element, so all of them run
+ * on the compositor with no per-frame style, layout or paint, and no script runs per frame (the
+ * exceptions: the titles' one-step mask release, and the FITX mark's own formation from
+ * globals.css, shared with the static brand). Soft looks (focus pulls, drop shadows) come from
+ * copies blurred once at mount and cross-faded; see IntroFilmOverlay.module.css.
  */
 
 type CssVars = Record<`--${string}`, string | number>;
@@ -38,6 +45,9 @@ const sec = (seconds: number) => `${Math.round(seconds * 1000) / 1000}s`;
 const TITLE_INDEX = new Map(TITLES.map((title, index) => [title.text, index]));
 const COUNTS = new Map(CALLOUTS.map((callout) => [callout.id, { value: tokenizeCount(callout.value), detail: tokenizeCount(callout.detail) }]));
 const LETTERBOX = letterboxTiming();
+/** Count-up readouts change at most this often (one reel line per display frame at 60 Hz). */
+const COUNT_FPS = 60;
+const TAGLINE = Array.from("TRAIN SMART. LIVE FIT.");
 
 /**
  * Dev review freeze: pause every animation under `root` at its resting frame (stage freeze) or at one
@@ -63,6 +73,46 @@ function useFrozenClock(rootRef: RefObject<HTMLElement | null>, freeze: FilmFree
     const root = rootRef.current;
     if (root && freeze) seekFrozen(root, freeze);
   }, [freeze, rootRef, stage]);
+}
+
+/**
+ * Letters are separate boxes (each animates on its own), which drops the font's pair kerning; at
+ * 160px "AT" would open by ~10px. Measure each pair once with canvas (kerning on) and restore it on
+ * every copy of the word (`[data-glyph-row]`, matched by letter index). Like the browser's own
+ * shaping, pairs across a space or a change of font (a bold dot) are not kerned.
+ */
+function useGlyphKerning(rootRef: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    let live = true;
+    const apply = () => {
+      const rows = root.matches("[data-glyph-row]") ? [root] : Array.from(root.querySelectorAll<HTMLElement>("[data-glyph-row]"));
+      const reference = rows.length > 0 ? Array.from(rows[0].querySelectorAll<HTMLElement>("[data-glyph]")) : [];
+      const context = document.createElement("canvas").getContext("2d");
+      if (!live || reference.length < 2 || !context) return;
+      const fonts = reference.map((glyph) => {
+        const style = getComputedStyle(glyph);
+        return `${style.fontStyle} ${style.fontWeight} 100px ${style.fontFamily}`;
+      });
+      const width = (text: string) => context.measureText(text).width;
+      const kerns = reference.map((glyph, i) => {
+        const a = i > 0 ? reference[i - 1].textContent ?? "" : "";
+        const b = glyph.textContent ?? "";
+        if (i === 0 || fonts[i] !== fonts[i - 1] || !a.trim() || !b.trim()) return 0;
+        context.font = fonts[i];
+        return width(a + b) - width(a) - width(b);
+      });
+      rows.forEach((row) => {
+        row.querySelectorAll<HTMLElement>("[data-glyph]").forEach((glyph, i) => {
+          if (kerns[i]) glyph.style.setProperty("--kern", `${Math.round(kerns[i] * 10) / 1000}em`);
+        });
+      });
+    };
+    apply();
+    if (document.fonts && document.fonts.status !== "loaded") document.fonts.ready.then(apply).catch(() => undefined);
+    return () => { live = false; };
+  }, [rootRef]);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -112,10 +162,15 @@ function LetterboxBars({ phase, origin }: { phase: "in" | "out"; origin: number 
   );
 }
 
-/** The cold open's time-of-day card, set in the bottom matte like a film super. */
+/**
+ * The cold open's time-of-day card, set in the bottom matte like a film super. The session line
+ * tracks in letter by letter (each letter slides from its wide-tracked position: the monospace
+ * face makes that exactly the old letter-spacing tween, without relayout).
+ */
 function ColdOpenSlate({ theme, origin }: { theme: "light" | "dark"; origin: number }) {
   const [mountOrigin] = useState(origin);
   const end = stageStart(STAGE.run);
+  const session = Array.from(theme === "dark" ? "NIGHT SESSION" : "MORNING SESSION");
   return (
     <div
       className={styles.slate}
@@ -123,48 +178,34 @@ function ColdOpenSlate({ theme, origin }: { theme: "light" | "dark"; origin: num
       data-film-rest={end * 0.62}
       style={vars({ "--at": sec(end * 0.3 - mountOrigin), "--hold": sec(end * 0.56), "--out": sec(0.18) })}
     >
-      <span>{theme === "dark" ? "21:40" : "06:12"}</span>
-      <i />
-      <span>{theme === "dark" ? "NIGHT SESSION" : "MORNING SESSION"}</span>
+      <span className={styles.slateFade}>{theme === "dark" ? "21:40" : "06:12"}</span>
+      <i className={styles.slateFade} />
+      <span>
+        {session.map((letter, i) => (
+          <span key={i} className={styles.slateLetter} style={vars({ "--i": i })}>{letter}</span>
+        ))}
+      </span>
     </div>
   );
 }
 
-/**
- * Letters are separate boxes (each animates on its own), which drops the font's pair kerning; at
- * 160px "AT" would open by ~10px. Measure each pair once with canvas (kerning on) and restore it.
- */
-function useGlyphKerning(wordRef: RefObject<HTMLElement | null>) {
-  useLayoutEffect(() => {
-    const word = wordRef.current;
-    if (!word) return;
-    let live = true;
-    const apply = () => {
-      const glyphs = Array.from(word.querySelectorAll<HTMLElement>("[data-glyph]"));
-      const context = document.createElement("canvas").getContext("2d");
-      if (!live || glyphs.length < 2 || !context) return;
-      const style = getComputedStyle(glyphs[0]);
-      context.font = `${style.fontWeight} 100px ${style.fontFamily}`;
-      const width = (text: string) => context.measureText(text).width;
-      glyphs.forEach((glyph, i) => {
-        if (i === 0) return;
-        const a = glyphs[i - 1].textContent ?? "";
-        const b = glyph.textContent ?? "";
-        const kern = width(a + b) - width(a) - width(b);
-        glyph.style.setProperty("--kern", `${Math.round(kern * 10) / 1000}em`);
-      });
-    };
-    apply();
-    if (document.fonts && document.fonts.status !== "loaded") document.fonts.ready.then(apply).catch(() => undefined);
-    return () => { live = false; };
-  }, [wordRef]);
+/** One copy of the title word (shadow, out-of-focus twin, sharp fill or exit blur); see the CSS. */
+function GlyphRow({ letters, className, dot }: { letters: string[]; className: string; dot: boolean }) {
+  return (
+    <span className={`${styles.glyphRow} ${className}`} data-glyph-row>
+      {letters.map((letter, i) => (
+        <span key={i} className={styles.glyph} data-glyph style={vars({ "--i": i })}>{letter}</span>
+      ))}
+      {dot && <span className={styles.titleDot} style={vars({ "--i": letters.length })} />}
+    </span>
+  );
 }
 
 function KineticTitle({ title, index, origin }: { title: FilmTitle; index: number; origin: number }) {
   const [mountOrigin] = useState(origin);
-  const wordRef = useRef<HTMLSpanElement>(null);
+  const titleRef = useRef<HTMLDivElement>(null);
   const timing = titleTiming(title);
-  useGlyphKerning(wordRef);
+  useGlyphKerning(titleRef);
   const letters = Array.from(title.text);
   const at = title.start - mountOrigin;
   return (
@@ -183,89 +224,69 @@ function KineticTitle({ title, index, origin }: { title: FilmTitle; index: numbe
         "--exit-at": sec(at + timing.exitAt),
       })}
     >
-      <span className={styles.titleScrim} />
-      <div className={styles.title}>
+      <span className={styles.scrimExit}>
+        <span className={styles.titleScrim} />
+      </span>
+      <div ref={titleRef} className={styles.title}>
         <div className={styles.titleExit}>
           <span className={styles.titleKicker}>
             <span>{String(index + 1).padStart(2, "0")}</span>
             <i />
           </span>
-          <span ref={wordRef} className={styles.titleWord}>
-            {letters.map((letter, i) => (
-              <span key={i} className={styles.glyph} data-glyph style={vars({ "--i": i })}>{letter}</span>
-            ))}
-            <span className={styles.titleDot} style={vars({ "--i": letters.length })} />
+          <span className={styles.titleWord}>
+            <GlyphRow letters={letters} className={styles.rowShade} dot />
+            <GlyphRow letters={letters} className={styles.rowTwin} dot={false} />
+            <GlyphRow letters={letters} className={styles.rowFill} dot />
           </span>
         </div>
+        {/* Outside the exit's fade: the blurred copy takes over as the sharp title leaves. */}
+        <GlyphRow letters={letters} className={styles.rowExit} dot />
       </div>
     </div>
   );
 }
 
-function CountText({ tokens, offset, className }: { tokens: CountToken[]; offset: number; className?: string }) {
+/**
+ * A count-up readout as a reel: every frame of the count (`formatCount` along `easeOutQuart`,
+ * sampled at COUNT_FPS) is one line of a tall text block that steps up behind a one-line window.
+ * A stepped transform on the compositor replaces per-frame text writes (and their relayout and
+ * repaint); the CSS delay, pause-while-hidden and dev freezes apply to it for free.
+ */
+function CountReel({ token, steps }: { token: CountNumber; steps: number }) {
+  const frames = Array.from({ length: steps + 1 }, (_, k) => (k === steps ? token.text : formatCount(token, easeOutQuart(k / steps))));
   return (
-    <span className={className}>
-      {tokens.map((token, i) => {
-        if (token.kind === "text") return <span key={i} className={styles.unit}>{token.text}</span>;
-        const slot = offset + tokens.slice(0, i).filter((previous) => previous.kind === "number").length;
-        return (
-          <span key={i} className={styles.num}>
-            {/* The ghost holds the widest frame's width; the live text is written by the count-up loop, never by React. */}
-            <span className={styles.numGhost}>{token.widest}</span>
-            <span className={styles.numLive} data-count={slot} />
-          </span>
-        );
-      })}
+    <span className={styles.num}>
+      {/* The ghost holds the widest frame's width, so the chip never jitters while counting. */}
+      <span className={styles.numGhost}>{token.widest}</span>
+      <span className={styles.numWindow}>
+        <span className={styles.numReel} style={vars({ "--steps": steps })}>{frames.join("\n")}</span>
+      </span>
     </span>
   );
 }
 
-/**
- * Drives the numbers of one callout from the progress of its CSS "clock" animation, read through
- * the Web Animations API: the CSS delay, pause-while-hidden and dev freezes apply to the numbers
- * for free, and no React state changes per frame.
- */
-function useCountUp(rootRef: RefObject<HTMLElement | null>, numbers: CountNumber[]) {
-  useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    const clock = root.querySelector<HTMLElement>("[data-count-clock]");
-    const slots = Array.from(root.querySelectorAll<HTMLElement>("[data-count]"));
-    let frame = 0;
-    const render = () => {
-      const animation = clock?.getAnimations()[0];
-      const progress = animation?.effect?.getComputedTiming().progress;
-      const finished = !animation || animation.playState === "finished";
-      const eased = finished ? 1 : easeOutQuart(progress ?? 0);
-      slots.forEach((slot) => {
-        const token = numbers[Number(slot.dataset.count)];
-        if (!token) return;
-        const text = formatCount(token, eased);
-        if (slot.textContent !== text) slot.textContent = text;
-      });
-      if (!finished) frame = window.requestAnimationFrame(render);
-    };
-    render();
-    return () => window.cancelAnimationFrame(frame);
-  }, [numbers, rootRef]);
+function CountText({ tokens, steps, className }: { tokens: CountToken[]; steps: number; className?: string }) {
+  return (
+    <span className={className}>
+      {tokens.map((token, i) => (token.kind === "text"
+        ? <span key={i} className={styles.unit}>{token.text}</span>
+        : <CountReel key={i} token={token} steps={steps} />))}
+    </span>
+  );
 }
 
 function DataCallout({ callout, origin }: { callout: FilmCallout; origin: number }) {
   const [mountOrigin] = useState(origin);
-  const rootRef = useRef<HTMLDivElement>(null);
   const timing = calloutTiming(callout);
   const counts = COUNTS.get(callout.id);
   const valueTokens = counts?.value ?? [{ kind: "text" as const, text: callout.value }];
   const detailTokens = counts?.detail ?? [{ kind: "text" as const, text: callout.detail }];
-  const [numbers] = useState(() => [...valueTokens, ...detailTokens].filter((token): token is CountNumber => token.kind === "number"));
-  const valueNumbers = valueTokens.filter((token) => token.kind === "number").length;
   const detailIsBadge = !detailTokens.some((token) => token.kind === "number");
+  const steps = Math.max(1, Math.round(timing.count * COUNT_FPS));
   const at = callout.start - mountOrigin;
-  useCountUp(rootRef, numbers);
 
   return (
     <div
-      ref={rootRef}
       className={styles.callout}
       data-callout={callout.id}
       data-placement={callout.placement}
@@ -284,19 +305,22 @@ function DataCallout({ callout, origin }: { callout: FilmCallout; origin: number
         "--detail": sec(timing.detail),
         "--exit": sec(timing.exit),
         "--exit-at": sec(at + timing.exitAt),
+        // The pip blinks only while the chip is on screen (an endless loop would outlive it).
+        "--blinks": Math.max(1, Math.ceil(timing.duration)),
       })}
     >
       <span className={styles.leader}>
         <i className={styles.leaderLine} />
         <i className={styles.leaderDot} />
       </span>
-      <div className={styles.chip}>
-        <i className={styles.countClock} data-count-clock />
-        <span className={styles.label}><i className={styles.pip} />{callout.label}</span>
-        <CountText tokens={valueTokens} offset={0} className={styles.value} />
-        {detailIsBadge
-          ? <span className={`${styles.detail} ${styles.badge}`}>{callout.detail}</span>
-          : <CountText tokens={detailTokens} offset={valueNumbers} className={styles.detail} />}
+      <div className={styles.chipExit}>
+        <div className={styles.chip}>
+          <span className={styles.label}><i className={styles.pip} />{callout.label}</span>
+          <CountText tokens={valueTokens} steps={steps} className={styles.value} />
+          {detailIsBadge
+            ? <span className={`${styles.detail} ${styles.badge}`}>{callout.detail}</span>
+            : <CountText tokens={detailTokens} steps={steps} className={styles.detail} />}
+        </div>
       </div>
     </div>
   );
@@ -314,9 +338,12 @@ type BrandEndCardProps = {
 /** Stage 6: the frame clears to the theme background, the FITX mark forms, the tagline settles. */
 export function BrandEndCard({ stage, freeze, logoClassName }: BrandEndCardProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const taglineRef = useRef<HTMLParagraphElement>(null);
   const [origin] = useState(() => stageStart(Math.max(stage, STAGE.brand)));
   const at = BRAND.at - origin;
   useFrozenClock(rootRef, freeze, stage);
+  useGlyphKerning(taglineRef);
+  const middle = (TAGLINE.length - 1) / 2;
 
   return (
     <div
@@ -337,8 +364,12 @@ export function BrandEndCard({ stage, freeze, logoClassName }: BrandEndCardProps
       <div className={styles.brandLockup}>
         <Logo size={68} className={logoClassName} animateMark />
         <i className={styles.finishLine} aria-hidden="true" />
-        <p className={styles.tagline} aria-hidden="true">
-          TRAIN SMART<b>.</b> LIVE FIT<b>.</b>
+        {/* Tracks in from wide spacing: each letter slides in from where the wide tracking put it. */}
+        <p ref={taglineRef} className={styles.tagline} aria-hidden="true" data-glyph-row>
+          {TAGLINE.map((letter, i) => {
+            const Letter = letter === "." ? "b" : "span";
+            return <Letter key={i} className={styles.tagLetter} data-glyph style={vars({ "--o": i - middle })}>{letter}</Letter>;
+          })}
         </p>
       </div>
     </div>
