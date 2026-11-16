@@ -9,6 +9,8 @@ import { createClient } from "@/lib/supabase/client";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { askForGramsMessage, clearMatch, describePortion, describeTypedAmount, formatAmount, matchFoods, parseFoodQuery, resolvePortion } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodState, ParsedFoodQuery } from "@/lib/domain/food-query";
+import { amountAfterUnitChange, amountInGrams, countToKeep } from "@/lib/domain/food-amount";
+import type { TypedCount } from "@/lib/domain/food-amount";
 import styles from "./Nutrition.module.css";
 import { estimateNutritionTargets, goalPercent, goalProgress, scaleMacros, sumMacros } from "@/lib/domain/nutrition";
 
@@ -83,7 +85,7 @@ export default function NutritionPage() {
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
   const [derived, setDerived] = useState<DerivedPortion | null>(null);
-  const [amountPrompt, setAmountPrompt] = useState<{ message: string; grams: number | null } | null>(null);
+  const [amountPrompt, setAmountPrompt] = useState<{ message: string; grams: number | null; count: TypedCount | null } | null>(null);
   const [meal, setMeal] = useState("Breakfast");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -126,7 +128,7 @@ export default function NutritionPage() {
   const portionOptions = useMemo(() => [...(selected?.portions ?? []), ...(derived ? [derived.portion] : [])], [selected, derived]);
   const chosenPortion = unitKey.startsWith("portion:") ? portionOptions[Number(unitKey.slice("portion:".length))] ?? null : null;
   const amountNumber = amount.trim() ? Number(amount) : Number.NaN;
-  const grams = Number.isFinite(amountNumber) ? Math.round(amountNumber * (chosenPortion ? chosenPortion.grams : 1) * 10) / 10 : Number.NaN;
+  const grams = amountInGrams(amountNumber, chosenPortion);
   const selectedMacros = selected && grams > 0 ? scaleMacros(selected, grams) : null;
   const calorieGoal = target ? goalProgress(totals.calories, target.calories) : null;
 
@@ -135,13 +137,13 @@ export default function NutritionPage() {
   }
 
   /**
-   * Keeps the weight when the unit changes, so "100" g does not become 100 servings: 114 g of idli
-   * becomes 3 × 38 g, and 3 idlis become 114 g. With no amount yet, a portion starts at 1 and grams at 100.
+   * Keeps the weight when the unit changes, so "100" g does not become 100 servings, but keeps the count
+   * between two sizes of the same piece: 2 samosas switched to the small size are 2 small ones. With no
+   * amount yet, a portion starts at the count FITX asked about (or 1) and grams at 100.
    */
   function changeUnit(next: string) {
     const portion = next.startsWith("portion:") ? portionOptions[Number(next.slice("portion:".length))] ?? null : null;
-    const converted = grams > 0 ? (portion ? grams / portion.grams : grams) : Number.NaN;
-    setAmount(converted >= 0.01 ? formatAmount(converted) : portion ? "1" : "100");
+    setAmount(amountAfterUnitChange(amount, chosenPortion, portion, amountPrompt?.count ?? null));
     setUnitKey(next);
     setAmountPrompt(null);
   }
@@ -173,7 +175,8 @@ export default function NutritionPage() {
       const measures = portions.length ? " You can also pick one of this food's measures under Unit." : "";
       // "150 rice" probably means 150 g, so offer that; a count of pieces or a missing size does not.
       const offer = resolution.reason === "no-count-weight" && resolution.unit === null && resolution.amount >= 10 ? resolution.amount : null;
-      setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${resolution.reason === "no-size-weight" ? "" : measures}`, grams: offer });
+      // "2 small boiled eggs" with only a large one weighed: picking that size under Unit keeps the 2.
+      setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${resolution.reason === "no-size-weight" ? "" : measures}`, grams: offer, count: countToKeep(resolution) });
     } else {
       // Nothing typed: one of the food's own pieces or servings when it has one, otherwise 100 g.
       const index = portions.findIndex((portion) => portion.countDefault);
