@@ -8,7 +8,8 @@ import type { FoodPortion, FoodState } from "@/lib/domain/food-query";
  * - recipe_calculated: USDA FNDDS typical recipe (an estimate for any particular dish).
  * - label: a package's nutrition label (Open Food Facts community data, or what the user copied from a pack).
  * - user_entered: values the user typed.
- * - ai_suggested: values attached to an AI coach suggestion (always looked up, never invented by the AI).
+ * - ai_suggested: values attached to an AI coach suggestion (looked up in FITX's food data when it has a match,
+ *   otherwise the coach's own estimate, which the food's brand line marks as "AI estimate").
  * - estimated: anything else that is an estimate.
  */
 export type ValueBasis = "lab_analysed" | "compiled" | "recipe_calculated" | "label" | "user_entered" | "ai_suggested" | "estimated";

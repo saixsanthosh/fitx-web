@@ -9,6 +9,7 @@ import { useTodos } from "@/components/tasks/useTodos";
 import { WidgetError } from "@/components/widgets/WidgetCard";
 import { addDays, keyToLocalDate, mondayOf, weekKeys } from "@/lib/domain/day-keys";
 import { draftFromTodo, emptyTodoDraft, groupByDay, todoProgress, type TodoDraft, type TodoItem } from "@/lib/domain/todo";
+import { workoutStartHref } from "@/lib/training/start-link";
 import styles from "./Week.module.css";
 
 function KindIcon({ kind }: { kind: TodoItem["kind"] }) {
@@ -63,7 +64,7 @@ export function WeekTab({ today }: { today: string }) {
                   {(time || item.kind !== "task") && <span className={styles.itemMeta}><KindIcon kind={item.kind} />{time ?? (item.kind === "workout" ? "Workout" : item.kind === "meal" ? "Meal" : item.kind === "rest" ? "Rest day" : "")}</span>}
                 </button>
                 {item.kind === "workout" && item.workoutPlanId && !done && day === today && (
-                  <Link href={`/workouts?plan=${item.workoutPlanId}`} className={styles.start} aria-label={`Start ${item.title}`}>Start</Link>
+                  <Link href={workoutStartHref(item.workoutPlanId, item.id)} className={styles.start} aria-label={`Start ${item.title}`}>Start</Link>
                 )}
               </li>
             );
