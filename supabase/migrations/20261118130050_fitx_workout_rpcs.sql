@@ -112,8 +112,12 @@ begin
   from public.workout_plan_exercises
   where plan_id = p_plan_id and user_id = v_user;
 
+  -- A movement with a target in seconds (a hold, a stretch, cardio) is logged by time: its sets get no
+  -- rep target, so no rep count is filled in for it.
   insert into public.workout_sets (user_id, session_exercise_id, set_number, target_reps, weight_kg)
-  select v_user, se.id, n::smallint, round((se.reps_min + se.reps_max) / 2.0)::smallint, coalesce(se.target_weight_kg, 0)
+  select v_user, se.id, n::smallint,
+    case when se.target_duration_seconds is null then round((se.reps_min + se.reps_max) / 2.0)::smallint end,
+    coalesce(se.target_weight_kg, 0)
   from public.workout_session_exercises se
   cross join lateral generate_series(1, se.target_sets) as n
   where se.session_id = v_session and se.user_id = v_user;

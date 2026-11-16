@@ -20,6 +20,7 @@ import { equipmentLabel, expandOwnedEquipment, missingEquipment } from "@/lib/tr
 import { generateDay } from "@/lib/training/generator";
 import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { startSessionWithRpc } from "@/lib/training/plans";
+import { setTargetReps } from "@/lib/training/sets";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
@@ -779,10 +780,11 @@ export default function WorkoutsPage() {
       setStarting("");
       return setError("Your workout session could not be prepared. Please try again.");
     }
-    const createdExerciseRows = insertedExercises.result.data as unknown as Array<{ id: string; target_sets: number; reps_min: number; reps_max: number; target_weight_kg?: number | null }>;
+    const createdExerciseRows = insertedExercises.result.data as unknown as Array<{ id: string; target_sets: number; reps_min: number; reps_max: number; target_weight_kg?: number | null; target_duration_seconds?: number | null }>;
+    // A timed movement's sets get no rep target (see setTargetReps).
     const setRows = createdExerciseRows.flatMap((item) => Array.from({ length: item.target_sets }, (_, index) => ({
       user_id: userId, session_exercise_id: item.id, set_number: index + 1,
-      target_reps: Math.round((item.reps_min + item.reps_max) / 2), weight_kg: item.target_weight_kg ?? 0,
+      target_reps: setTargetReps(item), weight_kg: item.target_weight_kg ?? 0,
     })));
     const createdSets = await supabase.from("workout_sets").insert(setRows);
     if (createdSets.error) {

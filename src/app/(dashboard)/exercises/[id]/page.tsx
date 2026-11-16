@@ -16,6 +16,7 @@ import { CATALOG_BASE_COLUMNS, CATALOG_V2_COLUMNS, toCatalogExercise, type Catal
 import { equipmentFor, loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
 import { equipmentLabel, expandOwnedEquipment, missingEquipment } from "@/lib/training/equipment";
 import { resolveExerciseMedia, type ExerciseMedia } from "@/lib/training/media";
+import { isLiftSet } from "@/lib/training/sets";
 import { CATEGORY_LABELS, MUSCLE_GROUP_LABELS, type TrainingContext } from "@/lib/training/taxonomy";
 import { capitalize, formatSeconds, readable, workPerSet } from "../_lib/format";
 
@@ -216,7 +217,8 @@ async function loadHistory(supabase: Supabase, userId: string, exerciseId: strin
     const movementIds = completedExerciseRows.filter((row) => row.session_id === session.id).map((row) => row.id);
     const sets = loggedSets.filter((set) => movementIds.includes(set.session_exercise_id) && (Number(set.reps) > 0 || Number(set.duration_seconds) > 0));
     if (!sets.length) return [];
-    const lifted = sets.filter((set) => Number(set.reps) > 0);
+    // Sets with seconds logged are timed (a hold, a stretch, cardio): their best is a time, not a lift.
+    const lifted = sets.filter((set) => isLiftSet(set));
     if (lifted.length) {
       const best = lifted.reduce((winner, set) => Number(set.weight_kg) > Number(winner.weight_kg) || (Number(set.weight_kg) === Number(winner.weight_kg) && Number(set.reps) > Number(winner.reps)) ? set : winner);
       return [{ id: session.id, started_at: session.started_at, completedSets: sets.length, topSet: Number(best.weight_kg) > 0 ? `${Number(best.weight_kg)} kg × ${best.reps}` : `${best.reps} reps` }];
