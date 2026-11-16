@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   askForGramsMessage,
+  clearMatch,
   describePortion,
+  describeTypedAmount,
   foodMatchScore,
   gramsInLabel,
   inferFoodState,
+  matchFoods,
   parseFoodQuery,
   portionFromLabel,
   rankFoods,
@@ -30,16 +33,29 @@ type CatalogueFood = {
 };
 
 const staples = (JSON.parse(readFileSync(new URL("../../src/data/fitx-staples.json", import.meta.url), "utf8")) as { foods: CatalogueFood[] }).foods;
+const stapleIds = new Set(staples.map((food) => food.id));
 const snapshot = (JSON.parse(readFileSync(new URL("../../src/data/usda-foundation-foods.json", import.meta.url), "utf8")) as CatalogueFood[])
+  .filter((food) => !stapleIds.has(food.id))
   .map((food) => ({ ...food, state: inferFoodState(food.name), portions: [] }));
-// The search route lists the curated staples before the USDA Foundation snapshot, as here.
+// As in the search route: the curated staples first, then the USDA Foundation snapshot without the staples it repeats.
 const catalogue: CatalogueFood[] = [...staples, ...snapshot];
 
-function lookup(phrase: string) {
+/** What the search route answers: every local match, best first, and the food it would select. */
+function search(phrase: string) {
   const query = parseFoodQuery(phrase);
-  const [food] = rankFoods(catalogue, query.words);
-  assert.ok(food, `nothing matched "${phrase}"`);
-  return { query, food, resolution: resolvePortion(query, food.portions) };
+  const matches = matchFoods(catalogue, query.words);
+  return { query, matches, foods: matches.map((match) => match.food), pick: clearMatch(matches) };
+}
+
+/** A phrase that should select a food by itself, with the amount worked out for that food. */
+function lookup(phrase: string) {
+  const { query, pick } = search(phrase);
+  assert.ok(pick, `"${phrase}" should select a food`);
+  return { query, food: pick, resolution: resolvePortion(query, pick.portions) };
+}
+
+function gramsOf(resolution: ReturnType<typeof resolvePortion>) {
+  return resolution.kind === "grams" || resolution.kind === "portion" ? resolution.grams : null;
 }
 
 test("parses amounts, units and sizes out of a food phrase", () => {
@@ -196,6 +212,116 @@ test("ranks cooked staples before raw grains and exact words before prefixes", (
   assert.equal(rankFoods(catalogue, ["masala", "dosa"])[0].id, "2709129");
   assert.equal(rankFoods(catalogue, ["chapati"])[0].id, "2707713");
   assert.equal(rankFoods(catalogue, ["sambhar"])[0].id, "2707430");
+});
+
+// Regression: a search with an amount used to select whatever ranked first, so "200 g paneer" logged
+// Palak Paneer and "100 g oats" logged oat milk. Each phrase below either selects the plain food USDA
+// measures, with its value, or selects nothing and leaves the choice to the user.
+test("an amount search selects only a food that clearly matches", () => {
+  const selects: Array<[string, string, number, number]> = [
+    // phrase, fdcId, grams, kcal for that amount
+    ["100 g oats", "173904", 100, 379],
+    ["100 g onion", "170000", 100, 40],
+    ["100 g tomato", "170457", 100, 18],
+    ["100 g egg", "171287", 100, 143],
+    ["2 eggs", "171287", 100, 143],
+    ["100 g pasta", "2708357", 100, 157],
+    ["100 g chana", "173757", 100, 164],
+    ["100 g butter", "173410", 100, 717],
+    ["1 tbsp olive oil", "171413", 13.5, 119],
+    ["1 tbsp honey", "169640", 21, 64],
+    ["200 ml milk", "746782", 210.5, 126],
+    ["150 g rice", "2708408", 150, 194],
+    ["3 idli", "2708346", 114, 146],
+  ];
+  for (const [phrase, id, grams, kcal] of selects) {
+    const { food, resolution } = lookup(phrase);
+    assert.equal(food.id, id, `${phrase}: got ${food.name}`);
+    assert.equal(gramsOf(resolution), grams, phrase);
+    assert.equal(Math.round(scaleMacros(food, grams).calories), kcal, phrase);
+  }
+
+  for (const phrase of ["200 g paneer", "100 g almonds", "100 g biryani", "100 g watermelon"]) {
+    const { pick, foods } = search(phrase);
+    assert.equal(pick, null, `${phrase} should wait for the user, not select ${pick?.name}`);
+    assert.ok(foods.length > 0, `${phrase} still lists foods to choose from`);
+  }
+});
+
+test("plain foods rank above forms the search did not name", () => {
+  const names = (phrase: string) => search(phrase).foods.map((food) => food.name);
+  const before = (list: string[], first: string, second: string) => {
+    assert.ok(list.includes(first) && list.includes(second), `${first} / ${second} missing`);
+    assert.ok(list.indexOf(first) < list.indexOf(second), `${first} should rank above ${second}`);
+  };
+
+  const oats = names("100 g oats");
+  before(oats, "Oats, whole grain, rolled, old fashioned", "Oat milk, unsweetened, plain, refrigerated");
+  before(oats, "Oats, whole grain, steel cut", "Flour, oat, whole grain");
+  const onions = names("100 g onion");
+  for (const raw of ["Onions, red, raw", "Onions, white, raw", "Onions, yellow, raw"]) before(onions, raw, "Onion rings, breaded, par fried, frozen, prepared, heated in oven");
+  const tomatoes = names("100 g tomato");
+  for (const form of ["Tomato, paste, canned, without salt added", "Tomato, sauce, canned, with salt added", "Tomato, puree, canned", "Tomato juice, with added ingredients, from concentrate, shelf stable"]) {
+    before(tomatoes, "Tomato, roma", form);
+  }
+  const eggs = names("100 g egg");
+  before(eggs, "Eggs, Grade A, Large, egg whole", "Egg, whole, dried");
+  const almonds = names("100 g almonds");
+  assert.match(almonds[0], /^Nuts, almonds/, `plain almonds first, got ${almonds[0]}`);
+  before(almonds, "Nuts, almonds, whole, raw", "Almond butter, creamy");
+  before(almonds, "Nuts, almonds, whole, raw", "Almond milk, unsweetened, plain, refrigerated");
+  const pasta = names("100 g pasta");
+  before(pasta, "Pasta, cooked", "Pasta, dry, enriched");
+  before(pasta, "Pasta, dry, enriched", "Sauce, pasta, spaghetti/marinara, ready-to-serve");
+  before(names("100 g chana"), "Chickpeas (garbanzo beans, bengal gram), mature seeds, cooked, boiled, without salt", "Channa Saag");
+  before(names("100 g butter"), "Butter, salted", "Ghee, clarified butter");
+  before(names("olive"), "Olives, green, Manzanilla, stuffed with pimiento", "Anchovies, canned in olive oil, with salt, drained");
+
+  // Naming the form ranks it normally, and a later "whole milk" only describes the food.
+  assert.equal(search("peanut butter").foods[0].name, "Peanut butter, creamy");
+  assert.equal(search("oat milk").foods[0].name, "Oat milk, unsweetened, plain, refrigerated");
+  const yogurt = search("yogurt").matches;
+  const score = (name: string) => yogurt.find((match) => match.food.name === name)?.score;
+  assert.equal(score("Yogurt, plain, whole milk"), score("Yogurt, plain, nonfat"));
+});
+
+test("cooked comes before raw only for grains and pulses", () => {
+  // inferFoodState reads "par fried" onion rings as cooked; that must not lift them above raw onions.
+  assert.equal(inferFoodState("Onion rings, breaded, par fried, frozen, prepared, heated in oven"), "cooked");
+  const onions = search("onion").foods;
+  assert.notEqual(onions[0].state, "cooked");
+  const chana = search("chickpeas").foods.map((food) => food.state);
+  assert.deepEqual(chana.slice(0, 3), ["cooked", null, "raw"], "cooked, then canned, then dry chickpeas");
+});
+
+test("selects nothing when two foods answer to the same name", () => {
+  const twins = matchFoods([{ name: "Idli" }, { name: "Idly", aliases: ["idli"] }], ["idli"]);
+  assert.equal(clearMatch(twins), null);
+  assert.equal(clearMatch(matchFoods([{ name: "Idli" }, { name: "Idli with chutney" }], ["idli"]))?.name, "Idli");
+  assert.equal(search("chicken biryani").pick?.id, "2706538");
+  assert.deepEqual(search("biryani").foods.slice(0, 3).map((food) => food.id).sort(), ["2706490", "2706538", "2708985"]);
+});
+
+test("egg sizes use USDA's weight for that size, and ask when USDA has none", () => {
+  assert.equal(gramsOf(lookup("2 medium eggs").resolution), 88);
+  assert.equal(gramsOf(lookup("2 large eggs").resolution), 100);
+  assert.equal(gramsOf(lookup("1 small egg").resolution), 38);
+  const boiled = lookup("2 boiled eggs");
+  assert.equal(boiled.food.id, "173424");
+  assert.equal(gramsOf(boiled.resolution), 100);
+  const smallBoiled = lookup("2 small boiled eggs").resolution;
+  assert.deepEqual(smallBoiled, { kind: "ask", amount: 2, unit: null, reason: "no-size-weight", size: "small" });
+  assert.match(askForGramsMessage("Egg, whole, cooked, hard-boiled", smallBoiled as Extract<typeof smallBoiled, { kind: "ask" }>), /no small size/);
+  // Idli has one USDA weight for any size, so a size word changes nothing.
+  assert.equal(gramsOf(lookup("2 large idlis").resolution), 76);
+});
+
+test("describes the amount that was typed", () => {
+  assert.equal(describeTypedAmount(parseFoodQuery("200 g paneer")), "200 g");
+  assert.equal(describeTypedAmount(parseFoodQuery("1 tbsp honey")), "1 tablespoon");
+  assert.equal(describeTypedAmount(parseFoodQuery("1.5 cups rice")), "1.5 cups");
+  assert.equal(describeTypedAmount(parseFoodQuery("2 large rotis")), "2 large");
+  assert.equal(describeTypedAmount(parseFoodQuery("chicken")), "");
 });
 
 test("reads raw and cooked from USDA descriptions", () => {
