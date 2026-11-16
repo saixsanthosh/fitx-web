@@ -53,7 +53,8 @@ describe("loading", () => {
   test("normalises stored preferences into the shared vocabulary", async () => {
     const { data } = await loadUserContext(client(), USER);
     const prefs = data!.preferences;
-    assert.deepEqual(prefs.equipment, ["bodyweight", "dumbbell", "bands"]);
+    // The training taxonomy's keys (what Workouts reads); "trampoline" matches no item.
+    assert.deepEqual(prefs.equipment, ["dumbbell", "resistance_band"]);
     assert.deepEqual(data!.legacy.unknownEquipment, ["trampoline"]);
     assert.equal(prefs.diet_type, "vegetarian"); // from the old label, since diet_type is still empty
     assert.deepEqual(prefs.allergies, ["dairy", "Kiwi"]);
@@ -82,7 +83,7 @@ describe("loading", () => {
     assert.equal(data!.currentWeightKg, 62);
     assert.equal(data!.hasPreferences, false);
     assert.equal(data!.preferences.primary_goal, "general_fitness");
-    assert.deepEqual(data!.preferences.equipment, ["bodyweight"]);
+    assert.deepEqual(data!.preferences.equipment, []);
   });
 
   test("a missing profile row is reported as null, not as an error", async () => {
@@ -91,6 +92,32 @@ describe("loading", () => {
     assert.equal(error, null);
     assert.equal(data!.profile, null);
     assert.equal(data!.targets, null);
+  });
+
+  test("Home and Gym equipment: starting points until the lists exist, then the saved lists", async () => {
+    // Before the equipment migration: the Home list comes from the original answer, the gym is a full gym.
+    const before = (await loadUserContext(client(), USER)).data!.equipmentLists;
+    assert.equal(before.available, false);
+    assert.deepEqual(before.home, { keys: ["dumbbell", "resistance_band"], saved: false });
+    assert.equal(before.gym.saved, false);
+    assert.ok(before.gym.keys.includes("barbell") && before.gym.keys.includes("cable_machine"));
+
+    fake.tables.user_equipment_profiles = [
+      { user_id: USER.id, context: "gym", equipment_keys: ["bench", "dumbbell"] },
+      { user_id: "someone-else", context: "home", equipment_keys: ["barbell"] },
+    ];
+    const after = (await loadUserContext(client(), USER)).data!.equipmentLists;
+    assert.equal(after.available, true);
+    assert.deepEqual(after.gym, { keys: ["dumbbell", "bench"], saved: true });
+    assert.deepEqual(after.home, { keys: ["dumbbell", "resistance_band"], saved: false });
+  });
+
+  test("a failed equipment read fails the load rather than looking like no lists", async () => {
+    fake.tables.user_equipment_profiles = [];
+    fake.failures["user_equipment_profiles:select"] = { code: "08006", message: "connection failure" };
+    const result = await loadUserContext(client(), USER);
+    assert.equal(result.data, null);
+    assert.equal(result.error!.part, "equipment");
   });
 
   test("a failed read names the part that failed", async () => {
@@ -150,6 +177,11 @@ describe("saving", () => {
     assert.equal(added.date, localDateKey());
     assert.equal(added.weight, 58.8);
     assert.equal(fake.tables.profiles[0].weight, 58.8);
+  });
+
+  test("injury notes up to 60 characters survive a load", () => {
+    const long = "Recent knee surgery: no jumping or deep squats until March";
+    assert.deepEqual(normalizePreferences({ limitations: ["knee", long] }).values.limitations, ["knee", long]);
   });
 
   test("normalizePreferences tolerates junk", () => {

@@ -10,7 +10,7 @@ import {
   lbToKg,
   MAX_CUSTOM_ENTRIES,
   MAX_CUSTOM_LENGTH,
-  normalizeTags,
+  commitDraft,
   parseDecimal,
   WEIGHT_UNIT_OPTIONS,
   type HeightUnit,
@@ -59,6 +59,8 @@ export function ChoiceGroup<V extends string | number>({
   disabledValues = [],
   error,
   compact = false,
+  onClear,
+  clearLabel = "Clear",
 }: {
   legend: ReactNode;
   hint?: ReactNode;
@@ -71,6 +73,9 @@ export function ChoiceGroup<V extends string | number>({
   error?: string | null;
   /** Short answers (numbers, "45 min") as centred tiles without the radio dot. */
   compact?: boolean;
+  /** Offers a way back to "not answered" (shown while something is chosen). */
+  onClear?: () => void;
+  clearLabel?: string;
 }) {
   const name = useId();
   const hintId = `${name}-hint`;
@@ -79,7 +84,12 @@ export function ChoiceGroup<V extends string | number>({
   return (
     <fieldset aria-describedby={describedBy} aria-invalid={error ? true : undefined}>
       <Legend legend={legend} hint={hint} hintId={hintId} />
-      <div className={`mt-3 grid gap-2 ${columns}`}>
+      {onClear && value !== null && (
+        <button type="button" onClick={onClear} className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-fitx-primary-text underline-offset-4 hover:underline">
+          {clearLabel}
+        </button>
+      )}
+      <div className={`${onClear && value !== null ? "mt-1" : "mt-3"} grid gap-2 ${columns}`}>
         {options.map((option) => {
           const disabled = disabledValues.includes(option.value);
           return (
@@ -168,7 +178,12 @@ export function ChipGroup<V extends string>({
   );
 }
 
-/** The user's own entries ("Kiwi", "Bitter gourd"), added with Enter or the + button. */
+/**
+ * The user's own entries ("Kiwi", "Bitter gourd"), added with Enter, a comma or the + button. The text
+ * still in the box is the parent's (`draft`), and the parent saves it with the entries (commitDraft), so
+ * typing an allergy and tapping Save or Continue never drops it. (Turning it into a chip on blur moved the
+ * Save button mid-tap, so that tap missed.)
+ */
 export function TagInput({
   legend,
   hint,
@@ -178,6 +193,8 @@ export function TagInput({
   addLabel,
   max = MAX_CUSTOM_ENTRIES,
   maxLength = MAX_CUSTOM_LENGTH,
+  draft,
+  onDraftChange,
 }: {
   legend: ReactNode;
   hint?: ReactNode;
@@ -187,13 +204,15 @@ export function TagInput({
   addLabel: string;
   max?: number;
   maxLength?: number;
+  /** Text typed but not yet added; the parent includes it when saving. */
+  draft: string;
+  onDraftChange: (value: string) => void;
 }) {
   const id = useId();
-  const [draft, setDraft] = useState("");
+  const setDraft = onDraftChange;
   const full = values.length >= max;
   const add = () => {
-    const next = normalizeTags([...values, ...draft.split(",")], { max, maxLength });
-    onChange(next);
+    onChange(commitDraft(values, draft, { max, maxLength }));
     setDraft("");
   };
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -340,6 +359,7 @@ export function HeightField({
   onUnitChange,
   error,
   required,
+  showUnits = true,
 }: {
   label?: string;
   cm: number | null;
@@ -348,6 +368,8 @@ export function HeightField({
   onUnitChange: (unit: HeightUnit) => void;
   error?: string | null;
   required?: boolean;
+  /** False while the unit can't be saved (before the profile v2 migration): the field stays in cm. */
+  showUnits?: boolean;
 }) {
   const id = useId();
   const [text, setText] = useState(() => heightText(cm, unit));
@@ -392,7 +414,7 @@ export function HeightField({
             </div>
           </>
         )}
-        <UnitToggle label={`${label} unit`} options={HEIGHT_UNIT_OPTIONS} value={unit} onChange={switchUnit} />
+        {showUnits && <UnitToggle label={`${label} unit`} options={HEIGHT_UNIT_OPTIONS} value={unit} onChange={switchUnit} />}
       </div>
       <FieldError id={errorId} message={error} />
     </div>
@@ -409,6 +431,7 @@ export function WeightField({
   error,
   hint,
   required,
+  showUnits = true,
 }: {
   label: string;
   kg: number | null;
@@ -418,6 +441,8 @@ export function WeightField({
   error?: string | null;
   hint?: string;
   required?: boolean;
+  /** False while the unit can't be saved (before the profile v2 migration): the field stays in kg. */
+  showUnits?: boolean;
 }) {
   const id = useId();
   const shown = (value: number | null, inUnit: WeightUnit) => (value === null || !Number.isFinite(value) ? "" : String(inUnit === "lb" ? kgToLb(value) : Math.round(value * 10) / 10));
@@ -448,7 +473,7 @@ export function WeightField({
           <input id={id} className={`fitx-field pr-12 ${invalidBorder}`} inputMode="decimal" value={text} aria-invalid={error ? true : undefined} aria-describedby={describedBy} onChange={(event) => report(event.target.value, unit)} />
           <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-sm text-fitx-text-secondary">{unit}</span>
         </div>
-        <UnitToggle label={`${label} unit`} options={WEIGHT_UNIT_OPTIONS} value={unit} onChange={switchUnit} />
+        {showUnits && <UnitToggle label={`${label} unit`} options={WEIGHT_UNIT_OPTIONS} value={unit} onChange={switchUnit} />}
       </div>
       <FieldError id={`${id}-error`} message={error} />
     </div>

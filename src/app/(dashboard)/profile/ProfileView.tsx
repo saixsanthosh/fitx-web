@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Camera, Flame, RotateCcw, Settings, Trash2, UserRound } from "lucide-react";
+import { Camera, Download, Flame, RotateCcw, Settings, Trash2, UserRound } from "lucide-react";
 import { PageHeading } from "@/components/app/PageHeading";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { NAME_MAX_LENGTH, formatWeight } from "@/lib/domain/profile-options";
+import { targetReason } from "@/lib/domain/target-reason";
 import { loadUserContext, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import { createClient } from "@/lib/supabase/client";
-import { targetReason } from "./ProfileParts";
 import { BodySection, DietSection, TrainingSection } from "./ProfileSections";
 
 const MEDIA_BUCKET = "fitx-user-media";
@@ -105,7 +105,7 @@ export function ProfileView() {
     <div className="mx-auto max-w-5xl space-y-5">
       <PageHeading
         title="Profile"
-        description="Your details, goal and preferences. FITX uses them for your targets, workouts and food suggestions."
+        description="Your details, goal and preferences. FITX uses them for your daily targets and auto workouts; the AI coach uses them too if you turn on “Use my FITX data”."
         actions={<Link href="/settings" className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm"><Settings size={16} aria-hidden="true" />Settings</Link>}
       />
       {message && <p role="status" className="fitx-alert fitx-alert-success">{message}</p>}
@@ -113,9 +113,9 @@ export function ProfileView() {
         <IdentityCard data={data} avatarUrl={avatarUrl} onSaved={onSaved} />
         <TargetsCard data={data} onEditBody={() => { setMessage(""); setEditing("body"); document.getElementById("body")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
       </div>
-      <BodySection key={`body-${editing === "body"}`} {...sectionProps("body")} />
-      <DietSection key={`diet-${editing === "diet"}`} {...sectionProps("diet")} />
-      <TrainingSection key={`training-${editing === "training"}`} {...sectionProps("training")} />
+      <BodySection {...sectionProps("body")} />
+      <DietSection {...sectionProps("diet")} />
+      <TrainingSection {...sectionProps("training")} />
       <p className="px-1 text-sm text-fitx-text-secondary">Body measurements and your weight history are on <Link href="/progress" className="font-medium text-fitx-primary-text underline-offset-4 hover:underline">Progress</Link>.</p>
     </div>
   );
@@ -129,6 +129,8 @@ function IdentityCard({ data, avatarUrl, onSaved }: { data: UserContextData; ava
   const [error, setError] = useState("");
   const memberSince = data.profile?.created_at ? new Date(data.profile.created_at).toLocaleDateString(undefined, { month: "long", year: "numeric" }) : null;
   const storedAvatar = data.profile?.avatar ?? null;
+  // A photo uploaded to FITX (not the Google picture, which is only a link) can be downloaded.
+  const uploadedPhoto = Boolean(storedAvatar && storedAvatar.startsWith(`${data.userId}/`));
 
   async function saveName(event: FormEvent) {
     event.preventDefault();
@@ -182,6 +184,20 @@ function IdentityCard({ data, avatarUrl, onSaved }: { data: UserContextData; ava
     setBusy("");
   }
 
+  /** A one-minute link that downloads the uploaded photo as a file. */
+  async function downloadPhoto() {
+    if (!storedAvatar) return;
+    const supabase = createClient();
+    if (!supabase) return setError("Your photo couldn't be downloaded right now.");
+    setBusy("photo");
+    setError("");
+    const fileName = storedAvatar.split("/").pop() || "fitx-photo";
+    const signed = await supabase.storage.from(MEDIA_BUCKET).createSignedUrl(storedAvatar, 60, { download: fileName });
+    setBusy("");
+    if (signed.error || !signed.data?.signedUrl) return setError("Your photo couldn't be downloaded. Try again.");
+    window.location.assign(signed.data.signedUrl);
+  }
+
   async function removePhoto() {
     const supabase = createClient();
     if (!supabase) return;
@@ -229,6 +245,11 @@ function IdentityCard({ data, avatarUrl, onSaved }: { data: UserContextData; ava
             <button type="button" onClick={() => fileInput.current?.click()} disabled={busy === "photo"} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm">
               <Camera size={15} aria-hidden="true" />{busy === "photo" ? "Working…" : storedAvatar ? "Change photo" : "Add photo"}
             </button>
+            {uploadedPhoto && (
+              <button type="button" onClick={() => void downloadPhoto()} disabled={busy === "photo"} className="fitx-button fitx-button-quiet min-h-11 px-3.5 text-sm">
+                <Download size={15} aria-hidden="true" />Download
+              </button>
+            )}
             {storedAvatar && (
               <button type="button" onClick={() => void removePhoto()} disabled={busy === "photo"} className="fitx-button fitx-button-quiet min-h-11 px-3.5 text-sm">
                 <Trash2 size={15} aria-hidden="true" />Remove

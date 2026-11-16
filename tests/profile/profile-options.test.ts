@@ -4,16 +4,18 @@ import {
   ACTIVITY_MULTIPLIERS,
   ACTIVITY_OPTIONS,
   DIET_OPTIONS,
-  EQUIPMENT_OPTIONS,
   GOAL_OPTIONS,
   GOALS_BEFORE_PROFILE_V2,
   cmToFeetInches,
+  commitDraft,
   feetInchesToCm,
   formatHeight,
   formatRupees,
   formatWeight,
   inRange,
   joinKnown,
+  joinLimitations,
+  MAX_LIMITATION_LENGTH,
   kgToLb,
   lbToKg,
   legacyDietaryPreferences,
@@ -29,9 +31,6 @@ import {
   WEIGHT_RANGE_KG,
 } from "@/lib/domain/profile-options";
 
-// The equipment tags used by the exercise catalogue (decoded from supabase/migrations/20260930180*.sql
-// and the starter rows in 20260924170604): the vocabulary must offer every one of them.
-const CATALOGUE_EQUIPMENT = ["barbell", "dumbbell", "other", "bodyweight", "cable", "machine", "kettlebell", "bands", "medicine_ball", "exercise_ball", "foam_roller", "ez_bar", "bench", "pull_up_bar", "rack"];
 
 describe("vocabulary", () => {
   test("offers every goal the owner asked for, plus the two the database already had", () => {
@@ -45,8 +44,12 @@ describe("vocabulary", () => {
     assert.deepEqual(DIET_OPTIONS.map((option) => option.value), ["vegetarian", "non_vegetarian", "both", "vegan", "eggetarian"]);
   });
 
-  test("equipment keys are exactly the exercise catalogue's tags", () => {
-    assert.deepEqual(EQUIPMENT_OPTIONS.map((option) => option.value).sort(), [...CATALOGUE_EQUIPMENT].sort());
+  test("every key this module used to store maps to the training taxonomy Workouts uses", () => {
+    // The earlier vocabulary (the exercise catalogue's tags), as onboarding and Profile stored it.
+    const earlier = ["dumbbell", "barbell", "ez_bar", "bench", "rack", "kettlebell", "cable", "machine", "bands", "pull_up_bar", "medicine_ball", "exercise_ball", "foam_roller", "other"];
+    const { keys, unknown } = normalizeEquipment(earlier);
+    assert.deepEqual(unknown, []);
+    assert.equal(keys.length, earlier.length);
   });
 
   test("activity labels are the same everywhere and each has a multiplier", () => {
@@ -58,13 +61,14 @@ describe("vocabulary", () => {
 });
 
 describe("equipment", () => {
-  test("maps what people typed in the old Profile box to catalogue keys", () => {
-    const { keys, unknown } = normalizeEquipment(["Dumbbells", "resistance bands", "Cable machine", "pull-up bar", "EZ curl bar", "squat rack", "trampoline"]);
-    assert.deepEqual(keys, ["dumbbell", "ez_bar", "rack", "cable", "bands", "pull_up_bar"]);
+  test("maps what people typed in the old Profile box to the training taxonomy", () => {
+    const { keys, unknown } = normalizeEquipment(["Dumbbells", "resistance bands", "Cable machine", "pull-up bar", "EZ curl bar", "squat rack", "trampoline", "TRX"]);
+    for (const key of ["dumbbell", "resistance_band", "cable_machine", "pull_up_bar", "ez_bar", "squat_rack", "suspension_trainer"]) assert.ok(keys.includes(key), key);
     assert.deepEqual(unknown, ["trampoline"]);
   });
 
-  test("ignores blanks, duplicates and non-strings", () => {
+  test("bodyweight means no equipment; blanks, duplicates and non-strings are ignored", () => {
+    assert.deepEqual(normalizeEquipment(["bodyweight", "none"]), { keys: [], unknown: [] });
     assert.deepEqual(normalizeEquipment(["dumbbell", "", "  ", "Dumbbell", 4, null]).keys, ["dumbbell"]);
     assert.deepEqual(normalizeEquipment(null), { keys: [], unknown: [] });
   });
@@ -89,8 +93,30 @@ describe("diet, allergies, rules and lists", () => {
     assert.deepEqual(joinKnown(["dairy"], ["Kiwi", " kiwi"]), ["dairy", "Kiwi"]);
   });
 
-  test("limitations accept common spellings", () => {
-    assert.deepEqual(splitLimitations(["Knees", "back", "Old ankle sprain"]), { keys: ["knee", "lower_back"], custom: ["Old ankle sprain"] });
+  test("an allergy is never narrowed: \"Nuts\" stays as typed instead of becoming tree nuts", () => {
+    assert.deepEqual(splitAllergies(["Nuts"]), { keys: [], custom: ["Nuts"] });
+    assert.deepEqual(splitAllergies(["groundnuts", "lactose"]).keys, ["dairy", "peanuts"]);
+  });
+
+  test("limitations accept same-meaning spellings and never narrow one", () => {
+    assert.deepEqual(splitLimitations(["Knees", "elbows", "back", "Old ankle sprain"]), { keys: ["knee", "wrist"], custom: ["back", "Old ankle sprain"] });
+  });
+
+  test("injury notes keep up to 60 characters through save and load", () => {
+    const long = "Recent knee surgery: no jumping or deep squats until March";
+    assert.equal(long.length <= MAX_LIMITATION_LENGTH, true);
+    assert.deepEqual(joinLimitations(["knee"], [long]), ["knee", long]);
+    assert.deepEqual(splitLimitations(["knee", long]).custom, [long]);
+    // Two notes that start alike both survive (cutting at 40 would merge them).
+    const a = "Left knee ACL reconstruction 2025: avoid jumps";
+    const b = "Left knee ACL reconstruction 2025: avoid deep squats";
+    assert.deepEqual(splitLimitations([a, b]).custom, [a, b]);
+  });
+
+  test("a tag field adds typed text on Enter, + or leaving the field, split at commas", () => {
+    assert.deepEqual(commitDraft(["Kiwi"], "mango,  kiwi , "), ["Kiwi", "mango"]);
+    assert.deepEqual(commitDraft([], "x".repeat(70), { maxLength: 60 }), ["x".repeat(60)]);
+    assert.deepEqual(commitDraft(["a", "b"], "c", { max: 2 }), ["a", "b"]);
   });
 
   test("food rules come from the new column or the old labels", () => {
