@@ -20,7 +20,7 @@ import { uploadRecording } from "@/lib/activity/sync";
 import type { Fix, LatLng } from "@/lib/activity/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import { GAP_LABEL } from "./messages";
+import { GAP_LABEL, MAP_TILES_NOTE } from "./messages";
 import { ShareCardDialog } from "./ShareCardDialog";
 import { AccountError } from "./AccountError";
 import { SportIcon } from "./sports";
@@ -345,7 +345,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       <section className="fitx-panel space-y-3 p-4 text-xs leading-5 text-fitx-text-secondary sm:p-5" aria-label="About these numbers">
         {kcal !== null && <p><span className="font-semibold text-fitx-text">Calories</span> are an estimate: {view.kcalMethod ?? KCAL_METHOD}{kcalWeight ? ` Weight used: ${kcalWeight} kg.` : ""}</p>}
         <p><span className="font-semibold text-fitx-text">Moving time</span> leaves out pauses, stops and interruptions; <span className="font-semibold text-fitx-text">elapsed time</span> is start to finish.</p>
-        <p><span className="font-semibold text-fitx-text">Privacy:</span> your routes are visible only to you. Share images leave out the area around the start and finish. Detailed GPS points are kept for 90 days; this summary and route stay until you delete them. Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown, not your route or account.</p>
+        <p><span className="font-semibold text-fitx-text">Privacy:</span> your routes are visible only to you. Share images leave out the area around the start and finish. Detailed GPS points are kept for 90 days; this summary and route stay until you delete them. {MAP_TILES_NOTE}</p>
       </section>
 
       <section className="flex flex-col gap-3 border-t border-fitx-divider pt-4 sm:flex-row sm:items-center sm:justify-between">

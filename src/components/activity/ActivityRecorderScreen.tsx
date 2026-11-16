@@ -18,7 +18,7 @@ import { SPORTS, type Sport } from "@/lib/activity/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
-import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, SCREEN_ON_NOTE, SIGNAL_TEXT, WAKE_LOCK_TEXT } from "./messages";
+import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, SCREEN_ON_NOTE, SIGNAL_TEXT, WAKE_LOCK_TEXT } from "./messages";
 import { SportIcon } from "./sports";
 import { useActivityAccount } from "./useActivityAccount";
 
@@ -402,7 +402,7 @@ export function ActivityRecorderScreen() {
               {needsPermission ? (
                 <div className="mt-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-4">
                   <p className="flex items-center gap-2 text-sm font-semibold text-fitx-text"><LocateFixed size={16} aria-hidden="true" className="text-fitx-primary" />Allow location to record</p>
-                  <p className="mt-1.5 text-[13px] leading-5 text-fitx-text-secondary">{LOCATION_USE_NOTE} Your routes are private to your account.</p>
+                  <p className="mt-1.5 text-[13px] leading-5 text-fitx-text-secondary">Once you allow it, {LOCATION_USE_NOTE} Your routes are private to your account. {MAP_TILES_NOTE}</p>
                   <button type="button" onClick={() => recorder?.warmUp()} className="fitx-button mt-3 min-h-11 w-full">Allow location</button>
                 </div>
               ) : (
@@ -414,7 +414,7 @@ export function ActivityRecorderScreen() {
                 <p className="mt-2 text-xs text-fitx-text-secondary">{snapshot.signal === "none" ? "Waiting for GPS. You can start now; the route begins with the first good position." : "The signal is weak: the route may be less precise until it improves."}</p>
               )}
               <p className="mt-4 flex gap-2 text-xs leading-5 text-fitx-text-secondary"><Sun size={15} aria-hidden="true" className="mt-0.5 shrink-0" />{SCREEN_ON_NOTE}</p>
-              {!needsPermission && <p className="mt-2 flex gap-2 text-xs leading-5 text-fitx-text-secondary"><LocateFixed size={15} aria-hidden="true" className="mt-0.5 shrink-0" />{LOCATION_USE_NOTE}</p>}
+              {!needsPermission && <p className="mt-2 flex gap-2 text-xs leading-5 text-fitx-text-secondary"><LocateFixed size={15} aria-hidden="true" className="mt-0.5 shrink-0" />{LOCATION_USE_NOTE} {MAP_TILES_NOTE}</p>}
               {!snapshot.durable && <p className="mt-2 flex gap-2 text-xs leading-5 text-fitx-warning"><CloudOff size={15} aria-hidden="true" className="mt-0.5 shrink-0" />This browser can’t keep a backup on the device. Keep this page open until you finish.</p>}
             </section>
           )}

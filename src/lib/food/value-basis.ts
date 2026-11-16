@@ -16,7 +16,7 @@ export const VALUE_BASIS: Record<ValueBasis, BasisInfo> = {
   recipe_calculated: { label: "Typical recipe", detail: "Calculated by USDA (FNDDS) from a typical recipe, so a dish made differently will differ.", estimate: true },
   label: { label: "Package label", detail: "Copied from the product's nutrition label. Open Food Facts labels are entered by its community, not checked by FITX.", estimate: false },
   user_entered: { label: "Your entry", detail: "Values you entered yourself.", estimate: false },
-  ai_suggested: { label: "AI suggestion", detail: "Added from an AI coach suggestion; the values come from FITX's food data, not from the AI.", estimate: true },
+  ai_suggested: { label: "AI suggestion", detail: "Added from an AI coach suggestion, with values from FITX's food data when FITX found a match, otherwise the coach's own estimate (marked “AI estimate”).", estimate: true },
   estimated: { label: "Estimate", detail: "An estimate.", estimate: true },
 };
 

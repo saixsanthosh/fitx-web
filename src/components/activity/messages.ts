@@ -65,11 +65,14 @@ export const GAP_LABEL: Record<Gap["kind"], string> = {
 
 /**
  * What happens with location on the Record screen (the privacy page says the same): positions are
- * read while the screen is open, to show the GPS signal and the map, and kept only once recording
- * starts. Map images come from OpenFreeMap, which therefore sees the area being shown.
+ * read while the screen is open, to show the GPS signal, and kept only while recording.
  */
 export const LOCATION_USE_NOTE =
-  "FITX uses your location while the Record screen is open, to show your position and GPS signal, and saves your route only after you tap Start. Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown, not your route or account.";
+  "FITX uses your location while this screen is open, to show the GPS signal and then to record, until you finish or leave. Only the positions from while you record are kept.";
+
+/** Map tiles are the one outside request the maps make (Record screen and activity pages). */
+export const MAP_TILES_NOTE =
+  "Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown and your IP address, not your route or account.";
 
 /** What browsers allow, said once before recording. */
 export const SCREEN_ON_NOTE =

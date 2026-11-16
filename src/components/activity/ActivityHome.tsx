@@ -227,8 +227,8 @@ export function ActivityHome() {
       <section className="fitx-panel p-4 sm:p-5" aria-labelledby="privacy-title">
         <h2 id="privacy-title" className="flex items-center gap-2 text-sm font-semibold text-fitx-text"><ShieldCheck size={16} aria-hidden="true" className="text-fitx-primary" />Your location data</h2>
         <ul className="mt-2 space-y-1.5 text-xs leading-5 text-fitx-text-secondary">
-          <li>Location is used while the Record screen is open, to show your position and GPS signal, and saved only while you record. Your routes are visible only to you.</li>
-          <li>Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown (around you on the Record screen, around a route on an activity page), not your route or account.</li>
+          <li>Location is used while the Record screen is open (to show the GPS signal, then to record); only the positions from while you record are kept, and routes are visible only to you.</li>
+          <li>Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown (around you on the Record screen, around a route on an activity page) and your IP address, not your route or account.</li>
           <li>Share images leave out the area around your start and finish.</li>
           <li>Detailed GPS points are deleted after 90 days; activity summaries and routes stay until you delete them.</li>
           <li>Activities not uploaded yet are kept on this device until they are, or until you delete them.</li>

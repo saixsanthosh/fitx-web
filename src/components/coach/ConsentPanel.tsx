@@ -56,14 +56,14 @@ export function ConsentPanel({ providers, sharedSummary, minor, onDone }: { prov
           {minor ? (
             <div className="rounded-lg border border-fitx-border bg-fitx-surface p-4 text-sm leading-6 text-fitx-text-secondary">
               <p className="font-semibold text-fitx-text">You&apos;re under 18</p>
-              <p className="mt-1">The coach answers general questions only. It gets your questions, that you’re under 18 and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile. Please ask a parent or guardian before you use it. Meal and workout plans aren’t available for under-18 accounts.</p>
+              <p className="mt-1">The coach answers general questions only. It gets your questions with the recent messages of that conversation, that you’re under 18 and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile. Please ask a parent or guardian before you use it. Meal and workout plans aren’t available for under-18 accounts.</p>
             </div>
           ) : (
             <fieldset>
               <legend className="text-sm font-semibold text-fitx-text">How should the coach work?</legend>
               <div className="mt-3 grid gap-3">
                 <Choice checked={shareData} onSelect={() => setShareData(true)} title="Use my FITX data (recommended)" text="Personal answers, meal plans and workouts based on your real logs." />
-                <Choice checked={!shareData} onSelect={() => setShareData(false)} title="Questions only" text="General answers, and plans are off. The coach gets your questions and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile." />
+                <Choice checked={!shareData} onSelect={() => setShareData(false)} title="Questions only" text="General answers, and plans are off. The coach gets your questions with the recent messages of that conversation, and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile." />
               </div>
             </fieldset>
           )}
