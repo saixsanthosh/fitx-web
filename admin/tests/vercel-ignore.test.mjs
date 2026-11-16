@@ -1,6 +1,9 @@
 // End-to-end checks of the Vercel ignore command against real Git repositories that are
 // shaped like this one (FITX at the root, Admin in admin/) and cloned shallowly, as Vercel
 // does. Exit code 1 means "build" and exit code 0 means "skip".
+//
+// The root `npm test` runs this file too, without admin/node_modules: import only Node
+// built-ins here (deploy-filter.test.mjs checks this), and rely on nothing but git.
 
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
@@ -16,9 +19,10 @@ const CLI = fileURLToPath(new URL("../scripts/vercel-ignore.mjs", import.meta.ur
 const workspace = mkdtempSync(join(tmpdir(), "fitx-deploy-filter-"));
 after(() => rmSync(workspace, { recursive: true, force: true }));
 
-// Keep the developer's own Git settings (signing, hooks, default branch) out of the tests.
+// Keep the developer's own Git settings (signing, hooks, default branch) and any Vercel or
+// FITX deployment variables in their shell out of the tests.
 const inherited = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith("VERCEL_") && !key.startsWith("GIT_")),
+  Object.entries(process.env).filter(([key]) => !/^(?:VERCEL_|GIT_|FITX_)/.test(key)),
 );
 const gitEnv = {
   ...inherited,
@@ -130,6 +134,43 @@ test("each project builds only for changes that affect it", () => {
   assert.deepEqual(decide(clone, deployment(adminOnly, fitxOnly)), { fitx: BUILD, admin: SKIP });
   assert.deepEqual(decide(clone, deployment(fitxOnly, shared)), { fitx: BUILD, admin: BUILD });
   assert.deepEqual(decide(clone, deployment(shared, docsOnly)), { fitx: BUILD, admin: SKIP });
+});
+
+test("FITX_FORCE_BUILD makes every deployment build", () => {
+  const { repo, initial } = createRepository();
+  const fitxOnly = commit(repo, { "src/app/page.tsx": "export const fitx = 4;\n" });
+  const env = deployment(initial, fitxOnly);
+  assert.equal(runFilter(join(repo, "admin"), "admin", env).status, SKIP);
+
+  for (const value of ["1", "true", " TRUE "]) {
+    const result = runFilter(join(repo, "admin"), "admin", { ...env, FITX_FORCE_BUILD: value });
+    assert.equal(result.status, BUILD, `FITX_FORCE_BUILD=${value}`);
+    assert.match(result.output, /FITX_FORCE_BUILD is set/);
+  }
+  for (const value of ["", "0", "false", "no"]) {
+    assert.equal(runFilter(join(repo, "admin"), "admin", { ...env, FITX_FORCE_BUILD: value }).status, SKIP, `FITX_FORCE_BUILD=${value}`);
+  }
+});
+
+test("a production build of a branch other than master builds, because it is a promotion", () => {
+  const { repo } = createRepository();
+  git(repo, "switch", "--quiet", "-c", "feature/promoted");
+  const before = commit(repo, { "src/app/promoted.tsx": "export const step = 1;\n" });
+  const after = commit(repo, { "src/app/promoted.tsx": "export const step = 2;\n" });
+  const clone = shallowClone(repo, "feature/promoted");
+  const env = deployment(before, after, "feature/promoted");
+
+  const promoted = runFilter(join(clone, "admin"), "admin", { ...env, VERCEL_ENV: "production" });
+  assert.equal(promoted.status, BUILD);
+  assert.match(promoted.output, /promotion/);
+  assert.equal(runFilter(join(clone, "admin"), "admin", { ...env, VERCEL_ENV: "preview" }).status, SKIP);
+  assert.equal(runFilter(join(clone, "admin"), "admin", { ...env, VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "" }).status, BUILD);
+
+  // Production pushes on master itself are still filtered by path.
+  const { repo: mainRepo, initial } = createRepository();
+  const fitxOnly = commit(mainRepo, { "src/app/page.tsx": "export const fitx = 5;\n" });
+  const mainClone = shallowClone(mainRepo, "master");
+  assert.equal(runFilter(join(mainClone, "admin"), "admin", { ...deployment(initial, fitxOnly), VERCEL_ENV: "production" }).status, SKIP);
 });
 
 test("skipped pushes accumulate until a relevant change arrives", () => {
