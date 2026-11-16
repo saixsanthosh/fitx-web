@@ -1,10 +1,11 @@
-// Runs every repo migration on a throwaway local Postgres (Supabase stubs, no network, no real data)
-// and checks the Phase 3 SQL: the To-Do store triggers, fitx_reorder_todo, fitx_complete_workout_event,
-// fitx_today_summary, fitx_goal_progress, the manual-goal trigger, and that one user never sees or
-// changes another user's rows. Skipped when the Postgres binaries (initdb, pg_ctl, psql) are not on PATH.
+// Runs every repo migration on a throwaway local Postgres (the Supabase stand-in in tests/support, no
+// network, no real data) and checks the Phase 3 SQL: the To-Do store triggers, fitx_reorder_todo,
+// fitx_complete_workout_event, fitx_today_summary, fitx_goal_progress, the manual-goal trigger, and that
+// one user never sees or changes another user's rows. Skipped when the Postgres binaries (initdb, pg_ctl,
+// psql) are not on PATH.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { LocalPostgres, available } from "./support/local-postgres.mjs";
+import { LocalPostgres, available } from "../support/local-postgres.mjs";
 
 const A = "aaaaaaaa-0000-4000-8000-000000000001";
 const B = "bbbbbbbb-0000-4000-8000-000000000002";
