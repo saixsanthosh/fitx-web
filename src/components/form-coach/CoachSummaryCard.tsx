@@ -1,5 +1,6 @@
 "use client";
 
+import type { Ref } from "react";
 import { Check, RotateCcw } from "lucide-react";
 import type { CoachSummary } from "@/lib/form-rules/session";
 import type { ExerciseRule } from "@/lib/form-rules/types";
@@ -10,6 +11,10 @@ interface CoachSummaryCardProps {
   rule: ExerciseRule;
   summary: CoachSummary;
   mode: "practice" | "workout";
+  /** The pose model stopped mid-set; the summary covers the counting done until then. */
+  endedEarly?: boolean;
+  /** The heading, focused when the live camera view closes onto this card. */
+  headingRef?: Ref<HTMLHeadingElement>;
   onAgain: () => void;
   /** Practice: choose another exercise. Workout: discard the count. */
   onSecondary: () => void;
@@ -17,7 +22,7 @@ interface CoachSummaryCardProps {
   onUse?: () => void;
 }
 
-export function CoachSummaryCard({ rule, summary, mode, onAgain, onSecondary, onUse }: CoachSummaryCardProps) {
+export function CoachSummaryCard({ rule, summary, mode, endedEarly, headingRef, onAgain, onSecondary, onUse }: CoachSummaryCardProps) {
   const hold = summary.kind === "hold";
   const headline = hold ? formatClock(summary.holdSeconds) : String(summary.reps);
   const counted = hold ? summary.holdSeconds > 0 : summary.reps > 0;
@@ -42,7 +47,7 @@ export function CoachSummaryCard({ rule, summary, mode, onAgain, onSecondary, on
         </div>
         <div className="min-w-0">
           <p className="text-xs font-medium text-fitx-text-secondary">{mode === "workout" ? "Camera count" : "Practice summary"}</p>
-          <h2 id={`summary-${rule.id}`} className="text-xl font-semibold tracking-tight text-fitx-text">{rule.name}</h2>
+          <h2 ref={headingRef} tabIndex={-1} id={`summary-${rule.id}`} className="text-xl font-semibold tracking-tight text-fitx-text outline-none">{rule.name}</h2>
         </div>
       </div>
       <div className="p-5 sm:p-6">
@@ -50,6 +55,11 @@ export function CoachSummaryCard({ rule, summary, mode, onAgain, onSecondary, on
           <span className="text-6xl font-bold leading-none tracking-tight tabular-nums text-fitx-text">{headline}</span>
           <span className="text-sm font-medium text-fitx-text-secondary">{hold ? "held in good form" : summary.reps === 1 ? "full rep" : "full reps"}</span>
         </p>
+        {endedEarly && (
+          <p className="fitx-alert mt-4">
+            The pose model stopped working on this device, so counting ended early. The count up to then is kept.
+          </p>
+        )}
         <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {stats.map(([label, value]) => (
             <div key={label} className="rounded-xl bg-fitx-surface-variant px-3.5 py-3">
