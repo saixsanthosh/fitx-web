@@ -1,0 +1,40 @@
+import type { NextRequest } from "next/server";
+import { CoachError } from "@/lib/ai/coach";
+import { buildCoachContext, loadContextSources } from "@/lib/ai/context";
+import { coachGate, errorResponse, jsonResponse, readJsonBody } from "@/lib/ai/http";
+import { getConsent, saveConsent, updateDataSharing, withdrawConsent } from "@/lib/ai/store";
+
+/**
+ * POST { shareData: boolean }: agree to the coach, or change "Use my FITX data" later.
+ * DELETE: withdraw consent (conversations stay until the member deletes them).
+ * Members under 18 never share their data with the coach, whatever the request says.
+ */
+export async function POST(request: NextRequest) {
+  const access = await coachGate(request, { mutating: true });
+  if (!access.ok) return access.response;
+  const { gate } = access;
+  const body = await readJsonBody(request, 500);
+  if (!body || typeof body.shareData !== "boolean") return gate.finish(errorResponse(new CoachError("invalid", "Choose whether the coach may use your FITX data.")));
+  try {
+    const { facts } = buildCoachContext(await loadContextSources(gate.db, gate.userId, new Date(), { full: false }));
+    const shareData = body.shareData && !facts.minor;
+    const existing = await getConsent(gate.db, gate.userId);
+    if (existing) await updateDataSharing(gate.db, gate.userId, shareData);
+    else await saveConsent(gate.db, gate.userId, shareData);
+    return gate.finish(jsonResponse({ consent: { shareData } }));
+  } catch (error) {
+    return gate.finish(errorResponse(error));
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const access = await coachGate(request, { mutating: true });
+  if (!access.ok) return access.response;
+  const { gate } = access;
+  try {
+    await withdrawConsent(gate.db, gate.userId);
+    return gate.finish(jsonResponse({ consent: null }));
+  } catch (error) {
+    return gate.finish(errorResponse(error));
+  }
+}
