@@ -84,6 +84,7 @@ const statusOf = async (user = MEMBER) =>
     providers: Array<{ id: string; name: string; dataUse: string }>;
     sharedSummary: string[];
     memberDataAvailable: boolean;
+    minor: boolean;
   };
 
 /** Groq answers every structured request with `value`; food lookups find nothing. */
@@ -279,6 +280,34 @@ describe("POST /api/coach/chat: answers", () => {
     assert.ok(shared.includes("<fitx_data>") && shared.includes("250 kcal so far"), "switched back on, the summary and the whole recent conversation go");
   });
 
+  test("an account whose profile turns under 18 is asked again, and nothing from before goes out", async () => {
+    seedMember();
+    consentTo();
+    route = (url) => (providerOf(url) === "groq" ? openAiStream(["You logged 250 kcal so far."]) : { status: 500 });
+    const first = await events(await chat.POST(request("/api/coach/chat", { body: { message: "How am I doing today?" } })));
+    const threadId = threadOf(first);
+    providers.calls.length = 0;
+
+    db.rows("profiles")[0].age = 16; // corrected in Profile
+    const view = await statusOf();
+    assert.equal(view.state, "consent", "the under-18 consent screen again");
+    assert.equal(view.minor, true);
+    const blocked = await chat.POST(request("/api/coach/chat", { body: { threadId, message: "And tomorrow?" } }));
+    assert.equal(blocked.status, 409);
+    const error = await errorOf(blocked);
+    assert.equal(error.code, "consent_required");
+    assert.match(error.message, /under 18/);
+    assert.equal(providers.calls.length, 0, "nothing was sent");
+
+    assert.equal((await consent.POST(request("/api/coach/consent", { body: { shareData: true } }))).status, 200);
+    assert.equal(db.rows("ai_coach_consents")[0].share_personal_data, false, "under 18: questions only");
+    route = (url) => (providerOf(url) === "groq" ? openAiStream(["Sleep and regular meals help."]) : { status: 500 });
+    await events(await chat.POST(request("/api/coach/chat", { body: { threadId, message: "How can I recover better?" } })));
+    const sent = JSON.stringify(providers.calls.at(-1)?.body);
+    assert.ok(sent.includes("How can I recover better?") && sent.includes("under 18"));
+    assert.ok(!sent.includes("250 kcal so far") && !sent.includes("How am I doing today?"), "nothing from before the age change");
+  });
+
   test("at capacity: an honest error, the request does not count and no half conversation is kept", async () => {
     seedMember();
     consentTo();
@@ -327,7 +356,8 @@ describe("POST /api/coach/chat: answers", () => {
 
   test("members under 18: no plans, and the coach is told to use teen rules without their data", async () => {
     seedMember(TEEN, 16);
-    consentTo(TEEN, true);
+    // What the consent route stores for an under-18 account, whatever it asked for.
+    assert.equal((await consent.POST(request("/api/coach/consent", { body: { shareData: true }, user: TEEN }))).status, 200);
     const plan = await chat.POST(request("/api/coach/chat", { body: { message: "Plan my meals", mode: "meal_plan" }, user: TEEN }));
     assert.equal(plan.status, 409);
     route = () => openAiStream(["Eat regular meals."]);

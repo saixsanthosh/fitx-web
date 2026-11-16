@@ -20,6 +20,12 @@ create table if not exists public.ai_coach_consents (
   updated_at timestamptz not null default now()
 );
 
+-- updated_at is when "Use my FITX data" was last switched: with it off, the coach sends no message from
+-- before that moment. Set by the database, like the messages' created_at, so the two clocks always agree.
+drop trigger if exists ai_coach_consents_touch_updated_at on public.ai_coach_consents;
+create trigger ai_coach_consents_touch_updated_at before insert or update on public.ai_coach_consents
+  for each row execute function public.touch_updated_at();
+
 -- ──────────────────────────── conversations ────────────────────────────
 create table if not exists public.ai_coach_threads (
   id uuid primary key default gen_random_uuid(),

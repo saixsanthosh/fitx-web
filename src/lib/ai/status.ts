@@ -90,7 +90,9 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
 
   try {
     const consent = await store.getConsent(db, userId);
-    if (!consent) return { ...base, state: "consent", minor: facts.minor, sharedSummary };
+    // Agreeing to "Use my FITX data" as an adult does not carry over once the profile says under 18: the
+    // member sees the under-18 consent screen again, and agreeing there starts the history afresh.
+    if (!consent || store.needsNewConsent(consent, facts.minor)) return { ...base, state: "consent", minor: facts.minor, sharedSummary };
     const [quotas, threads] = await Promise.all([store.quotaStatus(db), store.listThreads(db, userId)]);
     return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, minor: facts.minor, sharedSummary, quotas, threads };
   } catch (error) {
@@ -109,7 +111,7 @@ async function storedCoachData(db: store.Db, userId: string, now: Date): Promise
     const [consent, threads] = await Promise.all([store.getConsent(db, userId), store.listThreads(db, userId)]);
     if (!consent && !threads.length) return { consent: null, threads: [], minor: false };
     const { facts } = buildCoachContext(await loadContextSources(db, userId, now, { full: false }), now);
-    return { consent: consent ? { shareData: consent.shareData, consentedAt: consent.consentedAt } : null, threads, minor: facts.minor };
+    return { consent: consent ? { shareData: consent.shareData && !facts.minor, consentedAt: consent.consentedAt } : null, threads, minor: facts.minor };
   } catch {
     return { consent: null, threads: [], minor: false };
   }

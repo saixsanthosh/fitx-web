@@ -42,6 +42,11 @@ insert into public.ai_coach_actions (id, user_id, thread_id, message_id, kind, p
  ('cccccccc-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000001', 'workout_plan',
   '{"workout": {"title": "Push day", "location": "home", "exercises": [{"exercise_id": "push_up_t", "exercise_name": "Push-Up T", "sets": 3, "reps_min": 8, "reps_max": 12, "rest_seconds": 90, "hold_seconds": 0}, {"exercise_id": "push_up_t", "exercise_name": "Push-Up hold", "sets": 3, "reps_min": 1, "reps_max": 1, "rest_seconds": 45, "hold_seconds": 30}]}}');
 
+-- a consent's updated_at (the history cut-off) comes from the database clock, whatever the client sends
+update public.ai_coach_consents set share_personal_data = false, updated_at = '2000-01-01' where user_id = '11111111-1111-4111-8111-111111111111';
+select pg_temp.check((select updated_at > now() - interval '1 minute' and not share_personal_data from public.ai_coach_consents), 'updated_at is set by the database');
+update public.ai_coach_consents set share_personal_data = true where user_id = '11111111-1111-4111-8111-111111111111';
+
 -- quota: 30 chats, the 31st is refused, release hands one back
 select pg_temp.check((select allowed from public.ai_coach_take_quota('chat')), 'first chat allowed');
 select count(*) from (select public.ai_coach_take_quota('chat') from generate_series(1, 29)) s;

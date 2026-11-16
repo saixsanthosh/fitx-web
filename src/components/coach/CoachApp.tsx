@@ -82,6 +82,8 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
     const failure = error instanceof CoachRequestError ? error : new CoachRequestError("failed", "Something went wrong. Please try again.");
     if (failure.code === "consent_required") {
       setStatus((old) => ({ ...old, state: "consent" }));
+      // The reason may be a profile change (now under 18), so the consent screen takes its details afresh.
+      void fetchStatus().then(setStatus).catch(() => {});
       return;
     }
     if (failure.code === "paused" || failure.code === "not_configured" || failure.code === "not_available") {

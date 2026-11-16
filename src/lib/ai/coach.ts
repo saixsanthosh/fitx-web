@@ -73,6 +73,9 @@ const TURN_BUDGET_MS = 45_000;
 const MIN_MODEL_MS = 15_000;
 const LIVE_LOOKUP_MIN_MS = 12_000;
 
+/** The account agreed to "Use my FITX data" as an adult and its profile now says under 18. */
+const AGE_CHANGED = "Your profile now says you're under 18, so the coach needs your OK again before it answers. It will answer general questions only.";
+
 /** Kind, fixed wording for plans FITX won't make, and why. */
 const NO_PLAN = {
   care: "For 30 days after FITX's note about eating, the coach doesn't make meal plans or swaps, or give calorie targets. It's here for gentle, general questions in the meantime.",
@@ -107,6 +110,7 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
 
   const basics = await loadContextSources(deps.db, deps.userId, now, { full: false });
   const basicFacts = buildCoachContext(basics, now).facts;
+  if (store.needsNewConsent(consent, basicFacts.minor)) throw new CoachError("consent_required", AGE_CHANGED);
   const safety = screenMessage(input.message, { floor: basicFacts.calorieFloor });
   const sharesData = consent.shareData && !basicFacts.minor;
   const plansAllowed = sharesData;
@@ -406,6 +410,7 @@ export async function runSwap(deps: CoachDeps, input: { actionId: string; note: 
   if (!original || original.kind !== "food" || !item || typeof item.calories !== "number") throw new CoachError("not_found", "That food is no longer in your plan.");
 
   const context = buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: consent.shareData }), now);
+  if (store.needsNewConsent(consent, context.facts.minor)) throw new CoachError("consent_required", AGE_CHANGED);
   if (!consent.shareData || context.facts.minor) throw new CoachError("plans_unavailable", "Swaps use your FITX data. Turn on “Use my FITX data” in the coach's settings.");
   const noteSafety = input.note ? screenMessage(input.note, { floor: context.facts.calorieFloor }) : null;
   if (noteSafety?.kind === "stop") throw new CoachError("refused", noteSafety.message);

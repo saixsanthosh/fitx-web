@@ -143,11 +143,14 @@ export class FakeCoachDb {
         const existing = conflict && prefer.includes("merge-duplicates") ? this.rows(name).find((row) => row[conflict] === item[conflict]) : undefined;
         if (existing) {
           Object.assign(existing, item);
+          if (name === "ai_coach_consents") existing.updated_at = this.now();
           created.push(existing);
           continue;
         }
         const now = this.now();
         const row: Row = { id: randomUUID(), created_at: now, updated_at: now, ...item };
+        // ai_coach_consents_touch_updated_at: the database's clock, whatever the request sent.
+        if (name === "ai_coach_consents") row.updated_at = now;
         // Foreign keys: a coach message or proposal needs its owner's thread (and message).
         if ((name === "ai_coach_messages" || name === "ai_coach_actions") && !this.rows("ai_coach_threads").some((thread) => thread.id === row.thread_id && thread.user_id === userId)) {
           return send(409, { code: "23503", message: "foreign key violation" });
@@ -158,7 +161,10 @@ export class FakeCoachDb {
       return prefer.includes("return=representation") ? reply(201, created) : send(201);
     }
     if (req.method === "PATCH") {
-      for (const row of filtered) Object.assign(row, body as Row);
+      for (const row of filtered) {
+        Object.assign(row, body as Row);
+        if (name === "ai_coach_consents") row.updated_at = this.now();
+      }
       return prefer.includes("return=representation") ? reply(200, filtered) : send(204);
     }
     if (req.method === "DELETE") {

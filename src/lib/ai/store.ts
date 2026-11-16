@@ -45,6 +45,16 @@ export async function getConsent(db: Db, userId: string): Promise<Consent | null
   return data ? { shareData: data.share_personal_data !== false, consentedAt: String(data.consented_at), updatedAt: data.updated_at ? String(data.updated_at) : null } : null;
 }
 
+/**
+ * True when the member agreed with "Use my FITX data" on and the profile now says they are under 18 (an
+ * age corrected in Profile). That consent no longer applies: under-18 accounts share no data, and their
+ * earlier messages may hold replies written from it, so the coach asks again before sending anything.
+ * Agreeing again saves the consent anew, and its updated_at becomes the history cut-off.
+ */
+export function needsNewConsent(consent: Consent, minor: boolean) {
+  return consent.shareData && minor;
+}
+
 export async function saveConsent(db: Db, userId: string, shareData: boolean) {
   const now = new Date().toISOString();
   const { error } = await db

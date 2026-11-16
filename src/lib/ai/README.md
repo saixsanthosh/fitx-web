@@ -82,8 +82,11 @@ step with the summary.
 A chat message also carries the conversation's recent messages (up to the last 12 questions and
 replies together, about 8,000 characters). With "Use my FITX data" off, only messages from after it was last switched off are
 sent (`recentTurns`' `since`, from `ai_coach_consents.updated_at`), so replies written from the member's
-data are not sent again; switching it off in Coach settings also starts a new conversation. A message
-the safety screen stopped, and FITX's own safety notes, are never sent.
+data are not sent again; switching it off in Coach settings also starts a new conversation. The
+database sets `updated_at`, so it and the messages' `created_at` share one clock. If the profile turns
+under 18 while "Use my FITX data" is on (an age corrected in Profile), the coach asks again on the
+under-18 consent screen before it sends anything, and agreeing there moves the cut-off to that moment.
+A message the safety screen stopped, and FITX's own safety notes, are never sent.
 
 ## Limits
 
