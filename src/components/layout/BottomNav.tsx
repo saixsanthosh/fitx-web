@@ -8,6 +8,9 @@ import { LogoutButton } from "@/components/app/LogoutButton";
 import { PHONE_MORE, PHONE_TABS, isActivePath } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 
+/** Focus screens that hide the bar: the live workout and the activity recorder. */
+const FOCUS_SCREENS = new Set(["/workouts/active", "/activity/record"]);
+
 /**
  * Phones (under 768 px): a fixed bar with the four main sections and More. More opens a bottom sheet
  * (a modal <dialog>: focus stays inside, Escape or a tap outside closes it, focus returns to More).
@@ -19,7 +22,7 @@ export function BottomNav() {
   const [open, setOpen] = useState(false);
   const moreActive = PHONE_MORE.some(({ href }) => isActivePath(pathname, href));
 
-  if (pathname === "/workouts/active") return null;
+  if (FOCUS_SCREENS.has(pathname)) return null;
 
   function openSheet() {
     sheet.current?.showModal();
