@@ -319,6 +319,17 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     assert.equal((await status(MEMBER)).body.premium, true, "a failed attempt neither extends nor cuts the paid period");
   });
 
+  test("payment.authorized is linked through its invoice instead of being ignored", async () => {
+    razorpay.invoices.set("inv_TestRenewal02", invoiceEntity({ id: "inv_TestRenewal02", subscription_id: memberSubscription, payment_id: null, billing_start: PERIOD_END, billing_end: PERIOD_END + 30 * DAY }));
+    const authorized = webhookBody("payment.authorized", { payment: paymentEntity({ id: "pay_TestAuthorize1", amount: 19900, status: "authorized", invoice_id: "inv_TestRenewal02" }) });
+    assert.deepEqual((await deliver(authorized, { eventId: "evt_MemberAuthorized" })).body, { outcome: "applied" });
+    assert.deepEqual(
+      await db.rows(`select p.status, s.provider_subscription_id from public.billing_payments p join public.billing_subscriptions s on s.id = p.subscription_id where p.provider_payment_id = 'pay_TestAuthorize1'`),
+      [{ status: "authorized", provider_subscription_id: memberSubscription }],
+    );
+    assert.equal(Date.parse(String((await rowsFor(memberSubscription))[0].paid_until)), PERIOD_END * 1000, "an authorised payment does not extend the paid period");
+  });
+
   test("events FITX does not act on are acknowledged without being stored", async () => {
     assert.deepEqual((await deliver(webhookBody("order.paid", {}), { eventId: "evt_OrderPaid0001" })).body, { outcome: "ignored", detail: "unhandled_event" });
     assert.equal(await eventCount("evt_OrderPaid0001"), 0);
