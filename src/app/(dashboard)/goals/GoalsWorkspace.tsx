@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
 import { CalendarDays, ListChecks, Target } from "lucide-react";
 import { PageHeading } from "@/components/app/PageHeading";
 import { useToday } from "@/components/widgets/useHomeData";
@@ -20,14 +19,14 @@ const GOALS_TABS: ReadonlyArray<{ id: GoalsTabId; label: string; icon: typeof Ta
 
 /** The Goals section: today's To-Do list, goals, and the week's schedule (the former Planner). */
 export function GoalsWorkspace({ initialTab, newTemplate }: { initialTab: GoalsTabId; newTemplate: GoalTemplateKey | null }) {
-  const router = useRouter();
   const today = useToday();
   const [tab, setTab] = useState<GoalsTabId>(initialTab);
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
 
   function select(next: GoalsTabId, focus = false) {
     setTab(next);
-    router.replace(`/goals?tab=${next}`, { scroll: false });
+    // Updates the address without a server round trip; Next's router stays in sync.
+    window.history.replaceState(null, "", `/goals?tab=${next}`);
     if (focus) tabs.current[GOALS_TABS.findIndex((entry) => entry.id === next)]?.focus();
   }
 

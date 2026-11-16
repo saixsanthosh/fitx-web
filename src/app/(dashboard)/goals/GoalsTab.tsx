@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
@@ -20,7 +19,6 @@ type Editor = { mode: "add"; template: GoalTemplateKey | null } | { mode: "edit"
 
 /** Goals: create from templates, see progress, log manual progress, edit, pause, complete, reopen, delete. */
 export function GoalsTab({ today, newTemplate }: { today: string; newTemplate: GoalTemplateKey | null }) {
-  const router = useRouter();
   const goals = useGoalsData(today);
   const summary = useTodaySummary(today);
   const [editor, setEditor] = useState<Editor | null>(newTemplate ? { mode: "add", template: newTemplate } : null);
@@ -28,7 +26,7 @@ export function GoalsTab({ today, newTemplate }: { today: string; newTemplate: G
   const [history, setHistory] = useState<GoalView | null>(null);
 
   // A template link (/goals?tab=goals&new=…) opens the editor once; drop it from the address.
-  useEffect(() => { if (newTemplate) router.replace("/goals?tab=goals", { scroll: false }); }, [newTemplate, router]);
+  useEffect(() => { if (newTemplate) window.history.replaceState(null, "", "/goals?tab=goals"); }, [newTemplate]);
 
   const schema = goals.data?.schema ?? "v2";
   const list = sortGoals(goals.data?.goals ?? []);
@@ -134,7 +132,8 @@ export function GoalsTab({ today, newTemplate }: { today: string; newTemplate: G
         </>
       )}
 
-      {editor && (
+      {/* The form prefills from the user's numbers and the database's goal support, so it waits for both. */}
+      {editor && goals.data && (summary.data || summary.status === "error") && (
         <GoalEditor
           mode={editor.mode}
           schema={schema}
