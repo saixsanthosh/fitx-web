@@ -16,7 +16,11 @@ import type { PosePoint, Side } from "@/lib/pose/landmarks";
 import { landmarkIndex } from "@/lib/pose/landmarks";
 import type { CaptureProfile, ModelVariant, PerformanceAdvice } from "@/lib/pose/performance";
 import { FrameGovernor, initialProfile, readDeviceHints } from "@/lib/pose/performance";
+import type { FrameSize } from "./video-size";
+import { videoSize, watchVideoSize } from "./video-size";
 import { CoachVoice } from "./voice";
+
+export type { FrameSize } from "./video-size";
 
 export type CoachStage =
   | { name: "idle" }
@@ -26,11 +30,6 @@ export type CoachStage =
   | { name: "camera-error"; problem: CameraProblem }
   | { name: "engine-error"; problem: EngineProblem }
   | { name: "finished"; summary: CoachSummary };
-
-export interface FrameSize {
-  width: number;
-  height: number;
-}
 
 export interface CoachUi {
   setStage(stage: CoachStage): void;
@@ -70,6 +69,8 @@ interface Run {
   facing: "user" | "environment";
   looping: boolean;
   cancelFrame: (() => void) | null;
+  /** Stops following the current stream's picture size. */
+  stopWatchingSize: (() => void) | null;
   swapping: boolean;
   /** Counting has run at least once, so this run holds counts worth keeping. */
   everRan: boolean;
@@ -146,6 +147,7 @@ export class CoachMachine {
       facing: "user",
       looping: false,
       cancelFrame: null,
+      stopWatchingSize: null,
       swapping: false,
       everRan: false,
     };
@@ -302,7 +304,12 @@ export class CoachMachine {
     }
     await waitForVideoSize(video);
     if (!this.isCurrent(generation)) return false;
-    this.ui.setFrame(video.videoWidth > 0 ? { width: video.videoWidth, height: video.videoHeight } : null);
+    this.ui.setFrame(videoSize(video));
+    // Turning the phone (auto-rotate on) or a smaller camera picture changes the size mid-stream.
+    run.stopWatchingSize?.();
+    run.stopWatchingSize = watchVideoSize(video, (size) => {
+      if (this.run === run && run.stream === stream) this.ui.setFrame(size);
+    });
     void listCameras().then((cameras) => {
       if (this.isCurrent(generation)) this.ui.setCameraCount(cameras.length);
     });
@@ -552,6 +559,8 @@ export class CoachMachine {
   }
 
   private stopCamera(run: Run) {
+    run.stopWatchingSize?.();
+    run.stopWatchingSize = null;
     stopStream(run.stream);
     run.stream = null;
     const video = this.ui.video();
