@@ -2,7 +2,7 @@
   "source": "USDA FoodData Central",
   "license": "Public domain (CC0 1.0). Cite: U.S. Department of Agriculture, Agricultural Research Service. FoodData Central. fdc.nal.usda.gov.",
   "retrieved": "2026-11-16",
-  "api": "https://api.nal.usda.gov/fdc/v1/foods/search",
+  "api": "https://api.nal.usda.gov/fdc/v1/foods/search and https://api.nal.usda.gov/fdc/v1/foods",
   "valuesPer": "100 g",
   "notes": "Energy is FDC nutrient 208 (kcal); protein 203, carbohydrate by difference 205, total fat 204. Portion grams are FDC's own household measures (US cup). See src/data/DATA_SOURCES.md.",
   "foods": [
@@ -73,7 +73,7 @@
       ],
       "calories": 123,
       "protein": 2.91,
-      "carbs": 26.0,
+      "carbs": 26,
       "fat": 0.37,
       "portions": []
     },
@@ -443,8 +443,7 @@
       "aliases": [
         "veg biryani",
         "vegetable biryani",
-        "biriyani",
-        "biryani"
+        "veg biriyani"
       ],
       "calories": 109,
       "protein": 1.93,
@@ -587,6 +586,406 @@
           "grams": 14
         }
       ]
+    },
+    {
+      "id": "171287",
+      "fdcId": 171287,
+      "name": "Egg, whole, raw, fresh",
+      "dataType": "SR Legacy",
+      "foodCode": 1123,
+      "published": "2019-04-01",
+      "state": "raw",
+      "aliases": [
+        "egg",
+        "whole egg",
+        "anda",
+        "ande"
+      ],
+      "calories": 143,
+      "protein": 12.56,
+      "carbs": 0.72,
+      "fat": 9.51,
+      "portions": [
+        {
+          "label": "1 small",
+          "unit": "piece",
+          "grams": 38
+        },
+        {
+          "label": "1 medium",
+          "unit": "piece",
+          "grams": 44
+        },
+        {
+          "label": "1 large",
+          "unit": "piece",
+          "grams": 50,
+          "countDefault": true
+        },
+        {
+          "label": "1 extra large",
+          "unit": "piece",
+          "grams": 56
+        },
+        {
+          "label": "1 jumbo",
+          "unit": "piece",
+          "grams": 63
+        }
+      ]
+    },
+    {
+      "id": "173424",
+      "fdcId": 173424,
+      "name": "Egg, whole, cooked, hard-boiled",
+      "dataType": "SR Legacy",
+      "foodCode": 1129,
+      "published": "2019-04-01",
+      "state": "cooked",
+      "aliases": [
+        "boiled egg",
+        "hard boiled egg",
+        "egg boiled",
+        "boiled anda",
+        "ubla anda"
+      ],
+      "calories": 155,
+      "protein": 12.58,
+      "carbs": 1.12,
+      "fat": 10.61,
+      "portions": [
+        {
+          "label": "1 cup, chopped",
+          "unit": "cup",
+          "grams": 136
+        },
+        {
+          "label": "1 large",
+          "unit": "piece",
+          "grams": 50,
+          "countDefault": true
+        }
+      ]
+    },
+    {
+      "id": "173904",
+      "fdcId": 173904,
+      "name": "Cereals, oats, regular and quick, not fortified, dry",
+      "dataType": "SR Legacy",
+      "foodCode": 8120,
+      "published": "2019-04-01",
+      "state": "raw",
+      "aliases": [
+        "oats",
+        "rolled oats",
+        "quick oats",
+        "dry oats",
+        "uncooked oats",
+        "oat flakes"
+      ],
+      "calories": 379,
+      "protein": 13.15,
+      "carbs": 67.7,
+      "fat": 6.52,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 81
+        }
+      ]
+    },
+    {
+      "id": "746782",
+      "fdcId": 746782,
+      "name": "Milk, whole, 3.25% milkfat, with added vitamin D",
+      "dataType": "Foundation",
+      "foodCode": 1077,
+      "published": "2019-12-16",
+      "state": null,
+      "aliases": [
+        "milk",
+        "whole milk",
+        "doodh",
+        "dudh"
+      ],
+      "calories": 60,
+      "protein": 3.27,
+      "carbs": 4.63,
+      "fat": 3.2,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 249
+        }
+      ]
+    },
+    {
+      "id": "170000",
+      "fdcId": 170000,
+      "name": "Onions, raw",
+      "dataType": "SR Legacy",
+      "foodCode": 11282,
+      "published": "2019-04-01",
+      "state": "raw",
+      "aliases": [
+        "onion",
+        "raw onion",
+        "pyaz",
+        "pyaaz",
+        "kanda"
+      ],
+      "calories": 40,
+      "protein": 1.1,
+      "carbs": 9.34,
+      "fat": 0.1,
+      "portions": [
+        {
+          "label": "1 cup, chopped",
+          "unit": "cup",
+          "grams": 160
+        },
+        {
+          "label": "1 small",
+          "unit": "piece",
+          "grams": 70
+        },
+        {
+          "label": "1 medium (2-1/2\" dia)",
+          "unit": "piece",
+          "grams": 110,
+          "countDefault": true
+        },
+        {
+          "label": "1 large",
+          "unit": "piece",
+          "grams": 150
+        },
+        {
+          "label": "1 tbsp chopped",
+          "unit": "tbsp",
+          "grams": 10
+        }
+      ]
+    },
+    {
+      "id": "170457",
+      "fdcId": 170457,
+      "name": "Tomatoes, red, ripe, raw, year round average",
+      "dataType": "SR Legacy",
+      "foodCode": 11529,
+      "published": "2019-04-01",
+      "state": "raw",
+      "aliases": [
+        "tomato",
+        "raw tomato",
+        "tamatar"
+      ],
+      "calories": 18,
+      "protein": 0.88,
+      "carbs": 3.89,
+      "fat": 0.2,
+      "portions": [
+        {
+          "label": "1 cup, chopped or sliced",
+          "unit": "cup",
+          "grams": 180
+        },
+        {
+          "label": "1 small whole (2-2/5\" dia)",
+          "unit": "piece",
+          "grams": 91
+        },
+        {
+          "label": "1 medium whole (2-3/5\" dia)",
+          "unit": "piece",
+          "grams": 123,
+          "countDefault": true
+        },
+        {
+          "label": "1 large whole (3\" dia)",
+          "unit": "piece",
+          "grams": 182
+        },
+        {
+          "label": "1 slice, medium (1/4\" thick)",
+          "unit": "slice",
+          "grams": 20
+        }
+      ]
+    },
+    {
+      "id": "171413",
+      "fdcId": 171413,
+      "name": "Oil, olive, salad or cooking",
+      "dataType": "SR Legacy",
+      "foodCode": 4053,
+      "published": "2019-04-01",
+      "state": null,
+      "aliases": [
+        "olive oil",
+        "extra virgin olive oil",
+        "evoo"
+      ],
+      "calories": 884,
+      "protein": 0,
+      "carbs": 0,
+      "fat": 100,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 216
+        },
+        {
+          "label": "1 tablespoon",
+          "unit": "tbsp",
+          "grams": 13.5
+        },
+        {
+          "label": "1 tsp",
+          "unit": "tsp",
+          "grams": 4.5
+        }
+      ]
+    },
+    {
+      "id": "169640",
+      "fdcId": 169640,
+      "name": "Honey",
+      "dataType": "SR Legacy",
+      "foodCode": 19296,
+      "published": "2019-04-01",
+      "state": null,
+      "aliases": [
+        "honey",
+        "shahad",
+        "madhu"
+      ],
+      "calories": 304,
+      "protein": 0.3,
+      "carbs": 82.4,
+      "fat": 0,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 339
+        },
+        {
+          "label": "1 tbsp",
+          "unit": "tbsp",
+          "grams": 21
+        }
+      ]
+    },
+    {
+      "id": "173410",
+      "fdcId": 173410,
+      "name": "Butter, salted",
+      "dataType": "SR Legacy",
+      "foodCode": 1001,
+      "published": "2019-04-01",
+      "state": null,
+      "aliases": [
+        "butter",
+        "salted butter",
+        "makhan",
+        "makkhan"
+      ],
+      "calories": 717,
+      "protein": 0.85,
+      "carbs": 0.06,
+      "fat": 81.11,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 227
+        },
+        {
+          "label": "1 tbsp",
+          "unit": "tbsp",
+          "grams": 14.2
+        }
+      ]
+    },
+    {
+      "id": "173757",
+      "fdcId": 173757,
+      "name": "Chickpeas (garbanzo beans, bengal gram), mature seeds, cooked, boiled, without salt",
+      "dataType": "SR Legacy",
+      "foodCode": 16057,
+      "published": "2019-04-01",
+      "state": "cooked",
+      "aliases": [
+        "chana",
+        "chickpea",
+        "kabuli chana",
+        "safed chana",
+        "boiled chana",
+        "cooked chana",
+        "garbanzo beans",
+        "garbanzo"
+      ],
+      "calories": 164,
+      "protein": 8.86,
+      "carbs": 27.42,
+      "fat": 2.59,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 164
+        }
+      ]
+    },
+    {
+      "id": "2708357",
+      "fdcId": 2708357,
+      "name": "Pasta, cooked",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 56130000,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "pasta",
+        "cooked pasta",
+        "boiled pasta",
+        "macaroni",
+        "spaghetti"
+      ],
+      "calories": 157,
+      "protein": 5.76,
+      "carbs": 30.68,
+      "fat": 0.92,
+      "portions": [
+        {
+          "label": "1 cup, cooked",
+          "unit": "cup",
+          "grams": 140
+        }
+      ]
+    },
+    {
+      "id": "169736",
+      "fdcId": 169736,
+      "name": "Pasta, dry, enriched",
+      "dataType": "SR Legacy",
+      "foodCode": 20120,
+      "published": "2019-04-01",
+      "state": "raw",
+      "aliases": [
+        "dry pasta",
+        "uncooked pasta",
+        "raw pasta"
+      ],
+      "calories": 371,
+      "protein": 13.04,
+      "carbs": 74.67,
+      "fat": 1.51,
+      "portions": []
     }
   ]
 }

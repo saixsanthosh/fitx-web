@@ -47,12 +47,21 @@ export type PortionResolution =
   | { kind: "none" }
   | { kind: "grams"; grams: number }
   | { kind: "portion"; grams: number; count: number; portion: FoodPortion; estimate: boolean; derivedFrom?: FoodPortion }
-  | { kind: "ask"; amount: number; unit: FoodUnit | null; reason: "no-count-weight" | "no-unit-weight" | "household-unit" };
+  | { kind: "ask"; amount: number; unit: FoodUnit | null; reason: "no-count-weight" | "no-unit-weight" | "household-unit" }
+  | { kind: "ask"; amount: number; unit: FoodUnit | null; reason: "no-size-weight"; size: PortionSize };
 
 export interface MatchableFood {
   name: string;
   aliases?: readonly string[];
   state?: FoodState | null;
+}
+
+export interface FoodMatch<T> {
+  food: T;
+  /** Higher is closer. A form the search did not name ("oat milk" for "oats") loses a word's worth. */
+  score: number;
+  /** The typed food words are the food's whole name or one of its aliases ("rice", "masala dosa"). */
+  exact: boolean;
 }
 
 const UNIT_WORDS: Record<string, FoodUnit> = {
@@ -79,6 +88,7 @@ const UNIT_WORDS: Record<string, FoodUnit> = {
 const LEADING_UNITS = new Set<FoodUnit>(["cup", "tbsp", "tsp", "piece", "slice", "serving", "katori", "bowl", "plate", "glass"]);
 
 const SIZE_WORDS: Record<string, PortionSize> = { small: "small", medium: "medium", regular: "medium", large: "large", big: "large" };
+const SIZES: readonly PortionSize[] = ["small", "medium", "large"];
 const SIZE_LABEL_WORDS: Record<PortionSize, string[]> = { small: ["small"], medium: ["medium", "regular"], large: ["large", "big"] };
 
 const NUMBER_WORDS: Record<string, number> = {
@@ -105,8 +115,16 @@ const DRY_MEANS_RAW = new Set([
   "spelt", "amaranth", "buckwheat", "teff", "rye", "lentil", "lentils", "bean", "beans", "chickpea", "chickpeas", "pea", "peas", "gram",
   "dal", "dhal", "pasta", "noodle", "noodles", "macaroni", "spaghetti", "vermicelli", "semolina",
 ]);
-/** Concentrated forms whose values differ a lot from the plain food: egg powder is about 4x fresh egg per 100 g. */
-const PROCESSED_WORDS = new Set(["dried", "dehydrated", "powder", "powdered", "flour", "concentrate", "concentrated"]);
+/**
+ * Forms whose values differ a lot from the plain food: egg powder is about 4x fresh egg per 100 g, tomato
+ * paste about 5x tomato, and onion rings are breaded and fried. They rank below the plain food unless the
+ * search names them ("oat milk", "peanut butter").
+ */
+const FORM_WORDS = new Set([
+  "dried", "powder", "flour", "concentrate", "breaded", "fried", "paste", "puree", "sauce", "milk", "butter", "juice", "oil",
+]);
+const FORM_SPELLINGS: Record<string, string> = { dehydrated: "dried", powdered: "powder", concentrated: "concentrate" };
+const FORM_PENALTY = 3;
 
 /** Splits a typed phrase into the food words and the amount. */
 export function parseFoodQuery(input: string): ParsedFoodQuery {
@@ -156,36 +174,40 @@ export function singular(word: string): string {
 
 /** 0 when the food does not match every word; higher means a closer match. */
 export function foodMatchScore(food: MatchableFood, words: readonly string[]): number {
-  if (!words.length) return 0;
-  const nameTokens = splitText(food.name);
-  const aliasPhrases = (food.aliases ?? []).map((alias) => splitText(alias));
-  const aliasTokens = aliasPhrases.flat();
-  let score = 0;
-  for (const word of words) {
-    const forms = unique([word, singular(word), word.endsWith("ies") ? word.slice(0, -1) : word]);
-    const best = Math.max(wordScore(forms, nameTokens, true), wordScore(forms, aliasTokens, false));
-    if (best === 0) return 0;
-    score += best;
-  }
-  const phrase = words.map(singular).join(" ");
-  const samePhrase = (tokens: string[]) => tokens.map(singular).join(" ") === phrase;
-  if (samePhrase(nameTokens) || aliasPhrases.some(samePhrase)) score += 4;
-  if (nameTokens[0] && singular(nameTokens[0]) === singular(words[0])) score += 2;
-  return score;
+  return scoreFood(food, words).score;
 }
 
 /**
- * Foods that match every word, best first. Ties put plain foods before dried or powdered forms the
- * search did not ask for ("egg" before egg powder), then cooked before unlabelled and raw forms, then
- * keep the order given, so callers list their most trusted source first.
+ * Foods that match every word, best first, with how well each matched. A form the search did not name
+ * ranks below the plain food ("oats" before oat milk, "tomato" before tomato paste). For grains and pulses,
+ * cooked forms come before raw ones ("rice" usually means cooked rice); other foods keep the order given,
+ * so callers list their most trusted source first.
  */
-export function rankFoods<T extends MatchableFood>(foods: readonly T[], words: readonly string[]): T[] {
-  const askedForm = words.some((word) => PROCESSED_WORDS.has(singular(word)));
+export function matchFoods<T extends MatchableFood>(foods: readonly T[], words: readonly string[]): FoodMatch<T>[] {
+  const asked = new Set(words.map((word) => formWord(singular(word))));
   return foods
-    .map((food, index) => ({ food, index, score: foodMatchScore(food, words), form: askedForm ? 0 : processedRank(food.name) }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.form - b.form || stateRank(a.food.state) - stateRank(b.food.state) || a.index - b.index)
-    .map((item) => item.food);
+    .map((food, index) => {
+      const { score, exact } = scoreFood(food, words);
+      const penalty = !exact && hasUnaskedForm(food.name, asked) ? FORM_PENALTY : 0;
+      return { food, index, exact, matched: score > 0, score: score - penalty, state: grainStateRank(food) };
+    })
+    .filter((item) => item.matched)
+    .sort((a, b) => b.score - a.score || a.state - b.state || a.index - b.index)
+    .map(({ food, score, exact }) => ({ food, score, exact }));
+}
+
+export function rankFoods<T extends MatchableFood>(foods: readonly T[], words: readonly string[]): T[] {
+  return matchFoods(foods, words).map((match) => match.food);
+}
+
+/**
+ * The food to select without asking: the only one whose whole name or alias is what was typed ("rice",
+ * "2 eggs", "masala dosa"). Anything looser waits for the user to tap a food: "paneer" only appears inside
+ * Palak Paneer, and the one watermelon in the USDA snapshot is the rind.
+ */
+export function clearMatch<T>(matches: readonly FoodMatch<T>[]): T | null {
+  const exact = matches.filter((match) => match.exact);
+  return exact.length === 1 ? exact[0].food : null;
 }
 
 /** Reads "raw" or "cooked" from a food description such as "Rice, white, long grain, unenriched, raw". */
@@ -206,6 +228,10 @@ export function resolvePortion(query: Pick<ParsedFoodQuery, "amount" | "unit" | 
   if (amount === null || !Number.isFinite(amount) || amount <= 0) return { kind: "none" };
   if (unit && isMassUnit(unit)) return { kind: "grams", grams: round1(amount * MASS_GRAMS[unit]) };
 
+  // "2 small boiled eggs" when USDA only weighs a large one: ask rather than use the wrong size.
+  const sized = portionCandidates(portions, unit).filter((portion) => SIZES.some((each) => labelHasSize(portion.label, each)));
+  if (size && sized.length && !sized.some((portion) => labelHasSize(portion.label, size))) return { kind: "ask", amount, unit, reason: "no-size-weight", size };
+
   const direct = pickPortion(portions, unit, size);
   if (direct) return { kind: "portion", grams: round1(amount * direct.grams), count: amount, portion: direct, estimate: direct.estimate !== false };
 
@@ -225,6 +251,7 @@ export function resolvePortion(query: Pick<ParsedFoodQuery, "amount" | "unit" | 
 /** The sentence the app shows when it needs grams from the user. */
 export function askForGramsMessage(foodName: string, resolution: Extract<PortionResolution, { kind: "ask" }>): string {
   if (resolution.reason === "no-count-weight") return `FITX has no per-piece weight for ${foodName}, so it can't tell what ${formatAmount(resolution.amount)} of it weighs. Enter the amount in grams.`;
+  if (resolution.reason === "no-size-weight") return `USDA gives no ${resolution.size} size for ${foodName}. Pick one of its sizes under Unit, or enter the amount in grams.`;
   const unit = unitLabel(resolution.unit ?? "serving");
   if (resolution.reason === "household-unit") return `A ${unit} has no standard weight, so FITX can't tell how much ${foodName} that is. Weigh it, or enter the amount in grams.`;
   return `There is no ${unit} weight for ${foodName}. Enter the amount in grams.`;
@@ -261,6 +288,12 @@ export function gramsInLabel(text: string | null | undefined): number | null {
 /** "3 × 1 item (114 g)", for the meal log. */
 export function describePortion(count: number, portion: FoodPortion, grams: number): string {
   return `${formatAmount(count)} × ${portion.label} (${formatAmount(grams)} g)`;
+}
+
+/** The amount part of what was typed: "200 g", "1 tablespoon", "2 large", or "" when there is none. */
+export function describeTypedAmount(query: Pick<ParsedFoodQuery, "amount" | "unit" | "size">): string {
+  if (query.amount === null) return "";
+  return [formatAmount(query.amount), query.size, query.unit && unitLabel(query.unit, query.amount)].filter(Boolean).join(" ");
 }
 
 export function unitLabel(unit: FoodUnit, count = 1): string {
@@ -330,9 +363,15 @@ function parseNumberToken(token: string | undefined): number | null {
   return null;
 }
 
+/** The portions that can answer a unit: piece portions (and the default serving) for a bare count, otherwise that unit's own. */
+function portionCandidates(portions: readonly FoodPortion[], unit: FoodUnit | null): FoodPortion[] {
+  const countable = unit === null || unit === "piece";
+  return portions.filter((portion) => (countable ? portion.unit === "piece" || (unit === null && portion.countDefault) : portion.unit === unit));
+}
+
 function pickPortion(portions: readonly FoodPortion[], unit: FoodUnit | null, size: PortionSize | null): FoodPortion | null {
   const countable = unit === null || unit === "piece";
-  const candidates = portions.filter((portion) => (countable ? portion.unit === "piece" || (unit === null && portion.countDefault) : portion.unit === unit));
+  const candidates = portionCandidates(portions, unit);
   if (!candidates.length) return null;
   if (size) {
     const sized = candidates.find((portion) => labelHasSize(portion.label, size));
@@ -371,8 +410,47 @@ function wordScore(forms: readonly string[], tokens: readonly string[], allowIns
   return best;
 }
 
-function processedRank(name: string): number {
-  return splitText(name).some((token) => PROCESSED_WORDS.has(token)) ? 1 : 0;
+function scoreFood(food: MatchableFood, words: readonly string[]): { score: number; exact: boolean } {
+  if (!words.length) return { score: 0, exact: false };
+  const nameTokens = splitText(food.name);
+  const aliasPhrases = (food.aliases ?? []).map((alias) => splitText(alias));
+  const aliasTokens = aliasPhrases.flat();
+  let score = 0;
+  for (const word of words) {
+    const forms = unique([word, singular(word), word.endsWith("ies") ? word.slice(0, -1) : word]);
+    const best = Math.max(wordScore(forms, nameTokens, true), wordScore(forms, aliasTokens, false));
+    if (best === 0) return { score: 0, exact: false };
+    score += best;
+  }
+  const phrase = words.map(singular).join(" ");
+  const samePhrase = (tokens: string[]) => tokens.map(singular).join(" ") === phrase;
+  const exact = samePhrase(nameTokens) || aliasPhrases.some(samePhrase);
+  if (exact) score += 4;
+  if (nameTokens[0] && singular(nameTokens[0]) === singular(words[0])) score += 2;
+  return { score, exact };
+}
+
+/**
+ * Whether the food is a form the search did not name: a form word in the first part of its name
+ * ("Oat milk", "Almond butter") or leading a later part ("Tomato, paste", "Onion rings, breaded").
+ * "Yogurt, plain, whole milk" is yogurt, so its "milk" does not count.
+ */
+function hasUnaskedForm(name: string, asked: ReadonlySet<string>): boolean {
+  const parts = name.split(",").map(splitText).filter((tokens) => tokens.length > 0);
+  const heads = [...(parts[0] ?? []), ...parts.slice(1).map((tokens) => tokens[0])];
+  return heads.some((token) => {
+    const form = formWord(token);
+    return FORM_WORDS.has(form) && !asked.has(form);
+  });
+}
+
+function formWord(word: string): string {
+  return FORM_SPELLINGS[word] ?? word;
+}
+
+/** Raw and cooked grains and pulses differ about 2-3x per 100 g, so cooked comes first for them only. */
+function grainStateRank(food: MatchableFood): number {
+  return splitText(food.name).some((token) => DRY_MEANS_RAW.has(token)) ? stateRank(food.state) : 1;
 }
 
 function splitText(text: string): string[] {
