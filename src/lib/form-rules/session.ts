@@ -67,7 +67,7 @@ export interface CoachSummary {
   partials: number;
   holdSeconds: number;
   positionSeconds: number;
-  /** From the first counted movement to the end. */
+  /** From the first counted movement to the last, leaving out any time the camera was off. */
   activeSeconds: number;
   /** Time the camera could not see enough to count (nobody in view, or a needed joint unclear). */
   unclearSeconds: number;
@@ -105,6 +105,12 @@ const SMOOTHING_GAP_MS = 300;
 /** Leaving the exercise posture between reps for this long means the set is paused. */
 const POSTURE_LOSS_MS = 800;
 const LOST_NOTICE: ActiveCue = { id: "lost", text: "Lost sight of you, so that rep wasn't counted.", speech: "Rep not counted" };
+/**
+ * Replaces a floor exercise's posture hint while the picture is portrait. Either the phone stands
+ * upright, or it lies on its side with auto-rotate off: the browser then keeps sending portrait
+ * frames with the room turned a quarter turn, and no floor position can ever be recognised.
+ */
+export const SIDEWAYS_HINT = "Stand the phone on its side. If the screen doesn't turn with it, turn on auto-rotate (rotation lock off).";
 /**
  * Smoothing works in these units, so one setting suits every measurement: angles in degrees,
  * ratios in hundredths. (A foot-spread ratio moving 8/s must lag as little as an angle moving 500°/s.)
@@ -160,9 +166,12 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
 
   // Visibility and timing.
   let lostSince: number | null = null;
-  let firstActiveAt: number | null = null;
-  let activeEnd = 0;
   let unclearMs = 0;
+  // Time since the first counted movement (camera-off time is never added), and its value at the
+  // latest counted movement: the summary's "Time".
+  let started = false;
+  let sinceStartMs = 0;
+  let activeSpanMs = 0;
 
   // Cues.
   const faultSince = new Map<string, number>();
@@ -325,6 +334,8 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
           showNotice(cue, t);
           raise(cue, t, events);
           cueCounts.set("lockout", (cueCounts.get("lockout") ?? 0) + 1);
+          // The rep still counts once it reaches the start position, but not as one without a cue.
+          repFaults.add("lockout");
         }
         phase = "target";
         lowestOnReturn = 1;
@@ -334,10 +345,16 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
     return progress;
   }
 
+  function markActive() {
+    started = true;
+    activeSpanMs = sinceStartMs;
+  }
+
   function update(frame: PoseFrame): CoachSnapshot {
     const t = frame.t;
     const dt = lastT === null ? 0 : Math.min(MAX_FRAME_GAP_MS, Math.max(0, t - lastT));
     lastT = t;
+    if (started) sinceStartMs += dt;
     const events: CoachEvent[] = [];
     const reading = readFrame(rule, frame, side);
     if (reading.person) side = reading.side;
@@ -377,6 +394,8 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
       : reading.facing !== undefined && reading.facing >= 0.55;
     const postureOk = allHold(rule.posture, values);
     const viewHint = rule.view === "side" ? "Turn side-on to the camera." : "Face the camera.";
+    // Only the advice changes: an upright phone that does see the floor position still counts.
+    const postureHint = rule.landscape && frame.aspect > 0 && frame.aspect < 1 ? SIDEWAYS_HINT : rule.postureHint;
 
     if (motion.kind === "hold") {
       const inPosition = viewOk && postureOk;
@@ -384,10 +403,9 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
         holdPhase = "resting";
         formBadSince = null;
         clearFaults();
-        return snapshot(t, "position", viewOk ? rule.postureHint : viewHint, { progress: null, cue: null, events });
+        return snapshot(t, "position", viewOk ? postureHint : viewHint, { progress: null, cue: null, events });
       }
-      firstActiveAt ??= t;
-      activeEnd = t;
+      markActive();
       positionMs += dt;
       const formOk = allHold(motion.form, values);
       if (formOk) formBadSince = null;
@@ -403,11 +421,10 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
     const progress = stepReps(motion, values, ready, t, events);
     if (phase === "idle") {
       clearFaults();
-      const guidance = !viewOk ? viewHint : !postureOk ? rule.postureHint : motion.startHint;
+      const guidance = !viewOk ? viewHint : !postureOk ? postureHint : motion.startHint;
       return snapshot(t, "position", guidance, { progress: null, cue: null, events });
     }
-    firstActiveAt ??= t;
-    activeEnd = t;
+    markActive();
     const moving = MOVING.includes(phase);
     if (!moving) clearFaults();
     const cue = moving ? checkCues(values, t, phase, events) : null;
@@ -441,7 +458,7 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
       partials,
       holdSeconds: Math.floor(holdMs / 1000),
       positionSeconds: Math.floor(positionMs / 1000),
-      activeSeconds: firstActiveAt === null ? 0 : Math.round((activeEnd - firstActiveAt) / 1000),
+      activeSeconds: Math.round(activeSpanMs / 1000),
       unclearSeconds: Math.round(unclearMs / 1000),
       cues: [...cueCounts.entries()]
         .map(([id, count]) => ({ id, text: texts.get(id) ?? id, count }))

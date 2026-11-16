@@ -229,8 +229,30 @@ export function jack(open: number, options: { armReach?: number; legReach?: numb
   return { near: side(1), far: side(-1), nearVisibility: 0.95, farVisibility: 0.95 };
 }
 
+/** Scales and moves a body, keeping its shape, so it fills `box` (square image units) as far as it can. */
+export function fitInto(body: Body, box: { x: number; y: number; width: number; height: number }): Body {
+  const points = [...Object.values(body.near), ...Object.values(body.far)];
+  const minX = Math.min(...points.map((p) => p.x));
+  const minY = Math.min(...points.map((p) => p.y));
+  const width = Math.max(...points.map((p) => p.x)) - minX;
+  const height = Math.max(...points.map((p) => p.y)) - minY;
+  const scale = Math.min(box.width / width, box.height / height);
+  const place = (limb: Limb): Limb =>
+    Object.fromEntries(Object.entries(limb).map(([part, p]) => [part, { x: box.x + (p.x - minX) * scale, y: box.y + (p.y - minY) * scale }]));
+  return { ...body, near: place(body.near), far: place(body.far) };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Frames and sequences.
+
+/**
+ * The same frame turned a quarter turn (1 = clockwise), as a phone stood on its side with
+ * auto-rotate off sends it: the picture becomes portrait and the room lies on its side in it.
+ */
+export function quarterTurn(frame: PoseFrame, direction: 1 | -1 = 1): PoseFrame {
+  const turn = (point: PosePoint): PosePoint => ({ ...point, ...(direction === 1 ? { x: 1 - point.y, y: point.x } : { x: point.y, y: 1 - point.x }) });
+  return { ...frame, aspect: 1 / frame.aspect, points: frame.points ? frame.points.map(turn) : null };
+}
 
 /** Deterministic pseudo-random numbers (mulberry32). */
 export function seeded(seed: number): () => number {
