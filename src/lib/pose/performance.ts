@@ -25,7 +25,10 @@ export interface CaptureProfile {
   maxFps: number;
 }
 
-export type PerformanceAdvice = "use-lite" | "lower-resolution" | "too-slow";
+export type PerformanceAdvice = "use-cpu" | "use-lite" | "lower-resolution" | "too-slow";
+
+/** A real GPU runs this model in well under this; slower means the GPU path is emulated or broken. */
+const SLOW_GPU_MS = 200;
 
 export function initialProfile(hints: DeviceHints): CaptureProfile {
   const weak = (hints.cores !== undefined && hints.cores <= 2) || (hints.memoryGb !== undefined && hints.memoryGb <= 2);
@@ -108,12 +111,16 @@ export class FrameGovernor {
     this.averageMs = 0;
   }
 
-  /** One piece of advice at most once each, after detection has been slow for several seconds. */
-  advise(now: number, profile: CaptureProfile): PerformanceAdvice | null {
+  /**
+   * One piece of advice at most once each, after detection has been slow for several seconds.
+   * `onGpu`: the engine runs on the GPU delegate (a very slow GPU path is worse than the CPU one).
+   */
+  advise(now: number, profile: CaptureProfile, onGpu = false): PerformanceAdvice | null {
     if (this.startedAt === null || now - this.startedAt < WARM_UP_MS) return null;
     const fps = this.fps(now);
     let advice: PerformanceAdvice | null = null;
-    if (profile.model === "full" && fps < 15 && !this.given.has("use-lite")) advice = "use-lite";
+    if (onGpu && this.averageMs > SLOW_GPU_MS && !this.given.has("use-cpu")) advice = "use-cpu";
+    else if (profile.model === "full" && fps < 15 && !this.given.has("use-lite")) advice = "use-lite";
     else if (profile.width > 480 && fps < 12 && !this.given.has("lower-resolution")) advice = "lower-resolution";
     else if (fps < 8 && !this.given.has("too-slow")) advice = "too-slow";
     if (!advice) {

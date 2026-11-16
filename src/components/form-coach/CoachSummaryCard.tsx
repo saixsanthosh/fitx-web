@@ -24,13 +24,13 @@ export function CoachSummaryCard({ rule, summary, mode, onAgain, onSecondary, on
   const stats: Array<[string, string]> = hold
     ? [
         ["Time in a plank", formatClock(summary.positionSeconds)],
-        ["Camera couldn't see you", formatClock(summary.unclearSeconds)],
+        ["Couldn't see you clearly", formatClock(summary.unclearSeconds)],
       ]
     : [
         ["Partial reps, not counted", String(summary.partials)],
-        ["Reps without a form cue", `${summary.cleanReps} of ${summary.reps}`],
+        ["Reps without a form cue", summary.reps > 0 ? `${summary.cleanReps} of ${summary.reps}` : "–"],
         ["Time", formatClock(summary.activeSeconds)],
-        ["Camera couldn't see you", formatClock(summary.unclearSeconds)],
+        ["Couldn't see you clearly", formatClock(summary.unclearSeconds)],
       ];
   const toWorkOn = summary.cues.filter((cue) => cue.id !== "lost").slice(0, 3);
 

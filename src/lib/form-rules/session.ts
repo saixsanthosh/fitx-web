@@ -69,7 +69,7 @@ export interface CoachSummary {
   positionSeconds: number;
   /** From the first counted movement to the end. */
   activeSeconds: number;
-  /** Time after the first counted movement when the camera could not see enough to count. */
+  /** Time the camera could not see enough to count (nobody in view, or a needed joint unclear). */
   unclearSeconds: number;
   /** Form cues raised, most frequent first. */
   cues: Array<{ id: string; text: string; count: number }>;
@@ -350,7 +350,7 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
 
     if (problem) {
       lostSince ??= t;
-      if (firstActiveAt !== null) unclearMs += dt;
+      unclearMs += dt;
       clearFaults();
       if (motion.kind === "reps") {
         if (phase !== "idle" && t - lostSince > lossGraceMs) {

@@ -7,14 +7,14 @@ import type { CoachSession, CoachSnapshot, CoachSummary } from "@/lib/form-rules
 import { createCoachSession } from "@/lib/form-rules/session";
 import type { ExerciseRule } from "@/lib/form-rules/types";
 import type { CameraProblem } from "@/lib/pose/camera";
-import { cameraPermission, cameraProblemFromError, listCameras, openCamera, stopStream } from "@/lib/pose/camera";
+import { cameraHelp, cameraPermission, cameraProblemFromError, detectPlatform, listCameras, openCamera, stopStream } from "@/lib/pose/camera";
 import type { OverlayPalette } from "@/lib/pose/draw";
 import { drawPose, readOverlayPalette } from "@/lib/pose/draw";
 import type { EngineLease, EngineProblem, PoseEngine } from "@/lib/pose/engine";
 import { acquirePoseEngine, discardPoseEngine, PoseEngineError } from "@/lib/pose/engine";
 import type { PosePoint, Side } from "@/lib/pose/landmarks";
 import { landmarkIndex } from "@/lib/pose/landmarks";
-import type { CaptureProfile, PerformanceAdvice } from "@/lib/pose/performance";
+import type { CaptureProfile, ModelVariant, PerformanceAdvice } from "@/lib/pose/performance";
 import { FrameGovernor, initialProfile, readDeviceHints } from "@/lib/pose/performance";
 import { CoachVoice } from "./voice";
 
@@ -22,7 +22,7 @@ export type CoachStage =
   | { name: "idle" }
   | { name: "starting"; step: "camera" | "model"; progress: number }
   | { name: "running" }
-  | { name: "paused"; reason: "hidden" | "camera-ended" }
+  | { name: "paused"; reason: "hidden" | "camera-ended"; detail?: string }
   | { name: "camera-error"; problem: CameraProblem }
   | { name: "engine-error"; problem: EngineProblem }
   | { name: "finished"; summary: CoachSummary };
@@ -71,6 +71,8 @@ interface Run {
   looping: boolean;
   cancelFrame: (() => void) | null;
   swapping: boolean;
+  /** Counting has run at least once, so this run holds counts worth keeping. */
+  everRan: boolean;
 }
 
 const SLOW_DEVICE_NOTICE = "This device is analysing the camera slowly, so quick reps may be missed. Good light and closing other apps help.";
@@ -145,6 +147,7 @@ export class CoachMachine {
       looping: false,
       cancelFrame: null,
       swapping: false,
+      everRan: false,
     };
     this.run = run;
     this.ui.setSnapshot(null);
@@ -189,7 +192,9 @@ export class CoachMachine {
     const run = this.run;
     if (!run) return;
     if (this.stage === "starting") {
-      this.reset();
+      // A fresh start is simply cancelled; a restart after a pause keeps the counts so far.
+      if (run.everRan) this.pause(run, "hidden");
+      else this.reset();
       return;
     }
     if (this.stage === "running") this.pause(run, "hidden");
@@ -262,7 +267,15 @@ export class CoachMachine {
     try {
       stream = await openCamera({ facing: run.facing, width: run.profile.width, height: run.profile.height, frameRate: Math.min(30, run.profile.maxFps + 6), deviceId: run.deviceId });
     } catch (error) {
-      if (this.isCurrent(generation)) this.fail({ name: "camera-error", problem: cameraProblemFromError(error) });
+      if (!this.isCurrent(generation)) return false;
+      const problem = cameraProblemFromError(error);
+      if (run.everRan) {
+        // Keep the set's counts: stay paused and say why the camera didn't come back.
+        const help = cameraHelp(problem, detectPlatform(navigator.userAgent, navigator.maxTouchPoints));
+        this.pause(run, "camera-ended", `${help.title}. ${help.body}`);
+      } else {
+        this.fail({ name: "camera-error", problem });
+      }
       return false;
     }
     if (!this.isCurrent(generation)) {
@@ -323,6 +336,7 @@ export class CoachMachine {
     run.palette = readOverlayPalette(canvas ?? document.documentElement);
     run.governor.restart();
     run.publishedKey = "";
+    run.everRan = true;
     this.setStage({ name: "running" });
     void this.holdWakeLock(run);
     this.loop(run, generation);
@@ -370,7 +384,7 @@ export class CoachMachine {
     const meter = this.ui.meter();
     if (meter) meter.style.transform = `scaleY(${snapshot.progress ?? 0})`;
     this.react(run, snapshot);
-    const advice = run.governor.advise(done, run.profile);
+    const advice = run.governor.advise(done, run.profile, run.engine?.delegate === "GPU");
     if (advice) void this.applyAdvice(run, advice);
   }
 
@@ -432,9 +446,15 @@ export class CoachMachine {
       }
       return;
     }
-    if (run.profile.model !== "full" || run.swapping) return;
+    if (advice === "use-cpu" && run.engine?.delegate === "GPU") await this.swapEngine(run, run.profile.model, "CPU");
+    else if (advice === "use-lite" && run.profile.model === "full") await this.swapEngine(run, "lite", run.delegate);
+  }
+
+  /** Loads another model or delegate in the background and switches over once it is ready. */
+  private async swapEngine(run: Run, model: ModelVariant, delegate: "auto" | "CPU") {
+    if (run.swapping) return;
     run.swapping = true;
-    const lease = acquirePoseEngine("lite", run.delegate);
+    const lease = acquirePoseEngine(model, delegate);
     try {
       const engine = await lease.ready;
       if (this.run !== run) {
@@ -444,7 +464,8 @@ export class CoachMachine {
       run.lease?.release();
       run.lease = lease;
       run.engine = engine;
-      run.profile = { ...run.profile, model: "lite" };
+      run.delegate = delegate;
+      run.profile = { ...run.profile, model };
       run.governor.restart();
     } catch {
       lease.release();
@@ -484,14 +505,14 @@ export class CoachMachine {
     }
   }
 
-  private pause(run: Run, reason: "hidden" | "camera-ended") {
+  private pause(run: Run, reason: "hidden" | "camera-ended", detail?: string) {
     this.generation += 1;
     this.stopLoop(run);
     this.stopCamera(run);
     this.releaseWakeLock(run);
     this.voice.stop();
     run.session.pause();
-    this.setStage({ name: "paused", reason });
+    this.setStage({ name: "paused", reason, detail });
   }
 
   private stopAll() {

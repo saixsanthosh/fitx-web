@@ -66,7 +66,7 @@ export async function createPoseEngine(options: EngineOptions): Promise<PoseEngi
   options.onProgress?.(1);
 
   const fileset = { wasmLoaderPath: POSE_ASSETS.wasmLoader, wasmBinaryPath: POSE_ASSETS.wasmBinary };
-  const delegates: Array<"GPU" | "CPU"> = options.delegate === "CPU" ? ["CPU"] : ["GPU", "CPU"];
+  const delegates: Array<"GPU" | "CPU"> = options.delegate === "CPU" || webglIsSoftware() ? ["CPU"] : ["GPU", "CPU"];
   let lastError: unknown;
   for (const delegate of delegates) {
     try {
@@ -90,6 +90,24 @@ export async function createPoseEngine(options: EngineOptions): Promise<PoseEngi
     }
   }
   throw new PoseEngineError("start", lastError);
+}
+
+/**
+ * WebGL drawn by the CPU (SwiftShader, llvmpipe: blocklisted or missing GPUs, some virtual machines)
+ * makes MediaPipe's GPU path many times slower than its CPU path, so such devices go straight to the CPU.
+ */
+function webglIsSoftware(): boolean {
+  try {
+    // A page canvas, not OffscreenCanvas: Safari 16 has no WebGL there, though MediaPipe's GPU path works.
+    const gl = document.createElement("canvas").getContext("webgl2");
+    if (!gl) return true;
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? "");
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer);
+  } catch {
+    return true;
+  }
 }
 
 function wrap(landmarker: PoseLandmarker, variant: ModelVariant, delegate: "GPU" | "CPU"): PoseEngine {

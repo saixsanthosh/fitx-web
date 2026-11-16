@@ -74,7 +74,7 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
       aria-labelledby={titleId}
       hidden={!open}
       onKeyDown={onKeyDown}
-      className="fitx-inverse fixed inset-0 z-[70] flex flex-col bg-fitx-bg text-fitx-text"
+      className="fitx-inverse fixed inset-0 z-[110] flex flex-col bg-fitx-bg text-fitx-text"
     >
       <header className="flex items-center gap-3 px-4 pb-2 pt-[max(env(safe-area-inset-top),12px)] sm:px-6">
         <div className="min-w-0 flex-1">
@@ -120,7 +120,7 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
                 <div className="max-w-xs">
                   <p className="text-lg font-semibold">Paused</p>
                   <p className="mt-2 text-sm leading-6 text-fitx-text-secondary">
-                    {stage.reason === "hidden" ? "The camera turned off while FITX was in the background. Your count so far is kept." : "The camera stopped, perhaps because another app took it. Your count so far is kept."}
+                    {stage.detail ?? (stage.reason === "hidden" ? "The camera turned off while FITX was in the background." : "The camera stopped, perhaps because another app took it.")} Your count so far is kept.
                   </p>
                   <button type="button" onClick={coach.resume} className="fitx-button mt-5 w-full"><Play size={16} aria-hidden="true" />Resume camera</button>
                 </div>

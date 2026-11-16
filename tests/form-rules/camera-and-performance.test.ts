@@ -79,3 +79,21 @@ test("slow detection advises a lighter model once, after warm-up and a sustained
   stuck.restart();
   assert.equal(stuck.fps(31_000), 0);
 });
+
+test("a GPU path slower than any real GPU switches to the CPU first; CPU slowness never blames the GPU", () => {
+  const profile = initialProfile({ mobile: false, cores: 10 });
+  const run = (onGpu: boolean) => {
+    const governor = new FrameGovernor(30);
+    const advice: string[] = [];
+    for (let now = 0; now < 20_000; now += 16) {
+      if (!governor.due(now)) continue;
+      governor.record(now, 400);
+      const next = governor.advise(now + 400, profile, onGpu);
+      if (next) advice.push(next);
+    }
+    return advice;
+  };
+  assert.equal(run(true)[0], "use-cpu");
+  assert.ok(!run(false).includes("use-cpu"));
+  assert.equal(run(false)[0], "use-lite");
+});
