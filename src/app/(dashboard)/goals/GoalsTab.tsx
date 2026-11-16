@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
@@ -9,8 +10,8 @@ import { getSession, messageFor } from "@/components/tasks/session";
 import { useGoalsData, useTodaySummary } from "@/components/widgets/useHomeData";
 import { WidgetError } from "@/components/widgets/WidgetCard";
 import { addGoalEntry, deleteGoal, deleteGoalEntry, listGoalEntries, setGoalStatus, type GoalEntry } from "@/lib/data/goals";
-import { estimatedTargets } from "@/lib/domain/today";
-import { formatGoalValue, sortGoals, type GoalContext, type GoalTemplateKey, type GoalView } from "@/lib/domain/goals";
+import { dailyTargets } from "@/lib/domain/today";
+import { GOAL_TEMPLATES, formatGoalValue, sortGoals, type GoalContext, type GoalTemplateKey, type GoalView } from "@/lib/domain/goals";
 import { GoalCard } from "./GoalCard";
 import { GoalEditor } from "./GoalEditor";
 import styles from "./Goals.module.css";
@@ -18,14 +19,17 @@ import styles from "./Goals.module.css";
 type Editor = { mode: "add"; template: GoalTemplateKey | null } | { mode: "edit"; goal: GoalView };
 
 /** Goals: create from templates, see progress, log manual progress, edit, pause, complete, reopen, delete. */
-export function GoalsTab({ today, newTemplate }: { today: string; newTemplate: GoalTemplateKey | null }) {
+export function GoalsTab({ today }: { today: string }) {
   const goals = useGoalsData(today);
   const summary = useTodaySummary(today);
+  // A template link (/goals?tab=goals&new=…) opens the editor once. It is read from the live address,
+  // which follows replaceState, so coming back to this tab later does not open it again.
+  const requested = useSearchParams().get("new");
+  const newTemplate = GOAL_TEMPLATES.find((entry) => entry.key === requested)?.key ?? null;
   const [editor, setEditor] = useState<Editor | null>(newTemplate ? { mode: "add", template: newTemplate } : null);
   const [removing, setRemoving] = useState<GoalView | null>(null);
   const [history, setHistory] = useState<GoalView | null>(null);
 
-  // A template link (/goals?tab=goals&new=…) opens the editor once; drop it from the address.
   useEffect(() => { if (newTemplate) window.history.replaceState(null, "", "/goals?tab=goals"); }, [newTemplate]);
 
   const schema = goals.data?.schema ?? "v2";
@@ -37,7 +41,8 @@ export function GoalsTab({ today, newTemplate }: { today: string; newTemplate: G
   const today_ = summary.data?.summary ?? null;
   const context: GoalContext = {
     today,
-    estimate: today_ ? estimatedTargets(today_) : null,
+    // The targets the user set in Nutrition, else the estimate.
+    estimate: today_ ? dailyTargets(today_) : null,
     workoutsPerWeek: today_?.preferences?.workoutsPerWeek ?? null,
     waterGoalMl: today_?.preferences?.dailyWaterGoalMl ?? null,
     latestWeight: today_?.weight?.kg ?? today_?.profile.weight ?? null,
@@ -156,7 +161,11 @@ export function GoalsTab({ today, newTemplate }: { today: string; newTemplate: G
             <button type="button" className="fitx-button fitx-button-danger" onClick={() => void remove(removing)}><Trash2 size={15} aria-hidden="true" />Delete goal</button>
           </>}
         >
-          <p className={styles.confirmText}>Linked To-Dos stay on your list; they just stop counting toward this goal.</p>
+          <p className={styles.confirmText}>
+            {removing.linkedTodos > 0
+              ? `Its ${removing.linkedTodos === 1 ? "linked To-Do stays" : `${removing.linkedTodos} linked To-Dos stay`} on your list and no longer counts toward it.`
+              : "The food, water, workouts and weigh-ins you log are not affected."}
+          </p>
         </Sheet>
       )}
 

@@ -413,7 +413,9 @@ export function validateGoalDraft(draft: GoalDraft): { ok: true; value: GoalInpu
   }
   if (draft.metric === "body_weight_kg") {
     if (target < 30 || target > 500) return { ok: false, error: "Enter a target weight between 30 and 500 kg." };
-    if (baseline !== null && (baseline < 30 || baseline > 500)) return { ok: false, error: "Enter a starting weight between 30 and 500 kg." };
+    // The start decides whether the goal is to gain or to lose, so it can't be guessed.
+    if (baseline === null) return { ok: false, error: "Enter your starting weight." };
+    if (baseline < 30 || baseline > 500) return { ok: false, error: "Enter a starting weight between 30 and 500 kg." };
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.startsOn)) return { ok: false, error: "Choose a start date." };
   if (draft.dueOn && draft.dueOn < draft.startsOn) return { ok: false, error: "The end date can't be before the start date." };
@@ -453,4 +455,17 @@ export function draftFromGoal(goal: GoalView): GoalDraft {
     target: asText(goal.targetValue), baseline: asText(goal.baselineValue), unit: goal.unit,
     startsOn: goal.startsOn, dueOn: goal.dueOn ?? "", notes: goal.notes ?? "",
   };
+}
+
+/**
+ * A progress amount as typed: "2", "-1", "−1" (a typographic minus), "1,500" or "1,50,000" (thousands)
+ * and "2,5" (a decimal comma). Null when it is not a number other than zero.
+ */
+export function parseProgressAmount(text: string): number | null {
+  let value = text.trim().replace(/[\u2212\u2012\u2013\u2014]/g, "-").replace(/\s+/g, "");
+  if (/^[-+]?\d{1,3}((,\d{3})+|(,\d{2})+,\d{3})(\.\d+)?$/.test(value)) value = value.replace(/,/g, "");
+  else if (/^[-+]?\d+,\d+$/.test(value)) value = value.replace(",", ".");
+  if (!/^[-+]?(\d+\.?\d*|\.\d+)$/.test(value)) return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount !== 0 ? amount : null;
 }
