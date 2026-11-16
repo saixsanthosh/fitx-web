@@ -78,7 +78,8 @@ export default function RootLayout({
     <html
       lang="en"
       data-scroll-behavior="smooth"
-      data-theme="light"
+      // Visitors without JavaScript follow their device; the head script applies a saved choice.
+      data-theme="system"
       suppressHydrationWarning
       className={`${inter.variable} ${manrope.variable} ${jetbrains.variable} h-full antialiased`}
     >
