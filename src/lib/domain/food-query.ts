@@ -13,7 +13,8 @@
 export type MassUnit = "g" | "kg" | "oz" | "lb";
 export type VolumeUnit = "ml" | "l" | "floz" | "cup" | "tbsp" | "tsp";
 export type CountUnit = "piece" | "slice" | "serving";
-export type HouseholdUnit = "katori" | "bowl" | "plate" | "glass";
+/** Household measures with no standard weight: the app asks for grams (or, for a spoon, which spoon). */
+export type HouseholdUnit = "katori" | "bowl" | "plate" | "glass" | "ladle" | "spoon";
 export type FoodUnit = MassUnit | VolumeUnit | CountUnit | HouseholdUnit;
 export type PortionSize = "small" | "medium" | "large";
 export type FoodState = "raw" | "cooked";
@@ -52,7 +53,10 @@ export type PortionResolution =
 
 export interface MatchableFood {
   name: string;
+  /** Names the food answers to exactly ("idly", "chana"); typing one can select the food. */
   aliases?: readonly string[];
+  /** Words that help find the food but never select it, such as a source's extra descriptions. */
+  keywords?: readonly string[];
   state?: FoodState | null;
 }
 
@@ -77,15 +81,18 @@ const UNIT_WORDS: Record<string, FoodUnit> = {
   tsp: "tsp", tsps: "tsp", teaspoon: "tsp", teaspoons: "tsp",
   piece: "piece", pieces: "piece", pc: "piece", pcs: "piece", nos: "piece", item: "piece", items: "piece",
   slice: "slice", slices: "slice",
-  serving: "serving", servings: "serving", portion: "serving", portions: "serving",
-  katori: "katori", katoris: "katori", katora: "katori",
+  // A scoop is what a package calls its serving (protein powder), so it uses the label's serving weight.
+  serving: "serving", servings: "serving", portion: "serving", portions: "serving", scoop: "serving", scoops: "serving",
+  katori: "katori", katoris: "katori", katora: "katori", vati: "katori", wati: "katori",
   bowl: "bowl", bowls: "bowl",
   plate: "plate", plates: "plate",
   glass: "glass", glasses: "glass",
+  ladle: "ladle", ladles: "ladle",
+  spoon: "spoon", spoons: "spoon", spoonful: "spoon", spoonfuls: "spoon",
 };
 
 /** Units that may start a phrase without a number: "cup of rice" means 1 cup. */
-const LEADING_UNITS = new Set<FoodUnit>(["cup", "tbsp", "tsp", "piece", "slice", "serving", "katori", "bowl", "plate", "glass"]);
+const LEADING_UNITS = new Set<FoodUnit>(["cup", "tbsp", "tsp", "piece", "slice", "serving", "katori", "bowl", "plate", "glass", "ladle", "spoon"]);
 
 const SIZE_WORDS: Record<string, PortionSize> = { small: "small", medium: "medium", regular: "medium", large: "large", big: "large" };
 const SIZES: readonly PortionSize[] = ["small", "medium", "large"];
@@ -105,7 +112,7 @@ const FILLER_WORDS = new Set(["of", "x", "about", "around", "approx", "approxima
 const MASS_GRAMS: Record<MassUnit, number> = { g: 1, kg: 1000, oz: 28.349523125, lb: 453.59237 };
 /** US customary measures, which is what USDA's "cup" and "tablespoon" weights use. */
 const VOLUME_ML: Record<VolumeUnit, number> = { ml: 1, l: 1000, floz: 29.5735295625, cup: 236.5882365, tbsp: 14.78676478125, tsp: 4.92892159375 };
-const HOUSEHOLD_UNITS = new Set<FoodUnit>(["katori", "bowl", "plate", "glass"]);
+const HOUSEHOLD_UNITS = new Set<FoodUnit>(["katori", "bowl", "plate", "glass", "ladle", "spoon"]);
 
 const COOKED_WORDS = new Set(["cooked", "boiled", "baked", "roasted", "fried", "grilled", "steamed", "broiled", "braised", "stewed", "sauteed", "poached", "microwaved", "toasted"]);
 const RAW_WORDS = new Set(["raw", "uncooked"]);
@@ -183,16 +190,22 @@ export function foodMatchScore(food: MatchableFood, words: readonly string[]): n
  * cooked forms come before raw ones ("rice" usually means cooked rice); other foods keep the order given,
  * so callers list their most trusted source first.
  */
-export function matchFoods<T extends MatchableFood>(foods: readonly T[], words: readonly string[]): FoodMatch<T>[] {
+export function matchFoods<T extends MatchableFood>(
+  foods: readonly T[],
+  words: readonly string[],
+  options: { boost?: (food: T) => number } = {},
+): FoodMatch<T>[] {
   const asked = new Set(words.map((word) => formWord(singular(word))));
   return foods
     .map((food, index) => {
       const { score, exact } = scoreFood(food, words);
       const penalty = !exact && hasUnaskedForm(food.name, asked) ? FORM_PENALTY : 0;
-      return { food, index, exact, matched: score > 0, score: score - penalty, state: grainStateRank(food) };
+      const boost = score > 0 && options.boost ? options.boost(food) : 0;
+      return { food, index, exact, matched: score > 0, score: score - penalty + boost, state: grainStateRank(food) };
     })
     .filter((item) => item.matched)
-    .sort((a, b) => b.score - a.score || a.state - b.state || a.index - b.index)
+    // An exact name or alias always comes first, whatever a boost adds to looser matches.
+    .sort((a, b) => Number(b.exact) - Number(a.exact) || b.score - a.score || a.state - b.state || a.index - b.index)
     .map(({ food, score, exact }) => ({ food, score, exact }));
 }
 
@@ -212,7 +225,8 @@ export function clearMatch<T>(matches: readonly FoodMatch<T>[]): T | null {
 
 /** Reads "raw" or "cooked" from a food description such as "Rice, white, long grain, unenriched, raw". */
 export function inferFoodState(name: string): FoodState | null {
-  const tokens = splitText(name);
+  // USDA's "baked, from raw" is cooked food that started raw, not raw food.
+  const tokens = splitText(name.replace(/\bfrom raw\b/gi, " "));
   const cooked = tokens.some((token) => COOKED_WORDS.has(token));
   const raw = tokens.some((token) => RAW_WORDS.has(token)) || (tokens.includes("dry") && tokens.some((token) => DRY_MEANS_RAW.has(token)));
   if (cooked === raw) return null;
@@ -253,6 +267,7 @@ export function askForGramsMessage(foodName: string, resolution: Extract<Portion
   if (resolution.reason === "no-count-weight") return `FITX has no per-piece weight for ${foodName}, so it can't tell what ${formatAmount(resolution.amount)} of it weighs. Enter the amount in grams.`;
   if (resolution.reason === "no-size-weight") return `USDA gives no ${resolution.size} size for ${foodName}. Pick one of its sizes under Unit, or enter the amount in grams.`;
   const unit = unitLabel(resolution.unit ?? "serving");
+  if (resolution.unit === "spoon") return `A spoon could be a teaspoon (5 ml) or a tablespoon (15 ml). Pick one, or enter the amount in grams.`;
   if (resolution.reason === "household-unit") return `A ${unit} has no standard weight, so FITX can't tell how much ${foodName} that is. Weigh it, or enter the amount in grams.`;
   return `There is no ${unit} weight for ${foodName}. Enter the amount in grams.`;
 }
@@ -263,7 +278,8 @@ export function portionFromLabel(label: string, grams: number): FoodPortion | nu
   const lower = label.toLowerCase();
   if (lower.includes("quantity not specified") || lower.includes("surface inch")) return null;
   const parsed = parseFoodQuery(label);
-  if (parsed.amount !== null && parsed.amount !== 1) return null;
+  // USDA measures start with "1" ("1 cup, cooked"); wording without one ("Guideline amount per fl oz") is not a portion.
+  if (parsed.amount !== 1) return null;
   const unit = parsed.unit ?? "piece";
   if (isMassUnit(unit)) return null;
   return { label: label.trim(), unit, grams: round2(grams) };
@@ -301,7 +317,7 @@ export function unitLabel(unit: FoodUnit, count = 1): string {
     g: ["g", "g"], kg: ["kg", "kg"], oz: ["oz", "oz"], lb: ["lb", "lb"], ml: ["ml", "ml"], l: ["litre", "litres"], floz: ["fl oz", "fl oz"],
     cup: ["cup", "cups"], tbsp: ["tablespoon", "tablespoons"], tsp: ["teaspoon", "teaspoons"], piece: ["piece", "pieces"],
     slice: ["slice", "slices"], serving: ["serving", "servings"], katori: ["katori", "katoris"], bowl: ["bowl", "bowls"],
-    plate: ["plate", "plates"], glass: ["glass", "glasses"],
+    plate: ["plate", "plates"], glass: ["glass", "glasses"], ladle: ["ladle", "ladles"], spoon: ["spoon", "spoons"],
   };
   return labels[unit][count === 1 ? 0 : 1];
 }
@@ -415,11 +431,13 @@ function scoreFood(food: MatchableFood, words: readonly string[]): { score: numb
   const nameTokens = splitText(food.name);
   const aliasPhrases = (food.aliases ?? []).map((alias) => splitText(alias));
   const aliasTokens = aliasPhrases.flat();
+  const keywordTokens = (food.keywords ?? []).flatMap((keyword) => splitText(keyword));
   let score = 0;
   for (const word of words) {
     const forms = unique([word, singular(word), word.endsWith("ies") ? word.slice(0, -1) : word]);
-    const best = Math.max(wordScore(forms, nameTokens, true), wordScore(forms, aliasTokens, false));
-    if (best === 0) return { score: 0, exact: false };
+    // A keyword match counts one less than the same match in the name or an alias.
+    const best = Math.max(wordScore(forms, nameTokens, true), wordScore(forms, aliasTokens, false), wordScore(forms, keywordTokens, false) - 1);
+    if (best <= 0) return { score: 0, exact: false };
     score += best;
   }
   const phrase = words.map(singular).join(" ");

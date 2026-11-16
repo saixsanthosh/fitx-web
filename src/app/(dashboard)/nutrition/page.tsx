@@ -1,96 +1,100 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { ArrowLeft, ArrowRight, Barcode, Coffee, Droplets, Search, Utensils, X } from "lucide-react";
-import { EmptyState } from "@/components/app/EmptyState";
+import Image from "next/image";
+import Link from "next/link";
+import { ArrowLeft, ArrowRight, Barcode, BookOpen, Droplets, PackageSearch, Search, Target, X } from "lucide-react";
 import { BarcodeScanner } from "@/components/app/BarcodeScanner";
+import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
+import { CustomFoodForm, type CustomFoodPrefill } from "@/components/nutrition/CustomFoodForm";
+import { EntryEditor, type EntryChange } from "@/components/nutrition/EntryEditor";
+import { BasisBadge, DietBadge, StateTag } from "@/components/nutrition/FoodBadges";
+import { FoodResultCard } from "@/components/nutrition/FoodResultCard";
+import { isEstimateEntry, MealLog } from "@/components/nutrition/MealLog";
+import { MyFoods } from "@/components/nutrition/MyFoods";
+import { NameDialog } from "@/components/nutrition/NameDialog";
+import { PortionPicker, type AmountPrompt } from "@/components/nutrition/PortionPicker";
+import { Routines } from "@/components/nutrition/Routines";
+import { TargetsEditor } from "@/components/nutrition/TargetsEditor";
+import ui from "@/components/nutrition/FoodUi.module.css";
 import { createClient } from "@/lib/supabase/client";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
-import { askForGramsMessage, clearMatch, describePortion, describeTypedAmount, formatAmount, matchFoods, parseFoodQuery, resolvePortion } from "@/lib/domain/food-query";
-import type { FoodPortion, FoodState, ParsedFoodQuery } from "@/lib/domain/food-query";
-import styles from "./Nutrition.module.css";
+import { askForGramsMessage, describePortion, describeTypedAmount, formatAmount, parseFoodQuery, resolvePortion } from "@/lib/domain/food-query";
+import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { estimateNutritionTargets, goalPercent, goalProgress, scaleMacros, sumMacros } from "@/lib/domain/nutrition";
+import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
+import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
+import {
+  clearTargets, customFoodResult, deleteTemplate, detectCapabilities, entryUpdate, insertEntries, loadCustomFoods,
+  loadRecentFoods, loadTargets, loadTemplates, MEAL_COLUMNS, MEAL_SLOTS, removeCustomFood, rowsFromItems, saveCustomFood, saveTargets,
+  saveTemplate, type CustomFoodInput, type CustomFoodRow, type ManualTargets, type MealEntry, type MealSlot, type MealTemplate,
+  type NutritionCapabilities,
+} from "@/lib/food/client-data";
+import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
+import styles from "./Nutrition.module.css";
 
-/** Calories, protein, carbs and fat are per 100 g. */
-type Food = {
-  id: string;
-  name: string;
-  brand: string | null;
-  image: string | null;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  source: string;
-  dataType?: string | null;
-  basis?: string;
-  state?: FoodState | null;
-  portions?: FoodPortion[];
-};
-type SourceStatus = { id: string; label: string; status: "ok" | "no_results" | "not_used" | "not_configured" | "error" | "timeout"; count: number };
-/** The search route's answer; `pick` is the one food that clearly matches what was typed. */
-type SearchResponse = { foods?: Food[]; sources?: SourceStatus[]; pick?: { source: string; id: string } | null; error?: string };
-type Meal = {
-  id: string; date: string; meal: string; food_name: string; brand: string | null; barcode: string | null; servings: number;
-  calories: number; protein: number; carbs: number; fat: number; quantity_grams: number | null; source: string;
-  serving_size: string | null; nutrition_snapshot: { portion?: { estimate?: boolean } } | null;
-};
 type Profile = { age: number | null; gender: string | null; height: number | null; weight: number | null };
-type Prefs = { activity_level: string; primary_goal: string; daily_water_goal_ml: number };
-type CustomFoodRow = { id: string; name: string; brand: string | null; serving_grams: number | null; calories_per_100g: number; protein_per_100g: number; carbs_per_100g: number; fat_per_100g: number };
+type Prefs = { activity_level: string; primary_goal: string; daily_water_goal_ml: number; dietary_preferences: string[] | null };
 /** A volume weight worked out from another USDA measure, such as 1 teaspoon from the tablespoon. */
 type DerivedPortion = { portion: FoodPortion; from: FoodPortion };
+type Tab = "log" | "meals" | "foods" | "routines" | "insights";
+type NamePrompt = { kind: "meal"; slot: MealSlot; initial: string } | { kind: "day"; initial: string };
+type BarcodeMiss = { code: string; name: string | null; noLabel: boolean };
 
-const meals = ["Breakfast", "Lunch", "Dinner", "Snack"];
-const EXAMPLES = ["3 idli", "150 g rice", "2 roti", "1 cup dal", "banana"];
-const CUSTOM_SOURCE = "FITX custom food";
+const EXAMPLES = ["3 idli", "150 g rice", "2 roti", "1 cup dal", "2 eggs"];
 const NO_AMOUNT = parseFoodQuery("");
-const emptyCustom = { name: "", brand: "", calories: "", protein: "", carbs: "", fat: "", grams: "100" };
-
-function customFood(row: CustomFoodRow): Food {
-  const serving = Number(row.serving_grams) > 0 ? Number(row.serving_grams) : 100;
-  return {
-    id: row.id, name: row.name, brand: row.brand, image: null,
-    calories: Number(row.calories_per_100g), protein: Number(row.protein_per_100g), carbs: Number(row.carbs_per_100g), fat: Number(row.fat_per_100g),
-    source: CUSTOM_SOURCE, basis: "Your food", state: null,
-    portions: [{ label: `1 serving (${formatAmount(serving)} g)`, unit: "serving", grams: serving, countDefault: true, estimate: false }],
-  };
-}
+const NO_CAPABILITIES: NutritionCapabilities = { customFoodsV2: false, templates: false, targets: false };
 
 function sourceText(source: SourceStatus) {
   if (source.status === "ok") return `${source.label} · ${source.count}`;
   if (source.status === "no_results") return `${source.label} · no match`;
   if (source.status === "timeout") return `${source.label} · timed out`;
+  if (source.status === "rate_limited") return `${source.label} · busy`;
   if (source.status === "not_configured") return `${source.label} · not set up`;
+  if (source.status === "not_set_up") return `${source.label} · needs database update`;
   return `${source.label} · unavailable`;
 }
 
 export default function NutritionPage() {
   const [date, setDate] = useState(() => new Date());
-  const [entries, setEntries] = useState<Meal[]>([]);
-  const [customFoods, setCustomFoods] = useState<Food[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<NutritionCapabilities>(NO_CAPABILITIES);
+  const [entries, setEntries] = useState<MealEntry[]>([]);
+  const [customRows, setCustomRows] = useState<CustomFoodRow[]>([]);
+  /** Signed links to the user's own food photos, by storage path. */
+  const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(() => new Map());
+  const [templates, setTemplates] = useState<MealTemplate[]>([]);
+  const [recentFoods, setRecentFoods] = useState<FoodResult[]>([]);
   const [waterMl, setWaterMl] = useState(0);
   const [waterGoal, setWaterGoal] = useState(2500);
-  const [target, setTarget] = useState<ReturnType<typeof estimateNutritionTargets>>(null);
+  const [estimated, setEstimated] = useState<ReturnType<typeof estimateNutritionTargets>>(null);
+  const [manualTargets, setManualTargets] = useState<ManualTargets | null>(null);
   const [query, setQuery] = useState("");
   const [lastQuery, setLastQuery] = useState<ParsedFoodQuery>(NO_AMOUNT);
+  const [lastSearch, setLastSearch] = useState("");
   const [barcode, setBarcode] = useState("");
-  const [results, setResults] = useState<Food[]>([]);
+  const [results, setResults] = useState<FoodResult[]>([]);
+  const [searchMode, setSearchMode] = useState<FoodSearchResponse["mode"]>("browse");
   const [sources, setSources] = useState<SourceStatus[]>([]);
   const [searchingFoods, setSearchingFoods] = useState(true);
-  const [selected, setSelected] = useState<Food | null>(null);
+  const [hideNonVeg, setHideNonVeg] = useState(false);
+  const [selected, setSelected] = useState<FoodResult | null>(null);
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
   const [derived, setDerived] = useState<DerivedPortion | null>(null);
-  const [amountPrompt, setAmountPrompt] = useState<{ message: string; grams: number | null } | null>(null);
-  const [meal, setMeal] = useState("Breakfast");
+  const [amountPrompt, setAmountPrompt] = useState<AmountPrompt | null>(null);
+  const [barcodeMiss, setBarcodeMiss] = useState<BarcodeMiss | null>(null);
+  const [meal, setMeal] = useState<MealSlot>("Breakfast");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"log" | "meals" | "insights" | "database">("log");
-  const [custom, setCustom] = useState(emptyCustom);
+  const [tab, setTab] = useState<Tab>("log");
+  const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
+  const [foodForm, setFoodForm] = useState<{ editing: CustomFoodRow | null; prefill: CustomFoodPrefill | null } | null>(null);
+  const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null);
+  const [targetsOpen, setTargetsOpen] = useState(false);
   const dateKey = localDateKey(date);
 
   const load = useCallback(async () => {
@@ -99,36 +103,65 @@ export default function NutritionPage() {
     if (!supabase) { setError("Nutrition tracking is not connected to Supabase."); setLoading(false); return; }
     const { data: auth } = await supabase.auth.getUser();
     if (!auth.user) { setError("Sign in to track food and water."); setLoading(false); return; }
-    const [mealResult, waterResult, profileResult, prefsResult, customFoodResult] = await Promise.all([
-      supabase.from("meals").select("id,date,meal,food_name,brand,barcode,servings,calories,protein,carbs,fat,quantity_grams,source,serving_size,nutrition_snapshot").eq("user_id", auth.user.id).eq("date", dateKey).order("created_at", { ascending: true }),
-      supabase.from("water_logs").select("amount_ml").eq("user_id", auth.user.id).eq("local_date", dateKey),
-      supabase.from("profiles").select("age,gender,height,weight").eq("id", auth.user.id).maybeSingle(),
-      supabase.from("user_preferences").select("activity_level,primary_goal,daily_water_goal_ml").eq("user_id", auth.user.id).maybeSingle(),
-      supabase.from("custom_foods").select("id,name,brand,serving_grams,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g").eq("user_id", auth.user.id).order("name").limit(200),
+    const uid = auth.user.id;
+    setUserId(uid);
+    const caps = await detectCapabilities(supabase);
+    setCapabilities(caps);
+    const [mealResult, waterResult, profileResult, prefsResult, custom, targets, savedTemplates] = await Promise.all([
+      supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", uid).eq("date", dateKey).order("created_at", { ascending: true }),
+      supabase.from("water_logs").select("amount_ml").eq("user_id", uid).eq("local_date", dateKey),
+      supabase.from("profiles").select("age,gender,height,weight").eq("id", uid).maybeSingle(),
+      supabase.from("user_preferences").select("activity_level,primary_goal,daily_water_goal_ml,dietary_preferences").eq("user_id", uid).maybeSingle(),
+      loadCustomFoods(supabase, uid, caps.customFoodsV2),
+      caps.targets ? loadTargets(supabase, uid) : Promise.resolve(null),
+      caps.templates ? loadTemplates(supabase, uid) : Promise.resolve([]),
     ]);
-    const failure = [mealResult.error, waterResult.error, profileResult.error, prefsResult.error, customFoodResult.error].find(Boolean);
+    const failure = [mealResult.error, waterResult.error, profileResult.error, prefsResult.error].find(Boolean) ?? (custom.error ? new Error("custom foods") : null);
     if (failure) setError("Your nutrition data could not be loaded. Please try again.");
     else {
-      setEntries((mealResult.data || []) as Meal[]);
+      setEntries((mealResult.data || []) as MealEntry[]);
       setWaterMl(((waterResult.data || []) as Array<{ amount_ml: number }>).reduce((sum: number, row) => sum + Number(row.amount_ml || 0), 0));
       const prefs = prefsResult.data as Prefs | null;
       setWaterGoal(prefs?.daily_water_goal_ml || 2500);
-      setTarget(estimateNutritionTargets((profileResult.data || {}) as Profile, prefs?.activity_level, prefs?.primary_goal));
-      setCustomFoods(((customFoodResult.data || []) as CustomFoodRow[]).map(customFood));
+      setEstimated(estimateNutritionTargets((profileResult.data || {}) as Profile, prefs?.activity_level, prefs?.primary_goal));
+      setHideNonVeg((current) => current || (prefs?.dietary_preferences ?? []).some((diet) => /^(veg|vegetarian|vegan|eggetarian)$/i.test(String(diet))));
+      setCustomRows(custom.rows);
+      if (caps.customFoodsV2) setPhotoUrls(await signedPhotoUrls(supabase, custom.rows.map((row) => row.image_path ?? "")));
+      setManualTargets(targets);
+      setTemplates(savedTemplates);
       setError("");
     }
     setLoading(false);
   }, [dateKey]);
 
+  const refreshRecent = useCallback(async () => {
+    const supabase = createClient();
+    if (!supabase) return;
+    const { data: auth } = await supabase.auth.getUser();
+    if (auth.user) setRecentFoods(await loadRecentFoods(supabase, auth.user.id));
+  }, []);
+
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  useEffect(() => { void Promise.resolve().then(refreshRecent); }, [refreshRecent]);
 
   const totals = useMemo(() => sumMacros(entries), [entries]);
+  const target = manualTargets ?? estimated;
   const portionOptions = useMemo(() => [...(selected?.portions ?? []), ...(derived ? [derived.portion] : [])], [selected, derived]);
   const chosenPortion = unitKey.startsWith("portion:") ? portionOptions[Number(unitKey.slice("portion:".length))] ?? null : null;
   const amountNumber = amount.trim() ? Number(amount) : Number.NaN;
   const grams = Number.isFinite(amountNumber) ? Math.round(amountNumber * (chosenPortion ? chosenPortion.grams : 1) * 10) / 10 : Number.NaN;
   const selectedMacros = selected && grams > 0 ? scaleMacros(selected, grams) : null;
   const calorieGoal = target ? goalProgress(totals.calories, target.calories) : null;
+  const shownResults = hideNonVeg ? results.filter((food) => food.dietType !== "non_veg") : results;
+  const hiddenCount = results.length - shownResults.length;
+
+  const photoFor = useCallback((row: CustomFoodRow | undefined) => (row?.image_path ? photoUrls.get(row.image_path) ?? null : null), [photoUrls]);
+  /** Search results carry no photo links for your own foods; add the ones this page signed. */
+  const withPhoto = useCallback((food: FoodResult): FoodResult => {
+    if (food.kind !== "custom") return food;
+    const url = photoFor(customRows.find((row) => row.id === food.id));
+    return url ? { ...food, image: url, imageCredit: "Your photo" } : food;
+  }, [customRows, photoFor]);
 
   function shiftDate(offset: number) {
     setDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + offset));
@@ -147,13 +180,14 @@ export default function NutritionPage() {
   }
 
   /** Selects a food and fills the amount from what was typed: "3 idli" becomes 3 x USDA's 38 g idli. */
-  const chooseFood = useCallback((food: Food, typed: ParsedFoodQuery = NO_AMOUNT) => {
+  const chooseFood = useCallback((food: FoodResult, typed: ParsedFoodQuery = NO_AMOUNT) => {
     const portions = food.portions ?? [];
     const resolution = resolvePortion(typed, portions);
     setSelected(food);
     setDerived(null);
     setAmountPrompt(null);
     setNotice("");
+    setBarcodeMiss(null);
     if (resolution.kind === "grams") {
       setAmount(formatAmount(resolution.grams));
       setUnitKey("g");
@@ -170,10 +204,31 @@ export default function NutritionPage() {
     } else if (resolution.kind === "ask") {
       setAmount("");
       setUnitKey("g");
-      const measures = portions.length ? " You can also pick one of this food's measures under Unit." : "";
+      const actions: AmountPrompt["actions"] = [];
       // "150 rice" probably means 150 g, so offer that; a count of pieces or a missing size does not.
-      const offer = resolution.reason === "no-count-weight" && resolution.unit === null && resolution.amount >= 10 ? resolution.amount : null;
-      setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${resolution.reason === "no-size-weight" ? "" : measures}`, grams: offer });
+      if (resolution.reason === "no-count-weight" && resolution.unit === null && resolution.amount >= 10) {
+        const offered = resolution.amount;
+        actions.push({ label: `Use ${formatAmount(offered)} g`, run: () => { setAmount(formatAmount(offered)); setUnitKey("g"); setAmountPrompt(null); } });
+      }
+      // "1 spoon ghee": let the user say which spoon, then work it out from the food's own measures.
+      if (resolution.unit === "spoon") {
+        for (const spoon of ["tsp", "tbsp"] as const) {
+          const retry = resolvePortion({ amount: resolution.amount, unit: spoon, size: null }, portions);
+          if (retry.kind !== "portion") continue;
+          actions.push({
+            label: `${formatAmount(resolution.amount)} ${spoon === "tsp" ? "teaspoon" : "tablespoon"} (${formatAmount(retry.grams)} g)`,
+            run: () => {
+              const at = portions.indexOf(retry.portion);
+              if (at < 0 && retry.derivedFrom) setDerived({ portion: retry.portion, from: retry.derivedFrom });
+              setUnitKey(`portion:${at >= 0 ? at : portions.length}`);
+              setAmount(formatAmount(retry.count));
+              setAmountPrompt(null);
+            },
+          });
+        }
+      }
+      const measures = portions.length && resolution.reason !== "no-size-weight" && resolution.unit !== "spoon" ? " You can also pick one of this food's measures under Unit." : "";
+      setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${measures}`, actions });
     } else {
       // Nothing typed: one of the food's own pieces or servings when it has one, otherwise 100 g.
       const index = portions.findIndex((portion) => portion.countDefault);
@@ -183,19 +238,23 @@ export default function NutritionPage() {
   }, []);
 
   const lookupBarcode = useCallback(async (value: string) => {
-    if (!value.trim()) return;
-    setBusy(true); setError(""); setNotice("");
+    const checked = checkBarcode(value);
+    if (!checked.ok) { setError(barcodeProblem(checked.reason)); return; }
+    setBusy(true); setError(""); setNotice(""); setBarcodeMiss(null);
     try {
-      const response = await fetch(`/api/foods/search?barcode=${encodeURIComponent(value)}`);
-      const data = await response.json();
+      const response = await fetch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`);
+      const data = (await response.json()) as FoodSearchResponse;
       if (!response.ok) throw new Error(data.error || "Barcode lookup failed.");
-      const foods: Food[] = data.foods || [];
-      setResults(foods);
+      setResults(data.foods || []);
       setSources(data.sources || []);
+      setSearchMode("barcode");
       setLastQuery(NO_AMOUNT);
-      const lookup = (data.sources as SourceStatus[] | undefined)?.find((source) => source.id === "open-food-facts");
-      if (!foods.length) setError(lookup && (lookup.status === "error" || lookup.status === "timeout") ? "Open Food Facts did not answer, so the barcode could not be checked. Try again shortly, or add it as a custom food below." : "No nutrition label was found for that barcode. You can add it as a custom food below.");
-      else chooseFood(foods[0]);
+      setTab("log");
+      if (data.foods?.length) chooseFood(data.foods[0]);
+      else if (data.barcodeStatus === "invalid") setError(data.error || barcodeProblem("check-digit"));
+      else if (data.barcodeStatus === "rate_limited") setError("Open Food Facts is busy right now (it limits how often FITX can ask). Try again in a minute, or add the product yourself.");
+      else if (data.barcodeStatus === "timeout" || data.barcodeStatus === "unavailable") setError("Open Food Facts didn't answer, so the barcode couldn't be checked. Try again shortly, or add the product yourself.");
+      else { setSelected(null); setBarcodeMiss({ code: checked.code, name: data.productName ?? null, noLabel: data.barcodeStatus === "no_label" }); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Barcode lookup failed."); }
     finally { setBusy(false); }
   }, [chooseFood]);
@@ -214,10 +273,11 @@ export default function NutritionPage() {
     setSearchingFoods(true);
     try {
       const response = await fetch("/api/foods/search?browse=1");
-      const data = await response.json();
+      const data = (await response.json()) as FoodSearchResponse;
       if (!response.ok) throw new Error(data.error || "Food search failed.");
       setResults(data.foods || []);
       setSources(data.sources || []);
+      setSearchMode("browse");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
     finally { setSearchingFoods(false); }
   }, []);
@@ -227,31 +287,37 @@ export default function NutritionPage() {
     return () => window.clearTimeout(timer);
   }, [browseFoods]);
 
-  async function runFoodSearch(value: string) {
+  async function runFoodSearch(value: string, packaged = false) {
     setQuery(value);
     const typed = parseFoodQuery(value);
     if (typed.text.length < 2) {
+      if (!value.trim()) { void browseFoods(); setLastSearch(""); return; }
       setResults([]);
       if (typed.amount !== null) setError("Add a food name after the amount, for example “150 g rice”.");
       return;
     }
-    setSearchingFoods(true); setError(""); setNotice("");
+    setSearchingFoods(true); setError(""); setNotice(""); setBarcodeMiss(null);
     try {
-      const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}`);
-      const data = (await response.json()) as SearchResponse;
+      const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`);
+      const data = (await response.json()) as FoodSearchResponse;
       if (!response.ok) throw new Error(data.error || "Food search failed.");
-      const customMatches = matchFoods(customFoods, typed.words).slice(0, 5);
-      const serverFoods = data.foods || [];
-      const found = [...customMatches.map((match) => match.food), ...serverFoods];
+      const found = (data.foods || []).map(withPhoto);
       setResults(found);
       setSources(data.sources || []);
+      setSearchMode(data.mode);
       setLastQuery(typed);
-      if (!found.length) setError("No matching food was found. Try another search or add a custom food.");
-      else if (typed.amount !== null) {
-        // Select a food only when it is clearly the one meant: the user's own food named exactly that, or else
-        // the search's exact match. Otherwise the user taps one, and the typed amount is applied to it.
-        const serverPick = data.pick ? serverFoods.find((food) => food.source === data.pick?.source && food.id === data.pick?.id) ?? null : null;
-        const pick = clearMatch(customMatches) ?? (customMatches.length ? null : serverPick);
+      setLastSearch(value.trim());
+      if (!found.length) {
+        const off = (data.sources || []).find((source) => source.id === "open-food-facts");
+        setError(packaged
+          ? off && (off.status === "rate_limited" || off.status === "error" || off.status === "timeout")
+            ? "Open Food Facts didn't answer just now. Try again in a minute, or scan the product's barcode."
+            : "No packaged product matched. Try other words, or scan the barcode."
+          : "No matching food was found. Try other words, search packaged products, or add your own food.");
+      } else if (typed.amount !== null && !packaged) {
+        // Select a food only when it is clearly the one meant (its whole name or alias is what was typed); otherwise
+        // the user taps one, and the typed amount is applied to it.
+        const pick = data.pick ? found.find((food) => food.source === data.pick?.source && food.id === data.pick?.id) ?? null : null;
         if (pick) chooseFood(pick, typed);
         else {
           setSelected(null);
@@ -272,7 +338,7 @@ export default function NutritionPage() {
     await runFoodSearch(query);
   }
 
-  async function logFood(food: Food) {
+  async function logFood(food: FoodResult) {
     if (!Number.isFinite(grams) || grams < 1 || grams > 5000) { setError("Enter an amount that comes to between 1 and 5,000 grams."); return; }
     const supabase = createClient();
     if (!supabase) return setError("Nutrition tracking is not connected to Supabase.");
@@ -284,13 +350,15 @@ export default function NutritionPage() {
     const convertedFrom = derived && portion === derived.portion ? derived.from : null;
     const inserted = await supabase.from("meals").insert({
       user_id: auth.user.id, date: dateKey, meal, food_name: food.name, brand: food.brand,
-      barcode: food.source === "Open Food Facts" ? food.id : null, provider_id: food.id,
+      barcode: food.barcode, provider_id: food.id,
       source: food.source, serving_size: portion ? describePortion(amountNumber, portion, grams) : `${formatAmount(grams)} g`,
       servings: grams / 100, quantity_grams: grams,
       calories: scaled.calories, protein: scaled.protein, carbs: scaled.carbs, fat: scaled.fat,
       nutrition_snapshot: {
         per_100g: { calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat },
         source: food.source,
+        kind: food.kind,
+        value_basis: food.valueBasis,
         ...(food.dataType ? { data_type: food.dataType } : {}),
         ...(food.basis ? { basis: food.basis } : {}),
         ...(portion ? {
@@ -302,7 +370,7 @@ export default function NutritionPage() {
       },
     });
     if (inserted.error) setError("That food could not be logged. Please try again.");
-    else { setSelected(null); setQuery(""); setResults([]); setNotice(`Added ${food.name} to ${meal}.`); await load(); }
+    else { setSelected(null); setQuery(""); setNotice(`Added ${food.name} to ${meal}.`); await load(); void refreshRecent(); }
     setBusy(false);
   }
 
@@ -317,57 +385,171 @@ export default function NutritionPage() {
     setBusy(false);
   }
 
-  async function removeMeal(id: string) {
+  async function removeMeal(entry: MealEntry) {
     const supabase = createClient();
-    if (!supabase) return;
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return;
-    const result = await supabase.from("meals").delete().eq("id", id).eq("user_id", auth.user.id);
+    if (!supabase || !userId) return;
+    const result = await supabase.from("meals").delete().eq("id", entry.id).eq("user_id", userId);
     if (result.error) setError("That food could not be removed."); else await load();
   }
 
-  /** Saves a food to the user's list only; logging it is a separate step. */
-  async function saveCustomFood(event: FormEvent) {
-    event.preventDefault();
+  async function saveEntry(entry: MealEntry, change: EntryChange) {
     const supabase = createClient();
-    if (!supabase) return setError("Custom foods are not connected to Supabase.");
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return setError("Sign in to save a custom food.");
-    const serving = Number(custom.grams);
-    const parsed = [custom.calories, custom.protein, custom.carbs, custom.fat].map(Number);
-    if (!custom.name.trim() || !Number.isFinite(serving) || serving <= 0 || parsed.some((value) => !Number.isFinite(value) || value < 0)) { setError("Add a name, serving size, and valid nutrition values."); return; }
-    setBusy(true); setError(""); setNotice("");
-    const row = {
-      name: custom.name.trim(), brand: custom.brand.trim() || null, serving_grams: serving,
-      calories_per_100g: parsed[0] * 100 / serving, protein_per_100g: parsed[1] * 100 / serving, carbs_per_100g: parsed[2] * 100 / serving, fat_per_100g: parsed[3] * 100 / serving,
-    };
-    const result = await supabase.from("custom_foods").insert({ user_id: auth.user.id, serving_size: `${serving} g`, ...row }).select("id").single();
-    if (result.error) { setError("Your custom food could not be saved."); setBusy(false); return; }
-    const saved = customFood({ id: result.data.id, ...row });
-    setCustom(emptyCustom);
-    await load();
-    chooseFood(saved);
-    setNotice(`Saved “${saved.name}” to your foods. It is not in today's log; choose an amount and add it when you eat it.`);
+    if (!supabase || !userId) return;
+    setBusy(true); setError("");
+    const result = await supabase.from("meals").update(entryUpdate(entry, change)).eq("id", entry.id).eq("user_id", userId);
     setBusy(false);
+    if (result.error) { setError("That entry could not be changed. Please try again."); return; }
+    setEditingEntry(null);
+    setNotice(change.date !== entry.date ? `Moved ${entry.food_name} to ${readableDate(new Date(`${change.date}T00:00:00`))}.` : `Updated ${entry.food_name}.`);
+    await load();
+  }
+
+  /** Saves a food to My foods only; logging it is a separate step. */
+  async function saveFood(input: CustomFoodInput, photo: File | null) {
+    const supabase = createClient();
+    if (!supabase || !userId) return setError("Sign in to save your own foods.");
+    const editing = foodForm?.editing ?? null;
+    setBusy(true); setError("");
+    const { row, error: saveError } = await saveCustomFood(supabase, userId, input, capabilities.customFoodsV2, editing?.id);
+    if (saveError || !row) {
+      setBusy(false);
+      const duplicate = (saveError as { code?: string } | null)?.code === "23505";
+      setError(duplicate ? "One of your foods already has that barcode." : "Your food could not be saved. Please try again.");
+      return;
+    }
+    let photoProblem = "";
+    let photoUrl: string | null = null;
+    if (photo && capabilities.customFoodsV2) {
+      try {
+        const path = await uploadFoodPhoto(supabase, userId, row.id, photo, row.image_path ?? null);
+        const updated = await supabase.from("custom_foods").update({ image_path: path }).eq("id", row.id).eq("user_id", userId);
+        if (updated.error) throw new Error("not saved");
+        photoUrl = (await signedPhotoUrls(supabase, [path])).get(path) ?? null;
+      } catch (cause) {
+        photoProblem = ` The photo was not saved: ${cause instanceof Error ? cause.message : "please try again"}`;
+      }
+    }
+    setBusy(false);
+    setFoodForm(null);
+    await load();
+    if (editing) { setNotice(`Saved changes to “${row.name}”.${photoProblem}`); return; }
+    chooseFood(customFoodResult(row, photoUrl));
+    setTab("log");
+    setNotice(`Saved “${row.name}” to My foods. It is not in today's log; choose an amount and add it when you eat it.${photoProblem}`);
+  }
+
+  async function removeFood(row: CustomFoodRow) {
+    const v2 = capabilities.customFoodsV2;
+    if (!window.confirm(v2 ? `Archive “${row.name}”? It disappears from My foods and search; past logs keep their values.` : `Delete “${row.name}” from My foods? Past logs keep their values. This can't be undone.`)) return;
+    const supabase = createClient();
+    if (!supabase || !userId) return;
+    setBusy(true);
+    const result = await removeCustomFood(supabase, userId, row.id, v2);
+    setBusy(false);
+    if (result.error) setError("That food could not be removed. Please try again.");
+    else { setNotice(v2 ? `Archived “${row.name}”.` : `Deleted “${row.name}”.`); await load(); }
+  }
+
+  async function saveNamed(name: string) {
+    const prompt = namePrompt;
+    const supabase = createClient();
+    if (!prompt || !supabase || !userId) return;
+    const items = prompt.kind === "meal" ? entries.filter((entry) => entry.meal === prompt.slot) : entries;
+    setBusy(true); setError("");
+    const result = await saveTemplate(supabase, userId, name, prompt.kind, items, prompt.kind === "meal" ? prompt.slot : null);
+    setBusy(false);
+    if (result.error) { setError("That could not be saved. Please try again."); return; }
+    setNamePrompt(null);
+    setNotice(prompt.kind === "meal" ? `Saved “${name}”. Add it to any day from Routines.` : `Saved “${name}” as a routine. Add it to any day from Routines.`);
+    await load();
+  }
+
+  async function applyTemplate(template: MealTemplate, slot: MealSlot | null) {
+    const supabase = createClient();
+    if (!supabase || !userId) return;
+    setBusy(true); setError("");
+    const result = await insertEntries(supabase, rowsFromItems(userId, dateKey, template.items, slot));
+    setBusy(false);
+    if (result.error) { setError("That could not be added. Please try again."); return; }
+    setNotice(`Added ${template.items.length} ${template.items.length === 1 ? "food" : "foods"} from “${template.name}” to ${readableDate(date)}${slot ? ` (${slot})` : ""}.`);
+    await load();
+  }
+
+  async function removeTemplate(template: MealTemplate) {
+    if (!window.confirm(`Delete “${template.name}”? Days you already added it to keep their entries.`)) return;
+    const supabase = createClient();
+    if (!supabase || !userId) return;
+    setBusy(true);
+    const result = await deleteTemplate(supabase, userId, template.id);
+    setBusy(false);
+    if (result.error) setError("That could not be deleted. Please try again."); else await load();
+  }
+
+  async function copyYesterday() {
+    const supabase = createClient();
+    if (!supabase || !userId) return;
+    const yesterday = localDateKey(new Date(date.getFullYear(), date.getMonth(), date.getDate() - 1));
+    setBusy(true); setError("");
+    const { data, error: readError } = await supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", userId).eq("date", yesterday).order("created_at", { ascending: true });
+    if (readError) { setBusy(false); setError("Yesterday's meals could not be read. Please try again."); return; }
+    const rows = (data ?? []) as MealEntry[];
+    if (!rows.length) { setBusy(false); setNotice("Nothing was logged the day before."); return; }
+    if (entries.length && !window.confirm(`This day already has ${entries.length} ${entries.length === 1 ? "entry" : "entries"}. Add the day before's ${rows.length} too?`)) { setBusy(false); return; }
+    const result = await insertEntries(supabase, rowsFromItems(userId, dateKey, rows, null));
+    setBusy(false);
+    if (result.error) { setError("Yesterday's meals could not be copied. Please try again."); return; }
+    setNotice(`Copied ${rows.length} ${rows.length === 1 ? "food" : "foods"} from the day before.`);
+    await load();
+  }
+
+  async function updateTargets(next: ManualTargets | null) {
+    const supabase = createClient();
+    if (!supabase || !userId) return;
+    setBusy(true); setError("");
+    const result = next ? await saveTargets(supabase, userId, next) : await clearTargets(supabase, userId);
+    setBusy(false);
+    if (result.error) { setError("Your targets could not be saved. Please try again."); return; }
+    setTargetsOpen(false);
+    setNotice(next ? "Saved your daily targets." : "Using the estimate from your profile again.");
+    await load();
+  }
+
+  function saveSelectedAsFood(food: FoodResult) {
+    const serving = food.portions.find((portion) => portion.unit === "serving");
+    setFoodForm({
+      editing: null,
+      prefill: {
+        name: food.name, brand: food.brand, barcode: food.barcode,
+        servingLabel: serving ? serving.label.replace(/^1 serving \((.*)\)$/, "$1") : "",
+        servingGrams: serving?.grams ?? 100,
+        per100g: { calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat },
+        imageUrl: food.image, imageAttribution: food.imageCredit, origin: food.barcode ? "barcode" : "user", sourceRef: food.barcode ?? food.id,
+      },
+    });
   }
 
   const macroRows = ([["Protein", totals.protein, target?.protein], ["Carbs", totals.carbs, target?.carbs], ["Fat", totals.fat, target?.fat]] as const)
     .map(([label, value, goal]) => ({ label, value, goal, progress: goal ? goalProgress(value, goal) : null }));
   const calorieLabel = `${Math.round(totals.calories)} calories logged${target ? ` of ${target.calories} calorie target` : ""}${calorieGoal?.isOver ? `, ${calorieGoal.over} over` : ""}`;
   const visibleSources = sources.filter((source) => source.status !== "not_used");
-  const usdaLive = sources.find((source) => source.id === "usda-live");
+  const estimateCount = entries.filter(isEstimateEntry).length;
+  const showBrowse = searchMode === "browse";
+  const tabs: Array<[Tab, string]> = [["log", "Log food"], ["meals", "Meals"], ["foods", "My foods"], ["routines", "Routines"], ["insights", "Insights"]];
 
   return (
     <div className={`${styles.page} space-y-5`}>
       <PageHeading title="Track your nutrition" description="Search a food, choose a portion, and keep a clear log of meals and water." actions={
         <div className="flex items-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-2 py-1">
-          <button onClick={() => shiftDate(-1)} aria-label="Previous day" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-surface-variant"><ArrowLeft size={16}/></button>
+          <button onClick={() => shiftDate(-1)} aria-label="Previous day" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover"><ArrowLeft size={16}/></button>
           <span className="min-w-32 text-center text-xs text-fitx-text-secondary">{readableDate(date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</span>
-          <button onClick={() => shiftDate(1)} aria-label="Next day" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-surface-variant"><ArrowRight size={16}/></button>
+          <button onClick={() => shiftDate(1)} aria-label="Next day" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover"><ArrowRight size={16}/></button>
         </div>
       }/>
       <section className={styles.overview} aria-label={`Nutrition summary for ${readableDate(date)}`}>
-        <div className={styles.overviewHeader}><div><p className={styles.eyebrow}>Daily nutrition</p><h2>{readableDate(date, { weekday: "long", month: "long", day: "numeric" })}</h2></div><span className={styles.sourceNote}>From your food log</span></div>
+        <div className={styles.overviewHeader}>
+          <div><p className={styles.eyebrow}>Daily nutrition</p><h2>{readableDate(date, { weekday: "long", month: "long", day: "numeric" })}</h2></div>
+          <button type="button" onClick={() => setTargetsOpen(true)} className={styles.targetButton}><Target size={14}/>{manualTargets ? "Your targets" : "Edit targets"}</button>
+        </div>
         <div className={styles.overviewBody}>
           <div className={styles.calorieColumn}>
             <div className={`${styles.calorieRing} ${calorieGoal?.isOver ? styles.isOver : ""}`} role="img" aria-label={calorieLabel} style={{ "--ring-percent": `${calorieGoal?.percent ?? 0}%` } as CSSProperties}>
@@ -375,7 +557,8 @@ export default function NutritionPage() {
             </div>
             <div className={styles.calorieNotes}>
               {calorieGoal?.isOver && <p className={styles.overNote}>Over target by {calorieGoal.over.toLocaleString()} kcal</p>}
-              {target && <p className={styles.targetHint}>Estimated daily target from your profile</p>}
+              {target && <p className={styles.targetHint}>{manualTargets ? "Targets you set" : "Estimated daily target from your profile"}</p>}
+              {estimateCount > 0 && <p className={styles.targetHint}>Includes {estimateCount} estimated {estimateCount === 1 ? "item" : "items"}</p>}
             </div>
           </div>
           <div className={styles.macroGrid}>
@@ -392,11 +575,11 @@ export default function NutritionPage() {
         </div>
       </section>
       <nav aria-label="Nutrition sections" className={`${styles.tabs} flex gap-5 overflow-x-auto border-b border-fitx-divider text-sm`}>
-        {([["log", "Log food"], ["meals", "Meals"], ["insights", "Insights"], ["database", "Food database"]] as const).map(([value, label]) => <button key={value} onClick={() => setTab(value)} className={`whitespace-nowrap border-b-2 px-1 pb-3 ${tab === value ? "border-fitx-primary text-fitx-primary" : "border-transparent text-fitx-text-secondary hover:text-fitx-text"}`}>{label}</button>)}
+        {tabs.map(([value, label]) => <button key={value} onClick={() => setTab(value)} aria-current={tab === value ? "page" : undefined} className={`whitespace-nowrap border-b-2 px-1 pb-3 ${tab === value ? "border-fitx-primary text-fitx-primary-text" : "border-transparent text-fitx-text-secondary hover:text-fitx-text"}`}>{label}</button>)}
       </nav>
       {error && <p role="alert" className={styles.alert}>{error}</p>}
       {notice && !error && <p role="status" className={styles.notice}>{notice}</p>}
-      {tab === "log" && <div className={`${styles.logGrid} grid items-start gap-4 xl:grid-cols-[minmax(280px,1fr)_minmax(280px,1fr)_280px]`}>
+      {tab === "log" && <div className={`${styles.logGrid} grid items-start gap-4`}>
         <section className={`${styles.searchPanel} fitx-panel p-4 sm:p-5`}>
           <h2 className="mb-3 flex items-center gap-2 font-medium"><Search size={17} className="text-fitx-primary"/>Search food</h2>
           <form onSubmit={searchFoods} className="flex gap-2">
@@ -412,81 +595,59 @@ export default function NutritionPage() {
             <button className="fitx-button fitx-button-secondary shrink-0 px-3" disabled={busy} aria-label="Find barcode"><Barcode size={17}/></button>
           </form>
           <BarcodeScanner onDetected={onBarcodeDetected}/>
+          <div className={styles.searchTools}>
+            {lastSearch && searchMode !== "packaged" && <button type="button" className={ui.textButton} disabled={searchingFoods} onClick={() => void runFoodSearch(lastSearch, true)}><PackageSearch size={13} className="mr-1 inline"/>Search packaged products for “{parseFoodQuery(lastSearch).text}”</button>}
+            <label className={styles.filter}><input type="checkbox" checked={hideNonVeg} onChange={(event) => setHideNonVeg(event.target.checked)}/>Hide non-veg</label>
+            <Link href="/nutrition/sources" className={ui.textButton}><BookOpen size={13} className="mr-1 inline"/>Sources</Link>
+          </div>
           {visibleSources.length > 0 && <p className={styles.sources} aria-label="Sources for these results">{visibleSources.map((source) => <span key={source.id} className={source.status === "ok" || source.status === "no_results" ? styles.sourceChip : styles.sourceChipDown}>{sourceText(source)}</span>)}</p>}
           <div aria-live="polite" className={styles.foodResults}>
-            {searchingFoods ? <p className="py-5 text-center text-xs text-fitx-text-secondary">Loading foods…</p> : results.map((food) => {
-              const active = selected?.id === food.id && selected?.source === food.source;
-              const piece = food.portions?.find((portion) => portion.countDefault) ?? food.portions?.[0];
-              return (
-                <button key={`${food.source}-${food.id}`} type="button" onClick={() => chooseFood(food, lastQuery)} aria-pressed={active} className={`${styles.foodResult} ${active ? styles.foodResultActive : ""}`}>
-                  <span className={styles.foodResultMain}>
-                    <span className={styles.foodName}>{food.name}</span>
-                    <span className={styles.foodMeta}>{food.brand ? `${food.brand} · ` : ""}{food.basis ?? food.source}</span>
-                    {(food.state || piece) && <span className={styles.foodTags}>
-                      {food.state && <span className={food.state === "cooked" ? styles.tagCooked : styles.tagRaw}>{food.state === "cooked" ? "Cooked" : "Raw"}</span>}
-                      {piece && <span className={styles.tag}>{piece.label} · {formatAmount(piece.grams)} g</span>}
-                    </span>}
-                    <span className={styles.foodMacros}>P {food.protein} g · C {food.carbs} g · F {food.fat} g</span>
-                  </span>
-                  <span className={styles.foodKcal}>{Math.round(food.calories)}<small>kcal / 100 g</small></span>
-                </button>
-              );
-            })}
+            {searchingFoods ? <p className="py-5 text-center text-xs text-fitx-text-secondary">Loading foods…</p> : <>
+              {showBrowse && recentFoods.length > 0 && <>
+                <p className={styles.listLabel}>Recent</p>
+                {recentFoods.filter((food) => !hideNonVeg || food.dietType !== "non_veg").map((food) => <FoodResultCard key={`recent-${food.source}-${food.id}`} food={food} active={selected?.id === food.id && selected?.source === food.source} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>)}
+                <p className={styles.listLabel}>Common foods</p>
+              </>}
+              {searchMode === "packaged" && <p className={ui.muted}>Packaged products from Open Food Facts, entered by its community from package labels.</p>}
+              {shownResults.some((food) => food.suggestion) && <p className={ui.muted}>Nothing matched every word, so these are the closest spellings.</p>}
+              {shownResults.map((food) => <FoodResultCard key={`${food.source}-${food.id}`} food={food} active={selected?.id === food.id && selected?.source === food.source} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>)}
+              {hiddenCount > 0 && <p className={ui.muted}>{hiddenCount} non-veg {hiddenCount === 1 ? "food is" : "foods are"} hidden.</p>}
+            </>}
           </div>
         </section>
         <section className={`${styles.addPanel} fitx-panel p-4 sm:p-5`}>
           <h2 className="mb-4 font-medium">Add to log</h2>
+          {barcodeMiss && !selected && <div className={ui.callout}>
+            <p>{barcodeMiss.noLabel
+              ? `Open Food Facts knows barcode ${barcodeMiss.code}${barcodeMiss.name ? ` (“${barcodeMiss.name}”)` : ""}, but has no usable nutrition label for it.`
+              : `No product with barcode ${barcodeMiss.code} was found on Open Food Facts.`} You can add it from the package yourself.</p>
+            <div className={ui.toolbar}>
+              <button type="button" className="fitx-button min-h-10 px-3 text-xs" onClick={() => setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } })}>Add it as my food</button>
+              <a className={ui.textButton} href={`https://world.openfoodfacts.org/product/${barcodeMiss.code}`} target="_blank" rel="noopener noreferrer">Add it to Open Food Facts</a>
+            </div>
+          </div>}
           {selected ? <>
             <div className="rounded-lg border border-fitx-border bg-fitx-surface p-3">
+              {selected.image && <div className={ui.photo}>
+                <Image src={selected.image} alt={`${selected.name} package`} width={72} height={72} unoptimized/>
+                <p className={ui.credit}>{selected.imageCredit}{selected.sourceUrl && <> · <a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer">product page</a></>}</p>
+              </div>}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{selected.name}</p>
-                  <p className="mt-1 text-xs text-fitx-text-secondary">{selected.brand ? `${selected.brand} · ` : ""}{selected.basis ?? selected.source}{selected.state ? ` · ${selected.state}` : ""}</p>
+                  <p className="mt-1 text-xs text-fitx-text-secondary">{selected.brand ? `${selected.brand} · ` : ""}{selected.basis}</p>
+                  <p className="mt-1.5 flex flex-wrap gap-1"><BasisBadge basis={selected.valueBasis}/><StateTag state={selected.state}/><DietBadge diet={selected.dietType}/></p>
                 </div>
                 <button onClick={() => setSelected(null)} aria-label="Clear selected food" className="text-fitx-text-disabled hover:text-fitx-text"><X size={16}/></button>
               </div>
-              <div className={styles.macroTiles} aria-label="Nutrition for this amount">
-                <div>{selectedMacros ? Math.round(selectedMacros.calories) : "–"}<span>kcal</span></div>
-                <div>{selectedMacros ? `${selectedMacros.protein} g` : "–"}<span>protein</span></div>
-                <div>{selectedMacros ? `${selectedMacros.carbs} g` : "–"}<span>carbs</span></div>
-                <div>{selectedMacros ? `${selectedMacros.fat} g` : "–"}<span>fat</span></div>
-              </div>
+              <PortionPicker food={selected} amount={amount} unitKey={unitKey} options={portionOptions} derived={derived} chosen={chosenPortion} grams={grams} macros={selectedMacros}
+                prompt={amountPrompt} onAmount={(value) => { setAmount(value); setAmountPrompt(null); }} onUnit={changeUnit} idPrefix="log-portion"/>
             </div>
-            <div className={styles.amountRow}>
-              <label>Amount<input className="fitx-field" inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => { setAmount(event.target.value); setAmountPrompt(null); }} aria-describedby="portion-note"/></label>
-              <label>Unit<select className="fitx-field" value={unitKey} onChange={(event) => changeUnit(event.target.value)}>
-                <option value="g">grams (g)</option>
-                {portionOptions.map((portion, index) => <option key={`${portion.label}-${index}`} value={`portion:${index}`}>{portion.label} · {formatAmount(portion.grams)} g</option>)}
-              </select></label>
-            </div>
-            <p id="portion-note" className={styles.portionNote}>
-              {grams > 0 ? <>
-                <span>= <strong>{formatAmount(grams)} g</strong></span>
-                {chosenPortion && (chosenPortion.estimate === false
-                  ? <span>{selected.source === CUSTOM_SOURCE ? "your saved serving" : "serving from the package label"}</span>
-                  : <span className={styles.estimateBadge}>Portion estimate</span>)}
-              </> : <span>Enter an amount</span>}
-            </p>
-            {chosenPortion && chosenPortion.estimate !== false && <p className={styles.portionSource}>
-              {derived && chosenPortion === derived.portion
-                ? `Worked out from USDA's ${derived.from.label} = ${formatAmount(derived.from.grams)} g (US measures).`
-                : `USDA average for ${chosenPortion.label}: ${formatAmount(chosenPortion.grams)} g.`} Real pieces and cups vary; weigh it for an exact log.
-            </p>}
-            {amountPrompt && <div className={styles.prompt} role="status">
-              <p>{amountPrompt.message}</p>
-              {amountPrompt.grams !== null && <button type="button" className="fitx-button fitx-button-secondary min-h-10 justify-self-start px-3 text-xs" onClick={() => { setAmount(String(amountPrompt.grams)); setUnitKey("g"); setAmountPrompt(null); }}>Use {amountPrompt.grams} g</button>}
-            </div>}
-            <label className="mt-3 block text-xs text-fitx-text-secondary">Meal<select className="fitx-field mt-1.5" value={meal} onChange={(event) => setMeal(event.target.value)}>{meals.map((name) => <option key={name}>{name}</option>)}</select></label>
+            <label className="mt-3 block text-xs text-fitx-text-secondary">Meal<select className="fitx-field mt-1.5" value={meal} onChange={(event) => setMeal(event.target.value as MealSlot)}>{MEAL_SLOTS.map((name) => <option key={name}>{name}</option>)}</select></label>
             <button onClick={() => void logFood(selected)} disabled={busy} className="fitx-button mt-4 w-full">{busy ? "Saving…" : "Add to log"}</button>
-          </> : <EmptyState title="Choose a food" description="Search the database or look up a product barcode to see its serving nutrition here."/>}
-          <details className="mt-4 border-t border-fitx-divider pt-3">
-            <summary className="cursor-pointer text-sm text-fitx-text-secondary">Add a custom food</summary>
-            <form onSubmit={saveCustomFood} className="mt-3 grid grid-cols-2 gap-2">
-              <p className="col-span-2 text-[11px] leading-5 text-fitx-text-disabled">Enter the values for one serving, from the label or your recipe. Saving adds it to your foods, not to today&apos;s log.</p>
-              {([["name", "Food name"], ["brand", "Brand"], ["grams", "Serving size (g)"], ["calories", "Calories per serving"], ["protein", "Protein (g)"], ["carbs", "Carbs (g)"], ["fat", "Fat (g)"]] as const).map(([key, label]) => <label key={key} className={`text-[11px] text-fitx-text-secondary ${key === "name" || key === "brand" ? "col-span-2" : ""}`}>{label}<input className="fitx-field mt-1" required={key !== "brand"} type={key === "name" || key === "brand" ? "text" : "number"} min={key === "grams" ? "1" : "0"} step="any" value={custom[key]} onChange={(event) => setCustom((old) => ({ ...old, [key]: event.target.value }))}/></label>)}
-              <button disabled={busy} className="fitx-button col-span-2 mt-1 w-full">Save food</button>
-            </form>
-          </details>
+            {selected.kind === "packaged" && <button type="button" onClick={() => saveSelectedAsFood(selected)} className={`${ui.textButton} mt-2`}>Save to My foods</button>}
+          </> : !barcodeMiss && <EmptyState title="Choose a food" description="Search the database or look up a product barcode to see its serving nutrition here."/>}
+          <button type="button" onClick={() => setFoodForm({ editing: null, prefill: null })} className={`${ui.textButton} mt-4`}>Add your own food</button>
         </section>
         <aside className={styles.nutritionAside}>
           <section className="fitx-panel p-4 sm:p-5">
@@ -497,20 +658,24 @@ export default function NutritionPage() {
           </section>
         </aside>
       </div>}
-      {tab === "meals" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-4 font-medium">Meals · {readableDate(date)}</h2>{loading ? <p className="text-sm text-fitx-text-secondary">Loading meals…</p> : entries.length ? <div className={`${styles.page} space-y-5`}>{meals.map((mealName) => { const rows = entries.filter((item) => item.meal === mealName); return <div key={mealName}><h3 className="mb-2 flex items-center gap-2 text-sm font-medium"><Coffee size={15} className="text-fitx-primary"/>{mealName}<span className="text-xs font-normal text-fitx-text-disabled">{Math.round(sumMacros(rows).calories)} kcal</span></h3>{rows.length ? <div className="space-y-2">{rows.map((row) => {
-        const portion = row.nutrition_snapshot?.portion;
-        const amountText = portion && row.serving_size ? row.serving_size : `${formatAmount(Number(row.quantity_grams) || Number(row.servings) * 100)} g`;
-        return <div key={row.id} className="flex items-center gap-3 rounded-lg border border-fitx-border bg-fitx-surface p-3"><Utensils size={15} className="shrink-0 text-fitx-text-disabled"/><div className="min-w-0 flex-1"><p className="truncate text-sm">{row.food_name}</p><p className="text-xs text-fitx-text-secondary">{amountText}{portion?.estimate && <span className={styles.estimateBadge}>estimate</span>}</p><p className="text-xs text-fitx-text-disabled">P {Math.round(Number(row.protein))} g · C {Math.round(Number(row.carbs))} g · F {Math.round(Number(row.fat))} g</p></div><span className="text-xs text-fitx-text-secondary">{Math.round(Number(row.calories))} kcal</span><button onClick={() => void removeMeal(row.id)} aria-label={`Remove ${row.food_name}`} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-lg text-fitx-text-disabled hover:bg-fitx-surface-variant hover:text-fitx-primary"><X size={15}/></button></div>;
-      })}</div> : <p className="py-2 text-xs text-fitx-text-disabled">Nothing logged yet.</p>}</div>; })}</div> : <EmptyState title="No meals logged" description="Use Log Food to find a food or enter your own nutrition details." action={<button onClick={() => setTab("log")} className="text-sm text-fitx-primary">Log a food</button>}/>}</section>}
-      {tab === "insights" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-2 font-medium">Daily nutrition insights</h2><p className="mb-5 text-sm text-fitx-text-secondary">This view summarizes the food you have logged for the selected day.</p>{entries.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{([["Energy", Math.round(totals.calories), "kcal", target?.calories], ["Protein", Math.round(totals.protein), "g", target?.protein], ["Carbohydrates", Math.round(totals.carbs), "g", target?.carbs], ["Fat", Math.round(totals.fat), "g", target?.fat]] as const).map(([label, value, unit, goal]) => { const progress = goal ? goalProgress(value, goal) : null; return <div key={label} className="rounded-xl border border-fitx-border bg-fitx-surface p-4"><p className="text-xs text-fitx-text-secondary">{label}</p><p className="mt-2 text-2xl font-semibold">{value} <span className="text-sm font-normal text-fitx-text-disabled">{unit}</span></p>{progress && <p className={`mt-2 text-xs ${progress.isOver ? styles.macroOver : "text-fitx-text-disabled"}`}>{progress.isOver ? `${progress.over} ${unit} over the estimated target` : `${progress.percent}% of estimated target`}</p>}</div>; })}</div> : <EmptyState title="No nutrition data yet" description="Logged meals will be summarized here."/>}</section>}
-      {tab === "database" && <section className="fitx-panel p-4 sm:p-5">
-        <h2 className="mb-2 font-medium">Food database</h2>
-        <p className="mb-3 text-sm text-fitx-text-secondary">Search looks at FITX staples first: common Indian dishes, cooked rice and everyday foods such as eggs, milk, oats and oils, from USDA FoodData Central with USDA&apos;s piece and cup weights. Then it checks a USDA Foundation Foods snapshot (April 2026), live USDA search when this server has a key, and Open Food Facts for packaged products. When you type an amount, FITX selects a food for you only if its name is exactly what you typed; otherwise you choose. Amounts worked out from a piece or cup weight are marked as portion estimates. Your custom foods are private to your account.</p>
-        {usdaLive && <p className="mb-4 text-xs text-fitx-text-disabled">Live USDA search: {usdaLive.status === "not_configured" ? "not set up on this server" : "on"}.{visibleSources.length > 0 && <> Last search: {visibleSources.map(sourceText).join(" · ")}.</>}</p>}
-        <button onClick={() => setTab("log")} className="fitx-button"><Search size={15}/>Search foods</button>
-        <h3 className="mb-3 mt-6 font-medium">My custom foods</h3>
-        {customFoods.length ? <div className="grid gap-2 sm:grid-cols-2">{customFoods.map((food) => <div key={food.id} className="flex items-center gap-3 rounded-lg border border-fitx-border bg-fitx-surface p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{food.name}</p><p className="mt-1 truncate text-xs text-fitx-text-secondary">{food.brand || "Custom food"} · {Math.round(food.calories)} kcal per 100 g · serving {formatAmount(food.portions?.[0]?.grams ?? 100)} g</p></div><button onClick={() => { chooseFood(food); setTab("log"); }} className="fitx-button fitx-button-secondary px-3">Use</button></div>)}</div> : <EmptyState title="No custom foods saved" description="Add a food from its label in the Log Food panel to keep it in your private database." action={<button onClick={() => setTab("log")} className="text-sm text-fitx-primary">Add a custom food</button>}/>}
-      </section>}
+      {tab === "meals" && <MealLog entries={entries} title={readableDate(date)} loading={loading} busy={busy} templatesReady={capabilities.templates}
+        onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} onLogFood={() => setTab("log")} onCopyYesterday={() => void copyYesterday()}
+        onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
+        onSaveDay={() => setNamePrompt({ kind: "day", initial: `${readableDate(date, { weekday: "long" })} routine` })}/>}
+      {tab === "foods" && <MyFoods rows={customRows} loading={loading} v2={capabilities.customFoodsV2} busy={busy}
+        photoFor={photoFor} onUse={(row) => { chooseFood(customFoodResult(row, photoFor(row))); setTab("log"); }} onAdd={() => setFoodForm({ editing: null, prefill: null })}
+        onEdit={(row) => setFoodForm({ editing: row, prefill: null })} onRemove={(row) => void removeFood(row)}/>}
+      {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
+        onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
+      {tab === "insights" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-2 font-medium">Daily nutrition insights</h2><p className="mb-5 text-sm text-fitx-text-secondary">This view summarizes the food you have logged for the selected day{estimateCount > 0 ? `, including ${estimateCount} estimated ${estimateCount === 1 ? "item" : "items"}` : ""}.</p>{entries.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{([["Energy", Math.round(totals.calories), "kcal", target?.calories], ["Protein", Math.round(totals.protein), "g", target?.protein], ["Carbohydrates", Math.round(totals.carbs), "g", target?.carbs], ["Fat", Math.round(totals.fat), "g", target?.fat]] as const).map(([label, value, unit, goal]) => { const progress = goal ? goalProgress(value, goal) : null; return <div key={label} className="rounded-xl border border-fitx-border bg-fitx-surface p-4"><p className="text-xs text-fitx-text-secondary">{label}</p><p className="mt-2 text-2xl font-semibold">{value} <span className="text-sm font-normal text-fitx-text-disabled">{unit}</span></p>{progress && <p className={`mt-2 text-xs ${progress.isOver ? styles.macroOver : "text-fitx-text-disabled"}`}>{progress.isOver ? `${progress.over} ${unit} over the ${manualTargets ? "" : "estimated "}target` : `${progress.percent}% of ${manualTargets ? "your" : "estimated"} target`}</p>}</div>; })}</div> : <EmptyState title="No nutrition data yet" description="Logged meals will be summarized here."/>}</section>}
+      {editingEntry && <EntryEditor entry={editingEntry} busy={busy} onCancel={() => setEditingEntry(null)} onSave={(change) => void saveEntry(editingEntry, change)}/>}
+      {foodForm && <CustomFoodForm editing={foodForm.editing} prefill={foodForm.prefill} photoUrl={photoFor(foodForm.editing ?? undefined)} v2={capabilities.customFoodsV2} busy={busy} onCancel={() => setFoodForm(null)} onSave={(input, photo) => void saveFood(input, photo)}/>}
+      {namePrompt && <NameDialog title={namePrompt.kind === "meal" ? `Save ${namePrompt.slot.toLowerCase()} as a meal` : "Save this day as a routine"}
+        description={namePrompt.kind === "meal" ? "Its foods and amounts are copied, so you can add the same meal to any day." : "Every meal of this day is copied, so you can add the whole day again in one tap."}
+        initial={namePrompt.initial} busy={busy} onCancel={() => setNamePrompt(null)} onSave={(name) => void saveNamed(name)}/>}
+      {targetsOpen && <TargetsEditor estimated={estimated} manual={manualTargets} ready={capabilities.targets} busy={busy} onClose={() => setTargetsOpen(false)}
+        onSave={(next) => void updateTargets(next)} onReset={() => void updateTargets(null)}/>}
     </div>
   );
 }
+

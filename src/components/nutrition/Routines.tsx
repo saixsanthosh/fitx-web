@@ -1,0 +1,71 @@
+"use client";
+
+import { useState, type ReactNode } from "react";
+import { CalendarDays, Trash2, Utensils } from "lucide-react";
+import { MEAL_SLOTS, type MealSlot, type MealTemplate } from "@/lib/food/client-data";
+import styles from "./FoodUi.module.css";
+
+interface RoutinesProps {
+  templates: MealTemplate[];
+  ready: boolean;
+  loading: boolean;
+  busy: boolean;
+  dateLabel: string;
+  onApply: (template: MealTemplate, slot: MealSlot | null) => void;
+  onDelete: (template: MealTemplate) => void;
+}
+
+/** Saved meals and daily routines, applied to the day shown at the top of the page. */
+export function Routines({ templates, ready, loading, busy, dateLabel, onApply, onDelete }: RoutinesProps) {
+  const [slots, setSlots] = useState<Record<string, MealSlot>>({});
+  if (!ready) {
+    return (
+      <section className="fitx-panel p-4 sm:p-5">
+        <h2 className="mb-2 font-medium">Saved meals and routines</h2>
+        <div className={styles.callout}><p>Saving meals and daily routines needs a database update that hasn&apos;t been applied yet. Until then you can still copy yesterday&apos;s meals from the Meals tab.</p></div>
+      </section>
+    );
+  }
+  const meals = templates.filter((template) => template.kind === "meal");
+  const days = templates.filter((template) => template.kind === "day");
+  const group = (title: string, list: MealTemplate[], icon: ReactNode, empty: string) => (
+    <div>
+      <h3 className={`${styles.slotTitle} mb-2`}>{icon}{title}</h3>
+      {list.length === 0 ? <p className={styles.muted}>{empty}</p> : (
+        <div className={styles.list}>
+          {list.map((template) => {
+            const kcal = Math.round(template.items.reduce((sum, item) => sum + Number(item.calories || 0), 0));
+            const slot = slots[template.id] ?? template.meal_slot ?? "Breakfast";
+            return (
+              <div key={template.id} className={styles.row}>
+                <div className={styles.rowMain}>
+                  <p className={styles.rowTitle}>{template.name}</p>
+                  <p className={styles.rowMeta}>{template.items.length} {template.items.length === 1 ? "food" : "foods"} · {kcal} kcal{template.kind === "meal" && template.meal_slot ? ` · saved from ${template.meal_slot}` : ""}</p>
+                </div>
+                {template.kind === "meal" && (
+                  <select className="fitx-field w-auto" value={slot} aria-label={`Meal to add ${template.name} to`} onChange={(event) => setSlots((old) => ({ ...old, [template.id]: event.target.value as MealSlot }))}>
+                    {MEAL_SLOTS.map((name) => <option key={name}>{name}</option>)}
+                  </select>
+                )}
+                <button type="button" disabled={busy || template.items.length === 0} onClick={() => onApply(template, template.kind === "meal" ? slot : null)} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs">Add to {dateLabel}</button>
+                <button type="button" disabled={busy} onClick={() => onDelete(template)} aria-label={`Delete ${template.name}`} className={styles.iconButton}><Trash2 size={15}/></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <section className="fitx-panel space-y-5 p-4 sm:p-5">
+      <div>
+        <h2 className="font-medium">Saved meals and routines</h2>
+        <p className={styles.muted}>Save a meal or a whole day from the Meals tab, then add it to any day in one tap. Amounts and values are copied as they were logged.</p>
+      </div>
+      {loading ? <p className={styles.muted}>Loading…</p> : <>
+        {group("Saved meals", meals, <Utensils size={15} className="text-fitx-primary"/>, "No saved meals yet. Use “Save this meal” on the Meals tab.")}
+        {group("Daily routines", days, <CalendarDays size={15} className="text-fitx-primary"/>, "No routines yet. Use “Save today as a routine” on the Meals tab.")}
+      </>}
+    </section>
+  );
+}

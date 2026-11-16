@@ -357,3 +357,42 @@ test("finds the gram weight in a package serving label", () => {
   assert.equal(gramsInLabel("250 ml"), null);
   assert.equal(gramsInLabel(undefined), null);
 });
+
+test("parser v2: household words ask, a scoop uses the package serving, a spoon offers both spoons", () => {
+  const ghee = staples.find((food) => food.id === "2710168");
+  assert.ok(ghee);
+  const spoon = parseFoodQuery("1 spoon ghee");
+  assert.deepEqual([spoon.amount, spoon.unit, spoon.text], [1, "spoon", "ghee"]);
+  const asked = resolvePortion(spoon, ghee.portions);
+  assert.deepEqual(asked, { kind: "ask", amount: 1, unit: "spoon", reason: "household-unit" });
+  assert.match(askForGramsMessage("Ghee", asked as Extract<typeof asked, { kind: "ask" }>), /teaspoon \(5 ml\) or a tablespoon \(15 ml\)/);
+  assert.equal(gramsOf(resolvePortion({ amount: 1, unit: "tsp", size: null }, ghee.portions)), 4.7, "the teaspoon the app then offers");
+  assert.deepEqual(resolvePortion(parseFoodQuery("2 ladles dal"), []), { kind: "ask", amount: 2, unit: "ladle", reason: "household-unit" });
+  assert.equal(parseFoodQuery("1 vati dal").unit, "katori");
+  const whey: FoodPortion = { label: "1 serving (1 scoop (30 g))", unit: "serving", grams: 30, estimate: false };
+  assert.deepEqual(resolvePortion(parseFoodQuery("2 scoops whey"), [whey]), { kind: "portion", grams: 60, count: 2, portion: whey, estimate: false });
+});
+
+test("USDA measures need a leading 1, and bowls, plates and glasses keep their unit", () => {
+  assert.equal(portionFromLabel("Guideline amount per fl oz of beverage as purchased", 30), null);
+  assert.equal(portionFromLabel("Quantity not specified", 140), null);
+  assert.deepEqual(portionFromLabel("1 bowl", 250), { label: "1 bowl", unit: "bowl", grams: 250 });
+  assert.deepEqual(portionFromLabel("1 glass", 240), { label: "1 glass", unit: "glass", grams: 240 });
+  assert.equal(gramsOf(resolvePortion(parseFoodQuery("2 bowls soup"), [{ label: "1 bowl", unit: "bowl", grams: 250 }])), 500);
+});
+
+test("keywords help find a food but count less than its name and never select it", () => {
+  const sauce = { name: "Seafood sauce", keywords: ["lobster", "white clam"] };
+  const lobster = { name: "Lobster, tail only, frozen, wild caught" };
+  const matches = matchFoods([sauce, lobster], ["lobster"]);
+  assert.deepEqual(matches.map((match) => match.food.name), ["Lobster, tail only, frozen, wild caught", "Seafood sauce"]);
+  assert.equal(matches.find((match) => match.food === sauce)?.exact, false);
+  assert.equal(clearMatch(matchFoods([sauce], ["lobster"])), null);
+  assert.equal(foodMatchScore(sauce, ["lobster"]), 2, "one less than the same word in a name");
+});
+
+test("a boost lifts recent foods among equal matches but never above an exact name", () => {
+  const foods = [{ name: "Rice, brown, cooked" }, { name: "Rice, red, cooked", recent: 3 }, { name: "Rice, white, cooked", aliases: ["rice"] }];
+  const ranked = matchFoods(foods, ["rice"], { boost: (food) => ("recent" in food ? Number(food.recent) : 0) }).map((match) => match.food.name);
+  assert.deepEqual(ranked, ["Rice, white, cooked", "Rice, red, cooked", "Rice, brown, cooked"]);
+});

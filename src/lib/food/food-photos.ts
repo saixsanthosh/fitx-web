@@ -1,0 +1,55 @@
+/**
+ * Photos of the user's own foods, kept in the private fitx-user-media bucket under the owner's folder
+ * ("<uid>/foods/…"), whose storage policies already allow only the owner to read and write it
+ * (supabase/migrations/20260924170604_fitx_v1_core_product.sql). Shown through short-lived signed links.
+ */
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+export const FOOD_PHOTO_BUCKET = "fitx-user-media";
+const MAX_SIDE = 640;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/** The storage path for a food photo: always inside the user's own folder. */
+export function foodPhotoPath(userId: string, foodId: string, stamp = Date.now()): string {
+  return `${userId}/foods/${foodId}-${stamp}.webp`;
+}
+
+/** Shrinks a photo to at most 640 px on its longer side as WebP (falls back to JPEG), on the device. */
+export async function shrinkPhoto(file: File): Promise<Blob> {
+  if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type) && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) throw new Error("Choose a JPEG, PNG or WebP photo.");
+  if (file.size > 25 * 1024 * 1024) throw new Error("That photo is too large. Choose one under 25 MB.");
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("This browser can't prepare the photo.");
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.82))
+    ?? await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+  if (!blob) throw new Error("This browser can't prepare the photo.");
+  if (blob.size > MAX_UPLOAD_BYTES) throw new Error("That photo is still too large after shrinking.");
+  return blob;
+}
+
+/** Uploads a food photo and returns its storage path; removes the previous photo when there was one. */
+export async function uploadFoodPhoto(supabase: SupabaseClient, userId: string, foodId: string, file: File, previous: string | null): Promise<string> {
+  const blob = await shrinkPhoto(file);
+  const path = foodPhotoPath(userId, foodId);
+  const uploaded = await supabase.storage.from(FOOD_PHOTO_BUCKET).upload(path, blob, { contentType: blob.type || "image/webp", upsert: false, cacheControl: "3600" });
+  if (uploaded.error) throw new Error("The photo could not be uploaded.");
+  if (previous && previous.startsWith(`${userId}/foods/`)) await supabase.storage.from(FOOD_PHOTO_BUCKET).remove([previous]);
+  return path;
+}
+
+/** Signed links (valid for an hour) for the given photo paths, keyed by path. */
+export async function signedPhotoUrls(supabase: SupabaseClient, paths: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(paths.filter(Boolean))];
+  const urls = new Map<string, string>();
+  if (!unique.length) return urls;
+  const { data } = await supabase.storage.from(FOOD_PHOTO_BUCKET).createSignedUrls(unique, 3600);
+  for (const item of data ?? []) if (item.path && item.signedUrl) urls.set(item.path, item.signedUrl);
+  return urls;
+}
