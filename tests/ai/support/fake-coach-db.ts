@@ -22,6 +22,13 @@ export class FakeCoachDb {
   limits = { chat: 30, plan: 6 };
   usage: Array<{ id: string; user_id: string; kind: string; released: boolean }> = [];
   calls: Array<{ method: string; path: string }> = [];
+  /** Like Postgres now() across separate requests: every insert gets a later time than the one before. */
+  private lastTime = 0;
+
+  now() {
+    this.lastTime = Math.max(Date.now(), this.lastTime + 1);
+    return new Date(this.lastTime).toISOString();
+  }
 
   async start() {
     this.server = createServer((req, res) => void this.handle(req, res));
@@ -139,7 +146,7 @@ export class FakeCoachDb {
           created.push(existing);
           continue;
         }
-        const now = new Date().toISOString();
+        const now = this.now();
         const row: Row = { id: randomUUID(), created_at: now, updated_at: now, ...item };
         // Foreign keys: a coach message or proposal needs its owner's thread (and message).
         if ((name === "ai_coach_messages" || name === "ai_coach_actions") && !this.rows("ai_coach_threads").some((thread) => thread.id === row.thread_id && thread.user_id === userId)) {
@@ -174,11 +181,17 @@ export class FakeCoachDb {
       if (["select", "order", "limit", "on_conflict", "columns", "offset"].includes(key)) continue;
       const [op, ...rest] = raw.split(".");
       const value = rest.join(".");
-      const cell = row[key];
-      if (op === "eq" && String(cell) !== value) return false;
+      // A JSON field as text, e.g. data->>safety.
+      const [column, field] = key.split("->>");
+      const base = row[column];
+      const cell = field === undefined ? base : base && typeof base === "object" ? (base as Row)[field] ?? null : null;
+      if (op === "eq" && (cell === null || cell === undefined || String(cell) !== value)) return false;
       if (op === "neq" && String(cell) === value) return false;
+      if (op === "gt" && !(String(cell ?? "") > value)) return false;
       if (op === "gte" && !(String(cell ?? "") >= value)) return false;
+      if (op === "lt" && !(String(cell ?? "") < value)) return false;
       if (op === "lte" && !(String(cell ?? "") <= value)) return false;
+      if (op === "is" && !(value === "null" ? cell === null || cell === undefined : String(cell) === value)) return false;
       if (op === "in" && !value.replace(/^\(|\)$/g, "").split(",").map((item) => item.replace(/^"|"$/g, "")).includes(String(cell))) return false;
     }
     return true;
@@ -208,7 +221,8 @@ export class FakeCoachDb {
       const action = this.rows("ai_coach_actions").find((row) => row.id === args.p_action_id && row.user_id === userId);
       if (!action) return send(400, { code: "P0002", message: "coach action not found" });
       const table = action.kind === "workout_plan" ? "workout_plans" : "custom_foods";
-      if (action.status === "applied" && this.rows(table).some((row) => row.id === action.applied_ref)) {
+      // Like the migration: already applied unless the member has since deleted or archived that row.
+      if (action.status === "applied" && this.rows(table).some((row) => row.id === action.applied_ref && !row.archived_at)) {
         return send(200, [{ action_kind: action.kind, ref_id: action.applied_ref, already_applied: true }]);
       }
       const id = randomUUID();

@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError, isMissingFunctionError } from "@/lib/supabase/errors";
+import type { SafetyCaution, SafetyStopTopic } from "./safety";
 import type { AiMessage, CoachActionView, CoachMessageData, CoachMessageView, CoachQuota, CoachSwap, CoachThreadSummary } from "./types";
 import { isRecord } from "./validate";
 
@@ -161,25 +162,72 @@ export async function deleteMessage(db: Db, userId: string, messageId: string) {
 }
 
 /** The last few turns, oldest first, as model input. Safety notes are left out. */
+/**
+ * The last few turns, oldest first, as model input. A member message the safety screen stopped never
+ * goes to a model, now or later: it is marked `safetyStop`, and any member message answered by a FITX
+ * safety note is left out as well. Safety notes themselves are FITX's text, not conversation.
+ */
 export async function recentTurns(db: Db, userId: string, threadId: string, limit = 12): Promise<AiMessage[]> {
   const { data, error } = await db
     .from("ai_coach_messages")
-    .select("role, content, created_at")
+    .select("role, content, data, created_at")
     .eq("user_id", userId)
     .eq("thread_id", threadId)
-    .in("role", ["user", "assistant"])
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .limit(limit + 6);
   if (error) fail(error, "read history");
+  const rows = (data ?? []) as Array<{ role: string; content: string; data: unknown }>;
   let budget = 8000;
   const turns: AiMessage[] = [];
-  for (const row of (data ?? []) as Array<{ role: "user" | "assistant"; content: string }>) {
+  for (let index = 0; index < rows.length && turns.length < limit; index += 1) {
+    const row = rows[index];
+    if (row.role !== "user" && row.role !== "assistant") continue;
+    if (row.role === "user") {
+      const stopped = isRecord(row.data) && typeof row.data.safetyStop === "string";
+      // Rows are newest first, so the reply to this message is the row before it.
+      const answeredBySafetyNote = rows[index - 1]?.role === "safety";
+      if (stopped || answeredBySafetyNote) continue;
+    }
     const content = row.content.length > 1500 ? `${row.content.slice(0, 1500)}…` : row.content;
     budget -= content.length;
     if (budget < 0) break;
     turns.unshift({ role: row.role, content });
   }
   return turns;
+}
+
+/** Whether FITX showed this member a safety note on `topic` in the last `days` days (in any conversation). */
+export async function hasRecentSafetyNote(db: Db, userId: string, topic: SafetyStopTopic, days: number): Promise<boolean> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await db
+    .from("ai_coach_messages")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("role", "safety")
+    .eq("data->>safety", topic)
+    .gte("created_at", since)
+    .limit(1);
+  if (error) fail(error, "read safety notes");
+  return Array.isArray(data) && data.length > 0;
+}
+
+/** Health topics (pregnancy, a medical condition…) the member raised in this conversation's recent messages. */
+export async function recentCautions(db: Db, userId: string, threadId: string, limit = 30): Promise<SafetyCaution[]> {
+  const { data, error } = await db
+    .from("ai_coach_messages")
+    .select("data")
+    .eq("user_id", userId)
+    .eq("thread_id", threadId)
+    .eq("role", "user")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) fail(error, "read history");
+  const found = new Set<SafetyCaution>();
+  for (const row of (data ?? []) as Array<{ data: unknown }>) {
+    const cautions = isRecord(row.data) && Array.isArray(row.data.cautions) ? row.data.cautions : [];
+    for (const caution of cautions) if (typeof caution === "string") found.add(caution as SafetyCaution);
+  }
+  return [...found];
 }
 
 export type NewAction = { id: string; kind: CoachActionView["kind"]; payload: Record<string, unknown> };
@@ -215,13 +263,16 @@ export async function dismissAction(db: Db, userId: string, actionId: string) {
 export async function loadThreadView(db: Db, userId: string, threadId: string): Promise<{ thread: CoachThreadSummary; messages: CoachMessageView[]; actions: CoachActionView[] } | null> {
   const thread = await getThread(db, userId, threadId);
   if (!thread) return null;
-  const [messages, actions] = await Promise.all([
-    db.from("ai_coach_messages").select("id, role, task, content, data, provider, created_at").eq("user_id", userId).eq("thread_id", threadId).order("created_at", { ascending: true }).limit(200),
-    db.from("ai_coach_actions").select("id, message_id, kind, status, payload").eq("user_id", userId).eq("thread_id", threadId).order("created_at", { ascending: true }).limit(500),
-  ]);
+  // The newest 200 messages (a long conversation shows its latest turns), then their proposals.
+  const messages = await db.from("ai_coach_messages").select("id, role, task, content, data, provider, created_at").eq("user_id", userId).eq("thread_id", threadId).order("created_at", { ascending: false }).limit(200);
   if (messages.error) fail(messages.error, "read messages");
+  const rows = ((messages.data ?? []) as Array<Record<string, unknown>>).reverse();
+  const ids = rows.map((row) => String(row.id));
+  const actions = ids.length
+    ? await db.from("ai_coach_actions").select("id, message_id, kind, status, payload").eq("user_id", userId).in("message_id", ids).order("created_at", { ascending: true }).limit(2000)
+    : { data: [], error: null };
   if (actions.error) fail(actions.error, "read proposals");
-  return { thread, messages: (messages.data ?? []).map(toMessageView), actions: (actions.data ?? []).map(toActionView) };
+  return { thread, messages: rows.map(toMessageView), actions: (actions.data ?? []).map(toActionView) };
 }
 
 export async function deleteAllCoachData(db: Db): Promise<{ threads: number; consentWithdrawn: boolean }> {

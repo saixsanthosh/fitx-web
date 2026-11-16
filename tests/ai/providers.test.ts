@@ -6,7 +6,8 @@ import { geminiQuotaPerDay, geminiStream, mockFetch, openAiStream, openAiText, r
 const { readAiConfig } = await import("@/lib/ai/config");
 const { createAdapters, groqExtras } = await import("@/lib/ai/providers");
 const { geminiBody, geminiError, msUntilPacificMidnight, toGeminiSchema } = await import("@/lib/ai/providers/gemini");
-const { chatBody } = await import("@/lib/ai/providers/openai-compatible");
+const { chatBody, toJsonSchema } = await import("@/lib/ai/providers/openai-compatible");
+const { MEAL_PLAN_SCHEMA } = await import("@/lib/ai/plans");
 const { ProviderError, retryAfterHeader } = await import("@/lib/ai/providers/types");
 const { readSseData } = await import("@/lib/ai/providers/sse");
 
@@ -91,15 +92,42 @@ describe("OpenAI-compatible adapter (Groq, OpenRouter, Ollama)", () => {
     assert.equal(groqExtras("openai/gpt-oss-120b", { ...request, task: "meal_plan" }).reasoning_effort, "medium");
   });
 
-  test("OpenRouter: identifies the app and only uses providers that do not collect prompts", async () => {
+  test("OpenRouter: identifies the app, only uses providers that do not collect prompts, and sends the plan's schema", async () => {
     const mock = mockFetch(() => openAiText('{"ok":true}'));
     await adapters.openrouter!.generate({ model: "openrouter/free", request: { ...request, json: { name: "x", schema: { type: "object" } } }, signal: signal(), fetch: mock.fetch });
     const call = mock.calls[0];
     assert.equal(call.url, "https://openrouter.ai/api/v1/chat/completions");
     assert.equal(call.headers["http-referer"], "https://fitnessx.vercel.app");
     assert.equal(call.headers["x-title"], "FITX");
-    assert.deepEqual(call.body?.provider, { data_collection: "deny" });
-    assert.deepEqual(call.body?.response_format, { type: "json_object" });
+    // require_parameters: only a provider that honours the JSON schema may answer a structured request.
+    assert.deepEqual(call.body?.provider, { data_collection: "deny", require_parameters: true });
+    assert.deepEqual(call.body?.response_format, { type: "json_schema", json_schema: { name: "x", schema: { type: "object" }, strict: false } });
+    const chatCall = mockFetch(() => openAiText("Hi"));
+    await adapters.openrouter!.generate({ model: "openrouter/free", request, signal: signal(), fetch: chatCall.fetch });
+    assert.deepEqual(chatCall.calls[0].body?.provider, { data_collection: "deny" }, "chat needs no schema support");
+    assert.equal("response_format" in (chatCall.calls[0].body ?? {}), false);
+  });
+
+  test("Groq: gpt-oss models get the plan's JSON schema; other models get JSON mode and the shape in the prompt", async () => {
+    const structured = { ...request, task: "meal_plan" as const, json: { name: "meal_plan", schema: MEAL_PLAN_SCHEMA } };
+    const oss = mockFetch(() => openAiText('{"ok":true}'));
+    await adapters.groq!.generate({ model: "openai/gpt-oss-120b", request: structured, signal: signal(), fetch: oss.fetch });
+    const format = oss.calls[0].body?.response_format as { type: string; json_schema: { name: string; schema: Record<string, unknown> } };
+    assert.equal(format.type, "json_schema");
+    assert.equal(format.json_schema.name, "meal_plan");
+    assert.deepEqual(format.json_schema.schema, toJsonSchema(MEAL_PLAN_SCHEMA));
+    assert.equal((format.json_schema.schema.properties as Record<string, { type: unknown }>).meals.type, "array", "standard lower-case JSON Schema types");
+    const llama = mockFetch(() => openAiText('{"ok":true}'));
+    await adapters.groq!.generate({ model: "llama-3.3-70b-versatile", request: structured, signal: signal(), fetch: llama.fetch });
+    assert.deepEqual(llama.calls[0].body?.response_format, { type: "json_object" });
+  });
+
+  test("toJsonSchema: nullable fields allow null", () => {
+    assert.deepEqual(toJsonSchema({ type: "object", properties: { brand: { type: "string", nullable: true } }, required: ["brand"] }), {
+      type: "object",
+      properties: { brand: { type: ["string", "null"] } },
+      required: ["brand"],
+    });
   });
 
   test("errors inside a 200 body or a stream chunk are classified", async () => {

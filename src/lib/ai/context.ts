@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateNutritionTargets } from "@/lib/domain/nutrition";
+import { isMissingColumnError } from "@/lib/supabase/errors";
 import { allergyRulesFrom, describeAllergies, describeDiet, dietRulesFrom, type AllergyRule, type DietRule } from "./diet-rules";
 import { calorieFloor } from "./safety";
 import type { Macros } from "./types";
@@ -24,7 +25,8 @@ export type ContextSources = {
   recentMuscles: string[];
   records: Array<{ exercise_name: string | null; best_weight_kg: number | null; best_reps: number | null; estimated_one_rep_max: number | null; achieved_at: string | null }>;
   goals: Array<{ title: string | null; category: string | null; target_value: number | null; current_value: number | null; unit: string | null; due_on: string | null }>;
-  planner: Array<{ event_type: string | null; starts_at: string }>;
+  // starts_at is null for an untimed To-Do (Planner v2); local_date is its calendar day.
+  planner: Array<{ event_type: string | null; starts_at: string | null; local_date?: string | null }>;
 };
 
 /** Facts the server uses for its own checks. Never sent to a model as such. */
@@ -69,6 +71,16 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
       return [];
     }
   };
+  /** Uses the newer query, or the older one when the database does not have its column yet. */
+  const withFallback = async <T>(newer: () => PromiseLike<{ data: unknown; error: unknown }>, older: () => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> => {
+    try {
+      const { data, error } = await newer();
+      if (!error) return Array.isArray(data) ? (data as T[]) : [];
+      return isMissingColumnError(error) ? rows<T>(older()) : [];
+    } catch {
+      return [];
+    }
+  };
   const one = async (query: PromiseLike<{ data: unknown; error: unknown }>): Promise<Record<string, unknown> | null> => {
     try {
       const { data, error } = await query;
@@ -96,7 +108,11 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     rows<ContextSources["meals"][number]>(
       supabase.from("meals").select("date, meal, food_name, calories, protein, carbs, fat").eq("user_id", userId).gte("date", day(8)).order("date", { ascending: true }).limit(400),
     ),
-    rows<ContextSources["customFoods"][number]>(supabase.from("custom_foods").select("name").eq("user_id", userId).order("updated_at", { ascending: false }).limit(15)),
+    withFallback<ContextSources["customFoods"][number]>(
+      // Archived foods (Nutrition v2) are not the member's foods any more.
+      () => supabase.from("custom_foods").select("name").eq("user_id", userId).is("archived_at", null).order("updated_at", { ascending: false }).limit(15),
+      () => supabase.from("custom_foods").select("name").eq("user_id", userId).order("updated_at", { ascending: false }).limit(15),
+    ),
     rows<ContextSources["sessions"][number] & { id: string }>(
       supabase.from("workout_sessions").select("id, started_at, status, duration_seconds, total_volume").eq("user_id", userId).gte("started_at", `${day(29)}T00:00:00Z`).order("started_at", { ascending: false }).limit(80),
     ),
@@ -106,8 +122,10 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     rows<ContextSources["goals"][number]>(
       supabase.from("goals").select("title, category, target_value, current_value, unit, due_on").eq("user_id", userId).eq("status", "active").order("due_on", { ascending: true, nullsFirst: false }).limit(6),
     ),
-    rows<ContextSources["planner"][number]>(
-      supabase.from("planner_events").select("event_type, starts_at").eq("user_id", userId).eq("status", "scheduled").gte("starts_at", now.toISOString()).lte("starts_at", new Date(now.getTime() + 7 * 86_400_000).toISOString()).limit(40),
+    withFallback<ContextSources["planner"][number]>(
+      // Planner v2 puts every item on a calendar day (local_date), so untimed To-Dos count too.
+      () => supabase.from("planner_events").select("event_type, starts_at, local_date").eq("user_id", userId).eq("status", "scheduled").gte("local_date", day(0)).lte("local_date", day(-8)).limit(60),
+      () => supabase.from("planner_events").select("event_type, starts_at").eq("user_id", userId).eq("status", "scheduled").gte("starts_at", now.toISOString()).lte("starts_at", new Date(now.getTime() + 7 * 86_400_000).toISOString()).limit(40),
     ),
   ]);
 
