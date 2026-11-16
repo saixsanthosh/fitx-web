@@ -13,6 +13,7 @@ import { useAccountSummary } from "./useAccountSummary";
 /** The signed-in app's top bar: exercise search and the account menu. The theme lives in Settings. */
 export function WorkspaceHeader() {
   const router = useRouter();
+  // The shared user context's name and photo link when the layout provides one, else its own fetch.
   const summary = useAccountSummary();
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);

@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { createClient } from "@/lib/supabase/client";
+import { preferSharedAccount, type AccountSummary } from "./accountSummary";
 
-export type AccountSummary = { name: string; email: string | null; avatarUrl: string | null };
+export type { AccountSummary } from "./accountSummary";
 
 /** Fired by the Profile page after a save, so the shell shows the new name and photo at once. */
 export const PROFILE_UPDATED_EVENT = "fitx:profile-updated";
@@ -40,8 +42,13 @@ function summary(force = false) {
   return request;
 }
 
-/** Name, email and photo for the shell. One request is shared by the sidebar, header and menus. */
+/**
+ * Name, email and photo for the shell. Inside the dashboard layout the shared user context supplies
+ * the name and the photo link (so a Profile save shows at once and the link never expires); one shared
+ * request fills in elsewhere and until the context has loaded.
+ */
 export function useAccountSummary() {
+  const shared = useOptionalUserContext();
   const [value, setValue] = useState<AccountSummary | null>(null);
   useEffect(() => {
     let live = true;
@@ -56,5 +63,5 @@ export function useAccountSummary() {
       window.clearInterval(timer);
     };
   }, []);
-  return value;
+  return useMemo(() => preferSharedAccount(value, shared), [value, shared]);
 }
