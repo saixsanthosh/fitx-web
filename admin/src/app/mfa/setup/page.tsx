@@ -22,7 +22,7 @@ export default async function MfaSetupPage() {
         <h1>Protect Admin with an authenticator app</h1>
         <p>Every FITX Admin account needs a second step at sign-in. Set up an authenticator app for <strong>{identity.email}</strong> on your phone; it takes about a minute.</p>
         <AuthenticatorSetupForm />
-        <p className="mfa-note">This only applies to FITX Admin. Signing in to the FITX app is unchanged.</p>
+        <p className="mfa-note">FITX and Admin share one sign-in system, so entering a code here also signs this account out of the FITX app on every device. Signing in to FITX again works as usual, without a code. If you use FITX day to day, use a separate Google account for Admin.</p>
         <div className="access-actions">
           <form action={signOut}><button className="quiet-button" type="submit">Sign out</button></form>
         </div>

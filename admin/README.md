@@ -21,7 +21,7 @@ Nobody can use Admin until these steps are done. They are settings in Vercel and
 4. **Update the database.** Admin's tables and functions are in seven files, `supabase/migrations/20261118180000_…` to `20261118180006_…` (listed in [Database migrations](#database-migrations)). The coordinating Claude session applies them in that order through the Supabase connector once you give your OK. Each file is safe to run again, and the first one creates the original Admin tables if they are missing.
 5. **Redeploy Admin** so it picks up the new variables. In the **admin** project, open Deployments and find the Production deployment marked **Current**, with the status Ready. Do not choose a row marked Canceled: redeploying a skipped deployment is usually skipped again, so the new variables would never reach a build. Choose ⋯ → Redeploy, untick **Use project's Ignore Build Step** in the dialog, and confirm. Unticking it makes Vercel build no matter which files changed. A later push that changes Admin also picks up the variables.
 6. **Make yourself the first super-admin.** Sign in to FITX at https://fitnessx.vercel.app once with the same Google account, so that the account exists. Then run the SQL in [First super-admin](#first-super-admin) with your email address. The coordinating session can run it for you through the connector once you give your OK.
-7. **Sign in and set up your authenticator app** at https://fitnessx-admin.vercel.app. The first time, Admin asks you to scan a QR code with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password or similar) and enter its six-digit code. After that, Admin asks for a code at every sign-in, and a session ends 12 hours after you signed in with Google.
+7. **Sign in and set up your authenticator app** at https://fitnessx-admin.vercel.app. The first time, Admin asks you to scan a QR code with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password or similar) and enter its six-digit code. After that, Admin asks for a code at every sign-in, and a session ends 12 hours after you signed in with Google. Each code you enter also signs that Google account out of the FITX app on every device; see [One Google account or two](#one-google-account-or-two) before you choose which account to use.
 
 After the switch, production visits to `admin-one-blond.vercel.app`, or to any other Admin address, are sent to `ADMIN_SITE_URL` automatically, so the old name keeps working as a shortcut. Once you have signed in on the new name, you can remove the old `https://admin-one-blond.vercel.app/auth/callback` entry from the Supabase Redirect URLs.
 
@@ -37,6 +37,7 @@ If Admin stops loading after step 5 (for example, every page redirects to an add
 | This Google account does not have FITX Admin access. | The Google email must be on `FITX_ADMIN_ALLOWED_EMAILS` (step 2) and have an active membership (step 6). |
 | Admin access is not initialized yet. | The Admin tables are missing: step 4. |
 | Your Admin session reached its 12-hour limit. | Expected. Sign in again. |
+| The FITX app signed me out after I signed in to Admin. | Expected when one Google account is used for both: see [One Google account or two](#one-google-account-or-two). Sign in to FITX again. |
 | Your role does not include this page. | Your role does not cover that area; see [Roles](#roles). A super-admin can change it on the Access screen. |
 
 Vercel → **admin** → Logs shows a `[fitx-admin]` line for each refused or failed check, saying which check failed. Emails, user IDs, tokens and keys are masked in these lines.
@@ -44,6 +45,15 @@ Vercel → **admin** → Logs shows a `[fitx-admin]` line for each refused or fa
 ### Lost your phone?
 
 Another super-admin opens Access and chooses **Reset authenticator** for you; you set up a new one at your next sign-in. If you are the only super-admin, the coordinating session can remove your authenticator through the Supabase connector with your OK (`delete from auth.mfa_factors where user_id = '<your account ID>'`), and you set up a new one at the next sign-in.
+
+### One Google account or two
+
+FITX and Admin use the same Supabase project, so one Google account is one FITX account in both. When an authenticator code is verified, Supabase ends every other session of that account that has not passed a code (see `mfa.verify` in the supabase-js reference). FITX app sessions never pass a code, so they end too:
+
+- **One account for both.** Every Admin sign-in, at most once every 12 hours, signs you out of the FITX app on your phone and your other devices. Pages that check with Supabase notice straight away; the rest notice when the current access token runs out, within an hour by default. You then sign in to FITX again as usual, without a code. Your own FITX use is also left out of the metrics, because Admin team accounts are left out of every number.
+- **A separate Google account for Admin (recommended if you use FITX day to day).** Your everyday FITX account is never signed out by Admin and stays in the metrics. To set it up, sign in to FITX once with the new account and put its email on `FITX_ADMIN_ALLOWED_EMAILS`. Then make it a super-admin, on the Access screen if you already use Admin, or otherwise with the SQL in [First super-admin](#first-super-admin) using the new email, and set up its authenticator. If your everyday account was already a member, set it to inactive on Access afterwards and take its email off the allowlist.
+
+Everyone you add to Admin faces the same choice, so tell new members before they set up their authenticator.
 
 ## What Admin does
 
@@ -131,10 +141,10 @@ Vercel supplies `VERCEL_ENV` and `VERCEL_URL`. Preview deployments use their own
    - the account has an active membership in `fitx_admin_members`, read with the server-only key.
 
    If any check fails, Admin signs that browser out, records the refusal and its reason, and shows the same "no access" message.
-3. **Authenticator (Supabase AAL2).** Every console page then requires a verified authenticator app. Without one, Admin opens the set-up page; with one, it asks for the current code once per sign-in. Only a session raised to AAL2 by that code can use the console.
+3. **Authenticator (Supabase AAL2).** Every console page then requires a verified authenticator app. Without one, Admin opens the set-up page; with one, it asks for the current code once per sign-in. Only a session raised to AAL2 by that code can use the console. Verifying a code also makes Supabase end the account's other sessions below AAL2, which includes its FITX app sessions on every device (see [One Google account or two](#one-google-account-or-two)).
 4. **Session age.** A session ends 12 hours after its Google sign-in, however active it is (`src/lib/session-policy.ts`). Admin then signs that browser out and asks for a fresh sign-in.
 5. **Every request is checked.** Every page, every data helper in `src/lib/data/` and every Server Action calls `requireAdmin(permission)`, which repeats the allowlist, membership, role, authenticator and session-age checks. The layout is never the only guard, and the navigation shows only the pages a role allows. To remove someone's access, set their membership to inactive on Access, which takes effect on their next page load, and remove their email from the allowlist.
-6. Signing out, or being refused, ends only that Admin browser session (`signOut({ scope: "local" })`). Both apps share one Supabase project, but this does not sign the person out of FITX on their phone or other devices.
+6. Signing out, or being refused, ends only that Admin browser session (`signOut({ scope: "local" })`), not the person's FITX app sessions. Entering an authenticator code is the step that does end them (point 3).
 7. **Database.** RLS is enabled on every Admin and support table. Functions that act for an admin (`p_actor_id`) are executable by `service_role` only, pin `search_path`, and check the actor's role again in Postgres. A test checks these rules for every Phase 10 migration.
 8. **Browser.** Every response carries a Content-Security-Policy with a fresh nonce: scripts only from Admin itself, no inline styles or eval in production, no framing, and form posts only to Admin, Supabase and Google. In production, a request on any host other than `ADMIN_SITE_URL` is redirected there first, with a temporary 307 redirect.
 9. Failed checks and queries are written to the server logs as `[fitx-admin]` lines with error codes and short messages. Emails, user IDs, tokens and keys are masked.
