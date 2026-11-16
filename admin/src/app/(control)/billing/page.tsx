@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { CreditCard } from "lucide-react";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const metadata: Metadata = { title: "Billing" };
-export default function BillingPage() {
+export default async function BillingPage() {
+  await requireAdmin();
   return (
     <div className="page-stack">
       <div className="page-heading-row"><div><p className="eyebrow">SUBSCRIPTIONS & PAYMENTS</p><h1>Billing</h1><p className="page-lede">Payment operations are kept tied to verified provider records.</p></div><span className="page-heading-icon"><CreditCard aria-hidden="true" size={20} /></span></div>

@@ -1,29 +1,39 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { normaliseEmail, parseAllowlist } from "@/lib/admin-email";
+import { logServerError, logServerWarning } from "@/lib/log";
+import { signOutLocally } from "@/lib/sign-out";
 import { getAdminSiteOrigin } from "@/lib/site-origin";
+import { hasAdminServerKey } from "@/lib/supabase/admin";
 import { createUserSupabase } from "@/lib/supabase/server";
 
-export type SignInError = "invalid_email" | "not_authorized" | "setup_pending" | "configuration" | "oauth";
+export type SignInError = "invalid_email" | "not_authorized" | "setup_pending" | "configuration" | "service_key_missing" | "oauth";
 export type SignInState = { error?: SignInError } | null;
 
-function isAllowedAdminEmail(email: string) {
-  const allowlist = process.env.FITX_ADMIN_ALLOWED_EMAILS ?? "";
-  return allowlist.trim() ? allowlist.split(",").some((entry) => entry.trim().toLowerCase() === email) : null;
-}
-
+/**
+ * Starts Google sign-in. The typed email is only a hint for Google's account picker:
+ * every valid email gets the same response, so the form never reveals who is on the
+ * allowlist. The callback checks the Google account that was actually used.
+ */
 export async function beginGoogleSignIn(_previous: SignInState, formData: FormData): Promise<SignInState> {
-  const submitted = formData.get("email");
-  const email = typeof submitted === "string" ? submitted.trim().toLowerCase() : "";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "invalid_email" };
-
-  const allowlisted = isAllowedAdminEmail(email);
-  if (allowlisted === null) return { error: "configuration" };
-  if (!allowlisted) return { error: "not_authorized" };
+  const email = normaliseEmail(formData.get("email"));
+  if (!email) return { error: "invalid_email" };
 
   const origin = getAdminSiteOrigin();
   const supabase = await createUserSupabase();
-  if (!origin || !supabase) return { error: "configuration" };
+  if (!origin || !supabase) {
+    logServerWarning("auth.sign_in", !origin ? "ADMIN_SITE_URL is missing or invalid" : "the public Supabase URL or publishable key is missing");
+    return { error: "configuration" };
+  }
+  if (!parseAllowlist(process.env.FITX_ADMIN_ALLOWED_EMAILS).size) {
+    logServerWarning("auth.sign_in", "FITX_ADMIN_ALLOWED_EMAILS is empty");
+    return { error: "configuration" };
+  }
+  if (!hasAdminServerKey()) {
+    logServerWarning("auth.sign_in", "SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) is not set");
+    return { error: "service_key_missing" };
+  }
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -33,13 +43,15 @@ export async function beginGoogleSignIn(_previous: SignInState, formData: FormDa
     },
   });
 
-  if (error || !data.url) return { error: "oauth" };
+  if (error || !data.url) {
+    logServerError("auth.sign_in", error);
+    return { error: "oauth" };
+  }
   redirect(data.url);
 }
 
+/** Signs out of this Admin browser session only; FITX sessions elsewhere stay signed in. */
 export async function signOut() {
-  "use server";
-  const supabase = await createUserSupabase();
-  if (supabase) await supabase.auth.signOut();
+  await signOutLocally(await createUserSupabase());
   redirect("/signin");
 }

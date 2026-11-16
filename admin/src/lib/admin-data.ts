@@ -1,4 +1,6 @@
 import "server-only";
+import { requireAdmin } from "@/lib/admin-auth";
+import { logServerError } from "@/lib/log";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
 export type AdminDataState = "ready" | "service_key_missing" | "migration_pending" | "query_failed";
@@ -7,12 +9,18 @@ function isMissingSchema(code?: string) {
   return code === "42P01" || code === "PGRST205" || code === "PGRST204";
 }
 
+// Every helper re-checks Admin access itself, so no caller can read data without it.
+
 export async function listRecentUsers(page = 1) {
+  await requireAdmin();
   const supabase = createAdminSupabase();
   if (!supabase) return { state: "service_key_missing" as const, users: [] };
   const safePage = Number.isInteger(page) ? Math.min(Math.max(page, 1), 1000) : 1;
   const { data, error } = await supabase.auth.admin.listUsers({ page: safePage, perPage: 50 });
-  if (error) return { state: "query_failed" as const, users: [] };
+  if (error) {
+    logServerError("data.list_users", error);
+    return { state: "query_failed" as const, users: [] };
+  }
 
   const users = [...data.users]
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
@@ -27,6 +35,7 @@ export async function listRecentUsers(page = 1) {
 }
 
 export async function listExercises(search = "") {
+  await requireAdmin();
   const supabase = createAdminSupabase();
   if (!supabase) return { state: "service_key_missing" as const, exercises: [] };
   let query = supabase
@@ -37,11 +46,15 @@ export async function listExercises(search = "") {
   const term = search.trim().slice(0, 80);
   if (term) query = query.ilike("name", `%${term.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
   const { data, error } = await query;
-  if (error) return { state: isMissingSchema(error.code) ? "migration_pending" as const : "query_failed" as const, exercises: [] };
+  if (error) {
+    logServerError("data.list_exercises", error);
+    return { state: isMissingSchema(error.code) ? "migration_pending" as const : "query_failed" as const, exercises: [] };
+  }
   return { state: "ready" as const, exercises: data ?? [] };
 }
 
 export async function listAdminMembers() {
+  await requireAdmin();
   const supabase = createAdminSupabase();
   if (!supabase) return { state: "service_key_missing" as const, members: [] };
   const { data, error } = await supabase
@@ -49,11 +62,15 @@ export async function listAdminMembers() {
     .select("user_id,role,is_active,created_at")
     .order("created_at", { ascending: false })
     .limit(100);
-  if (error) return { state: isMissingSchema(error.code) ? "migration_pending" as const : "query_failed" as const, members: [] };
+  if (error) {
+    logServerError("data.list_admin_members", error);
+    return { state: isMissingSchema(error.code) ? "migration_pending" as const : "query_failed" as const, members: [] };
+  }
   return { state: "ready" as const, members: data ?? [] };
 }
 
 export async function listAuditEvents() {
+  await requireAdmin();
   const supabase = createAdminSupabase();
   if (!supabase) return { state: "service_key_missing" as const, events: [] };
   const { data, error } = await supabase
@@ -61,6 +78,9 @@ export async function listAuditEvents() {
     .select("id,actor_id,action,resource_type,resource_id,created_at")
     .order("created_at", { ascending: false })
     .limit(100);
-  if (error) return { state: isMissingSchema(error.code) ? "migration_pending" as const : "query_failed" as const, events: [] };
+  if (error) {
+    logServerError("data.list_audit_events", error);
+    return { state: isMissingSchema(error.code) ? "migration_pending" as const : "query_failed" as const, events: [] };
+  }
   return { state: "ready" as const, events: data ?? [] };
 }

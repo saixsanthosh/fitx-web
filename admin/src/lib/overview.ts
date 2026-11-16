@@ -1,4 +1,6 @@
 import "server-only";
+import { requireAdmin } from "@/lib/admin-auth";
+import { logServerError } from "@/lib/log";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
 export type OverviewMetrics = {
@@ -20,11 +22,13 @@ function count(value: unknown): number | null {
 }
 
 export async function getOverviewMetrics(): Promise<OverviewResult> {
+  await requireAdmin();
   const supabase = createAdminSupabase();
   if (!supabase) return { state: "service_key_missing" };
 
   const { data, error } = await supabase.rpc("fitx_admin_overview_metrics");
   if (error) {
+    logServerError("data.overview_metrics", error);
     if (error.code === "42883" || error.code === "PGRST202") return { state: "migration_pending" };
     return { state: "query_failed" };
   }
@@ -36,6 +40,7 @@ export async function getOverviewMetrics(): Promise<OverviewResult> {
   const exercises = count(result?.active_exercises);
   const meals = count(result?.food_logs_30d);
   if ([registered, active, workouts, exercises, meals].some((value) => value === null)) {
+    logServerError("data.overview_metrics", { message: "the metrics function returned a value that is not a count" });
     return { state: "query_failed" };
   }
 
