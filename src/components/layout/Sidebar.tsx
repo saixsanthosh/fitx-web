@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ChartNoAxesColumn, Dumbbell, House, Target, UserRound, Utensils } from "lucide-react";
+import { BookOpen, CalendarDays, ChartNoAxesColumn, Dumbbell, House, Settings, Target, UserRound, Utensils } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +13,9 @@ const items = [
   { href: "/progress", label: "Progress", icon: ChartNoAxesColumn },
   { href: "/goals", label: "Goals", icon: Target },
   { href: "/planner", label: "Planner", icon: CalendarDays },
+  { href: "/exercises", label: "Exercise library", icon: BookOpen },
   { href: "/profile", label: "Profile", icon: UserRound },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Sidebar() {
