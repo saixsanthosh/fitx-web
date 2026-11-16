@@ -63,6 +63,14 @@ export const GAP_LABEL: Record<Gap["kind"], string> = {
   jump: "GPS position jumped",
 };
 
+/**
+ * What happens with location on the Record screen (the privacy page says the same): positions are
+ * read while the screen is open, to show the GPS signal and the map, and kept only once recording
+ * starts. Map images come from OpenFreeMap, which therefore sees the area being shown.
+ */
+export const LOCATION_USE_NOTE =
+  "FITX uses your location while the Record screen is open, to show your position and GPS signal, and saves your route only after you tap Start. Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown, not your route or account.";
+
 /** What browsers allow, said once before recording. */
 export const SCREEN_ON_NOTE =
   "Keep FITX open with the screen on while you record. Phones stop sharing location with websites when the screen locks or you switch apps; FITX keeps the screen awake where the browser allows and marks any gap instead of guessing it.";

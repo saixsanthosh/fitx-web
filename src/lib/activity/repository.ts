@@ -7,6 +7,7 @@ import { isSport, type ControlEvent, type Gap, type Split, type Sport } from "./
  * migration 20261118160000). Every call reports one of three outcomes, so screens can be honest:
  *   ok           the request worked;
  *   unavailable  the database does not have the activity tables yet (migration not applied);
+ *   rejected     the database refused the data for good (it breaks a limit): retrying won't help;
  *   error        anything else, with `offline` set when the network failed.
  * Writes are idempotent: an activity is keyed by the device's client id and chunks by number, so
  * a retried upload never duplicates anything.
@@ -30,10 +31,26 @@ export function isNetworkError(error: unknown): boolean {
   return /failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(text);
 }
 
-export type DbResult<T> = { status: "ok"; data: T } | { status: "unavailable" } | { status: "error"; message: string; offline: boolean };
+export type DbResult<T> =
+  | { status: "ok"; data: T }
+  | { status: "unavailable" }
+  | { status: "rejected"; message: string }
+  | { status: "error"; message: string; offline: boolean };
+
+/** Postgres errors that mean the row itself is unacceptable (a check, a size or a value limit). */
+const PERMANENT_CODES = new Set(["23514", "23502", "22001", "22003", "22P02", "P0001"]);
+
+export function isPermanentRejection(error: unknown): boolean {
+  const code = (error as ErrorLike)?.code;
+  return typeof code === "string" && PERMANENT_CODES.has(code);
+}
 
 function failure<T>(error: unknown): DbResult<T> {
   if (isMissingTableError(error) || isMissingColumnError(error) || isMissingFunctionError(error)) return { status: "unavailable" };
+  if (isPermanentRejection(error)) {
+    const message = typeof (error as ErrorLike)?.message === "string" ? ((error as ErrorLike)!.message as string) : "Rejected";
+    return { status: "rejected", message };
+  }
   const message = typeof (error as ErrorLike)?.message === "string" ? ((error as ErrorLike)!.message as string) : "Request failed";
   return { status: "error", message, offline: isNetworkError(error) };
 }
@@ -341,7 +358,7 @@ export async function getTrackChunks(client: SupabaseLike, userId: string, activ
   }
 }
 
-export type ActivityPatch = { title?: string; sport?: Sport; kcal?: number | null; kcalMethod?: string | null };
+export type ActivityPatch = { title?: string; sport?: Sport; kcal?: number | null; kcalMethod?: string | null; weightKg?: number | null };
 
 export async function updateActivity(client: SupabaseLike, userId: string, id: string, patch: ActivityPatch): Promise<DbResult<null>> {
   const row: Row = { updated_at: new Date().toISOString() };
@@ -349,6 +366,7 @@ export async function updateActivity(client: SupabaseLike, userId: string, id: s
   if (patch.sport !== undefined) row.sport = patch.sport;
   if (patch.kcal !== undefined) row.kcal_estimate = patch.kcal;
   if (patch.kcalMethod !== undefined) row.kcal_method = patch.kcalMethod;
+  if (patch.weightKg !== undefined) row.weight_kg_used = patch.weightKg;
   try {
     const result = await table(client, "activities").update(row).eq("user_id", userId).eq("id", id).select("id");
     if (result.error) return failure(result.error);
@@ -362,6 +380,17 @@ export async function updateActivity(client: SupabaseLike, userId: string, id: s
 export async function deleteActivity(client: SupabaseLike, userId: string, id: string): Promise<DbResult<null>> {
   try {
     const result = await table(client, "activities").delete().eq("user_id", userId).eq("id", id);
+    if (result.error) return failure(result.error);
+    return { status: "ok", data: null };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** Deletes the saved copy of a device recording, if one was uploaded (found by its device id). */
+export async function deleteActivityByClientId(client: SupabaseLike, userId: string, clientId: string): Promise<DbResult<null>> {
+  try {
+    const result = await table(client, "activities").delete().eq("user_id", userId).eq("client_id", clientId);
     if (result.error) return failure(result.error);
     return { status: "ok", data: null };
   } catch (error) {

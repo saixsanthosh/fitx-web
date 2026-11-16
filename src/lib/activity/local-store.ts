@@ -6,8 +6,10 @@ import type { LogEntry, Sport } from "./types";
  * closed or crashes, or the phone is offline at the finish. IndexedDB holds:
  *  - recordings: one row per recording (unfinished, or finished and waiting to upload);
  *  - entries: the recording log (every fix and control) in order, to rebuild the engine exactly.
- * Rows are tagged with the account id; another account on the same browser never sees them.
- * A finished recording is deleted from the device once the server has it.
+ * Rows are tagged with the account id and FITX's screens only show an account its own rows, but
+ * the data is still on disk for anyone using this browser profile: signing out should clear it
+ * (clearDeviceActivityData in device-recordings.ts). A finished recording is deleted from the
+ * device once the server has it.
  */
 
 export type StoredRecording = {
@@ -22,6 +24,8 @@ export type StoredRecording = {
   record?: ActivityRecord;
   uploadAttempts?: number;
   lastUploadError?: string;
+  /** The server refused it for good (it breaks a limit), so it is not retried. */
+  uploadRejected?: boolean;
 };
 
 export type StoredEntry = { seq: number; entry: LogEntry };
@@ -37,6 +41,8 @@ export interface RecordingStore {
   deleteRecording(clientId: string): Promise<void>;
   /** Removes every recording of an account (used when deleting all activity data). */
   deleteAll(userId: string): Promise<void>;
+  /** Removes log entries whose recording row no longer exists. */
+  deleteOrphanEntries(): Promise<void>;
 }
 
 /** In-memory store: used in tests and when IndexedDB is unavailable. */
@@ -78,6 +84,9 @@ export class MemoryRecordingStore implements RecordingStore {
   }
   async deleteAll(userId: string) {
     for (const recording of [...this.recordings.values()]) if (recording.userId === userId) await this.deleteRecording(recording.clientId);
+  }
+  async deleteOrphanEntries() {
+    for (const clientId of [...this.entries.keys()]) if (!this.recordings.has(clientId)) this.entries.delete(clientId);
   }
 }
 
@@ -164,6 +173,17 @@ export class IndexedDbRecordingStore implements RecordingStore {
 
   async deleteAll(userId: string) {
     for (const recording of await this.listRecordings(userId)) await this.deleteRecording(recording.clientId);
+  }
+
+  async deleteOrphanEntries() {
+    const read = this.db.transaction([RECORDINGS, ENTRIES], "readonly");
+    const owners = new Set(((await request(read.objectStore(RECORDINGS).getAllKeys())) as IDBValidKey[]).map(String));
+    const keys = (await request(read.objectStore(ENTRIES).getAllKeys())) as IDBValidKey[];
+    const orphans = new Set(keys.map((key) => String((key as [string, number])[0])).filter((clientId) => !owners.has(clientId)));
+    if (!orphans.size) return;
+    const tx = this.db.transaction(ENTRIES, "readwrite");
+    for (const clientId of orphans) tx.objectStore(ENTRIES).delete(IDBKeyRange.bound([clientId, 0], [clientId, Number.MAX_SAFE_INTEGER]));
+    await done(tx);
   }
 }
 

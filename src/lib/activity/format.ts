@@ -71,6 +71,12 @@ export function cleanTitle(value: string, fallback: string): string {
   return title || fallback;
 }
 
+/** "2026-11-17": the calendar day in the viewer's time zone (for file names). */
+export function localDateKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** "Mon 16 Nov, 6:42 am" in the viewer's time zone. */
 export function formatActivityDate(iso: string | number | Date): string {
   const date = new Date(iso);

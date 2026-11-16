@@ -4,10 +4,10 @@ import { ActivityEngine } from "@/lib/activity/engine";
 import { MemoryRecordingStore } from "@/lib/activity/local-store";
 import { buildActivityRecord } from "@/lib/activity/record";
 import {
-  deleteActivity, deleteAllActivities, getActivity, getTrackChunks, isMissingTableError, isNetworkError, latestWeight,
-  listActivities, saveActivity, totalsSince, updateActivity, type SupabaseLike,
+  deleteActivity, deleteActivityByClientId, deleteAllActivities, getActivity, getTrackChunks, isMissingTableError, isNetworkError,
+  isPermanentRejection, latestWeight, listActivities, saveActivity, totalsSince, updateActivity, type SupabaseLike,
 } from "@/lib/activity/repository";
-import { uploadPending } from "@/lib/activity/sync";
+import { clearActivityDataOnSignOut, prepareActivitySignOut, uploadPending } from "@/lib/activity/sync";
 import type { LogEntry } from "@/lib/activity/types";
 import { ORIGIN, T0, gps, legs, moveAlong, recording } from "./support/tracks";
 
@@ -180,6 +180,11 @@ test("detail, chunks, rename and delete only touch the owner's rows", async () =
   assert.equal(chunks.status === "ok" && chunks.data.length, record.chunks.length);
   assert.equal((await updateActivity(db, "u", id, { title: "Tempo run" })).status, "ok");
   assert.equal(db.tables.activities[0].title, "Tempo run");
+  // Calories filled in later, once the account has a weight (L4): kept with the weight used.
+  assert.equal((await updateActivity(db, "u", id, { kcal: 312, kcalMethod: "MET estimate", weightKg: 70.5 })).status, "ok");
+  const filled = await getActivity(db, "u", id);
+  assert.ok(filled.status === "ok" && filled.data);
+  assert.deepEqual([filled.data.kcal, filled.data.kcalMethod, filled.data.weightKg], [312, "MET estimate", 70.5]);
   assert.equal((await updateActivity(db, "someone-else", id, { title: "x" })).status, "error");
   assert.equal((await deleteActivity(db, "someone-else", id)).status, "ok");
   assert.equal(db.tables.activities.length, 1, "another account deletes nothing");
@@ -217,4 +222,53 @@ test("pending uploads go up and leave the device; failures stay for a retry", as
   assert.equal(await store.getRecording("b"), null);
   assert.ok(await store.getRecording("active"), "an unfinished recording is never uploaded");
   assert.equal(db.tables.activities.length, 2);
+});
+
+test("data the database refuses for good is not retried, and says so", async () => {
+  assert.equal(isPermanentRejection({ code: "23514", message: "violates check constraint" }), true);
+  assert.equal(isPermanentRejection({ code: "P0001", message: "activity limit reached" }), true);
+  assert.equal(isPermanentRejection({ code: "42501", message: "permission denied" }), false);
+  const db = new FakeDb();
+  const store = new MemoryRecordingStore(true);
+  const record = sampleRecord("too-long");
+  await store.saveRecording({ clientId: "too-long", userId: "u", sport: "run", startedAt: record.startedAt, state: "finished", updatedAt: record.endedAt, record });
+  db.failures.activities = { code: "23514", message: 'new row for relation "activities" violates check constraint "activities_elapsed_seconds_check"' };
+  const first = await uploadPending(store, db, "u");
+  assert.equal(first[0].result.status, "rejected");
+  const kept = await store.getRecording("too-long");
+  assert.equal(kept?.uploadRejected, true, "kept on the device, marked as refused");
+  delete db.failures.activities;
+  assert.deepEqual(await uploadPending(store, db, "u"), [], "not retried");
+});
+
+test("the saved copy of a device recording can be found and deleted by its device id", async () => {
+  const db = new FakeDb();
+  await saveActivity(db, "u", sampleRecord("dev-1"));
+  await saveActivity(db, "other", sampleRecord("dev-1"));
+  assert.equal((await deleteActivityByClientId(db, "u", "dev-1")).status, "ok");
+  assert.deepEqual(db.tables.activities.map((row) => row.user_id), ["other"], "only the owner's copy goes");
+});
+
+test("before sign-out: tidy, upload, then count and clear what this device still holds", async () => {
+  const db = new FakeDb();
+  const store = new MemoryRecordingStore(true);
+  const record = sampleRecord("done");
+  await store.saveRecording({ clientId: "done", userId: "u", sport: "run", startedAt: record.startedAt, state: "finished", updatedAt: record.endedAt, record });
+  await store.saveRecording({ clientId: "orphan", userId: "u", sport: "walk", startedAt: T0, state: "active", updatedAt: T0 });
+  await store.saveRecording({ clientId: "theirs", userId: "someone-else", sport: "ride", startedAt: T0, state: "active", updatedAt: T0 });
+  await store.appendEntries("ghost", [{ seq: 0, entry: { kind: "control", event: { type: "start", t: T0, sport: "run" } } }]);
+  const result = await prepareActivitySignOut(store, db, "u");
+  assert.equal(result.notUploaded, 0, "uploaded the finished one, removed the never-started one");
+  assert.equal(db.tables.activities.length, 1);
+
+  // An upload that can't happen (offline) is counted, so the app can ask before deleting it.
+  db.failures.activities = { message: "TypeError: Failed to fetch" };
+  const pending = sampleRecord("pending");
+  await store.saveRecording({ clientId: "pending", userId: "u", sport: "run", startedAt: pending.startedAt, state: "finished", updatedAt: pending.endedAt, record: pending });
+  assert.equal((await prepareActivitySignOut(store, db, "u")).notUploaded, 1);
+
+  await clearActivityDataOnSignOut(store, "u");
+  assert.deepEqual(await store.listRecordings("u"), []);
+  assert.deepEqual(await store.readEntries("ghost"), [], "log entries without a recording are removed too");
+  assert.equal((await store.listRecordings("someone-else")).length, 1, "another account's rows are left alone");
 });

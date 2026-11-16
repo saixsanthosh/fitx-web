@@ -47,3 +47,20 @@ test("detailed points are pruned after the retention period, never before 7 days
   const schedule = sql(files[1]);
   assert.match(schedule, /cron\.schedule\(\s*'fitx-prune-activity-track-chunks',\s*'23 3 \* \* \*',\s*\$\$select public\.fitx_prune_activity_track_chunks\(90\)\$\$/);
 });
+
+test("one account cannot fill the database: limits match what the app produces", () => {
+  const text = sql(files[0]);
+  assert.match(text, /chunk_count integer not null default 0 check \(chunk_count between 0 and 200\)/);
+  assert.match(text, /seq integer not null check \(seq between 0 and 199\)/);
+  assert.match(text, /point_count integer not null check \(point_count between 1 and 1000\)/);
+  assert.match(text, /char_length\(points\) between 1 and 40000/);
+  assert.match(text, /create trigger fitx_activities_daily_limit before insert on public\.activities/);
+  assert.match(text, /create trigger fitx_activity_chunks_limit before insert or update on public\.activity_track_chunks/);
+  assert.match(text, />= 50 then/);
+  assert.match(text, />= 1000 then/);
+});
+
+test("an activity's detailed points are pruned together, by when the activity ended", () => {
+  const text = sql(files[0]);
+  assert.match(text, /delete from public\.activity_track_chunks c\s+using public\.activities a\s+where a\.id = c\.activity_id\s+and a\.user_id = c\.user_id\s+and a\.ended_at < now\(\)/);
+});

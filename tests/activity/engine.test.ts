@@ -341,3 +341,55 @@ test("controls out of place are ignored", () => {
   engine.addFix({ t: T0 - 1_000, lat: ORIGIN.lat, lng: ORIGIN.lng, acc: 5, alt: null, altAcc: null, speed: null });
   assert.equal(engine.recordedFixes.length, 0, "a fix from before the start is not part of the activity");
 });
+
+// Review fix: a long GPS silence that ends where it began (indoors, underground) used to be counted
+// as speed x time by the device-speed model.
+function indoorsWalk(noise: Noise, seed: number, options: { stopFirst: boolean }) {
+  const device = gps(noise, seed);
+  const path = legs(ORIGIN, [[0, 390], [90, 390]]);
+  const a = moveAlong(path, { toM: 390, speedMps: 1.3, startMs: T0, device });
+  let resumeAt = a.endMs + 600_000; // ten minutes with no usable fix
+  const before: Fix[] = [...a.fixes];
+  if (options.stopFirst) {
+    const still = standStill(pointAt(path, 390), { seconds: 60, startMs: a.endMs, device });
+    before.push(...still.fixes);
+    resumeAt = still.endMs + 600_000;
+  }
+  const b = moveAlong(path, { fromM: 390, speedMps: 1.3, startMs: resumeAt, device });
+  return recording("walk", [...before, ...b.fixes]);
+}
+
+test("a long silence that ends where it began adds no distance or moving time", () => {
+  for (const [noise, model] of [[WITH_SPEED, "doppler"], [REALISTIC, "position"]] as const) {
+    const { snap } = finished(indoorsWalk(noise, 50, { stopFirst: false }));
+    assert.equal(snap.distanceModel, model);
+    assert.ok(relativeError(snap.distanceM, 780) < 0.04, `${model}: distance ${snap.distanceM.toFixed(0)}`);
+    assert.ok(relativeError(snap.movingSeconds, 600) < 0.06, `${model}: moving ${snap.movingSeconds.toFixed(0)}`);
+    assert.equal(snap.gaps.length, 1, `${model}: walking when the signal went, so it is disclosed`);
+    assert.equal(snap.gaps[0].kind, "signal");
+    assert.ok(Math.abs((snap.gaps[0].end - snap.gaps[0].start) / 1000 - 600) < 3);
+  }
+});
+
+test("a long silence during a stop is just a stop", () => {
+  const { snap } = finished(indoorsWalk(WITH_SPEED, 51, { stopFirst: true }));
+  assert.ok(relativeError(snap.distanceM, 780) < 0.04, `distance ${snap.distanceM.toFixed(0)}`);
+  assert.ok(relativeError(snap.movingSeconds, 600) < 0.06, `moving ${snap.movingSeconds.toFixed(0)}`);
+  assert.equal(snap.gaps.length, 0);
+});
+
+test("a fix that arrives while the page is still hidden does not end the interruption", () => {
+  const device = gps(REALISTIC, 52);
+  const path = legs(ORIGIN, [[0, 3000]]);
+  const a = moveAlong(path, { toM: 1000, speedMps: 3, startMs: T0, device });
+  const hiddenAt = a.endMs - 950; // just after the last fix
+  const queued = device.fix(pointAt(path, 1003), hiddenAt + 30, 3); // delivered after "hidden"
+  const back = hiddenAt + 120_000;
+  const c = moveAlong(path, { fromM: 1360, toM: 2360, speedMps: 3, startMs: back + 500, device });
+  const log = [control({ type: "start", t: T0, sport: "run" }), ...fixEntries(a.fixes), control({ type: "hidden", t: hiddenAt }), ...fixEntries([queued]), control({ type: "visible", t: back }), ...fixEntries(c.fixes), control({ type: "finish", t: c.endMs })];
+  const { snap } = finished(log);
+  assert.equal(snap.gaps.length, 1);
+  assert.equal(snap.gaps[0].kind, "hidden");
+  assert.equal(snap.segments.length, 2, "never joined across the lock");
+  assert.ok(relativeError(snap.distanceM, 2000) < 0.04, `distance ${snap.distanceM.toFixed(0)}`);
+});

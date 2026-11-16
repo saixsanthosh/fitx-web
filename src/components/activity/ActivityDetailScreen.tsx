@@ -3,17 +3,18 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Check, ChevronLeft, CloudOff, Download, Info, Pencil, RefreshCw, Share2, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
-import { KCAL_METHOD } from "@/lib/activity/calories";
+import { estimateKcal, KCAL_METHOD } from "@/lib/activity/calories";
 import { SPORT_LABEL, SPORT_NOUN, usesPace } from "@/lib/activity/config";
-import { cleanTitle, formatActivityDate, formatDistance, formatDuration, formatPace, formatSpeed, kmValue, paceValue, speedValue } from "@/lib/activity/format";
+import { cleanTitle, formatActivityDate, formatDistance, formatDuration, formatPace, formatSpeed, kmValue, localDateKey, paceValue, speedValue } from "@/lib/activity/format";
 import { toGpx } from "@/lib/activity/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
 import { decodeRoute } from "@/lib/activity/polyline";
 import { replayStored } from "@/lib/activity/replay";
-import { deleteActivity, getActivity, getTrackChunks, updateActivity, viewFromRecord, type ActivityView } from "@/lib/activity/repository";
+import type { ActivityRecord } from "@/lib/activity/record";
+import { deleteActivity, deleteActivityByClientId, getActivity, getTrackChunks, updateActivity, viewFromRecord, type ActivityView } from "@/lib/activity/repository";
 import { downloadBlob, type CardData } from "@/lib/activity/share-card";
 import { uploadRecording } from "@/lib/activity/sync";
 import type { Fix, LatLng } from "@/lib/activity/types";
@@ -32,7 +33,7 @@ const ActivityMap = dynamic(() => import("./ActivityMap"), {
 
 type LoadState =
   | { status: "loading" }
-  | { status: "ready"; view: ActivityView; uploadNote: string | null }
+  | { status: "ready"; view: ActivityView; uploadNote: string | null; rejected: boolean; localRecord: ActivityRecord | null }
   | { status: "missing" }
   | { status: "unavailable" }
   | { status: "error"; offline: boolean };
@@ -60,6 +61,9 @@ export function ActivityDetailScreen({ id }: { id: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [message, setMessage] = useState("");
   const [reload, setReload] = useState(0);
+  const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const renameTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const userId = account.status === "ready" ? account.userId : null;
   useEffect(() => {
@@ -71,7 +75,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
         const stored = await store.getRecording(localClientId);
         if (!active) return;
         if (!stored || stored.userId !== userId || !stored.record) setState({ status: "missing" });
-        else setState({ status: "ready", view: viewFromRecord(stored.record), uploadNote: stored.lastUploadError ?? null });
+        else setState({ status: "ready", view: viewFromRecord(stored.record), uploadNote: stored.lastUploadError ?? null, rejected: Boolean(stored.uploadRejected), localRecord: stored.record });
         return;
       }
       const supabase = createClient();
@@ -79,9 +83,9 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       const result = await getActivity(supabase, userId, id);
       if (!active) return;
       if (result.status === "unavailable") setState({ status: "unavailable" });
-      else if (result.status === "error") setState({ status: "error", offline: result.offline });
+      else if (result.status !== "ok") setState({ status: "error", offline: result.status === "error" && result.offline });
       else if (!result.data) setState({ status: "missing" });
-      else setState({ status: "ready", view: result.data, uploadNote: null });
+      else setState({ status: "ready", view: result.data, uploadNote: null, rejected: false, localRecord: null });
     })();
     return () => {
       active = false;
@@ -89,29 +93,57 @@ export function ActivityDetailScreen({ id }: { id: string }) {
   }, [userId, id, localClientId, reload]);
 
   const view = state.status === "ready" ? state.view : null;
+  const localRecord = state.status === "ready" ? state.localRecord : null;
+  const weightKg = account.status === "ready" ? account.weightKg : null;
 
-  // Detailed GPS points: replayed for a precise route and the GPX export, while they are kept.
+  // Detailed GPS points: replayed for a precise route and the GPX export, while all of them are
+  // kept (a partial set, mid-upload or mid-clean-up, would draw only part of the route).
   useEffect(() => {
-    if (!userId || !view || view.local || !view.id || !view.chunkCount) return;
+    if (!userId || !view) return;
     let active = true;
+    const show = (engine: ReturnType<typeof replayStored>) => {
+      if (active) setDetail({ segments: engine.acceptedSegments.filter((s) => s.length > 1), route: engine.segments.map((s) => s.map(({ lat, lng }) => ({ lat, lng }))) });
+    };
+    if (localRecord) {
+      void Promise.resolve().then(() => show(replayStored(localRecord.sport, localRecord.startedAt, localRecord.timeline, localRecord.chunks)));
+      return () => { active = false; };
+    }
+    if (view.local || !view.id || !view.chunkCount) return;
     const supabase = createClient();
     if (!supabase) return;
     void (async () => {
       const chunks = await getTrackChunks(supabase, userId, view.id as string);
-      if (!active || chunks.status !== "ok" || !chunks.data.length) return;
-      const engine = replayStored(view.sport, view.startedAt, view.timeline, chunks.data);
-      setDetail({ segments: engine.acceptedSegments.filter((s) => s.length > 1), route: engine.segments.map((s) => s.map(({ lat, lng }) => ({ lat, lng }))) });
+      if (!active || chunks.status !== "ok") return;
+      const complete = chunks.data.length === view.chunkCount && chunks.data.every((chunk, i) => chunk.seq === i);
+      if (complete) show(replayStored(view.sport, view.startedAt, view.timeline, chunks.data));
     })();
     return () => {
       active = false;
     };
-  }, [userId, view]);
+  }, [userId, view, localRecord]);
 
+  // Recorded before a body weight was known: estimate now, and keep it on the activity.
+  const fillKcal = view && view.kcal === null && weightKg !== null ? estimateKcal(view.sport, view.splits, weightKg) : null;
+  useEffect(() => {
+    if (!userId || !view || view.local || !view.id || fillKcal === null || weightKg === null) return;
+    const supabase = createClient();
+    if (!supabase) return;
+    let active = true;
+    void updateActivity(supabase, userId, view.id, { kcal: fillKcal, kcalMethod: KCAL_METHOD, weightKg }).then((result) => {
+      if (active && result.status === "ok") setState((previous) => (previous.status === "ready" ? { ...previous, view: { ...previous.view, kcal: fillKcal, kcalMethod: KCAL_METHOD, weightKg } } : previous));
+    });
+    return () => {
+      active = false;
+    };
+  }, [userId, view, fillKcal, weightKg]);
+
+  const kcal = view ? view.kcal ?? fillKcal : null;
+  const kcalWeight = view ? view.weightKg ?? (fillKcal !== null ? weightKg : null) : null;
   const route = useMemo<LatLng[][]>(() => detail?.route ?? (view ? decodeRoute(view.routePolyline) : []), [detail, view]);
   const card = useMemo<CardData | null>(() => view && {
     sport: view.sport, title: view.title, startedAt: view.startedAt, distanceM: view.distanceM, movingSeconds: view.movingSeconds,
-    avgSpeedMps: view.avgSpeedMps, avgPaceSecondsPerKm: view.avgPaceSecondsPerKm, kcal: view.kcal, elevationGainM: view.elevationGainM, sharePolyline: view.sharePolyline,
-  }, [view]);
+    avgSpeedMps: view.avgSpeedMps, avgPaceSecondsPerKm: view.avgPaceSecondsPerKm, kcal, elevationGainM: view.elevationGainM, sharePolyline: view.sharePolyline,
+  }, [view, kcal]);
 
   if (account.status === "loading") return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading activity…</div>;
   if (account.status === "unconfigured") return <EmptyState title="Activities aren’t connected" description="FITX is not connected to its database on this site." />;
@@ -136,24 +168,35 @@ export function ActivityDetailScreen({ id }: { id: string }) {
     const result = await updateActivity(supabase, userId, view.id as string, { title: next });
     setBusy("");
     if (result.status !== "ok") return setMessage("The new name couldn’t be saved. Try again.");
-    setState({ status: "ready", view: { ...view, title: next }, uploadNote: null });
-    setEditing(false);
+    setState((previous) => (previous.status === "ready" ? { ...previous, view: { ...previous.view, title: next } } : previous));
+    closeRename();
     setMessage("");
   }
 
+  /** Deletes both copies: the one on this device and any already uploaded to the account. */
   async function remove() {
     if (!view || !userId) return;
     setBusy("delete");
+    const supabase = createClient();
+    const store = await recordingStore();
     if (view.local) {
-      const store = await recordingStore();
-      await store.deleteRecording(view.clientId);
+      // An upload that stopped half way may already have saved it to the account: delete that too.
+      // Without any upload attempt there is no such copy, so being offline doesn't block the delete.
+      const stored = await store.getRecording(view.clientId).catch(() => null);
+      const server = supabase ? await deleteActivityByClientId(supabase, userId, view.clientId) : null;
+      if (stored?.uploadAttempts && server && server.status !== "ok" && server.status !== "unavailable") {
+        setBusy("");
+        return setMessage("This activity couldn’t be deleted from your account. Check your connection and try again.");
+      }
+      await store.deleteRecording(view.clientId).catch(() => undefined);
       router.replace("/activity");
       return;
     }
-    const supabase = createClient();
     const result = supabase ? await deleteActivity(supabase, userId, view.id as string) : null;
     setBusy("");
     if (!result || result.status !== "ok") return setMessage("This activity couldn’t be deleted. Check your connection and try again.");
+    // Otherwise the device copy would upload it again.
+    await store.deleteRecording(view.clientId).catch(() => undefined);
     router.replace("/activity");
   }
 
@@ -170,13 +213,22 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       router.replace(`/activity/${outcome.result.data.id}`);
       return;
     }
-    setMessage(outcome.result.status === "unavailable" ? "Activity history isn’t available yet. It stays on this device until it is." : outcome.result.offline ? "You’re offline. It will upload when you’re back online." : "The upload didn’t work. Try again in a moment.");
+    if (outcome.result.status === "rejected") {
+      setState((previous) => (previous.status === "ready" ? { ...previous, rejected: true } : previous));
+      return setMessage("");
+    }
+    setMessage(outcome.result.status === "unavailable" ? "Activity history isn’t available yet. It stays on this device until it is." : outcome.result.status === "error" && outcome.result.offline ? "You’re offline. It will upload when you’re back online." : "The upload didn’t work. Try again in a moment.");
+  }
+
+  function closeRename() {
+    setEditing(false);
+    window.setTimeout(() => renameTriggerRef.current?.focus(), 0);
   }
 
   function exportGpx() {
     if (!view || !detail) return;
     const gpx = toGpx({ name: view.title, sport: view.sport, segments: detail.segments });
-    downloadBlob(new Blob([gpx], { type: "application/gpx+xml" }), `fitx-${view.sport}-${new Date(view.startedAt).toISOString().slice(0, 10)}.gpx`);
+    downloadBlob(new Blob([gpx], { type: "application/gpx+xml" }), `fitx-${view.sport}-${localDateKey(view.startedAt)}.gpx`);
   }
 
   return (
@@ -194,12 +246,12 @@ export function ActivityDetailScreen({ id }: { id: string }) {
               <label htmlFor="activity-title" className="sr-only">Activity name</label>
               <input id="activity-title" className="fitx-field h-11 min-w-0 flex-1 text-lg font-semibold" maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} autoFocus />
               <button type="submit" disabled={busy === "rename"} className="fitx-button min-h-11 px-3" aria-label="Save name"><Check size={17} aria-hidden="true" /></button>
-              <button type="button" onClick={() => setEditing(false)} className="fitx-button fitx-button-quiet min-h-11 px-3" aria-label="Cancel renaming"><X size={17} aria-hidden="true" /></button>
+              <button type="button" onClick={closeRename} className="fitx-button fitx-button-quiet min-h-11 px-3" aria-label="Cancel renaming"><X size={17} aria-hidden="true" /></button>
             </form>
           ) : (
             <h1 className="mt-1 flex items-center gap-2 text-[26px] font-bold leading-tight tracking-[-.03em] text-fitx-text sm:text-[30px]">
               <span className="min-w-0 break-words">{view.title}</span>
-              {!view.local && <button type="button" onClick={() => { setTitle(view.title); setEditing(true); }} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label="Rename activity"><Pencil size={16} aria-hidden="true" /></button>}
+              {!view.local && <button type="button" ref={renameTriggerRef} onClick={() => { setTitle(view.title); setEditing(true); }} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label="Rename activity"><Pencil size={16} aria-hidden="true" /></button>}
             </h1>
           )}
         </div>
@@ -212,8 +264,11 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       {message && <p role="alert" className="fitx-alert fitx-alert-danger">{message}</p>}
       {view.local && (
         <section className="fitx-alert flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" aria-label="Saved on this device">
-          <p className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">Saved on this device only.</span> {state.uploadNote === "Activity history is not available yet" ? "Activity history isn’t available yet; it uploads once it is." : "It uploads to your account when you’re online."}</span></p>
-          <button type="button" onClick={() => void upload()} disabled={busy === "upload"} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />{busy === "upload" ? "Uploading…" : "Upload now"}</button>
+          <p className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">Saved on this device only.</span>{" "}
+            {state.rejected
+              ? "It can’t be uploaded to your account because it breaks a limit (an activity can last at most 48 hours). It stays here: you can share it or download its GPX."
+              : state.uploadNote === "Activity history is not available yet" ? "Activity history isn’t available yet; it uploads once it is." : "It uploads to your account when you’re online."}</span></p>
+          {!state.rejected && <button type="button" onClick={() => void upload()} disabled={busy === "upload"} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />{busy === "upload" ? "Uploading…" : "Upload now"}</button>}
         </section>
       )}
 
@@ -241,10 +296,10 @@ export function ActivityDetailScreen({ id }: { id: string }) {
             {pace && <Metric label="Avg pace" value={paceValue(view.avgPaceSecondsPerKm)} note="per km, moving time" />}
             <Metric label="Avg speed" value={speedValue(view.avgSpeedMps)} note="km/h, moving time" />
             {!pace && <Metric label="Max speed" value={speedValue(view.maxSpeedMps)} note={view.maxSpeedMps === null ? "your phone didn’t report its speed" : "km/h"} />}
-            <Metric label="Calories" value={view.kcal === null ? "–" : `≈ ${view.kcal}`} note={view.kcal === null ? "Add your weight in Profile to see an estimate" : "kcal, estimated"} />
+            <Metric label="Calories" value={kcal === null ? "–" : `≈ ${kcal}`} note={kcal === null ? "Add your weight in Profile to see an estimate" : "kcal, estimated"} />
             {view.elevationGainM !== null && <Metric label="Climb" value={`${Math.round(view.elevationGainM)} m`} note="from GPS altitude, approximate" />}
           </div>
-          {view.kcal === null && <Link href="/profile" className="inline-flex min-h-11 items-center text-sm font-medium text-fitx-primary-text">Add your weight</Link>}
+          {kcal === null && <Link href="/profile" className="inline-flex min-h-11 items-center text-sm font-medium text-fitx-primary-text">Add your weight</Link>}
         </section>
       </div>
 
@@ -288,22 +343,22 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       )}
 
       <section className="fitx-panel space-y-3 p-4 text-xs leading-5 text-fitx-text-secondary sm:p-5" aria-label="About these numbers">
-        {view.kcal !== null && <p><span className="font-semibold text-fitx-text">Calories</span> are an estimate: {view.kcalMethod ?? KCAL_METHOD}{view.weightKg ? ` Weight used: ${view.weightKg} kg.` : ""}</p>}
+        {kcal !== null && <p><span className="font-semibold text-fitx-text">Calories</span> are an estimate: {view.kcalMethod ?? KCAL_METHOD}{kcalWeight ? ` Weight used: ${kcalWeight} kg.` : ""}</p>}
         <p><span className="font-semibold text-fitx-text">Moving time</span> leaves out pauses, stops and interruptions; <span className="font-semibold text-fitx-text">elapsed time</span> is start to finish.</p>
-        <p><span className="font-semibold text-fitx-text">Privacy:</span> your routes are visible only to you. Share images leave out the area around the start and finish. Detailed GPS points are kept for 90 days; this summary and route stay until you delete them.</p>
+        <p><span className="font-semibold text-fitx-text">Privacy:</span> your routes are visible only to you. Share images leave out the area around the start and finish. Detailed GPS points are kept for 90 days; this summary and route stay until you delete them. Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown, not your route or account.</p>
       </section>
 
       <section className="flex flex-col gap-3 border-t border-fitx-divider pt-4 sm:flex-row sm:items-center sm:justify-between">
         {confirmDelete ? (
-          <div className="flex flex-1 flex-col gap-3 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4 sm:flex-row sm:items-center sm:justify-between" role="group" aria-label="Delete this activity?">
-            <p className="text-sm font-semibold text-fitx-danger">Delete this {SPORT_NOUN[view.sport]} and its route? This can’t be undone.</p>
+          <div className="flex flex-1 flex-col gap-3 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4 sm:flex-row sm:items-center sm:justify-between" role="alertdialog" aria-labelledby="delete-question">
+            <p id="delete-question" className="text-sm font-semibold text-fitx-danger">Delete this {SPORT_NOUN[view.sport]} and its route? This can’t be undone.</p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setConfirmDelete(false)} className="fitx-button fitx-button-secondary min-h-11">Keep</button>
+              <button type="button" ref={focusOnMount} onClick={() => { setConfirmDelete(false); window.setTimeout(() => deleteTriggerRef.current?.focus(), 0); }} className="fitx-button fitx-button-secondary min-h-11">Keep</button>
               <button type="button" onClick={() => void remove()} disabled={busy === "delete"} className="fitx-button fitx-button-danger min-h-11"><Trash2 size={15} aria-hidden="true" />{busy === "delete" ? "Deleting…" : "Delete"}</button>
             </div>
           </div>
         ) : (
-          <button type="button" onClick={() => setConfirmDelete(true)} className={cn("fitx-button fitx-button-quiet min-h-11 self-start")}><Trash2 size={15} aria-hidden="true" />Delete activity</button>
+          <button type="button" ref={deleteTriggerRef} onClick={() => setConfirmDelete(true)} className={cn("fitx-button fitx-button-quiet min-h-11 self-start")}><Trash2 size={15} aria-hidden="true" />Delete activity</button>
         )}
       </section>
 

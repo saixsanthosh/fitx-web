@@ -1,5 +1,6 @@
 import { usableWeight } from "./calories";
 import { COARSE_ACCURACY_M, GOOD_ACCURACY_M, SPORT_CONFIG } from "./config";
+import { busyRecordings, holdRecordingLock, reconcileRecordings, type LocksLike } from "./device-recordings";
 import { ActivityEngine, type EngineSnapshot } from "./engine";
 import { defaultTitle } from "./format";
 import type { RecordingStore, StoredEntry, StoredRecording } from "./local-store";
@@ -23,7 +24,23 @@ export type PermissionState = "granted" | "prompt" | "denied" | "unknown";
 export type WakeLockState = "off" | "active" | "unsupported" | "failed";
 export type SignalQuality = "none" | "good" | "fair" | "weak" | "coarse";
 
-export type RestorableRecording = { clientId: string; sport: Sport; startedAt: number; lastActivityAt: number; distanceM: number; paused: boolean };
+export type RestorableRecording = {
+  clientId: string;
+  sport: Sport;
+  startedAt: number;
+  lastActivityAt: number;
+  distanceM: number;
+  paused: boolean;
+  /** False once it is too old to continue (an activity can last at most 48 hours): only finish it. */
+  canResume: boolean;
+};
+
+/** The longest activity the database accepts (activities.elapsed_seconds, 48 hours). */
+export const MAX_ELAPSED_MS = 48 * 3600 * 1000;
+/** Resuming is offered only while there is at least an hour left before that limit. */
+export const RESUME_LIMIT_MS = MAX_ELAPSED_MS - 3600 * 1000;
+
+export type FinishResult = { record: ActivityRecord; savedLocally: boolean };
 
 export type RecorderSnapshot = {
   phase: RecorderPhase;
@@ -41,6 +58,8 @@ export type RecorderSnapshot = {
   kcal: number | null;
   clientId: string | null;
   restorable: RestorableRecording | null;
+  /** An unfinished recording is being recorded in another FITX window or tab right now. */
+  elsewhere: boolean;
   /** When this snapshot was taken (epoch ms): the clock the stats were computed for. */
   now: number;
 };
@@ -70,6 +89,8 @@ export type RecorderDeps = {
   randomId(): string;
   setInterval(callback: () => void, ms: number): unknown;
   clearInterval(handle: unknown): void;
+  /** navigator.locks, when available: marks a recording as live in this window. */
+  locks?: LocksLike | null;
 };
 
 /** Location requests: precise, never cached, and an error if nothing arrives within 20 s. */
@@ -131,6 +152,8 @@ export class ActivityRecorder {
   private userId: string | null = null;
   private weightKg: number | null = null;
   private restorable: RestorableRecording | null = null;
+  private elsewhere = false;
+  private releaseLock: () => void = () => undefined;
   private disposed = false;
 
   constructor(deps: RecorderDeps) {
@@ -171,6 +194,7 @@ export class ActivityRecorder {
       kcal: this.engine && this.weightKg !== null ? this.engine.kcal(this.weightKg) : null,
       clientId: this.clientId,
       restorable: this.restorable,
+      elsewhere: this.elsewhere,
       now,
     };
   }
@@ -197,14 +221,26 @@ export class ActivityRecorder {
     }
     if (this.permission === "denied" && !this.issue) this.issue = "denied";
     try {
-      const recordings = await this.deps.store.listRecordings(userId);
-      const active = recordings.find((recording) => recording.state === "active");
-      if (active) {
-        const entries = await this.deps.store.readEntries(active.clientId);
+      // A recording another window is running is left alone; stale rows are tidied first.
+      const busy = await busyRecordings(this.deps.locks);
+      const recordings = await reconcileRecordings(this.deps.store, userId, busy);
+      const active = recordings.filter((recording) => recording.state === "active");
+      this.elsewhere = active.some((recording) => busy.has(recording.clientId));
+      const candidate = active.find((recording) => !busy.has(recording.clientId));
+      if (candidate) {
+        const entries = await this.deps.store.readEntries(candidate.clientId);
         const engine = ActivityEngine.replay(entries);
-        const last = entries.length ? entryTime(entries[entries.length - 1]) : active.startedAt;
+        const last = entries.length ? entryTime(entries[entries.length - 1]) : candidate.startedAt;
         if (engine.status === "recording" || engine.status === "paused") {
-          this.restorable = { clientId: active.clientId, sport: active.sport, startedAt: active.startedAt, lastActivityAt: last, distanceM: engine.distanceM, paused: engine.status === "paused" };
+          this.restorable = {
+            clientId: candidate.clientId,
+            sport: candidate.sport,
+            startedAt: candidate.startedAt,
+            lastActivityAt: last,
+            distanceM: engine.distanceM,
+            paused: engine.status === "paused",
+            canResume: this.deps.now() - candidate.startedAt < RESUME_LIMIT_MS,
+          };
         }
       }
     } catch {
@@ -270,21 +306,26 @@ export class ActivityRecorder {
 
   /** Begins recording. Needs an account (`init`) and, ideally, a warmed-up location. */
   async start(sport: Sport, weightKg: unknown): Promise<void> {
-    if (this.phase === "recording" || this.phase === "paused" || !this.userId) return;
+    if (this.phase === "recording" || this.phase === "paused" || this.phase === "finished" || !this.userId) return;
+    // Everything up to the first await happens at once, so a second tap finds it already recording.
     this.sport = sport;
     this.weightKg = usableWeight(weightKg);
-    this.clientId = this.deps.randomId();
+    const clientId = this.deps.randomId();
+    this.clientId = clientId;
     this.engine = new ActivityEngine();
     this.log = [];
     this.pending = [];
     this.restorable = null;
-    const t = this.deps.now();
-    const stored: StoredRecording = { clientId: this.clientId, userId: this.userId, sport, startedAt: t, state: "active", updatedAt: t };
-    await this.deps.store.saveRecording(stored).catch(() => undefined);
     this.phase = "recording";
+    const t = this.deps.now();
+    this.releaseLock = holdRecordingLock(this.deps.locks, clientId);
+    const stored: StoredRecording = { clientId, userId: this.userId, sport, startedAt: t, state: "active", updatedAt: t };
+    // The row is written before its first log entries (the flush queue keeps the order).
+    this.flushing = this.flushing.then(() => this.deps.store.saveRecording(stored)).catch(() => undefined);
     this.control({ type: "start", t, sport });
     // The fix that was showing the signal is recent: let it begin the route.
     if (this.lastFix && t - this.lastFixAt < 5_000) this.record({ kind: "fix", fix: { ...this.lastFix, t: Math.max(this.lastFix.t, t) } });
+    this.emit();
     this.warmUp();
     await this.acquireWakeLock();
     await this.flush();
@@ -294,7 +335,7 @@ export class ActivityRecorder {
   /** Continues an unfinished recording found by `init`, with the time away as an interruption. */
   async resumeRestored(weightKg: unknown): Promise<boolean> {
     const restorable = this.restorable;
-    if (!restorable || !this.userId) return false;
+    if (!restorable || !restorable.canResume || !this.userId) return false;
     const entries = await this.deps.store.readEntries(restorable.clientId);
     const engine = ActivityEngine.replay(entries);
     if (engine.status !== "recording" && engine.status !== "paused") return false;
@@ -305,6 +346,7 @@ export class ActivityRecorder {
     this.sport = restorable.sport;
     this.weightKg = usableWeight(weightKg);
     this.restorable = null;
+    this.releaseLock = holdRecordingLock(this.deps.locks, restorable.clientId);
     const now = this.deps.now();
     if (engine.status === "recording") {
       // The page was gone from just after its last saved entry until now: an interruption.
@@ -340,15 +382,23 @@ export class ActivityRecorder {
 
   /**
    * Ends the recording and stores the finished summary on the device for upload. `endAt` lets an
-   * abandoned restored recording end when its data ended instead of now.
+   * abandoned restored recording end when its data ended instead of now. `savedLocally` is false
+   * when the device copy could not be written: the record must then be uploaded (or kept) from
+   * memory.
    */
-  async finish(title: string | null, endAt?: number): Promise<ActivityRecord | null> {
+  async finish(title: string | null, endAt?: number): Promise<FinishResult | null> {
     if (this.restorable && !this.engine) {
       const resumed = await this.loadRestoredForFinish();
       if (!resumed) return null;
     }
     if (!this.engine || !this.clientId || !this.userId || (this.phase !== "recording" && this.phase !== "paused")) return null;
-    const t = endAt ?? this.deps.now();
+    let t = endAt ?? this.deps.now();
+    const started = this.engine.startedAt ?? t;
+    if (t - started > MAX_ELAPSED_MS) {
+      // Past the 48-hour limit (a recording left paused or open for days): end where its data ended.
+      const lastEntry = this.log.length ? entryTime(this.log[this.log.length - 1]) : started;
+      t = Math.max(started, Math.min(started + MAX_ELAPSED_MS, lastEntry));
+    }
     this.control({ type: "finish", t });
     this.phase = "finished";
     this.stopWatching();
@@ -362,13 +412,15 @@ export class ActivityRecorder {
       log: this.log,
     });
     const stored: StoredRecording = { clientId: this.clientId, userId: this.userId, sport: this.sport, startedAt: record.startedAt, state: "finished", updatedAt: t, record, uploadAttempts: 0 };
-    await this.deps.store.saveRecording(stored).catch(() => undefined);
+    let savedLocally = true;
+    await this.deps.store.saveRecording(stored).catch(() => { savedLocally = false; });
+    this.releaseLock();
     this.emit();
-    return record;
+    return { record, savedLocally };
   }
 
   /** Finishes a restored recording at the time its data ended (when it is not resumed). */
-  async finishRestored(weightKg: unknown): Promise<ActivityRecord | null> {
+  async finishRestored(weightKg: unknown): Promise<FinishResult | null> {
     const restorable = this.restorable;
     if (!restorable) return null;
     if (!(await this.loadRestoredForFinish())) return null;
@@ -395,6 +447,7 @@ export class ActivityRecorder {
   async discard(): Promise<void> {
     const clientId = this.clientId ?? this.restorable?.clientId ?? null;
     this.stopTicker();
+    this.releaseLock();
     await this.releaseWakeLock();
     this.engine = null;
     this.log = [];
@@ -416,6 +469,7 @@ export class ActivityRecorder {
     this.deps.window?.removeEventListener("pagehide", this.onPageHide);
     await this.releaseWakeLock();
     await this.flush();
+    this.releaseLock();
     this.listeners.clear();
   }
 

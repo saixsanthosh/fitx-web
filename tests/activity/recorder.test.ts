@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MemoryRecordingStore } from "@/lib/activity/local-store";
-import { ActivityRecorder, signalFor, toFix, WATCH_OPTIONS, type RecorderDeps } from "@/lib/activity/recorder";
+import { recordingLockName, type LocksLike } from "@/lib/activity/device-recordings";
+import { MemoryRecordingStore, type StoredRecording } from "@/lib/activity/local-store";
+import { ActivityRecorder, MAX_ELAPSED_MS, RESUME_LIMIT_MS, signalFor, toFix, WATCH_OPTIONS, type RecorderDeps } from "@/lib/activity/recorder";
 import type { LatLng } from "@/lib/activity/types";
 import { ORIGIN, T0, legs, pointAt } from "./support/tracks";
 
@@ -188,8 +189,10 @@ test("a full recording: wake lock, screen lock gap, pause, finish, saved on the 
   env.recorder.resume();
   leg = walk(env, leg.endM + 100, leg.endMs + 61_000, 100);
   env.setNow(leg.endMs + 500);
-  const record = await env.recorder.finish("Lunch run");
-  assert.ok(record);
+  const finished = await env.recorder.finish("Lunch run");
+  assert.ok(finished);
+  assert.equal(finished.savedLocally, true);
+  const record = finished.record;
   assert.equal(record.title, "Lunch run");
   assert.equal(record.gapCount, 1);
   assert.ok(Math.abs(record.distanceM - 1800) < 120, `${record.distanceM}`);
@@ -229,7 +232,7 @@ test("a recording survives a reload: restore, resume with the time away as a gap
   assert.equal(second.recorder.getSnapshot().phase, "recording");
   walk(second, 280 + 400, away + 1000, 100, 1.4);
   second.setNow(away + 102_000);
-  const record = await second.recorder.finish(null);
+  const record = (await second.recorder.finish(null))?.record;
   assert.ok(record);
   assert.equal(record.kcal, null, "no weight, no calories");
   assert.equal(record.title, "Morning walk");
@@ -250,7 +253,7 @@ test("an abandoned recording can be finished where its data ended, or discarded"
   const second = setup({}, store);
   second.setNow(leg.endMs + 86_400_000);
   await second.recorder.init("u1");
-  const record = await second.recorder.finishRestored(80);
+  const record = (await second.recorder.finishRestored(80))?.record;
   assert.ok(record);
   assert.equal(record.endedAt, leg.endMs, "ends when the data ended, not a day later");
   assert.ok(record.elapsedSeconds <= 122);
@@ -284,4 +287,139 @@ test("without a wake lock API the screen state says so", async () => {
   env.recorder.warmUp();
   await env.recorder.start("walk", null);
   assert.equal(env.recorder.getSnapshot().wakeLock, "unsupported");
+});
+
+/** A store that can be slow, and refuse to save some rows, like a full or closed IndexedDB. */
+class FlakyStore extends MemoryRecordingStore {
+  delayMs = 0;
+  refuse: (row: StoredRecording) => boolean = () => false;
+  constructor() {
+    super(true);
+  }
+  async saveRecording(row: StoredRecording) {
+    if (this.delayMs) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+    if (this.refuse(row)) throw new Error("QuotaExceededError");
+    return super.saveRecording(row);
+  }
+}
+
+/** Web Locks stand-in shared by "windows" of one browser. */
+class FakeLocks implements LocksLike {
+  held = new Set<string>();
+  async request(name: string, _options: { ifAvailable?: boolean }, callback: (lock: unknown) => Promise<void>) {
+    this.held.add(name);
+    try { await callback({ name }); } finally { this.held.delete(name); }
+  }
+  async query() {
+    return { held: [...this.held].map((name) => ({ name })) };
+  }
+}
+
+test("finishing still returns the activity when the device copy can't be written", async () => {
+  const store = new FlakyStore();
+  store.refuse = (row) => row.state === "finished";
+  const env = setup({}, store);
+  await env.recorder.init("u1");
+  env.recorder.warmUp();
+  await env.recorder.start("walk", 60);
+  const leg = walk(env, 0, T0 + 1000, 120, 1.4);
+  env.setNow(leg.endMs + 500);
+  const finished = await env.recorder.finish(null);
+  assert.ok(finished, "the in-memory record is handed back");
+  assert.equal(finished.savedLocally, false);
+  assert.ok(finished.record.distanceM > 100);
+  // Once storage works again, the stale unfinished row becomes an uploadable record.
+  store.refuse = () => false;
+  const later = setup({}, store);
+  await later.recorder.init("u1");
+  const rows = await store.listRecordings("u1");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].state, "finished");
+  assert.ok(rows[0].record && rows[0].record.distanceM > 100);
+  assert.equal(later.recorder.getSnapshot().restorable, null);
+});
+
+test("a second tap on Start while the first is saving starts nothing new", async () => {
+  const store = new FlakyStore();
+  store.delayMs = 20;
+  const env = setup({}, store);
+  await env.recorder.init("u1");
+  env.recorder.warmUp();
+  const first = env.recorder.start("run", null);
+  const second = env.recorder.start("run", null);
+  await Promise.all([first, second]);
+  assert.equal(env.recorder.getSnapshot().phase, "recording");
+  const rows = await store.listRecordings("u1");
+  assert.equal(rows.length, 1, "one recording, no orphan");
+});
+
+test("a row whose log never started is removed instead of showing as unfinished", async () => {
+  const store = new MemoryRecordingStore(true);
+  await store.saveRecording({ clientId: "orphan", userId: "u1", sport: "run", startedAt: T0, state: "active", updatedAt: T0 });
+  const env = setup({}, store);
+  await env.recorder.init("u1");
+  assert.equal(env.recorder.getSnapshot().restorable, null);
+  assert.deepEqual(await store.listRecordings("u1"), []);
+});
+
+test("an unfinished recording older than the 48-hour limit can only be finished, within the limit", async () => {
+  const store = new MemoryRecordingStore(true);
+  const first = setup({}, store);
+  await first.recorder.init("u1");
+  first.recorder.warmUp();
+  await first.recorder.start("walk", null);
+  const leg = walk(first, 0, T0 + 1000, 60, 1.4);
+  await first.recorder.dispose();
+
+  const fresh = setup({}, store);
+  fresh.setNow(T0 + RESUME_LIMIT_MS - 60_000);
+  await fresh.recorder.init("u1");
+  assert.equal(fresh.recorder.getSnapshot().restorable?.canResume, true);
+
+  const old = setup({}, store);
+  old.setNow(T0 + 3 * 86_400_000);
+  await old.recorder.init("u1");
+  assert.equal(old.recorder.getSnapshot().restorable?.canResume, false);
+  assert.equal(await old.recorder.resumeRestored(null), false, "too old to continue");
+  const record = (await old.recorder.finishRestored(null))?.record;
+  assert.ok(record);
+  assert.equal(record.endedAt, leg.endMs, "ends where its data ended");
+  assert.ok(record.elapsedSeconds * 1000 <= MAX_ELAPSED_MS);
+});
+
+test("finishing a recording left paused for days stays within the 48-hour limit", async () => {
+  const env = setup();
+  await env.recorder.init("u1");
+  env.recorder.warmUp();
+  await env.recorder.start("run", null);
+  const leg = walk(env, 0, T0 + 1000, 120, 3);
+  env.setNow(leg.endMs + 1000);
+  env.recorder.pause();
+  env.setNow(T0 + 4 * 86_400_000);
+  const record = (await env.recorder.finish(null))?.record;
+  assert.ok(record);
+  assert.ok(record.elapsedSeconds * 1000 <= MAX_ELAPSED_MS, `${record.elapsedSeconds} s`);
+  assert.ok(record.distanceM > 300);
+});
+
+test("a recording running in another window is not offered for resume, finish or discard", async () => {
+  const store = new MemoryRecordingStore(true);
+  const locks = new FakeLocks();
+  const running = setup({ locks }, store);
+  await running.recorder.init("u1");
+  running.recorder.warmUp();
+  await running.recorder.start("ride", null);
+  walk(running, 0, T0 + 1000, 30, 6);
+  await running.recorder.flush();
+  const clientId = running.recorder.getSnapshot().clientId!;
+  assert.ok(locks.held.has(recordingLockName(clientId)));
+
+  const other = setup({ locks }, store);
+  await other.recorder.init("u1");
+  assert.equal(other.recorder.getSnapshot().restorable, null);
+  assert.equal(other.recorder.getSnapshot().elsewhere, true);
+  assert.ok(await store.getRecording(clientId), "the running recording is untouched");
+
+  await running.recorder.finish(null);
+  assert.equal(locks.held.has(recordingLockName(clientId)), false, "released at the finish");
 });
