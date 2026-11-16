@@ -27,25 +27,128 @@ export function sumMacros<T extends FoodMacros>(items: T[]): FoodMacros {
   );
 }
 
-export function estimateNutritionTargets(profile: {
+// ─── Daily targets ───────────────────────────────────────────────────────────────────────────────
+// Mifflin-St Jeor BMR × activity gives maintenance; the goal then adds a surplus or takes a deficit as
+// a share of maintenance, capped in calories. Loss goals never go below a safe floor (1,200 kcal for
+// women, 1,500 for men, 1,350 otherwise) and under-18s stay at maintenance. Callers pass the latest
+// weigh-in as `weight` (see loadUserContext), so targets follow what the user logs.
+
+type TargetProfile = {
   age?: number | null;
   gender?: string | null;
   height?: number | null;
   weight?: number | null;
-}, activityLevel = "moderate", goal = "general_fitness"): FoodMacros | null {
+};
+
+export type TargetRule = "deficit" | "surplus" | "maintenance";
+
+export type NutritionTargets = FoodMacros & {
+  /** Estimated calories that keep weight steady. */
+  maintenance: number;
+  bmr: number;
+  /** Calories added to maintenance (negative for a deficit), after the floor and the under-18 rule. */
+  adjustment: number;
+  rule: TargetRule;
+  /** The floor that raised a loss target, or null when the goal's own deficit applied. */
+  floorApplied: number | null;
+  /** True when an under-18 picked a loss goal: FITX keeps the target at maintenance. */
+  youthMaintenance: boolean;
+  proteinPerKg: number;
+  /** Estimated change in body weight a week at this target (kg, negative for loss). */
+  weeklyChangeKg: number;
+  /** The body weight the targets were calculated from (kg). */
+  weightKg: number;
+};
+
+const ACTIVITY_FACTORS: Record<string, number> = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9 };
+
+/** Share of maintenance added or removed, the largest change in kcal, and protein in g per kg. */
+const GOAL_RULES: Record<string, { share: number; cap: number; proteinPerKg: number }> = {
+  muscle_gain: { share: 0.1, cap: 350, proteinPerKg: 1.8 },
+  weight_gain: { share: 0.15, cap: 500, proteinPerKg: 1.6 },
+  fat_loss: { share: -0.15, cap: 600, proteinPerKg: 2.0 },
+  weight_loss: { share: -0.2, cap: 750, proteinPerKg: 1.8 },
+  general_fitness: { share: 0, cap: 0, proteinPerKg: 1.6 },
+  strength: { share: 0, cap: 0, proteinPerKg: 1.8 },
+  endurance: { share: 0, cap: 0, proteinPerKg: 1.6 },
+};
+
+/** The lowest daily target FITX suggests for a loss goal without a professional's guidance. */
+export const CALORIE_FLOORS = { female: 1200, male: 1500, other: 1350 } as const;
+/** No target is ever lower than this. */
+export const MINIMUM_CALORIES = 1000;
+/** Energy in about a kilogram of body weight change. */
+const KCAL_PER_KG = 7700;
+/** Protein is counted against weight up to this BMI, so very heavy bodies don't get unrealistic targets. */
+const PROTEIN_REFERENCE_BMI = 27.5;
+
+export function calorieFloor(gender: string | null | undefined) {
+  return gender === "male" ? CALORIE_FLOORS.male : gender === "female" ? CALORIE_FLOORS.female : CALORIE_FLOORS.other;
+}
+
+/** Daily calorie and macro targets with the reasoning behind them, or null when a measurement is missing. */
+export function calculateNutritionTargets(
+  profile: TargetProfile,
+  activityLevel: string | null = "moderate",
+  goal: string | null = "general_fitness",
+): NutritionTargets | null {
   const age = Number(profile.age);
   const height = Number(profile.height);
   const weight = Number(profile.weight);
-  if (!age || !height || !weight || age < 13 || age > 100 || height < 90 || weight < 30) return null;
-  const offsets: Record<string, number> = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9 };
+  if (!Number.isFinite(age) || !Number.isFinite(height) || !Number.isFinite(weight)) return null;
+  if (age < 13 || age > 100 || height < 90 || height > 250 || weight < 30 || weight > 500) return null;
+
   const sexOffset = profile.gender === "male" ? 5 : profile.gender === "female" ? -161 : -78;
-  const bmr = 10 * weight + 6.25 * height - 5 * age + sexOffset;
-  const adjustment = goal === "fat_loss" ? -300 : goal === "muscle_gain" ? 200 : 0;
-  const calories = Math.max(1000, Math.round(bmr * (offsets[activityLevel] ?? 1.55) + adjustment));
-  const protein = Math.round(weight * (goal === "muscle_gain" || goal === "fat_loss" ? 1.8 : 1.6));
+  const exactBmr = 10 * weight + 6.25 * height - 5 * age + sexOffset;
+  const bmr = Math.round(exactBmr);
+  const maintenance = Math.max(MINIMUM_CALORIES, Math.round(exactBmr * (ACTIVITY_FACTORS[activityLevel ?? ""] ?? 1.55)));
+  const rules = GOAL_RULES[goal ?? ""] ?? GOAL_RULES.general_fitness;
+
+  let adjustment = Math.round(Math.sign(rules.share) * Math.min(rules.cap, Math.abs(maintenance * rules.share)));
+  const youthMaintenance = adjustment < 0 && age < 18;
+  if (youthMaintenance) adjustment = 0;
+
+  let calories = maintenance + adjustment;
+  let floorApplied: number | null = null;
+  if (adjustment < 0) {
+    const floor = calorieFloor(profile.gender);
+    // Never below the floor; when maintenance itself is under the floor, no deficit at all.
+    const lowest = Math.min(floor, maintenance);
+    if (calories < lowest) {
+      calories = lowest;
+      floorApplied = floor;
+    }
+  }
+  calories = Math.max(MINIMUM_CALORIES, calories);
+  adjustment = calories - maintenance;
+
+  const referenceWeight = Math.min(weight, PROTEIN_REFERENCE_BMI * (height / 100) ** 2);
+  // Protein stays at or below 40% of calories, even on the lowest targets.
+  const protein = Math.round(Math.min(referenceWeight * rules.proteinPerKg, (calories * 0.4) / 4));
   const fat = Math.round((calories * 0.27) / 9);
   const carbs = Math.max(0, Math.round((calories - protein * 4 - fat * 9) / 4));
-  return { calories, protein, carbs, fat };
+  const rule: TargetRule = adjustment < 0 ? "deficit" : adjustment > 0 ? "surplus" : "maintenance";
+
+  return {
+    calories,
+    protein,
+    carbs,
+    fat,
+    maintenance,
+    bmr,
+    adjustment,
+    rule,
+    floorApplied,
+    youthMaintenance,
+    proteinPerKg: rules.proteinPerKg,
+    weeklyChangeKg: Math.round(((adjustment * 7) / KCAL_PER_KG) * 100) / 100 || 0,
+    weightKg: weight,
+  };
+}
+
+/** Daily calorie and macro targets (see calculateNutritionTargets for the rules and the reasoning). */
+export function estimateNutritionTargets(profile: TargetProfile, activityLevel = "moderate", goal = "general_fitness"): FoodMacros | null {
+  return calculateNutritionTargets(profile, activityLevel, goal);
 }
 
 export function goalPercent(current: number, target: number) {
