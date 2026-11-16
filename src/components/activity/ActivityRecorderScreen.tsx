@@ -326,9 +326,9 @@ export function ActivityRecorderScreen() {
           {!recording && phase !== "finished" && (
             <section className="fitx-panel p-4 sm:p-5" aria-labelledby="sport-title">
               <h2 id="sport-title" className="text-sm font-semibold text-fitx-text">Activity</h2>
-              <div className="mt-3 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Activity type">
+              <div className="mt-3 grid grid-cols-3 gap-2" role="group" aria-label="Activity type">
                 {SPORTS.map((option) => (
-                  <button key={option} type="button" role="radio" aria-checked={sport === option} onClick={() => chooseSport(option)}
+                  <button key={option} type="button" aria-pressed={sport === option} onClick={() => chooseSport(option)}
                     className={cn("flex min-h-16 flex-col items-center justify-center gap-1.5 rounded-lg border text-sm font-medium transition-colors", sport === option ? "border-fitx-primary bg-fitx-primary/10 text-fitx-primary-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-text")}>
                     <SportIcon sport={option} size={20} />
                     {SPORT_LABEL[option]}

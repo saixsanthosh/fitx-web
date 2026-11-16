@@ -107,9 +107,9 @@ export function ShareCardDialog({ data, open, onClose }: { data: CardData; open:
             </div>
             <button type="button" onClick={onClose} className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label="Close"><X size={18} aria-hidden="true" /></button>
           </div>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Image shape">
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Image shape">
             {FORMATS.map((option) => (
-              <button key={option.id} type="button" role="radio" aria-checked={format === option.id} onClick={() => { setFormat(option.id); setStatus(""); }}
+              <button key={option.id} type="button" aria-pressed={format === option.id} onClick={() => { setFormat(option.id); setStatus(""); }}
                 className={cn("min-h-14 rounded-lg border px-3 text-left transition-colors", format === option.id ? "border-fitx-primary bg-fitx-primary/10" : "border-fitx-border hover:border-fitx-primary/40")}>
                 <span className={cn("block text-sm font-semibold", format === option.id ? "text-fitx-primary-text" : "text-fitx-text")}>{option.label}</span>
                 <span className="block text-[11px] text-fitx-text-secondary">{option.hint}</span>
