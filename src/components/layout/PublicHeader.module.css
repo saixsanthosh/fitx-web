@@ -1,6 +1,10 @@
 /* The head script sets <html data-fitx-auth="1"> when the fitx_auth cookie says a session exists. */
 .signedOut { display: inline-flex; align-items: center; gap: .25rem; }
 .signedIn { display: none; }
-:global(:root[data-fitx-auth="1"]) .signedOut { display: none; }
+.signedOutStack { display: grid; gap: .5rem; }
+.signedInStack { display: none; }
+:global(:root[data-fitx-auth="1"]) .signedOut,
+:global(:root[data-fitx-auth="1"]) .signedOutStack { display: none; }
 :global(:root[data-fitx-auth="1"]) .signedIn { display: inline-flex; align-items: center; }
+:global(:root[data-fitx-auth="1"]) .signedInStack { display: grid; }
 @media (min-width: 640px) { .signedOut { gap: .5rem; } }

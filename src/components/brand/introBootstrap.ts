@@ -17,7 +17,7 @@
  */
 export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
   var root = document.documentElement;
-  var mode = "light";
+  var mode = "system";
   try {
     var stored = window.localStorage.getItem("fitx-theme");
     if (stored === "light" || stored === "dark" || stored === "system") mode = stored;

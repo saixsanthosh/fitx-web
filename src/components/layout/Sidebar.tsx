@@ -2,51 +2,66 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, CalendarDays, ChartNoAxesColumn, Dumbbell, House, Settings, Target, UserRound, Utensils } from "lucide-react";
+import { LogoutButton } from "@/components/app/LogoutButton";
 import { Logo } from "@/components/ui/Logo";
+import { ACCOUNT_NAV, MAIN_NAV, isActivePath, type NavItem } from "@/config/navigation";
 import { cn } from "@/lib/utils";
+import { AccountAvatar } from "./AccountMenu";
+import { SkipLink } from "./SkipLink";
+import { useAccountSummary } from "./useAccountSummary";
 
-const items = [
-  { href: "/dashboard", label: "Home", icon: House },
-  { href: "/workouts", label: "Workouts", icon: Dumbbell },
-  { href: "/nutrition", label: "Nutrition", icon: Utensils },
-  { href: "/progress", label: "Progress", icon: ChartNoAxesColumn },
-  { href: "/goals", label: "Goals", icon: Target },
-  { href: "/planner", label: "Planner", icon: CalendarDays },
-  { href: "/exercises", label: "Exercise library", icon: BookOpen },
-  { href: "/profile", label: "Profile", icon: UserRound },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
-
+/**
+ * Tablets (768–1023 px) get a compact rail of icons with short labels; desktops (1024 px and up) get the
+ * full sidebar with an account footer. Phones use the bottom bar instead.
+ */
 export function Sidebar() {
   const pathname = usePathname();
+  const summary = useAccountSummary();
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-[216px] shrink-0 flex-col border-r border-fitx-divider bg-fitx-surface lg:flex">
-      <Link href="/dashboard" className="flex h-[76px] items-center gap-2.5 border-b border-fitx-divider px-6">
-        <Logo size={39} />
+    <aside className="fitx-safe-left sticky top-0 hidden h-dvh w-[88px] shrink-0 flex-col border-r border-fitx-divider bg-fitx-surface md:flex lg:w-[232px]">
+      <SkipLink />
+      <Link href="/dashboard" aria-label="FITX home" className="flex h-[68px] shrink-0 items-center justify-center border-b border-fitx-divider lg:justify-start lg:px-6">
+        <Logo size={30} markOnly className="lg:hidden" />
+        <Logo size={36} className="hidden lg:inline-flex" />
       </Link>
-      <nav aria-label="Main navigation" className="flex-1 space-y-1 px-3 py-5">
-        {items.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(`${href}/`);
-          return (
-            <Link
-              key={href}
-              href={href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "relative flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm transition-colors",
-                active ? "bg-fitx-primary/10 text-fitx-primary-text" : "text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text"
-              )}
-            >
-              {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-fitx-primary" />}
-              <Icon size={18} strokeWidth={active ? 2.2 : 1.8} />
-              <span>{label}</span>
-            </Link>
-          );
-        })}
+      <nav aria-label="Main navigation" className="min-h-0 flex-1 overflow-y-auto px-2 py-3 lg:px-3 lg:py-4">
+        <ul className="space-y-1">
+          {MAIN_NAV.map((item) => <li key={item.href}><SideLink item={item} active={isActivePath(pathname, item.href)} /></li>)}
+        </ul>
       </nav>
-      <div className="border-t border-fitx-divider p-4 text-xs text-fitx-text-disabled">Your pace. Your progress.</div>
+      <div className="shrink-0 border-t border-fitx-divider px-2 py-3 lg:px-3">
+        <p className="mb-1 hidden items-center gap-2.5 px-3 py-1 lg:flex">
+          <AccountAvatar summary={summary} size={30} />
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium text-fitx-text">{summary?.name || "Your account"}</span>
+            {summary?.email && <span className="block truncate text-xs text-fitx-text-secondary">{summary.email}</span>}
+          </span>
+        </p>
+        <ul aria-label="Account" className="space-y-1">
+          {ACCOUNT_NAV.map((item) => <li key={item.href}><SideLink item={item} active={isActivePath(pathname, item.href)} /></li>)}
+        </ul>
+        <div className="hidden px-3 lg:block"><LogoutButton className="w-full" /></div>
+      </div>
     </aside>
+  );
+}
+
+function SideLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[11px] leading-tight transition-colors lg:min-h-11 lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:text-sm",
+        active ? "bg-fitx-primary/10 font-medium text-fitx-primary-text" : "text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text",
+      )}
+    >
+      {active && <span aria-hidden="true" className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-fitx-primary" />}
+      <Icon size={19} strokeWidth={active ? 2.2 : 1.8} aria-hidden="true" />
+      <span className="max-w-full text-center lg:hidden">{item.shortLabel ?? item.label}</span>
+      <span className="hidden lg:inline">{item.label}</span>
+    </Link>
   );
 }

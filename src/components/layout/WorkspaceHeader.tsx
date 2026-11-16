@@ -1,41 +1,21 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { ArrowRight, Search, UserRound, X } from "lucide-react";
+import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
+import { ArrowRight, Search, X } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
-import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
-import { createClient } from "@/lib/supabase/client";
+import { AccountMenu } from "./AccountMenu";
+import { ShellEffects } from "./ShellEffects";
+import { SkipLink } from "./SkipLink";
+import { useAccountSummary } from "./useAccountSummary";
 
+/** The signed-in app's top bar: exercise search and the account menu. The theme lives in Settings. */
 export function WorkspaceHeader() {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [avatar, setAvatar] = useState<string | null>(null);
+  const summary = useAccountSummary();
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    const supabase = createClient();
-    if (!supabase) return;
-    void (async () => {
-      const auth = await supabase.auth.getUser();
-      const user = auth.data.user;
-      if (!user) return;
-      const { data: profile } = await supabase.from("profiles").select("name, avatar").eq("id", user.id).maybeSingle();
-      let avatarUrl: string | null = profile?.avatar || null;
-      if (avatarUrl && !avatarUrl.startsWith("http")) {
-        const signed = await supabase.storage.from("fitx-user-media").createSignedUrl(avatarUrl, 3600);
-        avatarUrl = signed.data?.signedUrl || null;
-      }
-      if (active) {
-        setName(profile?.name || user.user_metadata?.name || user.email?.split("@")[0] || "");
-        setAvatar(avatarUrl);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
 
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,22 +27,21 @@ export function WorkspaceHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-[60px] flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-fitx-divider bg-background/95 px-3 py-2 backdrop-blur-md sm:h-[68px] sm:min-h-[68px] sm:flex-nowrap sm:gap-x-4 sm:py-0 sm:px-6 lg:px-8">
-      <div className="flex shrink-0 items-center gap-2 lg:hidden"><Logo size={34} /></div>
-      <form id="workspace-search" onSubmit={search} role="search" className={`${searchOpen ? "flex" : "hidden"} order-3 h-10 w-full basis-full items-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-3 sm:order-none sm:flex sm:w-full sm:max-w-[350px] sm:basis-auto`}>
+    <header className="fitx-glass fitx-safe-inline sticky top-0 z-30 flex min-h-[60px] flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-fitx-divider bg-background/95 py-2 [--fitx-pad-inline:.75rem] sm:h-[68px] sm:min-h-[68px] sm:flex-nowrap sm:gap-x-4 sm:py-0 sm:[--fitx-pad-inline:1.5rem] lg:[--fitx-pad-inline:2rem]">
+      {/* On tablets and desktops the sidebar holds the first skip link. */}
+      <SkipLink className="md:hidden" />
+      <ShellEffects account />
+      <Link href="/dashboard" aria-label="FITX home" className="flex min-h-11 shrink-0 items-center md:hidden"><Logo size={32} /></Link>
+      <form id="workspace-search" onSubmit={search} role="search" className={`${searchOpen ? "flex" : "hidden"} order-3 h-11 w-full basis-full items-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface pl-3 focus-within:border-fitx-primary sm:order-none sm:flex sm:w-full sm:max-w-[360px] sm:basis-auto`}>
         <Search size={16} aria-hidden="true" className="shrink-0 text-fitx-text-disabled" />
-        <input type="search" enterKeyHint="search" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search exercises" placeholder="Search exercises…" className="h-10 min-w-0 w-full bg-transparent text-sm text-fitx-text outline-none placeholder:text-fitx-text-disabled" />
-        <button type="submit" aria-label="Search exercise library" className="grid min-h-9 min-w-9 shrink-0 place-items-center rounded-md text-fitx-text-secondary transition-colors hover:bg-fitx-hover hover:text-fitx-primary sm:min-h-10 sm:min-w-10"><ArrowRight size={16} aria-hidden="true"/></button>
+        <input type="search" enterKeyHint="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search exercises" placeholder="Search exercises…" className="h-10 w-full min-w-0 bg-transparent text-sm text-fitx-text outline-none placeholder:text-fitx-text-disabled" />
+        <button type="submit" aria-label="Search the exercise library" className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-r-lg text-fitx-text-secondary transition-colors hover:bg-fitx-hover hover:text-fitx-primary-text"><ArrowRight size={16} aria-hidden="true" /></button>
       </form>
-      <div className="ml-auto flex items-center gap-1.5 sm:gap-4">
-        <button type="button" aria-label={searchOpen ? "Close search" : "Open search"} aria-expanded={searchOpen} aria-controls="workspace-search" onClick={() => setSearchOpen((open) => !open)} className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text sm:hidden">
-          {searchOpen ? <X size={18} aria-hidden="true"/> : <Search size={18} aria-hidden="true"/>}
+      <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
+        <button type="button" aria-label={searchOpen ? "Close search" : "Search exercises"} aria-expanded={searchOpen} aria-controls="workspace-search" onClick={() => setSearchOpen((open) => !open)} className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text sm:hidden">
+          {searchOpen ? <X size={18} aria-hidden="true" /> : <Search size={18} aria-hidden="true" />}
         </button>
-        <ThemeSwitcher />
-        <button type="button" onClick={() => router.push("/profile")} aria-label="Open profile" className="flex items-center gap-2 rounded-full focus-visible:outline">
-          {avatar ? <Image src={avatar} alt="" width={36} height={36} unoptimized className="h-9 w-9 rounded-full border border-fitx-border object-cover" /> : <span className="grid h-9 w-9 place-items-center rounded-full border border-fitx-border bg-fitx-surface-variant text-fitx-text-secondary"><UserRound size={17} /></span>}
-          <span className="hidden max-w-28 truncate text-sm text-fitx-text-secondary md:block">{name}</span>
-        </button>
+        <AccountMenu summary={summary} />
       </div>
     </header>
   );

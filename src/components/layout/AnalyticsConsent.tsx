@@ -21,9 +21,9 @@ export function AnalyticsConsent() {
         return event;
       } catch { return null; }
     }} />
-    {choice === null && <aside aria-label="Cookie and analytics choices" className="fixed inset-x-3 bottom-[max(env(safe-area-inset-bottom),12px)] z-[100] mx-auto max-w-3xl rounded-xl border border-fitx-border bg-fitx-surface p-3 shadow-[0_16px_54px_rgba(20,24,20,.18)] sm:inset-x-6 sm:bottom-6 sm:flex sm:items-center sm:gap-6 sm:p-5">
-      <div className="min-w-0 flex-1"><h2 className="text-sm font-semibold">Your privacy choices</h2><p className="mt-1 text-xs leading-5 text-fitx-text-secondary">FITX uses essential sign-in storage. Optional, anonymous page analytics stay off unless you allow them. <Link href="/cookies" className="text-fitx-primary underline underline-offset-2">Cookie details</Link></p></div>
-      <div className="mt-3 grid shrink-0 grid-cols-2 gap-2 sm:mt-0 sm:flex sm:flex-nowrap"><button onClick={() => choose("essential")} className="fitx-button fitx-button-quiet min-w-0 whitespace-nowrap px-2 text-[11px] sm:px-3 sm:text-xs">Essential only</button><button onClick={() => choose("all")} className="fitx-button min-w-0 whitespace-nowrap px-2 text-[11px] sm:px-3 sm:text-xs">Allow analytics</button></div>
+    {choice === null && <aside aria-label="Cookie and analytics choices" className="fixed inset-x-3 bottom-[max(env(safe-area-inset-bottom),12px)] z-[100] mx-auto max-w-3xl rounded-xl border border-fitx-border bg-fitx-surface p-3 shadow-2xl sm:inset-x-6 sm:bottom-6 sm:flex sm:items-center sm:gap-6 sm:p-5">
+      <div className="min-w-0 flex-1"><h2 className="text-sm font-semibold">Your privacy choices</h2><p className="mt-1 text-xs leading-5 text-fitx-text-secondary">FITX uses essential sign-in storage. Optional, anonymous page analytics stay off unless you allow them. <Link href="/cookies" className="text-fitx-primary-text underline underline-offset-2">Cookie details</Link></p></div>
+      <div className="mt-3 grid shrink-0 grid-cols-2 gap-2 sm:mt-0 sm:flex sm:flex-nowrap"><button onClick={() => choose("essential")} className="fitx-button fitx-button-quiet min-h-11 min-w-0 whitespace-nowrap px-3 text-sm">Essential only</button><button onClick={() => choose("all")} className="fitx-button min-h-11 min-w-0 whitespace-nowrap px-3 text-sm">Allow analytics</button></div>
     </aside>}
   </>;
 }
