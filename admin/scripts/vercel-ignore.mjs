@@ -59,8 +59,21 @@ function hasCommit(root, sha) {
   return succeeds(["cat-file", "-e", `${sha}^{commit}`], { cwd: root });
 }
 
-function fetchFromOrigin(root, args) {
-  return succeeds(["fetch", "--no-tags", "--quiet", ...args], { cwd: root, timeout: FETCH_TIMEOUT_MS });
+/**
+ * Fetches from origin. Vercel's clone is shallow, so the depth is limited; a full clone
+ * (someone running this locally) is fetched without a depth, so it never becomes shallow.
+ */
+function fetchFromOrigin(root, shallow, depth, refspec) {
+  const depthArgs = shallow ? [`--depth=${depth}`] : [];
+  return succeeds(["fetch", "--no-tags", "--quiet", ...depthArgs, "origin", refspec], { cwd: root, timeout: FETCH_TIMEOUT_MS });
+}
+
+function isShallowClone(root) {
+  try {
+    return git(["rev-parse", "--is-shallow-repository"], { cwd: root }).trim() !== "false";
+  } catch {
+    return true;
+  }
 }
 
 function branchRefspec(branch) {
@@ -71,18 +84,18 @@ function branchRefspec(branch) {
  * Vercel clones only 10 commits deep. When an older commit is missing, fetch exactly that
  * commit (GitHub allows it), or else fetch the branch with a deeper history.
  */
-function ensureCommit(root, sha, branch) {
+function ensureCommit(root, shallow, sha, branch) {
   if (hasCommit(root, sha)) return true;
-  if (fetchFromOrigin(root, ["--depth=1", "origin", sha]) && hasCommit(root, sha)) return true;
-  return Boolean(branch) && fetchFromOrigin(root, [`--depth=${FETCH_DEPTH}`, "origin", branchRefspec(branch)]) && hasCommit(root, sha);
+  if (fetchFromOrigin(root, shallow, 1, sha) && hasCommit(root, sha)) return true;
+  return Boolean(branch) && fetchFromOrigin(root, shallow, FETCH_DEPTH, branchRefspec(branch)) && hasCommit(root, sha);
 }
 
 /** A branch's first deployment has no previous SHA: compare with the point where it left master. */
-function mergeBaseWithBaseBranch(root, current, branch) {
-  if (!fetchFromOrigin(root, [`--depth=${FETCH_DEPTH}`, "origin", branchRefspec(BASE_BRANCH)])) return null;
+function mergeBaseWithBaseBranch(root, shallow, current, branch) {
+  if (!fetchFromOrigin(root, shallow, FETCH_DEPTH, branchRefspec(BASE_BRANCH))) return null;
   // Deepen this branch too, so the fork point is inside the shallow history.
-  if (!fetchFromOrigin(root, [`--depth=${FETCH_DEPTH}`, "origin", current])) {
-    fetchFromOrigin(root, [`--depth=${FETCH_DEPTH}`, "origin", branchRefspec(branch)]);
+  if (!fetchFromOrigin(root, shallow, FETCH_DEPTH, current)) {
+    fetchFromOrigin(root, shallow, FETCH_DEPTH, branchRefspec(branch));
   }
   try {
     const base = git(["merge-base", `refs/remotes/origin/${BASE_BRANCH}`, current], { cwd: root }).trim();
@@ -131,10 +144,11 @@ function main() {
     return;
   }
 
+  const shallow = isShallowClone(root);
   let base = previous;
   let since;
   if (base) {
-    if (!ensureCommit(root, base, branch)) {
+    if (!ensureCommit(root, shallow, base, branch)) {
       build(`The previous deployment's commit ${short(base)} could not be fetched.`);
       return;
     }
@@ -144,7 +158,7 @@ function main() {
       build(`This is the first deployment on ${branch || "this branch"}, so there is nothing earlier to compare.`);
       return;
     }
-    base = mergeBaseWithBaseBranch(root, current, branch);
+    base = mergeBaseWithBaseBranch(root, shallow, current, branch);
     if (!base) {
       build(`This is the first deployment on ${branch}, and the point where it left ${BASE_BRANCH} could not be found.`);
       return;

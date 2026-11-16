@@ -159,6 +159,30 @@ test("a previous commit older than the shallow clone is fetched before comparing
   assert.equal(result.status, SKIP, "falls back to fetching the branch with more history");
 });
 
+test("in a full clone, missing commits are fetched without making the clone shallow", () => {
+  const { repo } = createRepository();
+  const masterHead = commit(repo, { "src/app/page.tsx": "export const fitx = 3;\n" });
+  git(repo, "switch", "--quiet", "-c", "elsewhere");
+  const elsewhere = commit(repo, { "src/app/elsewhere.tsx": "export {};\n" });
+  git(repo, "switch", "--quiet", "-c", "feature/full-clone", "master");
+  const featureHead = commit(repo, { "src/app/feature.tsx": "export {};\n" });
+  git(repo, "switch", "--quiet", "master");
+
+  const origin = freshDirectory("origin");
+  git(workspace, "clone", "--quiet", "--bare", repo, origin);
+  const masterClone = freshDirectory("full-clone");
+  git(workspace, "clone", "--quiet", "--single-branch", "--branch", "master", pathToFileURL(origin).href, masterClone);
+  assert.equal(hasCommit(masterClone, elsewhere), false);
+  // The only difference from the fetched commit is a FITX file, so Admin skipping proves the fetch.
+  assert.equal(runFilter(join(masterClone, "admin"), "admin", deployment(elsewhere, masterHead)).status, SKIP);
+  assert.equal(git(masterClone, "rev-parse", "--is-shallow-repository"), "false");
+
+  const featureClone = freshDirectory("full-clone");
+  git(workspace, "clone", "--quiet", "--single-branch", "--branch", "feature/full-clone", pathToFileURL(origin).href, featureClone);
+  assert.equal(runFilter(join(featureClone, "admin"), "admin", deployment(null, featureHead, "feature/full-clone")).status, SKIP);
+  assert.equal(git(featureClone, "rev-parse", "--is-shallow-repository"), "false");
+});
+
 test("a previous commit that cannot be fetched, or a folder outside Git, builds", () => {
   const { repo } = createRepository();
   const current = commit(repo, { "src/app/page.tsx": "export const fitx = 2;\n" });
