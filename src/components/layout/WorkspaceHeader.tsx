@@ -30,7 +30,7 @@ export function WorkspaceHeader() {
   return (
     <header className="fitx-glass fitx-safe-inline sticky top-0 z-30 flex min-h-[60px] flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-fitx-divider bg-background/95 py-2 [--fitx-pad-inline:.75rem] sm:h-[68px] sm:min-h-[68px] sm:flex-nowrap sm:gap-x-4 sm:py-0 sm:[--fitx-pad-inline:1.5rem] lg:[--fitx-pad-inline:2rem]">
       {/* On tablets and desktops the sidebar holds the first skip link. */}
-      <SkipLink className="md:hidden" />
+      <div className="md:hidden"><SkipLink /></div>
       <ShellEffects account />
       <Link href="/dashboard" aria-label="FITX home" className="flex min-h-11 shrink-0 items-center md:hidden"><Logo size={32} /></Link>
       <form id="workspace-search" onSubmit={search} role="search" className={`${searchOpen ? "flex" : "hidden"} order-3 h-11 w-full basis-full items-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface pl-3 focus-within:border-fitx-primary sm:order-none sm:flex sm:w-full sm:max-w-[360px] sm:basis-auto`}>
