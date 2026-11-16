@@ -1,0 +1,592 @@
+{
+  "source": "USDA FoodData Central",
+  "license": "Public domain (CC0 1.0). Cite: U.S. Department of Agriculture, Agricultural Research Service. FoodData Central. fdc.nal.usda.gov.",
+  "retrieved": "2026-11-16",
+  "api": "https://api.nal.usda.gov/fdc/v1/foods/search",
+  "valuesPer": "100 g",
+  "notes": "Energy is FDC nutrient 208 (kcal); protein 203, carbohydrate by difference 205, total fat 204. Portion grams are FDC's own household measures (US cup). See src/data/DATA_SOURCES.md.",
+  "foods": [
+    {
+      "id": "2708408",
+      "fdcId": 2708408,
+      "name": "Rice, white, cooked, no added fat",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 56205008,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "rice",
+        "white rice",
+        "plain rice",
+        "steamed rice",
+        "cooked rice",
+        "chawal",
+        "bhaat",
+        "chor"
+      ],
+      "calories": 129,
+      "protein": 2.67,
+      "carbs": 27.99,
+      "fat": 0.28,
+      "portions": [
+        {
+          "label": "1 cup, cooked",
+          "unit": "cup",
+          "grams": 158
+        }
+      ]
+    },
+    {
+      "id": "2708414",
+      "fdcId": 2708414,
+      "name": "Rice, brown, cooked, no added fat",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 56205018,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "brown rice"
+      ],
+      "calories": 123,
+      "protein": 2.43,
+      "carbs": 25.76,
+      "fat": 1.11,
+      "portions": [
+        {
+          "label": "1 cup, cooked",
+          "unit": "cup",
+          "grams": 195
+        }
+      ]
+    },
+    {
+      "id": "169759",
+      "fdcId": 169759,
+      "name": "Rice, white, long-grain, parboiled, unenriched, cooked",
+      "dataType": "SR Legacy",
+      "foodCode": 20447,
+      "published": "2019-04-01",
+      "state": "cooked",
+      "aliases": [
+        "parboiled rice",
+        "ukda chawal"
+      ],
+      "calories": 123,
+      "protein": 2.91,
+      "carbs": 26.0,
+      "fat": 0.37,
+      "portions": []
+    },
+    {
+      "id": "2708346",
+      "fdcId": 2708346,
+      "name": "Idli",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 55702000,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "idly",
+        "idlis",
+        "idlies"
+      ],
+      "calories": 128,
+      "protein": 6.36,
+      "carbs": 24.98,
+      "fat": 0.35,
+      "portions": [
+        {
+          "label": "1 item",
+          "unit": "piece",
+          "grams": 38,
+          "countDefault": true
+        }
+      ]
+    },
+    {
+      "id": "2708347",
+      "fdcId": 2708347,
+      "name": "Dosa, plain",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 55702100,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "dosa",
+        "dosai",
+        "plain dosa",
+        "sada dosa"
+      ],
+      "calories": 210,
+      "protein": 5.7,
+      "carbs": 37.04,
+      "fat": 4.05,
+      "portions": [
+        {
+          "label": "1 small",
+          "unit": "piece",
+          "grams": 35
+        },
+        {
+          "label": "1 medium",
+          "unit": "piece",
+          "grams": 80,
+          "countDefault": true
+        },
+        {
+          "label": "1 large",
+          "unit": "piece",
+          "grams": 155
+        }
+      ]
+    },
+    {
+      "id": "2709129",
+      "fdcId": 2709129,
+      "name": "Dosa, with filling",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 58174100,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "masala dosa",
+        "dosa masala",
+        "filled dosa"
+      ],
+      "calories": 184,
+      "protein": 5.46,
+      "carbs": 30.8,
+      "fat": 4.27,
+      "portions": [
+        {
+          "label": "1 small",
+          "unit": "piece",
+          "grams": 113
+        },
+        {
+          "label": "1 medium",
+          "unit": "piece",
+          "grams": 267,
+          "countDefault": true
+        },
+        {
+          "label": "1 large",
+          "unit": "piece",
+          "grams": 523
+        }
+      ]
+    },
+    {
+      "id": "2707713",
+      "fdcId": 2707713,
+      "name": "Bread, chappatti or roti",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 51300175,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "roti",
+        "chapati",
+        "chapathi",
+        "chappati",
+        "chapatti",
+        "phulka",
+        "fulka"
+      ],
+      "calories": 299,
+      "protein": 7.85,
+      "carbs": 46.13,
+      "fat": 9.2,
+      "portions": [
+        {
+          "label": "1 small chappatti or roti (6\")",
+          "unit": "piece",
+          "grams": 27
+        },
+        {
+          "label": "1 medium chappatti or roti (7\")",
+          "unit": "piece",
+          "grams": 40,
+          "countDefault": true
+        },
+        {
+          "label": "1 large chappatti or roti (8\")",
+          "unit": "piece",
+          "grams": 52
+        }
+      ]
+    },
+    {
+      "id": "2707715",
+      "fdcId": 2707715,
+      "name": "Bread, paratha",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 51300185,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "paratha",
+        "parantha",
+        "prantha"
+      ],
+      "calories": 326,
+      "protein": 6.36,
+      "carbs": 45.35,
+      "fat": 13.2,
+      "portions": [
+        {
+          "label": "1 paratha",
+          "unit": "piece",
+          "grams": 70,
+          "countDefault": true
+        }
+      ]
+    },
+    {
+      "id": "2707714",
+      "fdcId": 2707714,
+      "name": "Bread, puri",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 51300180,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "puri",
+        "poori"
+      ],
+      "calories": 409,
+      "protein": 6.84,
+      "carbs": 39.23,
+      "fat": 24.94,
+      "portions": [
+        {
+          "label": "1 puri (approx 4-4/5\" dia)",
+          "unit": "piece",
+          "grams": 36,
+          "countDefault": true
+        }
+      ]
+    },
+    {
+      "id": "2707613",
+      "fdcId": 2707613,
+      "name": "Bread, naan",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 51108100,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "naan",
+        "nan"
+      ],
+      "calories": 311,
+      "protein": 11.09,
+      "carbs": 50.23,
+      "fat": 7.28,
+      "portions": [
+        {
+          "label": "1 piece (1/4 of 10\" dia)",
+          "unit": "piece",
+          "grams": 44
+        },
+        {
+          "label": "1 Naan (10\" dia)",
+          "unit": "piece",
+          "grams": 177,
+          "countDefault": true
+        }
+      ]
+    },
+    {
+      "id": "2707427",
+      "fdcId": 2707427,
+      "name": "Dal",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 41305050,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "dal",
+        "daal",
+        "dhal",
+        "dahl",
+        "lentil curry"
+      ],
+      "calories": 145,
+      "protein": 8.6,
+      "carbs": 19.17,
+      "fat": 4.31,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 240
+        }
+      ]
+    },
+    {
+      "id": "2707430",
+      "fdcId": 2707430,
+      "name": "Sambar, vegetable stew",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 41311020,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "sambar",
+        "sambhar",
+        "sambaar",
+        "sambaaru",
+        "kuzhambu"
+      ],
+      "calories": 86,
+      "protein": 4.33,
+      "carbs": 11.77,
+      "fat": 2.71,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 248
+        }
+      ]
+    },
+    {
+      "id": "2709128",
+      "fdcId": 2709128,
+      "name": "Upma",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 58174000,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "upma",
+        "uppma",
+        "uppittu"
+      ],
+      "calories": 87,
+      "protein": 1.98,
+      "carbs": 13.81,
+      "fat": 2.64,
+      "portions": [
+        {
+          "label": "1 cup, cooked",
+          "unit": "cup",
+          "grams": 170
+        }
+      ]
+    },
+    {
+      "id": "2709130",
+      "fdcId": 2709130,
+      "name": "Vada",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 58175000,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "vada",
+        "vadai",
+        "wada",
+        "medu vada"
+      ],
+      "calories": 266,
+      "protein": 12.75,
+      "carbs": 33.25,
+      "fat": 9.73,
+      "portions": [
+        {
+          "label": "1 item, any size",
+          "unit": "piece",
+          "grams": 30,
+          "countDefault": true
+        }
+      ]
+    },
+    {
+      "id": "2708730",
+      "fdcId": 2708730,
+      "name": "Samosa",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 58124500,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "samosa"
+      ],
+      "calories": 310,
+      "protein": 5.14,
+      "carbs": 33.16,
+      "fat": 17.47,
+      "portions": [
+        {
+          "label": "1 small/individual",
+          "unit": "piece",
+          "grams": 25
+        },
+        {
+          "label": "1 regular/large",
+          "unit": "piece",
+          "grams": 100,
+          "countDefault": true
+        }
+      ]
+    },
+    {
+      "id": "2708985",
+      "fdcId": 2708985,
+      "name": "Biryani with vegetables",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 58160000,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "veg biryani",
+        "vegetable biryani",
+        "biriyani",
+        "biryani"
+      ],
+      "calories": 109,
+      "protein": 1.93,
+      "carbs": 17.91,
+      "fat": 3.2,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 172
+        }
+      ]
+    },
+    {
+      "id": "2706538",
+      "fdcId": 2706538,
+      "name": "Biryani with chicken",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 27243100,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "chicken biryani",
+        "chicken biriyani"
+      ],
+      "calories": 104,
+      "protein": 7.15,
+      "carbs": 13.55,
+      "fat": 2.38,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 196
+        }
+      ]
+    },
+    {
+      "id": "2706490",
+      "fdcId": 2706490,
+      "name": "Biryani with meat",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 27213010,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "mutton biryani",
+        "lamb biryani",
+        "goat biryani",
+        "beef biryani",
+        "meat biryani"
+      ],
+      "calories": 145,
+      "protein": 8.5,
+      "carbs": 12.19,
+      "fat": 6.79,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 196
+        }
+      ]
+    },
+    {
+      "id": "2709631",
+      "fdcId": 2709631,
+      "name": "Palak Paneer",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 72125310,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "palak paneer",
+        "saag paneer"
+      ],
+      "calories": 101,
+      "protein": 5.42,
+      "carbs": 4.28,
+      "fat": 7.02,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 200
+        }
+      ]
+    },
+    {
+      "id": "2709632",
+      "fdcId": 2709632,
+      "name": "Channa Saag",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 72125500,
+      "published": "2024-10-31",
+      "state": "cooked",
+      "aliases": [
+        "chana saag",
+        "channa saag",
+        "chole saag"
+      ],
+      "calories": 89,
+      "protein": 4.1,
+      "carbs": 8.79,
+      "fat": 4.33,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 245
+        }
+      ]
+    },
+    {
+      "id": "2710168",
+      "fdcId": 2710168,
+      "name": "Ghee, clarified butter",
+      "dataType": "Survey (FNDDS)",
+      "foodCode": 81204000,
+      "published": "2024-10-31",
+      "state": null,
+      "aliases": [
+        "ghee",
+        "desi ghee",
+        "clarified butter"
+      ],
+      "calories": 876,
+      "protein": 0.28,
+      "carbs": 0,
+      "fat": 99.48,
+      "portions": [
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 224
+        },
+        {
+          "label": "1 tablespoon",
+          "unit": "tbsp",
+          "grams": 14
+        }
+      ]
+    }
+  ]
+}

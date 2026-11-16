@@ -52,6 +52,51 @@ export function goalPercent(current: number, target: number) {
   return target > 0 ? Math.min(100, Math.max(0, Math.round((current / target) * 100))) : 0;
 }
 
+/** Progress toward a daily target that also says how far past it the day went (goalPercent stops at 100). */
+export function goalProgress(current: number, target: number) {
+  const over = target > 0 ? Math.max(0, Math.round(current) - Math.round(target)) : 0;
+  return { percent: goalPercent(current, target), over, isOver: over > 0 };
+}
+
+export const KJ_PER_KCAL = 4.184;
+
+/**
+ * Per-100 g values from an Open Food Facts `nutriments` object, or null when the label gives no energy.
+ * Only the `_100g` fields are used: the plain `energy-kcal` field follows the label's own basis, which
+ * can be per serving. Labels that give only kJ are converted; a declared 0 kcal (water, black coffee) is kept.
+ */
+export function per100gFromOpenFoodFacts(nutriments: unknown): FoodMacros | null {
+  const values = (nutriments && typeof nutriments === "object" ? nutriments : {}) as Record<string, unknown>;
+  const kcal = labelNumber(values["energy-kcal_100g"]);
+  // OFF stores `energy_100g` in kJ.
+  const kj = labelNumber(values["energy-kj_100g"]) ?? labelNumber(values["energy_100g"]);
+  const calories = kcal ?? (kj === null ? null : kj / KJ_PER_KCAL);
+  if (calories === null || calories < 0) return null;
+  const macros = {
+    calories: Math.round(calories),
+    protein: labelAmount(values.proteins_100g),
+    carbs: labelAmount(values.carbohydrates_100g),
+    fat: labelAmount(values.fat_100g),
+  };
+  // A "0 kcal" label that lists real protein, carbs or fat was entered wrongly; treat it as having no energy value.
+  if (macros.calories === 0 && macros.protein + macros.carbs + macros.fat > 1) return null;
+  return macros;
+}
+
+function labelNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+  return null;
+}
+
+function labelAmount(value: unknown) {
+  const number = labelNumber(value);
+  return number !== null && number >= 0 ? round(number) : 0;
+}
+
 function round(value: number) {
   return Math.round((Number.isFinite(value) ? value : 0) * 10) / 10;
 }
