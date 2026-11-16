@@ -282,6 +282,17 @@ export default function WorkoutsPage() {
     });
   }, [catalog, loading, preferences.workout_split, preferences.workout_location]);
 
+  // /workouts?equipment=home|gym (linked from the exercise library) opens that equipment list.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("equipment");
+    if (loading || (requested !== "home" && requested !== "gym")) return;
+    void Promise.resolve().then(() => {
+      setContext(requested);
+      setEquipmentEditor({ context: requested, keys: equipmentFor(profiles, requested, preferences.equipment).keys });
+      window.history.replaceState(null, "", "/workouts");
+    });
+  }, [loading, profiles, preferences.equipment]);
+
   useEffect(() => {
     const requestedPlanId = new URLSearchParams(window.location.search).get("plan");
     if (!requestedPlanId || !plans.some((plan) => plan.id === requestedPlanId)) return;
