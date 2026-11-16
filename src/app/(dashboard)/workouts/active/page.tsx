@@ -18,7 +18,7 @@ import { equipmentLabel, missingEquipment } from "@/lib/training/equipment";
 import { advanceEnrolmentFallback } from "@/lib/training/enrolment";
 import { estimateOneRepMax } from "@/lib/training/one-rep-max";
 import { finishSessionWithRpc } from "@/lib/training/plans";
-import { draftRepsFor, isLiftSet, isTimedPrescription, liftedVolume, setTargetReps } from "@/lib/training/sets";
+import { draftRepsFor, isLiftSet, isTimedPrescription, liftedVolume, setTargetReps, swappedPrescription } from "@/lib/training/sets";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS, SET_REP_SOURCE_COLUMNS } from "../_lib/workout-columns";
 import { plannerEventToComplete } from "../_lib/plan-schedule";
@@ -259,15 +259,26 @@ export default function ActiveWorkoutPage() {
     if (exercise.sets.some((set) => Boolean(set.completed_at))) { setSwapOpen(false); return setError("Swap an exercise before logging its sets."); }
     const supabase = createClient();
     if (!supabase) return;
-    const timed = replacement.prescription_type === "time";
-    const patch = { exercise_id: replacement.id, exercise_name: replacement.name, target_duration_seconds: timed ? exercise.target_duration_seconds ?? replacement.default_duration_seconds ?? 30 : null };
+    // Reps or seconds follow the new movement when its type differs (a hold for push-ups, or the reverse).
+    // Without the time-target column a movement cannot be timed, so only the movement changes.
+    const prescription = targetsSupported ? swappedPrescription(exercise, replacement) : { reps_min: exercise.reps_min, reps_max: exercise.reps_max, target_duration_seconds: exercise.target_duration_seconds };
+    const patch = { exercise_id: replacement.id, exercise_name: replacement.name, ...prescription };
     const outcome = await withOptionalColumns(["target_duration_seconds"], (include) =>
       supabase.from("workout_session_exercises").update(payloadFor(patch, ["target_duration_seconds"], include)).eq("id", exercise.id).eq("user_id", session.user_id).select("id").maybeSingle(),
     { includeOptional: targetsSupported });
     if (outcome.result.error || !outcome.result.data) { setSwapOpen(false); return setError("That exercise couldn’t be swapped. Check your connection and try again."); }
+    const stored = { ...prescription, target_duration_seconds: outcome.includedOptional ? prescription.target_duration_seconds : exercise.target_duration_seconds };
+    const changed = stored.reps_min !== exercise.reps_min || stored.reps_max !== exercise.reps_max || stored.target_duration_seconds !== exercise.target_duration_seconds;
+    const targetReps = setTargetReps(stored);
+    // None of its sets is logged yet (see above), so every set takes the new target. If this request
+    // fails, the page still shows the right fields and a reload leaves a timed set's reps empty.
+    if (changed) await supabase.from("workout_sets").update({ target_reps: targetReps }).eq("session_exercise_id", exercise.id).eq("user_id", session.user_id).is("completed_at", null);
     setExercises((items) => items.map((item) => item.id !== exercise.id ? item : {
-      ...item, exercise_id: replacement.id, name: replacement.name, target_duration_seconds: outcome.includedOptional ? patch.target_duration_seconds : item.target_duration_seconds,
+      ...item, exercise_id: replacement.id, name: replacement.name, reps_min: stored.reps_min, reps_max: stored.reps_max, target_duration_seconds: stored.target_duration_seconds,
+      // A different type of movement starts its sets afresh: its rep target, or empty reps and seconds to time.
+      sets: changed ? item.sets.map((set) => set.completed_at ? set : { ...set, target_reps: targetReps, draftReps: targetReps == null ? "" : String(targetReps), draftDuration: "" }) : item.sets,
     }));
+    if (setTimer?.exerciseId === exercise.id) setSetTimer(null);
     setSwapOpen(false);
     setError("");
   }

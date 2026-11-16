@@ -35,3 +35,19 @@ export function isLiftSet(set: LoggedSet, timed = false): boolean {
 export function liftedVolume(sets: ReadonlyArray<LoggedSet & { weight_kg: number }>, timed = false): number {
   return sets.reduce((sum, set) => (isLiftSet(set, timed) ? sum + Number(set.reps) * Number(set.weight_kg) : sum), 0);
 }
+
+/**
+ * A movement's reps and time after a swap: kept when the new movement is the same type, otherwise the
+ * new movement's own (its rep range, or 1–1 and its default seconds when it is timed, as the builder
+ * adds it), so a hold swapped for push-ups never asks for 1 rep, nor push-ups swapped for a hold for 10.
+ */
+export function swappedPrescription(
+  current: Prescription,
+  replacement: { prescription_type: string; reps_min: number; reps_max: number; default_duration_seconds: number | null },
+): { reps_min: number; reps_max: number; target_duration_seconds: number | null } {
+  const timed = replacement.prescription_type === "time";
+  if (timed === isTimedPrescription(current)) return { reps_min: current.reps_min, reps_max: current.reps_max, target_duration_seconds: current.target_duration_seconds ?? null };
+  return timed
+    ? { reps_min: 1, reps_max: 1, target_duration_seconds: replacement.default_duration_seconds ?? 30 }
+    : { reps_min: replacement.reps_min, reps_max: replacement.reps_max, target_duration_seconds: null };
+}
