@@ -164,7 +164,10 @@ begin
     raise exception using errcode = 'P0002', message = 'this session was already closed or does not exist';
   end if;
 
-  select count(*), coalesce(sum(case when coalesce(ws.reps, 0) > 0 then ws.reps * ws.weight_kg else 0 end), 0)
+  -- Volume and records count lifts only: a timed movement (a target in seconds) and any set with seconds
+  -- logged are holds, stretches or cardio, so a plank logged as 1 rep is not a one-rep lift.
+  select count(*), coalesce(sum(case when coalesce(ws.reps, 0) > 0 and se.target_duration_seconds is null
+      and coalesce(ws.duration_seconds, 0) = 0 then ws.reps * ws.weight_kg else 0 end), 0)
   into v_sets, v_volume
   from public.workout_session_exercises se
   join public.workout_sets ws on ws.session_exercise_id = se.id and ws.user_id = se.user_id
@@ -184,6 +187,7 @@ begin
     from public.workout_session_exercises se
     join public.workout_sets ws on ws.session_exercise_id = se.id and ws.user_id = se.user_id
     where se.session_id = p_session_id and se.user_id = v_user and ws.completed_at is not null and coalesce(ws.reps, 0) > 0
+      and se.target_duration_seconds is null and coalesce(ws.duration_seconds, 0) = 0
   ),
   heaviest as (
     select distinct on (exercise_name) exercise_name, exercise_id, weight_kg as best_weight, reps as best_weight_reps

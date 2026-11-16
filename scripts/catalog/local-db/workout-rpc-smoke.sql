@@ -33,10 +33,25 @@ select public.fitx_finish_workout_session(:'session_id', 1800, 'Asia/Kolkata');
 \set ON_ERROR_STOP 1
 update workout_sets ws set reps = 8, weight_kg = 60, completed_at = now() from workout_session_exercises se where se.id = ws.session_exercise_id and se.session_id = :'session_id' and se.exercise_id = 'bench_press' and ws.set_number = 1;
 update workout_sets ws set reps = 6, weight_kg = 70, completed_at = now() from workout_session_exercises se where se.id = ws.session_exercise_id and se.session_id = :'session_id' and se.exercise_id = 'bench_press' and ws.set_number = 2;
-update workout_sets ws set duration_seconds = 40, completed_at = now() from workout_session_exercises se where se.id = ws.session_exercise_id and se.session_id = :'session_id' and se.exercise_id = 'plank';
+-- A plank as the app saved timed sets before target_reps was left empty for them: 1 rep with the seconds.
+update workout_sets ws set reps = 1, duration_seconds = 40, completed_at = now() from workout_session_exercises se where se.id = ws.session_exercise_id and se.session_id = :'session_id' and se.exercise_id = 'plank';
 select 'finished' as step, public.fitx_finish_workout_session(:'session_id', 1800, 'Asia/Kolkata') as summary;
 select 'session' as step, status, duration_seconds, total_volume from workout_sessions where id = :'session_id';
 select 'records' as step, exercise_name, best_weight_kg, best_reps, estimated_one_rep_max from personal_records;
+-- Holds are not lifts: no record for the plank, and the volume is the bench sets' 8 × 60 + 6 × 70 only.
+do $$
+begin
+  if exists (select 1 from public.personal_records where exercise_name = 'Front Plank') then
+    raise exception 'a timed hold became a personal record';
+  end if;
+  if exists (select 1 from public.workout_sessions where name like 'Push day%' and status = 'completed' and total_volume <> 900) then
+    raise exception 'a timed hold added to the volume';
+  end if;
+  if exists (select 1 from public.workout_sets ws join public.workout_session_exercises se on se.id = ws.session_exercise_id
+             where se.exercise_id = 'plank' and ws.target_reps is not null) then
+    raise exception 'a timed hold started with a rep target';
+  end if;
+end $$;
 select 'planner' as step, title, status from planner_events order by starts_at;
 \set ON_ERROR_STOP 0
 select public.fitx_finish_workout_session(:'session_id', 1800, 'Asia/Kolkata');

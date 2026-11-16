@@ -18,7 +18,7 @@ import { equipmentLabel, missingEquipment } from "@/lib/training/equipment";
 import { advanceEnrolmentFallback } from "@/lib/training/enrolment";
 import { estimateOneRepMax } from "@/lib/training/one-rep-max";
 import { finishSessionWithRpc } from "@/lib/training/plans";
-import { draftRepsFor, isTimedPrescription, liftedVolume, setTargetReps } from "@/lib/training/sets";
+import { draftRepsFor, isLiftSet, isTimedPrescription, liftedVolume, setTargetReps } from "@/lib/training/sets";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS, SET_REP_SOURCE_COLUMNS } from "../_lib/workout-columns";
 import { plannerEventToComplete } from "../_lib/plan-schedule";
@@ -396,12 +396,12 @@ export default function ActiveWorkoutPage() {
       return setError(message.includes("at least one set") ? "Complete at least one set before finishing your workout." : "This session was already closed or could not be completed. Reload to check its status.");
     }
     // Without fitx_finish_workout_session: the same steps, one request at a time.
-    const volume = validSets.reduce((sum, set) => sum + Number(set.reps) * Number(set.weight_kg), 0);
+    const volume = liftedKilograms;
     const sessionUpdate = await supabase.from("workout_sessions").update({ status: "completed", completed_at: nowDate.toISOString(), duration_seconds: duration, total_volume: volume }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress").select("id").maybeSingle();
     if (sessionUpdate.error || !sessionUpdate.data) { setSaving(false); return setError("This session was already closed or could not be completed. Reload to check its status."); }
     let recordCount = 0;
     for (const exercise of exercises) {
-      const liftSets = exercise.sets.filter((set) => set.completed_at && Number(set.reps) > 0);
+      const liftSets = exercise.sets.filter((set) => set.completed_at && isLiftSet(set, isTimedPrescription(exercise)));
       if (!liftSets.length) continue;
       const bestWeightSet = liftSets.reduce((winner, set) => Number(set.weight_kg) > Number(winner.weight_kg) ? set : winner);
       const bestEstimatedSet = liftSets.reduce((winner, set) => estimateOneRepMax(Number(set.weight_kg), Number(set.reps)) > estimateOneRepMax(Number(winner.weight_kg), Number(winner.reps)) ? set : winner);
