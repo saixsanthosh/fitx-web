@@ -5,6 +5,7 @@ import type { IScannerControls } from "@zxing/browser";
 import type { DecodeHintType as HintType } from "@zxing/library";
 import { Barcode, Camera, Flashlight, ImageUp, X } from "lucide-react";
 import { checkBarcode } from "@/lib/food/barcode";
+import { openCamera, stopCamera } from "@/lib/food/camera";
 
 /** The parts of the Barcode Detection API FITX uses (Chrome on Android has it; Safari on iPhone does not). */
 interface NativeDetector {
@@ -41,8 +42,9 @@ function cameraProblem(error: unknown): string {
 /**
  * Scans retail barcodes (EAN-13, EAN-8, UPC-A, UPC-E) with the rear camera: the browser's own detector where it
  * exists (Android Chrome), ZXing otherwise (iPhone Safari). A code counts only after two matching reads with a
- * valid check digit. A photo of the barcode works as a fallback, and the torch can be switched on when the
- * camera has one.
+ * valid check digit, read in the format the scanner saw (an 8-digit UPC-E is looked up as its UPC-A number). A photo
+ * of the barcode works as a fallback, and the torch can be switched on when the camera has one. The camera is
+ * turned off whenever the scanner closes, also while it is still starting.
  */
 export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -63,8 +65,8 @@ export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => 
     let lastAt = 0;
 
     /** Two matching valid reads within 1.5 s, so one misread frame never looks a product up. */
-    const accept = (raw: string) => {
-      const checked = checkBarcode(raw);
+    const accept = (raw: string, format: string | undefined) => {
+      const checked = checkBarcode(raw, format);
       if (!checked.ok) return;
       const now = performance.now();
       if (checked.code === last && now - lastAt < 1500) {
@@ -93,10 +95,14 @@ export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => 
       void (async () => {
         try {
           const detector = await nativeDetector();
+          // Closed while the detector was checked: never turn the camera on.
+          if (cancelled) return;
           if (detector) {
-            stream = await navigator.mediaDevices.getUserMedia(CAMERA);
-            if (cancelled) return;
-            element.srcObject = stream;
+            const media = await openCamera((constraints) => navigator.mediaDevices.getUserMedia(constraints), CAMERA, () => cancelled);
+            if (!media) return;
+            // Only now can the cleanup see it, so a close from here on turns this stream off.
+            stream = media;
+            element.srcObject = media;
             await element.play();
             findTorch(stream);
             setMessage("Hold the barcode steady inside the frame. It scans automatically.");
@@ -106,7 +112,7 @@ export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => 
               if (!busy && element.readyState >= 2) {
                 busy = true;
                 try {
-                  for (const code of await detector.detect(element)) accept(code.rawValue);
+                  for (const code of await detector.detect(element)) accept(code.rawValue, code.format);
                 } catch {
                   // A frame the detector could not read; keep going.
                 } finally {
@@ -119,16 +125,22 @@ export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => 
             return;
           }
           const [{ BrowserMultiFormatReader, BarcodeFormat }, { DecodeHintType }] = await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
+          if (cancelled) return;
           const hints = new Map([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E]]]);
           const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 150, delayBetweenScanSuccess: 300 });
           const started = await reader.decodeFromConstraints(CAMERA, element, (result) => {
-            if (!cancelled && result) accept(result.getText());
+            if (!cancelled && result) accept(result.getText(), BarcodeFormat[result.getBarcodeFormat()]);
           });
           if (cancelled) { started.stop(); return; }
           controls = started;
           findTorch(element.srcObject instanceof MediaStream ? element.srcObject : null);
           setMessage("Hold the barcode steady inside the frame. It scans automatically.");
         } catch (error) {
+          // The camera may already be on (the preview would not play): turn it off before saying what went wrong.
+          stopCamera(stream);
+          stream = null;
+          if (element.srcObject instanceof MediaStream) stopCamera(element.srcObject);
+          element.srcObject = null;
           if (!cancelled) setMessage(cameraProblem(error));
         }
       })();
@@ -139,7 +151,7 @@ export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => 
       window.clearTimeout(start);
       window.clearTimeout(frame);
       controls?.stop();
-      stream?.getTracks().forEach((item) => item.stop());
+      stopCamera(stream);
       track.current = null;
       element.srcObject = null;
     };
@@ -163,22 +175,27 @@ export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => 
     setMessage("Reading the photo…");
     try {
       let raw: string | null = null;
+      let format: string | undefined;
       const detector = await nativeDetector();
       if (detector) {
         const bitmap = await createImageBitmap(file);
-        raw = (await detector.detect(bitmap))[0]?.rawValue ?? null;
+        const found = (await detector.detect(bitmap))[0];
+        raw = found?.rawValue ?? null;
+        format = found?.format;
         bitmap.close();
       } else {
         const [{ BrowserMultiFormatReader, BarcodeFormat }, { DecodeHintType }] = await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
         const hints = new Map<HintType, unknown>([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E]], [DecodeHintType.TRY_HARDER, true]]);
         const url = URL.createObjectURL(file);
         try {
-          raw = (await new BrowserMultiFormatReader(hints).decodeFromImageUrl(url)).getText();
+          const result = await new BrowserMultiFormatReader(hints).decodeFromImageUrl(url);
+          raw = result.getText();
+          format = BarcodeFormat[result.getBarcodeFormat()];
         } finally {
           URL.revokeObjectURL(url);
         }
       }
-      const checked = checkBarcode(raw);
+      const checked = checkBarcode(raw, format);
       if (!checked.ok) { setMessage("No product barcode was found in that photo. Fill the frame with the barcode and keep it sharp, or type the number above."); return; }
       setOpen(false);
       onDetected(checked.code);
@@ -205,7 +222,8 @@ export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => 
           <p role="status" className="mt-3 text-sm text-fitx-text-secondary">{message}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => photo.current?.click()} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs"><ImageUp size={14}/>Take or choose a photo</button>
-            <input ref={photo} type="file" accept="image/*" capture="environment" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={(event) => void readPhoto(event)}/>
+            {/* No capture attribute: phones then offer the camera and the photo library (a screenshot of a barcode works too). */}
+            <input ref={photo} type="file" accept="image/*" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={(event) => void readPhoto(event)}/>
           </div>
           <p className="mt-3 text-xs text-fitx-text-disabled">The camera is used only to read the barcode, on this device. Product barcodes only (EAN and UPC).</p>
         </div>

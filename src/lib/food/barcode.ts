@@ -7,14 +7,22 @@ export type BarcodeCheck =
   | { ok: true; code: string; format: "EAN-13" | "EAN-8" | "UPC-A" | "UPC-E" | "GTIN-14" }
   | { ok: false; reason: "empty" | "length" | "check-digit" };
 
-/** Validates and normalises a barcode. UPC-E (8 digits starting with 0 or 1) is expanded to its UPC-A number. */
-export function checkBarcode(input: string | null | undefined): BarcodeCheck {
+/**
+ * Validates and normalises a barcode. UPC-E (8 digits starting with 0 or 1) is expanded to its UPC-A number, which
+ * is what Open Food Facts stores. Many 8-digit codes pass both the EAN-8 and the UPC-E check, so `format` (what the
+ * scanner read: "upc_e", "UPC_E", "ean_8") decides; without one, a code starting with 0 is UPC-E, because retail
+ * EAN-8 numbers never start with 0 (GS1 keeps that prefix for numbers used only inside a company).
+ */
+export function checkBarcode(input: string | null | undefined, format?: string | null): BarcodeCheck {
   const digits = String(input ?? "").replace(/\D/g, "");
   if (!digits) return { ok: false, reason: "empty" };
   if (digits.length === 8) {
-    if (gtinValid(digits)) return { ok: true, code: digits, format: "EAN-8" };
     const upcA = expandUpcE(digits);
-    if (upcA && gtinValid(upcA)) return { ok: true, code: upcA, format: "UPC-E" };
+    const upcE = upcA !== null && gtinValid(upcA);
+    const read = String(format ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (upcA && upcE && (read === "upce" || (read !== "ean8" && digits[0] === "0"))) return { ok: true, code: upcA, format: "UPC-E" };
+    if (gtinValid(digits)) return { ok: true, code: digits, format: "EAN-8" };
+    if (upcA && upcE) return { ok: true, code: upcA, format: "UPC-E" };
     return { ok: false, reason: "check-digit" };
   }
   if (digits.length === 12) return gtinValid(digits) ? { ok: true, code: digits, format: "UPC-A" } : { ok: false, reason: "check-digit" };
