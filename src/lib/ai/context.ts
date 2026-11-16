@@ -89,7 +89,10 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
 
   const [[profile, preferences], weighIns, meals, customFoods, sessions, records, goals, planner] = await Promise.all([
     basics,
-    rows<ContextSources["weighIns"][number]>(supabase.from("body_metrics").select("date, weight").eq("user_id", userId).gte("date", day(95)).order("date", { ascending: false }).limit(90)),
+    // Newest first; on the same date the later entry wins (the rule Profile and Progress use).
+    rows<ContextSources["weighIns"][number]>(
+      supabase.from("body_metrics").select("date, weight").eq("user_id", userId).gte("date", day(95)).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(90),
+    ),
     rows<ContextSources["meals"][number]>(
       supabase.from("meals").select("date, meal, food_name, calories, protein, carbs, fat").eq("user_id", userId).gte("date", day(8)).order("date", { ascending: true }).limit(400),
     ),
@@ -145,7 +148,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const diet = dietRulesFrom([...dietChoice, ...list(prefs.food_rules)]);
   const allergies = allergyRulesFrom([...list(prefs.allergies), ...list(prefs.other_allergies)]);
   const budget = budgetText(prefs);
-  const equipment = list(prefs.equipment).map((item) => String(item)).filter(Boolean).slice(0, 20);
+  const equipment = [...new Set(list(prefs.equipment).map((item) => normalizeEquipment(String(item))).filter(Boolean))].slice(0, 20);
 
   const facts: MemberFacts = {
     age,
@@ -315,6 +318,20 @@ function budgetText(prefs: Record<string, unknown>): string | null {
   }
   const level = word(prefs.food_budget_level ?? prefs.budget_level, 20);
   return level ? `${level} budget` : null;
+}
+
+/** Typed equipment from older profiles ("Dumbbells", "cable machine") mapped to exercise-library tags. */
+const EQUIPMENT_WORDS: Record<string, string> = {
+  dumbbells: "dumbbell", barbells: "barbell", kettlebells: "kettlebell", benches: "bench", machines: "machine",
+  cables: "cable", "cable machine": "cable", "resistance bands": "bands", "resistance band": "bands", band: "bands",
+  "pull up bar": "pull_up_bar", "pullup bar": "pull_up_bar", "chin up bar": "pull_up_bar", "ez bar": "ez_bar",
+  "medicine ball": "medicine_ball", "exercise ball": "exercise_ball", "swiss ball": "exercise_ball", "foam roller": "foam_roller",
+  "squat rack": "rack", "power rack": "rack", "body weight": "bodyweight", none: "bodyweight",
+};
+
+export function normalizeEquipment(item: string) {
+  const words = item.toLowerCase().replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]+/g, "").replace(/\s+/g, " ").trim();
+  return words ? EQUIPMENT_WORDS[words] ?? words.replace(/ /g, "_") : "";
 }
 
 /** Injuries or limits to train around: onboarding v2 keys ("lower_back") and custom entries, or older free text. */

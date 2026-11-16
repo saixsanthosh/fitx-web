@@ -157,3 +157,13 @@ describe("onboarding v2 fields", () => {
     assert.equal((summary.training_setup as Record<string, unknown>).limitations, "lower back, knee");
   });
 });
+
+describe("equipment from older profiles", () => {
+  test("typed words map to exercise-library tags", async () => {
+    const { normalizeEquipment } = await import("@/lib/ai/context");
+    assert.deepEqual(["Dumbbells", "cable machine", "Resistance bands", "Pull-up bar", "pull_up_bar", "EZ bar", "bodyweight"].map(normalizeEquipment), ["dumbbell", "cable", "bands", "pull_up_bar", "pull_up_bar", "ez_bar", "bodyweight"]);
+    const base = sources();
+    const { facts } = buildCoachContext({ ...base, preferences: { ...(base.preferences as Record<string, unknown>), equipment: ["Dumbbells", "dumbbell", "Resistance bands"] } } as never, NOW);
+    assert.deepEqual(facts.equipment, ["dumbbell", "bands"]);
+  });
+});

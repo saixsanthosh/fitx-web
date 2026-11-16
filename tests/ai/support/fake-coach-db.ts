@@ -114,8 +114,14 @@ export class FakeCoachDb {
       let rows = [...filtered];
       const order = url.searchParams.get("order");
       if (order) {
-        const [column, direction] = order.split(".");
-        rows.sort((a, b) => String(a[column] ?? "").localeCompare(String(b[column] ?? "")) * (direction === "desc" ? -1 : 1));
+        const keys = order.split(",").map((part) => part.split("."));
+        rows.sort((a, b) => {
+          for (const [column, direction] of keys) {
+            const compared = String(a[column] ?? "").localeCompare(String(b[column] ?? "")) * (direction === "desc" ? -1 : 1);
+            if (compared) return compared;
+          }
+          return 0;
+        });
       }
       const limit = Number(url.searchParams.get("limit"));
       if (limit > 0) rows = rows.slice(0, limit);
