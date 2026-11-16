@@ -4,7 +4,8 @@
 -- one transaction. They are SECURITY INVOKER: row level security still applies, and every statement
 -- is scoped to auth.uid(). The app falls back to its older multi-request path until this is applied.
 -- Needs 20261115110000 (target and duration columns), 20261118120000 (fitx_complete_workout_event, which
--- ticks off the planner item behind a finished workout) and 20261118130030 (programme columns).
+-- ticks off the planner item behind a finished workout, planner days and the item a session is linked
+-- to) and 20261118130030 (programme columns).
 
 -- One workout in progress per user. Older duplicates, if any exist, are closed as abandoned (newest kept).
 with ranked as (
@@ -78,6 +79,10 @@ end $$;
 -- keeps it (workout_sessions.planner_event_id) when it is the member's scheduled workout for this plan, so
 -- finishing ticks off that item (fitx_complete_workout_event); any other id is ignored. Returns
 -- {session_id, resumed}; resumed is true when a workout was already in progress (its id is returned).
+-- Without one, a programme day's session is linked to that day's own scheduled item: a programme day is a
+-- single-date plan, so finishing ticks its item off on any day, also when the workout is done early
+-- (fitx_complete_workout_event ticks a session's linked item, and only that one). Reusable plans are not
+-- linked; finishing one ticks that day's item, and a workout done early leaves a later day planned.
 -- Earlier drafts took only the plan; that version is removed wherever it was applied, so a call with only
 -- the plan is never ambiguous.
 drop function if exists public.fitx_start_workout_session(uuid);
@@ -91,6 +96,9 @@ declare
   v_user uuid := auth.uid();
   v_session uuid;
   v_title text;
+  v_enrolment uuid;
+  v_planned_for date;
+  v_event uuid;
 begin
   if v_user is null then
     raise exception using errcode = '42501', message = 'authentication required';
@@ -99,7 +107,8 @@ begin
   if v_session is not null then
     return jsonb_build_object('session_id', v_session, 'resumed', true);
   end if;
-  select title into v_title from public.workout_plans where id = p_plan_id and user_id = v_user;
+  select title, programme_enrolment_id, planned_for into v_title, v_enrolment, v_planned_for
+  from public.workout_plans where id = p_plan_id and user_id = v_user;
   if v_title is null then
     raise exception using errcode = 'P0002', message = 'workout plan not found';
   end if;
@@ -107,11 +116,22 @@ begin
     raise exception using errcode = '22023', message = 'this plan has no exercises';
   end if;
 
+  -- The item the member pressed Start on, when it is their scheduled workout for this plan.
+  select pe.id into v_event
+  from public.planner_events pe
+  where pe.id = p_planner_event_id and pe.user_id = v_user and pe.workout_plan_id = p_plan_id
+    and pe.event_type = 'workout' and pe.status = 'scheduled';
+  if v_event is null and v_enrolment is not null then
+    -- A programme day: its own item (on its date) first, else another scheduled workout item for it.
+    select pe.id into v_event
+    from public.planner_events pe
+    where pe.user_id = v_user and pe.workout_plan_id = p_plan_id and pe.event_type = 'workout' and pe.status = 'scheduled'
+    order by (pe.local_date = v_planned_for) desc nulls last, pe.local_date, pe.starts_at nulls last
+    limit 1;
+  end if;
+
   insert into public.workout_sessions (user_id, plan_id, name, status, planner_event_id)
-  values (v_user, p_plan_id, v_title, 'in_progress', (
-    select pe.id from public.planner_events pe
-     where pe.id = p_planner_event_id and pe.user_id = v_user and pe.workout_plan_id = p_plan_id
-       and pe.event_type = 'workout' and pe.status = 'scheduled'))
+  values (v_user, p_plan_id, v_title, 'in_progress', v_event)
   returning id into v_session;
 
   insert into public.workout_session_exercises (user_id, session_id, exercise_id, exercise_name, sort_order, target_sets, reps_min,
@@ -121,8 +141,12 @@ begin
   from public.workout_plan_exercises
   where plan_id = p_plan_id and user_id = v_user;
 
+  -- A movement with a target in seconds (a hold, a stretch, cardio) is logged by time: its sets get no
+  -- rep target, so no rep count is filled in for it.
   insert into public.workout_sets (user_id, session_exercise_id, set_number, target_reps, weight_kg)
-  select v_user, se.id, n::smallint, round((se.reps_min + se.reps_max) / 2.0)::smallint, coalesce(se.target_weight_kg, 0)
+  select v_user, se.id, n::smallint,
+    case when se.target_duration_seconds is null then round((se.reps_min + se.reps_max) / 2.0)::smallint end,
+    coalesce(se.target_weight_kg, 0)
   from public.workout_session_exercises se
   cross join lateral generate_series(1, se.target_sets) as n
   where se.session_id = v_session and se.user_id = v_user;
@@ -169,7 +193,10 @@ begin
     raise exception using errcode = 'P0002', message = 'this session was already closed or does not exist';
   end if;
 
-  select count(*), coalesce(sum(case when coalesce(ws.reps, 0) > 0 then ws.reps * ws.weight_kg else 0 end), 0)
+  -- Volume and records count lifts only: a timed movement (a target in seconds) and any set with seconds
+  -- logged are holds, stretches or cardio, so a plank logged as 1 rep is not a one-rep lift.
+  select count(*), coalesce(sum(case when coalesce(ws.reps, 0) > 0 and se.target_duration_seconds is null
+      and coalesce(ws.duration_seconds, 0) = 0 then ws.reps * ws.weight_kg else 0 end), 0)
   into v_sets, v_volume
   from public.workout_session_exercises se
   join public.workout_sets ws on ws.session_exercise_id = se.id and ws.user_id = se.user_id
@@ -189,6 +216,7 @@ begin
     from public.workout_session_exercises se
     join public.workout_sets ws on ws.session_exercise_id = se.id and ws.user_id = se.user_id
     where se.session_id = p_session_id and se.user_id = v_user and ws.completed_at is not null and coalesce(ws.reps, 0) > 0
+      and se.target_duration_seconds is null and coalesce(ws.duration_seconds, 0) = 0
   ),
   heaviest as (
     select distinct on (exercise_name) exercise_name, exercise_id, weight_kg as best_weight, reps as best_weight_reps

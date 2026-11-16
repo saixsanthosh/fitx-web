@@ -18,6 +18,7 @@ import { equipmentLabel, missingEquipment } from "@/lib/training/equipment";
 import { advanceEnrolmentFallback } from "@/lib/training/enrolment";
 import { estimateOneRepMax } from "@/lib/training/one-rep-max";
 import { finishSessionWithRpc } from "@/lib/training/plans";
+import { draftRepsFor, isLiftSet, isTimedPrescription, liftedVolume, setTargetReps, swappedPrescription } from "@/lib/training/sets";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS, SET_REP_SOURCE_COLUMNS } from "../_lib/workout-columns";
 import { plannerEventToComplete } from "../_lib/plan-schedule";
@@ -101,7 +102,9 @@ export default function ActiveWorkoutPage() {
   const [level, setLevel] = useState<Level>("beginner");
   const [swapOpen, setSwapOpen] = useState(false);
   // A countdown for a timed set; when it ends the set's seconds are filled in and the cue plays.
-  const [setTimer, setSetTimer] = useState<{ exerciseId: string; setId: string; seconds: number; startedAt: number; endsAt: number } | null>(null);
+  const [setTimer, setSetTimer] = useState<{ exerciseId: string; setId: string; setNumber: number; seconds: number; startedAt: number; endsAt: number } | null>(null);
+  // What screen readers hear about the set timer: its start, stop and end, never each second.
+  const [timerNotice, setTimerNotice] = useState("");
   // Sets "Count with camera" filled, with the number it filled in, so a saved set can record where its count came from.
   const [cameraCounts, setCameraCounts] = useState<Map<string, { kind: CameraCountResult["kind"]; value: number }>>(() => new Map());
   // False once the database has said it lacks workout_sets.rep_source; sets then save without that label.
@@ -161,7 +164,7 @@ export default function ActiveWorkoutPage() {
       id: row.id, exercise_id: row.exercise_id, name: row.exercise_name, target_sets: row.target_sets, reps_min: row.reps_min, reps_max: row.reps_max, rest_seconds: row.rest_seconds, target_weight_kg: row.target_weight_kg ?? null, target_duration_seconds: row.target_duration_seconds ?? null, sort_order: row.sort_order,
       sets: setRows.filter((set) => set.session_exercise_id === row.id).map((set) => ({
         id: set.id, set_number: set.set_number, target_reps: set.target_reps, reps: set.reps, completed_at: set.completed_at, duration_seconds: set.duration_seconds ?? null,
-        weight_kg: Number(set.weight_kg || 0), draftWeight: String(set.weight_kg || ""), draftReps: set.reps == null ? String(set.target_reps || "") : String(set.reps), draftDuration: set.duration_seconds == null ? "" : String(set.duration_seconds),
+        weight_kg: Number(set.weight_kg || 0), draftWeight: String(set.weight_kg || ""), draftReps: draftRepsFor(set, row.target_duration_seconds != null), draftDuration: set.duration_seconds == null ? "" : String(set.duration_seconds),
       })),
     })));
     setClock(nextClock);
@@ -184,6 +187,7 @@ export default function ActiveWorkoutPage() {
         setExercises((items) => items.map((exercise) => exercise.id !== running.exerciseId ? exercise : {
           ...exercise, sets: exercise.sets.map((set) => set.id === running.setId ? { ...set, draftDuration: String(running.seconds) } : set),
         }));
+        setTimerNotice(`Time is up for set ${running.setNumber}. Its seconds are filled in; tick the set to log it.`);
         cue();
       }
       const rest = restCueRef.current;
@@ -223,6 +227,8 @@ export default function ActiveWorkoutPage() {
     try { window.localStorage.setItem(sessionUiKey(session.id), JSON.stringify({ clock, exerciseIndex, restEndsAt, restHeldSeconds } satisfies LocalSessionUi)); } catch { /* Durable session rows remain authoritative. */ }
   }, [session, clock, exerciseIndex, restEndsAt, restHeldSeconds]);
   const completedSets = useMemo(() => exercises.flatMap((exercise) => exercise.sets.filter((set) => Boolean(set.completed_at))), [exercises]);
+  // Kilograms lifted so far; a timed movement's sets count for their seconds instead.
+  const liftedKilograms = useMemo(() => exercises.reduce((sum, exercise) => sum + liftedVolume(exercise.sets.filter((set) => Boolean(set.completed_at)), isTimedPrescription(exercise)), 0), [exercises]);
   const totalSets = useMemo(() => exercises.reduce((count, exercise) => count + exercise.sets.length, 0), [exercises]);
   const elapsedSeconds = useMemo(() => {
     if (!clock) return 0;
@@ -235,10 +241,11 @@ export default function ActiveWorkoutPage() {
   const currentExercise = exercises[currentExerciseIndex] || null;
   const completedExerciseCount = exercises.filter((exercise) => exercise.sets.length > 0 && exercise.sets.every((set) => Boolean(set.completed_at))).length;
 
-  function startSetTimer(exerciseId: string, setId: string, seconds: number) {
+  function startSetTimer(exerciseId: string, setId: string, setNumber: number, seconds: number) {
     cues.prime();
     const startedAt = Date.now();
-    setSetTimer({ exerciseId, setId, seconds, startedAt, endsAt: startedAt + seconds * 1000 });
+    setSetTimer({ exerciseId, setId, setNumber, seconds, startedAt, endsAt: startedAt + seconds * 1000 });
+    setTimerNotice(`Set ${setNumber} timer started: ${seconds} seconds.`);
   }
 
   /** Stopping early records the seconds actually done. */
@@ -246,7 +253,9 @@ export default function ActiveWorkoutPage() {
     const running = setTimer;
     if (!running) return;
     setSetTimer(null);
-    changeSet(running.exerciseId, running.setId, "draftDuration", String(Math.max(1, Math.round((Date.now() - running.startedAt) / 1000))));
+    const done = Math.max(1, Math.round((Date.now() - running.startedAt) / 1000));
+    changeSet(running.exerciseId, running.setId, "draftDuration", String(done));
+    setTimerNotice(`Set ${running.setNumber} timer stopped at ${done} seconds.`);
   }
 
   /** Replaces the current exercise for this session only; the saved plan is unchanged. */
@@ -256,15 +265,26 @@ export default function ActiveWorkoutPage() {
     if (exercise.sets.some((set) => Boolean(set.completed_at))) { setSwapOpen(false); return setError("Swap an exercise before logging its sets."); }
     const supabase = createClient();
     if (!supabase) return;
-    const timed = replacement.prescription_type === "time";
-    const patch = { exercise_id: replacement.id, exercise_name: replacement.name, target_duration_seconds: timed ? exercise.target_duration_seconds ?? replacement.default_duration_seconds ?? 30 : null };
+    // Reps or seconds follow the new movement when its type differs (a hold for push-ups, or the reverse).
+    // Without the time-target column a movement cannot be timed, so only the movement changes.
+    const prescription = targetsSupported ? swappedPrescription(exercise, replacement) : { reps_min: exercise.reps_min, reps_max: exercise.reps_max, target_duration_seconds: exercise.target_duration_seconds };
+    const patch = { exercise_id: replacement.id, exercise_name: replacement.name, ...prescription };
     const outcome = await withOptionalColumns(["target_duration_seconds"], (include) =>
       supabase.from("workout_session_exercises").update(payloadFor(patch, ["target_duration_seconds"], include)).eq("id", exercise.id).eq("user_id", session.user_id).select("id").maybeSingle(),
     { includeOptional: targetsSupported });
     if (outcome.result.error || !outcome.result.data) { setSwapOpen(false); return setError("That exercise couldn’t be swapped. Check your connection and try again."); }
+    const stored = { ...prescription, target_duration_seconds: outcome.includedOptional ? prescription.target_duration_seconds : exercise.target_duration_seconds };
+    const changed = stored.reps_min !== exercise.reps_min || stored.reps_max !== exercise.reps_max || stored.target_duration_seconds !== exercise.target_duration_seconds;
+    const targetReps = setTargetReps(stored);
+    // None of its sets is logged yet (see above), so every set takes the new target. If this request
+    // fails, the page still shows the right fields and a reload leaves a timed set's reps empty.
+    if (changed) await supabase.from("workout_sets").update({ target_reps: targetReps }).eq("session_exercise_id", exercise.id).eq("user_id", session.user_id).is("completed_at", null);
     setExercises((items) => items.map((item) => item.id !== exercise.id ? item : {
-      ...item, exercise_id: replacement.id, name: replacement.name, target_duration_seconds: outcome.includedOptional ? patch.target_duration_seconds : item.target_duration_seconds,
+      ...item, exercise_id: replacement.id, name: replacement.name, reps_min: stored.reps_min, reps_max: stored.reps_max, target_duration_seconds: stored.target_duration_seconds,
+      // A different type of movement starts its sets afresh: its rep target, or empty reps and seconds to time.
+      sets: changed ? item.sets.map((set) => set.completed_at ? set : { ...set, target_reps: targetReps, draftReps: targetReps == null ? "" : String(targetReps), draftDuration: "" }) : item.sets,
     }));
+    if (setTimer?.exerciseId === exercise.id) setSetTimer(null);
     setSwapOpen(false);
     setError("");
   }
@@ -359,14 +379,15 @@ export default function ActiveWorkoutPage() {
     const supabase = createClient(); if (!supabase || !session || clock?.paused) return;
     if (exercise.sets.length >= 30) return setError("A movement can have up to 30 sets in one session.");
     const next = exercise.sets.length + 1;
-    const targetReps = Math.round((exercise.reps_min + exercise.reps_max) / 2);
+    // No rep target for a timed movement: its sets are logged by time.
+    const targetReps = setTargetReps(exercise);
     const inserted = await withOptionalColumns(SET_DURATION_COLUMNS, (include) =>
       supabase.from("workout_sets").insert({ user_id: session.user_id, session_exercise_id: exercise.id, set_number: next, target_reps: targetReps, weight_kg: exercise.target_weight_kg ?? 0 }).select(columnList(SET_COLUMNS, SET_DURATION_COLUMNS, include)).single(),
     { includeOptional: timedSetsSupported });
     if (!inserted.includedOptional) setTimedSetsSupported(false);
     const row = inserted.result.data as unknown as SetRow | null;
     if (inserted.result.error || !row) return setError("A new set could not be added.");
-    setExercises((items) => items.map((item) => item.id === exercise.id ? { ...item, sets: [...item.sets, { id: row.id, set_number: row.set_number, target_reps: row.target_reps, reps: row.reps, completed_at: row.completed_at, weight_kg: exercise.target_weight_kg ?? 0, duration_seconds: null, draftWeight: String(exercise.target_weight_kg ?? ""), draftReps: String(targetReps), draftDuration: "" }] } : item));
+    setExercises((items) => items.map((item) => item.id === exercise.id ? { ...item, sets: [...item.sets, { id: row.id, set_number: row.set_number, target_reps: row.target_reps, reps: row.reps, completed_at: row.completed_at, weight_kg: exercise.target_weight_kg ?? 0, duration_seconds: null, draftWeight: String(exercise.target_weight_kg ?? ""), draftReps: targetReps == null ? "" : String(targetReps), draftDuration: "" }] } : item));
     setError("");
   }
 
@@ -392,12 +413,12 @@ export default function ActiveWorkoutPage() {
       return setError(message.includes("at least one set") ? "Complete at least one set before finishing your workout." : "This session was already closed or could not be completed. Reload to check its status.");
     }
     // Without fitx_finish_workout_session: the same steps, one request at a time.
-    const volume = validSets.reduce((sum, set) => sum + Number(set.reps) * Number(set.weight_kg), 0);
+    const volume = liftedKilograms;
     const sessionUpdate = await supabase.from("workout_sessions").update({ status: "completed", completed_at: nowDate.toISOString(), duration_seconds: duration, total_volume: volume }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress").select("id").maybeSingle();
     if (sessionUpdate.error || !sessionUpdate.data) { setSaving(false); return setError("This session was already closed or could not be completed. Reload to check its status."); }
     let recordCount = 0;
     for (const exercise of exercises) {
-      const liftSets = exercise.sets.filter((set) => set.completed_at && Number(set.reps) > 0);
+      const liftSets = exercise.sets.filter((set) => set.completed_at && isLiftSet(set, isTimedPrescription(exercise)));
       if (!liftSets.length) continue;
       const bestWeightSet = liftSets.reduce((winner, set) => Number(set.weight_kg) > Number(winner.weight_kg) ? set : winner);
       const bestEstimatedSet = liftSets.reduce((winner, set) => estimateOneRepMax(Number(set.weight_kg), Number(set.reps)) > estimateOneRepMax(Number(winner.weight_kg), Number(winner.reps)) ? set : winner);
@@ -474,28 +495,30 @@ export default function ActiveWorkoutPage() {
   return <div className="mx-auto max-w-4xl space-y-4 pb-28 sm:space-y-5 sm:pb-8">
     <PageHeading title={session.name} description="A focused view for your current movement. Set entries save as you train." actions={<Link href="/workouts" className="fitx-button fitx-button-secondary min-h-11"><ArrowLeft size={15} />Workouts</Link>} />
     {error && <p role="alert" className="rounded-lg border border-fitx-warning/30 bg-fitx-warning/5 px-4 py-3 text-sm text-fitx-warning">{error}</p>}
+    <p role="status" className="sr-only">{timerNotice}</p>
     {fieldsNotice && <p role="status" className="flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-4 py-3 text-xs text-fitx-text-secondary"><Info size={15} aria-hidden="true" className="mt-px shrink-0 text-fitx-info" /><span>{fieldsNotice}</span></p>}
 
     <section className="fitx-panel grid grid-cols-2 gap-4 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:px-5"><div><p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Elapsed training time</p><p className="mt-1 font-mono text-xl font-semibold tabular-nums tracking-tight sm:text-2xl">{formatClock(elapsedSeconds)}</p></div><div><p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Exercises complete</p><p className="mt-1 text-lg font-semibold tabular-nums">{completedExerciseCount}<span className="text-sm font-normal text-fitx-text-secondary"> / {exercises.length}</span></p></div><button type="button" onClick={() => void togglePause()} disabled={clockSaving} className="fitx-button fitx-button-secondary col-span-2 min-h-11 sm:col-span-1">{clock?.paused ? <Play size={15} /> : <Pause size={15} />}{clockSaving ? "Saving…" : clock?.paused ? "Resume" : "Pause session"}</button></section>
     <div className="flex flex-wrap items-center gap-2 text-xs">
-      <button type="button" onClick={cues.toggleCues} aria-pressed={cues.cuesOn} className="fitx-button fitx-button-quiet min-h-10 px-3 text-xs">{cues.cuesOn ? <Volume2 size={14} aria-hidden="true" /> : <VolumeX size={14} aria-hidden="true" />}{cues.cuesOn ? "Rest alert on" : "Rest alert off"}</button>
-      <button type="button" onClick={cues.toggleKeepAwake} aria-pressed={cues.keepAwake} className="fitx-button fitx-button-quiet min-h-10 px-3 text-xs"><Smartphone size={14} aria-hidden="true" />{cues.keepAwake ? "Keep screen on" : "Screen can sleep"}</button>
+      <button type="button" onClick={cues.toggleCues} aria-pressed={cues.cuesOn} className="fitx-button fitx-button-quiet min-h-10 px-3 text-sm">{cues.cuesOn ? <Volume2 size={14} aria-hidden="true" /> : <VolumeX size={14} aria-hidden="true" />}{cues.cuesOn ? "Rest alert on" : "Rest alert off"}</button>
+      <button type="button" onClick={cues.toggleKeepAwake} aria-pressed={cues.keepAwake} className="fitx-button fitx-button-quiet min-h-10 px-3 text-sm"><Smartphone size={14} aria-hidden="true" />{cues.keepAwake ? "Keep screen on" : "Screen can sleep"}</button>
       {cues.keepAwake && wakeLock !== "off" && <span role="status" className="text-fitx-text-secondary">{wakeLock === "on" ? "The screen stays on while you train." : wakeLock === "unsupported" ? "This browser can’t keep the screen on." : "The screen couldn’t be kept on; battery saver can block it."}</span>}
     </div>
 
     {clock?.paused && <section role="status" className="flex flex-col gap-3 rounded-lg border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Session paused</p><p className="mt-1 text-xs text-fitx-text-secondary">Your training timer is held. Resume when you’re ready.</p></div><button type="button" onClick={() => void togglePause()} disabled={clockSaving} className="fitx-button min-h-11">{clockSaving ? "Saving…" : "Resume workout"}<Play size={14} /></button></section>}
 
     <section className="fitx-panel p-4 sm:p-5"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-semibold">Workout sequence</h2><p className="mt-1 text-xs text-fitx-text-secondary">{completedSets.length} of {totalSets} sets logged</p></div><span className="text-xs tabular-nums text-fitx-text-secondary">{formatClock(elapsedSeconds)}</span></div><div className="fitx-progress-track h-1.5" role="progressbar" aria-label="Workout sets completed" aria-valuemin={0} aria-valuemax={Math.max(1, totalSets)} aria-valuenow={completedSets.length}><div className="fitx-progress-fill" style={{ width: `${totalSets ? Math.min(100, completedSets.length / totalSets * 100) : 0}%` }} /></div>
-      {exercises.length > 0 && <nav aria-label="Workout exercises" className="mt-4 flex gap-2 overflow-x-auto pb-1">{exercises.map((exercise, index) => <button key={exercise.id} type="button" aria-current={exerciseIndex === index ? "step" : undefined} onClick={() => setExerciseIndex(index)} className={`min-h-10 shrink-0 rounded-md border px-3 text-xs transition-colors ${exerciseIndex === index ? "border-fitx-primary bg-fitx-primary/[.08] text-fitx-primary" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40"}`}><span className="mr-1.5 font-mono text-[10px]">{String(index + 1).padStart(2, "0")}</span><span className="max-w-36 align-middle">{exercise.name}</span></button>)}</nav>}
+      {exercises.length > 0 && <nav aria-label="Workout exercises" className="mt-4 flex gap-2 overflow-x-auto pb-1">{exercises.map((exercise, index) => <button key={exercise.id} type="button" aria-current={exerciseIndex === index ? "step" : undefined} onClick={() => setExerciseIndex(index)} className={`min-h-10 shrink-0 rounded-md border px-3 text-sm transition-colors ${exerciseIndex === index ? "border-fitx-primary bg-fitx-primary/[.08] text-fitx-primary" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40"}`}><span className="mr-1.5 font-mono text-[10px]">{String(index + 1).padStart(2, "0")}</span><span className="max-w-36 align-middle">{exercise.name}</span></button>)}</nav>}
     </section>
 
     {!exercises.length && <EmptyState title="No exercises in this session" description="This workout has no movements yet. Go back and start a saved plan with exercises." />}
     {currentExercise && <section aria-labelledby="current-exercise-title" className="fitx-panel overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-fitx-divider p-4 sm:p-5"><div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-fitx-primary">Movement {String(currentExerciseIndex + 1).padStart(2, "0")} <span className="text-fitx-text-secondary">/ {String(exercises.length).padStart(2, "0")}</span></p><h2 id="current-exercise-title" className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">{currentExercise.name}</h2><p className="mt-1 text-xs text-fitx-text-secondary">Target: {currentExercise.target_sets} sets · {currentExercise.reps_min}–{currentExercise.reps_max} reps{targetsSupported && <> · {currentExercise.target_weight_kg == null ? "No load" : `${currentExercise.target_weight_kg} kg`} · {currentExercise.target_duration_seconds == null ? "No time target" : `${currentExercise.target_duration_seconds}s`}</>} · {currentExercise.rest_seconds}s rest</p>{swapMissing.length > 0 && <p className="mt-1 text-xs text-fitx-warning">Needs {swapMissing.map(equipmentLabel).join(", ").toLowerCase()}, not on your {ownedContext} list. Swap it for something you can do.</p>}</div><div className="flex items-center gap-2"><button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || clock?.paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-10 px-3 text-xs"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button><button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} aria-label="Previous exercise" className="grid h-10 w-10 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronLeft size={18} /></button><button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} aria-label="Next exercise" className="grid h-10 w-10 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronRight size={18} /></button></div></div>
-      <div className="p-4 sm:p-5"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Working sets</h3><p className="mt-1 text-xs text-fitx-text-secondary">Completed entries save to this session.</p></div><button type="button" onClick={() => void addSet(currentExercise)} disabled={clock?.paused} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs"><Plus size={14} />Add set</button></div>
-        {timedSetsSupported && currentExercise.target_duration_seconds != null && nextOpenSet && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3" aria-live="polite">
-          <div><p className="text-sm font-medium tabular-nums">{timerHere ? `Set ${nextOpenSet.set_number}: ${timerRemaining}s left` : `Set ${nextOpenSet.set_number}: ${currentExercise.target_duration_seconds}s`}</p><p className="text-xs text-fitx-text-secondary">{timerHere ? "The seconds fill in when the timer ends. Tick the set to log it." : "Start the timer as you begin."}</p></div>
-          {timerHere ? <button type="button" onClick={stopSetTimer} className="fitx-button fitx-button-secondary min-h-11"><Square size={14} aria-hidden="true" />Stop</button> : <button type="button" disabled={clock?.paused || Boolean(setTimer)} onClick={() => startSetTimer(currentExercise.id, nextOpenSet.id, currentExercise.target_duration_seconds!)} className="fitx-button min-h-11"><Play size={14} aria-hidden="true" />Start timer</button>}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-fitx-divider p-4 sm:p-5"><div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-fitx-primary">Movement {String(currentExerciseIndex + 1).padStart(2, "0")} <span className="text-fitx-text-secondary">/ {String(exercises.length).padStart(2, "0")}</span></p><h2 id="current-exercise-title" className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">{currentExercise.name}</h2><p className="mt-1 text-xs text-fitx-text-secondary">Target: {currentExercise.target_sets} sets · {isTimedPrescription(currentExercise) ? `${currentExercise.target_duration_seconds}s each` : `${currentExercise.reps_min}–${currentExercise.reps_max} reps`}{targetsSupported && <> · {currentExercise.target_weight_kg == null ? "No load" : `${currentExercise.target_weight_kg} kg`}</>} · {currentExercise.rest_seconds}s rest</p>{swapMissing.length > 0 && <p className="mt-1 text-xs text-fitx-warning">Needs {swapMissing.map(equipmentLabel).join(", ").toLowerCase()}, not on your {ownedContext} list. Swap it for something you can do.</p>}</div><div className="flex items-center gap-2"><button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || clock?.paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-10 px-3 text-sm"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button><button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} aria-label="Previous exercise" className="grid h-10 w-10 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronLeft size={18} /></button><button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} aria-label="Next exercise" className="grid h-10 w-10 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronRight size={18} /></button></div></div>
+      <div className="p-4 sm:p-5"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Working sets</h3><p className="mt-1 text-xs text-fitx-text-secondary">Completed entries save to this session.</p></div><button type="button" onClick={() => void addSet(currentExercise)} disabled={clock?.paused} className="fitx-button fitx-button-secondary min-h-10 px-3 text-sm"><Plus size={14} />Add set</button></div>
+        {timedSetsSupported && currentExercise.target_duration_seconds != null && nextOpenSet && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3">
+          {/* role="timer" is not read out as it changes; the start, stop and end are announced below. */}
+          <div><p role={timerHere ? "timer" : undefined} className="text-sm font-medium tabular-nums">{timerHere ? `Set ${nextOpenSet.set_number}: ${timerRemaining}s left` : `Set ${nextOpenSet.set_number}: ${currentExercise.target_duration_seconds}s`}</p><p className="text-xs text-fitx-text-secondary">{timerHere ? "The seconds fill in when the timer ends. Tick the set to log it." : "Start the timer as you begin."}</p></div>
+          {timerHere ? <button type="button" onClick={stopSetTimer} className="fitx-button fitx-button-secondary min-h-11"><Square size={14} aria-hidden="true" />Stop</button> : <button type="button" disabled={clock?.paused || Boolean(setTimer)} onClick={() => startSetTimer(currentExercise.id, nextOpenSet.id, nextOpenSet.set_number, currentExercise.target_duration_seconds!)} className="fitx-button min-h-11"><Play size={14} aria-hidden="true" />Start timer</button>}
         </div>}
         <div className={`${setGridColumns} gap-2 px-1 pb-2 text-[10px] font-medium uppercase tracking-wide text-fitx-text-secondary`}><span>Set</span><span>Weight · kg</span><span>Reps</span>{timedSetsSupported && <span>Sec</span>}<span /></div>
         <div className="space-y-2">{currentExercise.sets.map((set) => <div key={set.id} className={`${setGridColumns} items-center gap-2`}><span className="text-sm font-medium tabular-nums text-fitx-text-secondary">{String(set.set_number).padStart(2, "0")}</span><input aria-label={`${currentExercise.name} set ${set.set_number} weight in kg`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="2000" step="0.5" value={set.draftWeight} onChange={(event) => changeSet(currentExercise.id, set.id, "draftWeight", event.target.value)} /><input aria-label={`${currentExercise.name} set ${set.set_number} repetitions`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="500" step="1" value={set.draftReps} onChange={(event) => changeSet(currentExercise.id, set.id, "draftReps", event.target.value)} />{timedSetsSupported && <input aria-label={`${currentExercise.name} set ${set.set_number} duration in seconds`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="86400" step="1" value={set.draftDuration} onChange={(event) => changeSet(currentExercise.id, set.id, "draftDuration", event.target.value)} />}<button type="button" disabled={clock?.paused} onClick={() => void saveSet(currentExercise.id, set, !set.completed_at)} aria-label={set.completed_at ? "Mark set incomplete" : "Complete set"} className={`grid h-12 w-12 place-items-center rounded-md border transition-colors disabled:opacity-50 ${set.completed_at ? "border-fitx-primary/50 bg-fitx-primary/10 text-fitx-primary" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-primary"}`}><Check size={19} /></button></div>)}</div>
@@ -512,9 +535,9 @@ export default function ActiveWorkoutPage() {
       </div>
     </section>}
 
-    {restRemaining > 0 && <section role="timer" aria-label="Rest timer" className="fitx-panel fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-40 mx-auto flex max-w-md items-center justify-between gap-3 border-fitx-primary/30 bg-fitx-card p-3 shadow-xl sm:bottom-4 sm:p-4"><p className="flex items-center gap-2 text-sm"><Timer size={17} className="text-fitx-primary" />Rest</p><p className="text-xl font-semibold tabular-nums text-fitx-primary">{Math.floor(restRemaining / 60)}:{String(restRemaining % 60).padStart(2, "0")}</p><button type="button" onClick={() => { setRestEndsAt(null); setRestHeldSeconds(0); }} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs">Skip rest</button></section>}
+    {restRemaining > 0 && <section role="timer" aria-label="Rest timer" className="fitx-panel fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-40 mx-auto flex max-w-md items-center justify-between gap-3 border-fitx-primary/30 bg-fitx-card p-3 shadow-xl sm:bottom-4 sm:p-4"><p className="flex items-center gap-2 text-sm"><Timer size={17} className="text-fitx-primary" />Rest</p><p className="text-xl font-semibold tabular-nums text-fitx-primary">{Math.floor(restRemaining / 60)}:{String(restRemaining % 60).padStart(2, "0")}</p><button type="button" onClick={() => { setRestEndsAt(null); setRestHeldSeconds(0); }} className="fitx-button fitx-button-secondary min-h-10 px-3 text-sm">Skip rest</button></section>}
 
-    <section className="fitx-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Trophy size={16} className="shrink-0 text-fitx-primary" /><span>{completedSets.length} completed sets · {Math.round(completedSets.reduce((sum, set) => sum + Number(set.weight_kg) * Number(set.reps), 0)).toLocaleString()} kg logged{timedSetsSupported && <> · {Math.round(completedSets.reduce((sum, set) => sum + Number(set.duration_seconds || 0), 0) / 60)} min timed</>}</span></p><div className="flex flex-col-reverse gap-2 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} disabled={saving || clockSaving} className="fitx-button fitx-button-quiet min-h-11"><X size={14} />Abandon</button><button type="button" disabled={saving || clockSaving || clock?.paused} onClick={() => void finishWorkout()} className="fitx-button min-h-12">{saving ? "Saving…" : "Finish workout"}<Check size={15} /></button></div></section>
+    <section className="fitx-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Trophy size={16} className="shrink-0 text-fitx-primary" /><span>{completedSets.length} completed sets · {Math.round(liftedKilograms).toLocaleString()} kg logged{timedSetsSupported && <> · {Math.round(completedSets.reduce((sum, set) => sum + Number(set.duration_seconds || 0), 0) / 60)} min timed</>}</span></p><div className="flex flex-col-reverse gap-2 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} disabled={saving || clockSaving} className="fitx-button fitx-button-quiet min-h-11"><X size={14} />Abandon</button><button type="button" disabled={saving || clockSaving || clock?.paused} onClick={() => void finishWorkout()} className="fitx-button min-h-12">{saving ? "Saving…" : "Finish workout"}<Check size={15} /></button></div></section>
     <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+.75rem)] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={exerciseIndex === 0} className="fitx-button fitx-button-secondary min-h-12"><ArrowLeft size={15} />Previous</button><button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={exerciseIndex >= exercises.length - 1} className="fitx-button min-h-12">Next exercise<ArrowRight size={15} /></button></div>
     {swapOpen && swapTarget && <SwapSheet target={swapTarget} catalog={catalog} owned={owned} level={level} exclude={new Set(exercises.flatMap((exercise) => (exercise.exercise_id ? [exercise.exercise_id] : [])))} contextLabel={ownedContext} onPick={(exercise) => void swapExercise(exercise)} onClose={() => setSwapOpen(false)} />}
   </div>;

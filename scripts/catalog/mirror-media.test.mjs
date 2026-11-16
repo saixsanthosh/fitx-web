@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isMirrorable, parseArgs, SOURCE_PREFIX } from "./mirror-media.mjs";
+import { connectionFrom, isMirrorable, parseArgs, SOURCE_PREFIX } from "./mirror-media.mjs";
 
 const row = (overrides = {}) => ({ id: "1", exercise_id: "free-exercise-db-Pushups", kind: "still", mirrored_at: null, source_url: `${SOURCE_PREFIX}Pushups/0.jpg`, storage_path: "free-exercise-db/Pushups/0.jpg", ...overrides });
 
@@ -21,4 +21,14 @@ test("options are strict", () => {
   assert.deepEqual(parseArgs(["--dry-run", "--limit", "25"]), { dryRun: true, limit: 25 });
   assert.throws(() => parseArgs(["--limit", "0"]));
   assert.throws(() => parseArgs(["--force"]));
+});
+
+test("the project URL and key are read under the app's names or the script's, the secret key first", () => {
+  const url = "https://project.supabase.co";
+  assert.deepEqual(connectionFrom({ SUPABASE_URL: url, SUPABASE_SECRET_KEY: "secret" }), { url, key: "secret" });
+  assert.deepEqual(connectionFrom({ NEXT_PUBLIC_SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: "legacy" }), { url, key: "legacy" }, "the app's .env names");
+  assert.deepEqual(connectionFrom({ SUPABASE_URL: url, SUPABASE_SECRET_KEY: "secret", SUPABASE_SERVICE_ROLE_KEY: "legacy" }).key, "secret");
+  assert.deepEqual(connectionFrom({ SUPABASE_URL: url, SUPABASE_SECRET_KEY: "  ", SUPABASE_SERVICE_ROLE_KEY: "legacy" }).key, "legacy", "a blank secret key counts as unset");
+  assert.throws(() => connectionFrom({ SUPABASE_URL: url }), /SUPABASE_SECRET_KEY \(or SUPABASE_SERVICE_ROLE_KEY\)/);
+  assert.throws(() => connectionFrom({ SUPABASE_SECRET_KEY: "sb_secret_do_not_print" }), (error) => /SUPABASE_URL/.test(error.message) && !error.message.includes("sb_secret_do_not_print"), "names what is missing, never prints the key");
 });

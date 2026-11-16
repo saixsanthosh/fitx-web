@@ -12,6 +12,7 @@ import type { CatalogExercise } from "@/lib/training/catalog";
 import { catalogSearchQuery, MAX_IDS } from "@/lib/training/catalog-search";
 import { equipmentFor, loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
 import { equipmentLabel, expandOwnedEquipment } from "@/lib/training/equipment";
+import { storedIdsFor, survivingExerciseIds } from "@/lib/training/exercise-merges";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { CATEGORY_LABELS, EQUIPMENT, EXERCISE_CATEGORIES, LEVELS, MUSCLE_GROUP_LABELS, MUSCLE_GROUPS, type TrainingContext } from "@/lib/training/taxonomy";
 import { capitalize, workPerSet } from "./_lib/format";
@@ -86,8 +87,9 @@ export default function ExerciseLibraryPage() {
       const uid = data.user?.id ?? "";
       // Saved and recent exercises are keyed by user; they work before the equipment lists arrive.
       setUserId(uid);
-      setFavoriteIds(readExerciseFavorites(uid));
-      setRecentIds(readRecentExercises(uid));
+      // Ids saved before the catalogue clean-up may name a merged duplicate: read as its survivor.
+      setFavoriteIds(survivingExerciseIds(readExerciseFavorites(uid)));
+      setRecentIds(survivingExerciseIds(readRecentExercises(uid)));
       if (!uid) { setAccount({ status: "signed-out" }); return; }
       const [lists, preferences] = await Promise.all([
         loadEquipmentProfiles(supabase, uid),
@@ -153,7 +155,15 @@ export default function ExerciseLibraryPage() {
   }
   function setParam(key: LibraryParam, value: string | boolean | null) { navigate(withLibraryParam(window.location.search, key, value)); }
   function clearFilters() { navigate(withoutLibraryFilters(window.location.search)); setFavoritesOnly(false); }
-  function toggleFavorite(id: string) { if (userId) setFavoriteIds(toggleExerciseFavorite(userId, id)); }
+  function toggleFavorite(id: string) {
+    if (!userId) return;
+    // Un-saving removes every stored id that reads as this exercise, a merged duplicate's included.
+    const stored = storedIdsFor(readExerciseFavorites(userId), id);
+    let next: string[] = [];
+    if (stored.length) for (const storedId of stored) next = toggleExerciseFavorite(userId, storedId);
+    else next = toggleExerciseFavorite(userId, id);
+    setFavoriteIds(survivingExerciseIds(next));
+  }
   function retry() { setFailure(null); setAttempt((value) => value + 1); }
 
   async function loadMore() {
@@ -224,7 +234,7 @@ export default function ExerciseLibraryPage() {
           <label className="grid gap-1.5 text-xs font-medium text-fitx-text-secondary">Uses equipment<select className="fitx-field min-h-11" value={state.equipment ?? ""} onChange={(event) => setParam("equipment", event.target.value)}><option value="">Any equipment</option>{EQUIPMENT.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
           <label className="grid gap-1.5 text-xs font-medium text-fitx-text-secondary">Difficulty<select className="fitx-field min-h-11" value={state.difficulty ?? ""} onChange={(event) => setParam("difficulty", event.target.value)}><option value="">All levels</option>{LEVELS.map((value) => <option key={value} value={value}>{capitalize(value)}</option>)}</select></label>
           <label className="grid gap-1.5 text-xs font-medium text-fitx-text-secondary">Sort by<select className="fitx-field min-h-11" value={state.sort} onChange={(event) => setParam("sort", event.target.value)}><option value="name">Exercise name</option><option value="difficulty">Difficulty, then name</option></select></label>
-          {filterCount > 0 && <button type="button" onClick={clearFilters} className="inline-flex min-h-10 items-center gap-2 justify-self-start text-xs font-semibold text-fitx-primary-text"><X size={14} aria-hidden="true" />Clear filters</button>}
+          {filterCount > 0 && <button type="button" onClick={clearFilters} className="inline-flex min-h-10 items-center gap-2 justify-self-start text-sm font-semibold text-fitx-primary-text"><X size={14} aria-hidden="true" />Clear filters</button>}
         </div>}
         {current && !current.curated && <p className="mt-3 text-xs leading-5 text-fitx-text-secondary">Some filters are approximate until FITX’s exercise catalogue update is applied.</p>}
       </section>

@@ -86,7 +86,7 @@ function StillPhotos({ stills }: { stills: MediaItem[] }) {
             <div className="flex items-center gap-2">
               {!reducedMotion && (
                 <button type="button" onClick={() => setAlternating((value) => !value)}
-                  className={`inline-flex h-10 items-center gap-1.5 rounded-md border px-3 text-xs font-medium text-fitx-text transition-colors hover:bg-fitx-hover ${playing ? "border-fitx-primary" : "border-fitx-border hover:border-fitx-primary/45"}`}>
+                  className={`inline-flex h-10 items-center gap-1.5 rounded-md border px-3 text-sm font-medium text-fitx-text transition-colors hover:bg-fitx-hover ${playing ? "border-fitx-primary" : "border-fitx-border hover:border-fitx-primary/45"}`}>
                   {playing ? <Pause size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
                   {playing ? "Stop alternating" : "Alternate photos"}
                 </button>

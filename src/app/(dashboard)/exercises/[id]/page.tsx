@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Info, ScanLine } from "lucide-react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
 import { ExerciseDemoPlayer } from "@/components/exercises/ExerciseDemoPlayer";
@@ -14,8 +14,10 @@ import { cameraRuleFor } from "@/lib/form-rules/catalog";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import { CATALOG_BASE_COLUMNS, CATALOG_V2_COLUMNS, toCatalogExercise, type CatalogExercise, type CatalogRow } from "@/lib/training/catalog";
 import { equipmentFor, loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
+import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { equipmentLabel, expandOwnedEquipment, missingEquipment } from "@/lib/training/equipment";
 import { resolveExerciseMedia, type ExerciseMedia } from "@/lib/training/media";
+import { isLiftSet } from "@/lib/training/sets";
 import { CATEGORY_LABELS, MUSCLE_GROUP_LABELS, type TrainingContext } from "@/lib/training/taxonomy";
 import { capitalize, formatSeconds, readable, workPerSet } from "../_lib/format";
 
@@ -34,12 +36,17 @@ const CONTEXT_NAMES: Record<TrainingContext, string> = { home: "Home", gym: "Gym
 export default function ExerciseDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const router = useRouter();
+  // A merged duplicate (an old link, a saved or recent id) opens the exercise it was merged into.
+  const survivor = survivingExerciseId(id);
+  useEffect(() => { if (survivor !== id) router.replace(`/exercises/${encodeURIComponent(survivor)}`); }, [id, survivor, router]);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [extras, setExtras] = useState<Extras | null>(null);
   const [equipment, setEquipment] = useState<EquipmentState | null>(null);
   const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
+    if (survivingExerciseId(id) !== id) return;
     let active = true;
     void (async () => {
       const supabase = createClient();
@@ -216,7 +223,8 @@ async function loadHistory(supabase: Supabase, userId: string, exerciseId: strin
     const movementIds = completedExerciseRows.filter((row) => row.session_id === session.id).map((row) => row.id);
     const sets = loggedSets.filter((set) => movementIds.includes(set.session_exercise_id) && (Number(set.reps) > 0 || Number(set.duration_seconds) > 0));
     if (!sets.length) return [];
-    const lifted = sets.filter((set) => Number(set.reps) > 0);
+    // Sets with seconds logged are timed (a hold, a stretch, cardio): their best is a time, not a lift.
+    const lifted = sets.filter((set) => isLiftSet(set));
     if (lifted.length) {
       const best = lifted.reduce((winner, set) => Number(set.weight_kg) > Number(winner.weight_kg) || (Number(set.weight_kg) === Number(winner.weight_kg) && Number(set.reps) > Number(winner.reps)) ? set : winner);
       return [{ id: session.id, started_at: session.started_at, completedSets: sets.length, topSet: Number(best.weight_kg) > 0 ? `${Number(best.weight_kg)} kg × ${best.reps}` : `${best.reps} reps` }];

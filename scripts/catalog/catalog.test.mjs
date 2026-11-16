@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { MERGED_EXERCISE_IDS, survivingExerciseIds } from "../../src/lib/training/exercise-merges.ts";
 import { EQUIPMENT, EQUIPMENT_COVERS, EXERCISE_CATEGORIES, MECHANICS, MUSCLE_TO_GROUP, PRESCRIPTION_TYPES } from "../../src/lib/training/taxonomy.ts";
 import { loadCatalog, readUpstreamExercises, readUpstreamSnapshot, summarizeCatalog, validateCatalog, writeUpstreamSnapshot } from "./catalog.mjs";
 import * as curation from "./curation.mjs";
@@ -175,6 +176,12 @@ test("imported rows get defaults by category instead of the blanket 3 x 8-12 / 9
   assert.deepEqual([named("Barbell Deadlift").reps_min, named("Barbell Deadlift").reps_max, named("Barbell Deadlift").rest_seconds], [6, 10, 120]);
   assert.deepEqual([named("Hammer Curls").reps_min, named("Hammer Curls").reps_max, named("Hammer Curls").rest_seconds], [10, 15, 60]);
   assert.deepEqual([named("Power Clean").recommended_sets, named("Power Clean").reps_min, named("Power Clean").reps_max], [4, 3, 5]);
+});
+
+test("the app's list of merged exercises matches the clean-up, so saved and recent ids read as their survivor", () => {
+  const merges = Object.fromEntries(rows.filter((row) => row.merged_into).map((row) => [row.id, row.merged_into]));
+  assert.deepEqual(MERGED_EXERCISE_IDS, merges, "update src/lib/training/exercise-merges.ts to the clean-up's merges");
+  assert.deepEqual(survivingExerciseIds(["free-exercise-db-Pushups", "push_up", "squat_unknown", "free-exercise-db-Plank"]), ["push_up", "squat_unknown", "plank"]);
 });
 
 test("merged duplicates are hidden and point at an active starter survivor that takes their photos", () => {
