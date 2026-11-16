@@ -41,7 +41,12 @@ const nextConfig: NextConfig = {
     qualities: [50, 60, 75, 90, 100],
   },
   async headers() {
-    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+    return [
+      { source: "/:path*", headers: SECURITY_HEADERS },
+      // The form coach's self-hosted pose runtime and models (public/models/pose): versioned folder names,
+      // so a new version is a new URL and the 11 MB runtime is downloaded once.
+      { source: "/models/pose/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+    ];
   },
 };
 
