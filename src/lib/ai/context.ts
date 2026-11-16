@@ -135,12 +135,14 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
 
   const goal = text(prefs.primary_goal) ?? "general_fitness";
   const activity = text(prefs.activity_level) ?? "moderate";
-  const targetGoal = goal === "weight_loss" ? "fat_loss" : goal === "weight_gain" ? "muscle_gain" : goal;
   const floor = calorieFloor(sex);
-  const estimated = minor ? null : estimateNutritionTargets({ age, gender: sex, height, weight }, activity, targetGoal);
+  // The shared target rules (they also cover weight_gain and weight_loss once onboarding v2 lands).
+  const estimated = minor ? null : estimateNutritionTargets({ age, gender: sex, height, weight }, activity, goal);
   const target = estimated ? { ...estimated, calories: Math.max(estimated.calories, floor) } : null;
 
-  const diet = dietRulesFrom([...list(prefs.dietary_preferences), ...list(prefs.diet_type), ...list(prefs.diet)]);
+  // Onboarding v2 keeps the diet in diet_type plus food_rules; older accounts only have the v1 labels.
+  const dietChoice = text(prefs.diet_type) ? list(prefs.diet_type) : list(prefs.dietary_preferences);
+  const diet = dietRulesFrom([...dietChoice, ...list(prefs.food_rules)]);
   const allergies = allergyRulesFrom([...list(prefs.allergies), ...list(prefs.other_allergies)]);
   const budget = budgetText(prefs);
   const equipment = list(prefs.equipment).map((item) => String(item)).filter(Boolean).slice(0, 20);
@@ -185,15 +187,16 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
       days_per_week: integer(prefs.workouts_per_week, 1, 7),
       minutes_per_session: facts.sessionMinutes,
       split: facts.split,
-      limitations: cleanText(prefs.training_limitations ?? prefs.injuries, 200),
+      limitations: limitationsText(prefs),
     }),
     food_preferences: compact({
       diet: describeDiet(diet),
       allergies: describeAllergies(allergies),
       meals_per_day: integer(prefs.meals_per_day, 1, 8),
       budget,
-      cuisines: shortList(prefs.cuisines, 6, 30),
-      dislikes: shortList(prefs.disliked_foods, 10, 30),
+      cuisines: shortList(prefs.cuisines, 6, 30).map(humanize),
+      dislikes: shortList(prefs.food_dislikes ?? prefs.disliked_foods, 10, 30),
+      prefers_low_carb: list(prefs.food_rules).includes("low_carb") || list(prefs.dietary_preferences).some((item) => /low.?carb/i.test(String(item))) || null,
     }),
     daily_targets: target ? { ...target, basis: "FITX estimate from age, height, weight, sex, activity and goal" } : null,
     nutrition: nutritionSummary(sources.meals, today),
@@ -299,6 +302,11 @@ function budgetText(prefs: Record<string, unknown>): string | null {
     const text = cleanText(value, max);
     return text && /^[A-Za-z ]+$/.test(text) ? text.toLowerCase() : null;
   };
+  // Onboarding v2: a monthly amount in rupees and/or a level (tight, moderate, flexible).
+  const monthly = positive(prefs.monthly_food_budget_inr);
+  const levelV2 = word(prefs.food_budget_level, 12);
+  if (monthly) return `₹${Math.round(monthly)} per month (about ₹${Math.round(monthly / 30)} a day)${levelV2 ? `, ${levelV2}` : ""}`;
+  if (levelV2) return `${levelV2} budget`;
   const amount = positive(prefs.food_budget_amount ?? prefs.food_budget);
   if (amount) {
     const currency = (word(prefs.food_budget_currency, 6) ?? "inr").toUpperCase();
@@ -307,6 +315,17 @@ function budgetText(prefs: Record<string, unknown>): string | null {
   }
   const level = word(prefs.food_budget_level ?? prefs.budget_level, 20);
   return level ? `${level} budget` : null;
+}
+
+/** Injuries or limits to train around: onboarding v2 keys ("lower_back") and custom entries, or older free text. */
+function limitationsText(prefs: Record<string, unknown>): string | null {
+  const items = shortList(prefs.limitations, 10, 40).map(humanize);
+  if (items.length) return items.join(", ");
+  return cleanText(prefs.training_limitations ?? prefs.injuries, 200);
+}
+
+function humanize(value: string) {
+  return value.replace(/_/g, " ");
 }
 
 /** The member's local date (YYYY-MM-DD) in their time zone. */

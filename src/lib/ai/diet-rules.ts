@@ -6,7 +6,7 @@ import "server-only";
  * When in doubt a food is treated as containing the ingredient: a vegetarian never gets an egg dish.
  */
 
-export type DietRule = "vegetarian" | "eggetarian" | "vegan" | "pescatarian" | "halal" | "jain";
+export type DietRule = "vegetarian" | "eggetarian" | "vegan" | "pescatarian" | "halal" | "jain" | "no_onion_garlic" | "no_beef" | "no_pork";
 export type AllergyRule = "dairy" | "eggs" | "peanuts" | "tree_nuts" | "wheat" | "soy" | "fish" | "shellfish" | "sesame" | "mustard";
 
 type Terms = { words: string[]; phrases?: string[] };
@@ -62,6 +62,9 @@ const HONEY_GELATIN: Terms = { words: ["honey", "gelatin", "gelatine"] };
 const GELATIN: Terms = { words: ["gelatin", "gelatine"] };
 /** Jain diets also avoid root vegetables. */
 const ROOTS: Terms = { words: ["onion", "garlic", "potato", "aloo", "carrot", "beetroot", "radish", "mooli", "ginger", "turnip", "yam", "sweet potato", "shakarkandi"] };
+const ONION_GARLIC: Terms = { words: ["onion", "onions", "garlic", "pyaz", "pyaaz", "lahsun", "lehsun", "shallot", "leek", "chive", "chives"] };
+const BEEF: Terms = { words: ["beef", "veal"] };
+const PORK: Terms = { words: ["pork", "bacon", "ham", "lard", "pepperoni", "salami", "prosciutto", "chorizo", "sausage"] };
 
 const ALLERGY_TERMS: Record<AllergyRule, Terms> = {
   dairy: DAIRY,
@@ -89,14 +92,21 @@ const ALLERGY_LABELS: Record<AllergyRule, string> = {
   mustard: "mustard",
 };
 
-/** Reads the diet choices FITX stores (onboarding labels or the newer diet_type values). */
+/**
+ * Reads the diet choices FITX stores: onboarding v1 labels ("Vegetarian", "Halal"), and onboarding v2's
+ * diet_type (vegetarian, non_vegetarian, both, vegan, eggetarian) plus food_rules (halal, jain,
+ * no_onion_garlic, no_beef, no_pork, pescatarian, low_carb). low_carb is a preference, not a rule.
+ */
 export function dietRulesFrom(values: readonly unknown[]): DietRule[] {
   const rules = new Set<DietRule>();
   for (const value of values) {
-    const text = String(value ?? "").toLowerCase().replace(/[^a-z]+/g, "_");
+    const text = String(value ?? "").toLowerCase().replace(/[^a-z]+/g, "_").replace(/^_|_$/g, "");
     if (!text) continue;
-    if (/^(non_?veg|nonveg|non_vegetarian|both|flexible|omnivore|no_preference|none|any)/.test(text)) continue;
-    if (text.includes("vegan")) rules.add("vegan");
+    if (/^(non_?veg|nonveg|non_vegetarian|both|flexible|omnivore|no_preference|none|any|low_carb)/.test(text)) continue;
+    if (text === "no_onion_garlic") rules.add("no_onion_garlic");
+    else if (text === "no_beef") rules.add("no_beef");
+    else if (text === "no_pork") rules.add("no_pork");
+    else if (text.includes("vegan")) rules.add("vegan");
     else if (text.includes("egg")) rules.add("eggetarian");
     else if (text.includes("vegetarian") || text === "veg") rules.add("vegetarian");
     else if (text.includes("pescatarian") || text.includes("pescetarian")) rules.add("pescatarian");
@@ -106,12 +116,12 @@ export function dietRulesFrom(values: readonly unknown[]): DietRule[] {
   return [...rules];
 }
 
-/** Maps stored allergies ("Peanuts", "Tree nuts", free-text "gluten") to rules; unknown free text is kept as words. */
+/** Maps stored allergies ("Peanuts", "tree_nuts", "wheat_gluten", free-text "gluten") to rules; unknown free text is kept as words. */
 export function allergyRulesFrom(values: readonly unknown[]): { rules: AllergyRule[]; other: string[] } {
   const rules = new Set<AllergyRule>();
   const other = new Set<string>();
   for (const value of values) {
-    const text = String(value ?? "").toLowerCase().trim();
+    const text = String(value ?? "").toLowerCase().replace(/_/g, " ").trim();
     if (!text) continue;
     if (/dairy|milk|lactose|casein/.test(text)) rules.add("dairy");
     else if (/egg/.test(text)) rules.add("eggs");
@@ -146,6 +156,9 @@ export function foodConflict(foodText: string, diet: readonly DietRule[], allerg
     if (rule === "eggetarian" && (meatOrFish() || contains(text, GELATIN, null))) return "it has meat or fish";
     if (rule === "pescatarian" && contains(text, MEAT, null)) return "it has meat";
     if (rule === "halal" && contains(text, PORK_ALCOHOL, null)) return "it is not halal";
+    if (rule === "no_onion_garlic" && contains(text, ONION_GARLIC, null)) return "you avoid onion and garlic";
+    if (rule === "no_beef" && contains(text, BEEF, null)) return "you avoid beef";
+    if (rule === "no_pork" && contains(text, PORK, null)) return "you avoid pork";
   }
   return null;
 }
@@ -159,6 +172,9 @@ export function describeDiet(diet: readonly DietRule[]): string {
     pescatarian: "pescatarian (fish but no meat)",
     halal: "halal (no pork or alcohol)",
     jain: "Jain (vegetarian without onion, garlic or root vegetables)",
+    no_onion_garlic: "no onion or garlic",
+    no_beef: "no beef",
+    no_pork: "no pork",
   };
   return diet.map((rule) => words[rule]).join("; ");
 }

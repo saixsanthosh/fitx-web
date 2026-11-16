@@ -129,3 +129,31 @@ describe("coach context", () => {
     assert.ok(!turn.includes("<fitx_data>"));
   });
 });
+
+describe("onboarding v2 fields", () => {
+  test("diet_type wins over stale v1 labels, and budget, dislikes, cuisines and limitations are read", () => {
+    const base = sources();
+    const preferences = {
+      ...(base.preferences as Record<string, unknown>),
+      diet_type: "both",
+      dietary_preferences: ["Vegetarian"],
+      food_rules: ["halal", "low_carb"],
+      allergies: ["tree_nuts", "Kiwi"],
+      monthly_food_budget_inr: 6000,
+      food_budget_level: "tight",
+      food_dislikes: ["Bitter gourd"],
+      cuisines: ["south_indian"],
+      limitations: ["lower_back", "knee"],
+      food_budget_amount: undefined,
+    };
+    const { facts, summary } = buildCoachContext({ ...base, preferences } as never, NOW);
+    assert.deepEqual(facts.diet, ["halal"]);
+    assert.deepEqual(facts.allergies, { rules: ["tree_nuts"], other: ["kiwi"] });
+    assert.equal(facts.budget, "₹6000 per month (about ₹200 a day), tight");
+    const food = summary.food_preferences as Record<string, unknown>;
+    assert.deepEqual(food.dislikes, ["Bitter gourd"]);
+    assert.deepEqual(food.cuisines, ["south indian"]);
+    assert.equal(food.prefers_low_carb, true);
+    assert.equal((summary.training_setup as Record<string, unknown>).limitations, "lower back, knee");
+  });
+});

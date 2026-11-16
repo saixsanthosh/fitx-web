@@ -118,3 +118,25 @@ describe("intent: imperative requests", () => {
     assert.equal(detectTask("Is my workout plan too long?"), "chat");
   });
 });
+
+describe("onboarding v2 values (diet_type, food_rules, allergy keys)", () => {
+  test("diet_type and food_rules map to rules; 'both' and 'non_vegetarian' restrict nothing", () => {
+    assert.deepEqual(dietRulesFrom(["both"]), []);
+    assert.deepEqual(dietRulesFrom(["non_vegetarian", "low_carb"]), []);
+    assert.deepEqual(dietRulesFrom(["vegetarian", "jain"]).sort(), ["jain", "vegetarian"]);
+    assert.deepEqual(dietRulesFrom(["both", "no_onion_garlic", "no_beef", "no_pork"]).sort(), ["no_beef", "no_onion_garlic", "no_pork"]);
+  });
+
+  test("allergy keys with underscores are understood, not dropped", () => {
+    assert.deepEqual(allergyRulesFrom(["tree_nuts", "wheat_gluten", "sesame", "Kiwi"]), { rules: ["tree_nuts", "wheat", "sesame"], other: ["kiwi"] });
+  });
+
+  test("food rules are enforced", () => {
+    const none = { rules: [], other: [] };
+    assert.ok(foodConflict("Onion pakoda", ["no_onion_garlic"], none));
+    assert.equal(foodConflict("Plain dosa", ["no_onion_garlic"], none), null);
+    assert.ok(foodConflict("Beef curry", ["no_beef"], none));
+    assert.equal(foodConflict("Veg burger", ["no_beef"], none), null);
+    assert.ok(foodConflict("Pork sausage", ["no_pork"], none));
+  });
+});
