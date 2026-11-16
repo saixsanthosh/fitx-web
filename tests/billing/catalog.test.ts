@@ -72,8 +72,8 @@ describe("public plan catalog", { skip: TestDatabase.available() ? false : "Post
   });
 });
 
-describe("billing copy makes no claim about past payments", () => {
-  const page = (file: string) => readFileSync(new URL(`../../src/app/${file}`, import.meta.url), "utf8");
+describe("billing copy makes no claim about past payments or what FITX receives", () => {
+  const page = (file: string) => readFileSync(new URL(`../../${file.startsWith("admin/") ? file : `src/app/${file}`}`, import.meta.url), "utf8");
   const pages = [
     "(marketing)/pricing/page.tsx",
     "(marketing)/terms/page.tsx",
@@ -87,6 +87,15 @@ describe("billing copy makes no claim about past payments", () => {
       for (const claim of [/no (FITX )?payment (has been|is) collected/i, /not on sale yet/i, /if paid plans are introduced/i, /everything in FITX today is free/i]) {
         assert.doesNotMatch(text, claim, `${file}: ${claim}`);
       }
+    }
+  });
+
+  test("UPI and card details are said to be dropped, not never received", () => {
+    // Razorpay's webhooks and API answers carry a UPI ID or a card's last digits; the server drops them.
+    for (const file of [...pages, "admin/src/app/(control)/billing/page.tsx"]) {
+      const text = page(file);
+      assert.doesNotMatch(text, /never (receives|reach|sees)[^.]*(UPI|card or)/i, file);
+      assert.doesNotMatch(text, /UPI[^.]*never (receive|reach|see)/i, file);
     }
   });
 });

@@ -106,7 +106,7 @@ export default async function PricingPage() {
             paid for.
           </p>
           <p>
-            Payments are processed by Razorpay; FITX never sees or stores your card or UPI details. See the{" "}
+            Payments are processed by Razorpay; FITX never stores your card, UPI or bank details. See the{" "}
             <Link href="/terms" className="font-medium text-fitx-primary-text underline underline-offset-2">terms</Link> and{" "}
             <Link href="/refunds" className="font-medium text-fitx-primary-text underline underline-offset-2">refund policy</Link>.
           </p>

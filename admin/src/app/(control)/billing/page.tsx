@@ -339,7 +339,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       )}
 
       <p className="privacy-note">
-        Card numbers, UPI IDs and bank details never reach FITX; Razorpay keeps them. This page shows account emails, amounts, statuses and
+        FITX never stores card, UPI or bank details: Razorpay keeps them, and the server drops the ones its payment notices carry. This page shows account emails, amounts, statuses and
         Razorpay reference ids only. Refunds are issued in the Razorpay Dashboard.
       </p>
     </div>

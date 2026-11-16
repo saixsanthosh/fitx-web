@@ -56,7 +56,7 @@ export default async function SubscriptionPage() {
           )}
           <BillingHistory payments={model.payments} refunds={model.refunds} />
           <p className="text-xs leading-5 text-fitx-text-secondary">
-            Payments are processed by Razorpay; FITX never sees your card or UPI details. Read the{" "}
+            Payments are processed by Razorpay; FITX never stores your card, UPI or bank details. Read the{" "}
             <Link href="/terms" className="font-medium text-fitx-primary-text underline underline-offset-2">terms</Link> and{" "}
             <Link href="/refunds" className="font-medium text-fitx-primary-text underline underline-offset-2">refund policy</Link>.
           </p>
