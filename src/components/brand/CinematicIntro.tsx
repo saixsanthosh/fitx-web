@@ -91,7 +91,7 @@ function readTheme(): Theme {
 
 /**
  * Dev-only overlay review mode (compiled out of production builds):
- *   ?introDebug=overlay          play the overlay on timers from STAGE_START, without loading WebGL
+ *   ?introDebug=overlay          play the overlay on timers from STAGE_START, without the film
  *   &introDebugStage=N           freeze every title/callout of stage N at its resting frame
  *   &introDebugTime=T            freeze the whole overlay at film time T (seconds)
  *   &introDebugBg=<url>          a still behind the overlay (same origin or 127.0.0.1/localhost)
@@ -235,7 +235,8 @@ export function CinematicIntro() {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     // Save-Data and 2G get the static mark straight away instead of downloading the film.
     const film = !reduced && filmAllowed();
-    const chosen = chooseSource();
+    // Review mode always runs the live path: it stands in for the scene with timers (no video).
+    const chosen: FilmSource = debugActive.current ? "live" : chooseSource();
     sourceRef.current = chosen;
     holdRef.current = false;
     setSource(chosen);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { stageAt } from "./intro/timeline";
+import { STAGE_START, stageAt } from "./intro/timeline";
 import type { Theme } from "./intro/types";
 import styles from "./FitxIntroScene.module.css";
 
@@ -140,20 +140,51 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    let raf = 0;
+    let timer = 0;
     let stage = -1;
     let started = false;
     let finished = false;
+    // The clock reading at the last check, to tell a running clock from one that lags behind.
+    let lastTime = 0;
+    let lastAt = 0;
+    let slowChecks = 0;
 
-    const track = () => {
-      raf = 0;
+    const stop = () => {
+      window.clearTimeout(timer);
+      timer = 0;
+    };
+    /**
+     * Reports stage changes from the video clock without a per-frame loop (polling every frame would
+     * wake the main thread for the whole film): one timer per stage boundary, re-armed from the clock
+     * whenever it fires, so a stall or a late timer can only delay a stage change, never run it early.
+     *
+     * A timer that finds the clock moved less than half as far as the time that passed does not trust
+     * it to say how far the boundary is: WebKit (every iPhone browser) keeps reporting nearly the paused
+     * time for up to ~0.15 s after playback resumes, and a decoder can stall without a `waiting`
+     * event. Such a clock is checked every frame for about half a second (catching a resume within a
+     * frame), then four times a second (so a silent stall costs a few wake-ups, not a loop).
+     */
+    const sync = (fromTimer: boolean) => {
+      stop();
       if (finished) return;
-      const next = stageAt(video.currentTime);
+      const time = video.currentTime;
+      const at = performance.now();
+      const rate = video.playbackRate;
+      const next = stageAt(time);
       if (next !== stage) {
         stage = next;
         callbacks.current.onStage(next);
       }
-      raf = requestAnimationFrame(track);
+      // Events (playing, seeked, ratechange) start a new reference instead of judging the clock.
+      const lagging = fromTimer && time - lastTime < ((at - lastAt) / 1000) * rate * 0.5;
+      slowChecks = lagging ? slowChecks + 1 : 0;
+      lastTime = time;
+      lastAt = at;
+      const boundary = STAGE_START[next + 1];
+      // Paused or rate 0: the `playing` / `ratechange` events re-sync once the clock runs again.
+      if (boundary === undefined || video.paused || !(rate > 0)) return;
+      const delay = lagging ? (slowChecks <= 30 ? 16 : 250) : Math.max(4, ((boundary - time) / rate) * 1000);
+      timer = window.setTimeout(sync, delay, true);
     };
     const onPlaying = () => {
       callbacks.current.onHold(false);
@@ -162,15 +193,15 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
         video.style.visibility = "";
         callbacks.current.onReady();
       }
-      if (!raf) raf = requestAnimationFrame(track);
+      sync(false);
     };
     const onWaiting = () => {
+      stop();
       if (started && !finished) callbacks.current.onHold(true);
     };
     const onEnded = () => {
       finished = true;
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
+      stop();
       callbacks.current.onComplete();
     };
     const onError = () => {
@@ -182,8 +213,16 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
       else void video.play().catch(() => {});
     };
 
+    // Re-sync the stage timer whenever the clock jumps or changes speed; a paused clock needs none.
+    const onClockChange = () => {
+      if (started) sync(false);
+    };
+
     video.addEventListener("playing", onPlaying);
     video.addEventListener("waiting", onWaiting);
+    video.addEventListener("pause", stop);
+    video.addEventListener("seeked", onClockChange);
+    video.addEventListener("ratechange", onClockChange);
     video.addEventListener("ended", onEnded);
     video.addEventListener("error", onError);
     document.addEventListener("visibilitychange", onVisibility);
@@ -222,9 +261,12 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
 
     return () => {
       finished = true;
-      if (raf) cancelAnimationFrame(raf);
+      stop();
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("pause", stop);
+      video.removeEventListener("seeked", onClockChange);
+      video.removeEventListener("ratechange", onClockChange);
       video.removeEventListener("ended", onEnded);
       video.removeEventListener("error", onError);
       document.removeEventListener("visibilitychange", onVisibility);

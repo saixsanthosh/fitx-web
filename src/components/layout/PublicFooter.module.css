@@ -177,6 +177,17 @@
   font-size: 11px;
 }
 
+/*
+ * While the intro film covers the page these loops would repaint unseen every frame, the largest
+ * per-frame cost left on a low-end phone during the film. They hold their current frame (the first
+ * keyframe on a first visit, wherever they were on Replay) and run again when the intro releases the
+ * page.
+ */
+:global(:root[data-fitx-intro]) .portraitRing,
+:global(:root[data-fitx-intro]) .mailMark {
+  animation-play-state: paused;
+}
+
 @keyframes portrait-ring {
   0%, 100% { box-shadow: 0 0 0 0 rgba(196, 73, 51, .08); }
   50% { box-shadow: 0 0 0 3px rgba(196, 73, 51, .15); }
