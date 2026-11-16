@@ -7,7 +7,7 @@ import { BarcodeScanner } from "@/components/app/BarcodeScanner";
 import { PageHeading } from "@/components/app/PageHeading";
 import { createClient } from "@/lib/supabase/client";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
-import { askForGramsMessage, describePortion, formatAmount, parseFoodQuery, rankFoods, resolvePortion } from "@/lib/domain/food-query";
+import { askForGramsMessage, clearMatch, describePortion, describeTypedAmount, formatAmount, matchFoods, parseFoodQuery, resolvePortion } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodState, ParsedFoodQuery } from "@/lib/domain/food-query";
 import styles from "./Nutrition.module.css";
 import { estimateNutritionTargets, goalPercent, goalProgress, scaleMacros, sumMacros } from "@/lib/domain/nutrition";
@@ -29,6 +29,8 @@ type Food = {
   portions?: FoodPortion[];
 };
 type SourceStatus = { id: string; label: string; status: "ok" | "no_results" | "not_used" | "not_configured" | "error" | "timeout"; count: number };
+/** The search route's answer; `pick` is the one food that clearly matches what was typed. */
+type SearchResponse = { foods?: Food[]; sources?: SourceStatus[]; pick?: { source: string; id: string } | null; error?: string };
 type Meal = {
   id: string; date: string; meal: string; food_name: string; brand: string | null; barcode: string | null; servings: number;
   calories: number; protein: number; carbs: number; fat: number; quantity_grams: number | null; source: string;
@@ -132,6 +134,18 @@ export default function NutritionPage() {
     setDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + offset));
   }
 
+  /**
+   * Keeps the weight when the unit changes, so "100" g does not become 100 servings: 114 g of idli
+   * becomes 3 × 38 g, and 3 idlis become 114 g. With no amount yet, a portion starts at 1 and grams at 100.
+   */
+  function changeUnit(next: string) {
+    const portion = next.startsWith("portion:") ? portionOptions[Number(next.slice("portion:".length))] ?? null : null;
+    const converted = grams > 0 ? (portion ? grams / portion.grams : grams) : Number.NaN;
+    setAmount(converted >= 0.01 ? formatAmount(converted) : portion ? "1" : "100");
+    setUnitKey(next);
+    setAmountPrompt(null);
+  }
+
   /** Selects a food and fills the amount from what was typed: "3 idli" becomes 3 x USDA's 38 g idli. */
   const chooseFood = useCallback((food: Food, typed: ParsedFoodQuery = NO_AMOUNT) => {
     const portions = food.portions ?? [];
@@ -139,6 +153,7 @@ export default function NutritionPage() {
     setSelected(food);
     setDerived(null);
     setAmountPrompt(null);
+    setNotice("");
     if (resolution.kind === "grams") {
       setAmount(formatAmount(resolution.grams));
       setUnitKey("g");
@@ -156,7 +171,9 @@ export default function NutritionPage() {
       setAmount("");
       setUnitKey("g");
       const measures = portions.length ? " You can also pick one of this food's measures under Unit." : "";
-      setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${measures}`, grams: resolution.unit === null && resolution.amount >= 10 ? resolution.amount : null });
+      // "150 rice" probably means 150 g, so offer that; a count of pieces or a missing size does not.
+      const offer = resolution.reason === "no-count-weight" && resolution.unit === null && resolution.amount >= 10 ? resolution.amount : null;
+      setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${resolution.reason === "no-size-weight" ? "" : measures}`, grams: offer });
     } else {
       // Nothing typed: one of the food's own pieces or servings when it has one, otherwise 100 g.
       const index = portions.findIndex((portion) => portion.countDefault);
@@ -221,14 +238,31 @@ export default function NutritionPage() {
     setSearchingFoods(true); setError(""); setNotice("");
     try {
       const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}`);
-      const data = await response.json();
+      const data = (await response.json()) as SearchResponse;
       if (!response.ok) throw new Error(data.error || "Food search failed.");
-      const found = [...rankFoods(customFoods, typed.words).slice(0, 5), ...((data.foods || []) as Food[])];
+      const customMatches = matchFoods(customFoods, typed.words).slice(0, 5);
+      const serverFoods = data.foods || [];
+      const found = [...customMatches.map((match) => match.food), ...serverFoods];
       setResults(found);
       setSources(data.sources || []);
       setLastQuery(typed);
       if (!found.length) setError("No matching food was found. Try another search or add a custom food.");
-      else if (typed.amount !== null) chooseFood(found[0], typed);
+      else if (typed.amount !== null) {
+        // Select a food only when it is clearly the one meant: the user's own food named exactly that, or else
+        // the search's exact match. Otherwise the user taps one, and the typed amount is applied to it.
+        const serverPick = data.pick ? serverFoods.find((food) => food.source === data.pick?.source && food.id === data.pick?.id) ?? null : null;
+        const pick = clearMatch(customMatches) ?? (customMatches.length ? null : serverPick);
+        if (pick) chooseFood(pick, typed);
+        else {
+          setSelected(null);
+          setDerived(null);
+          setAmountPrompt(null);
+          const amountText = describeTypedAmount(typed);
+          setNotice(found.length === 1
+            ? `Is “${found[0].name}” the food you mean? Tap it and FITX keeps your amount (${amountText}).`
+            : `More than one food matches “${typed.text}”. Tap the one you mean and FITX keeps your amount (${amountText}).`);
+        }
+      }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
     finally { setSearchingFoods(false); }
   }
@@ -420,7 +454,7 @@ export default function NutritionPage() {
             </div>
             <div className={styles.amountRow}>
               <label>Amount<input className="fitx-field" inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => { setAmount(event.target.value); setAmountPrompt(null); }} aria-describedby="portion-note"/></label>
-              <label>Unit<select className="fitx-field" value={unitKey} onChange={(event) => { setUnitKey(event.target.value); setAmountPrompt(null); }}>
+              <label>Unit<select className="fitx-field" value={unitKey} onChange={(event) => changeUnit(event.target.value)}>
                 <option value="g">grams (g)</option>
                 {portionOptions.map((portion, index) => <option key={`${portion.label}-${index}`} value={`portion:${index}`}>{portion.label} · {formatAmount(portion.grams)} g</option>)}
               </select></label>
@@ -471,7 +505,7 @@ export default function NutritionPage() {
       {tab === "insights" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-2 font-medium">Daily nutrition insights</h2><p className="mb-5 text-sm text-fitx-text-secondary">This view summarizes the food you have logged for the selected day.</p>{entries.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{([["Energy", Math.round(totals.calories), "kcal", target?.calories], ["Protein", Math.round(totals.protein), "g", target?.protein], ["Carbohydrates", Math.round(totals.carbs), "g", target?.carbs], ["Fat", Math.round(totals.fat), "g", target?.fat]] as const).map(([label, value, unit, goal]) => { const progress = goal ? goalProgress(value, goal) : null; return <div key={label} className="rounded-xl border border-fitx-border bg-fitx-surface p-4"><p className="text-xs text-fitx-text-secondary">{label}</p><p className="mt-2 text-2xl font-semibold">{value} <span className="text-sm font-normal text-fitx-text-disabled">{unit}</span></p>{progress && <p className={`mt-2 text-xs ${progress.isOver ? styles.macroOver : "text-fitx-text-disabled"}`}>{progress.isOver ? `${progress.over} ${unit} over the estimated target` : `${progress.percent}% of estimated target`}</p>}</div>; })}</div> : <EmptyState title="No nutrition data yet" description="Logged meals will be summarized here."/>}</section>}
       {tab === "database" && <section className="fitx-panel p-4 sm:p-5">
         <h2 className="mb-2 font-medium">Food database</h2>
-        <p className="mb-3 text-sm text-fitx-text-secondary">Search looks at FITX staples first: common Indian dishes and cooked rice from USDA FoodData Central, with USDA&apos;s piece and cup weights. Then it checks a USDA Foundation Foods snapshot (April 2026), live USDA search when this server has a key, and Open Food Facts for packaged products. Amounts worked out from a piece or cup weight are marked as portion estimates. Your custom foods are private to your account.</p>
+        <p className="mb-3 text-sm text-fitx-text-secondary">Search looks at FITX staples first: common Indian dishes, cooked rice and everyday foods such as eggs, milk, oats and oils, from USDA FoodData Central with USDA&apos;s piece and cup weights. Then it checks a USDA Foundation Foods snapshot (April 2026), live USDA search when this server has a key, and Open Food Facts for packaged products. When you type an amount, FITX selects a food for you only if its name is exactly what you typed; otherwise you choose. Amounts worked out from a piece or cup weight are marked as portion estimates. Your custom foods are private to your account.</p>
         {usdaLive && <p className="mb-4 text-xs text-fitx-text-disabled">Live USDA search: {usdaLive.status === "not_configured" ? "not set up on this server" : "on"}.{visibleSources.length > 0 && <> Last search: {visibleSources.map(sourceText).join(" · ")}.</>}</p>}
         <button onClick={() => setTab("log")} className="fitx-button"><Search size={15}/>Search foods</button>
         <h3 className="mb-3 mt-6 font-medium">My custom foods</h3>

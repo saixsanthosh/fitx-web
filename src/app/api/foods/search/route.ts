@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import usdaFoundationFoods from "@/data/usda-foundation-foods.json";
 import fitxStaples from "@/data/fitx-staples.json";
-import { gramsInLabel, inferFoodState, parseFoodQuery, portionFromLabel, rankFoods, singular, withCountDefault } from "@/lib/domain/food-query";
+import { clearMatch, gramsInLabel, inferFoodState, matchFoods, parseFoodQuery, portionFromLabel, singular, withCountDefault } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodState } from "@/lib/domain/food-query";
 import { KJ_PER_KCAL, per100gFromOpenFoodFacts } from "@/lib/domain/nutrition";
 
@@ -77,7 +77,9 @@ const foundationFoods: LocalFood[] = (usdaFoundationFoods as Array<Pick<FoodResu
 }));
 
 // Curated staples first: on equal matches they win, so cooked rice and idli come before the raw grains.
-const localFoods = [...staples, ...foundationFoods];
+// A Foundation food that is also a staple (whole milk) appears once, as the staple with its aliases and portions.
+const stapleIds = new Set(staples.map((food) => food.id));
+const localFoods = [...staples, ...foundationFoods.filter((food) => !stapleIds.has(food.id))];
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -115,7 +117,10 @@ export async function GET(request: Request) {
   const searchText = query.words.map(singular).join(" ");
   if (searchText.length < 2) return respond([], sources);
 
-  const local = rankFoods(localFoods, query.words).slice(0, LOCAL_LIMIT);
+  const matches = matchFoods(localFoods, query.words);
+  const local = matches.slice(0, LOCAL_LIMIT).map((match) => match.food);
+  // Only a food whose whole name or alias is what was typed is picked for the user; otherwise they choose.
+  const pick = clearMatch(matches);
   for (const origin of ["fitx-staples", "usda-foundation"] as const) {
     const count = local.filter((food) => food.origin === origin).length;
     report(origin, count ? "ok" : "no_results", count);
@@ -139,10 +144,11 @@ export async function GET(request: Request) {
     seen.add(key);
     foods.push(food);
   }
-  return respond(foods.slice(0, TOTAL_LIMIT), sources);
+  return respond(foods.slice(0, TOTAL_LIMIT), sources, pick);
 }
 
-function respond(foods: FoodResult[], sources: SourceStatus[]) {
+/** `pick` names the one food that clearly matches what was typed, so the page can select it and fill in the amount. */
+function respond(foods: FoodResult[], sources: SourceStatus[], pick: FoodResult | null = null) {
   const body = foods.map((food) => ({
     id: food.id,
     name: food.name,
@@ -158,7 +164,10 @@ function respond(foods: FoodResult[], sources: SourceStatus[]) {
     state: food.state,
     portions: food.portions,
   }));
-  return NextResponse.json({ foods: body, sources }, { headers: { "Cache-Control": "private, max-age=60" } });
+  return NextResponse.json(
+    { foods: body, sources, pick: pick ? { source: pick.source, id: pick.id } : null },
+    { headers: { "Cache-Control": "private, max-age=60" } },
+  );
 }
 
 async function fetchOpenFoodFacts(url: string, pick: (data: Record<string, unknown>) => unknown[]): Promise<SourceAnswer> {
