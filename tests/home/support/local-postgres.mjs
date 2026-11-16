@@ -91,7 +91,16 @@ export class LocalPostgres {
       .filter((name) => name.endsWith(".sql") && !skip.test(name))
       .filter((name) => (!before || name < before) && (!from || name >= from))
       .sort();
-    for (const name of files) this.applyFile(path.join(MIGRATIONS_DIR, name));
-    return files;
+    // Supabase offers pg_cron; a plain local PostgreSQL usually lacks it. Migrations that only
+    // schedule jobs with it are skipped here rather than failing every test.
+    const hasCron = this.run("select 1 from pg_available_extensions where name = 'pg_cron'").stdout === "1";
+    const applied = [];
+    for (const name of files) {
+      const file = path.join(MIGRATIONS_DIR, name);
+      if (!hasCron && /create\s+extension[^;]*pg_cron/i.test(readFileSync(file, "utf8"))) continue;
+      this.applyFile(file);
+      applied.push(name);
+    }
+    return applied;
   }
 }

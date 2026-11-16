@@ -55,6 +55,7 @@ test("custom foods are stored per 100 g from per-serving values, with v2 fields 
   const v1 = customFoodRowValues(input, false);
   assert.deepEqual(v1, { name: "Poha", brand: null, serving_size: "1 bowl", serving_grams: 200, calories_per_100g: 130, protein_per_100g: 2.5, carbs_per_100g: 24, fat_per_100g: 3 });
   const v2 = customFoodRowValues({ ...input, barcode: "8901063011366", valueBasis: "label", origin: "barcode" }, true);
+  assert.ok("barcode" in v2, "v2 rows carry the v2 fields");
   assert.deepEqual([v2.barcode, v2.origin, v2.value_basis], ["8901063011366", "barcode", "label"]);
   assert.equal(customFoodWarning(260, 5, 48, 6), null);
   assert.match(customFoodWarning(600, 5, 48, 6) ?? "", /add up to about 266 kcal/);

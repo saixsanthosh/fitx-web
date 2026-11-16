@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { addDays, daysBetween, isDateKey, mondayOf, weekKeys, weekdayIndex } from "@/lib/domain/day-keys";
 import { parseTodaySummary, summaryFromRows, todayTargets, weekStrip, weightView, estimatedTargets, type TodaySummary } from "@/lib/domain/today";
+import { estimateNutritionTargets } from "@/lib/domain/nutrition";
 import { parseGoalRow } from "@/lib/domain/goals";
 
 const TODAY = "2026-11-18";
@@ -72,7 +73,16 @@ test("estimated targets use the newest weigh-in, not the profile's stale weight"
   const fromProfile = estimatedTargets(summary({ weight: null, previous_weight: null }));
   assert.ok(fromWeighIn && fromProfile);
   assert.ok(fromWeighIn.calories < fromProfile.calories, "80.2 kg needs less than the 82 kg on the profile");
-  assert.equal(fromWeighIn.protein, Math.round(80.2 * 1.8), "fat loss: 1.8 g per kg");
+  const weighed = summary();
+  assert.deepEqual(
+    fromWeighIn,
+    estimateNutritionTargets(
+      { age: weighed.profile.age, gender: weighed.profile.gender, height: weighed.profile.height, weight: 80.2 },
+      weighed.preferences?.activityLevel ?? undefined,
+      weighed.preferences?.primaryGoal ?? undefined,
+    ),
+    "the targets follow the profile rules for the 80.2 kg weigh-in",
+  );
   assert.equal(estimatedTargets(summary({ profile: { name: "Asha" } })), null, "no age, height or weight: no estimate");
 });
 

@@ -30,6 +30,11 @@ $$;
 grant execute on function auth.uid() to anon, authenticated, service_role;
 
 create schema storage;
+
+-- Supabase installs extensions such as pg_trgm into this schema (the nutrition catalogue uses it).
+create schema if not exists extensions;
+grant usage on schema extensions to anon, authenticated, service_role;
+alter database postgres set search_path = "$user", public, extensions;
 grant usage on schema storage to anon, authenticated, service_role;
 create table storage.buckets (
   id text primary key,
