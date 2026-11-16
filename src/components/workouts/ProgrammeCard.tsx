@@ -32,7 +32,7 @@ export function ProgrammeCard({ programme, enrolment, plans, todayKey, busy, sta
           <h4 className="mt-1 font-semibold">{programme.title}</h4>
           <p className="mt-1 text-xs text-fitx-text-secondary">{enrolment.sessions_completed} workout{enrolment.sessions_completed === 1 ? "" : "s"} done · next up: {nextDay?.title ?? "day 1"}</p>
         </div>
-        <button type="button" onClick={onLeave} disabled={busy} className="fitx-button fitx-button-quiet min-h-10 px-3 text-xs">Leave programme</button>
+        <button type="button" onClick={onLeave} disabled={busy} className="fitx-button fitx-button-quiet min-h-10 px-3 text-sm">Leave programme</button>
       </div>
       {plans.length > 0 ? (
         <ol className="mt-4 space-y-2">
@@ -47,7 +47,7 @@ export function ProgrammeCard({ programme, enrolment, plans, todayKey, busy, sta
                   <span className="block truncate text-sm font-medium">{plan.title}</span>
                   <span className="text-xs text-fitx-text-secondary">{plan.planned_for ? dayLabel(plan.planned_for, todayKey) : "No date"}{done ? " · Done" : past ? " · Not done" : ""}</span>
                 </span>
-                {!done && <button type="button" disabled={Boolean(starting)} onClick={() => onStart(plan.id)} className="fitx-button min-h-10 px-3 text-xs">{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={14} aria-hidden="true" /></button>}
+                {!done && <button type="button" disabled={Boolean(starting)} onClick={() => onStart(plan.id)} className="fitx-button min-h-10 px-3 text-sm">{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={14} aria-hidden="true" /></button>}
               </li>
             );
           })}

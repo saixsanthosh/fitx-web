@@ -37,8 +37,8 @@ export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, di
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">
-                <button type="button" onClick={() => setOpenId(open ? null : programme.id)} aria-expanded={open} className="fitx-button fitx-button-quiet min-h-11 px-3 text-xs">Days<ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" /></button>
-                <button type="button" disabled={!enrolAvailable || busy} onClick={() => setEnrolling(programme)} className="fitx-button min-h-11 px-4 text-xs">Follow</button>
+                <button type="button" onClick={() => setOpenId(open ? null : programme.id)} aria-expanded={open} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">Days<ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" /></button>
+                <button type="button" disabled={!enrolAvailable || busy} onClick={() => setEnrolling(programme)} className="fitx-button min-h-11 px-4 text-sm">Follow</button>
               </div>
             </div>
             {open && (
