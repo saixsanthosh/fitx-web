@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Info, ScanLine } from "lucide-react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
 import { ExerciseDemoPlayer } from "@/components/exercises/ExerciseDemoPlayer";
@@ -14,6 +14,7 @@ import { cameraRuleFor } from "@/lib/form-rules/catalog";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import { CATALOG_BASE_COLUMNS, CATALOG_V2_COLUMNS, toCatalogExercise, type CatalogExercise, type CatalogRow } from "@/lib/training/catalog";
 import { equipmentFor, loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
+import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { equipmentLabel, expandOwnedEquipment, missingEquipment } from "@/lib/training/equipment";
 import { resolveExerciseMedia, type ExerciseMedia } from "@/lib/training/media";
 import { isLiftSet } from "@/lib/training/sets";
@@ -35,12 +36,17 @@ const CONTEXT_NAMES: Record<TrainingContext, string> = { home: "Home", gym: "Gym
 export default function ExerciseDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const router = useRouter();
+  // A merged duplicate (an old link, a saved or recent id) opens the exercise it was merged into.
+  const survivor = survivingExerciseId(id);
+  useEffect(() => { if (survivor !== id) router.replace(`/exercises/${encodeURIComponent(survivor)}`); }, [id, survivor, router]);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [extras, setExtras] = useState<Extras | null>(null);
   const [equipment, setEquipment] = useState<EquipmentState | null>(null);
   const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
+    if (survivingExerciseId(id) !== id) return;
     let active = true;
     void (async () => {
       const supabase = createClient();

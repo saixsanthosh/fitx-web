@@ -12,6 +12,7 @@ import type { CatalogExercise } from "@/lib/training/catalog";
 import { catalogSearchQuery, MAX_IDS } from "@/lib/training/catalog-search";
 import { equipmentFor, loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
 import { equipmentLabel, expandOwnedEquipment } from "@/lib/training/equipment";
+import { storedIdsFor, survivingExerciseIds } from "@/lib/training/exercise-merges";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { CATEGORY_LABELS, EQUIPMENT, EXERCISE_CATEGORIES, LEVELS, MUSCLE_GROUP_LABELS, MUSCLE_GROUPS, type TrainingContext } from "@/lib/training/taxonomy";
 import { capitalize, workPerSet } from "./_lib/format";
@@ -86,8 +87,9 @@ export default function ExerciseLibraryPage() {
       const uid = data.user?.id ?? "";
       // Saved and recent exercises are keyed by user; they work before the equipment lists arrive.
       setUserId(uid);
-      setFavoriteIds(readExerciseFavorites(uid));
-      setRecentIds(readRecentExercises(uid));
+      // Ids saved before the catalogue clean-up may name a merged duplicate: read as its survivor.
+      setFavoriteIds(survivingExerciseIds(readExerciseFavorites(uid)));
+      setRecentIds(survivingExerciseIds(readRecentExercises(uid)));
       if (!uid) { setAccount({ status: "signed-out" }); return; }
       const [lists, preferences] = await Promise.all([
         loadEquipmentProfiles(supabase, uid),
@@ -153,7 +155,15 @@ export default function ExerciseLibraryPage() {
   }
   function setParam(key: LibraryParam, value: string | boolean | null) { navigate(withLibraryParam(window.location.search, key, value)); }
   function clearFilters() { navigate(withoutLibraryFilters(window.location.search)); setFavoritesOnly(false); }
-  function toggleFavorite(id: string) { if (userId) setFavoriteIds(toggleExerciseFavorite(userId, id)); }
+  function toggleFavorite(id: string) {
+    if (!userId) return;
+    // Un-saving removes every stored id that reads as this exercise, a merged duplicate's included.
+    const stored = storedIdsFor(readExerciseFavorites(userId), id);
+    let next: string[] = [];
+    if (stored.length) for (const storedId of stored) next = toggleExerciseFavorite(userId, storedId);
+    else next = toggleExerciseFavorite(userId, id);
+    setFavoriteIds(survivingExerciseIds(next));
+  }
   function retry() { setFailure(null); setAttempt((value) => value + 1); }
 
   async function loadMore() {

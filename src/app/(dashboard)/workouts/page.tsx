@@ -18,6 +18,7 @@ import type { CatalogExercise } from "@/lib/training/catalog";
 import { equipmentFor, loadCatalog, loadEquipmentProfiles, loadProgrammes, saveEquipmentProfile, type EquipmentProfiles } from "@/lib/training/data";
 import { addDaysToKey, enrolInProgramme, leaveProgramme, loadActiveEnrolment, loadEnrolmentPlans, nextScheduleStart, scheduleProgrammeDays, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
 import { equipmentLabel, expandOwnedEquipment, missingEquipment } from "@/lib/training/equipment";
+import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { generateDay } from "@/lib/training/generator";
 import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { startSessionWithRpc } from "@/lib/training/plans";
@@ -281,7 +282,9 @@ export default function WorkoutsPage() {
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
   useEffect(() => {
-    const exerciseId = new URLSearchParams(window.location.search).get("exercise");
+    const requested = new URLSearchParams(window.location.search).get("exercise");
+    // A link to a merged duplicate adds the exercise it was merged into.
+    const exerciseId = requested ? survivingExerciseId(requested) : null;
     if (!exerciseId || !catalog.length || loading) return;
     void Promise.resolve().then(() => {
       const exercise = catalog.find((item) => item.id === exerciseId);
