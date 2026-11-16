@@ -199,4 +199,98 @@ describe("privacy page", () => {
       assert.match(sentence, /\bAI coach\b/, `"${sentence}" needs the AI coach exception`);
     }
   });
+
+  test("the AI coach section says what every request carries, even with data sharing off or under 18", () => {
+    const adult = buildCoachContext(sources() as never, NOW);
+    const teen = buildCoachContext(sources({ profile: { age: 16, gender: "female", height: 160, weight: 50 } }) as never, NOW);
+    // What FITX puts in every prompt: the lowest daily calories the coach may suggest, set from the profile's sex,
+    // and for an under-18 member, that they are under 18.
+    assert.notEqual(adult.facts.calorieFloor, teen.facts.calorieFloor, "the minimum depends on sex");
+    const notShared = chatSystemPrompt({ context: adult, facts: adult.facts, sharesData: false });
+    assert.ok(notShared.includes(`fewer than ${adult.facts.calorieFloor} kcal`), "the minimum goes out with data sharing off");
+    const minor = chatSystemPrompt({ context: teen, facts: teen.facts, sharesData: true });
+    assert.ok(minor.includes(`fewer than ${teen.facts.calorieFloor} kcal`) && minor.includes("under 18"), "and with an under-18 member's requests");
+    const sentences = section("AI coach").split(/(?<=\.)\s+/);
+    assert.ok(sentences.some((sentence) => /\bcalorie\b/.test(sentence) && /\bsex\b/.test(sentence) && /\boff\b/.test(sentence)), "every request carries the calorie minimum set from sex, sharing on or off");
+    assert.ok(sentences.some((sentence) => /\bunder 18\b/.test(sentence) && /\bcalorie\b/.test(sentence)), "what an under-18 account's requests carry");
+    assert.ok(!sentences.some((sentence) => /\bonly the question\.$/.test(sentence)), "an under-18 request carries more than the question");
+  });
+
+  test("the activity section says location is used while the Record screen is open", () => {
+    // The Record screen starts location updates as soon as it opens (once allowed), to show the GPS signal before
+    // any recording. If that changes, re-check the page's wording and this test.
+    const recorder = readFileSync(new URL("../../src/components/activity/ActivityRecorderScreen.tsx", import.meta.url), "utf8");
+    assert.match(recorder, /permission === "granted"\) instance\.warmUp\(\)/);
+    const activity = section("Activity tracking and location");
+    assert.match(activity, /\bwhile the Record screen is open\b/);
+    assert.doesNotMatch(activity, /\bonly while the recorder is running\b/);
+  });
+
+  test("the page names the outside food databases that food search and the coach's food checks call", () => {
+    const source = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
+    const route = source("app/api/foods/search/route.ts");
+    // The search route calls USDA FoodData Central (api.nal.usda.gov) and Open Food Facts; so does the coach.
+    assert.match(route, /\bsearchUsda\(/);
+    assert.match(source("lib/food/usda-live.ts"), /api\.nal\.usda\.gov/);
+    assert.match(route, /\b(lookupProduct|searchProducts)\(/);
+    assert.match(source("lib/food/open-food-facts.ts"), /openfoodfacts\.org/);
+    const coachLookups = source("lib/ai/food-lookup.ts");
+    assert.match(coachLookups, /api\.nal\.usda\.gov/);
+    assert.match(coachLookups, /openfoodfacts\.org/);
+    const used = section("How the data is used");
+    assert.match(used, /\bUSDA FoodData Central\b/);
+    assert.match(used, /\bOpen Food Facts\b/);
+    assert.match(used, /\bAI coach\b/, "the coach's meal-plan checks are named too");
+    assert.doesNotMatch(used, /Food searches and barcodes are sent from FITX to Open Food Facts/, "most searches stay in FITX's own catalogue");
+  });
+});
+
+describe("privacy wording elsewhere", () => {
+  test("onboarding does not say sex is used only for the calorie formula: the AI coach uses it too", () => {
+    const { summary } = buildCoachContext(sources() as never, NOW);
+    assert.equal((summary.member as Record<string, unknown>).sex, "male", "the coach summary carries sex");
+    const onboarding = readFileSync(new URL("../../src/app/(auth)/onboarding/OnboardingFlow.tsx", import.meta.url), "utf8");
+    assert.doesNotMatch(onboarding, /\bonly for the calorie formula\b/);
+    assert.match(onboarding.match(/errors\.gender = "([^"]+)"/)?.[1] ?? "", /\bAI coach\b/);
+  });
+
+  test("the coach's consent screen says what “Questions only” and under-18 requests still carry", () => {
+    const panel = readFileSync(new URL("../../src/components/coach/ConsentPanel.tsx", import.meta.url), "utf8");
+    assert.doesNotMatch(panel, /never reads your FITX data/);
+    assert.equal(panel.match(/lowest daily calories it may suggest \(FITX sets this from your sex\)/g)?.length, 2, "both the under-18 note and “Questions only”");
+  });
+
+  test("the consent list names every part of the summary, injuries and limitations included", async () => {
+    const { sharedSummaryLines } = await import("@/lib/ai/status");
+    const base = sources();
+    const preferences = { ...(base.preferences as Record<string, unknown>), limitations: ["lower_back", "knee"], cuisines: ["south_indian"], food_dislikes: ["Bitter gourd"], food_rules: ["low_carb"] };
+    const context = buildCoachContext({ ...base, preferences } as never, NOW);
+    const text = sharedSummaryLines(context).join("\n");
+    assert.match(text, /^Injuries or limitations: lower back, knee$/m);
+    // Each field the summary sends and the words that name it on the consent screen. A new field fails here
+    // until the list names it (null: not about the member).
+    const named: Record<string, RegExp | null> = {
+      v: null, today: null,
+      "member.age": /\bAge\b/, "member.sex": /\bsex\b/, "member.height_cm": /\bheight\b/, "member.weight_kg": /\bweight trend\b/,
+      "member.target_weight_kg": /\btarget weight\b/, "member.experience": /\bexperience\b/,
+      goal: /\bGoal\b/, activity_level: /\bactivity level\b/,
+      "training_setup.location": /\btraining setup \(home\b/, "training_setup.equipment": /\bdumbbell, bands\b/, "training_setup.level": /\blevel, days a week\b/,
+      "training_setup.days_per_week": /\bdays a week\b/, "training_setup.minutes_per_session": /\bsession length\b/, "training_setup.split": /\bsplit\b/,
+      "training_setup.limitations": /\bInjuries or limitations\b/,
+      "food_preferences.diet": /\bDiet: /, "food_preferences.allergies": /\ballergies: /, "food_preferences.meals_per_day": /\bmeals a day\b/,
+      "food_preferences.budget": /\bfood budget: /, "food_preferences.cuisines": /\bcuisines\b/, "food_preferences.dislikes": /\bfoods you avoid\b/,
+      "food_preferences.prefers_low_carb": /\bDiet: /,
+      daily_targets: /\byour daily targets\b/, nutrition: /\bfood you logged\b/, my_custom_foods: /\bnames of foods you saved\b/, weight_trend: /\bweight trend\b/,
+      training_last_28_days: /\b4 weeks of workouts\b/, personal_records: /\bpersonal records\b/, active_goals: /\bactive goals\b/, next_7_days: /\bplanned for the next 7 days\b/,
+    };
+    const nested = ["member", "training_setup", "food_preferences"];
+    const fields = Object.entries(context.summary).flatMap(([key, value]) => (nested.includes(key) && value && typeof value === "object" ? Object.keys(value).map((inner) => `${key}.${inner}`) : [key]));
+    for (const field of fields) {
+      assert.ok(field in named, `decide how the consent screen names ${field}`);
+      const phrase = named[field];
+      if (phrase) assert.match(text, phrase, `the consent screen names ${field}`);
+    }
+    assert.match(sharedSummaryLines(buildCoachContext(sources() as never, NOW)).join("\n"), /^Injuries or limitations: none added yet$/m, "named even before any are added");
+    assert.deepEqual(sharedSummaryLines(buildCoachContext(sources({ profile: { age: 16, gender: "female" } }) as never, NOW)), [], "nothing is shared for under-18s");
+  });
 });

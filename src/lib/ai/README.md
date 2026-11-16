@@ -49,10 +49,14 @@ ignored on Vercel (production and preview) and for any host other than localhost
 
 ## What the coach sends
 
-A short summary (about 1-2k tokens) rebuilt on every request: age, sex, height, weight trend, goal,
-training setup, diet, allergies, budget, 7-day food totals and most-logged foods, 28-day training,
-personal records, active goals. Never a name, email, photo, account or row id, private notes or exact
-times. Members who choose "Questions only", and every member under 18, send no FITX data at all.
+A short summary (about 1-2k tokens) rebuilt on every request: age, sex, height, weight trend and target
+weight, goal, training setup, injuries or limitations, diet, allergies, budget, 7-day food totals and
+most-logged foods, saved food names, 28-day training, personal records, active goals and the next 7
+days' planned workouts. Never a name, email, photo, account or row id, private notes or exact times.
+Members who choose "Questions only", and every member under 18, send no summary. Every prompt still
+carries the lowest daily calories the coach may suggest (`calorieFloor`, which depends on sex), and an
+under-18 member's prompt says they are under 18. `sharedSummaryLines` in `status.ts` is the consent
+screen's list; tests keep it and the privacy page in step with the summary.
 
 ## Daily limits
 

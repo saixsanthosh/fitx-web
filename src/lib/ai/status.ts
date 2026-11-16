@@ -1,6 +1,6 @@
 import "server-only";
 import { hasAnyProvider, type AiConfig } from "./config";
-import { buildCoachContext, loadContextSources } from "./context";
+import { buildCoachContext, loadContextSources, type CoachContext } from "./context";
 import { describeAllergies, describeDiet } from "./diet-rules";
 import { PROVIDER_LABELS, configuredProviders } from "./registry";
 import * as store from "./store";
@@ -38,22 +38,34 @@ export function providerNotices(config: AiConfig): ProviderNotice[] {
   return configuredProviders(config).map((id) => ({ id, name: PROVIDER_LABELS[id], dataUse: DATA_USE[id] }));
 }
 
+/**
+ * "What the coach reads" on the consent screen: every part of the summary that "Use my FITX data"
+ * sends (buildCoachContext), with the member's own values where they are short. Empty for under-18
+ * accounts, whose data is never sent.
+ */
+export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
+  if (facts.minor) return [];
+  // Health details, named as the member entered them (summary.training_setup.limitations).
+  const limitations = (summary.training_setup as { limitations?: unknown } | undefined)?.limitations;
+  return [
+    `Age, sex, height, weight trend and target weight${facts.age ? "" : " (age not set yet)"}`,
+    `Goal (${facts.goal.replace(/_/g, " ")}), activity level, experience and training setup (${facts.location}, ${facts.equipment.slice(0, 4).join(", ")}${facts.equipment.length > 4 ? "…" : ""}; level, days a week, session length and split)`,
+    `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitations : "none added yet"}`,
+    `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, cuisines and foods you avoid`,
+    "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",
+    "The last 4 weeks of workouts, your personal records and active goals, and how many workouts you have planned for the next 7 days",
+  ];
+}
+
 export async function coachStatus(db: store.Db, userId: string, config: AiConfig, now = new Date()): Promise<CoachStatus> {
   const base: CoachStatus = { state: "ready", providers: providerNotices(config), consent: null, minor: false, sharedSummary: [], quotas: [], threads: [] };
   if (!config.enabled) return { ...base, state: "paused" };
   if (!hasAnyProvider(config)) return { ...base, state: "not_configured" };
 
   const sources = await loadContextSources(db, userId, now, { full: false });
-  const { facts } = buildCoachContext(sources, now);
-  const sharedSummary = facts.minor
-    ? []
-    : [
-        `Age, sex, height and weight trend${facts.age ? "" : " (age not set yet)"}`,
-        `Goal (${facts.goal.replace(/_/g, " ")}), activity level and training setup (${facts.location}, ${facts.equipment.slice(0, 4).join(", ")}${facts.equipment.length > 4 ? "…" : ""})`,
-        `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}`,
-        "The last 7 days of food you logged (daily totals and the foods you log most)",
-        "The last 4 weeks of workouts, your personal records and your active goals",
-      ];
+  const context = buildCoachContext(sources, now);
+  const { facts } = context;
+  const sharedSummary = sharedSummaryLines(context);
 
   try {
     const consent = await store.getConsent(db, userId);

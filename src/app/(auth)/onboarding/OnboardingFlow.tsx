@@ -147,7 +147,7 @@ function validate(step: StepId, form: Form): Errors {
     const age = Number(form.age);
     if (!form.age.trim()) errors.age = "Add your age.";
     else if (!Number.isInteger(age) || !inRange(age, AGE_RANGE)) errors.age = `Enter a whole number from ${AGE_RANGE.min} to ${AGE_RANGE.max}.`;
-    if (!form.gender) errors.gender = "Choose one. FITX uses it only for the calorie formula.";
+    if (!form.gender) errors.gender = "Choose one. FITX uses it in the calorie formula and, if you use the AI coach, in the coach’s advice.";
     if (form.heightCm === null) errors.heightCm = "Add your height.";
     else if (!inRange(form.heightCm, HEIGHT_RANGE_CM)) errors.heightCm = "Enter a height between 90 and 250 cm (2 ft 11 in to 8 ft 2 in).";
     if (form.weightKg === null) errors.weightKg = "Add your current weight.";
