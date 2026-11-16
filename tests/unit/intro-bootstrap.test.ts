@@ -41,12 +41,38 @@ test("plays the account's one-time film on the first app page and consumes the c
   assert.deepEqual(preloads, ["/brand/intro/fitx-intro-light-landscape.webp"]);
 });
 
-test("never plays it on onboarding or during a live workout", () => {
-  for (const path of ["/onboarding", "/workouts/active"]) {
+test("plays it on the first page of any app section, the newer ones included", () => {
+  for (const path of ["/activity", "/activity/1b4e28ba-2fa1-41d2-883f-0016d3cca427", "/ai-coach", "/form-coach", "/help", "/workouts", "/exercises/bench_press"]) {
+    const { attrs, cookieWrites } = run({ path, cookie: "fitx_intro=play" });
+    assert.equal(attrs.get("data-fitx-intro"), "pending", path);
+    assert.equal(attrs.get("data-fitx-intro-gate"), "account", path);
+    assert.equal(cookieWrites.length, 1, path);
+  }
+});
+
+test("never plays it on onboarding, during a live workout or on the activity recorder", () => {
+  for (const path of ["/onboarding", "/workouts/active", "/activity/record"]) {
     const { attrs, cookieWrites } = run({ path, cookie: "fitx_intro=play" });
     assert.equal(attrs.get("data-fitx-intro"), undefined, path);
-    assert.equal(cookieWrites.length, 0, path);
+    assert.equal(cookieWrites.length, 0, `${path} leaves the film for the next app page`);
   }
+});
+
+test("focus screens get no brand loader either", () => {
+  for (const path of ["/workouts/active", "/activity/record"]) {
+    const { attrs } = run({ path, cookie: "fitx_intro=seen" });
+    assert.equal(attrs.get("data-fitx-loader"), undefined, path);
+  }
+  assert.equal(run({ path: "/activity", cookie: "fitx_intro=seen" }).attrs.get("data-fitx-loader"), "on", "the Activity hub still gets it");
+});
+
+test("?intro= replays the film on the newer sections, but not on a focus screen", () => {
+  assert.equal(run({ path: "/ai-coach", search: "?intro=live", cookie: "fitx_intro=seen" }).attrs.get("data-fitx-intro-gate"), "replay");
+  assert.equal(run({ path: "/activity/record", search: "?intro=live", cookie: "fitx_intro=seen" }).attrs.get("data-fitx-intro"), undefined);
+});
+
+test("the script stays free of backslashes (it is a template literal)", () => {
+  assert.equal(INTRO_BOOTSTRAP_SCRIPT.includes(String.fromCharCode(92)), false);
 });
 
 test("returning devices get the short brand loader instead", () => {

@@ -10,6 +10,8 @@
  *    full-screen overlay showing the film's first frame, and preloads that frame,
  *  - otherwise, on a returning device (`fitx_intro=seen`), shows the short brand loader
  *    (`data-fitx-loader`) until the app hydrates, for at most about a second,
+ *  - never shows either on a focus screen (a live workout, /workouts/active, or the activity recorder,
+ *    /activity/record): the account's film waits for the next app page,
  *  - keeps Skip/Escape working before React hydrates, and gives the page back if the app never
  *    starts the intro (e.g. its JavaScript failed to load).
  * Keep it tiny, dependency-free and ES5-safe: it blocks parsing while it runs. No backslashes in it:
@@ -35,14 +37,15 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
     if (cookie("fitx_auth") === "1") root.setAttribute("data-fitx-auth", "1");
     var path = window.location.pathname;
     var section = path.split("/")[1] || "";
-    var appPath = ["dashboard", "workouts", "nutrition", "progress", "goals", "planner", "profile", "settings", "exercises"].indexOf(section) !== -1 && path.indexOf("/workouts/active") !== 0;
+    var focus = path.indexOf("/workouts/active") === 0 || path.indexOf("/activity/record") === 0;
+    var appPath = ["dashboard", "workouts", "nutrition", "activity", "ai-coach", "progress", "goals", "planner", "profile", "settings", "exercises", "form-coach", "help"].indexOf(section) !== -1 && !focus;
     var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     var intro = cookie("fitx_intro");
     var asked = (window.location.search.match(/[?&]intro=([a-z]+)/) || [])[1];
     var forced = (path === "/" || appPath) && (asked === "live" || asked === "video" || asked === "play");
     var gate = reduce ? null : forced ? "replay" : intro === "play" && appPath ? "account" : null;
     if (!gate) {
-      if (reduce || intro !== "seen" || path.indexOf("/workouts/active") === 0) return;
+      if (reduce || intro !== "seen" || focus) return;
       root.setAttribute("data-fitx-loader", "on");
       var shownAt = Date.now();
       var hidden = false;
