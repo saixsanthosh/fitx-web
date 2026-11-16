@@ -301,6 +301,31 @@ export function gramsInLabel(text: string | null | undefined): number | null {
   return Number.isFinite(grams) && grams > 0 ? grams : null;
 }
 
+/**
+ * The amount to show after the user picks another unit for the same food. `from` and `to` are the old and new
+ * portions, null meaning grams.
+ * - Between two versions of the same measure (a large and a small samosa, "1 cup" and "1 cup, chopped") the
+ *   count stays: the user is saying which one they had, so 2 large samosas become 2 small ones.
+ * - Between grams and a measure, or two different measures (a cup and a tablespoon), the weight stays: 114 g of
+ *   idli becomes 3 × 38 g, and 3 idlis become 114 g.
+ * - With no amount yet: the count typed earlier ("2 small boiled eggs" when the food has no small size) once the
+ *   user picks a measure of that kind, else 1 of a measure or 100 g.
+ */
+export function amountAfterUnitChange(
+  amount: number,
+  from: Pick<FoodPortion, "unit" | "grams"> | null,
+  to: Pick<FoodPortion, "unit" | "grams"> | null,
+  typed: { amount: number; unit: FoodUnit | null } | null = null,
+): number {
+  const hasAmount = Number.isFinite(amount) && amount > 0;
+  if (hasAmount && from && to && from.unit === to.unit) return amount;
+  const grams = hasAmount ? amount * (from ? from.grams : 1) : Number.NaN;
+  const converted = grams > 0 ? (to ? grams / to.grams : grams) : Number.NaN;
+  if (converted >= 0.01) return round2(converted);
+  if (to && typed && typed.amount > 0 && to.unit === (typed.unit ?? "piece")) return typed.amount;
+  return to ? 1 : 100;
+}
+
 /** "3 × 1 item (114 g)", for the meal log. */
 export function describePortion(count: number, portion: FoodPortion, grams: number): string {
   return `${formatAmount(count)} × ${portion.label} (${formatAmount(grams)} g)`;

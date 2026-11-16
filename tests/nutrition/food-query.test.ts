@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  amountAfterUnitChange,
   askForGramsMessage,
   clearMatch,
   describePortion,
@@ -395,4 +396,44 @@ test("a boost lifts recent foods among equal matches but never above an exact na
   const foods = [{ name: "Rice, brown, cooked" }, { name: "Rice, red, cooked", recent: 3 }, { name: "Rice, white, cooked", aliases: ["rice"] }];
   const ranked = matchFoods(foods, ["rice"], { boost: (food) => ("recent" in food ? Number(food.recent) : 0) }).map((match) => match.food.name);
   assert.deepEqual(ranked, ["Rice, white, cooked", "Rice, red, cooked", "Rice, brown, cooked"]);
+});
+
+test("changing between sizes of the same piece keeps the count; other unit changes keep the weight", () => {
+  const portionsOf = (id: string) => (staples.find((food) => food.id === id)?.portions ?? []) as FoodPortion[];
+  const [smallSamosa, regularSamosa] = portionsOf("2708730");
+  // "2 samosas" picks 2 × regular/large (200 g); the user had small ones: 2 × 25 g, not 8 small (200 g).
+  assert.equal(amountAfterUnitChange(2, regularSamosa, smallSamosa), 2);
+  const [, mediumRoti, largeRoti] = portionsOf("2707713");
+  assert.equal(amountAfterUnitChange(2, mediumRoti, largeRoti), 2, "2 rotis stay 2 rotis, now 104 g");
+  const [quarterNaan, wholeNaan] = portionsOf("2707613");
+  assert.equal(amountAfterUnitChange(1, wholeNaan, quarterNaan), 1, "one naan becomes one quarter piece (44 g), not 4.02");
+  const eggs = portionsOf("171287");
+  assert.equal(amountAfterUnitChange(2, eggs[2], eggs[3]), 2, "2 large eggs become 2 extra large (112 g)");
+  const cup: FoodPortion = { label: "1 cup", unit: "cup", grams: 158 };
+  const chopped: FoodPortion = { label: "1 cup, chopped", unit: "cup", grams: 160 };
+  const tbsp: FoodPortion = { label: "1 tbsp", unit: "tbsp", grams: 10 };
+  assert.equal(amountAfterUnitChange(1, cup, chopped), 1, "another version of the same measure keeps the count");
+  assert.equal(amountAfterUnitChange(1, cup, tbsp), 15.8, "a different measure keeps the weight");
+  assert.equal(amountAfterUnitChange(200, null, cup), 1.27, "200 g becomes cups by weight");
+  assert.equal(amountAfterUnitChange(2, eggs[2], null), 100, "2 eggs become 100 g");
+  const idli: FoodPortion = { label: "1 item", unit: "piece", grams: 38 };
+  assert.equal(amountAfterUnitChange(114, null, idli), 3);
+  assert.equal(amountAfterUnitChange(3, idli, null), 114);
+  assert.equal(amountAfterUnitChange(Number.NaN, null, idli), 1, "no amount yet: one piece");
+  assert.equal(amountAfterUnitChange(Number.NaN, idli, null), 100, "no amount yet: 100 g");
+});
+
+test("after 'no small size', picking one of the food's sizes keeps the typed count", () => {
+  const boiled = (staples.find((food) => food.id === "173424")?.portions ?? []) as FoodPortion[];
+  const query = parseFoodQuery("2 small boiled eggs");
+  const resolution = resolvePortion(query, boiled);
+  assert.equal(resolution.kind, "ask");
+  if (resolution.kind !== "ask") return;
+  assert.equal(resolution.reason, "no-size-weight");
+  const typed = { amount: resolution.amount, unit: resolution.unit };
+  const large = boiled.find((portion) => portion.label === "1 large") as FoodPortion;
+  const chopped = boiled.find((portion) => portion.label === "1 cup, chopped") as FoodPortion;
+  // The page clears the amount while it asks, then the user picks "1 large" under Unit: 2 large eggs, not 1.
+  assert.equal(amountAfterUnitChange(Number.NaN, null, large, typed), 2);
+  assert.equal(amountAfterUnitChange(Number.NaN, null, chopped, typed), 1, "the typed eggs are not cups");
 });
