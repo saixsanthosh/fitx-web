@@ -102,7 +102,9 @@ export default function ActiveWorkoutPage() {
   const [level, setLevel] = useState<Level>("beginner");
   const [swapOpen, setSwapOpen] = useState(false);
   // A countdown for a timed set; when it ends the set's seconds are filled in and the cue plays.
-  const [setTimer, setSetTimer] = useState<{ exerciseId: string; setId: string; seconds: number; startedAt: number; endsAt: number } | null>(null);
+  const [setTimer, setSetTimer] = useState<{ exerciseId: string; setId: string; setNumber: number; seconds: number; startedAt: number; endsAt: number } | null>(null);
+  // What screen readers hear about the set timer: its start, stop and end, never each second.
+  const [timerNotice, setTimerNotice] = useState("");
   // Sets "Count with camera" filled, with the number it filled in, so a saved set can record where its count came from.
   const [cameraCounts, setCameraCounts] = useState<Map<string, { kind: CameraCountResult["kind"]; value: number }>>(() => new Map());
   // False once the database has said it lacks workout_sets.rep_source; sets then save without that label.
@@ -185,6 +187,7 @@ export default function ActiveWorkoutPage() {
         setExercises((items) => items.map((exercise) => exercise.id !== running.exerciseId ? exercise : {
           ...exercise, sets: exercise.sets.map((set) => set.id === running.setId ? { ...set, draftDuration: String(running.seconds) } : set),
         }));
+        setTimerNotice(`Time is up for set ${running.setNumber}. Its seconds are filled in; tick the set to log it.`);
         cue();
       }
       const rest = restCueRef.current;
@@ -238,10 +241,11 @@ export default function ActiveWorkoutPage() {
   const currentExercise = exercises[currentExerciseIndex] || null;
   const completedExerciseCount = exercises.filter((exercise) => exercise.sets.length > 0 && exercise.sets.every((set) => Boolean(set.completed_at))).length;
 
-  function startSetTimer(exerciseId: string, setId: string, seconds: number) {
+  function startSetTimer(exerciseId: string, setId: string, setNumber: number, seconds: number) {
     cues.prime();
     const startedAt = Date.now();
-    setSetTimer({ exerciseId, setId, seconds, startedAt, endsAt: startedAt + seconds * 1000 });
+    setSetTimer({ exerciseId, setId, setNumber, seconds, startedAt, endsAt: startedAt + seconds * 1000 });
+    setTimerNotice(`Set ${setNumber} timer started: ${seconds} seconds.`);
   }
 
   /** Stopping early records the seconds actually done. */
@@ -249,7 +253,9 @@ export default function ActiveWorkoutPage() {
     const running = setTimer;
     if (!running) return;
     setSetTimer(null);
-    changeSet(running.exerciseId, running.setId, "draftDuration", String(Math.max(1, Math.round((Date.now() - running.startedAt) / 1000))));
+    const done = Math.max(1, Math.round((Date.now() - running.startedAt) / 1000));
+    changeSet(running.exerciseId, running.setId, "draftDuration", String(done));
+    setTimerNotice(`Set ${running.setNumber} timer stopped at ${done} seconds.`);
   }
 
   /** Replaces the current exercise for this session only; the saved plan is unchanged. */
@@ -489,6 +495,7 @@ export default function ActiveWorkoutPage() {
   return <div className="mx-auto max-w-4xl space-y-4 pb-28 sm:space-y-5 sm:pb-8">
     <PageHeading title={session.name} description="A focused view for your current movement. Set entries save as you train." actions={<Link href="/workouts" className="fitx-button fitx-button-secondary min-h-11"><ArrowLeft size={15} />Workouts</Link>} />
     {error && <p role="alert" className="rounded-lg border border-fitx-warning/30 bg-fitx-warning/5 px-4 py-3 text-sm text-fitx-warning">{error}</p>}
+    <p role="status" className="sr-only">{timerNotice}</p>
     {fieldsNotice && <p role="status" className="flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-4 py-3 text-xs text-fitx-text-secondary"><Info size={15} aria-hidden="true" className="mt-px shrink-0 text-fitx-info" /><span>{fieldsNotice}</span></p>}
 
     <section className="fitx-panel grid grid-cols-2 gap-4 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:px-5"><div><p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Elapsed training time</p><p className="mt-1 font-mono text-xl font-semibold tabular-nums tracking-tight sm:text-2xl">{formatClock(elapsedSeconds)}</p></div><div><p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Exercises complete</p><p className="mt-1 text-lg font-semibold tabular-nums">{completedExerciseCount}<span className="text-sm font-normal text-fitx-text-secondary"> / {exercises.length}</span></p></div><button type="button" onClick={() => void togglePause()} disabled={clockSaving} className="fitx-button fitx-button-secondary col-span-2 min-h-11 sm:col-span-1">{clock?.paused ? <Play size={15} /> : <Pause size={15} />}{clockSaving ? "Saving…" : clock?.paused ? "Resume" : "Pause session"}</button></section>
@@ -508,9 +515,10 @@ export default function ActiveWorkoutPage() {
     {currentExercise && <section aria-labelledby="current-exercise-title" className="fitx-panel overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-fitx-divider p-4 sm:p-5"><div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-fitx-primary">Movement {String(currentExerciseIndex + 1).padStart(2, "0")} <span className="text-fitx-text-secondary">/ {String(exercises.length).padStart(2, "0")}</span></p><h2 id="current-exercise-title" className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">{currentExercise.name}</h2><p className="mt-1 text-xs text-fitx-text-secondary">Target: {currentExercise.target_sets} sets · {isTimedPrescription(currentExercise) ? `${currentExercise.target_duration_seconds}s each` : `${currentExercise.reps_min}–${currentExercise.reps_max} reps`}{targetsSupported && <> · {currentExercise.target_weight_kg == null ? "No load" : `${currentExercise.target_weight_kg} kg`}</>} · {currentExercise.rest_seconds}s rest</p>{swapMissing.length > 0 && <p className="mt-1 text-xs text-fitx-warning">Needs {swapMissing.map(equipmentLabel).join(", ").toLowerCase()}, not on your {ownedContext} list. Swap it for something you can do.</p>}</div><div className="flex items-center gap-2"><button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || clock?.paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-10 px-3 text-sm"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button><button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} aria-label="Previous exercise" className="grid h-10 w-10 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronLeft size={18} /></button><button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} aria-label="Next exercise" className="grid h-10 w-10 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronRight size={18} /></button></div></div>
       <div className="p-4 sm:p-5"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Working sets</h3><p className="mt-1 text-xs text-fitx-text-secondary">Completed entries save to this session.</p></div><button type="button" onClick={() => void addSet(currentExercise)} disabled={clock?.paused} className="fitx-button fitx-button-secondary min-h-10 px-3 text-sm"><Plus size={14} />Add set</button></div>
-        {timedSetsSupported && currentExercise.target_duration_seconds != null && nextOpenSet && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3" aria-live="polite">
-          <div><p className="text-sm font-medium tabular-nums">{timerHere ? `Set ${nextOpenSet.set_number}: ${timerRemaining}s left` : `Set ${nextOpenSet.set_number}: ${currentExercise.target_duration_seconds}s`}</p><p className="text-xs text-fitx-text-secondary">{timerHere ? "The seconds fill in when the timer ends. Tick the set to log it." : "Start the timer as you begin."}</p></div>
-          {timerHere ? <button type="button" onClick={stopSetTimer} className="fitx-button fitx-button-secondary min-h-11"><Square size={14} aria-hidden="true" />Stop</button> : <button type="button" disabled={clock?.paused || Boolean(setTimer)} onClick={() => startSetTimer(currentExercise.id, nextOpenSet.id, currentExercise.target_duration_seconds!)} className="fitx-button min-h-11"><Play size={14} aria-hidden="true" />Start timer</button>}
+        {timedSetsSupported && currentExercise.target_duration_seconds != null && nextOpenSet && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3">
+          {/* role="timer" is not read out as it changes; the start, stop and end are announced below. */}
+          <div><p role={timerHere ? "timer" : undefined} className="text-sm font-medium tabular-nums">{timerHere ? `Set ${nextOpenSet.set_number}: ${timerRemaining}s left` : `Set ${nextOpenSet.set_number}: ${currentExercise.target_duration_seconds}s`}</p><p className="text-xs text-fitx-text-secondary">{timerHere ? "The seconds fill in when the timer ends. Tick the set to log it." : "Start the timer as you begin."}</p></div>
+          {timerHere ? <button type="button" onClick={stopSetTimer} className="fitx-button fitx-button-secondary min-h-11"><Square size={14} aria-hidden="true" />Stop</button> : <button type="button" disabled={clock?.paused || Boolean(setTimer)} onClick={() => startSetTimer(currentExercise.id, nextOpenSet.id, nextOpenSet.set_number, currentExercise.target_duration_seconds!)} className="fitx-button min-h-11"><Play size={14} aria-hidden="true" />Start timer</button>}
         </div>}
         <div className={`${setGridColumns} gap-2 px-1 pb-2 text-[10px] font-medium uppercase tracking-wide text-fitx-text-secondary`}><span>Set</span><span>Weight · kg</span><span>Reps</span>{timedSetsSupported && <span>Sec</span>}<span /></div>
         <div className="space-y-2">{currentExercise.sets.map((set) => <div key={set.id} className={`${setGridColumns} items-center gap-2`}><span className="text-sm font-medium tabular-nums text-fitx-text-secondary">{String(set.set_number).padStart(2, "0")}</span><input aria-label={`${currentExercise.name} set ${set.set_number} weight in kg`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="2000" step="0.5" value={set.draftWeight} onChange={(event) => changeSet(currentExercise.id, set.id, "draftWeight", event.target.value)} /><input aria-label={`${currentExercise.name} set ${set.set_number} repetitions`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="500" step="1" value={set.draftReps} onChange={(event) => changeSet(currentExercise.id, set.id, "draftReps", event.target.value)} />{timedSetsSupported && <input aria-label={`${currentExercise.name} set ${set.set_number} duration in seconds`} disabled={clock?.paused || Boolean(set.completed_at)} className="fitx-field h-12 px-2 text-center tabular-nums sm:px-3" type="number" min="0" max="86400" step="1" value={set.draftDuration} onChange={(event) => changeSet(currentExercise.id, set.id, "draftDuration", event.target.value)} />}<button type="button" disabled={clock?.paused} onClick={() => void saveSet(currentExercise.id, set, !set.completed_at)} aria-label={set.completed_at ? "Mark set incomplete" : "Complete set"} className={`grid h-12 w-12 place-items-center rounded-md border transition-colors disabled:opacity-50 ${set.completed_at ? "border-fitx-primary/50 bg-fitx-primary/10 text-fitx-primary" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-primary"}`}><Check size={19} /></button></div>)}</div>
