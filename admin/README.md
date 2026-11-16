@@ -4,7 +4,7 @@ FITX Admin is a private operations console that lives in `/admin` of the `saixsa
 
 ## Finish the Admin setup (owner checklist)
 
-Nobody can use Admin until these steps are done. Each one is a setting in Vercel or Supabase, and none needs code. Do them in order.
+Nobody can use Admin until these steps are done. They are settings in Vercel and Supabase plus one database update; none needs code. Do them in order.
 
 **Why not `admin.fitx.vercel.app`?** The name `fitx.vercel.app` belongs to a different Vercel account, and Vercel does not give out names under someone else's `.vercel.app` name. Admin therefore gets its own free `.vercel.app` name. The steps below use `fitnessx-admin.vercel.app`. If Vercel says that name is taken, pick another free one, such as `fitx-admin.vercel.app`, and use it everywhere below instead.
 
@@ -14,68 +14,93 @@ Nobody can use Admin until these steps are done. Each one is a setting in Vercel
    - `SUPABASE_SECRET_KEY` = a secret key from Supabase → Project Settings → API Keys → Secret keys. Create one named `fitx-admin` if none exists. In Vercel, tick **Sensitive** and choose **Production** only, not Preview or Development. Never give it a name that starts with `NEXT_PUBLIC_`.
    - `FITX_ADMIN_ALLOWED_EMAILS` = the Google email address you will sign in with. Separate several addresses with commas.
    - Check that `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are already there.
-3. **Allow the new sign-in address in Supabase.** In Supabase, open Authentication → URL Configuration → Redirect URLs → Add URL, and add `https://fitnessx-admin.vercel.app/auth/callback`. Leave the Site URL and the existing FITX entries as they are. While you are there, check that Authentication → Sign In / Providers → **Google** is enabled, because Admin signs in with Google only.
-4. **Redeploy Admin** so it picks up the new variables. In the **admin** project, open Deployments and find the Production deployment marked **Current**, with the status Ready. Do not choose a row marked Canceled: redeploying a skipped deployment is usually skipped again, so the new variables would never reach a build. Choose ⋯ → Redeploy, untick **Use project's Ignore Build Step** in the dialog, and confirm. Unticking it makes Vercel build no matter which files changed. A later push that changes Admin also picks up the variables.
-5. **Make yourself the first super-admin.** Sign in to FITX at https://fitnessx.vercel.app once with the same Google account, so that the account exists. Then run the SQL in [First super-admin](#first-super-admin) with your email address. The coordinating Claude session can run it for you through the Supabase connector once you give your OK.
-6. **Sign in** at https://fitnessx-admin.vercel.app with that Google account.
+3. **Check three Supabase settings.**
+   - Authentication → URL Configuration → Redirect URLs → Add URL: `https://fitnessx-admin.vercel.app/auth/callback`. Leave the Site URL and the existing FITX entries as they are.
+   - Authentication → Sign In / Providers: **Google** is enabled. Admin signs in with Google only.
+   - Authentication → Multi-Factor: **Authenticator app (TOTP)** is enabled. It is on by default; Admin requires it.
+4. **Update the database.** Admin's tables and functions are in seven files, `supabase/migrations/20261118180000_…` to `20261118180006_…` (listed in [Database migrations](#database-migrations)). The coordinating Claude session applies them in that order through the Supabase connector once you give your OK. Each file is safe to run again, and the first one creates the original Admin tables if they are missing.
+5. **Redeploy Admin** so it picks up the new variables. In the **admin** project, open Deployments and find the Production deployment marked **Current**, with the status Ready. Do not choose a row marked Canceled: redeploying a skipped deployment is usually skipped again, so the new variables would never reach a build. Choose ⋯ → Redeploy, untick **Use project's Ignore Build Step** in the dialog, and confirm. Unticking it makes Vercel build no matter which files changed. A later push that changes Admin also picks up the variables.
+6. **Make yourself the first super-admin.** Sign in to FITX at https://fitnessx.vercel.app once with the same Google account, so that the account exists. Then run the SQL in [First super-admin](#first-super-admin) with your email address. The coordinating session can run it for you through the connector once you give your OK.
+7. **Sign in and set up your authenticator app** at https://fitnessx-admin.vercel.app. The first time, Admin asks you to scan a QR code with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password or similar) and enter its six-digit code. After that, Admin asks for a code at every sign-in, and a session ends 12 hours after you signed in with Google.
 
 After the switch, production visits to `admin-one-blond.vercel.app`, or to any other Admin address, are sent to `ADMIN_SITE_URL` automatically, so the old name keeps working as a shortcut. Once you have signed in on the new name, you can remove the old `https://admin-one-blond.vercel.app/auth/callback` entry from the Supabase Redirect URLs.
 
-If Admin stops loading after step 4 (for example, every page redirects to an address that does not open), set `ADMIN_SITE_URL` back to `https://admin-one-blond.vercel.app` and redeploy as in step 4. Then check step 1 again.
+If Admin stops loading after step 5 (for example, every page redirects to an address that does not open), set `ADMIN_SITE_URL` back to `https://admin-one-blond.vercel.app` and redeploy as in step 5. Then check step 1 again.
 
 ### If sign-in does not work
 
-| Message on the sign-in page | What to check |
+| What you see | What to check |
 | --- | --- |
-| Admin sign-in is not configured on this environment yet. | Step 2: `ADMIN_SITE_URL`, the two public Supabase variables and `FITX_ADMIN_ALLOWED_EMAILS` must all be set. Then redeploy as in step 4. |
-| Server data access is not configured. | Step 2: `SUPABASE_SECRET_KEY` is missing in this environment. Then redeploy as in step 4. Preview deployments show this on purpose, because the key is Production-only. |
+| Admin sign-in is not configured on this environment yet. | Step 2: `ADMIN_SITE_URL`, the two public Supabase variables and `FITX_ADMIN_ALLOWED_EMAILS` must all be set. Then redeploy as in step 5. |
+| Server data access is not configured. | Step 2: `SUPABASE_SECRET_KEY` is missing in this environment. Then redeploy as in step 5. Preview deployments show this on purpose, because the key is Production-only. |
 | Google sign-in could not start. | Step 3: the redirect URL, and whether the Google provider is enabled. This also appears when the Google window is cancelled. |
-| This Google account does not have FITX Admin access. | The Google email must be on `FITX_ADMIN_ALLOWED_EMAILS` (step 2) and have an active super-admin or admin row (step 5). |
-| Admin access is not initialized yet. | The Admin tables are missing. See [First super-admin](#first-super-admin). |
+| This Google account does not have FITX Admin access. | The Google email must be on `FITX_ADMIN_ALLOWED_EMAILS` (step 2) and have an active membership (step 6). |
+| Admin access is not initialized yet. | The Admin tables are missing: step 4. |
+| Your Admin session reached its 12-hour limit. | Expected. Sign in again. |
+| Your role does not include this page. | Your role does not cover that area; see [Roles](#roles). A super-admin can change it on the Access screen. |
 
 Vercel → **admin** → Logs shows a `[fitx-admin]` line for each refused or failed check, saying which check failed. Emails, user IDs, tokens and keys are masked in these lines.
 
-## Current capabilities and data boundaries
+### Lost your phone?
 
-- **Overview and reports:** server-side aggregate counts from Supabase Auth, completed workout sessions, the shared exercise catalog, and meal-log volume. The reviewed SQL function returns counts only. "Active · 30 days" counts accounts that signed in during the last 30 days.
-- **People:** recent Supabase Auth accounts, account creation and last sign-in dates (in IST), and Auth suspension state. The table deliberately omits fitness-profile, workout, and nutrition details.
-- **Training:** reads the existing `exercise_library` (up to 100 records per search) and can publish or hide an exercise. Mutations use a database function that checks active Admin membership and writes an audit record in the same transaction.
-- **Access control:** lists roles and lets an active super-admin grant, change, or disable Admin memberships by Supabase user ID. Database functions validate the actor, prevent client-side role escalation, keep at least one active super-admin, and write an audit record atomically.
-- **Audit log:** shows the latest 100 events with actor, action, resource, and time in IST, without exposing event detail payloads.
-- **Nutrition, billing, support, and notifications:** these screens explain which real data source is absent. The current FITX schema has personal meal logs but no admin food catalog, payment or refund ledger, support queue, or notification-delivery records. The app does not invent records or revenue.
+Another super-admin opens Access and chooses **Reset authenticator** for you; you set up a new one at your next sign-in. If you are the only super-admin, the coordinating session can remove your authenticator through the Supabase connector with your OK (`delete from auth.mfa_factors where user_id = '<your account ID>'`), and you set up a new one at the next sign-in.
 
-The Admin application is not a replacement for the FITX user app. It has no public registration form, and every protected page and data read re-checks the signed-in Supabase user, the email allowlist, and active membership on the server.
+## What Admin does
 
-## Architecture
+- **Overview:** counts with their exact definitions (see [Metrics](#metrics)): accounts, fresh sign-ins in the last 24 hours, 7 and 30 days, active accounts from real app activity, workout and meal volume, published exercises, and help requests that need attention.
+- **Reports:** daily trends for the last 14, 30 or 90 days (new accounts, active accounts, workouts completed, meals logged), with the numbers also shown as a table.
+- **People:** search accounts by part of an email or by account ID, and open an account to see account details only: email, sign-in methods, creation and last sign-in time, confirmation, authenticator and suspension status. No profile, workout, meal, body or other health data. Depending on role: sign the person out everywhere, send a password reset email (see [Password reset emails](#password-reset-emails)), suspend or lift a suspension, and delete the account. Every view and action is recorded in the audit log, and account actions record the request before they run.
+- **Support:** the queue of Help requests sent from the FITX app's Help page, with status tabs and counts, category and "assigned to me" filters, the conversation, replies as "FITX team", status, priority and assignee. Replies appear on the person's Help page; no email is sent.
+- **Training:** publish or hide exercises in `exercise_library` (up to 100 per search). Exercise editing and the food catalogue come later.
+- **Announcements:** write a message, preview it, publish it for a time window, return it to draft or archive it. Signed-in people see the newest one at the top of the FITX app and can dismiss it. The list shows how many accounts dismissed each one; nothing tracks views.
+- **Access:** grant or change access by email, five roles, reduce access only with a confirmation, reset a member's authenticator, and see whether each member is on `FITX_ADMIN_ALLOWED_EMAILS` and has an authenticator.
+- **Audit log:** every privileged action, sign-in, refusal and authenticator event, filtered by action, actor (email or ID), resource and IST date range, 50 per page. Super-admins can export the filtered rows as CSV (up to 5,000 rows); the export is itself recorded. Rows can be added but never changed or deleted.
+- **Billing:** owned by the payments stream (Phase 11). **Nutrition:** explains that no admin food catalogue exists yet. **Settings:** shows which environment variables are set, never their values.
 
-```text
-admin/
-  src/app/                     Next.js App Router pages, robots.txt, icon, OAuth callback, Server Actions
-  src/components/              FITX mark, navigation, data states, admin shell
-  src/lib/                     Supabase SSR clients, access checks, server data access, logging, IST times
-  src/proxy.ts                 Canonical-host redirect and Supabase session refresh
-  scripts/deploy-filter.mjs    Path rules for both Vercel projects
-  scripts/vercel-ignore.mjs    Vercel Ignored Build Step entry point
-  supabase/migrations/         Reviewed additive Admin schema and privileged RPCs
-  tests/                       node --test suites for the deploy filter and the access helpers
-  vercel.json                  Admin project's Ignored Build Step
-```
+Admin has no public registration. Every page, data read and change checks the signed-in account, the email allowlist, membership, role, the authenticator code and the session age on the server; the database functions check the role again.
 
-Tech stack: Next.js 16, React 19, TypeScript, Supabase Auth and Postgres, `@supabase/ssr`, and Lucide icons. Admin has its own `package.json` and `package-lock.json`, so Vercel installs and builds it from the `admin` Root Directory independently of the customer site.
+## Roles
 
-## Local setup
+| Role | May use |
+| --- | --- |
+| Super-admin | Everything: Admin access, account deletion, audit export, plus all of the below. |
+| Admin | Overview, Reports, People (including suspend), Support, Training, Announcements, Audit log, Access (read-only), Settings, Billing. |
+| Support agent | Overview, People (sign out everywhere, password reset), Support. |
+| Content editor | Overview, Training, Announcements. |
+| Viewer | Overview and Reports, read-only. |
 
-Use Node.js 20 or newer, npm and Git.
+The table lives in two places that a test keeps identical: `src/lib/roles.ts` and `fitx_admin_role_permissions` in migration `20261118180001`. Admin team accounts can only be suspended, signed out or changed by a super-admin, and nobody can act on their own account from People. A deletion needs the person's Admin access removed first.
 
-```bash
-cd admin
-npm ci
-cp .env.example .env.local
-# Fill in .env.local from your password manager. Never commit it.
-npm run dev
-```
+## Metrics
 
-Open `http://localhost:3100`. Local sign-in needs the same setup as production: the variables in `.env.local`, `http://localhost:3100/auth/callback` in the Supabase Redirect URLs, the Admin schema, and an active membership. The customer app keeps its own `.env.local` at the repository root.
+| Number | Exactly what it counts |
+| --- | --- |
+| Registered accounts | Supabase Auth accounts that are not deleted, not anonymous and not Admin team members. Every number below leaves out the same accounts. |
+| With a confirmed email | Of those, accounts whose email is confirmed. |
+| New in 7 / 30 days | Accounts created in the window. |
+| Signed in in 24 hours / 7 / 30 days | Accounts whose most recent **fresh** sign-in (Auth `last_sign_in_at`) is in the window. Staying signed in does not create a new sign-in, so regular users are undercounted. |
+| Active in 24 hours / 7 / 30 days | Accounts that logged a workout session, workout set, meal, water entry, body measurement or goal progress entry in the window. Signing in alone does not count. |
+| Workouts completed | Workout sessions with status completed, counted on the day they started. |
+| Meals logged | Meal entries created in the window. |
+| Trend days | Calendar days in India Standard Time. |
+
+All numbers come from `fitx_admin_metrics()` and `fitx_admin_daily_trends()` (migration `20261118180003`), which return counts only. Until that migration is applied, the Overview shows the original five counts and says so.
+
+## Database migrations
+
+All files are in the root `supabase/migrations/` folder. Apply them in this order. Each is written to run safely more than once.
+
+| File | What it does | Until it is applied |
+| --- | --- | --- |
+| `20261118180000_fitx_admin_control_plane.sql` | The original Admin tables and functions (from `admin/supabase/migrations/20261116000000…`), created only if missing. | Admin cannot sign anyone in ("Admin access is not initialized yet"). |
+| `20261118180001_fitx_admin_roles.sql` | Five roles, one permission check used by every function, grant by email, member list with emails. | Only Admin and Super-admin exist, and Access grants by account ID. |
+| `20261118180002_fitx_admin_audit_log.sql` | Makes the audit log append-only (a trigger blocks edits and deletes, except the foreign key clearing a deleted account's ID) and adds `fitx_admin_log_event`. | Sign-in and view events are not recorded, and People actions refuse to run because they must be recorded first. |
+| `20261118180003_fitx_admin_metrics.sql` | The defined metrics and daily trends. | Overview shows the original five counts; Reports waits. |
+| `20261118180004_fitx_admin_people.sql` | People search and "sign out everywhere". | People pages through all accounts without search; signing out everywhere is unavailable. |
+| `20261118180005_fitx_support.sql` | Help requests and replies, row-level security, rate limits (3 requests an hour and 10 a day per account, 10 replies an hour), and the audited support functions. | The FITX Help page shows the support email instead of the form; the Support queue waits. |
+| `20261118180006_fitx_announcements.sql` | Announcements and dismissals, with row-level security and audited functions. | The FITX banner stays hidden; Announcements waits. |
+
+The file `admin/supabase/migrations/20261116000000_fitx_admin_control_plane.sql` is kept for history; `20261118180000` replaces it in the root migration history.
 
 ## Environment variables
 
@@ -88,7 +113,10 @@ Set these in a local `.env.local` or in the **admin Vercel project only**. `.env
 | `SUPABASE_SECRET_KEY` | Server only, Sensitive, Production only | Preferred key for Admin data access, membership checks, and the Auth Admin API. Never use a `NEXT_PUBLIC_` prefix. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only, legacy fallback | Use only if the project has no secret key. Do not set both. |
 | `ADMIN_SITE_URL` | Server configuration | Canonical production origin, for example `https://fitnessx-admin.vercel.app`. Google sign-in returns here, and in production every other host redirects here. |
-| `FITX_ADMIN_ALLOWED_EMAILS` | Server configuration | Comma-separated Google emails allowed into Admin. Checked after Google sign-in against the account's verified Google email, and again on every request. Membership in `fitx_admin_members` is still required. |
+| `FITX_ADMIN_ALLOWED_EMAILS` | Server configuration | Comma-separated Google emails allowed into Admin. Checked after Google sign-in against the account's verified Google email, and again on every request. Membership is still required. |
+| `FITX_SITE_URL` | Optional | The customer site, used for password reset links. Default `https://fitnessx.vercel.app`. |
+| `FITX_ADMIN_PASSWORD_RESET_EMAILS` | Optional | `on` enables the "Send reset email" button. Leave it unset until [Password reset emails](#password-reset-emails) is done. |
+| `FITX_ADMIN_CSP_REPORT_ONLY` | Optional, emergency switch | `1` turns the Content-Security-Policy into report-only mode without a code change, if it ever blocks something it should not. Leave unset. |
 
 Do not add Supabase service or secret keys to frontend code, screenshots, logs, or source control. Never copy a key from FITX into the public client key field.
 
@@ -100,21 +128,36 @@ Vercel supplies `VERCEL_ENV` and `VERCEL_URL`. Preview deployments use their own
 2. After Google returns, `/auth/callback` exchanges the code and then checks on the server, in this order:
    - the account's email is confirmed and belongs to a verified Google identity on the same account;
    - that email, in any letter case, is on `FITX_ADMIN_ALLOWED_EMAILS`;
-   - the account has an active `admin` or `super_admin` row in `fitx_admin_members`, read with the server-only key.
+   - the account has an active membership in `fitx_admin_members`, read with the server-only key.
 
-   If any check fails, Admin signs that browser out and shows the same "no access" message.
-3. Every protected page, every data helper (`src/lib/admin-data.ts` and `src/lib/overview.ts`) and every Server Action calls `requireAdmin()`. It repeats the allowlist and membership checks on each request, so the layout is never the only guard. To remove someone's access, deactivate their membership on the Access screen, which takes effect on their next page load. Also remove their email from the allowlist and redeploy as in step 4 of the checklist.
-4. Signing out, or being refused, ends only that Admin browser session (`signOut({ scope: "local" })`). Both apps share one Supabase project, but this does not sign the person out of FITX on their phone or other devices.
-5. RLS is enabled and forced on the Admin tables. The only user-session read policy on membership lets a user read their own row. Privileged RPCs are executable by `service_role` only and validate the actor again in Postgres.
-6. `fitx_admin_overview_metrics()` exposes aggregate counts only. Admin changes are audited. Users' health, workout, and individual meal details are not included in the directory or the aggregate reports.
-7. In production, a request on any host other than `ADMIN_SITE_URL` is redirected there first, with a temporary 307 redirect that browsers do not remember. Google sign-in only works when it starts and finishes on the same host.
-8. Failed checks and queries are written to the server logs as `[fitx-admin]` lines with error codes and short messages. Emails, user IDs, tokens, and keys are masked.
+   If any check fails, Admin signs that browser out, records the refusal and its reason, and shows the same "no access" message.
+3. **Authenticator (Supabase AAL2).** Every console page then requires a verified authenticator app. Without one, Admin opens the set-up page; with one, it asks for the current code once per sign-in. Only a session raised to AAL2 by that code can use the console.
+4. **Session age.** A session ends 12 hours after its Google sign-in, however active it is (`src/lib/session-policy.ts`). Admin then signs that browser out and asks for a fresh sign-in.
+5. **Every request is checked.** Every page, every data helper in `src/lib/data/` and every Server Action calls `requireAdmin(permission)`, which repeats the allowlist, membership, role, authenticator and session-age checks. The layout is never the only guard, and the navigation shows only the pages a role allows. To remove someone's access, set their membership to inactive on Access, which takes effect on their next page load, and remove their email from the allowlist.
+6. Signing out, or being refused, ends only that Admin browser session (`signOut({ scope: "local" })`). Both apps share one Supabase project, but this does not sign the person out of FITX on their phone or other devices.
+7. **Database.** RLS is enabled on every Admin and support table. Functions that act for an admin (`p_actor_id`) are executable by `service_role` only, pin `search_path`, and check the actor's role again in Postgres. A test checks these rules for every Phase 10 migration.
+8. **Browser.** Every response carries a Content-Security-Policy with a fresh nonce: scripts only from Admin itself, no inline styles or eval in production, no framing, and form posts only to Admin, Supabase and Google. In production, a request on any host other than `ADMIN_SITE_URL` is redirected there first, with a temporary 307 redirect.
+9. Failed checks and queries are written to the server logs as `[fitx-admin]` lines with error codes and short messages. Emails, user IDs, tokens and keys are masked.
+
+## Password reset emails
+
+Admin asks Supabase to email the reset link. FITX's own sign-in callback currently accepts only links that started in the person's own browser (PKCE), and a reset sent from Admin cannot start there, so the button is off until both of these are done:
+
+1. The customer site's `src/app/auth/callback/route.ts` also accepts `token_hash` and `type` parameters and calls `supabase.auth.verifyOtp({ token_hash, type })` before redirecting to `next` (the coordinating session owns that file).
+2. In Supabase → Authentication → Emails → Reset Password, the link becomes `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password`. This also keeps the existing "Forgot password" page working.
+
+Then set `FITX_ADMIN_PASSWORD_RESET_EMAILS=on` in the Admin project and redeploy. Supabase's built-in email sender allows only a few emails an hour; a custom SMTP server raises that.
+
+## Help page and announcements in the FITX app
+
+These customer-side pieces live in the root app; the coordinating session wires them in:
+
+- **Help page:** `src/app/(dashboard)/help/page.tsx` with `src/components/support/*` and the API routes `src/app/api/support/route.ts` and `src/app/api/support/reply/route.ts`. Add `"/help"` to `PRIVATE_ROOTS` in `src/proxy.ts`; the page also sends signed-out visitors to sign in on its own. Link to it from the sidebar and the More menu (for example "Help and feedback" with the `CircleHelp` icon), and from Settings. A link can carry the page the person came from: `/help?from=/workouts`.
+- **Announcements:** `src/components/announcements/AnnouncementBanner.tsx`. Mount it once in `src/app/(dashboard)/layout.tsx`, directly under `<WorkspaceHeader />` and above `<main>`. It renders nothing when there is no announcement, when signed out, or before migration `20261118180006` is applied.
 
 ## First super-admin
 
-The Admin schema is in `supabase/migrations/20261116000000_fitx_admin_control_plane.sql`. It is additive: it creates only the Admin tables and privileged functions described above, and seeds no Admin member. An earlier version of this README said it had already been applied to production, while the file's own header says not to apply it until the owner approves. Neither can be confirmed from the code. So check first: in Supabase → Table Editor, look for `fitx_admin_members` and `fitx_admin_audit_logs`. If they are missing, the schema must be applied before the SQL below. The coordinating session can apply it through the Supabase connector after your OK. Do not run a blanket migration command unless every pending root migration has also been reviewed.
-
-After your Google account exists in FITX, run this in the Supabase SQL Editor. Replace `owner@example.com` with your exact Google email; the statement stops without changing anything unless exactly one account has that email.
+After the migrations (step 4) and once your Google account exists in FITX, run this in the Supabase SQL Editor. Replace `owner@example.com` with your exact Google email; the statement stops without changing anything unless exactly one account has that email.
 
 ```sql
 do $$
@@ -147,13 +190,44 @@ join auth.users u on u.id = m.user_id;
 
 This owner-only bootstrap avoids a public "first user becomes admin" race. Later role changes belong on the protected Access screen. The email must also be on `FITX_ADMIN_ALLOWED_EMAILS`, or the sign-in is refused before membership is checked.
 
+## Architecture
+
+```text
+admin/
+  src/app/                     Pages, MFA screens, OAuth callback and session expiry, Server Actions, audit CSV route
+  src/components/              Shell and navigation, forms, trend chart, data states
+  src/lib/                     Access checks, roles, session policy, CSP, audit writer, logging, IST times
+  src/lib/data/                Server data access, one module per area; each calls requireAdmin itself
+  src/proxy.ts                 Canonical-host redirect, CSP nonce, Supabase session refresh
+  scripts/                     Path-based deploy filter for both Vercel projects
+  supabase/migrations/         The original Admin schema (superseded by the root migrations)
+  tests/                       node --test suites
+  vercel.json                  Admin project's Ignored Build Step
+```
+
+Tech stack: Next.js 16, React 19, TypeScript, Supabase Auth and Postgres, `@supabase/ssr`, and Lucide icons. Admin has its own `package.json` and `package-lock.json`, so Vercel installs and builds it from the `admin` Root Directory independently of the customer site.
+
+## Local setup
+
+Use Node.js 20 or newer, npm and Git.
+
+```bash
+cd admin
+npm ci
+cp .env.example .env.local
+# Fill in .env.local from your password manager. Never commit it.
+npm run dev
+```
+
+Open `http://localhost:3100`. Local sign-in needs the same setup as production: the variables in `.env.local`, `http://localhost:3100/auth/callback` in the Supabase Redirect URLs, the migrations, an active membership and an authenticator app. The customer app keeps its own `.env.local` at the repository root.
+
 ## Commands and checks
 
 ```bash
 npm run dev        # local server on port 3100
 npm run lint       # ESLint
 npm run typecheck  # TypeScript
-npm test           # deploy filter (path rules, and the Vercel command run against temporary Git clones) plus access helpers
+npm test           # node --test: deploy filter, roles parity with SQL, session and CSP rules, audit, content and migration checks
 npm run build      # production Next.js build
 npm start          # run the production build on port 3100
 ```
@@ -191,7 +265,7 @@ How the filter decides (exit code 1 builds, exit code 0 skips):
 - It compares the commit being deployed with the last successfully deployed commit on that branch (`VERCEL_GIT_PREVIOUS_SHA`). Skipped pushes therefore add up until a relevant change arrives.
 - Changes under `admin/` build Admin only. Changes anywhere else build FITX, which lives at the root, so documentation outside `admin/` also builds FITX. Shared paths build both apps: the root `package.json`, `package-lock.json`, `.npmrc` and `tsconfig.base.json`, plus `packages/` and `shared/`.
 - A redeploy or promotion of a commit that is already deployed builds, and so does an empty diff. A production build of a branch other than `master` is a promotion, so it builds too.
-- Redeploying a Canceled (skipped) deployment is usually skipped again. Vercel compares it with the last Ready deployment, and if no relevant file changed in between, the filter skips it once more. To pick up new environment variables, redeploy the deployment marked Current (status Ready) and untick **Use project's Ignore Build Step**, as in step 4 of the checklist.
+- Redeploying a Canceled (skipped) deployment is usually skipped again. Vercel compares it with the last Ready deployment, and if no relevant file changed in between, the filter skips it once more. To pick up new environment variables, redeploy the deployment marked Current (status Ready) and untick **Use project's Ignore Build Step**, as in step 5 of the checklist.
 - A branch's first deployment compares with the point where the branch left `master`.
 - Vercel clones only the last 10 commits. When the previous commit is older, the filter first fetches that commit, or the branch with more history.
 - Any error, missing information, or unknown target builds. The filter skips only when it is sure that nothing relevant changed.
@@ -201,10 +275,10 @@ Skipped builds appear as "Canceled" in Vercel. They still count toward Vercel's 
 
 ## Maintenance
 
-- Review every new database function for RLS, `search_path`, role checks, least privilege, and audit coverage.
-- Apply only reviewed Admin migrations; never disable existing FITX RLS policies.
-- Keep user health and activity details out of broad Admin lists and analytics.
-- Connect billing, support, food catalog, and notifications only after their authoritative source and permissions are defined.
+- Review every new database function for RLS, `search_path`, role checks, least privilege, and audit coverage. Keep the role table in `src/lib/roles.ts` and migration `20261118180001` identical (a test compares them).
+- Apply only reviewed migrations; never disable existing FITX RLS policies.
+- Keep user health and activity details out of Admin lists, account pages and analytics.
+- Add billing, the food catalogue and exercise editing only after their authoritative source and permissions are defined.
 - Re-run lint, TypeScript, tests, and the production build after changes. When shared paths or the repository layout change, update `scripts/deploy-filter.mjs` and its tests.
 - The root `npm test` also runs `tests/deploy-filter.test.mjs` and `tests/vercel-ignore.test.mjs` without Admin's dependencies installed. Keep the filter scripts and those two test files limited to Node built-ins and `git`; a test enforces this.
 - Never commit `.env.local`, Vercel project linkage files, secrets, generated user exports, or screenshots containing personal data.
