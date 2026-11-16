@@ -40,7 +40,10 @@ type NavigatorHints = Navigator & {
 function filmAllowed(): boolean {
   const nav = navigator as NavigatorHints;
   if (typeof nav.deviceMemory === "number" && nav.deviceMemory <= 2) return false;
-  if (typeof nav.hardwareConcurrency === "number" && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 2) return false;
+  // WebKit on iOS/iPadOS reports at most 2 cores whatever the hardware (fingerprinting cap), so
+  // the core count says nothing about an iPhone or iPad.
+  const appleMobile = /iPhone|iPad|iPod/.test(nav.userAgent) || (/Macintosh/.test(nav.userAgent) && nav.maxTouchPoints > 1);
+  if (!appleMobile && typeof nav.hardwareConcurrency === "number" && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 2) return false;
   if (nav.connection?.saveData === true) return false;
   if (nav.connection?.effectiveType === "slow-2g" || nav.connection?.effectiveType === "2g") return false;
   return true;

@@ -97,11 +97,15 @@ function classifyGpu(name: string, mobileDevice: boolean): GpuClass {
   return "unknown";
 }
 
-function isMobileDevice(nav: Navigator & NavigatorHints) {
+function isAppleMobile(nav: Navigator) {
   const ua = nav.userAgent ?? "";
   // iPadOS reports a desktop Safari UA; touch points give it away.
-  const iPad = /Macintosh/.test(ua) && (nav.maxTouchPoints ?? 0) > 1;
-  return nav.userAgentData?.mobile === true || /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua) || iPad;
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && (nav.maxTouchPoints ?? 0) > 1);
+}
+
+function isMobileDevice(nav: Navigator & NavigatorHints) {
+  const ua = nav.userAgent ?? "";
+  return nav.userAgentData?.mobile === true || /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua) || isAppleMobile(nav);
 }
 
 /**
@@ -140,7 +144,8 @@ function settingsFor(profile: TierProfile, viewport: QualityViewport, maxSamples
 /**
  * Picks the quality tier, or returns `null` when the film should not run at all (the overlay
  * then shows the static brand): no WebGL2 / float render targets, software rasterisers
- * (SwiftShader, llvmpipe, ...), ≤ 2 GB device memory, ≤ 2 CPU cores, Save-Data or 2G networks.
+ * (SwiftShader, llvmpipe, ...), ≤ 2 GB device memory, ≤ 2 CPU cores (not on iOS, which always
+ * reports 2), Save-Data or 2G networks.
  */
 export function detectQuality(renderer: THREE.WebGLRenderer, viewport: QualityViewport): QualitySettings | null {
   const gl = renderer.getContext();
@@ -152,7 +157,8 @@ export function detectQuality(renderer: THREE.WebGLRenderer, viewport: QualityVi
   const nav = (typeof navigator !== "undefined" ? navigator : undefined) as (Navigator & NavigatorHints) | undefined;
   if (nav) {
     if (typeof nav.deviceMemory === "number" && nav.deviceMemory <= 2) return null;
-    if (typeof nav.hardwareConcurrency === "number" && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 2) return null;
+    // WebKit on iOS/iPadOS caps the reported core count at 2 (fingerprinting), so it is no signal there.
+    if (!isAppleMobile(nav) && typeof nav.hardwareConcurrency === "number" && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 2) return null;
     const connection = nav.connection;
     if (connection?.saveData === true) return null;
     if (connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g") return null;
