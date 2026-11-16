@@ -1,0 +1,3 @@
+{
+  "ignoreCommand": "node admin/scripts/vercel-ignore.mjs fitx"
+}
