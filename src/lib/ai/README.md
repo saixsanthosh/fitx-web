@@ -51,12 +51,18 @@ ignored on Vercel (production and preview) and for any host other than localhost
 
 A short summary (about 1-2k tokens) rebuilt on every request: age, sex, height, weight trend and target
 weight, goal, training setup, injuries or limitations, diet, allergies, budget, 7-day food totals and
-most-logged foods, saved food names, 28-day training, personal records, active goals and the next 7
-days' planned workouts. Never a name, email, photo, account or row id, private notes or exact times.
-Members who choose "Questions only", and every member under 18, send no summary. Every prompt still
-carries the lowest daily calories the coach may suggest (`calorieFloor`, which depends on sex), and an
-under-18 member's prompt says they are under 18. `sharedSummaryLines` in `status.ts` is the consent
-screen's list; tests keep it and the privacy page in step with the summary.
+most-logged foods, saved food names, 28-day training, personal records, active goals, and how many
+workouts and other planner items are planned for the next 7 days. Never a name, email, photo, account
+or row id, private notes or exact times. Members who choose "Questions only", and every member under 18,
+send no summary. Every prompt still carries the lowest daily calories the coach may suggest
+(`calorieFloor`, which depends on sex), and an under-18 member's prompt says they are under 18.
+`sharedSummaryLines` in `status.ts` is the consent screen's list; tests keep it and the privacy page in
+step with the summary.
+
+A chat message also carries the conversation's recent messages (up to the last 12 questions and
+replies together, about 8,000 characters). With "Use my FITX data" off, only messages from after it was last switched off are
+sent (`recentTurns`' `since`, from `ai_coach_consents.updated_at`), so replies written from the member's
+data are not sent again; switching it off in Coach settings also starts a new conversation.
 
 ## Daily limits
 

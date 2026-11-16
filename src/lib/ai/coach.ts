@@ -125,8 +125,12 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
       return;
     }
 
-    const context = consent.shareData && !basicFacts.minor ? buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: true }), now) : buildCoachContext(basics, now);
-    const turnState = { ...deps, thread, context, sharesData: consent.shareData && !basicFacts.minor, cautions: safety.cautions, input };
+    const sharesData = consent.shareData && !basicFacts.minor;
+    const context = sharesData ? buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: true }), now) : buildCoachContext(basics, now);
+    // Without "Use my FITX data", the conversation so far is sent only from when it was switched off, so the
+    // coach's earlier replies built from the member's data do not go out again.
+    const historySince = consent.shareData ? null : consent.updatedAt ?? consent.consentedAt;
+    const turnState = { ...deps, thread, context, sharesData, historySince, userMessageId: userMessage.id, cautions: safety.cautions, input };
     let reply: { message: CoachMessageView; actions: CoachActionView[] };
     if (task === "meal_plan") reply = await mealPlanTurn(turnState, emit);
     else if (task === "workout_plan") reply = await workoutTurn(turnState, emit);
@@ -148,12 +152,16 @@ type TurnState = CoachDeps & {
   thread: { id: string; title: string };
   context: CoachContext;
   sharesData: boolean;
+  /** Earlier messages from before this time are left out of the request (null: none are). */
+  historySince: string | null;
+  /** The member's message being answered. */
+  userMessageId: string;
   cautions: SafetyCaution[];
   input: TurnInput;
 };
 
 async function chatTurn(state: TurnState, emit: Emit) {
-  const history = await store.recentTurns(state.db, state.userId, state.thread.id);
+  const history = await store.recentTurns(state.db, state.userId, state.thread.id, { since: state.historySince, keep: state.userMessageId });
   const result = await state.router.stream(
     {
       task: "chat",

@@ -53,7 +53,7 @@ export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
     `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitations : "none added yet"}`,
     `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, cuisines and foods you avoid`,
     "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",
-    "The last 4 weeks of workouts, your personal records and active goals, and how many workouts you have planned for the next 7 days",
+    "The last 4 weeks of workouts, your personal records and active goals, and how many workouts and other planner items you have in the next 7 days",
   ];
 }
 
@@ -71,7 +71,7 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     const consent = await store.getConsent(db, userId);
     if (!consent) return { ...base, state: "consent", minor: facts.minor, sharedSummary };
     const [quotas, threads] = await Promise.all([store.quotaStatus(db), store.listThreads(db, userId)]);
-    return { ...base, state: "ready", consent, minor: facts.minor, sharedSummary, quotas, threads };
+    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, minor: facts.minor, sharedSummary, quotas, threads };
   } catch (error) {
     if (error instanceof store.CoachStoreError && error.code === "not_available") return { ...base, state: "not_available", minor: facts.minor };
     throw error;
