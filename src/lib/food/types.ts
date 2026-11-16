@@ -1,0 +1,80 @@
+/** Shapes shared by the food search route and the nutrition page. No runtime code. */
+import type { FoodPortion, FoodState } from "@/lib/domain/food-query";
+
+/**
+ * How a food's values were obtained, shown as a badge so estimates are never mistaken for measurements:
+ * - lab_analysed: USDA Foundation Foods, measured in a lab.
+ * - compiled: USDA SR Legacy reference values.
+ * - recipe_calculated: USDA FNDDS typical recipe (an estimate for any particular dish).
+ * - label: a package's nutrition label (Open Food Facts community data, or what the user copied from a pack).
+ * - user_entered: values the user typed.
+ * - ai_suggested: values attached to an AI coach suggestion (always looked up, never invented by the AI).
+ * - estimated: anything else that is an estimate.
+ */
+export type ValueBasis = "lab_analysed" | "compiled" | "recipe_calculated" | "label" | "user_entered" | "ai_suggested" | "estimated";
+
+/** Detected from a source's ingredient list, or hand-checked for the curated staples; null when unknown. */
+export type DietType = "vegan" | "veg" | "egg" | "non_veg";
+
+export type FoodKind = "catalog" | "custom" | "packaged";
+
+export type CustomFoodOrigin = "user" | "barcode" | "ai_coach";
+
+/** A food in search results. Calories, protein, carbs, fat, fibre and sugar are per 100 g; sodium in mg per 100 g. */
+export interface FoodResult {
+  id: string;
+  kind: FoodKind;
+  name: string;
+  brand: string | null;
+  image: string | null;
+  /** Credit line for a third-party image, such as an Open Food Facts product photo (CC BY-SA). */
+  imageCredit: string | null;
+  /** Where to read more or correct the record (the Open Food Facts product page). */
+  sourceUrl: string | null;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number | null;
+  sugar: number | null;
+  sodiumMg: number | null;
+  source: string;
+  /** FoodData Central data type ("Survey (FNDDS)", "SR Legacy", "Foundation", "Branded"); null otherwise. */
+  dataType: string | null;
+  valueBasis: ValueBasis;
+  /** The value basis in the words the app shows. */
+  basis: string;
+  state: FoodState | null;
+  dietType: DietType | null;
+  portions: FoodPortion[];
+  barcode: string | null;
+  origin: CustomFoodOrigin | null;
+  /** Times the user logged this food in the last 60 days, when the catalogue search knows it. */
+  recentCount: number;
+  /** A close spelling offered because nothing matched every word; never selected automatically. */
+  suggestion: boolean;
+}
+
+export type SourceId = "fitx-catalog" | "fitx-staples" | "usda-foundation" | "my-foods" | "usda-live" | "open-food-facts";
+export type SourceState = "ok" | "no_results" | "not_used" | "not_configured" | "not_set_up" | "error" | "timeout" | "rate_limited";
+export interface SourceStatus {
+  id: SourceId;
+  label: string;
+  status: SourceState;
+  count: number;
+}
+
+/** What the search route answers. */
+export interface FoodSearchResponse {
+  foods: FoodResult[];
+  sources: SourceStatus[];
+  /** The one food that clearly matches what was typed, so the page can select it and fill in the amount. */
+  pick: { source: string; id: string } | null;
+  /** catalog: FITX's food catalogue in the database. fallback: the small built-in list (catalogue not set up yet). */
+  mode: "catalog" | "fallback" | "packaged" | "barcode" | "browse";
+  /** For barcode lookups: why nothing usable came back. */
+  barcodeStatus?: "found" | "not_found" | "no_label" | "invalid" | "rate_limited" | "unavailable" | "timeout";
+  /** For barcode lookups without usable values: the product name, so the custom-food form can start from it. */
+  productName?: string | null;
+  error?: string;
+}
