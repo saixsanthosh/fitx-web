@@ -1,6 +1,7 @@
 import "./support/hooks.mjs";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 const { buildCoachContext, localDate } = await import("@/lib/ai/context");
 const { chatSystemPrompt, mealPlanSystemPrompt, memberTurn } = await import("@/lib/ai/prompts");
@@ -165,5 +166,37 @@ describe("equipment from older profiles", () => {
     const base = sources();
     const { facts } = buildCoachContext({ ...base, preferences: { ...(base.preferences as Record<string, unknown>), equipment: ["Dumbbells", "dumbbell", "Resistance bands"] } } as never, NOW);
     assert.deepEqual(facts.equipment, ["dumbbell", "bands"]);
+  });
+});
+
+describe("privacy page", () => {
+  // The page is JSX, which `node --test` cannot load, so its source text is checked.
+  const page = readFileSync(new URL("../../src/app/(marketing)/privacy/page.tsx", import.meta.url), "utf8");
+  const section = (heading: string) => (page.match(new RegExp(`<h2>${heading}</h2>([\\s\\S]*?)</section>`))?.[1] ?? "").replace(/<[^>]+>/g, " ");
+
+  test("the AI coach section names the health details the coach summary sends", () => {
+    const base = sources();
+    const { summary } = buildCoachContext({ ...base, preferences: { ...(base.preferences as Record<string, unknown>), limitations: ["knee"] } } as never, NOW);
+    const coach = section("AI coach");
+    assert.ok(coach, "the page has an AI coach section");
+    // Each field the summary sends about the member's body. A new one fails here until the page names it (or it is marked as not health data).
+    const named: Record<string, RegExp | null> = { age: /\bage\b/, sex: /\bsex\b/, height_cm: /\bheight\b/, weight_kg: /(?<!target )\bweight\b/, target_weight_kg: /\btarget weight\b/, experience: null };
+    for (const key of Object.keys(summary.member as Record<string, unknown>)) {
+      assert.ok(key in named, `decide whether the privacy page must name member.${key}`);
+      const phrase = named[key];
+      if (phrase) assert.match(coach, phrase, `the AI coach section names member.${key}`);
+    }
+    assert.equal((summary.training_setup as Record<string, unknown>).limitations, "knee");
+    assert.match(coach, /\binjuries or limitations\b/);
+    assert.match(coach, /\bdiet\b/);
+    assert.match(coach, /\ballergies\b/);
+  });
+
+  test("the profile section does not promise the profile stays in the account without the coach exception", () => {
+    const profile = section("Information you choose to save");
+    assert.ok(profile, "the page has a profile section");
+    for (const sentence of profile.split(/(?<=\.)\s+/).filter((line) => line.includes("visible only to"))) {
+      assert.match(sentence, /\bAI coach\b/, `"${sentence}" needs the AI coach exception`);
+    }
   });
 });
