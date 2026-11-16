@@ -1,0 +1,500 @@
+/*
+ * DOM motion graphics over the intro film. Theme-independent by design (they sit on graded film
+ * frames: sunrise in light mode, night in dark mode); only the coral leader/brand accents follow the
+ * site theme. All timing comes from inline custom properties written by IntroFilmOverlay.tsx:
+ * delays are seconds from the element's stage origin, so nothing here hard-codes the film's clock.
+ *
+ * Stacking (shared with CinematicIntro.module.css): canvas 0 · brand backdrop 0 · vignette 1 ·
+ * titles/callouts 3 · letterbox 4 · brand lockup / static brand 5 · skip 6.
+ */
+
+.film {
+  --film-ink: #0b0c0b;
+  --film-paper: #fbf6ee;
+  --film-coral: #ed725c;
+  /* 2.39:1 on landscape, never more than 14% of the height per bar. */
+  --bar: clamp(0px, calc((100vh - 100vw / 2.39) / 2), 14vh);
+  --safe-l: max(6vw, calc(env(safe-area-inset-left) + 20px));
+  --safe-r: max(6vw, calc(env(safe-area-inset-right) + 20px));
+  /* Resolved against whichever --bar wins below (custom properties substitute at computed time). */
+  --floor: max(var(--bar), env(safe-area-inset-bottom));
+  --ceiling: max(var(--bar), env(safe-area-inset-top));
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+@supports (height: 100svh) {
+  .film { --bar: clamp(0px, calc((100svh - 100vw / 2.39) / 2), 14svh); }
+}
+
+@media (orientation: portrait) {
+  /* A scope on a phone is a postage stamp: keep a thin matte for the film feel instead. */
+  .film { --bar: clamp(0px, 5vh, 44px); }
+  @supports (height: 100svh) { .film { --bar: clamp(0px, 5svh, 44px); } }
+}
+
+/* ---------------------------------------------------------------- letterbox */
+
+.letterbox {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  pointer-events: none;
+}
+
+.bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--bar);
+  background: var(--film-ink);
+  will-change: transform;
+}
+
+.barTop { top: 0; }
+.barBottom { bottom: 0; }
+
+.barsIn .barTop { animation: bar-top-in var(--lb-dur) cubic-bezier(.22, .8, .18, 1) var(--lb-at) both; }
+.barsIn .barBottom { animation: bar-bottom-in var(--lb-dur) cubic-bezier(.22, .8, .18, 1) var(--lb-at) both; }
+.barsOut .barTop { animation: bar-top-out var(--lb-dur) cubic-bezier(.7, 0, .3, 1) var(--lb-at) both; }
+.barsOut .barBottom { animation: bar-bottom-out var(--lb-dur) cubic-bezier(.7, 0, .3, 1) var(--lb-at) both; }
+
+@keyframes bar-top-in { from { transform: translate3d(0, -100%, 0); } to { transform: none; } }
+@keyframes bar-bottom-in { from { transform: translate3d(0, 100%, 0); } to { transform: none; } }
+@keyframes bar-top-out { from { transform: none; } to { transform: translate3d(0, -100%, 0); } }
+@keyframes bar-bottom-out { from { transform: none; } to { transform: translate3d(0, 100%, 0); } }
+
+/* Cold-open super inside the bottom matte: time of day and session, gone before the first title. */
+.slate {
+  position: absolute;
+  z-index: 4;
+  left: var(--safe-l);
+  bottom: calc(var(--bar) / 2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(251, 246, 238, .62);
+  font: 500 10px/1 var(--font-jetbrains), ui-monospace, monospace;
+  letter-spacing: .22em;
+  transform: translateY(50%);
+  white-space: nowrap;
+  animation:
+    slate-in .6s cubic-bezier(.16, 1, .3, 1) var(--at) both,
+    fade-out var(--out) ease-in calc(var(--at) + var(--hold)) forwards;
+}
+
+.slate span:first-child { color: var(--film-paper); font-weight: 600; letter-spacing: .12em; }
+.slate i { width: 4px; height: 4px; background: var(--film-coral); }
+
+@keyframes slate-in { from { opacity: 0; letter-spacing: .4em; } to { opacity: 1; } }
+
+/* Mattes thinner than the type (very wide or short screens) carry no super. */
+@media (min-aspect-ratio: 21/10), (max-height: 420px) { .slate { display: none; } }
+
+/* ---------------------------------------------------------------- kinetic titles */
+
+.titleBlock {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* A soft grade-like falloff in the title corner keeps warm white legible on sunlit frames. */
+.titleScrim {
+  position: absolute;
+  left: 0;
+  bottom: var(--bar);
+  width: min(100vw, 1500px);
+  height: min(50%, 460px);
+  background: radial-gradient(ellipse 64% 100% at 22% 100%, rgba(9, 11, 13, .4), rgba(9, 11, 13, .17) 46%, rgba(9, 11, 13, 0) 78%);
+  opacity: 0;
+  animation:
+    fade-in .5s cubic-bezier(.3, .7, .4, 1) var(--at) both,
+    fade-out var(--exit) cubic-bezier(.5, 0, .75, 0) var(--exit-at) forwards;
+}
+
+.title {
+  position: absolute;
+  left: var(--safe-l);
+  bottom: calc(var(--floor) + clamp(18px, 4.6vh, 54px));
+  /* Per-beat art-direction hook, e.g. [data-title="progress"] { --title-ink: … } if a frame needs it. */
+  color: var(--title-ink, var(--film-paper));
+  font-family: var(--font-manrope), "Manrope", Arial, sans-serif;
+  font-size: min(clamp(56px, 11vw, 168px), 26vh);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -.045em;
+  white-space: nowrap;
+  transform-origin: 0 100%;
+  /* A slow push over the whole beat, like the lens creeping in. */
+  animation: title-drift var(--dur) cubic-bezier(.25, .6, .35, 1) var(--at) both;
+}
+
+.titleExit {
+  animation: title-exit var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
+}
+
+.titleKicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 clamp(10px, 1.3vw, 18px) .07em;
+  color: rgba(251, 246, 238, .92);
+  font: 600 clamp(10px, .86vw, 13px)/1 var(--font-jetbrains), ui-monospace, monospace;
+  letter-spacing: .28em;
+  text-shadow: 0 1px 8px rgba(8, 9, 8, .42);
+}
+
+.titleKicker span {
+  animation: kicker-in .55s cubic-bezier(.16, 1, .3, 1) var(--at) both;
+}
+
+.titleKicker i {
+  display: block;
+  width: clamp(24px, 2.8vw, 44px);
+  height: 2px;
+  background: var(--film-coral);
+  transform-origin: 0 50%;
+  animation: draw-x .6s cubic-bezier(.65, 0, .35, 1) calc(var(--at) + .06s) both;
+}
+
+/*
+ * Letters rise out of a hard mask just below the baseline; the mask releases once they land so the
+ * soft shadow is never cut. The shadow is one drop-shadow on the whole word (not per-letter text
+ * shadows, which would paint each letter's shadow over its left neighbour).
+ */
+.titleWord {
+  display: flex;
+  align-items: flex-end;
+  filter: drop-shadow(0 .01em .03em rgba(8, 9, 8, .3)) drop-shadow(0 .03em .15em rgba(8, 9, 8, .24));
+  clip-path: inset(-.6em -.6em -.1em -.6em);
+  animation: mask-release 1ms step-end calc(var(--at) + var(--landed)) both;
+}
+
+.glyph {
+  display: inline-block;
+  margin-left: var(--kern, 0);
+  text-box: trim-both cap alphabetic;
+  will-change: transform, filter, opacity;
+  animation: glyph-in var(--reveal) cubic-bezier(.16, 1, .3, 1) calc(var(--at) + var(--i) * var(--stagger)) both;
+}
+
+.titleDot {
+  flex: none;
+  width: .115em;
+  height: .115em;
+  margin-left: .05em;
+  background: var(--film-coral);
+  animation: dot-land .5s cubic-bezier(.34, 1.4, .64, 1) calc(var(--at) + var(--i) * var(--stagger) + var(--reveal) * .3) both;
+}
+
+@keyframes title-drift { from { transform: scale(1); } to { transform: scale(1.035); } }
+@keyframes title-exit { to { opacity: 0; transform: translate3d(0, -.05em, 0) scale(1.015); filter: blur(10px); } }
+@keyframes kicker-in { from { opacity: 0; transform: translate3d(-10px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes mask-release { from { clip-path: inset(-.6em -.6em -.1em -.6em); } to { clip-path: none; } }
+@keyframes glyph-in {
+  /* Rise, lean and close up: each letter starts a little wider apart, so the word tightens as it lands. */
+  from { opacity: 0; filter: blur(.08em); transform: translate3d(calc(var(--i) * .045em), 132%, 0) skewY(6deg); }
+  45% { opacity: 1; }
+  to { opacity: 1; filter: blur(0); transform: none; }
+}
+@keyframes dot-land {
+  from { opacity: 0; transform: translate3d(0, .9em, 0); }
+  30% { opacity: 1; }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------------------------------------------------------------- data callouts */
+
+.callout {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  color: var(--film-paper);
+}
+
+.callout[data-placement="right"] { right: var(--safe-r); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); }
+.callout[data-placement="left"] { left: var(--safe-l); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); flex-direction: row-reverse; }
+.callout[data-placement="bottom"] {
+  left: 0;
+  right: 0;
+  bottom: calc(var(--floor) + clamp(16px, 3.6vh, 40px));
+  width: max-content;
+  margin-inline: auto;
+  flex-direction: column;
+  align-items: center;
+}
+
+.leader {
+  position: relative;
+  flex: none;
+  width: clamp(44px, 7.5vw, 128px);
+  height: 1px;
+  margin-top: 17px;
+  animation: fade-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
+}
+
+.callout[data-placement="bottom"] .leader { width: 1px; height: clamp(26px, 5.5vh, 60px); margin-top: 0; }
+
+.leaderLine {
+  position: absolute;
+  inset: 0;
+  background: var(--fitx-primary, var(--film-coral));
+  transform-origin: 100% 50%;
+  animation: draw-x var(--line) cubic-bezier(.65, 0, .35, 1) var(--line-at) both;
+}
+
+.callout[data-placement="left"] .leaderLine { transform-origin: 0 50%; }
+.callout[data-placement="bottom"] .leaderLine { transform-origin: 50% 100%; animation-name: draw-y; }
+
+/* The target lock: a ring at the far end of the leader that lands and pings once. */
+.leaderDot {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--fitx-primary, var(--film-coral));
+  border-radius: 50%;
+  animation: lock-in var(--dot) cubic-bezier(.34, 1.56, .64, 1) var(--dot-at) both;
+}
+
+.leaderDot::after {
+  position: absolute;
+  inset: -1.5px;
+  content: "";
+  border: 1px solid var(--fitx-primary, var(--film-coral));
+  border-radius: 50%;
+  animation: ping calc(var(--dot) * 1.8) cubic-bezier(.2, .7, .3, 1) var(--dot-at) both;
+}
+
+.callout[data-placement="left"] .leaderDot { left: auto; right: -4px; }
+.callout[data-placement="bottom"] .leaderDot { top: -4px; left: -4px; }
+
+.chip {
+  --chip-from: 0px;
+  --chip-from-y: 0px;
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  min-width: clamp(150px, 12.5vw, 196px);
+  padding: 12px 16px 13px 14px;
+  border-radius: 6px;
+  background: linear-gradient(165deg, rgba(18, 20, 21, .84), rgba(8, 9, 10, .76));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .11), inset 0 1px 0 rgba(255, 255, 255, .07), 0 10px 26px -14px rgba(0, 0, 0, .45);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
+  animation:
+    chip-in var(--chip-in) cubic-bezier(.16, 1, .3, 1) var(--at) both,
+    chip-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards;
+}
+
+.callout[data-placement="right"] .chip { --chip-from: 16px; }
+.callout[data-placement="left"] .chip { --chip-from: -16px; }
+.callout[data-placement="bottom"] .chip { --chip-from-y: 10px; }
+
+/* The reading's progress, drawn along the chip's foot in step with the count. */
+.chip::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  content: "";
+  background: linear-gradient(90deg, var(--film-coral), rgba(237, 114, 92, .35));
+  transform-origin: 0 50%;
+  animation: draw-x var(--count) cubic-bezier(.25, 1, .5, 1) var(--count-at) both;
+}
+
+/* Invisible clock whose CSS progress the count-up loop reads (see useCountUp). */
+.countClock {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  animation: count-clock var(--count) linear var(--count-at) both;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(251, 246, 238, .78);
+  font: 600 10px/1 var(--font-jetbrains), ui-monospace, monospace;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+
+.pip {
+  width: 5px;
+  height: 5px;
+  background: var(--film-coral);
+  box-shadow: 0 0 8px rgba(237, 114, 92, .75);
+  animation: pip-blink 1s steps(1, end) var(--at) infinite;
+}
+
+.value {
+  display: flex;
+  align-items: baseline;
+  margin-top: 10px;
+  font: 800 clamp(28px, 2.3vw, 36px)/1 var(--font-manrope), Arial, sans-serif;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.num { display: inline-grid; }
+.num > * { grid-area: 1 / 1; }
+.numGhost { visibility: hidden; }
+
+.unit { white-space: pre; }
+
+.value .unit {
+  color: rgba(251, 246, 238, .62);
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: .36em;
+  font-weight: 600;
+  letter-spacing: .1em;
+}
+
+.detail {
+  display: flex;
+  align-items: baseline;
+  justify-self: start;
+  margin-top: 9px;
+  color: rgba(251, 246, 238, .72);
+  font: 500 11px/1 var(--font-jetbrains), ui-monospace, monospace;
+  letter-spacing: .08em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  animation: fade-in var(--detail) ease-out var(--detail-at) both;
+}
+
+.detail .num { color: var(--film-paper); font-weight: 700; }
+
+.badge {
+  padding: 4px 7px 3px;
+  color: #1c0e0a;
+  background: var(--film-coral);
+  border-radius: 3px;
+  font-weight: 700;
+  letter-spacing: .16em;
+}
+
+@keyframes draw-x { from { transform: scaleX(0); } to { transform: none; } }
+@keyframes draw-y { from { transform: scaleY(0); } to { transform: none; } }
+@keyframes lock-in { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: none; } }
+@keyframes ping { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(3.4); } }
+@keyframes chip-in { from { opacity: 0; transform: translate3d(var(--chip-from), var(--chip-from-y), 0); } to { opacity: 1; transform: none; } }
+@keyframes chip-out { to { opacity: 0; transform: translate3d(calc(var(--chip-from) * .5), calc(var(--chip-from-y) * -.5), 0); } }
+@keyframes count-clock { from { opacity: 1; } to { opacity: 1; } }
+@keyframes pip-blink { 0% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { to { opacity: 0; } }
+
+/* ---------------------------------------------------------------- brand end card (stage 6) */
+
+.brandCard {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Same z-index as the canvas but later in the DOM: covers the film's last frame, stays under the vignette. */
+.brandBackdrop {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: var(--fitx-bg);
+  animation: fade-in var(--backdrop) cubic-bezier(.3, .7, .4, 1) var(--at) both;
+}
+
+.brandLockup {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  width: min(84vw, 520px);
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  animation: brand-arrive 600ms cubic-bezier(.16, .84, .22, 1) var(--at) both;
+}
+
+/* The film opens on a start line; it closes on a finish line. */
+.finishLine {
+  display: block;
+  width: 36px;
+  height: 2px;
+  margin-top: 22px;
+  background: var(--fitx-primary);
+  animation: draw-x var(--line) cubic-bezier(.65, 0, .35, 1) var(--line-at) both;
+}
+
+.tagline {
+  margin: 16px 0 0;
+  color: var(--fitx-text-secondary);
+  font: 700 12px/1 var(--font-manrope), Arial, sans-serif;
+  letter-spacing: .24em;
+  /* Balances the trailing letter-space so the line stays optically centred while it tightens. */
+  text-indent: .24em;
+  white-space: nowrap;
+  animation: tagline-in var(--tagline) cubic-bezier(.16, 1, .3, 1) var(--tagline-at) both;
+}
+
+.tagline b { color: var(--fitx-primary); font-weight: 800; }
+
+@keyframes brand-arrive {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(.98); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes tagline-in {
+  from { opacity: 0; letter-spacing: .72em; text-indent: .72em; filter: blur(4px); }
+  to { opacity: 1; letter-spacing: .24em; text-indent: .24em; filter: blur(0); }
+}
+
+/* ---------------------------------------------------------------- dev review backdrop */
+
+.debugBackdrop {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  /* Bright golden-hour haze: the worst case for warm-white type. */
+  background:
+    radial-gradient(48% 42% at 72% 46%, rgba(255, 241, 214, .95), rgba(255, 241, 214, 0) 72%),
+    linear-gradient(180deg, #edd3b2 0%, #f4e4cc 36%, #f1dcc0 52%, #dcb894 53%, #caa27f 72%, #b78d6c 100%);
+}
+
+.debugBackdrop[data-theme="dark"] {
+  background:
+    radial-gradient(40% 36% at 26% 30%, rgba(196, 214, 255, .2), rgba(196, 214, 255, 0) 70%),
+    linear-gradient(180deg, #0b1222 0%, #152036 44%, #1d2a42 52%, #2a2522 53%, #201c1a 76%, #151312 100%);
+}
+
+/* ---------------------------------------------------------------- small screens */
+
+@media (orientation: portrait) {
+  /* Subjects fill the centre of a tall frame: chips ride the top, bottom chips clear the title line. */
+  .callout[data-placement="right"],
+  .callout[data-placement="left"] { top: calc(var(--ceiling) + 64px); }
+  .callout[data-placement="bottom"] { bottom: calc(var(--floor) + clamp(120px, 17vh, 168px)); }
+  .leader { width: clamp(22px, 7vw, 44px); }
+}
+
+@media (max-width: 600px) {
+  .titleKicker { gap: 9px; margin-bottom: 8px; font-size: 9px; }
+  .titleKicker i { width: 22px; }
+  .chip { min-width: 124px; padding: 9px 11px 10px 10px; border-radius: 5px; }
+  .label { gap: 6px; font-size: 8.5px; letter-spacing: .18em; }
+  .pip { width: 4px; height: 4px; }
+  .value { margin-top: 7px; font-size: 21px; }
+  .detail { margin-top: 7px; font-size: 9.5px; }
+  .badge { padding: 3px 5px 2px; }
+  .leader { margin-top: 12px; }
+  .callout[data-placement="bottom"] .leader { height: 22px; }
+}

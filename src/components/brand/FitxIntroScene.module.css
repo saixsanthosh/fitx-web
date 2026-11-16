@@ -7,3 +7,13 @@
   height: 100%;
   touch-action: none;
 }
+
+/* The WebGL canvas itself is created per mount (see FitxIntroScene.tsx); CSS sizes it, the
+   renderer only sets its drawing-buffer size. */
+.surface {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}

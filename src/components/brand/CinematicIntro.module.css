@@ -30,6 +30,11 @@
 :global(:root[data-fitx-intro="pending"]),
 :global(:root[data-fitx-intro="active"]) { overflow: hidden; }
 
+/* The film clock stops while the tab is hidden, so every overlay clock stops with it. */
+.intro[data-intro-paused] *,
+.intro[data-intro-paused] *::before,
+.intro[data-intro-paused] *::after { animation-play-state: paused !important; }
+
 .ambient {
   position: absolute;
   z-index: 1;
@@ -42,13 +47,15 @@
   background: radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(5, 6, 5, .24) 100%);
 }
 
+/* Stacking with IntroFilmOverlay.module.css: film graphics 3, letterbox 4, brand 5, controls 6. */
 .topline,
 .bootstrapBrand,
-.brandReveal,
 .staticBrand {
   position: absolute;
-  z-index: 3;
+  z-index: 5;
 }
+
+.topline { z-index: 6; }
 
 .bootstrapBrand {
   top: 50%;
@@ -65,13 +72,14 @@
 
 .topline {
   top: calc(24px + env(safe-area-inset-top));
-  right: max(4vw, 24px);
+  right: max(4vw, calc(24px + env(safe-area-inset-right)));
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .skip {
+  position: relative;
   display: inline-flex;
   min-height: 42px;
   align-items: center;
@@ -83,6 +91,8 @@
   border-radius: 999px;
   font: 600 12px/1 var(--font-manrope), sans-serif;
   cursor: pointer;
+  /* Leaving the film styling waits for the letterbox to clear, so the pill never flashes light on a black bar. */
+  transition: color 240ms ease 320ms, background-color 320ms ease 320ms, box-shadow 320ms ease 320ms;
 }
 
 .skip kbd {
@@ -96,12 +106,29 @@
   border-radius: 3px;
   font: 500 9px/1 var(--font-jetbrains), monospace;
   letter-spacing: .04em;
+  transition: color 240ms ease 320ms, border-color 320ms ease 320ms;
 }
 
-.skip:hover { color: var(--intro-accent); }
+/* Keeps a full 44px touch target even where the visible pill is slimmer. */
+.skip::before { position: absolute; inset: -5px -4px; content: ""; }
+
+.skip:hover { color: var(--intro-accent); transition-delay: 0s; }
 .skip:focus-visible { outline: 2px solid var(--intro-accent); outline-offset: 4px; border-radius: 2px; }
 
-.brandReveal,
+/* While the film plays the control sits on the letterbox or the picture: quiet dark glass in both themes. */
+.cine .skip {
+  padding-right: 9px;
+  transition-delay: 0s;
+  color: rgba(251, 246, 238, .86);
+  background: rgba(12, 13, 12, .62);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .13);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.cine .skip kbd { color: rgba(251, 246, 238, .6); border-color: rgba(255, 255, 255, .2); transition-delay: 0s; }
+.cine .skip:hover { color: #fff; }
+
 .staticBrand {
   top: 50%;
   left: 50%;
@@ -114,20 +141,32 @@
   animation: brand-arrive 600ms cubic-bezier(.16,.84,.22,1) both;
 }
 
+.handoff {
+  pointer-events: none;
+  animation: brand-handoff 320ms cubic-bezier(.4, 0, .2, 1) both;
+}
+
 .logo { color: var(--fitx-text) !important; }
 .logo :global(.fitx-wordmark) { letter-spacing: .12em; font-weight: 750; }
 @keyframes brand-arrive { from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(.98); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes brand-handoff { from { opacity: 1; transform: translate(-50%, -50%); } to { opacity: 0; transform: translate(-50%, -50%) scale(1.03); filter: blur(4px); } }
 
 @media (max-width: 600px) {
-  .topline { top: calc(12px + env(safe-area-inset-top)); right: 16px; }
+  .topline { top: calc(12px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
   .skip { gap: 8px; font-size: 11px; }
   .skip kbd { display: none; }
-  .brandReveal, .staticBrand { width: min(86vw, 420px); }
+  .cine .skip { padding-right: 14px; }
+  .staticBrand { width: min(86vw, 420px); }
   .bootstrapBrand { width: min(86vw, 420px); }
+}
+
+/* Portrait mattes are thin: during the film a slimmer pill (same 44px+ hit area) sits inside the top bar. */
+@media (orientation: portrait) {
+  .cine .skip { min-height: 36px; }
+  .cine.intro .topline { top: calc(4px + env(safe-area-inset-top)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .intro { transition-duration: 1ms; }
-  .brandReveal,
   .staticBrand { animation-duration: 1ms; }
 }
