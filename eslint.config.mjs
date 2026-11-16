@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "admin/**",
+    // Vendored, generated runtimes served as-is (e.g. MediaPipe's WebAssembly loader).
+    "public/models/**",
   ]),
 ]);
 
