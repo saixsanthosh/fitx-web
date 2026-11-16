@@ -1,0 +1,142 @@
+// The Home, Goals and To-Do data layer against a database with and without the Phase 3 migrations.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { StubDb, used, type StubCall } from "./support/stub-db";
+import { loadDashboardLayout, loadTodaySummary, saveDashboardLayout } from "@/lib/data/today";
+import { createGoal, loadGoals } from "@/lib/data/goals";
+import { insertTodo, loadTodos, saveTodoOrder } from "@/lib/data/todo";
+import { FeatureUnavailableError, DataError } from "@/lib/data/missing-schema";
+import { defaultLayout, layoutReducer, visibleIds } from "@/lib/domain/dashboard-layout";
+import { validateGoalDraft, goalDraft } from "@/lib/domain/goals";
+import { validateTodoDraft, emptyTodoDraft } from "@/lib/domain/todo";
+
+const USER = "user-1";
+const DAY = "2026-11-18";
+const MISSING_FUNCTION = { code: "PGRST202", message: "Could not find the function" };
+const MISSING_COLUMN = { code: "42703", message: "column planner_events.local_date does not exist" };
+const UNKNOWN_COLUMN = { code: "PGRST204", message: "Could not find the 'dashboard_layout' column" };
+const db = (stub: StubDb) => stub as unknown as SupabaseClient;
+
+test("the summary comes from one database call when fitx_today_summary exists", async () => {
+  const stub = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: { local_date: DAY, nutrition: { calories: 900 } } } : undefined));
+  const result = await loadTodaySummary(db(stub), USER, DAY, "Asia/Kolkata");
+  assert.equal(result.source, "database");
+  assert.equal(result.summary.nutrition.calories, 900);
+  assert.deepEqual(stub.calls.map((call) => call.name), ["fitx_today_summary"]);
+  assert.deepEqual(stub.calls[0].args, { p_local_date: DAY, p_tz: "Asia/Kolkata" });
+});
+
+test("without fitx_today_summary the browser adds up every row itself", async () => {
+  const rows: Record<string, unknown> = {
+    profiles: { name: "Asha", age: 30, gender: "female", height: 165, weight: 82, target_weight: 70 },
+    user_preferences: { workouts_per_week: 4, daily_water_goal_ml: 3000, activity_level: "light", primary_goal: "fat_loss" },
+    meals: Array.from({ length: 75 }, () => ({ calories: 20, protein: 2, carbs: 1, fat: 1 })),
+    water_logs: [{ amount_ml: 500 }],
+    workout_sessions: [{ started_at: new Date(2026, 10, 18, 9).toISOString() }],
+    body_metrics: [{ weight: 80.2, date: "2026-11-17" }],
+    planner_events: [],
+  };
+  const stub = new StubDb((call) => (call.kind === "rpc" ? { error: MISSING_FUNCTION } : { data: rows[call.name] }));
+  const result = await loadTodaySummary(db(stub), USER, DAY, "Asia/Kolkata");
+  assert.equal(result.source, "browser");
+  assert.equal(result.summary.nutrition.calories, 1500, "all 75 meals count; the old Home stopped at 50");
+  assert.equal(result.summary.workouts.today, 1);
+  assert.equal(result.summary.weight?.kg, 80.2);
+  const meals = stub.callsTo("meals")[0];
+  assert.ok(used(meals, "eq", "date", DAY));
+  assert.ok(used(meals, "limit", 2000));
+});
+
+test("any other summary failure is reported, not hidden behind the fallback", async () => {
+  const stub = new StubDb(() => ({ error: { code: "57014", message: "timeout" } }));
+  await assert.rejects(loadTodaySummary(db(stub), USER, DAY, null), DataError);
+  assert.equal(stub.calls.length, 1);
+});
+
+test("layout: default when none is saved, read-only when the column is missing", async () => {
+  const none = await loadDashboardLayout(db(new StubDb(() => ({ data: { dashboard_layout: null } }))), USER);
+  assert.deepEqual(none, { items: defaultLayout(), canSave: true });
+  const saved = await loadDashboardLayout(db(new StubDb(() => ({ data: { dashboard_layout: { version: 1, items: [{ id: "weight", visible: true }] } } }))), USER);
+  assert.deepEqual(visibleIds(saved.items), ["weight"]);
+  const missing = await loadDashboardLayout(db(new StubDb(() => ({ error: MISSING_COLUMN }))), USER);
+  assert.deepEqual(missing, { items: defaultLayout(), canSave: false });
+});
+
+test("layout: saved with an update, inserted only when there is no preferences row, honest when unavailable", async () => {
+  const items = layoutReducer(defaultLayout(), { type: "move", id: "weight", delta: -3 });
+  const updated = new StubDb((call) => (call.name === "user_preferences" && used(call, "update") ? { data: [{ user_id: USER }] } : undefined));
+  assert.equal(await saveDashboardLayout(db(updated), USER, items), "saved");
+  const update = updated.calls[0];
+  assert.deepEqual((update.ops.find((op) => op.method === "update")?.args[0] as { dashboard_layout: { version: number } }).dashboard_layout.version, 1);
+  assert.ok(used(update, "eq", "user_id", USER));
+
+  const inserted = new StubDb((call) => (used(call, "update") ? { data: [] } : { data: null }));
+  assert.equal(await saveDashboardLayout(db(inserted), USER, items), "saved");
+  assert.ok(used(inserted.calls[1], "insert"), "no preferences row: one is created");
+
+  const missing = new StubDb(() => ({ error: UNKNOWN_COLUMN }));
+  assert.equal(await saveDashboardLayout(db(missing), USER, items), "unavailable");
+});
+
+test("goals: progress from fitx_goal_progress, or plain manual goals on an older database", async () => {
+  const v2 = await loadGoals(db(new StubDb(() => ({ data: [{ id: "g", title: "Protein", metric: "protein_g", period: "daily", target_value: 100, current_value: 70 }] }))), USER, DAY, null);
+  assert.equal(v2.schema, "v2");
+  assert.equal(v2.goals[0].currentValue, 70);
+  const legacyStub = new StubDb((call) => (call.kind === "rpc" ? { error: MISSING_FUNCTION } : { data: [{ id: "g", title: "Run", metric: "manual", target_value: 100, current_value: 7 }] }));
+  const v1 = await loadGoals(db(legacyStub), USER, DAY, null);
+  assert.equal(v1.schema, "v1");
+  assert.deepEqual([v1.goals[0].period, v1.goals[0].currentValue], ["long_term", 7]);
+  assert.ok(used(legacyStub.callsTo("goals")[0], "neq", "status", "cancelled"));
+});
+
+test("goals: an older database accepts custom long-term goals and says automatic ones need the update", async () => {
+  const context = { today: DAY, estimate: null, workoutsPerWeek: 3, waterGoalMl: 2500, latestWeight: 80, targetWeight: 72 };
+  const protein = validateGoalDraft({ ...goalDraft("protein_day", context), target: "120" });
+  assert.ok(protein.ok);
+  const stub = new StubDb(() => ({ data: { id: "new" } }));
+  if (protein.ok) await assert.rejects(createGoal(db(stub), USER, protein.value, "v1"), FeatureUnavailableError);
+  assert.equal(stub.calls.length, 0, "nothing is written");
+  const custom = validateGoalDraft({ ...goalDraft("custom", context), title: "Read", target: "12", unit: "books" });
+  assert.ok(custom.ok);
+  if (custom.ok) assert.equal(await createGoal(db(stub), USER, custom.value, "v1"), "new");
+  const row = stub.calls[0].ops.find((op) => op.method === "insert")?.args[0] as Record<string, unknown>;
+  assert.equal("period" in row, false, "no v2 columns are sent to a v1 database");
+  assert.equal(row.current_value, 0);
+});
+
+test("To-Dos: the v2 query, then the Phase 1 week by start time when local_date is missing", async () => {
+  const v2Stub = new StubDb(() => ({ data: [{ id: "a", event_type: "task", title: "Stretch", local_date: DAY, status: "scheduled", sort_order: 0 }] }));
+  const v2 = await loadTodos(db(v2Stub), USER, DAY, DAY);
+  assert.equal(v2.schema, "v2");
+  assert.ok(used(v2Stub.calls[0], "gte", "local_date", DAY));
+
+  const calls: StubCall[] = [];
+  const legacyStub = new StubDb((call) => {
+    calls.push(call);
+    return calls.length === 1 ? { error: MISSING_COLUMN } : { data: [{ id: "b", event_type: "workout", title: "Push", starts_at: new Date(2026, 10, 18, 18).toISOString(), status: "scheduled" }] };
+  });
+  const legacy = await loadTodos(db(legacyStub), USER, DAY, DAY);
+  assert.equal(legacy.schema, "legacy");
+  assert.equal(legacy.items[0].localDate, DAY);
+  assert.ok(used(legacyStub.calls[1], "gte", "starts_at"));
+});
+
+test("To-Dos: an older database takes timed events but explains that untimed To-Dos need the update", async () => {
+  const stub = new StubDb(() => ({ data: { id: "x", event_type: "workout", title: "Push", starts_at: "2026-11-18T12:30:00Z", status: "scheduled" } }));
+  const untimed = validateTodoDraft({ ...emptyTodoDraft(DAY), title: "Buy oats" });
+  assert.ok(untimed.ok);
+  if (untimed.ok) await assert.rejects(insertTodo(db(stub), USER, untimed.value, 0, "legacy"), FeatureUnavailableError);
+  const timed = validateTodoDraft({ ...emptyTodoDraft(DAY), title: "Push", kind: "workout", time: "18:00" });
+  assert.ok(timed.ok);
+  if (timed.ok) await insertTodo(db(stub), USER, timed.value, 0, "legacy");
+  const row = stub.calls[0].ops.find((op) => op.method === "insert")?.args[0] as Record<string, unknown>;
+  assert.deepEqual(Object.keys(row).sort(), ["description", "ends_at", "event_type", "starts_at", "status", "title", "user_id", "workout_plan_id"]);
+});
+
+test("To-Dos: a day's order is saved in one call", async () => {
+  const stub = new StubDb(() => ({ data: 2 }));
+  await saveTodoOrder(db(stub), DAY, ["b", "a"]);
+  assert.deepEqual(stub.calls.map((call) => [call.name, call.args]), [["fitx_reorder_todo", { p_local_date: DAY, p_ids: ["b", "a"] }]]);
+  await assert.rejects(saveTodoOrder(db(new StubDb(() => ({ error: MISSING_FUNCTION }))), DAY, ["a"]), FeatureUnavailableError);
+});
