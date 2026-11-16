@@ -24,7 +24,7 @@ const BUILD_PHASE = "phase-production-build";
  * regenerated within minutes): when an ISR regeneration throws, Next keeps serving the last good page
  * and retries on the next request, instead of caching a "closed" page because of one slow query.
  */
-export async function loadPublicCatalog(env: NodeJS.ProcessEnv = process.env): Promise<PublicCatalog> {
+export async function loadPublicCatalog(env: Readonly<Record<string, string | undefined>> = process.env): Promise<PublicCatalog> {
   const config = readBillingConfig(env);
   if (!config.ok) {
     logBillingUnavailable(config.reason);
