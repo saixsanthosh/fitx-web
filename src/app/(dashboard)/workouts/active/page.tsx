@@ -57,8 +57,8 @@ function browserTimeZone(): string | null {
 /**
  * Ticks off the planner item behind a finished session with fitx_complete_workout_event (planner
  * migration): the item it was started from, else the plan's workout on the session's day (untimed To-Do
- * workouts included, nearest time first), else its latest overdue one; never a later day's. It returns
- * nothing to tick as a plain success. "missing" means the database does not have the function yet.
+ * workouts included, nearest time first), else its latest overdue one; never a later day's. Nothing to
+ * tick is still "done". "missing" means the database does not have the function yet.
  */
 async function completeWorkoutEvent(supabase: Supabase, sessionId: string): Promise<"done" | "missing" | "failed"> {
   const { error } = await supabase.rpc("fitx_complete_workout_event", { p_session_id: sessionId, p_tz: browserTimeZone() });
