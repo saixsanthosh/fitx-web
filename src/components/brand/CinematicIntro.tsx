@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Logo } from "@/components/ui/Logo";
 import { FILM_DURATION, STAGE, STAGE_START, stageAt } from "./intro/timeline";
 import { BrandEndCard, DebugBackdrop, FilmGraphics } from "./IntroFilmOverlay";
@@ -21,6 +21,55 @@ const REPLAY_EVENT = "fitx:intro:replay";
  * stay available throughout.
  */
 const READY_TIMEOUT_MS = 5000;
+/**
+ * Once the film plays, every stage change re-arms this; if none arrives for this long while the tab
+ * is visible (a frame loop that died without reporting), the intro ends instead of covering the
+ * page. Longer than any stage, including a full cast hold.
+ */
+const WATCHDOG_MS = 8000;
+
+type NavigatorHints = Navigator & {
+  deviceMemory?: number;
+  connection?: { saveData?: boolean; effectiveType?: string };
+};
+
+/**
+ * Cheap capability gates, checked before the ~250 KB scene chunk is fetched. They mirror the
+ * non-GPU checks in `detectQuality` (which stays the final word once WebGL exists).
+ */
+function filmAllowed(): boolean {
+  const nav = navigator as NavigatorHints;
+  if (typeof nav.deviceMemory === "number" && nav.deviceMemory <= 2) return false;
+  if (typeof nav.hardwareConcurrency === "number" && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 2) return false;
+  if (nav.connection?.saveData === true) return false;
+  if (nav.connection?.effectiveType === "slow-2g" || nav.connection?.effectiveType === "2g") return false;
+  return true;
+}
+
+/**
+ * Makes everything outside `section` inert while the opaque overlay covers the page, so focus,
+ * clicks and assistive tech cannot reach (or navigate through) controls nobody can see.
+ * Returns the elements it changed, for `releaseInert`.
+ */
+function inertOutside(section: HTMLElement): HTMLElement[] {
+  const marked: HTMLElement[] = [];
+  let node: Element = section;
+  while (node !== document.body && node.parentElement) {
+    for (const sibling of Array.from(node.parentElement.children)) {
+      if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) continue;
+      if (sibling.tagName === "SCRIPT" || sibling.tagName === "STYLE" || sibling.tagName === "LINK") continue;
+      sibling.inert = true;
+      marked.push(sibling);
+    }
+    node = node.parentElement;
+  }
+  return marked;
+}
+
+function releaseInert(marked: HTMLElement[]) {
+  for (const element of marked) element.inert = false;
+  marked.length = 0;
+}
 
 function readTheme(): Theme {
   const stored = document.documentElement.dataset.theme;
@@ -69,26 +118,63 @@ export function CinematicIntro() {
   const fallbackTimer = useRef<number | null>(null);
   const brandRef = useRef<HTMLDivElement>(null);
   const fallbackStarted = useRef(false);
+  const skipRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const inertMarked = useRef<HTMLElement[]>([]);
+  const focusSkipOnShow = useRef(false);
+  const watchdogTimer = useRef<number | null>(null);
+  const filmPlayingRef = useRef(false);
+  const debugActive = useRef(false);
+
+  const clearWatchdog = useCallback(() => {
+    if (watchdogTimer.current !== null) window.clearTimeout(watchdogTimer.current);
+    watchdogTimer.current = null;
+  }, []);
+
+  /** Gives the page back: root attributes (scroll lock, mode), inert siblings, the watchdog. */
+  const releasePage = useCallback(() => {
+    document.documentElement.removeAttribute("data-fitx-intro");
+    document.documentElement.removeAttribute("data-fitx-intro-ready");
+    releaseInert(inertMarked.current);
+    clearWatchdog();
+    filmPlayingRef.current = false;
+  }, [clearWatchdog]);
 
   const finish = useCallback(() => {
     if (!activeRef.current) return;
     activeRef.current = false;
-    document.documentElement.removeAttribute("data-fitx-intro");
-    document.documentElement.removeAttribute("data-fitx-intro-ready");
+    releasePage();
+    // Hand focus back to where it was (e.g. the Replay button); never leave it on the hidden Skip.
+    const section = sectionRef.current;
+    const previous = returnFocus.current;
+    returnFocus.current = null;
+    if (previous && previous.isConnected && !section?.contains(previous)) {
+      previous.focus({ preventScroll: true });
+    } else if (section && document.activeElement instanceof HTMLElement && section.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
     setPlayback("idle");
     setLeaving(true);
     if (readinessTimer.current !== null) window.clearTimeout(readinessTimer.current);
     if (fallbackTimer.current !== null) window.clearTimeout(fallbackTimer.current);
     leaveTimer.current = window.setTimeout(() => setLeaving(false), 560);
-  }, []);
+  }, [releasePage]);
+
+  const armWatchdog = useCallback(() => {
+    clearWatchdog();
+    if (!activeRef.current || !filmPlayingRef.current || debugActive.current || document.hidden) return;
+    watchdogTimer.current = window.setTimeout(finish, WATCHDOG_MS);
+  }, [clearWatchdog, finish]);
 
   const showStaticFallback = useCallback(() => {
     if (!activeRef.current || fallbackStarted.current) return;
     fallbackStarted.current = true;
+    filmPlayingRef.current = false;
+    clearWatchdog();
     setPlayback("static");
     document.documentElement.dataset.fitxIntroReady = "fallback";
     if (readinessTimer.current !== null) window.clearTimeout(readinessTimer.current);
-  }, []);
+  }, [clearWatchdog]);
 
   const begin = useCallback((force: boolean) => {
     if (activeRef.current) return;
@@ -96,14 +182,24 @@ export function CinematicIntro() {
 
     activeRef.current = true;
     fallbackStarted.current = false;
+    filmPlayingRef.current = false;
     document.documentElement.dataset.fitxIntro = "active";
     document.documentElement.removeAttribute("data-fitx-intro-ready");
+    // Modal while it covers the page: remember focus, shut the page behind, focus Skip once shown.
+    const focused = document.activeElement;
+    returnFocus.current = focused instanceof HTMLElement && focused !== document.body ? focused : null;
+    releaseInert(inertMarked.current);
+    if (sectionRef.current) inertMarked.current = inertOutside(sectionRef.current);
+    focusSkipOnShow.current = true;
     setTheme(readTheme());
     setStage(0);
     setRun((value) => value + 1);
     setLeaving(false);
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    setPlayback(reduced ? "static" : "loading");
+    // Devices the film can never run on (low memory/cores, Save-Data, 2G) get the static mark
+    // straight away instead of downloading the scene chunk first.
+    const film = !reduced && filmAllowed();
+    setPlayback(film ? "loading" : "static");
 
     try {
       window.sessionStorage.setItem(SESSION_KEY, "1");
@@ -111,7 +207,7 @@ export function CinematicIntro() {
       // The intro still works; the root-level safety timer prevents a stuck overlay.
     }
 
-    if (!reduced) readinessTimer.current = window.setTimeout(showStaticFallback, READY_TIMEOUT_MS);
+    if (film) readinessTimer.current = window.setTimeout(showStaticFallback, READY_TIMEOUT_MS);
   }, [showStaticFallback]);
 
   const onSceneReady = useCallback(() => {
@@ -120,7 +216,30 @@ export function CinematicIntro() {
     document.documentElement.dataset.fitxIntroReady = "three";
     setStage(0);
     setPlayback("three");
-  }, []);
+    filmPlayingRef.current = true;
+    armWatchdog();
+  }, [armWatchdog]);
+
+  const onFilmStage = useCallback((next: number) => {
+    setStage(next);
+    armWatchdog();
+  }, [armWatchdog]);
+
+  useEffect(() => {
+    // Focus Skip once the overlay is visible (it is visibility:hidden while idle).
+    if (playback === "idle" || !focusSkipOnShow.current) return;
+    focusSkipOnShow.current = false;
+    skipRef.current?.focus({ preventScroll: true });
+  }, [playback]);
+
+  useLayoutEffect(() => () => {
+    // Unmounted mid-intro (client navigation, back gesture): release the page, or the scroll lock
+    // and inert siblings would outlive the home page. Gated on activeRef so StrictMode's simulated
+    // unmount (before begin) leaves the bootstrap's "pending" alone.
+    if (!activeRef.current) return;
+    activeRef.current = false;
+    releasePage();
+  }, [releasePage]);
 
   useEffect(() => {
     if (playback !== "loading" || IntroScene) return;
@@ -168,10 +287,13 @@ export function CinematicIntro() {
   useEffect(() => {
     // The scene stops its film clock while the tab is hidden; the overlay's CSS clocks must stop too
     // or titles and callouts would run ahead of the picture on return.
-    const syncVisibility = () => sectionRef.current?.toggleAttribute("data-intro-paused", document.hidden);
+    const syncVisibility = () => {
+      sectionRef.current?.toggleAttribute("data-intro-paused", document.hidden);
+      armWatchdog();
+    };
     document.addEventListener("visibilitychange", syncVisibility);
     return () => document.removeEventListener("visibilitychange", syncVisibility);
-  }, []);
+  }, [armWatchdog]);
 
   useEffect(() => {
     const onReplay = () => begin(true);
@@ -183,6 +305,7 @@ export function CinematicIntro() {
 
     const initialFrame = window.requestAnimationFrame(() => {
       const config = readDebugConfig();
+      debugActive.current = config !== null;
       if (config) setDebug(config);
       begin(config !== null);
     });
@@ -200,8 +323,9 @@ export function CinematicIntro() {
       if (leaveTimer.current !== null) window.clearTimeout(leaveTimer.current);
       if (readinessTimer.current !== null) window.clearTimeout(readinessTimer.current);
       if (fallbackTimer.current !== null) window.clearTimeout(fallbackTimer.current);
+      clearWatchdog();
     };
-  }, [begin, finish]);
+  }, [begin, clearWatchdog, finish]);
 
   const filmStage = clampStage(stage);
   const filmPlaying = playback === "three";
@@ -229,7 +353,7 @@ export function CinematicIntro() {
       {(playback === "loading" || filmPlaying) && IntroScene && !debug && (
         <IntroScene
           theme={theme}
-          onStage={setStage}
+          onStage={onFilmStage}
           onReady={onSceneReady}
           onComplete={finish}
           onUnsupported={showStaticFallback}
@@ -243,7 +367,7 @@ export function CinematicIntro() {
       )}
 
       <div className={styles.topline}>
-        <button className={styles.skip} type="button" onClick={finish}>
+        <button ref={skipRef} className={styles.skip} type="button" onClick={finish} aria-keyshortcuts="Escape">
           <span>Skip intro</span><kbd aria-hidden="true">ESC</kbd>
         </button>
       </div>

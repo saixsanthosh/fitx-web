@@ -181,6 +181,20 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
     }
   };
 
+  /**
+   * Renders like `renderAt` but turns any exception from shot, set or post code into the static
+   * fallback: a thrown frame must never leave a frozen picture covering the page.
+   */
+  const safeRenderAt = (time: number, dt: number) => {
+    try {
+      renderAt(time, dt);
+      return true;
+    } catch (error) {
+      fail(`frame error: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  };
+
   const complete = () => {
     if (completeSent || failed || disposed) return;
     completeSent = true;
@@ -232,24 +246,30 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
     const dt = previousNow ? Math.min((now - previousNow) / 1000, 0.1) : 0;
     previousNow = now;
 
-    // Slow film time down (never freeze it) while a character for the next shot is still generating.
-    const upcoming = shotIndexAt(Math.min(FILM_DURATION, filmTime + 0.12));
-    let rate = 1;
-    if (!castReadyFor(upcoming)) {
-      rate = HOLD_RATE;
-      holdSeconds += dt;
-      if (holdSeconds > HOLD_LIMIT) {
-        filmTime = Math.max(filmTime, STAGE_START[STAGE.brand]);
+    try {
+      // Slow film time down (never freeze it) while a character for the next shot is still generating.
+      const upcoming = shotIndexAt(Math.min(FILM_DURATION, filmTime + 0.12));
+      let rate = 1;
+      if (!castReadyFor(upcoming)) {
+        rate = HOLD_RATE;
+        holdSeconds += dt;
+        if (holdSeconds > HOLD_LIMIT) {
+          filmTime = Math.max(filmTime, STAGE_START[STAGE.brand]);
+          holdSeconds = 0;
+        }
+      } else {
         holdSeconds = 0;
       }
-    } else {
-      holdSeconds = 0;
-    }
 
-    const next = Math.min(FILM_DURATION, filmTime + dt * rate);
-    filmTime = castReadyFor(shotIndexAt(next)) ? next : filmTime;
-    renderAt(filmTime, dt);
-    if (rate === 1) guardFrameRate(dt);
+      const next = Math.min(FILM_DURATION, filmTime + dt * rate);
+      filmTime = castReadyFor(shotIndexAt(next)) ? next : filmTime;
+      renderAt(filmTime, dt);
+      if (rate === 1) guardFrameRate(dt);
+    } catch (error) {
+      fail(`frame error: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (failed || disposed) return;
 
     if (filmTime >= FILM_DURATION) {
       complete();
@@ -275,9 +295,14 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
     theme = next;
     if (!ctx || !stage) return;
     ctx.theme = next;
-    stage.applyTheme(next);
+    try {
+      stage.applyTheme(next);
+    } catch (error) {
+      fail(`theme error: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
     activeShot = -1;
-    if (!playing) renderAt(filmTime, 0);
+    if (!playing && readySent) safeRenderAt(filmTime, 0);
   };
 
   const onResize = () => {
@@ -287,7 +312,7 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
     ctx.camera.aspect = width / height;
     ctx.camera.updateProjectionMatrix();
     activeShot = -1;
-    if (!playing) renderAt(filmTime, 0);
+    if (!playing && readySent) safeRenderAt(filmTime, 0);
   };
 
   const onVisibility = () => {
@@ -358,6 +383,10 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
 
     // Kick off character generation first: it runs in workers while we build everything else.
     const castPromises = Object.fromEntries(CAST_ORDER.map((id) => [id, loadCharacter(id)])) as Record<CharacterId, ReturnType<typeof loadCharacter>>;
+    // loadCharacter only queues the pool's pump as a microtask: yield once so the workers boot and
+    // Maya's request is posted now, overlapping generation with the (long, synchronous) stage build.
+    await Promise.resolve();
+    if (disposed || failed) return;
 
     materials = createCharacterMaterials();
     stage = buildStage(renderer, scene, theme, quality);
@@ -396,13 +425,13 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
       precompileStarted = true;
       if (DEV) console.warn("[FITX intro] shader precompile failed; continuing", error);
     }
+    if (disposed || failed || !stage) return;
     stage.primeEffects(false);
-    if (disposed || failed) return;
     hideStage(stage, cast);
 
     filmTime = 0;
     activeShot = -1;
-    renderAt(0, 0);
+    if (!safeRenderAt(0, 0)) return;
     if (!readySent) {
       readySent = true;
       resolveReady();
@@ -435,7 +464,7 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
       const needed = SHOT_LIST[shotIndexAt(filmTime)].cast.map((id) => arrival(id).promise);
       await Promise.race([Promise.all(needed), new Promise((done) => setTimeout(done, 15000))]);
       activeShot = -1;
-      renderAt(filmTime, 0);
+      safeRenderAt(filmTime, 0);
     },
     dispose() {
       if (disposed) return;

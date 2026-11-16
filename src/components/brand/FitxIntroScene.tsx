@@ -48,6 +48,9 @@ export function FitxIntroScene({ theme, onStage, onReady, onComplete, onUnsuppor
     // would break React's development double-mount and any remount for "Replay intro".
     const canvas = document.createElement("canvas");
     canvas.className = styles.surface;
+    // An opaque WebGL canvas shows black until the first film frame: keep it hidden until then so
+    // the loading mark sits on the theme background (light theme especially).
+    canvas.style.visibility = "hidden";
     host.appendChild(canvas);
 
     const director = createIntroDirector({
@@ -55,7 +58,10 @@ export function FitxIntroScene({ theme, onStage, onReady, onComplete, onUnsuppor
       theme: themeRef.current,
       callbacks: {
         onStage: (stage) => callbacks.current.onStage(stage),
-        onReady: () => callbacks.current.onReady(),
+        onReady: () => {
+          canvas.style.visibility = "";
+          callbacks.current.onReady();
+        },
         onComplete: () => callbacks.current.onComplete(),
         onUnsupported: () => callbacks.current.onUnsupported(),
       },
