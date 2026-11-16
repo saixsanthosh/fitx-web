@@ -3,12 +3,14 @@
 // (Unlicense) into this project's own public Storage bucket `exercise-media`, then marks each row
 // mirrored, so the app stops loading photos from GitHub. Run by a person, never automatically:
 //
-//   SUPABASE_URL=https://<project>.supabase.co SUPABASE_SERVICE_ROLE_KEY=<key> \
+//   SUPABASE_URL=https://<project>.supabase.co SUPABASE_SECRET_KEY=<key> \
 //     node scripts/catalog/mirror-media.mjs [--dry-run] [--limit 50]
 //
+// The same names as the app's server work too: NEXT_PUBLIC_SUPABASE_URL for the project URL, and the
+// legacy SUPABASE_SERVICE_ROLE_KEY when SUPABASE_SECRET_KEY is not set.
 // Needs migrations 20261118130010 (source_ref) and 20261118130020 (exercise_media, bucket) applied.
-// The service-role key is read from the environment only; it is never written or printed. Only URLs
-// under the pinned revision are fetched, only for rows the database lists, at most 4 at a time.
+// The secret key is read from the environment only; it is never written or printed. Only URLs under
+// the pinned revision are fetched, only for rows the database lists, at most 4 at a time.
 import { createClient } from "@supabase/supabase-js";
 import { pathToFileURL } from "node:url";
 
@@ -28,6 +30,20 @@ export function parseArgs(argv) {
     } else throw new Error(`Unknown option ${argv[index]}`);
   }
   return options;
+}
+
+/**
+ * The project URL and server key from the environment, under the app's names or this script's:
+ * SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL; SUPABASE_SECRET_KEY, else the legacy SUPABASE_SERVICE_ROLE_KEY.
+ * Blank values count as unset. Throws naming what is missing, never a value.
+ */
+export function connectionFrom(env) {
+  const clean = (value) => (typeof value === "string" ? value.trim() : "");
+  const url = clean(env.SUPABASE_URL) || clean(env.NEXT_PUBLIC_SUPABASE_URL);
+  const key = clean(env.SUPABASE_SECRET_KEY) || clean(env.SUPABASE_SERVICE_ROLE_KEY);
+  const missing = [!url && "SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)", !key && "SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY)"].filter(Boolean);
+  if (missing.length) throw new Error(`Set ${missing.join(" and ")} in the environment.`);
+  return { url, key };
 }
 
 /** Only pinned-revision photos with a safe storage path are copied. */
@@ -53,9 +69,7 @@ async function mirrorOne(supabase, row, dryRun) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment.");
+  const { url, key } = connectionFrom(process.env);
   const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   let done = 0; let skipped = 0; const failures = [];
   // Keyset pagination by id: each row is read once, whether it is copied, skipped or fails.
