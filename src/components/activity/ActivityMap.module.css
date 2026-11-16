@@ -1,0 +1,82 @@
+/* The activity map frame and FITX-themed MapLibre controls. Colours come from globals.css tokens. */
+.frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--fitx-surface-variant);
+  isolation: isolate;
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.notice {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
+  margin: 0;
+  border: 1px solid var(--fitx-border);
+  border-radius: 8px;
+  background: var(--fitx-elevated);
+  color: var(--fitx-text-secondary);
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.recenter {
+  position: absolute;
+  right: 10px;
+  bottom: 44px;
+  z-index: 2;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--fitx-border);
+  border-radius: 999px;
+  background: var(--fitx-elevated);
+  color: var(--fitx-primary);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--fitx-scrim) 18%, transparent);
+}
+
+.frame :global(.maplibregl-ctrl-attrib) {
+  max-width: calc(100% - 20px);
+  background: color-mix(in srgb, var(--fitx-card-bg) 88%, transparent);
+  color: var(--fitx-text-secondary);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.frame :global(.maplibregl-ctrl-attrib a) {
+  color: var(--fitx-text-secondary);
+}
+
+.frame :global(.maplibregl-ctrl-group) {
+  border: 1px solid var(--fitx-border);
+  background: var(--fitx-elevated);
+  box-shadow: none;
+}
+
+.frame :global(.maplibregl-ctrl-group button) {
+  width: 40px;
+  height: 40px;
+}
+
+.frame :global(.maplibregl-ctrl-group button + button) {
+  border-top-color: var(--fitx-divider);
+}
+
+:global(:root[data-theme="dark"]) .frame :global(.maplibregl-ctrl-icon) {
+  filter: invert(1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root[data-theme="system"]) .frame :global(.maplibregl-ctrl-icon) {
+    filter: invert(1);
+  }
+}
