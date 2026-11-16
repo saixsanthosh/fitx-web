@@ -5,7 +5,7 @@ import "./support/server-only.mjs";
 const { billingCyclesForTenYears, formatAmount, formatInr, periodLabel, periodLength } = await import("@/lib/billing/money");
 const { checkoutAllowedFor, modeOfKey, parseEmailList, readBillingConfig, RAZORPAY_API_BASE } = await import("@/lib/billing/config");
 const { formatBillingDate, paymentStatusLabel, subscriptionStatusLabel } = await import("@/lib/billing/status");
-const { pickCurrentSubscription } = await import("@/lib/billing/view");
+const { pickCurrentSubscription, toSubscriptionView } = await import("@/lib/billing/view");
 const { checkoutRetryAfterSeconds, CHECKOUTS_PER_DAY, planMismatch } = await import("@/lib/billing/checkout");
 
 describe("money", () => {
@@ -109,6 +109,20 @@ describe("which subscription the page shows", () => {
     assert.equal(pickCurrentSubscription(rows, now)?.id, "live");
     assert.equal(pickCurrentSubscription(rows.filter((row) => row.id !== "live"), now)?.id, "ended");
     assert.equal(pickCurrentSubscription(rows.filter((row) => row.id === "unpaid"), now), null);
+  });
+
+  test("the renewal price is the subscription's own, not the plan row's current one", () => {
+    const row = {
+      id: "s1", plan_id: "p1", mode: "live" as const, status: "active", amount_paise: 19900, billing_period: "monthly" as const, billing_interval: 1,
+      paid_count: 3, paid_until: "2026-12-01T00:00:00Z", charge_at: "2026-12-01T00:00:00Z", cancel_requested_at: null, abandoned_at: null,
+      created_at: "2026-09-01T00:00:00Z", billing_plans: { name: "Premium monthly", amount_paise: 29900, billing_period: "monthly" as const, billing_interval: 1 },
+    };
+    assert.deepEqual(
+      (({ amountPaise, period, interval, planName }) => ({ amountPaise, period, interval, planName }))(toSubscriptionView(row)!),
+      { amountPaise: 19900, period: "monthly", interval: 1, planName: "Premium monthly" },
+    );
+    const older = { ...row, amount_paise: null, billing_period: null, billing_interval: null };
+    assert.equal(toSubscriptionView(older)!.amountPaise, 29900, "rows without a stored price fall back to the plan");
   });
 
   test("a checkout that expired or was cancelled before any charge is not shown as a subscription", () => {

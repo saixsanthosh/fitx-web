@@ -60,6 +60,12 @@ create table if not exists public.billing_subscriptions (
   mode text not null check (mode in ('test', 'live')),
   provider_subscription_id text not null unique check (provider_subscription_id ~ '^sub_[A-Za-z0-9]{1,60}$'),
   provider_plan_id text not null check (provider_plan_id ~ '^plan_[A-Za-z0-9]{1,60}$'),
+  -- The price the subscription started at, copied from the plan row whose Razorpay plan the server
+  -- checked at checkout. A Razorpay plan's amount never changes, so every renewal charges this.
+  amount_paise integer check (amount_paise >= 0),
+  currency text check (currency ~ '^[A-Z]{3}$'),
+  billing_period text check (billing_period in ('monthly', 'yearly')),
+  billing_interval integer check (billing_interval >= 1),
   provider_customer_id text check (char_length(provider_customer_id) <= 80),
   status text not null default 'created' check (status in (
     'created', 'authenticated', 'active', 'pending', 'halted', 'paused', 'cancelled', 'completed', 'expired'
@@ -598,8 +604,8 @@ $$;
 -- Records the Razorpay subscription the server just created for a signed-in user's checkout.
 -- Serialised per account; refuses when the account already has a subscription Razorpay is billing or
 -- has started 10 checkouts of this mode in the last 24 hours (the server checks the same limit before
--- it contacts Razorpay; this catches a burst of parallel requests), and marks any older unpaid
--- checkout of the same mode as abandoned.
+-- it contacts Razorpay; this catches a burst of parallel requests), marks any older unpaid checkout
+-- of the same mode as abandoned, and stores the plan's current price on the new subscription.
 create or replace function public.billing_record_checkout(
   p_user_id uuid,
   p_plan_id uuid,
@@ -639,9 +645,18 @@ begin
   set abandoned_at = pg_catalog.now(), updated_at = pg_catalog.now()
   where user_id = p_user_id and mode = p_mode and status = 'created' and abandoned_at is null;
 
-  insert into public.billing_subscriptions (user_id, plan_id, mode, provider_subscription_id, provider_plan_id, total_count)
-  values (p_user_id, p_plan_id, p_mode, p_provider_subscription_id, p_provider_plan_id, p_total_count)
+  insert into public.billing_subscriptions (
+    user_id, plan_id, mode, provider_subscription_id, provider_plan_id, total_count,
+    amount_paise, currency, billing_period, billing_interval
+  )
+  select p_user_id, p.id, p_mode, p_provider_subscription_id, p_provider_plan_id, p_total_count,
+         p.amount_paise, p.currency, p.billing_period, p.billing_interval
+  from public.billing_plans p
+  where p.id = p_plan_id
   returning id into v_id;
+  if v_id is null then
+    raise exception using errcode = '22023', message = 'billing_record_checkout: unknown plan';
+  end if;
   return v_id;
 end
 $$;
@@ -811,7 +826,9 @@ stable
 security definer
 set search_path = ''
 as $$
-  select s.id, s.user_id, u.email::text, p.name, p.amount_paise, p.billing_period, p.billing_interval,
+  select s.id, s.user_id, u.email::text, p.name,
+         coalesce(s.amount_paise, p.amount_paise), coalesce(s.billing_period, p.billing_period),
+         coalesce(s.billing_interval, p.billing_interval),
          s.status, public.billing_grants_access(s.status, s.paid_until),
          s.paid_until, s.charge_at, s.cancel_requested_at, s.provider_subscription_id, s.created_at,
          pg_catalog.count(*) over ()

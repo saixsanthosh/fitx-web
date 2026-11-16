@@ -36,11 +36,15 @@ export type SubscriptionPageModel =
     };
 
 type PlanJoin = { name: string; amount_paise: number; billing_period: BillingPeriod; billing_interval: number } | null;
-type SubscriptionRead = {
+export type SubscriptionRead = {
   id: string;
   plan_id: string;
   mode: BillingMode;
   status: string;
+  /** The price the subscription started at (null on rows recorded before it was stored). */
+  amount_paise: number | null;
+  billing_period: BillingPeriod | null;
+  billing_interval: number | null;
   paid_count: number | null;
   paid_until: string | null;
   charge_at: string | null;
@@ -50,16 +54,18 @@ type SubscriptionRead = {
   billing_plans: PlanJoin | PlanJoin[];
 };
 
-function toSubscriptionView(row: SubscriptionRead): SubscriptionView | null {
+/** The renewal price is the subscription's own, not the plan row's: the owner may change that row later. */
+export function toSubscriptionView(row: SubscriptionRead): SubscriptionView | null {
   if (!isSubscriptionStatus(row.status)) return null;
   const plan = Array.isArray(row.billing_plans) ? row.billing_plans[0] ?? null : row.billing_plans;
+  const own = row.amount_paise !== null && row.billing_period !== null;
   return {
     id: row.id,
     planId: row.plan_id,
     planName: plan?.name ?? null,
-    amountPaise: plan?.amount_paise ?? null,
-    period: plan?.billing_period ?? null,
-    interval: plan?.billing_interval ?? null,
+    amountPaise: own ? row.amount_paise : plan?.amount_paise ?? null,
+    period: own ? row.billing_period : plan?.billing_period ?? null,
+    interval: own ? row.billing_interval ?? 1 : plan?.billing_interval ?? null,
     status: row.status,
     mode: row.mode,
     paidCount: row.paid_count ?? 0,
@@ -96,7 +102,9 @@ async function readOwnBilling(supabase: SupabaseClient, user: User) {
   const [subscriptions, payments, refunds, premium, plans] = await Promise.all([
     supabase
       .from("billing_subscriptions")
-      .select("id,plan_id,mode,status,paid_count,paid_until,charge_at,cancel_requested_at,abandoned_at,created_at,billing_plans(name,amount_paise,billing_period,billing_interval)")
+      .select(
+        "id,plan_id,mode,status,amount_paise,billing_period,billing_interval,paid_count,paid_until,charge_at,cancel_requested_at,abandoned_at,created_at,billing_plans(name,amount_paise,billing_period,billing_interval)",
+      )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(25),

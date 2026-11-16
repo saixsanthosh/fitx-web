@@ -302,4 +302,22 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
     assert.equal(pending.detail, null);
     assert.equal(await status("sub_TestJay000001"), "pending");
   });
+
+  test("a subscription keeps the price it started at when the plan row changes later", async () => {
+    const price = (subscriptionId: string) =>
+      db.rows(`select amount_paise, currency, billing_period, billing_interval from public.billing_subscriptions where provider_subscription_id = ${lit(subscriptionId)}`);
+    assert.deepEqual(await price("sub_TestJay000001"), [{ amount_paise: 19900, currency: "INR", billing_period: "monthly", billing_interval: 1 }]);
+    await db.exec(`update public.billing_plans set amount_paise = 29900 where id = ${lit(planId)}`);
+    try {
+      assert.deepEqual(await price("sub_TestJay000001"), [{ amount_paise: 19900, currency: "INR", billing_period: "monthly", billing_interval: 1 }]);
+      const admin = await db.rows<{ email: string; amount_paise: number }>(`select email, amount_paise from public.billing_admin_subscriptions('test', 200, 0)`, AS_SERVICE);
+      assert.deepEqual(admin.filter((row) => row.email === "jay@example.test").map((row) => row.amount_paise), [19900]);
+      await assert.rejects(
+        db.value(`select public.billing_record_checkout(${lit(JAY)}, '00000000-0000-4000-8000-000000000000', 'live', 'sub_LiveJay000001', ${lit(PLAN_ID)}, 120)`, AS_SERVICE),
+        (error) => error instanceof SqlError && error.message.includes("unknown plan"),
+      );
+    } finally {
+      await db.exec(`update public.billing_plans set amount_paise = 19900 where id = ${lit(planId)}`);
+    }
+  });
 });
