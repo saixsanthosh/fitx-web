@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { addDays, daysBetween, isDateKey, mondayOf, weekKeys, weekdayIndex } from "@/lib/domain/day-keys";
-import { parseTodaySummary, summaryFromRows, todayTargets, weekStrip, weightView, estimatedTargets, type TodaySummary } from "@/lib/domain/today";
+import { dailyTargets, parseTodaySummary, summaryFromRows, todayTargets, weekStrip, weightView, estimatedTargets, type TodaySummary } from "@/lib/domain/today";
 import { estimateNutritionTargets } from "@/lib/domain/nutrition";
 import { parseGoalRow } from "@/lib/domain/goals";
 
@@ -128,4 +128,33 @@ test("the week strip runs Monday to Sunday and marks today and the days ahead", 
   assert.deepEqual(strip.map((day) => day.count), [0, 1, 2, 0, 0, 0, 0]);
   assert.deepEqual(strip.filter((day) => day.isToday).map((day) => day.date), [TODAY]);
   assert.equal(strip.filter((day) => day.isFuture).length, 4);
+});
+
+test("a met 'reach at least' calorie goal is not 'over'; ceilings still are", () => {
+  const goal = (direction: "increase" | "limit", target: number) =>
+    parseGoalRow({ id: `c-${direction}`, title: "Calories", metric: "calories_kcal", period: "daily", direction, target_value: target, status: "active", starts_on: "2026-11-01", created_at: "2026-11-01", current_value: 0 });
+  const bulking = todayTargets(summary({ nutrition: { calories: 3000, protein: 0, carbs: 0, fat: 0, entries: 4 } }), [goal("increase", 2800)]);
+  assert.deepEqual([bulking.calories.source, bulking.calories.direction, bulking.calories.percent, bulking.calories.over], ["goal", "increase", 100, 0]);
+  const cutting = todayTargets(summary({ nutrition: { calories: 3000, protein: 0, carbs: 0, fat: 0, entries: 4 } }), [goal("limit", 2800)]);
+  assert.deepEqual([cutting.calories.direction, cutting.calories.over], ["limit", 200]);
+  const estimated = todayTargets(summary({ nutrition: { calories: 9000, protein: 0, carbs: 0, fat: 0, entries: 9 } }), []);
+  assert.equal(estimated.calories.source, "estimate");
+  assert.ok(estimated.calories.over > 0, "past an estimated target is still over");
+});
+
+test("targets set in Nutrition come before the estimate; the user's own daily goal comes first", () => {
+  const set = { calories: 2400, protein: 150, carbs: 260, fat: 70 };
+  const withTargets = todayTargets({ ...summary(), targets: set }, []);
+  assert.deepEqual(
+    [withTargets.calories.target, withTargets.calories.source, withTargets.protein.target, withTargets.carbs.target, withTargets.fat.source],
+    [2400, "target", 150, 260, "target"],
+  );
+  assert.equal(withTargets.water.source, "preference", "water still follows the saved setting");
+  const proteinGoal = parseGoalRow({ id: "p", title: "Protein", metric: "protein_g", period: "daily", direction: "increase", target_value: 120, status: "active", starts_on: "2026-11-01", created_at: "2026-11-01", current_value: 70 });
+  const withGoal = todayTargets({ ...summary(), targets: set }, [proteinGoal]);
+  assert.deepEqual([withGoal.protein.target, withGoal.protein.source, withGoal.calories.source], [120, "goal", "target"]);
+  assert.deepEqual(dailyTargets({ ...summary(), targets: set }), set, "goal templates prefill from the set targets");
+  assert.deepEqual(dailyTargets(summary()), estimatedTargets(summary()), "and from the estimate when there are none");
+  assert.deepEqual(parseTodaySummary({ ...rpcJson, targets: { calories: "2400", protein: 150, carbs: 260, fat: 70 } })?.targets, set);
+  assert.equal(parseTodaySummary({ ...rpcJson, targets: { calories: 0 } })?.targets, null, "no calories: no set targets");
 });

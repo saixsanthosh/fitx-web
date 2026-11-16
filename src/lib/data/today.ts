@@ -3,6 +3,7 @@
  * do not have it yet) and the user's widget layout (user_preferences.dashboard_layout).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadTargets } from "@/lib/food/client-data";
 import { localDateKey } from "@/lib/domain/dates";
 import { addDays, mondayOf } from "@/lib/domain/day-keys";
 import { sanitizeLayout, serializeLayout, type LayoutItem } from "@/lib/domain/dashboard-layout";
@@ -29,14 +30,18 @@ function startOfDay(key: string): string {
 export type SummaryResult = { summary: TodaySummary; source: "database" | "browser" };
 
 export async function loadTodaySummary(db: Db, userId: string, localDate: string, timeZone = browserTimeZone()): Promise<SummaryResult> {
-  const rpc = await db.rpc("fitx_today_summary", { p_local_date: localDate, p_tz: timeZone });
+  // The targets the user set in Nutrition; null when there are none or the table is not there yet.
+  const [rpc, targets] = await Promise.all([
+    db.rpc("fitx_today_summary", { p_local_date: localDate, p_tz: timeZone }),
+    loadTargets(db, userId).catch(() => null),
+  ]);
   if (!rpc.error) {
     const summary = parseTodaySummary(rpc.data);
-    if (summary) return { summary, source: "database" };
+    if (summary) return { summary: { ...summary, targets }, source: "database" };
     throw new DataError("Today's summary came back empty.");
   }
   if (!isMissingFunctionError(rpc.error)) throw new DataError("Today's summary could not be loaded.", rpc.error);
-  return { summary: await summaryInBrowser(db, userId, localDate, timeZone), source: "browser" };
+  return { summary: { ...(await summaryInBrowser(db, userId, localDate, timeZone)), targets }, source: "browser" };
 }
 
 /** Phase 1 databases: the same numbers from individual queries (no row cap on the day's logs). */

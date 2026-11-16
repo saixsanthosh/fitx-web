@@ -11,19 +11,30 @@ import { getSession, messageFor } from "@/components/tasks/session";
 /** A value loaded from the database: loading, ready (kept while it reloads) or failed. */
 export type Resource<T> = { status: "loading" | "ready" | "error"; data: T | null; error: string; reload: () => void };
 
+type ResourceState<T> = Omit<Resource<T>, "reload"> & { from: (() => Promise<T>) | null };
+
+/**
+ * Loads with `load` and reloads on demand. Data is kept while the same loader reloads (and after it
+ * fails, with status "error"), but a new loader, such as the next day's, starts empty: yesterday's
+ * numbers never sit under today's date.
+ */
 function useResource<T>(load: () => Promise<T>, fallbackMessage: string): Resource<T> {
-  const [state, setState] = useState<Omit<Resource<T>, "reload">>({ status: "loading", data: null, error: "" });
+  const [state, setState] = useState<ResourceState<T>>({ status: "loading", data: null, error: "", from: null });
   const generation = useRef(0);
   const run = useCallback(() => {
     const ticket = ++generation.current;
-    setState((current) => (current.data ? current : { ...current, status: "loading" }));
+    setState((current) => (current.data !== null && current.from === load ? current : { status: "loading", data: null, error: "", from: load }));
     load().then(
-      (data) => { if (ticket === generation.current) setState({ status: "ready", data, error: "" }); },
-      (error) => { if (ticket === generation.current) setState((current) => ({ status: "error", data: current.data, error: messageFor(error, fallbackMessage) })); },
+      (data) => { if (ticket === generation.current) setState({ status: "ready", data, error: "", from: load }); },
+      (error) => {
+        if (ticket !== generation.current) return;
+        setState((current) => ({ status: "error", data: current.from === load ? current.data : null, error: messageFor(error, fallbackMessage), from: load }));
+      },
     );
   }, [load, fallbackMessage]);
   useEffect(() => { void Promise.resolve().then(run); }, [run]);
-  return { ...state, reload: run };
+  const stale = state.from !== null && state.from !== load;
+  return { status: stale ? "loading" : state.status, data: stale ? null : state.data, error: stale ? "" : state.error, reload: run };
 }
 
 export function useTodaySummary(date: string): Resource<SummaryResult> {
@@ -95,8 +106,11 @@ export function useDashboardLayout() {
   const [state, setState] = useState<LayoutState>({ status: "loading", canSave: true, loadError: "" });
   const [items, dispatch] = useReducer(layoutReducer, [] as LayoutItem[]);
   const [save, setSave] = useState<SaveState>("idle");
+  /** What the database has, the newest arrangement wanted, and whether a save is running. */
   const saved = useRef<LayoutItem[] | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wanted = useRef<LayoutItem[] | null>(null);
+  const saving = useRef(false);
+  const canSave = useRef(true);
 
   useEffect(() => {
     let active = true;
@@ -106,11 +120,13 @@ export function useDashboardLayout() {
         const result = await loadDashboardLayout(db, userId);
         if (!active) return;
         saved.current = result.items;
+        canSave.current = result.canSave;
         dispatch({ type: "replace", items: result.items });
         setState({ status: "ready", canSave: result.canSave, loadError: "" });
       } catch (error) {
         if (!active) return;
         // Home still shows, in the default arrangement, with the reason in the panel.
+        canSave.current = false;
         dispatch({ type: "reset" });
         setState({ status: "ready", canSave: false, loadError: messageFor(error, "Your Home layout could not be loaded.") });
       }
@@ -118,28 +134,45 @@ export function useDashboardLayout() {
     return () => { active = false; };
   }, []);
 
-  const persist = useCallback(async (next: LayoutItem[]) => {
-    if (!state.canSave) { setSave("unavailable"); return; }
-    setSave("saving");
+  /**
+   * Saves the newest arrangement. One request at a time: changes made while a save runs are sent
+   * after it, so an older arrangement can never land last.
+   */
+  const flush = useCallback(async () => {
+    if (saving.current) return;
+    saving.current = true;
     try {
-      const { db, userId } = await getSession();
-      const result = await saveDashboardLayout(db, userId, next);
-      if (result === "unavailable") { setSave("unavailable"); return; }
-      saved.current = next;
-      setSave("saved");
-    } catch {
-      setSave("error");
+      while (wanted.current && !(saved.current && sameLayout(saved.current, wanted.current))) {
+        if (!canSave.current) { setSave("unavailable"); break; }
+        const next = wanted.current;
+        setSave("saving");
+        try {
+          const { db, userId } = await getSession();
+          const result = await saveDashboardLayout(db, userId, next);
+          if (result === "unavailable") { canSave.current = false; setSave("unavailable"); break; }
+          saved.current = next;
+          setSave("saved");
+        } catch {
+          setSave("error");
+          break;
+        }
+      }
+    } finally {
+      saving.current = false;
     }
-  }, [state.canSave]);
+  }, []);
 
   useEffect(() => {
     if (state.status !== "ready" || !items.length) return;
+    wanted.current = items;
     if (saved.current && sameLayout(saved.current, items)) return;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void persist(items), 450);
-    return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [items, persist, state.status]);
+    const timer = setTimeout(() => void flush(), 450);
+    return () => clearTimeout(timer);
+  }, [items, flush, state.status]);
+
+  // Leaving Home within the short wait still saves the last change.
+  useEffect(() => () => { void flush(); }, [flush]);
 
   const act = useCallback((action: LayoutAction) => dispatch(action), []);
-  return { status: state.status, items, canSave: state.canSave, loadError: state.loadError, save, dispatch: act, retrySave: () => void persist(items) };
+  return { status: state.status, items, canSave: state.canSave, loadError: state.loadError, save, dispatch: act, retrySave: () => void flush() };
 }

@@ -1,7 +1,8 @@
 /**
  * Today's numbers for Home: reading fitx_today_summary, building the same summary from raw rows
  * when that function is not available yet, and deciding each daily target and where it came from
- * (the user's own goal, their saved preference, or an estimate from their profile).
+ * (the user's own goal, the targets they set in Nutrition, their saved preference, or an estimate
+ * from their profile).
  *
  * No runtime imports beyond other pure domain files, so `node --test` can load it directly.
  */
@@ -27,6 +28,8 @@ export type TodaySummary = {
   plannedWorkouts: PlannedWorkout[];
   /** Null when the To-Do list is not available yet. */
   todo: { total: number; completed: number } | null;
+  /** The daily calorie and macro targets the user set in Nutrition (nutrition_targets), or null. */
+  targets: FoodMacros | null;
 };
 
 const num = (value: unknown): number | null => {
@@ -102,7 +105,16 @@ export function parseTodaySummary(raw: unknown): TodaySummary | null {
       })
       : [],
     todo: todo ? { total: num(todo.total) ?? 0, completed: num(todo.completed) ?? 0 } : null,
+    targets: macros(root.targets),
   };
+}
+
+/** Calorie and macro targets from {calories, protein, carbs, fat}, or null when calories are missing. */
+function macros(value: unknown): FoodMacros | null {
+  const row = obj(value);
+  const calories = num(row?.calories);
+  if (!row || calories === null || calories <= 0) return null;
+  return { calories, protein: num(row.protein) ?? 0, carbs: num(row.carbs) ?? 0, fat: num(row.fat) ?? 0 };
 }
 
 export type SummaryRows = {
@@ -155,7 +167,7 @@ export function summaryFromRows(rows: SummaryRows): TodaySummary {
   })!;
 }
 
-export type TargetSource = "goal" | "preference" | "estimate";
+export type TargetSource = "goal" | "target" | "preference" | "estimate";
 export type DailyTarget = {
   value: number;
   target: number | null;
@@ -163,20 +175,26 @@ export type DailyTarget = {
   /** "limit" when the user's own goal is to stay under the target. */
   direction: "increase" | "limit";
   percent: number;
+  /** How far the day went past a ceiling: a limit goal, a target set in Nutrition or an estimate. 0 otherwise. */
   over: number;
 };
 
-function target(value: number, goal: GoalView | null, fallback: number | null, fallbackSource: TargetSource): DailyTarget {
-  const amount = goal ? goal.targetValue : fallback !== null && fallback > 0 ? fallback : null;
+/**
+ * The user's own goal wins; otherwise the first positive fallback, in the order given. A "reach at
+ * least" goal that is passed is met, not over, so only ceilings report `over`.
+ */
+function target(value: number, goal: GoalView | null, ...fallbacks: Array<[number | null | undefined, TargetSource]>): DailyTarget {
+  const fallback = fallbacks.find(([amount]) => typeof amount === "number" && Number.isFinite(amount) && amount > 0) ?? null;
+  const amount = goal ? goal.targetValue : fallback ? Number(fallback[0]) : null;
   const direction = goal?.direction === "limit" ? "limit" : "increase";
   const evaluation = amount ? evaluateGoal({ current: value, target: amount, direction: "limit" }) : null;
   return {
     value,
     target: amount,
-    source: goal ? "goal" : amount ? fallbackSource : null,
+    source: goal ? "goal" : fallback ? fallback[1] : null,
     direction,
     percent: evaluation?.percent ?? 0,
-    over: evaluation?.over ?? 0,
+    over: goal && direction !== "limit" ? 0 : evaluation?.over ?? 0,
   };
 }
 
@@ -192,17 +210,27 @@ export function estimatedTargets(summary: TodaySummary): FoodMacros | null {
   );
 }
 
-/** Each daily number with the target it is measured against and where that target came from. */
+/** The user's own Nutrition targets, else the estimate: what goal templates prefill from. */
+export function dailyTargets(summary: TodaySummary): FoodMacros | null {
+  return summary.targets ?? estimatedTargets(summary);
+}
+
+/**
+ * Each daily number with the target it is measured against and where that target came from: the
+ * user's daily goal, then the targets they set in Nutrition, then (water) their saved setting or
+ * (food) the estimate. Matches the Nutrition page, which also puts set targets before the estimate.
+ */
 export function todayTargets(summary: TodaySummary, goals: readonly GoalView[] | null | undefined) {
   const estimate = estimatedTargets(summary);
+  const set = summary.targets;
   const today = summary.localDate;
   return {
     estimate,
-    calories: target(summary.nutrition.calories, dailyGoalFor(goals, "calories_kcal", today), estimate?.calories ?? null, "estimate"),
-    protein: target(summary.nutrition.protein, dailyGoalFor(goals, "protein_g", today), estimate?.protein ?? null, "estimate"),
-    carbs: target(summary.nutrition.carbs, null, estimate?.carbs ?? null, "estimate"),
-    fat: target(summary.nutrition.fat, null, estimate?.fat ?? null, "estimate"),
-    water: target(summary.water.ml, dailyGoalFor(goals, "water_ml", today), summary.preferences?.dailyWaterGoalMl ?? null, "preference"),
+    calories: target(summary.nutrition.calories, dailyGoalFor(goals, "calories_kcal", today), [set?.calories, "target"], [estimate?.calories, "estimate"]),
+    protein: target(summary.nutrition.protein, dailyGoalFor(goals, "protein_g", today), [set?.protein, "target"], [estimate?.protein, "estimate"]),
+    carbs: target(summary.nutrition.carbs, null, [set?.carbs, "target"], [estimate?.carbs, "estimate"]),
+    fat: target(summary.nutrition.fat, null, [set?.fat, "target"], [estimate?.fat, "estimate"]),
+    water: target(summary.water.ml, dailyGoalFor(goals, "water_ml", today), [summary.preferences?.dailyWaterGoalMl, "preference"]),
   };
 }
 

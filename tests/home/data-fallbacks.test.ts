@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { StubDb, used, type StubCall } from "./support/stub-db";
 import { loadDashboardLayout, loadTodaySummary, saveDashboardLayout } from "@/lib/data/today";
-import { createGoal, loadGoals } from "@/lib/data/goals";
+import { createGoal, loadGoalOptions, loadGoals } from "@/lib/data/goals";
 import { insertTodo, loadTodos, saveTodoOrder } from "@/lib/data/todo";
 import { FeatureUnavailableError, DataError } from "@/lib/data/missing-schema";
 import { defaultLayout, layoutReducer, visibleIds } from "@/lib/domain/dashboard-layout";
@@ -18,12 +18,12 @@ const MISSING_COLUMN = { code: "42703", message: "column planner_events.local_da
 const UNKNOWN_COLUMN = { code: "PGRST204", message: "Could not find the 'dashboard_layout' column" };
 const db = (stub: StubDb) => stub as unknown as SupabaseClient;
 
-test("the summary comes from one database call when fitx_today_summary exists", async () => {
+test("the summary comes from one database call (plus the Nutrition targets) when fitx_today_summary exists", async () => {
   const stub = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: { local_date: DAY, nutrition: { calories: 900 } } } : undefined));
   const result = await loadTodaySummary(db(stub), USER, DAY, "Asia/Kolkata");
   assert.equal(result.source, "database");
   assert.equal(result.summary.nutrition.calories, 900);
-  assert.deepEqual(stub.calls.map((call) => call.name), ["fitx_today_summary"]);
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "nutrition_targets"]);
   assert.deepEqual(stub.calls[0].args, { p_local_date: DAY, p_tz: "Asia/Kolkata" });
 });
 
@@ -51,7 +51,8 @@ test("without fitx_today_summary the browser adds up every row itself", async ()
 test("any other summary failure is reported, not hidden behind the fallback", async () => {
   const stub = new StubDb(() => ({ error: { code: "57014", message: "timeout" } }));
   await assert.rejects(loadTodaySummary(db(stub), USER, DAY, null), DataError);
-  assert.equal(stub.calls.length, 1);
+  assert.equal(stub.callsTo("fitx_today_summary").length, 1);
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "nutrition_targets"], "no fallback queries ran");
 });
 
 test("layout: default when none is saved, read-only when the column is missing", async () => {
@@ -139,4 +140,28 @@ test("To-Dos: a day's order is saved in one call", async () => {
   await saveTodoOrder(db(stub), DAY, ["b", "a"]);
   assert.deepEqual(stub.calls.map((call) => [call.name, call.args]), [["fitx_reorder_todo", { p_local_date: DAY, p_ids: ["b", "a"] }]]);
   await assert.rejects(saveTodoOrder(db(new StubDb(() => ({ error: MISSING_FUNCTION }))), DAY, ["a"]), FeatureUnavailableError);
+});
+
+test("the summary carries the targets set in Nutrition, and works without that table", async () => {
+  const withTargets = new StubDb((call) => (call.kind === "rpc" ? { data: { local_date: DAY } } : call.name === "nutrition_targets" ? { data: { calories: 2400, protein_g: 150, carbs_g: 260, fat_g: 70 } } : undefined));
+  const loaded = await loadTodaySummary(db(withTargets), USER, DAY, null);
+  assert.deepEqual(loaded.summary.targets, { calories: 2400, protein: 150, carbs: 260, fat: 70 });
+  assert.ok(used(withTargets.callsTo("nutrition_targets")[0], "eq", "user_id", USER));
+  const missing = new StubDb((call) => (call.kind === "rpc" ? { data: { local_date: DAY } } : { error: { code: "PGRST205", message: "Could not find the table" } }));
+  assert.equal((await loadTodaySummary(db(missing), USER, DAY, null)).summary.targets, null);
+});
+
+test("To-Dos can count toward Checklist goals only, keeping a link that already exists", async () => {
+  const stub = new StubDb(() => ({ data: [{ id: "g1", title: "Prep for the 10K", metric: "tasks_completed" }] }));
+  const options = await loadGoalOptions(db(stub), USER);
+  assert.deepEqual(options, [{ id: "g1", title: "Prep for the 10K", countsTodos: true }]);
+  assert.ok(used(stub.calls[0], "eq", "metric", "tasks_completed"));
+  const linked = "3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f";
+  const keep = new StubDb(() => ({ data: [{ id: linked, title: "Read 12 books", metric: "manual" }] }));
+  const kept = await loadGoalOptions(db(keep), USER, linked);
+  assert.ok(used(keep.calls[0], "or", `metric.eq.tasks_completed,id.eq.${linked}`));
+  assert.deepEqual(kept, [{ id: linked, title: "Read 12 books", countsTodos: false }]);
+  const odd = new StubDb(() => ({ data: [] }));
+  await loadGoalOptions(db(odd), USER, "not-a-uuid),id.neq.x");
+  assert.equal(used(odd.calls[0], "or"), false, "a malformed id never reaches the filter");
 });
