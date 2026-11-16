@@ -142,7 +142,8 @@ do $$ declare n int; total bigint; begin
   if n <> 2 then raise exception 'limit ignored: %', n; end if;
   if (select admin_role from public.fitx_admin_search_users('agent@', 5, 0)) <> 'support_agent' then raise exception 'admin role missing'; end if;
 end $$;
-insert into auth.sessions (user_id) values ('00000000-0000-4000-8000-00000000000c'), ('00000000-0000-4000-8000-00000000000c'), ('00000000-0000-4000-8000-00000000000a');
+-- Supabase Auth gives each session its id (the column has no default).
+insert into auth.sessions (id, user_id) values (gen_random_uuid(), '00000000-0000-4000-8000-00000000000c'), (gen_random_uuid(), '00000000-0000-4000-8000-00000000000c'), (gen_random_uuid(), '00000000-0000-4000-8000-00000000000a');
 do $$ declare n int; begin
   n := public.fitx_admin_revoke_user_sessions('00000000-0000-4000-8000-00000000000b', '00000000-0000-4000-8000-00000000000c', 'lost phone');
   if n <> 2 then raise exception 'revoked % sessions', n; end if;

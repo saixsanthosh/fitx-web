@@ -1,7 +1,9 @@
 #!/bin/bash
-# Applies every migration in supabase/migrations to a throwaway local PostgreSQL database (with
-# stand-ins for what Supabase provides), runs the Phase 10 migrations a second time, and then the
-# Phase 10 checks. Nothing touches a real project. Needs PostgreSQL 15 or newer (initdb, pg_ctl, psql).
+# Applies every migration in supabase/migrations to a throwaway local PostgreSQL database (shaped like a
+# Supabase project by the shared stand-in, tests/support/supabase-stub.sql), runs the Phase 10 migrations
+# a second time, and then the Phase 10 checks. As in `npm test`, a migration that needs pg_cron is skipped
+# when this PostgreSQL lacks it. Nothing touches a real project. Needs PostgreSQL 15 or newer (initdb,
+# pg_ctl, psql).
 # Usage: admin/tests/database/run-database-checks.sh [port]     (default 54329)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -17,13 +19,21 @@ LC_ALL=C pg_ctl -D "$DATA" -o "-p $PORT -c listen_addresses=127.0.0.1 -c unix_so
 PSQL=(psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=1 -q)
 
 "${PSQL[@]}" -d postgres -c "create database fitx" >/dev/null
-"${PSQL[@]}" -d fitx -f "$HERE/supabase-stubs.sql" >/dev/null 2>"$WORK/stubs.log" || { cat "$WORK/stubs.log"; exit 1; }
+"${PSQL[@]}" -d fitx -f "$ROOT/tests/support/supabase-stub.sql" >/dev/null 2>"$WORK/stubs.log" || { cat "$WORK/stubs.log"; exit 1; }
+# Supabase has pg_cron; a plain PostgreSQL needs it installed and preloaded.
+cron=$("${PSQL[@]}" -d fitx -At -c "select count(*) from pg_available_extensions where name = 'pg_cron' and current_setting('shared_preload_libraries') ~ 'pg_cron'")
 count=0
+skipped=0
 for file in "$ROOT"/supabase/migrations/*.sql; do
+  if [ "$cron" = 0 ] && grep -qiE 'create[[:space:]]+extension[^;]*pg_cron' "$file"; then
+    echo "Skipped $(basename "$file"): needs pg_cron, which this PostgreSQL lacks."
+    skipped=$((skipped + 1))
+    continue
+  fi
   "${PSQL[@]}" -d fitx --single-transaction -f "$file" >/dev/null 2>"$WORK/last.log" || { echo "FAILED: $(basename "$file")"; cat "$WORK/last.log"; exit 1; }
   count=$((count + 1))
 done
-echo "All $count migrations applied."
+echo "All $count migrations applied ($skipped skipped)."
 for file in "$ROOT"/supabase/migrations/202611181800*.sql; do
   "${PSQL[@]}" -d fitx --single-transaction -f "$file" >/dev/null 2>"$WORK/last.log" || { echo "Re-run FAILED: $(basename "$file")"; cat "$WORK/last.log"; exit 1; }
 done
