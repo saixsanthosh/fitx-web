@@ -849,7 +849,9 @@ export default function WorkoutsPage() {
           </div>
           {!catalogCurated && <p className="mt-3 text-xs text-fitx-text-secondary">Equipment matching is approximate until FITX’s exercise catalogue update is applied.</p>}
           {(equipmentLoadFailed || programmeLoadFailed) && <p role="status" className="fitx-alert mt-3">
-            {equipmentLoadFailed && programmeLoadFailed ? "Your equipment lists and programme couldn’t be loaded" : equipmentLoadFailed ? "Your saved equipment lists couldn’t be loaded, so this shows starting lists" : "Your programme couldn’t be loaded"}. Saving and planning wait until they load, so nothing you saved is replaced.
+            {equipmentLoadFailed && programmeLoadFailed ? "Your equipment lists and programme couldn’t be loaded. Saving a list and planning wait until they load, so nothing you saved is replaced or planned twice."
+              : equipmentLoadFailed ? "Your saved equipment lists couldn’t be loaded, so this shows starting lists. Saving a list waits until they load, so the one you saved is not replaced."
+              : "Your programme couldn’t be loaded. Following or planning a programme waits until it loads, so no week is planned twice."}
             <button type="button" onClick={() => { setLoading(true); void load(); }} className="fitx-alert-action">Try again</button>
           </p>}
           <div className="mt-6">
