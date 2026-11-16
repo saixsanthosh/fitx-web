@@ -43,34 +43,23 @@ function variantsFor(theme: Theme, orientation: Orientation) {
 }
 
 /**
- * Rough downlink in Mbit/s: the Network Information API where it exists (Chrome/Android), else the
- * opening-frame image's own download (Safari/iOS has no such API; the image was fetched moments ago).
+ * Low-end hardware, or a connection the browser already knows is slow: start on the light cut.
+ * (Bandwidth itself is measured while the chosen cut buffers, see `bufferAhead`; the browser's own
+ * early `downlink` guess is too unreliable to pick a cut from.)
  */
-function downlinkMbps(posterPath: string): number | null {
-  const connection = (navigator as NavigatorHints).connection;
-  if (typeof connection?.downlink === "number" && connection.downlink > 0) return connection.downlink;
-  const entry = performance.getEntriesByType("resource").find((item) => item.name.endsWith(posterPath)) as PerformanceResourceTiming | undefined;
-  if (!entry || entry.transferSize < 20_000) return null; // cached or too small to measure
-  const ms = entry.responseEnd - entry.responseStart;
-  return ms > 0 ? (entry.transferSize * 8) / (ms * 1000) : null;
-}
-
-/** Low-end hardware or a slow connection: the light cut plays smoothly where the full one would stall. */
-function wantsLite(posterPath: string): boolean {
+function prefersLite(): boolean {
   const nav = navigator as NavigatorHints;
   const effective = nav.connection?.effectiveType;
   if (effective === "slow-2g" || effective === "2g" || effective === "3g") return true;
-  const mbps = downlinkMbps(posterPath);
-  if (mbps !== null && mbps < 3) return true;
   if (typeof nav.deviceMemory === "number" && nav.deviceMemory <= 3) return true;
   const android = /Android/i.test(nav.userAgent);
   return android && typeof nav.hardwareConcurrency === "number" && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 4;
 }
 
-/** The best cut this device can decode smoothly (Media Capabilities), else the light one. */
-async function chooseVariant(theme: Theme, orientation: Orientation): Promise<Variant> {
-  const { full, lite, poster } = variantsFor(theme, orientation);
-  if (wantsLite(poster)) return lite;
+/** The best cut this device can decode smoothly (Media Capabilities), plus the light fallback. */
+async function chooseVariants(theme: Theme, orientation: Orientation): Promise<{ first: Variant; lite: Variant }> {
+  const { full, lite } = variantsFor(theme, orientation);
+  if (prefersLite()) return { first: lite, lite };
   const probe = document.createElement("video");
   for (const variant of full) {
     if (probe.canPlayType(variant.type) === "") continue;
@@ -85,25 +74,43 @@ async function chooseVariant(theme: Theme, orientation: Orientation): Promise<Va
         continue;
       }
     }
-    return variant;
+    return { first: variant, lite };
   }
-  return lite;
+  return { first: lite, lite };
 }
 
-/** Resolves once the browser expects to play through without stalling, or after `capMs`. */
+type BufferResult = "ready" | "slow" | "timeout";
+
+/**
+ * Buffers ahead of playback. "ready" once the browser expects to play through; "slow" if media is
+ * arriving slower than ~1.25x real time (measured from ~1 s in, only once data flows), so playing
+ * this cut would stall; "timeout" after `capMs` (e.g. browsers that only fetch once playing).
+ */
 function bufferAhead(video: HTMLVideoElement, capMs: number) {
-  return new Promise<void>((resolve) => {
+  return new Promise<BufferResult>((resolve) => {
     if (video.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
-      resolve();
+      resolve("ready");
       return;
     }
-    const done = () => {
+    const started = performance.now();
+    let settled = false;
+    const settle = (result: BufferResult) => {
+      if (settled) return;
+      settled = true;
       window.clearTimeout(timer);
-      video.removeEventListener("canplaythrough", done);
-      resolve();
+      window.clearInterval(poll);
+      video.removeEventListener("canplaythrough", onEnough);
+      resolve(result);
     };
-    const timer = window.setTimeout(done, capMs);
-    video.addEventListener("canplaythrough", done);
+    const onEnough = () => settle("ready");
+    const timer = window.setTimeout(() => settle("timeout"), capMs);
+    const poll = window.setInterval(() => {
+      const elapsed = (performance.now() - started) / 1000;
+      if (elapsed < 1 || video.buffered.length === 0) return;
+      const ahead = video.buffered.end(video.buffered.length - 1);
+      if (ahead / elapsed < 1.25) settle("slow");
+    }, 250);
+    video.addEventListener("canplaythrough", onEnough);
   });
 }
 
@@ -178,15 +185,24 @@ export function FitxIntroVideo({ theme, onStage, onReady, onComplete, onUnsuppor
     video.playsInline = true;
 
     const orientation: Orientation = window.innerHeight > window.innerWidth ? "portrait" : "landscape";
-    void (async () => {
-      const variant = await chooseVariant(themeRef.current, orientation);
-      if (finished) return;
+    const load = (variant: Variant) => {
       video.dataset.variant = variant.src.split("/").pop();
       video.src = variant.src;
       video.load();
-      // A short head start so playback does not stall in its first seconds (the poster covers it).
-      await bufferAhead(video, 1500);
+    };
+    void (async () => {
+      const { first, lite } = await chooseVariants(themeRef.current, orientation);
       if (finished) return;
+      load(first);
+      // A short head start so the opening seconds never stall (the opening frame covers it). If the
+      // connection cannot keep up with this cut, switch to the light one before anything plays.
+      const result = await bufferAhead(video, 1800);
+      if (finished) return;
+      if (result === "slow" && first !== lite) {
+        load(lite);
+        await bufferAhead(video, 2500);
+        if (finished) return;
+      }
       try {
         await video.play();
       } catch {
