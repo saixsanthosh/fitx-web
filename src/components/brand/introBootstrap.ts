@@ -5,7 +5,8 @@
  *  - decides whether the intro plays (home page, first visit this tab, motion allowed) and marks
  *    `<html data-fitx-intro="pending" data-fitx-intro-theme="light|dark">`, which CSS turns into the
  *    full-screen overlay showing the film's first frame,
- *  - preloads that first-frame image for the current theme and orientation,
+ *  - preloads that first-frame image for the current theme and orientation, and starts buffering
+ *    the film itself (adopted by FitxIntroVideo) while the app's JavaScript loads,
  *  - keeps Skip/Escape working before React hydrates, and gives the page back if the app never
  *    starts the intro (e.g. its JavaScript failed to load).
  * Keep it tiny, dependency-free and ES5-safe: it blocks parsing while it runs.
@@ -28,16 +29,41 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
     var orientation = window.matchMedia("(orientation: portrait)").matches ? "portrait" : "landscape";
     root.setAttribute("data-fitx-intro-theme", theme);
     root.setAttribute("data-fitx-intro", "pending");
+    var base = "/brand/intro/fitx-intro-" + theme + "-" + orientation;
     var link = document.createElement("link");
     link.rel = "preload";
     link.as = "image";
-    link.href = "/brand/intro/fitx-intro-" + theme + "-" + orientation + ".webp";
+    link.href = base + ".webp";
     link.setAttribute("fetchpriority", "high");
     document.head.appendChild(link);
+    // Start fetching the film now, in parallel with the app's JavaScript (FitxIntroVideo adopts this
+    // element when it picks the same cut): low-end hardware gets the light cut, others 60 fps HEVC
+    // where supported, else 60 fps H.264.
+    try {
+      var nav = window.navigator;
+      var lite = (nav.deviceMemory && nav.deviceMemory <= 3) || (/Android/i.test(nav.userAgent) && nav.hardwareConcurrency > 0 && nav.hardwareConcurrency <= 4);
+      var video = document.createElement("video");
+      var hevc = video.canPlayType('video/mp4; codecs="hvc1.1.6.L123.B0"') !== "";
+      var cut = base + (lite ? "-30.mp4" : hevc ? "-60.hevc.mp4" : "-60.mp4");
+      video.muted = true;
+      video.setAttribute("muted", "");
+      video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.preload = "auto";
+      video.src = cut;
+      video.load();
+      window.__fitxIntroVideo = { el: video, src: cut };
+    } catch (e) {}
     var release = function (remember) {
       if (root.getAttribute("data-fitx-intro") !== "pending") return;
       root.removeAttribute("data-fitx-intro");
       if (remember) { try { window.sessionStorage.setItem("fitx-cinematic-seen", "1"); } catch (e) {} }
+      var early = window.__fitxIntroVideo;
+      if (early) {
+        window.__fitxIntroVideo = null;
+        early.el.removeAttribute("src");
+        early.el.load();
+      }
     };
     document.addEventListener("click", function (event) {
       var target = event.target;
