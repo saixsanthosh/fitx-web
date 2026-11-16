@@ -15,7 +15,6 @@ type Theme = "light" | "dark";
 type IntroSceneComponent = typeof import("./FitxIntroScene")["FitxIntroScene"];
 type DebugConfig = { freeze: FilmFreeze | null; image: string | null };
 
-const SESSION_KEY = "fitx-cinematic-seen";
 const REPLAY_EVENT = "fitx:intro:replay";
 /**
  * How long the logo may hold while the live film prepares before the intro switches to the
@@ -113,7 +112,10 @@ function readDebugConfig(): DebugConfig | null {
   return { freeze, image };
 }
 
-/** A session-once branded welcome layered over crawlable, server-rendered home content. */
+/**
+ * The branded welcome film, layered over the page. It plays when the head script marked it pending
+ * (once per account after its first sign-in, or `?intro=…`) and on Replay.
+ */
 export function CinematicIntro() {
   const [playback, setPlayback] = useState<Playback>("idle");
   const [stage, setStage] = useState(0);
@@ -241,12 +243,6 @@ export function CinematicIntro() {
     holdRef.current = false;
     setSource(chosen);
     setPlayback(film ? "loading" : "static");
-
-    try {
-      window.sessionStorage.setItem(SESSION_KEY, "1");
-    } catch {
-      // The intro still works; the root-level safety timer prevents a stuck overlay.
-    }
 
     if (film) readinessTimer.current = window.setTimeout(chosen === "live" ? switchToVideo : showStaticFallback, chosen === "live" ? LIVE_READY_TIMEOUT_MS : VIDEO_READY_TIMEOUT_MS);
   }, [showStaticFallback, switchToVideo]);

@@ -1,0 +1,40 @@
+/* Shown only while the head script sets <html data-fitx-loader="on|leaving">. */
+.loader { display: none; }
+
+:global(:root[data-fitx-loader]) .loader {
+  position: fixed;
+  inset: 0;
+  z-index: 990;
+  display: grid;
+  place-items: center;
+  background: var(--fitx-bg);
+  color: var(--fitx-text);
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+
+:global(:root[data-fitx-loader="leaving"]) .loader { opacity: 0; pointer-events: none; }
+
+.lockup { display: grid; justify-items: center; gap: 14px; }
+
+.tagline {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  color: var(--fitx-text-secondary);
+  opacity: 0;
+  animation: loader-fade 260ms ease-out 360ms both;
+}
+
+/* The shared mark formation, compressed to fit the loader's half second. */
+.lockup :global(.fitx-mark__path--cap) { animation-duration: 300ms !important; animation-delay: 0ms !important; }
+.lockup :global(.fitx-mark__path--spine) { animation-duration: 300ms !important; animation-delay: 60ms !important; }
+.lockup :global(.fitx-mark__path--crossbar) { animation-duration: 220ms !important; animation-delay: 120ms !important; }
+.lockup :global(.fitx-mark__path--x) { animation-duration: 320ms !important; animation-delay: 180ms !important; }
+.lockup :global(.fitx-wordmark) { animation-duration: 260ms !important; animation-delay: 300ms !important; }
+
+@keyframes loader-fade { to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .loader { display: none !important; }
+}

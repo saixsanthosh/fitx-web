@@ -1,0 +1,6 @@
+/* The head script sets <html data-fitx-auth="1"> when the fitx_auth cookie says a session exists. */
+.signedOut { display: inline-flex; align-items: center; gap: .25rem; }
+.signedIn { display: none; }
+:global(:root[data-fitx-auth="1"]) .signedOut { display: none; }
+:global(:root[data-fitx-auth="1"]) .signedIn { display: inline-flex; align-items: center; }
+@media (min-width: 640px) { .signedOut { gap: .5rem; } }
