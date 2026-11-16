@@ -25,6 +25,11 @@ export function SettingsData() {
   );
 }
 
+/** A section label inside a sentence: "Food log" becomes "food log", "AI coach messages" keeps its "AI". */
+function inSentence(label: string) {
+  return /^[A-Z][a-z]/.test(label) ? label[0].toLowerCase() + label.slice(1) : label;
+}
+
 function DownloadData() {
   const [state, setState] = useState<{ kind: "idle" | "working" | "done" | "error"; text: string }>({ kind: "idle", text: "" });
 
@@ -36,7 +41,7 @@ function DownloadData() {
     if (!auth.user) return setState({ kind: "error", text: "Your session has ended. Sign in again to download your data." });
     try {
       const data = await exportAccountData(supabase, auth.user, {
-        onProgress: ({ done, total, label }) => setState({ kind: "working", text: `Collecting ${label.toLowerCase()} (${done + 1} of ${total})…` }),
+        onProgress: ({ done, total, label }) => setState({ kind: "working", text: `Collecting ${inSentence(label)} (${done + 1} of ${total})…` }),
       });
       const name = exportFileName();
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
@@ -50,7 +55,7 @@ function DownloadData() {
       const records = countRecords(data);
       setState({ kind: "done", text: `Downloaded ${name}: ${records.toLocaleString("en-IN")} ${records === 1 ? "record" : "records"}${data.files.length ? ` and a list of ${data.files.length} uploaded ${data.files.length === 1 ? "image" : "images"}` : ""}.` });
     } catch (error) {
-      const section = error instanceof ExportError ? error.section.toLowerCase() : "your data";
+      const section = error instanceof ExportError ? inSentence(error.section) : "your data";
       setState({ kind: "error", text: `We couldn't read ${section}, so nothing was downloaded. Check your connection and try again.` });
     }
   }
@@ -59,7 +64,7 @@ function DownloadData() {
     <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <h3 className="text-sm font-semibold text-fitx-text">Download my data</h3>
-        <p className="mt-1 max-w-prose text-sm leading-6 text-fitx-text-secondary">A JSON file with your profile, preferences, workouts, food log, weigh-ins, goals and planner, plus the names of images you uploaded.</p>
+        <p className="mt-1 max-w-prose text-sm leading-6 text-fitx-text-secondary">A JSON file with your profile, preferences, workouts, activities, food log, weigh-ins, goals, planner, AI coach conversations and help requests, plus the names of images you uploaded.</p>
         {state.text && (
           <p role={state.kind === "error" ? "alert" : "status"} className={`mt-2 text-sm ${state.kind === "error" ? "text-fitx-danger" : state.kind === "done" ? "text-fitx-success" : "text-fitx-text-secondary"}`}>{state.text}</p>
         )}

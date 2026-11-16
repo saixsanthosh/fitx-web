@@ -7,10 +7,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * exist yet (a feature whose migration is not applied) is listed in `notes` instead of failing the
  * export; any other read error stops the export so a partial file is never presented as complete.
  *
- * New features that store per-user rows add their table to EXPORT_TABLES.
+ * New features that store per-user rows add their table to EXPORT_TABLES. tests/account/export-schema.test.ts
+ * checks every entry against the migrations, and fails when a per-user table is neither exported nor
+ * listed there as deliberately left out.
  */
 
-export type ExportTable = { table: string; label: string; owner: "user_id" | "id"; order: string };
+/**
+ * One table to include.
+ * - `owner`: the column holding the account id ("id" when the row is the account itself).
+ * - `order`: a column, or columns, unique among the owner's rows, so paging never skips or repeats a row.
+ * - `columns`: the select list, for a table that lets members read only some columns (default "*").
+ * A wrong name is a database error that stops the whole export.
+ */
+export type ExportTable = { table: string; label: string; owner: "user_id" | "id"; order: string | readonly string[]; columns?: string };
 
 export const EXPORT_TABLES: readonly ExportTable[] = [
   { table: "profiles", label: "Profile", owner: "id", order: "id" },
@@ -18,16 +27,39 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   { table: "body_metrics", label: "Weigh-ins and body measurements", owner: "user_id", order: "id" },
   { table: "meals", label: "Food log", owner: "user_id", order: "id" },
   { table: "custom_foods", label: "Custom foods", owner: "user_id", order: "id" },
+  { table: "meal_templates", label: "Saved meals and routines", owner: "user_id", order: "id" },
+  { table: "meal_template_items", label: "Foods in saved meals and routines", owner: "user_id", order: "id" },
+  { table: "nutrition_targets", label: "Daily nutrition targets", owner: "user_id", order: "user_id" },
   { table: "water_logs", label: "Water log", owner: "user_id", order: "id" },
+  { table: "user_equipment_profiles", label: "Home and gym equipment", owner: "user_id", order: "context" },
+  { table: "programme_enrolments", label: "Training programmes you joined", owner: "user_id", order: "id" },
   { table: "workout_plans", label: "Workout plans", owner: "user_id", order: "id" },
   { table: "workout_plan_exercises", label: "Exercises in workout plans", owner: "user_id", order: "id" },
   { table: "workout_sessions", label: "Workout sessions", owner: "user_id", order: "id" },
   { table: "workout_session_exercises", label: "Exercises in workout sessions", owner: "user_id", order: "id" },
   { table: "workout_sets", label: "Logged sets", owner: "user_id", order: "id" },
   { table: "personal_records", label: "Personal records", owner: "user_id", order: "id" },
+  { table: "activities", label: "Walks, runs and rides", owner: "user_id", order: "id" },
+  { table: "activity_track_chunks", label: "GPS points of your activities", owner: "user_id", order: ["activity_id", "seq"] },
   { table: "goals", label: "Goals", owner: "user_id", order: "id" },
   { table: "goal_progress_entries", label: "Goal progress", owner: "user_id", order: "id" },
   { table: "planner_events", label: "Planner events", owner: "user_id", order: "id" },
+  { table: "ai_coach_consents", label: "AI coach consent", owner: "user_id", order: "user_id" },
+  { table: "ai_coach_threads", label: "AI coach conversations", owner: "user_id", order: "id" },
+  { table: "ai_coach_messages", label: "AI coach messages", owner: "user_id", order: "id" },
+  { table: "ai_coach_actions", label: "AI coach suggestions", owner: "user_id", order: "id" },
+  // Members may read only these columns of their requests; each request carries its messages.
+  {
+    table: "support_requests",
+    label: "Help requests and replies",
+    owner: "user_id",
+    order: "id",
+    columns: "id,user_id,category,subject,body,status,created_at,updated_at,last_message_at,support_messages(id,author_kind,body,created_at)",
+  },
+  { table: "announcement_dismissals", label: "Dismissed announcements", owner: "user_id", order: "announcement_id" },
+  { table: "billing_subscriptions", label: "Subscriptions", owner: "user_id", order: "id" },
+  { table: "billing_payments", label: "Payments", owner: "user_id", order: "id" },
+  { table: "billing_refunds", label: "Refunds", owner: "user_id", order: "id" },
   { table: "workouts", label: "Workouts (earlier version of FITX)", owner: "user_id", order: "id" },
   { table: "tasks", label: "Tasks (earlier version of FITX)", owner: "user_id", order: "id" },
   { table: "habits", label: "Habits (earlier version of FITX)", owner: "user_id", order: "id" },
@@ -79,13 +111,11 @@ type AccountUser = {
 
 async function readTable(supabase: SupabaseClient, spec: ExportTable, userId: string) {
   const rows: Record<string, unknown>[] = [];
+  const order = typeof spec.order === "string" ? [spec.order] : spec.order;
   for (let from = 0; ; from += EXPORT_PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from(spec.table)
-      .select("*")
-      .eq(spec.owner, userId)
-      .order(spec.order, { ascending: true })
-      .range(from, from + EXPORT_PAGE_SIZE - 1);
+    let query = supabase.from(spec.table).select(spec.columns ?? "*").eq(spec.owner, userId);
+    for (const column of order) query = query.order(column, { ascending: true });
+    const { data, error } = await query.range(from, from + EXPORT_PAGE_SIZE - 1);
     if (error) return { rows, error };
     const page = (data ?? []) as Record<string, unknown>[];
     rows.push(...page);

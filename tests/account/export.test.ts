@@ -19,8 +19,11 @@ beforeEach(() => {
   ];
   fake.files[`fitx-user-media/${USER.id}`] = [
     { name: "avatar-1.jpg", id: "f1", metadata: { size: 2048, mimetype: "image/jpeg" }, updated_at: "2026-11-01T00:00:00Z" },
+    { name: "foods", id: null },
     { name: "progress", id: null },
   ];
+  // Photos of the user's own foods (Nutrition), under <uid>/foods/.
+  fake.files[`fitx-user-media/${USER.id}/foods`] = [{ name: "dal-1.webp", id: "f3", metadata: { size: 640, mimetype: "image/webp" } }];
   fake.files[`fitx-user-media/${USER.id}/progress`] = [{ name: "front.webp", id: "f2", metadata: { size: 900, mimetype: "image/webp" } }];
 });
 
@@ -44,9 +47,26 @@ describe("data export", () => {
     const data = await exportAccountData(client(), USER);
     assert.deepEqual(data.files, [
       { path: `${USER.id}/avatar-1.jpg`, size: 2048, contentType: "image/jpeg", updatedAt: "2026-11-01T00:00:00Z" },
+      { path: `${USER.id}/foods/dal-1.webp`, size: 640, contentType: "image/webp", updatedAt: null },
       { path: `${USER.id}/progress/front.webp`, size: 900, contentType: "image/webp", updatedAt: null },
     ]);
     assert.ok(data.notes.some((note) => note.includes("listed by name only")));
+  });
+
+  test("pages a table with a two-column key in a stable order", async () => {
+    fake.tables.activity_track_chunks = [
+      { activity_id: "b", seq: 0, user_id: USER.id }, { activity_id: "a", seq: 1, user_id: USER.id },
+      { activity_id: "a", seq: 0, user_id: USER.id }, { activity_id: "a", seq: 0, user_id: "someone-else" },
+    ];
+    const data = await exportAccountData(client(), USER);
+    assert.deepEqual(data.tables.activity_track_chunks.map((row) => `${row.activity_id}${row.seq}`), ["a0", "a1", "b0"]);
+  });
+
+  test("reads only the columns members may see where a table grants some", async () => {
+    await exportAccountData(client(), USER);
+    const support = fake.calls.find((call) => call.table === "support_requests");
+    assert.match(support?.columns ?? "", /^id,user_id,.*support_messages\(id,author_kind,body,created_at\)$/);
+    assert.doesNotMatch(support?.columns ?? "", /priority|assigned_to|page_path/);
   });
 
   test("a table that doesn't exist yet becomes a note; other errors stop the export", async () => {
