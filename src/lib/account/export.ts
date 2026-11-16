@@ -117,7 +117,8 @@ async function readTable(supabase: SupabaseClient, spec: ExportTable, userId: st
     for (const column of order) query = query.order(column, { ascending: true });
     const { data, error } = await query.range(from, from + EXPORT_PAGE_SIZE - 1);
     if (error) return { rows, error };
-    const page = (data ?? []) as Record<string, unknown>[];
+    // The select list is a runtime string, so supabase-js cannot type the rows; they are plain JSON.
+    const page = (data ?? []) as unknown as Record<string, unknown>[];
     rows.push(...page);
     if (page.length < EXPORT_PAGE_SIZE) return { rows, error: null };
   }
