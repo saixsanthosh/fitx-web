@@ -1,5 +1,5 @@
 import { formatAmount } from "@/lib/domain/food-query";
-import type { FoodPortion } from "@/lib/domain/food-query";
+import type { FoodPortion, FoodUnit } from "@/lib/domain/food-query";
 import type { FoodMacros } from "@/lib/domain/nutrition";
 import type { FoodResult } from "@/lib/food/types";
 import { PortionEstimateBadge } from "./FoodBadges";
@@ -8,6 +8,8 @@ import styles from "./FoodUi.module.css";
 export interface AmountPrompt {
   message: string;
   actions: Array<{ label: string; run: () => void }>;
+  /** What was typed ("2" small eggs), so picking a measure of that kind under Unit keeps the count. */
+  typed?: { amount: number; unit: FoodUnit | null };
 }
 
 interface PortionPickerProps {

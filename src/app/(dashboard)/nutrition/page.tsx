@@ -20,7 +20,7 @@ import { TargetsEditor } from "@/components/nutrition/TargetsEditor";
 import ui from "@/components/nutrition/FoodUi.module.css";
 import { createClient } from "@/lib/supabase/client";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
-import { askForGramsMessage, describePortion, describeTypedAmount, formatAmount, parseFoodQuery, resolvePortion } from "@/lib/domain/food-query";
+import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, formatAmount, parseFoodQuery, resolvePortion } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { estimateNutritionTargets, goalPercent, goalProgress, scaleMacros, sumMacros } from "@/lib/domain/nutrition";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
@@ -168,13 +168,13 @@ export default function NutritionPage() {
   }
 
   /**
-   * Keeps the weight when the unit changes, so "100" g does not become 100 servings: 114 g of idli
-   * becomes 3 × 38 g, and 3 idlis become 114 g. With no amount yet, a portion starts at 1 and grams at 100.
+   * Another unit for the same food (amountAfterUnitChange): two sizes of the same piece keep the count (2 large
+   * samosas become 2 small ones); grams and other measures keep the weight, so "100" g does not become 100
+   * servings. After a question about the amount, a measure of the kind typed gets the typed count.
    */
   function changeUnit(next: string) {
     const portion = next.startsWith("portion:") ? portionOptions[Number(next.slice("portion:".length))] ?? null : null;
-    const converted = grams > 0 ? (portion ? grams / portion.grams : grams) : Number.NaN;
-    setAmount(converted >= 0.01 ? formatAmount(converted) : portion ? "1" : "100");
+    setAmount(formatAmount(amountAfterUnitChange(amountNumber, chosenPortion, portion, amountPrompt?.typed ?? null)));
     setUnitKey(next);
     setAmountPrompt(null);
   }
@@ -228,7 +228,7 @@ export default function NutritionPage() {
         }
       }
       const measures = portions.length && resolution.reason !== "no-size-weight" && resolution.unit !== "spoon" ? " You can also pick one of this food's measures under Unit." : "";
-      setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${measures}`, actions });
+      setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${measures}`, actions, typed: { amount: resolution.amount, unit: resolution.unit } });
     } else {
       // Nothing typed: one of the food's own pieces or servings when it has one, otherwise 100 g.
       const index = portions.findIndex((portion) => portion.countDefault);
