@@ -70,7 +70,11 @@ create policy announcement_dismissals_own
   with check ((select auth.uid()) = user_id);
 
 -- Admin: create (p_id null) or edit an announcement. A new announcement starts as a draft; editing
--- keeps its status.
+-- keeps its status. A published announcement changes for signed-in people as soon as it is saved, so
+-- editing one needs p_confirm_live (55000 otherwise). The audit row records every field before and
+-- after; the message only as its length and a fingerprint, so a changed text is visible without
+-- copying it into the log.
+drop function if exists public.fitx_admin_save_announcement(uuid, uuid, text, text, text, text, text, timestamptz, timestamptz);
 create or replace function public.fitx_admin_save_announcement(
   p_actor_id uuid,
   p_id uuid,
@@ -80,7 +84,8 @@ create or replace function public.fitx_admin_save_announcement(
   p_link_url text,
   p_link_label text,
   p_starts_at timestamptz,
-  p_ends_at timestamptz
+  p_ends_at timestamptz,
+  p_confirm_live boolean default false
 )
 returns uuid
 language plpgsql
@@ -88,8 +93,9 @@ security definer
 set search_path = ''
 as $function$
 declare
-  saved_id uuid;
   previous public.announcements%rowtype;
+  saved public.announcements%rowtype;
+  hidden_fields constant text[] := array['id', 'body', 'created_by', 'updated_by', 'created_at', 'updated_at'];
 begin
   if not public.fitx_admin_actor_can(p_actor_id, 'announcements.manage') then
     raise exception using errcode = '42501', message = 'Announcement permission required';
@@ -99,16 +105,20 @@ begin
     insert into public.announcements (title, body, tone, link_url, link_label, starts_at, ends_at, created_by, updated_by)
     values (btrim(p_title), btrim(p_body), coalesce(p_tone, 'info'), nullif(btrim(coalesce(p_link_url, '')), ''),
             nullif(btrim(coalesce(p_link_label, '')), ''), p_starts_at, p_ends_at, p_actor_id, p_actor_id)
-    returning id into saved_id;
+    returning * into saved;
     insert into public.fitx_admin_audit_logs (actor_id, action, resource_type, resource_id, details)
-    values (p_actor_id, 'announcement_created', 'announcement', saved_id::text,
-      jsonb_build_object('title', btrim(p_title), 'starts_at', p_starts_at, 'ends_at', p_ends_at));
-    return saved_id;
+    values (p_actor_id, 'announcement_created', 'announcement', saved.id::text,
+      jsonb_build_object('after', (to_jsonb(saved) - hidden_fields)
+        || jsonb_build_object('body_characters', char_length(saved.body), 'body_fingerprint', left(md5(saved.body), 12))));
+    return saved.id;
   end if;
 
   select * into previous from public.announcements where id = p_id for update;
   if not found then
     raise exception using errcode = 'P0002', message = 'Announcement not found';
+  end if;
+  if previous.status = 'published' and not coalesce(p_confirm_live, false) then
+    raise exception using errcode = '55000', message = 'Saving a published announcement needs confirmation';
   end if;
   update public.announcements
   set title = btrim(p_title),
@@ -120,12 +130,15 @@ begin
       ends_at = p_ends_at,
       updated_by = p_actor_id,
       updated_at = now()
-  where id = p_id;
+  where id = p_id
+  returning * into saved;
   insert into public.fitx_admin_audit_logs (actor_id, action, resource_type, resource_id, details)
   values (p_actor_id, 'announcement_updated', 'announcement', p_id::text,
     jsonb_build_object(
-      'before', jsonb_build_object('title', previous.title, 'starts_at', previous.starts_at, 'ends_at', previous.ends_at),
-      'after', jsonb_build_object('title', btrim(p_title), 'starts_at', p_starts_at, 'ends_at', p_ends_at)
+      'before', (to_jsonb(previous) - hidden_fields)
+        || jsonb_build_object('body_characters', char_length(previous.body), 'body_fingerprint', left(md5(previous.body), 12)),
+      'after', (to_jsonb(saved) - hidden_fields)
+        || jsonb_build_object('body_characters', char_length(saved.body), 'body_fingerprint', left(md5(saved.body), 12))
     ));
   return p_id;
 end;
@@ -184,9 +197,9 @@ as $function$
   group by d.announcement_id;
 $function$;
 
-revoke all on function public.fitx_admin_save_announcement(uuid, uuid, text, text, text, text, text, timestamptz, timestamptz) from public, anon, authenticated;
+revoke all on function public.fitx_admin_save_announcement(uuid, uuid, text, text, text, text, text, timestamptz, timestamptz, boolean) from public, anon, authenticated;
 revoke all on function public.fitx_admin_set_announcement_status(uuid, uuid, text) from public, anon, authenticated;
 revoke all on function public.fitx_admin_announcement_dismissals(uuid[]) from public, anon, authenticated;
-grant execute on function public.fitx_admin_save_announcement(uuid, uuid, text, text, text, text, text, timestamptz, timestamptz) to service_role;
+grant execute on function public.fitx_admin_save_announcement(uuid, uuid, text, text, text, text, text, timestamptz, timestamptz, boolean) to service_role;
 grant execute on function public.fitx_admin_set_announcement_status(uuid, uuid, text) to service_role;
 grant execute on function public.fitx_admin_announcement_dismissals(uuid[]) to service_role;

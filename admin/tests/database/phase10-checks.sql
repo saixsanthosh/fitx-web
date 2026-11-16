@@ -90,8 +90,15 @@ do $$ declare log_id bigint; actor uuid; begin
   log_id := public.fitx_admin_log_event('00000000-0000-4000-8000-000000000010', 'user_viewed', 'user', 'x', '{"note":"temp"}');
   delete from auth.users where id = '00000000-0000-4000-8000-000000000010';
   select actor_id into actor from public.fitx_admin_audit_logs l where l.id = log_id;
-  if actor is not null then raise exception 'deleting the account did not clear actor_id'; end if;
+  if actor is distinct from '00000000-0000-4000-8000-000000000010' then raise exception 'deleting the account changed the audit actor to %', actor; end if;
   if (select count(*) from public.fitx_admin_audit_logs l where l.id = log_id) <> 1 then raise exception 'the audit row disappeared'; end if;
+  begin
+    update public.fitx_admin_audit_logs set actor_id = null where id = log_id;
+    raise exception 'the owner could clear an audit actor';
+  exception when insufficient_privilege then null; end;
+  if exists (select 1 from pg_constraint where conrelid = 'public.fitx_admin_audit_logs'::regclass and contype = 'f') then
+    raise exception 'the audit log still has a foreign key';
+  end if;
 end $$;
 do $$ begin perform public.fitx_admin_log_event(null, 'Bad Action', 'user'); raise exception 'bad action accepted'; exception when sqlstate '22023' then null; end $$;
 do $$ begin perform public.fitx_admin_log_event(null, 'user_viewed', 'user', null, '[1,2]'); raise exception 'array details accepted'; exception when sqlstate '22023' then null; end $$;
@@ -212,6 +219,26 @@ do $$ declare rid uuid := current_setting('fitx.first_request')::uuid; n int; be
 end $$;
 reset role;
 \echo ok staff replies and updates are audited; assignees must be support members
+-- A Details save from a page loaded before the request changed writes nothing (40001).
+do $$ declare rid uuid := current_setting('fitx.first_request')::uuid; seen timestamptz; s text; begin
+  select updated_at into seen from public.support_requests where id = rid;
+  perform public.fitx_admin_support_update('00000000-0000-4000-8000-00000000000b', rid, 'in_progress', 'normal', '00000000-0000-4000-8000-00000000000b', seen);
+  begin
+    perform public.fitx_admin_support_update('00000000-0000-4000-8000-00000000000b', rid, 'waiting_on_user', 'low', '00000000-0000-4000-8000-00000000000b', seen);
+    raise exception 'a save from a stale page was accepted';
+  exception when sqlstate '40001' then null; end;
+  select status into s from public.support_requests where id = rid;
+  if s <> 'in_progress' then raise exception 'the stale save changed the status to %', s; end if;
+end $$;
+-- An unchanged assignee who no longer qualifies is kept when other details are saved.
+do $$ declare rid uuid := current_setting('fitx.first_request')::uuid; a uuid; begin
+  update public.fitx_admin_members set is_active = false where user_id = '00000000-0000-4000-8000-00000000000b';
+  perform public.fitx_admin_support_update('00000000-0000-4000-8000-00000000000a', rid, 'in_progress', 'high', '00000000-0000-4000-8000-00000000000b');
+  select assigned_to into a from public.support_requests where id = rid;
+  if a is distinct from '00000000-0000-4000-8000-00000000000b' then raise exception 'the unchanged assignee was dropped'; end if;
+  update public.fitx_admin_members set is_active = true where user_id = '00000000-0000-4000-8000-00000000000b';
+end $$;
+\echo ok stale Details saves are refused; an unchanged assignee is kept
 
 -- Announcements -------------------------------------------------------------------------------
 do $$ declare aid uuid; begin
@@ -251,6 +278,23 @@ do $$ declare n bigint; a text; begin
   select string_agg(action, ',' order by id) into a from public.fitx_admin_audit_logs where resource_type = 'announcement';
   if a <> 'announcement_created,announcement_published' then raise exception 'announcement audit = %', a; end if;
 end $$;
+-- Editing a published announcement needs the confirmation, and the audit row shows what changed
+-- (the message only as its length and a fingerprint).
+do $$ declare aid uuid := current_setting('fitx.announcement')::uuid; d jsonb; begin
+  begin
+    perform public.fitx_admin_save_announcement('00000000-0000-4000-8000-00000000000a', aid, 'New plans', 'Try the new programmes today.', 'success', 'https://fitnessx.vercel.app/blog', 'Read more', null, null);
+    raise exception 'a published announcement was edited without confirmation';
+  exception when sqlstate '55000' then null; end;
+  perform public.fitx_admin_save_announcement('00000000-0000-4000-8000-00000000000a', aid, 'New plans', 'Try the new programmes today.', 'success', 'https://fitnessx.vercel.app/blog', 'Read more', null, null, true);
+  select details into d from public.fitx_admin_audit_logs where action = 'announcement_updated' order by id desc limit 1;
+  if d -> 'before' ->> 'link_url' <> '/workouts' or d -> 'after' ->> 'link_url' <> 'https://fitnessx.vercel.app/blog' then raise exception 'link change not audited: %', d; end if;
+  if (d -> 'after' ->> 'body_characters')::int <> 29 or d -> 'before' ->> 'body_fingerprint' = d -> 'after' ->> 'body_fingerprint' then raise exception 'message change not audited: %', d; end if;
+  if d -> 'after' ? 'body' or d -> 'before' ? 'body' then raise exception 'the audit row copied the message'; end if;
+  if d -> 'after' ->> 'status' <> 'published' then raise exception 'status missing from the audit row: %', d; end if;
+  select details into d from public.fitx_admin_audit_logs where action = 'announcement_created' order by id desc limit 1;
+  if d -> 'after' ->> 'tone' <> 'success' or d -> 'after' ->> 'link_label' <> 'Open workouts' then raise exception 'created audit row = %', d; end if;
+end $$;
+\echo ok editing a live announcement needs confirmation; edits are audited field by field
 set role anon;
 do $$ begin perform 1 from public.announcements; raise exception 'anon can read announcements'; exception when insufficient_privilege then null; end $$;
 do $$ begin perform public.fitx_submit_support_request('other', 'Anon', 'Anonymous request body'); raise exception 'anon can submit'; exception when insufficient_privilege then null; end $$;

@@ -1,10 +1,11 @@
 -- FITX Admin control plane: membership, audit log and the first privileged functions.
 --
--- This is the same schema as admin/supabase/migrations/20261116000000_fitx_admin_control_plane.sql,
--- brought into the root migration history. It is written to be safe whether or not that file was
--- already applied: tables are created only when missing, policies are recreated, and functions are
--- replaced with the same definitions. It seeds no Admin member. The migrations after this one
--- (20261118180001 onwards) extend it for Phase 10.
+-- This replaces the draft that used to live in admin/supabase/migrations (20261116000000, marked
+-- "prepared for review only"; removed, so nobody applies it after 20261118180001 and brings back its
+-- two-role functions). It is written to be safe whether or not that draft was ever applied by hand:
+-- tables are created only when missing, policies are recreated, the overview function is replaced,
+-- and the two functions that 20261118180001 replaces are created only when missing. It seeds no
+-- Admin member. The migrations after this one (20261118180001 onwards) extend it for Phase 10.
 
 create table if not exists public.fitx_admin_members (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -27,9 +28,11 @@ create policy fitx_admin_members_read_self
   to authenticated
   using ((select auth.uid()) = user_id);
 
+-- actor_id has no foreign key: deleting an account must never change the audit log, so its rows keep
+-- the account ID. fitx_admin_log_event (20261118180002) checks the account exists when a row is written.
 create table if not exists public.fitx_admin_audit_logs (
   id bigint generated always as identity primary key,
-  actor_id uuid references auth.users(id) on delete set null,
+  actor_id uuid,
   action text not null check (char_length(action) between 1 and 120),
   resource_type text not null check (char_length(resource_type) between 1 and 80),
   resource_id text,
