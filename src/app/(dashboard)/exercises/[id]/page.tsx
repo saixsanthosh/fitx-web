@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Info } from "lucide-react";
+import { ArrowLeft, ArrowRight, Info, ScanLine } from "lucide-react";
 import { useParams } from "next/navigation";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
@@ -10,6 +10,7 @@ import { ExerciseDemoPlayer } from "@/components/exercises/ExerciseDemoPlayer";
 import { exerciseMediaQuery, mediaRowsFrom } from "@/components/exercises/media-loader";
 import { rememberExercise } from "@/lib/domain/exercise-preferences";
 import { columnList, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { cameraRuleFor } from "@/lib/form-rules/catalog";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import { CATALOG_BASE_COLUMNS, CATALOG_V2_COLUMNS, toCatalogExercise, type CatalogExercise, type CatalogRow } from "@/lib/training/catalog";
 import { equipmentFor, loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
@@ -91,11 +92,16 @@ export default function ExerciseDetailPage() {
   const { exercise, description, instructions, attribution, media } = current.detail;
   const currentExtras = extras?.id === id ? extras : null;
   const timed = exercise.prescription_type === "time";
+  // The camera form coach counts six bodyweight movements; this one may be one of them.
+  const cameraRule = cameraRuleFor({ id: exercise.id, name: exercise.name });
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 sm:space-y-6">
       <Link href="/exercises" className="inline-flex min-h-10 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} />Exercise library</Link>
-      <PageHeading title={exercise.name} description={description || undefined} actions={<Link href={`/workouts?exercise=${encodeURIComponent(exercise.id)}`} className="fitx-button">Add to a workout<ArrowRight size={15} /></Link>} />
+      <PageHeading title={exercise.name} description={description || undefined} actions={<div className="flex flex-wrap gap-2">
+        {cameraRule && <Link href={`/form-coach?exercise=${encodeURIComponent(cameraRule.id)}`} className="fitx-button fitx-button-secondary"><ScanLine size={15} aria-hidden="true" />Practise with camera</Link>}
+        <Link href={`/workouts?exercise=${encodeURIComponent(exercise.id)}`} className="fitx-button">Add to a workout<ArrowRight size={15} /></Link>
+      </div>} />
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,.85fr)] lg:gap-5">
         <ExerciseDemoPlayer key={exercise.id} media={media} name={exercise.name} />
