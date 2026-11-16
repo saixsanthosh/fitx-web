@@ -22,6 +22,8 @@ const YEARLY = "plan_TestYearly001";
 const MEMBER: TestUser = { id: "11111111-1111-4111-8111-111111111111", email: "member@example.test", name: "Test Member" };
 const SECOND: TestUser = { id: "22222222-2222-4222-8222-222222222222", email: "second@example.test" };
 const STRANGER: TestUser = { id: "33333333-3333-4333-8333-333333333333", email: "stranger@example.test" };
+const THIRD: TestUser = { id: "44444444-4444-4444-8444-444444444444", email: "third@example.test" };
+const FOURTH: TestUser = { id: "66666666-6666-4666-8666-666666666666", email: "fourth@example.test" };
 
 type AppRequest = InstanceType<typeof import("next/server").NextRequest>;
 type Route = { POST?: (request: AppRequest) => Promise<Response>; GET?: (request: AppRequest) => Promise<Response> };
@@ -43,7 +45,7 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     razorpay = await new FakeRazorpay(KEY_ID, KEY_SECRET).start();
     razorpay.addPlan(MONTHLY, 19900, "monthly");
     razorpay.addPlan(YEARLY, 199900, "yearly");
-    for (const user of [MEMBER, SECOND, STRANGER]) await addUser(db, user.id, user.email);
+    for (const user of [MEMBER, SECOND, STRANGER, THIRD, FOURTH]) await addUser(db, user.id, user.email);
     await addPlan(db, { code: "premium-monthly", name: "Premium monthly", amount: 19900, period: "monthly", testPlanId: MONTHLY });
     await addPlan(db, { code: "premium-yearly", name: "Premium yearly", amount: 199900, period: "yearly", testPlanId: YEARLY });
 
@@ -56,7 +58,7 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
       RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET,
       RAZORPAY_API_BASE: razorpay.url,
       CRON_SECRET,
-      BILLING_TEST_EMAILS: "member@example.test, second@example.test",
+      BILLING_TEST_EMAILS: "member@example.test, second@example.test, third@example.test, fourth@example.test",
     });
     delete process.env.VERCEL_ENV;
     ({ NextRequest } = await import("next/server"));
@@ -98,6 +100,24 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
       `select status, abandoned_at is not null as abandoned, cancel_requested_at is not null as requested, paid_until from public.billing_subscriptions where provider_subscription_id = ${lit(subscriptionId)}`,
     );
   const eventCount = (eventId: string) => db.value<number>(`select count(*) from public.billing_provider_events where event_id = ${lit(eventId)}`);
+  const cancel = (user: TestUser) => call(routes.cancel, "POST", appRequest("/api/billing/cancel", { user, method: "POST" }));
+  const PLAN_IDS = { "premium-monthly": MONTHLY, "premium-yearly": YEARLY } as const;
+  const PRICES = { "premium-monthly": 19900, "premium-yearly": 199900 } as const;
+
+  /** Checkout for `plan`, then Razorpay activates it and its signed subscription.charged webhook arrives. */
+  async function payFor(user: TestUser, plan: keyof typeof PLAN_IDS, paymentId: string) {
+    const started = await checkout(user, plan);
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+    const subscriptionId = String((started.body.checkout as Record<string, unknown>).subscriptionId);
+    const cycle = { status: "active", current_start: PERIOD_START, current_end: PERIOD_END, charge_at: PERIOD_END, paid_count: 1 };
+    razorpay.subscriptions.set(subscriptionId, { ...razorpay.subscriptions.get(subscriptionId)!, ...cycle });
+    const charged = webhookBody("subscription.charged", {
+      subscription: subscriptionEntity({ id: subscriptionId, plan_id: PLAN_IDS[plan], ...cycle, remaining_count: 119 }),
+      payment: paymentEntity({ id: paymentId, amount: PRICES[plan], status: "captured" }),
+    });
+    assert.deepEqual((await deliver(charged, { eventId: `evt_${paymentId}` })).body, { outcome: "applied" });
+    return subscriptionId;
+  }
 
   test("checkout needs a signed-in account and a request from FITX itself", async () => {
     assert.equal((await checkout(undefined, "premium-monthly")).status, 401);
@@ -260,19 +280,59 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     assert.equal((await call(routes.status, "GET", appRequest("/api/billing/status"))).status, 401);
   });
 
+  test("a cancel Razorpay refuses is reported as not cancelled, and nothing changes", async () => {
+    // Razorpay answers 400 while another change to the subscription is in progress; it still renews.
+    razorpay.failNext = { path: /\/cancel$/, status: 400 };
+    const result = await cancel(MEMBER);
+    assert.equal(result.status, 409);
+    assert.deepEqual(result.body, { error: "still_billing", retryable: true });
+    assert.equal(razorpay.callsTo("GET", new RegExp(`^/v1/subscriptions/${memberSubscription}$`)).length > 0, true, "the real state was read back");
+    const [row] = await rowsFor(memberSubscription);
+    assert.deepEqual({ status: row.status, requested: row.requested }, { status: "active", requested: false });
+  });
+
   test("cancel stops renewals at Razorpay and keeps Premium until the paid period ends", async () => {
     assert.equal((await call(routes.cancel, "POST", appRequest("/api/billing/cancel", { user: MEMBER, method: "POST", site: "cross-site" }))).status, 403);
-    const result = await call(routes.cancel, "POST", appRequest("/api/billing/cancel", { user: MEMBER, method: "POST" }));
+    const result = await cancel(MEMBER);
     assert.equal(result.status, 200);
     assert.equal(result.body.status, "cancelled");
     assert.equal(Date.parse(String(result.body.accessUntil)), PERIOD_END * 1000);
-    const [cancel] = razorpay.callsTo("POST", /\/cancel$/);
-    assert.deepEqual(cancel.body, { cancel_at_cycle_end: false });
+    const cancelCall = razorpay.callsTo("POST", new RegExp(`^/v1/subscriptions/${memberSubscription}/cancel$`)).at(-1)!;
+    assert.deepEqual(cancelCall.body, { cancel_at_cycle_end: false });
     const [row] = await rowsFor(memberSubscription);
     assert.deepEqual({ status: row.status, requested: row.requested }, { status: "cancelled", requested: true });
     assert.equal(Date.parse(String(row.paid_until)), PERIOD_END * 1000);
     assert.equal((await status(MEMBER)).body.premium, true);
-    assert.deepEqual((await call(routes.cancel, "POST", appRequest("/api/billing/cancel", { user: MEMBER, method: "POST" }))).body, { error: "nothing_to_cancel" });
+    assert.deepEqual((await cancel(MEMBER)).body, { error: "nothing_to_cancel" });
+  });
+
+  test("a cancel Razorpay carried out but never answered is read back and reported as cancelled", async () => {
+    const subscriptionId = await payFor(THIRD, "premium-monthly", "pay_TestThird00001");
+    razorpay.dropAnswerNext = /\/cancel$/;
+    const result = await cancel(THIRD);
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.status, "cancelled");
+    assert.equal(razorpay.subscriptions.get(subscriptionId)!.status, "cancelled");
+    assert.equal((await rowsFor(subscriptionId))[0].status, "cancelled");
+  });
+
+  test("when Razorpay cancels but FITX cannot record it yet, the member is still told it is cancelled", async () => {
+    const subscriptionId = await payFor(FOURTH, "premium-monthly", "pay_TestFourth0001");
+    await db.exec(`revoke execute on function public.billing_apply_event(jsonb) from service_role`);
+    let result;
+    try {
+      result = await cancel(FOURTH);
+    } finally {
+      await db.exec(`grant execute on function public.billing_apply_event(jsonb) to service_role`);
+    }
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.status, "cancelled");
+    assert.equal(razorpay.subscriptions.get(subscriptionId)!.status, "cancelled");
+    assert.equal((await rowsFor(subscriptionId))[0].status, "active", "not recorded yet");
+    // Razorpay's signed subscription.cancelled webhook records it.
+    const cancelled = webhookBody("subscription.cancelled", { subscription: subscriptionEntity({ ...razorpay.subscriptions.get(subscriptionId)!, id: subscriptionId, plan_id: MONTHLY, status: "cancelled" }) });
+    assert.deepEqual((await deliver(cancelled, { eventId: "evt_FourthCancelled" })).body, { outcome: "applied" });
+    assert.equal((await rowsFor(subscriptionId))[0].status, "cancelled");
   });
 
   test("reconciliation needs the cron secret", async () => {

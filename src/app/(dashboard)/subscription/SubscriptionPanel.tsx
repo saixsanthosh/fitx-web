@@ -111,6 +111,9 @@ function pollForPremium({ onConfirmed, onSlow }: { onConfirmed: () => void; onSl
 
 const isFuture = (iso: string | null | undefined) => Boolean(iso) && Date.parse(iso!) > Date.now();
 
+/** Razorpay never charges a subscription in these statuses again. */
+const ENDED_STATUSES: ReadonlySet<string> = new Set(["cancelled", "completed", "expired"]);
+
 const CHECKOUT_ERRORS: Record<string, string> = {
   already_subscribed: "You already have a subscription. The page has been refreshed to show it.",
   sign_in_required: "Your session has ended. Sign in again to subscribe.",
@@ -260,8 +263,9 @@ export function SubscriptionPanel({
     setNotice(null);
     try {
       const response = await fetch("/api/billing/cancel", { method: "POST" });
-      const body = (await response.json().catch(() => null)) as { accessUntil?: string | null; error?: string } | null;
-      if (response.ok) {
+      const body = (await response.json().catch(() => null)) as { status?: string; accessUntil?: string | null; error?: string } | null;
+      // Only a subscription Razorpay reports as ended stops the charges.
+      if (response.ok && ENDED_STATUSES.has(body?.status ?? "")) {
         const until = formatBillingDate(body?.accessUntil ?? null);
         setNotice({
           tone: "success",
@@ -276,11 +280,22 @@ export function SubscriptionPanel({
       } else if (body?.error === "nothing_to_cancel") {
         setConfirmingCancel(false);
         router.refresh();
+      } else if (body?.error === "still_billing") {
+        setNotice({
+          tone: "error",
+          text: "Razorpay didn’t cancel the subscription, so it still renews. Try again in a minute; if this keeps happening, contact FITX support.",
+        });
       } else {
-        setNotice({ tone: "error", text: "Razorpay didn’t confirm the cancellation, so nothing changed. Please try again." });
+        setNotice({
+          tone: "error",
+          text: "FITX couldn’t confirm the cancellation with Razorpay. Reload this page to see whether it went through before trying again.",
+        });
       }
     } catch {
-      setNotice({ tone: "error", text: "The cancellation couldn’t be sent. Check your connection; nothing changed." });
+      setNotice({
+        tone: "error",
+        text: "FITX couldn’t be reached. Check your connection, then reload this page to see whether the cancellation went through.",
+      });
     } finally {
       setCancelling(false);
     }
