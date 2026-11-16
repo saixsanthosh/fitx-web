@@ -2,6 +2,16 @@
 // and format it. No imports, so they can be tested on their own. Amounts are integers in paise.
 
 export type BillingMode = "live" | "test";
+
+/**
+ * Razorpay billing periods end at 00:00 India time, so a period ending at that instant covers the day
+ * before it. Returns the instant just before `end`, to show the last covered day ("Paid through").
+ */
+export function lastCoveredInstant(end: string | null): string | null {
+  if (!end) return null;
+  const at = Date.parse(end);
+  return Number.isNaN(at) ? null : new Date(at - 1).toISOString();
+}
 export type PaymentFilter = "all" | "captured" | "failed" | "refunded";
 
 export type MonthTotal = { month: string; capturedPaise: number; refundedPaise: number };

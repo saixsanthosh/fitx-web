@@ -72,3 +72,13 @@ export function formatBillingDate(value: string | null | undefined): string | nu
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? null : dateFormat.format(date);
 }
+
+/**
+ * The last day a paid period covers, for "through <day>". Razorpay ends billing cycles at 00:00 India
+ * time, so a period (and Premium) ending at that instant covers the day before it.
+ */
+export function formatPaidThrough(end: string | null | undefined): string | null {
+  if (!end) return null;
+  const at = Date.parse(end);
+  return Number.isNaN(at) ? null : dateFormat.format(new Date(at - 1));
+}

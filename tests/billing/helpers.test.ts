@@ -4,7 +4,7 @@ import "./support/server-only.mjs";
 
 const { billingCyclesForTenYears, formatAmount, formatInr, periodLabel, periodLength } = await import("@/lib/billing/money");
 const { checkoutAllowedFor, modeOfKey, parseEmailList, readBillingConfig, RAZORPAY_API_BASE } = await import("@/lib/billing/config");
-const { formatBillingDate, paymentStatusLabel, subscriptionStatusLabel } = await import("@/lib/billing/status");
+const { formatBillingDate, formatPaidThrough, paymentStatusLabel, subscriptionStatusLabel } = await import("@/lib/billing/status");
 const { pickCurrentSubscription, toSubscriptionView } = await import("@/lib/billing/view");
 const { checkoutRetryAfterSeconds, CHECKOUTS_PER_DAY, planMismatch } = await import("@/lib/billing/checkout");
 
@@ -93,6 +93,14 @@ describe("labels and dates", () => {
     assert.equal(formatBillingDate("2026-11-30T20:00:00Z"), "1 Dec 2026");
     assert.equal(formatBillingDate(null), null);
     assert.equal(formatBillingDate("nonsense"), null);
+  });
+
+  test("a paid period ending at 00:00 India time is shown through the day before", () => {
+    // Razorpay ends cycles at midnight IST: 18:30 UTC on 5 Dec is 00:00 on 6 Dec in India.
+    assert.equal(formatPaidThrough("2026-12-05T18:30:00Z"), "5 Dec 2026");
+    assert.equal(formatPaidThrough("2026-12-06T09:00:00Z"), "6 Dec 2026");
+    assert.equal(formatPaidThrough(null), null);
+    assert.equal(formatPaidThrough("nonsense"), null);
   });
 });
 

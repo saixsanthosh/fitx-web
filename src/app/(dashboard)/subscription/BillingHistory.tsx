@@ -1,11 +1,12 @@
 import { formatAmount, formatInr } from "@/lib/billing/money";
-import { formatBillingDate, paymentMethodLabel, paymentStatusLabel, paymentTone, refundStatusLabel } from "@/lib/billing/status";
+import { formatBillingDate, formatPaidThrough, paymentMethodLabel, paymentStatusLabel, paymentTone, refundStatusLabel } from "@/lib/billing/status";
 import type { PaymentView, RefundView } from "@/lib/billing/types";
 import { StatusPill, TestTag } from "./BillingBits";
 
 function periodText(payment: PaymentView) {
   const start = formatBillingDate(payment.periodStart);
-  const end = formatBillingDate(payment.periodEnd);
+  // The period's last day: it ends at 00:00 India time on the day after.
+  const end = formatPaidThrough(payment.periodEnd);
   return start && end ? `${start} – ${end}` : null;
 }
 

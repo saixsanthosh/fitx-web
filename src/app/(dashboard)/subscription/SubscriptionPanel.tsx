@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, LoaderCircle } from "lucide-react";
 import { BRAND } from "@/config/brand";
 import { formatInr, periodLabel } from "@/lib/billing/money";
-import { formatBillingDate, subscriptionStatusLabel, subscriptionTone } from "@/lib/billing/status";
+import { formatBillingDate, formatPaidThrough, subscriptionStatusLabel, subscriptionTone } from "@/lib/billing/status";
 import type { BillingMode, PlanView, SubscriptionView } from "@/lib/billing/types";
 import { StatusPill, TestTag } from "./BillingBits";
 
@@ -154,6 +154,8 @@ export function SubscriptionPanel({
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [notice, setNotice] = useState<{ tone: "error" | "info" | "success"; text: string } | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  // Read when the member opens the cancel prompt: during the renewal grace the paid period is over.
+  const [paidPeriodOver, setPaidPeriodOver] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const stopPolling = useRef<(() => void) | null>(null);
   const keepSubscriptionRef = useRef<HTMLButtonElement | null>(null);
@@ -278,11 +280,11 @@ export function SubscriptionPanel({
       const body = (await response.json().catch(() => null)) as { status?: string; accessUntil?: string | null; error?: string } | null;
       // Only a subscription Razorpay reports as ended stops the charges.
       if (response.ok && ENDED_STATUSES.has(body?.status ?? "")) {
-        const until = formatBillingDate(body?.accessUntil ?? null);
+        const through = formatPaidThrough(body?.accessUntil ?? null);
         setNotice({
           tone: "success",
-          text: until && isFuture(body?.accessUntil)
-            ? `Renewal cancelled. You won’t be charged again, and Premium stays on until ${until}.`
+          text: through && isFuture(body?.accessUntil)
+            ? `Renewal cancelled. You won’t be charged again, and Premium stays on through ${through}.`
             : "Subscription cancelled. You won’t be charged again.",
         });
         setConfirmingCancel(false);
@@ -331,8 +333,12 @@ export function SubscriptionPanel({
         billing={billing}
         canChange={mode !== null}
         confirmingCancel={confirmingCancel}
+        paidPeriodOver={paidPeriodOver}
         cancelling={cancelling}
-        onAskCancel={() => setConfirmingCancel(true)}
+        onAskCancel={() => {
+          setPaidPeriodOver(!isFuture(current?.paidUntil));
+          setConfirmingCancel(true);
+        }}
         onKeep={() => setConfirmingCancel(false)}
         onCancel={cancel}
         keepRef={keepSubscriptionRef}
@@ -356,7 +362,7 @@ export function SubscriptionPanel({
             </h2>
             <p className="mt-1 text-sm leading-6 text-fitx-text-secondary">
               Renews automatically until you cancel. Cancelling stops future charges; Premium lasts until the end of the period you paid for.
-              {premium && current?.paidUntil ? ` Your current access runs until ${formatBillingDate(current.paidUntil)}; a new subscription is charged right away.` : ""}
+              {premium && current?.paidUntil ? ` Your current access runs through ${formatPaidThrough(current.paidUntil)}; a new subscription is charged right away.` : ""}
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -413,6 +419,7 @@ function CurrentSubscription({
   billing,
   canChange,
   confirmingCancel,
+  paidPeriodOver,
   cancelling,
   onAskCancel,
   onKeep,
@@ -424,13 +431,15 @@ function CurrentSubscription({
   billing: boolean;
   canChange: boolean;
   confirmingCancel: boolean;
+  /** The paid period has ended (renewal grace): cancelling ends Premium straight away. */
+  paidPeriodOver: boolean;
   cancelling: boolean;
   onAskCancel: () => void;
   onKeep: () => void;
   onCancel: () => void;
   keepRef: RefObject<HTMLButtonElement | null>;
 }) {
-  const paidUntil = formatBillingDate(current.paidUntil);
+  const paidThrough = formatPaidThrough(current.paidUntil);
   const chargeAt = formatBillingDate(current.chargeAt);
   const price = priceLine(current.amountPaise, current.period, current.interval);
   const amount = current.amountPaise !== null ? formatInr(current.amountPaise) : null;
@@ -455,10 +464,10 @@ function CurrentSubscription({
       summary = "This subscription is paused, so no payments are taken. Contact FITX support to resume it.";
       break;
     case "cancelled":
-      summary = premium && paidUntil ? `Cancelled. You won’t be charged again; Premium stays on until ${paidUntil}.` : "Cancelled. Premium has ended and you won’t be charged again.";
+      summary = premium && paidThrough ? `Cancelled. You won’t be charged again; Premium stays on through ${paidThrough}.` : "Cancelled. Premium has ended and you won’t be charged again.";
       break;
     case "completed":
-      summary = premium && paidUntil ? `All billing cycles are complete. Premium stays on until ${paidUntil}.` : "All billing cycles are complete.";
+      summary = premium && paidThrough ? `All billing cycles are complete. Premium stays on through ${paidThrough}.` : "All billing cycles are complete.";
       break;
     default:
       summary = "This subscription has ended.";
@@ -482,8 +491,8 @@ function CurrentSubscription({
         </div>
       </div>
       <p className="mt-4 text-sm leading-6 text-fitx-text">{summary}</p>
-      {paidUntil && premium && current.status === "active" && (
-        <p className="mt-1 text-xs text-fitx-text-secondary">Paid through {paidUntil}.</p>
+      {paidThrough && premium && current.status === "active" && (
+        <p className="mt-1 text-xs text-fitx-text-secondary">Paid through {paidThrough}.</p>
       )}
 
       {billing && !canChange && (
@@ -501,7 +510,9 @@ function CurrentSubscription({
             <div className="space-y-3" role="group" aria-labelledby="cancel-question">
               <p id="cancel-question" className="text-sm leading-6 text-fitx-text">
                 Stop renewals? Razorpay won’t charge you again.
-                {premium && paidUntil ? ` You keep Premium until ${paidUntil}.` : ""} This can’t be undone, but you can subscribe again later.
+                {premium && paidPeriodOver ? " Your paid period has already ended, so Premium stops as soon as you cancel." : ""}
+                {premium && !paidPeriodOver && paidThrough ? ` You keep Premium through ${paidThrough}.` : ""} This can’t be undone, but you can
+                subscribe again later.
               </p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="fitx-button fitx-button-danger min-h-11" onClick={onCancel} disabled={cancelling}>
