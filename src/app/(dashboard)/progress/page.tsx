@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
 import { createClient } from "@/lib/supabase/client";
 import { localDateKey, weekStart } from "@/lib/domain/dates";
+import { notifyUserContextChanged, syncProfileWeight } from "@/lib/domain/user-context";
 import styles from "./Progress.module.css";
 
 type Session = { id: string; name: string; started_at: string; completed_at: string | null; duration_seconds: number; total_volume: number };
@@ -69,7 +70,11 @@ export default function ProgressPage() {
     const values: Record<string, number> = {};
     if (parsedMeasurement !== null) values[measurementName] = parsedMeasurement;
     const result = await supabase.from("body_metrics").insert({ user_id: auth.user.id, date: localDateKey(), weight: parsedWeight, body_fat: parsedFat, measurements: values });
-    if (result.error) setError("Your measurement could not be saved."); else { setWeight(""); setBodyFat(""); setMeasurement(""); await load(); }
+    if (result.error) setError("Your measurement could not be saved."); else {
+      // A new weigh-in is the current weight everywhere: the profile copy, targets and the header.
+      if (parsedWeight !== null) { await syncProfileWeight(supabase, auth.user.id, parsedWeight); notifyUserContextChanged(); }
+      setWeight(""); setBodyFat(""); setMeasurement(""); await load();
+    }
     setSaving(false);
   }
 
