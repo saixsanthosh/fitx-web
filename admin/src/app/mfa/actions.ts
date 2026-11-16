@@ -16,6 +16,14 @@ export type SetupState = {
 
 export type CodeState = { error?: "invalid_code" | "verify_failed" } | null;
 
+const SVG_DATA_PREFIX = "data:image/svg+xml;utf-8,";
+
+/** Supabase returns the QR code as an SVG data URL with raw markup; a "#" in it would end the URL early. */
+function safeQrDataUrl(value: string): string {
+  const svg = value.startsWith(SVG_DATA_PREFIX) ? value.slice(SVG_DATA_PREFIX.length) : value;
+  return svg.trimStart().startsWith("<") ? `${SVG_DATA_PREFIX}${encodeURIComponent(svg)}` : value;
+}
+
 /**
  * Sets up an authenticator app: "start" creates a new TOTP factor and returns its QR code; "confirm"
  * checks the first code, which also raises this session to AAL2.
@@ -37,7 +45,7 @@ export async function setUpAuthenticator(previous: SetupState, formData: FormDat
       logServerError("mfa.enroll", error);
       return { error: "start_failed" };
     }
-    return { factorId: data.id, qrCode: data.totp.qr_code, secret: data.totp.secret };
+    return { factorId: data.id, qrCode: safeQrDataUrl(data.totp.qr_code), secret: data.totp.secret };
   }
 
   const factorId = formData.get("factorId");
