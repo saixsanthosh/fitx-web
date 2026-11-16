@@ -544,15 +544,16 @@ begin
     end if;
   end if;
 
+  -- Recompute paid_until; the row (and updated_at) is touched only when it actually changes.
   if v_target_sub is not null then
     update public.billing_subscriptions s
-    set paid_until = (
-          select pg_catalog.max(p.period_end)
-          from public.billing_payments p
-          where p.subscription_id = s.id and p.status = 'captured'
-        ),
-        updated_at = pg_catalog.now()
-    where s.id = v_target_sub;
+    set paid_until = c.paid_until, updated_at = pg_catalog.now()
+    from (
+      select pg_catalog.max(p.period_end) as paid_until
+      from public.billing_payments p
+      where p.subscription_id = v_target_sub and p.status = 'captured'
+    ) c
+    where s.id = v_target_sub and s.paid_until is distinct from c.paid_until;
   end if;
 
   if not v_applied then
@@ -627,7 +628,14 @@ begin
 end
 $$;
 
--- Subscriptions the nightly reconciliation should compare with Razorpay, least recently checked first.
+-- Subscriptions the nightly reconciliation should compare with Razorpay, in this order:
+--   1. every subscription Razorpay may still bill, and each account's open checkout (a missed
+--      activation or renewal webhook is repaired here);
+--   2. ended ones while a refund is still plausible: 40 days after they ended. ended_at and
+--      provider_synced_at no longer change once a subscription is final, so these age out;
+--   3. checkouts replaced by a newer one, for a week (an already open Checkout window can still pay
+--      them), last so they can never crowd out the others.
+-- Least recently checked first within each group.
 create or replace function public.billing_reconcile_candidates(p_mode text, p_limit integer)
 returns table (id uuid, provider_subscription_id text, status text)
 language sql
@@ -641,9 +649,17 @@ as $$
     and (
       s.status in ('authenticated', 'active', 'pending', 'halted', 'paused')
       or (s.status = 'created' and s.created_at > pg_catalog.now() - interval '7 days')
-      or (s.status in ('cancelled', 'completed', 'expired') and s.updated_at > pg_catalog.now() - interval '40 days')
+      or (s.status in ('cancelled', 'completed', 'expired')
+          and coalesce(s.ended_at, s.provider_synced_at, s.created_at) > pg_catalog.now() - interval '40 days')
     )
-  order by s.last_reconciled_at nulls first, s.created_at
+  order by
+    case
+      when s.status = 'created' and s.abandoned_at is not null then 2
+      when s.status in ('cancelled', 'completed', 'expired') then 1
+      else 0
+    end,
+    s.last_reconciled_at nulls first,
+    s.created_at
   limit least(greatest(coalesce(p_limit, 100), 1), 500)
 $$;
 

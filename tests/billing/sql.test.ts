@@ -15,6 +15,7 @@ const ERIN = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const FARID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const GITA = "99999999-9999-4999-8999-999999999999";
 const HANA = "12121212-1212-4212-8212-121212121212";
+const IRIS = "13131313-1313-4313-8313-131313131313";
 const PLAN_ID = "plan_TestMonthly01";
 
 type Event = Record<string, unknown>;
@@ -48,7 +49,7 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
 
   before(async () => {
     db = await TestDatabase.start();
-    for (const [id, email] of [[ALICE, "alice@example.test"], [BOB, "bob@example.test"], [CARA, "cara@example.test"], [DEV, "dev@example.test"], [ERIN, "erin@example.test"], [FARID, "farid@example.test"], [GITA, "gita@example.test"], [HANA, "hana@example.test"]]) {
+    for (const [id, email] of [[ALICE, "alice@example.test"], [BOB, "bob@example.test"], [CARA, "cara@example.test"], [DEV, "dev@example.test"], [ERIN, "erin@example.test"], [FARID, "farid@example.test"], [GITA, "gita@example.test"], [HANA, "hana@example.test"], [IRIS, "iris@example.test"]]) {
       await addUser(db, id, email);
     }
     planId = await addPlan(db, { code: "premium-monthly", name: "Premium monthly", amount: 19900, period: "monthly", testPlanId: PLAN_ID, features: ["Premium home programmes"] });
@@ -258,5 +259,32 @@ describe("billing schema in PostgreSQL", { skip: TestDatabase.available() ? fals
     // Checkouts older than a day no longer count.
     await db.exec(`update public.billing_subscriptions set created_at = now() - interval '25 hours' where user_id = ${lit(HANA)} and mode = 'test'`);
     assert.ok(await checkout(HANA, "sub_TestHanaLater01"));
+  });
+
+  test("reconciliation checks what Razorpay still bills first, and ended subscriptions age out", async () => {
+    await checkout(IRIS, "sub_TestIris00001");
+    await apply(charged({ id: "evt_iris_1", sub: "sub_TestIris00001", pay: "pay_TestIris00001", start: at(-71), end: at(-41), createdAt: at(-71) }));
+    await apply(subscriptionEvent("evt_iris_cancel", "sub_TestIris00001", "cancelled", at(-41), { ended_at: at(-41) }));
+    const touched = () => db.value<string>(`select updated_at::text from public.billing_subscriptions where provider_subscription_id = 'sub_TestIris00001'`);
+    const before = await touched();
+    // The nightly read of an ended subscription changes nothing, so it does not count as a change.
+    const read = await apply({ event_id: "reconcile:run2:sub_TestIris00001", source: "reconcile", event_type: "fitx.reconcile.subscription", mode: "test", event_created_at: at(0), payload: {}, subscription: { provider_subscription_id: "sub_TestIris00001", status: "cancelled", ended_at: at(-41) } });
+    assert.equal(read.detail, "subscription_already_final");
+    assert.equal(await touched(), before);
+
+    const candidates = await db.rows<{ provider_subscription_id: string; bucket: number }>(
+      `select c.provider_subscription_id,
+              case when s.status = 'created' and s.abandoned_at is not null then 2
+                   when s.status in ('cancelled', 'completed', 'expired') then 1 else 0 end as bucket
+       from public.billing_reconcile_candidates('test', 500) with ordinality as c(id, provider_subscription_id, status, n)
+       join public.billing_subscriptions s on s.id = c.id
+       order by c.n`,
+      AS_SERVICE,
+    );
+    assert.equal(candidates.some((row) => row.provider_subscription_id === "sub_TestIris00001"), false, "ended more than 40 days ago");
+    assert.ok(candidates.some((row) => row.provider_subscription_id === "sub_TestCara00001"), "ended recently: refunds are still plausible");
+    const buckets = candidates.map((row) => row.bucket);
+    assert.deepEqual([...new Set(buckets)], [0, 1, 2], "still billed and open checkouts first, then ended ones, then replaced checkouts");
+    assert.deepEqual(buckets, [...buckets].sort((a, b) => a - b));
   });
 });
