@@ -1,38 +1,59 @@
 import type { Metadata } from "next";
-import { Users } from "lucide-react";
-import { requireAdmin } from "@/lib/admin-auth";
-import { listRecentUsers } from "@/lib/admin-data";
+import Link from "next/link";
+import { Search, Users } from "lucide-react";
 import { ModuleState } from "@/components/module-state";
+import { requireAdmin } from "@/lib/admin-auth";
+import { isSuspended, searchPeople } from "@/lib/data/people";
+import { ROLE_LABELS } from "@/lib/roles";
+import { MIGRATIONS } from "@/lib/schema";
 import { formatIstDate } from "@/lib/time";
 
 export const metadata: Metadata = { title: "People" };
 
-function dateLabel(value: string | null | undefined) {
-  if (!value) return "Never signed in";
+const PROVIDER_LABELS: Record<string, string> = { email: "Email and password", google: "Google", apple: "Apple" };
+
+function dateLabel(value: string | null | undefined, empty = "Never signed in") {
+  if (!value) return empty;
   return formatIstDate(value) ?? "Date unavailable";
 }
 
-export default async function UsersPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
-  await requireAdmin();
+export default async function UsersPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; notice?: string }> }) {
+  await requireAdmin("people.view");
   const params = await searchParams;
-  const result = await listRecentUsers(Number(params.page ?? "1"));
+  const query = (params.q ?? "").slice(0, 120);
+  const result = await searchPeople(query, Number(params.page ?? "1"));
+  const pageLink = (page: number) => `/users?${new URLSearchParams({ ...(query ? { q: query } : {}), page: String(page) }).toString()}`;
+
   return (
     <div className="page-stack">
-      <div className="page-heading-row"><div><p className="eyebrow">ACCOUNT DIRECTORY</p><h1>People</h1><p className="page-lede">Account and sign-in records from Supabase Auth.</p></div><span className="page-heading-icon"><Users aria-hidden="true" size={20} /></span></div>
+      <div className="page-heading-row"><div><p className="eyebrow">ACCOUNT DIRECTORY</p><h1>People</h1><p className="page-lede">FITX accounts from Supabase Auth: sign-in details only, never profiles or health data.</p></div><span className="page-heading-icon"><Users aria-hidden="true" size={20} /></span></div>
+      {params.notice === "deleted" && <p className="inline-notice notice-success" role="status">The account was deleted and recorded in the audit log.</p>}
       {result.state === "ready" ? (
-        <section className="table-panel" aria-label="Recent user accounts">
-          <div className="table-heading"><div><h2>Recent accounts</h2><p>Latest 50 records in the selected Auth page. Dates are in IST. Personal fitness metrics are not shown here.</p></div><span className="data-badge">Live records</span></div>
-          {result.users.length ? <div className="table-scroll"><table><thead><tr><th>Account</th><th>Created</th><th>Last sign-in</th><th>Status</th><th>Reference</th></tr></thead><tbody>
-            {result.users.map((account) => {
-              const recentlyActive = account.lastSignInAt && result.generatedAt - Date.parse(account.lastSignInAt) <= 30 * 24 * 60 * 60 * 1000;
-              const suspended = account.bannedUntil && Date.parse(account.bannedUntil) > result.generatedAt;
-              return <tr key={account.id}><td><span className="user-cell"><span className="user-initial">{account.email.slice(0, 1).toUpperCase()}</span><strong>{account.email}</strong></span></td><td>{dateLabel(account.createdAt)}</td><td>{dateLabel(account.lastSignInAt)}</td><td><span className={`status-pill ${suspended ? "status-danger" : recentlyActive ? "status-good" : "status-neutral"}`}><i />{suspended ? "Suspended" : recentlyActive ? "Active · 30d" : "Registered"}</span></td><td className="mono-cell">{account.id}</td></tr>;
+        <section className="table-panel" aria-label="FITX accounts">
+          <form action="/users" className="table-search">
+            <label className="search-label" htmlFor="people-search"><Search aria-hidden="true" size={17} />Find an account</label>
+            <div><input id="people-search" name="q" defaultValue={query} maxLength={120} placeholder="Part of an email address, or an account ID" disabled={!result.searchAvailable} /><button className="quiet-button" type="submit" disabled={!result.searchAvailable}>Search</button></div>
+          </form>
+          {!result.searchAvailable && <p className="table-note">Search starts working once migration <code>{MIGRATIONS.people}</code> is applied. Until then this list pages through all accounts.</p>}
+          {result.people.length ? <div className="table-scroll"><table><thead><tr><th>Account</th><th>Created (IST)</th><th>Last sign-in (IST)</th><th>Signs in with</th><th>Status</th></tr></thead><tbody>
+            {result.people.map((person) => {
+              const suspended = isSuspended(person.bannedUntil);
+              return <tr key={person.id}>
+                <td><Link className="user-cell row-link" href={`/users/${person.id}`}><span className="user-initial">{(person.email ?? "?").slice(0, 1).toUpperCase()}</span><span><strong>{person.email ?? "No email"}</strong>{person.adminRole && <small className="table-subline">Admin team · {ROLE_LABELS[person.adminRole]}</small>}</span></Link></td>
+                <td>{dateLabel(person.createdAt, "Date unavailable")}</td>
+                <td>{dateLabel(person.lastSignInAt)}</td>
+                <td>{person.providers.map((provider) => PROVIDER_LABELS[provider] ?? provider).join(", ") || "—"}</td>
+                <td><span className={`status-pill ${suspended ? "status-danger" : person.emailConfirmedAt ? "status-good" : "status-neutral"}`}><i />{suspended ? "Suspended" : person.emailConfirmedAt ? "Confirmed" : "Unconfirmed email"}</span></td>
+              </tr>;
             })}
-          </tbody></table></div> : <div className="empty-state"><h3>No Auth records returned</h3><p>There are no users on this page.</p></div>}
-          <div className="table-footer"><span>Page {result.page} · Records from the connected Auth project</span><div className="pagination-actions">{result.page > 1 && <a className="quiet-button" href={`/users?page=${result.page - 1}`}>Previous</a>}{result.hasNext && <a className="quiet-button" href={`/users?page=${result.page + 1}`}>Next</a>}</div></div>
+          </tbody></table></div> : <div className="empty-state"><h3>No accounts found</h3><p>{query ? "No account email or ID matches that search." : "There are no accounts on this page."}</p></div>}
+          <div className="table-footer">
+            <span>{result.total !== null ? `${result.total.toLocaleString("en-IN")} ${query ? "matching" : ""} accounts · page ${result.page}` : `Page ${result.page}`}</span>
+            <div className="pagination-actions">{result.page > 1 && <Link className="quiet-button" href={pageLink(result.page - 1)}>Previous</Link>}{result.hasNext && <Link className="quiet-button" href={pageLink(result.page + 1)}>Next</Link>}</div>
+          </div>
         </section>
       ) : <ModuleState state={result.state} />}
-      <p className="privacy-note">FITX Admin limits this view to account identifiers and authentication timestamps. Workout and nutrition details remain outside this directory.</p>
+      <p className="privacy-note">Opening this list or an account is recorded in the audit log. Workout, nutrition and body data stay outside Admin.</p>
     </div>
   );
 }

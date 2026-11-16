@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { checkAdminAllowlist, readMembership } from "@/lib/admin-auth";
+import { allowlistRefusalReason, checkAdminAllowlist, readMembership } from "@/lib/admin-auth";
+import { logAdminEvent } from "@/lib/audit";
 import { logServerError, logServerWarning } from "@/lib/log";
 import { signOutLocally } from "@/lib/sign-out";
 import { getAdminSiteOrigin } from "@/lib/site-origin";
@@ -46,15 +47,19 @@ export async function GET(request: NextRequest) {
   // not the email typed on the sign-in form. Every refusal signs out locally only.
   const allowlist = checkAdminAllowlist(user, "auth.callback");
   if (allowlist.state !== "ready") {
+    await logAdminEvent({ actorId: user.id, action: "admin_sign_in_denied", resourceType: "admin_session", details: { reason: allowlistRefusalReason(user) } });
     await signOutLocally(supabase);
     return signInRedirect(request, allowlist.state);
   }
 
   const membership = await readMembership(user.id);
   if (membership.state !== "ready") {
+    await logAdminEvent({ actorId: user.id, action: "admin_sign_in_denied", resourceType: "admin_session", details: { reason: membership.state } });
     await signOutLocally(supabase);
     return signInRedirect(request, membership.state);
   }
 
+  // The session is AAL1 here; every console page then asks for the authenticator code (AAL2).
+  await logAdminEvent({ actorId: user.id, action: "admin_sign_in", resourceType: "admin_session", details: { role: membership.membership.role } });
   return NextResponse.redirect(new URL("/overview", origin));
 }

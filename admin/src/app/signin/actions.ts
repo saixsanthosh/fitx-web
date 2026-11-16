@@ -2,13 +2,21 @@
 
 import { redirect } from "next/navigation";
 import { normaliseEmail, parseAllowlist } from "@/lib/admin-email";
+import { logAdminEvent } from "@/lib/audit";
 import { logServerError, logServerWarning } from "@/lib/log";
 import { signOutLocally } from "@/lib/sign-out";
 import { getAdminSiteOrigin } from "@/lib/site-origin";
 import { hasAdminServerKey } from "@/lib/supabase/admin";
 import { createUserSupabase } from "@/lib/supabase/server";
 
-export type SignInError = "invalid_email" | "not_authorized" | "setup_pending" | "configuration" | "service_key_missing" | "oauth";
+export type SignInError =
+  | "invalid_email"
+  | "not_authorized"
+  | "setup_pending"
+  | "configuration"
+  | "service_key_missing"
+  | "oauth"
+  | "session_expired";
 export type SignInState = { error?: SignInError } | null;
 
 /**
@@ -52,6 +60,9 @@ export async function beginGoogleSignIn(_previous: SignInState, formData: FormDa
 
 /** Signs out of this Admin browser session only; FITX sessions elsewhere stay signed in. */
 export async function signOut() {
-  await signOutLocally(await createUserSupabase());
+  const supabase = await createUserSupabase();
+  const user = supabase ? (await supabase.auth.getUser()).data.user : null;
+  if (user) await logAdminEvent({ actorId: user.id, action: "admin_signed_out", resourceType: "admin_session" });
+  await signOutLocally(supabase);
   redirect("/signin");
 }
