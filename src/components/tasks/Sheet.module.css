@@ -1,0 +1,37 @@
+.sheet {
+  width: min(560px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(88dvh, 760px);
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid var(--fitx-border);
+  border-radius: 16px;
+  background: var(--fitx-elevated);
+  color: var(--fitx-text);
+  padding: 0;
+  box-shadow: 0 24px 64px color-mix(in srgb, var(--fitx-scrim) 22%, transparent);
+}
+.sheet::backdrop { background: color-mix(in srgb, var(--fitx-scrim) 52%, transparent); }
+.sheet[open] { animation: rise .22s cubic-bezier(.2,.8,.2,1); }
+.side { width: min(440px, calc(100vw - 24px)); height: calc(100dvh - 24px); max-height: none; margin: 12px 12px 12px auto; }
+.side[open] { animation-name: slide; }
+.body { display: flex; max-height: inherit; height: 100%; flex-direction: column; }
+.side .body { max-height: none; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--fitx-divider); padding: 18px 18px 14px 20px; }
+.title { font-size: 1.05rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.3; }
+.description { margin-top: 4px; color: var(--fitx-text-secondary); font-size: .82rem; line-height: 1.5; }
+.close { display: grid; flex: 0 0 auto; width: 44px; height: 44px; margin: -8px -8px 0 0; place-items: center; border-radius: 10px; color: var(--fitx-text-secondary); }
+.close:hover { background: var(--fitx-hover); color: var(--fitx-text); }
+.content { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 18px 20px; }
+.footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--fitx-divider); padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes slide { from { opacity: .4; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@media (max-width: 639px) {
+  .sheet, .side { width: 100vw; max-height: 92dvh; height: auto; margin: auto 0 0; border-width: 1px 0 0; border-radius: 18px 18px 0 0; }
+  .sheet[open], .side[open] { animation: up .26s cubic-bezier(.2,.8,.2,1); }
+  .header { padding: 16px 16px 12px; }
+  .content { padding: 16px; }
+  .footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+}
+@keyframes up { from { transform: translateY(40px); opacity: .5; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sheet[open], .side[open] { animation: none; } }
