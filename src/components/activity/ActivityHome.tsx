@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, CloudOff, Play, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
 import { SPORT_LABEL, SPORT_NOUN, usesPace } from "@/lib/activity/config";
 import { formatActivityDate, formatDistance, formatDuration, formatPace, formatSpeed, kmValue } from "@/lib/activity/format";
+import { busyRecordings, clearDeviceActivityData, reconcileRecordings, type LocksLike } from "@/lib/activity/device-recordings";
 import { recordingStore, type StoredRecording } from "@/lib/activity/local-store";
 import { decodeRoute } from "@/lib/activity/polyline";
 import { deleteAllActivities, listActivities, totalsOf, totalsSince, viewFromRecord, type ActivityView, type PeriodTotals } from "@/lib/activity/repository";
@@ -59,6 +60,9 @@ export function ActivityHome() {
   const [syncing, setSyncing] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [notice, setNotice] = useState("");
+  const [recordingElsewhere, setRecordingElsewhere] = useState<Set<string>>(() => new Set());
+  const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
+  const deleteAllTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const userId = account.status === "ready" ? account.userId : null;
 
@@ -71,14 +75,18 @@ export function ActivityHome() {
     const supabase = createClient();
     if (!supabase) return;
     const store = await recordingStore();
-    // Anything finished offline (or before history was available) goes up first.
+    // Tidy rows a crash left behind (never another window's live recording), then upload anything
+    // finished offline or before history was available.
+    const busy = await busyRecordings(typeof navigator !== "undefined" ? (navigator as Navigator & { locks?: LocksLike }).locks : null);
+    setRecordingElsewhere(busy);
+    await reconcileRecordings(store, uid, busy);
     await uploadPending(store, supabase, uid);
     await refreshLocal(uid);
     const time = Date.now();
     setNow(time);
     const [list, totals] = await Promise.all([listActivities(supabase, uid, { limit: PAGE }), totalsSince(supabase, uid, startOfWeek(time))]);
     if (list.status === "unavailable") setHistory({ status: "unavailable" });
-    else if (list.status === "error") setHistory({ status: "error", offline: list.offline });
+    else if (list.status !== "ok") setHistory({ status: "error", offline: list.status === "error" && list.offline });
     else setHistory({ status: "ready", items: list.data, more: list.data.length === PAGE });
     setWeek(totals.status === "ok" ? totals.data : null);
   }, [refreshLocal]);
@@ -118,11 +126,11 @@ export function ActivityHome() {
     if (!supabase) return;
     const store = await recordingStore();
     const result = await deleteAllActivities(supabase, userId);
-    if (result.status === "error") {
+    if (result.status === "error" || result.status === "rejected") {
       setNotice("Your activities couldn’t be deleted. Check your connection and try again.");
       return;
     }
-    await store.deleteAll(userId);
+    await clearDeviceActivityData(store, userId);
     setConfirmDeleteAll(false);
     setNotice(result.status === "unavailable" ? "Activity data on this device was deleted." : "All your activities and routes were deleted.");
     await load(userId);
@@ -134,8 +142,12 @@ export function ActivityHome() {
   if (account.status === "signed-out") return <EmptyState title="Sign in to track activities" description="Walks, runs and rides are saved to your account." action={<Link href="/signin?next=/activity" className="fitx-button min-h-11">Sign in</Link>} />;
 
   const unfinished = local.find((r) => r.state === "active");
-  const waiting = local.filter((r) => r.state === "finished" && r.record);
-  const waitingViews = waiting.map((r) => viewFromRecord(r.record!));
+  const unfinishedElsewhere = Boolean(unfinished && recordingElsewhere.has(unfinished.clientId));
+  const serverIds = new Set(history.status === "ready" ? history.items.map((item) => item.clientId) : []);
+  // A device copy that is already on the server (its upload half-finished) is listed once.
+  const onDevice = local.filter((r) => r.state === "finished" && r.record && !serverIds.has(r.clientId));
+  const waiting = onDevice.filter((r) => !r.uploadRejected);
+  const waitingViews = onDevice.map((r) => viewFromRecord(r.record!));
   const items = history.status === "ready" ? history.items : [];
   const groups = groupByWeek([...waitingViews, ...items].sort((a, b) => b.startedAt - a.startedAt));
   const weekTotals = week ?? (history.status === "unavailable" && now !== null ? totalsOf(waitingViews.filter((v) => v.startedAt >= startOfWeek(now))) : null);
@@ -153,8 +165,8 @@ export function ActivityHome() {
       {unfinished && (
         <Link href="/activity/record" className="fitx-panel flex min-h-16 items-center justify-between gap-3 border-fitx-primary/40 p-4">
           <span>
-            <span className="block text-sm font-semibold text-fitx-text">Unfinished {SPORT_NOUN[unfinished.sport]} on this device</span>
-            <span className="block text-xs text-fitx-text-secondary">Started {formatActivityDate(unfinished.startedAt)}. Resume or finish it.</span>
+            <span className="block text-sm font-semibold text-fitx-text">{unfinishedElsewhere ? `Recording a ${SPORT_NOUN[unfinished.sport]} in another FITX window` : `Unfinished ${SPORT_NOUN[unfinished.sport]} on this device`}</span>
+            <span className="block text-xs text-fitx-text-secondary">Started {formatActivityDate(unfinished.startedAt)}. {unfinishedElsewhere ? "Finish it in that window or tab." : "Resume or finish it."}</span>
           </span>
           <ChevronRight size={18} aria-hidden="true" className="text-fitx-primary" />
         </Link>
@@ -203,7 +215,7 @@ export function ActivityHome() {
           {groups.map((group) => (
             <section key={group.weekStart} aria-label={now === null ? undefined : weekLabel(group.weekStart, now)}>
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-[.12em] text-fitx-text-secondary">{now === null ? "" : weekLabel(group.weekStart, now)}</h2>
-              <ul className="space-y-2">{group.items.map((activity) => <ActivityRow key={activity.clientId || activity.id} activity={activity} />)}</ul>
+              <ul className="space-y-2">{group.items.map((activity) => <ActivityRow key={activity.local ? `local-${activity.clientId}` : activity.id ?? activity.clientId} activity={activity} />)}</ul>
             </section>
           ))}
           {history.status === "ready" && history.more && (
@@ -216,19 +228,21 @@ export function ActivityHome() {
         <h2 id="privacy-title" className="flex items-center gap-2 text-sm font-semibold text-fitx-text"><ShieldCheck size={16} aria-hidden="true" className="text-fitx-primary" />Your location data</h2>
         <ul className="mt-2 space-y-1.5 text-xs leading-5 text-fitx-text-secondary">
           <li>Location is used while the Record screen is open (to show the GPS signal, then to record); only the positions from while you record are kept, and routes are visible only to you.</li>
+          <li>Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown (around you on the Record screen, around a route on an activity page) and your IP address, not your route or account.</li>
           <li>Share images leave out the area around your start and finish.</li>
           <li>Detailed GPS points are deleted after 90 days; activity summaries and routes stay until you delete them.</li>
+          <li>Activities not uploaded yet are kept on this device until they are, or until you delete them.</li>
         </ul>
         {confirmDeleteAll ? (
-          <div className="mt-4 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="group" aria-label="Delete all activity data?">
-            <p className="text-sm font-semibold text-fitx-danger">Delete every activity, route and GPS point in your account and on this device? This can’t be undone.</p>
+          <div className="mt-4 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="delete-all-question">
+            <p id="delete-all-question" className="text-sm font-semibold text-fitx-danger">Delete every activity, route and GPS point in your account and on this device? This can’t be undone.</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => setConfirmDeleteAll(false)} className="fitx-button fitx-button-secondary min-h-11">Keep my data</button>
+              <button type="button" ref={focusOnMount} onClick={() => { setConfirmDeleteAll(false); window.setTimeout(() => deleteAllTriggerRef.current?.focus(), 0); }} className="fitx-button fitx-button-secondary min-h-11">Keep my data</button>
               <button type="button" onClick={() => void deleteAll()} className="fitx-button fitx-button-danger min-h-11"><Trash2 size={15} aria-hidden="true" />Delete everything</button>
             </div>
           </div>
         ) : (
-          <button type="button" onClick={() => setConfirmDeleteAll(true)} className="fitx-button fitx-button-quiet mt-4 min-h-11"><Trash2 size={15} aria-hidden="true" />Delete all activity data</button>
+          <button type="button" ref={deleteAllTriggerRef} onClick={() => setConfirmDeleteAll(true)} className="fitx-button fitx-button-quiet mt-4 min-h-11"><Trash2 size={15} aria-hidden="true" />Delete all activity data</button>
         )}
       </section>
     </div>

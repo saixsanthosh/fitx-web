@@ -148,6 +148,8 @@ export class ActivityEngine {
   private pausedMs = 0;
   private pauseStartedAt = 0;
   private hiddenAt: number | null = null;
+  /** When the page became visible again after `hiddenAt`; the interruption ends with the first fix after it. */
+  private visibleAt: number | null = null;
 
   /** Smoothed route, one array per continuous stretch. */
   readonly segments: RoutePoint[][] = [];
@@ -240,13 +242,19 @@ export class ActivityEngine {
         this.pausedMs += Math.max(0, event.t - this.pauseStartedAt);
         this.status = "recording";
         this.hiddenAt = null;
+        this.visibleAt = null;
         this.needNewSegment = true;
         return;
       case "hidden":
-        if (this.status === "recording" && this.hiddenAt === null) this.hiddenAt = event.t;
+        if (this.status === "recording" && this.hiddenAt === null) {
+          this.hiddenAt = event.t;
+          this.visibleAt = null;
+        }
         return;
       case "visible":
-        // The interruption ends with the next usable fix (or at pause or finish), when its extent is known.
+        // The interruption ends with the next usable fix after this (or at pause or finish), when its
+        // extent is known. A fix that arrives while still hidden never ends it.
+        if (this.hiddenAt !== null) this.visibleAt = event.t;
         return;
       case "finish":
         if (this.status === "idle" || this.status === "finished") return;
@@ -281,13 +289,15 @@ export class ActivityEngine {
     const interval = fix.t - previous.t;
     const straightLine = haversine(previous, fix);
     const moved = straightLine > Math.max(this.cfg.exitRadiusM, previous.acc + fix.acc);
-    const wasHidden = this.hiddenAt !== null && interval > HIDDEN_GAP_MIN_MS;
+    // Only a fix received after the page is visible again ends a screen-lock interruption.
+    const backInView = this.hiddenAt !== null && this.visibleAt !== null && fix.t >= this.visibleAt;
+    const wasHidden = backInView && interval > HIDDEN_GAP_MIN_MS;
     const silent = interval > this.cfg.maxFixIntervalMs;
 
     if (wasHidden || (silent && moved)) {
       const start = wasHidden ? Math.max(previous.t, this.hiddenAt as number) : previous.t;
       this.gaps.push({ kind: wasHidden ? "hidden" : "signal", start, end: fix.t, straightLineM: Math.round(straightLine) });
-      this.hiddenAt = null;
+      this.endHiddenState();
       this.jumpCandidates = [];
       if (moved) {
         this.startSegment(fix);
@@ -296,8 +306,17 @@ export class ActivityEngine {
       // Back where it was: keep the stretch, but none of the untracked time counts as moving.
       this.resetMotion(fix.t);
       this.lastAccepted = { ...fix, speed: null };
+    } else if (silent) {
+      // A long silence that ends where it began (indoors, underground, a phone that pauses updates
+      // while still). None of it counts as distance or moving time. If the person was moving when
+      // positions stopped it is disclosed as a lost signal; otherwise it was simply a stop.
+      if (this.moving) this.gaps.push({ kind: "signal", start: previous.t, end: fix.t, straightLineM: Math.round(straightLine) });
+      if (backInView) this.endHiddenState();
+      this.jumpCandidates = [];
+      this.resetMotion(fix.t);
+      this.lastAccepted = { ...fix, speed: null };
     } else {
-      this.hiddenAt = null;
+      if (backInView) this.endHiddenState();
       if (this.isJump(previous, fix)) {
         this.rejectedJump++;
         this.handleJump(previous, fix);
@@ -606,11 +625,16 @@ export class ActivityEngine {
     }
   }
 
+  private endHiddenState(): void {
+    this.hiddenAt = null;
+    this.visibleAt = null;
+  }
+
   private closeOpenHiddenGap(t: number): void {
     if (this.hiddenAt === null) return;
     const start = Math.max(this.hiddenAt, this.lastAccepted?.t ?? this.hiddenAt);
     if (t - start > HIDDEN_GAP_MIN_MS) this.gaps.push({ kind: "hidden", start, end: t, straightLineM: null });
-    this.hiddenAt = null;
+    this.endHiddenState();
     this.needNewSegment = true;
   }
 

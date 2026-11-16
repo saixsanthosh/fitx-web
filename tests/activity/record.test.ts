@@ -4,10 +4,10 @@ import { ActivityEngine } from "@/lib/activity/engine";
 import { haversine } from "@/lib/activity/geo";
 import { decodeRoute } from "@/lib/activity/polyline";
 import { PRIVACY_RADIUS_M } from "@/lib/activity/privacy";
-import { buildActivityRecord, chunkFixes, CHUNK_SIZE } from "@/lib/activity/record";
+import { buildActivityRecord, chunkFixes, CHUNK_SIZE, encodeRouteWithin, LIMITS } from "@/lib/activity/record";
 import { replayStored } from "@/lib/activity/replay";
 import { rowFromRecord, viewFromRecord, viewFromRow } from "@/lib/activity/repository";
-import type { LogEntry } from "@/lib/activity/types";
+import type { Fix, LogEntry } from "@/lib/activity/types";
 import { ORIGIN, T0, control, fixEntries, gps, legs, moveAlong, pointAt, relativeError, standStill } from "./support/tracks";
 
 function sampleLog(): LogEntry[] {
@@ -129,4 +129,54 @@ test("database rows round-trip through the view the screens use", () => {
   assert.deepEqual(view.gaps, local.gaps);
   assert.deepEqual(view.timeline, local.timeline);
   assert.equal(viewFromRow({ ...returned, sport: "swim" }), null);
+});
+
+test("a stored replay keeps a screen-lock gap even when fix times were rounded past the lock", () => {
+  // Fix times are stored to 0.1 s; a fix at .051 s rounds to .1 s, after a lock at .080 s.
+  const device = gps({ sigmaM: 3, accuracyM: 5, speedSigma: 0.2 }, 72);
+  const path = legs(ORIGIN, [[0, 2000]]);
+  // Chunk times are relative to the chunk's first fix, so offset the later fixes by 51 ms from it.
+  const a = moveAlong(path, { toM: 600, speedMps: 3, startMs: T0, device });
+  a.fixes.forEach((fix, i) => { if (i > 0) fix.t += 51; });
+  const lastFix = a.fixes[a.fixes.length - 1].t;
+  const hiddenAt = lastFix + 29;
+  const back = hiddenAt + 20_000;
+  const c = moveAlong(path, { fromM: 670, toM: 1300, speedMps: 3, startMs: back + 51, device });
+  const log: LogEntry[] = [control({ type: "start", t: T0, sport: "run" }), ...fixEntries(a.fixes), control({ type: "hidden", t: hiddenAt }), control({ type: "visible", t: back }), ...fixEntries(c.fixes), control({ type: "finish", t: c.endMs })];
+  const engine = ActivityEngine.replay(log);
+  assert.equal(engine.gaps.length, 1);
+  const record = buildActivityRecord(engine, { clientId: "c-rounding", title: "Run", weightKg: null, log });
+  const replayed = replayStored(record.sport, record.startedAt, record.timeline, record.chunks);
+  assert.equal(replayed.gaps.length, 1, "the replay keeps the interruption");
+  assert.equal(replayed.acceptedSegments.length, 2, "and the GPX keeps the two stretches apart");
+});
+
+test("stored chunks always fit the database limits", () => {
+  // Two days of fixes at twice a second: more than 200 chunks of 1,000 would hold.
+  const fast: Fix[] = [];
+  for (let i = 0; i < 345_600; i++) fast.push({ t: T0 + i * 500, lat: ORIGIN.lat + (i % 500) * 1e-5, lng: ORIGIN.lng, acc: 5, alt: null, altAcc: null, speed: 2 });
+  const chunks = chunkFixes(fast);
+  assert.ok(chunks.length <= LIMITS.maxChunks, `${chunks.length} chunks`);
+  for (const chunk of chunks) {
+    assert.ok(chunk.pointCount <= LIMITS.maxChunkPoints);
+    assert.ok(chunk.points.length <= LIMITS.maxChunkChars);
+  }
+  // Wild jumps between fixes take more characters: those chunks hold fewer fixes.
+  const jumpy: Fix[] = [];
+  for (let i = 0; i < 3_000; i++) jumpy.push({ t: T0 + i * 1000, lat: ORIGIN.lat + (i % 2 ? 0.9 : -0.9), lng: ORIGIN.lng + (i % 3) * 0.7, acc: 5 + (i % 7) * 900, alt: (i % 2) * 4000, altAcc: 3, speed: (i % 5) * 20 });
+  for (const chunk of chunkFixes(jumpy)) assert.ok(chunk.points.length <= LIMITS.maxChunkChars);
+  assert.equal(chunkFixes(jumpy).reduce((sum, chunk) => sum + chunk.pointCount, 0), jumpy.length, "nothing dropped");
+});
+
+test("stored routes are simplified more coarsely when needed to fit", () => {
+  // 100 km of winding road sampled every 5 m, against a limit it can't meet point by point.
+  const winding = Array.from({ length: 20_000 }, (_, i) => ({ lat: ORIGIN.lat + i * 4.5e-5, lng: ORIGIN.lng + 4.6e-4 * Math.sin(i / 16) }));
+  const limit = 10_000;
+  assert.ok(encodeRouteWithin([winding], 0, Number.MAX_SAFE_INTEGER).length > limit, "over the limit unsimplified");
+  const encoded = encodeRouteWithin([winding], 0, limit);
+  assert.ok(encoded.length <= limit, `${encoded.length}`);
+  assert.ok(decodeRoute(encoded)[0].length > 300, "the bends are kept");
+  assert.ok(encodeRouteWithin([winding], 0).length <= LIMITS.maxPolylineChars);
+  const small = [legs(ORIGIN, [[0, 500], [90, 500]])];
+  assert.equal(decodeRoute(encodeRouteWithin(small, 0))[0].length, 3, "a small route is not coarsened");
 });
