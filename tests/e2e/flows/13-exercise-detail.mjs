@@ -54,7 +54,7 @@ export const flow = {
       await page.waitForFunction(() => new URL(location.href).searchParams.get("tab") === "muscles", null, { timeout: 5000 });
       const map = await page.locator("[role=img][aria-label^='Muscles Barbell Bench Press works']").getAttribute("aria-label");
       t.expect(/Primary: chest/.test(map ?? ""), `the map names the primary muscle: ${map}`);
-      t.expect((await page.locator("a[href='/exercises/muscles?region=chest']").count()) > 0, "the chest links to Browse by muscle");
+      t.expect((await page.locator("a[href='/exercises/muscles?muscle=chest']").count()) > 0, "the chest links to Browse by muscle");
       await page.getByRole("heading", { name: "Alternatives" }).waitFor();
       await page.getByRole("heading", { name: "Other equipment" }).waitFor({ timeout: 20000 });
       await t.checkpoint("exercise muscles");

@@ -7,11 +7,13 @@ const PRIVATE = [
   "/dashboard", "/workouts", "/workouts/active", "/nutrition", "/nutrition/sources", "/activity", "/activity/record",
   "/activity/00000000-0000-4000-8000-000000000000", "/progress", "/goals?tab=week", "/planner", "/profile", "/settings", "/help",
   "/exercises", "/exercises/00000000-0000-4000-8000-000000000000", "/form-coach", "/onboarding", "/achievements", "/ai-coach",
-  "/subscription", "/tasks", "/social", "/admin",
+  "/subscription", "/tasks", "/social", "/admin", "/activity/import", "/exercises/muscles", "/workouts/programme", "/workouts/history",
+  "/workouts/history/00000000-0000-4000-8000-000000000000", "/progress/muscles",
 ];
 const APP_PAGES = [
   "/dashboard", "/workouts", "/nutrition", "/nutrition/sources", "/activity", "/progress", "/goals", "/goals?tab=week", "/planner",
   "/profile", "/settings", "/help", "/exercises", "/form-coach", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
+  "/activity/import", "/exercises/muscles", "/workouts/programme", "/workouts/history", "/progress/muscles",
 ];
 /** Retired routes that now redirect on purpose (their page.tsx calls redirect()). */
 const MOVED = { "/planner": "/goals?tab=week", "/tasks": "/goals?tab=today", "/achievements": "/progress", "/social": "/dashboard", "/admin": "/dashboard" };

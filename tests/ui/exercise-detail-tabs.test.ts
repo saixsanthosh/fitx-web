@@ -64,7 +64,7 @@ describe("exercise page texts and links", () => {
   });
 
   test("links to other pages", () => {
-    assert.equal(muscleBrowseHref("middle_back"), "/exercises/muscles?region=middle_back");
+    assert.equal(muscleBrowseHref("middle_back"), "/exercises/muscles?muscle=middle_back");
     assert.equal(workoutRecordHref("5f1c0f3e-0000-4000-8000-000000000001"), "/workouts/history/5f1c0f3e-0000-4000-8000-000000000001");
     assert.equal(libraryHref("chest", "gym"), "/exercises?muscle=chest");
     assert.equal(libraryHref("back", "home"), "/exercises?muscle=back&context=home&doable=1");

@@ -47,10 +47,15 @@ function cameraProblem(error: unknown): string {
  * of the barcode works as a fallback, and the torch can be switched on when the camera has one. The camera is
  * turned off whenever the scanner closes, also while it is still starting.
  */
-export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => void }) {
+export function BarcodeScanner({ onDetected, autoOpen = false }: { onDetected: (value: string) => void; autoOpen?: boolean }) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("Starting the camera…");
   const [torch, setTorch] = useState<{ available: boolean; on: boolean }>({ available: false, on: false });
+  // Home's "Scan a barcode" link (/nutrition?scan=1) opens the scanner straight away, once.
+  useEffect(() => {
+    if (!autoOpen) return;
+    void Promise.resolve().then(() => { setMessage("Starting the camera…"); setOpen(true); });
+  }, [autoOpen]);
   const video = useRef<HTMLVideoElement>(null);
   const track = useRef<MediaStreamTrack | null>(null);
   const photo = useRef<HTMLInputElement>(null);

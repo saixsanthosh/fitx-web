@@ -23,7 +23,7 @@ export function reportProblemHref(exerciseId: string): string {
 
 /** "Browse by muscle" for one body-map region (the page exercise discovery builds). */
 export function muscleBrowseHref(region: RegionKey): string {
-  return `/exercises/muscles?region=${encodeURIComponent(region)}`;
+  return `/exercises/muscles?muscle=${encodeURIComponent(region)}`;
 }
 
 /** One session's workout record (built by the workout history stream). */

@@ -25,6 +25,8 @@ import ui from "@/components/nutrition/FoodUi.module.css";
 import { Sheet } from "@/components/workouts/Sheet";
 import { useHydrated } from "@/components/ui/use-hydrated";
 import { createClient } from "@/lib/supabase/client";
+import { loadGoals } from "@/lib/data/goals";
+import { dailyGoalFor, type GoalView } from "@/lib/domain/goals";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
@@ -84,6 +86,7 @@ export default function NutritionPage() {
   const [waterGoal, setWaterGoal] = useState<number | null>(null);
   const [estimated, setEstimated] = useState<ReturnType<typeof estimateNutritionTargets>>(null);
   const [manualTargets, setManualTargets] = useState<ManualTargets | null>(null);
+  const [dailyGoals, setDailyGoals] = useState<GoalView[] | null>(null);
   const [query, setQuery] = useState("");
   const [lastQuery, setLastQuery] = useState<ParsedFoodQuery>(NO_AMOUNT);
   const [lastSearch, setLastSearch] = useState("");
@@ -124,6 +127,16 @@ export default function NutritionPage() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("log");
+  const [scanOnLoad, setScanOnLoad] = useState(false);
+  // Home's "Scan a barcode" link: open the scanner on Log food, then put the address back to /nutrition.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("scan") !== "1") return;
+    void Promise.resolve().then(() => {
+      setTab("log");
+      setScanOnLoad(true);
+      window.history.replaceState(null, "", "/nutrition");
+    });
+  }, []);
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
   const [foodForm, setFoodForm] = useState<{ editing: CustomFoodRow | null; prefill: CustomFoodPrefill | null } | null>(null);
   const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null);
@@ -140,7 +153,7 @@ export default function NutritionPage() {
     setUserId(uid);
     const caps = await detectCapabilities(supabase);
     setCapabilities(caps);
-    const [mealResult, waterResult, profileResult, prefsResult, custom, targets, savedTemplates] = await Promise.all([
+    const [mealResult, waterResult, profileResult, prefsResult, custom, targets, savedTemplates, goalViews] = await Promise.all([
       supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", uid).eq("date", dateKey).order("created_at", { ascending: true }),
       supabase.from("water_logs").select("amount_ml").eq("user_id", uid).eq("local_date", dateKey),
       supabase.from("profiles").select("age,gender,height,weight").eq("id", uid).maybeSingle(),
@@ -148,6 +161,8 @@ export default function NutritionPage() {
       loadCustomFoods(supabase, uid, caps.customFoodsV2),
       caps.targets ? loadTargets(supabase, uid) : Promise.resolve(null),
       caps.templates ? loadTemplates(supabase, uid) : Promise.resolve([]),
+      // Daily calorie and protein goals come first, as on Home, so both pages show the same "kcal left".
+      loadGoals(supabase, uid, dateKey).then((result) => result.goals).catch(() => null),
     ]);
     const failure = [mealResult.error, waterResult.error, profileResult.error, prefsResult.error].find(Boolean) ?? (custom.error ? new Error("custom foods") : null);
     if (failure) setError("Your nutrition data could not be loaded. Please try again.");
@@ -161,6 +176,7 @@ export default function NutritionPage() {
       setCustomRows(custom.rows);
       if (caps.customFoodsV2) setPhotoUrls(await signedPhotoUrls(supabase, custom.rows.map((row) => row.image_path ?? "")));
       setManualTargets(targets);
+      setDailyGoals(goalViews);
       setTemplates(savedTemplates);
       setError("");
     }
@@ -190,7 +206,18 @@ export default function NutritionPage() {
   }, []);
 
   const totals = useMemo(() => sumKnown(entries), [entries]);
-  const target = manualTargets ?? estimated;
+  const baseTarget = manualTargets ?? estimated;
+  // Same order as Home (todayTargets): a daily calorie or protein goal for this day, then the targets the
+  // member set, then the estimate from the profile.
+  const calorieDailyGoal = dailyGoalFor(dailyGoals, "calories_kcal", dateKey);
+  const proteinDailyGoal = dailyGoalFor(dailyGoals, "protein_g", dateKey);
+  const target = baseTarget
+    ? { ...baseTarget, calories: calorieDailyGoal?.targetValue ?? baseTarget.calories, protein: proteinDailyGoal?.targetValue ?? baseTarget.protein }
+    : null;
+  const fromGoals = [calorieDailyGoal ? "calories" : null, proteinDailyGoal ? "protein" : null].filter(Boolean) as string[];
+  const targetSourceText = fromGoals.length
+    ? `${fromGoals.join(" and ").replace(/^./, (letter) => letter.toUpperCase())} from your daily ${fromGoals.length > 1 ? "goals" : "goal"}; the rest ${manualTargets ? "are targets you set" : "are estimated from your profile"}`
+    : manualTargets ? "Targets you set" : "Estimated daily target from your profile";
   /** The food's own portions, then ml, cups and katori worked out for it, then any weight worked out from typing. */
   const portionOptions = useMemo(
     () => (selected ? [...selected.portions, ...extraPortions(selected.portions, selected.name, household), ...(derived ? [derived] : [])] : []),
@@ -743,7 +770,7 @@ export default function NutritionPage() {
                 ? <p className={`${styles.remaining} ${balance.over ? styles.overNote : ""}`}><strong>{balance.remaining.toLocaleString()} kcal</strong> {balance.over ? "over your target" : "left"}</p>
                 : <p className={styles.targetHint}>Set a target to see how many calories are left.</p>}
               {balance && <p className={styles.targetHint}>Target minus food. Exercise isn&apos;t added back.</p>}
-              {target && <p className={styles.targetHint}>{manualTargets ? "Targets you set" : "Estimated daily target from your profile"}</p>}
+              {target && <p className={styles.targetHint}>{targetSourceText}</p>}
               {estimateCount > 0 && <p className={styles.targetHint}>Includes {estimateCount} estimated {estimateCount === 1 ? "item" : "items"}</p>}
             </div>
           </div>
@@ -781,7 +808,7 @@ export default function NutritionPage() {
             <input className="fitx-field" value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder="Barcode number" aria-label="Barcode number" inputMode="numeric"/>
             <button className="fitx-button fitx-button-secondary shrink-0 px-3" disabled={busy} aria-label="Find barcode"><Barcode size={17}/></button>
           </form>
-          <BarcodeScanner onDetected={onBarcodeDetected}/>
+          <BarcodeScanner onDetected={onBarcodeDetected} autoOpen={scanOnLoad}/>
           <div className={styles.searchTools}>
             {lastSearch && searchMode !== "packaged" && <button type="button" className={ui.textButton} disabled={searchingFoods} onClick={() => void runFoodSearch(lastSearch, true)}><PackageSearch size={13} className="mr-1 inline"/>Search packaged products for “{parseFoodQuery(lastSearch).text}”</button>}
             <label className={styles.filter}><input type="checkbox" checked={dietFilter.nonVeg} onChange={(event) => changeDietFilter({ nonVeg: event.target.checked })}/>Hide foods marked non-veg</label>
@@ -855,7 +882,7 @@ export default function NutritionPage() {
       {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
         onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
       {tab === "insights" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-2 font-medium">Daily nutrition insights</h2><p className="mb-5 text-sm text-fitx-text-secondary">This view summarizes the food you have logged for the selected day{estimateCount > 0 ? `, including ${estimateCount} estimated ${estimateCount === 1 ? "item" : "items"}` : ""}. For more than one day, see History.</p>{unknownTotals.length > 0 && <p className="mb-4 text-xs text-fitx-text-secondary">{unknownTotals.map((key) => `${totals.unknown[key]} ${totals.unknown[key] === 1 ? "entry has" : "entries have"} no ${MACRO_LABEL[key]} value`).join(", ")}; those are left out of the totals, not counted as 0 g.</p>}{entries.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{([["Energy", Math.round(totals.calories), "kcal", target?.calories], ["Protein", Math.round(totals.protein), "g", target?.protein], ["Carbohydrates", Math.round(totals.carbs), "g", target?.carbs], ["Fat", Math.round(totals.fat), "g", target?.fat]] as const).map(([label, value, unit, goal]) => { const progress = goal ? goalProgress(value, goal) : null; return <div key={label} className="rounded-xl border border-fitx-border bg-fitx-surface p-4"><p className="text-xs text-fitx-text-secondary">{label}</p><p className="mt-2 text-2xl font-semibold">{value} <span className="text-sm font-normal text-fitx-text-disabled">{unit}</span></p>{progress && <p className={`mt-2 text-xs ${progress.isOver ? styles.macroOver : "text-fitx-text-disabled"}`}>{progress.isOver ? `${progress.over} ${unit} over the ${manualTargets ? "" : "estimated "}target` : `${progress.percent}% of ${manualTargets ? "your" : "estimated"} target`}</p>}</div>; })}</div> : <EmptyState title="No nutrition data yet" description="Logged meals will be summarized here."/>}</section>}
-      {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={manualTargets ? "Targets you set." : "Estimated from your profile."}
+      {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={`${targetSourceText}.`}
         onOpenDay={(key) => { const [year, month, day] = key.split("-").map(Number); setDate(new Date(year, month - 1, day)); setTab("meals"); }}/>}
       {sheetOpen && selected && <Sheet title="Scanned product" description="Check the amount, pick the meal and add it." onClose={() => setSheetOpen(false)}
         footer={<div className={ui.sheetActions}>

@@ -30,11 +30,11 @@ export function ExerciseAlternatives({ target, substitutes, perGroup = 4, classN
     return <p className={`m-0 text-sm text-fitx-text-secondary ${className}`}>No close alternatives found for {target.name} yet.</p>;
   }
   return (
-    <div className={`grid gap-5 ${className}`}>
+    <div className={`grid grid-cols-1 gap-5 ${className}`}>
       {groups.map((group) => (
         <section key={group.key} aria-labelledby={`alt-${group.key}`}>
           <h3 id={`alt-${group.key}`} className="m-0 text-sm font-bold text-fitx-text">{group.title}</h3>
-          <ul className="m-0 mt-2 grid list-none gap-2 p-0">
+          <ul className="m-0 mt-2 grid list-none grid-cols-1 gap-2 p-0">
             {group.items.map((item) => (
               <li key={item.exercise.id}>
                 <Link
