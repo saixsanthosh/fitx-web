@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { History, Loader2, MessageSquarePlus, Settings2, X } from "lucide-react";
+import { useHydrated } from "@/components/ui/use-hydrated";
 import type { CoachState, CoachStatus } from "@/lib/ai/status";
 import type { CoachActionView, CoachMessageView, CoachQuota, CoachStreamEvent, CoachSwap, CoachThreadSummary } from "@/lib/ai/types";
 import type { ActionState } from "./ActionButton";
@@ -15,7 +16,6 @@ import { formatResetTime } from "./format";
 import type { PlanActions } from "./MealPlanCard";
 import { MessageView } from "./MessageView";
 import { RichText } from "./RichText";
-import { useHydrated } from "./use-hydrated";
 
 type Pending = { task: ComposerMode; status: string | null; text: string };
 type Problem = { message: string; retryAt?: string };

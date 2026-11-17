@@ -18,6 +18,7 @@ import { PortionPicker, type AmountPrompt } from "@/components/nutrition/Portion
 import { Routines } from "@/components/nutrition/Routines";
 import { TargetsEditor } from "@/components/nutrition/TargetsEditor";
 import ui from "@/components/nutrition/FoodUi.module.css";
+import { useHydrated } from "@/components/ui/use-hydrated";
 import { createClient } from "@/lib/supabase/client";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, formatAmount, parseFoodQuery, resolvePortion } from "@/lib/domain/food-query";
@@ -33,6 +34,7 @@ import {
   type MealTemplate, type NutritionCapabilities,
 } from "@/lib/food/client-data";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
+import { nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
 
 type Profile = { age: number | null; gender: string | null; height: number | null; weight: number | null };
@@ -61,6 +63,8 @@ function sourceText(source: SourceStatus) {
 
 export default function NutritionPage() {
   const [date, setDate] = useState(() => new Date());
+  // The page is prerendered at build time, so the chosen day is named only after hydration (nutritionDayLabels).
+  const hydrated = useHydrated();
   const [userId, setUserId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<NutritionCapabilities>(NO_CAPABILITIES);
   const [entries, setEntries] = useState<MealEntry[]>([]);
@@ -581,19 +585,20 @@ export default function NutritionPage() {
   const estimateCount = entries.filter(isEstimateEntry).length;
   const showBrowse = searchMode === "browse";
   const tabs: Array<[Tab, string]> = [["log", "Log food"], ["meals", "Meals"], ["foods", "My foods"], ["routines", "Routines"], ["insights", "Insights"]];
+  const dayLabels = nutritionDayLabels(hydrated ? date : null);
 
   return (
     <div className={`${styles.page} space-y-5`}>
       <PageHeading title="Track your nutrition" description="Search a food, choose a portion, and keep a clear log of meals and water." actions={
         <div className="flex items-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-2 py-1">
           <button onClick={() => shiftDate(-1)} aria-label="Previous day" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover"><ArrowLeft size={16}/></button>
-          <span className="min-w-32 text-center text-xs text-fitx-text-secondary">{readableDate(date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</span>
+          <span className="min-w-32 text-center text-xs text-fitx-text-secondary">{dayLabels.picker}</span>
           <button onClick={() => shiftDate(1)} aria-label="Next day" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover"><ArrowRight size={16}/></button>
         </div>
       }/>
-      <section className={styles.overview} aria-label={`Nutrition summary for ${readableDate(date)}`}>
+      <section className={styles.overview} aria-label={dayLabels.summary}>
         <div className={styles.overviewHeader}>
-          <div><p className={styles.eyebrow}>Daily nutrition</p><h2>{readableDate(date, { weekday: "long", month: "long", day: "numeric" })}</h2></div>
+          <div><p className={styles.eyebrow}>Daily nutrition</p><h2>{dayLabels.heading}</h2></div>
           <button type="button" onClick={() => setTargetsOpen(true)} className={styles.targetButton}><Target size={14}/>{manualTargets ? "Your targets" : "Edit targets"}</button>
         </div>
         <div className={styles.overviewBody}>

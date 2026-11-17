@@ -1,10 +1,10 @@
 "use client";
 
 import { MessageSquarePlus, Trash2 } from "lucide-react";
+import { useHydrated } from "@/components/ui/use-hydrated";
 import type { CoachThreadSummary } from "@/lib/ai/types";
 import { cn } from "@/lib/utils";
 import { relativeDay } from "./format";
-import { useHydrated } from "./use-hydrated";
 
 /** The member's past conversations. */
 export function ConversationList({
