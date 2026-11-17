@@ -120,11 +120,12 @@ export default function BrowseByMusclePage() {
           lastTrained: history.periods.all.regions[region].lastTrainedOn ? lastTrainedText(history.periods.all.regions[region].lastTrainedOn!, today) : null,
           truncated: history.truncated,
         };
-  const workoutLists: WorkoutLists = workouts.status !== "ready" || !region
+  // Plans are read through the catalogue's muscles, so they wait for it.
+  const workoutLists: WorkoutLists = workouts.status !== "ready" || !region || catalogue.status === "loading"
     ? { status: workouts.status === "error" ? "error" : "loading" }
     : {
       status: "ready",
-      plansFailed: workouts.plansFailed,
+      plansFailed: workouts.plansFailed || catalogue.status === "error",
       plans: exercises ? plansTraining(workouts.plans, workouts.exercises, catalogById, region, today) : [],
       programmes: programmesTraining(workouts.programmes, region),
     };
