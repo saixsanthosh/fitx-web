@@ -126,11 +126,31 @@ describe("Phase 3 SQL on a local Postgres", { skip }, () => {
       update public.planner_events set starts_at = '2026-11-19T20:30:00Z', ends_at = '2026-11-19T21:30:00Z', local_date = '2026-11-20' where id = '${id}';
       select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
     assert.equal(moved.day, "2026-11-20", "picking another day moves it to that day");
-    const untouched = pg.json(`
+    // The app from before this migration moves a start without naming local_date: the day follows the start,
+    // in the saved zone (UTC here), as it did there.
+    const older = pg.json(`
       update public.planner_events set starts_at = '2026-11-21T20:30:00Z', ends_at = '2026-11-21T21:30:00Z' where id = '${id}';
       select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
-    assert.equal(untouched.day, "2026-11-20", "a start written without a day leaves the day alone");
-    pg.exec(`delete from public.planner_events where id = '${id}';`, asB);
+    assert.equal(older.day, "2026-11-21", "a start moved without a day takes its day in the saved zone");
+    // One transaction, two writers: the mark of the update that sent a day stays on that update.
+    const both = pg.json(`
+      begin;
+      update public.planner_events set starts_at = '2026-11-22T20:30:00Z', ends_at = '2026-11-22T21:30:00Z', local_date = '2026-11-23' where id = '${id}';
+      update public.planner_events set starts_at = '2026-11-24T20:30:00Z', ends_at = '2026-11-24T21:30:00Z' where id = '${id}';
+      commit;
+      select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
+    assert.equal(both.day, "2026-11-24", "the second update named no day, so its start decides");
+    // Several rows in one update, each naming its day: none moves. 09:00 to 02:00 in India crosses the saved
+    // zone's midnight for "Early swim" (03:30 UTC on the 18th to 20:30 UTC on the 17th).
+    const second = pg.json(`
+      with t as (insert into public.planner_events (user_id, event_type, title, local_date, starts_at, ends_at)
+        values ('${B}', 'other', 'Early swim', '${TODAY}', '2026-11-18T03:30:00Z', '2026-11-18T04:30:00Z') returning id)
+      select to_json(id) from t;`, asB);
+    const days = pg.json(`
+      update public.planner_events set starts_at = starts_at - interval '7 hours', ends_at = ends_at - interval '7 hours', local_date = local_date where user_id = '${B}';
+      select json_object_agg(title, local_date) from public.planner_events where user_id = '${B}';`, asB);
+    assert.deepEqual(days, { "Night feed": "2026-11-24", "Early swim": TODAY }, "the day each row sent wins");
+    pg.exec(`delete from public.planner_events where id in ('${id}', '${second}');`, asB);
     pg.exec(`delete from public.user_preferences where user_id = '${B}';`);
   });
 

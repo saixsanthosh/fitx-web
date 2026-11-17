@@ -107,12 +107,27 @@ end $$;
 create index if not exists planner_events_user_day_idx on public.planner_events (user_id, local_date, sort_order);
 create index if not exists planner_events_goal_idx on public.planner_events (goal_id) where goal_id is not null;
 
+-- Marks an update that sends local_date itself, for fitx_planner_events_defaults below. Postgres fires a
+-- row's BEFORE triggers in name order, so this one (planner_events_a_day_sent, which fires only when the
+-- update names local_date) runs first. The mark is the row's id, local to the transaction, and the
+-- defaults trigger clears it on the same row.
+create or replace function public.fitx_planner_events_day_sent()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  perform pg_catalog.set_config('fitx.planner_day_sent', new.id::text, true);
+  return new;
+end $$;
+
 -- Fills local_date for a timed event written without one (an older client's insert), from its start in
--- the saved time zone, and keeps completed_at in step with status. Otherwise the day the writer sends
--- is kept as it is: giving an untimed To-Do a time, or changing its time, never moves it to another day,
--- even when the start crosses midnight in a saved zone that is not the browser's. Every writer in the
--- app (the To-Do editor, the Workouts plan save, programme scheduling) sends local_date with the start,
--- so a day changes only when the member picks another one. Runs with the writer's rights (RLS applies).
+-- the saved time zone, and keeps completed_at in step with status. The day a writer sends is kept as
+-- it is: giving an untimed To-Do a time, or changing its time, never moves it to another day, even when
+-- the start crosses midnight in a saved zone that is not the browser's. Every writer in this version of
+-- the app (the To-Do editor, the Workouts plan save, programme scheduling) sends local_date with the
+-- start. Only an update that moves the start without naming local_date at all (the app from before this
+-- migration) has the day follow the start, in the saved time zone. Runs with the writer's rights (RLS applies).
 create or replace function public.fitx_planner_events_defaults()
 returns trigger
 language plpgsql
@@ -126,6 +141,21 @@ begin
       from public.user_preferences up
      where up.user_id = new.user_id;
     new.local_date := (new.starts_at at time zone coalesce(tz, 'UTC'))::date;
+  elsif tg_op = 'UPDATE'
+    and new.starts_at is not null
+    and old.starts_at is not null
+    and new.starts_at is distinct from old.starts_at
+    and coalesce(pg_catalog.current_setting('fitx.planner_day_sent', true), '') <> new.id::text then
+    select public.fitx_safe_timezone(up.timezone) into tz
+      from public.user_preferences up
+     where up.user_id = new.user_id;
+    tz := coalesce(tz, 'UTC');
+    if (new.starts_at at time zone tz)::date <> (old.starts_at at time zone tz)::date then
+      new.local_date := (new.starts_at at time zone tz)::date;
+    end if;
+  end if;
+  if tg_op = 'UPDATE' then
+    perform pg_catalog.set_config('fitx.planner_day_sent', '', true);
   end if;
 
   if new.status <> 'completed' then
@@ -135,6 +165,10 @@ begin
   end if;
   return new;
 end $$;
+
+drop trigger if exists planner_events_a_day_sent on public.planner_events;
+create trigger planner_events_a_day_sent before update of local_date on public.planner_events
+  for each row execute function public.fitx_planner_events_day_sent();
 
 drop trigger if exists planner_events_defaults on public.planner_events;
 create trigger planner_events_defaults before insert or update on public.planner_events
@@ -267,6 +301,7 @@ end $$;
 revoke all on function public.fitx_safe_timezone(text) from public, anon;
 revoke all on function public.fitx_user_timezone(text) from public, anon;
 revoke all on function public.fitx_planner_events_defaults() from public, anon, authenticated;
+revoke all on function public.fitx_planner_events_day_sent() from public, anon, authenticated;
 revoke all on function public.fitx_reorder_todo(date, uuid[]) from public, anon;
 revoke all on function public.fitx_complete_workout_event(uuid, text) from public, anon;
 grant execute on function public.fitx_safe_timezone(text) to authenticated;
