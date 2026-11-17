@@ -1,3 +1,5 @@
+import type { RegionKey } from "./anatomy";
+import { FOCUS_AREAS, FOCUS_AREA_INFO, type FocusArea } from "./focus";
 import type { SlotSpec } from "./generator";
 import type { Level, MuscleGroup, TrainingContext } from "./taxonomy";
 
@@ -62,6 +64,101 @@ export function scheduleDays(options: { from: Date; weekdays: readonly number[];
 
 function localKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+// ---------------------------------------------------------------- body areas (the focus vocabulary, focus.ts)
+
+/** The focus area of each muscle group a slot names: the area whose groups include it (neck has none). */
+const GROUP_AREA: ReadonlyMap<string, FocusArea> = new Map(
+  FOCUS_AREAS.flatMap((area) => FOCUS_AREA_INFO[area].groups.map((group) => [group, area] as const)),
+);
+const UPPER_GROUPS: ReadonlySet<string> = new Set(["chest", "back", "shoulders", "biceps", "triceps"]);
+const LOWER_GROUPS: ReadonlySet<string> = new Set(["quadriceps", "hamstrings", "glutes", "calves", "hips"]);
+
+const slotGroup = (slot: Pick<SlotSpec, "muscle">): MuscleGroup => (Array.isArray(slot.muscle) ? slot.muscle[0] : slot.muscle) as MuscleGroup;
+
+/** The focus area a muscle group belongs to, or null (neck). */
+export function areaForGroup(group: string): FocusArea | null {
+  return GROUP_AREA.get(group) ?? null;
+}
+
+export type ProgrammeAreaShare = {
+  area: FocusArea;
+  /** Working sets for the area in one full cycle of the programme's days (optional slots left out). */
+  sets: number;
+  /** Its share of all those sets, 0..1. */
+  share: number;
+};
+
+/**
+ * How a programme's work is spread over the body areas: the sets of every required slot in one cycle, counted for
+ * the area of the slot's main muscle group, most first. Read from the authored slots only.
+ */
+export function programmeAreaShares(programme: Pick<Programme, "days">): ProgrammeAreaShare[] {
+  const sets = new Map<FocusArea, number>();
+  let total = 0;
+  for (const day of programme.days) {
+    for (const slot of day.slots) {
+      if (slot.optional) continue;
+      const area = areaForGroup(slotGroup(slot));
+      if (!area) continue;
+      sets.set(area, (sets.get(area) ?? 0) + slot.sets);
+      total += slot.sets;
+    }
+  }
+  return FOCUS_AREAS.filter((area) => sets.has(area))
+    .map((area) => ({ area, sets: sets.get(area)!, share: total ? sets.get(area)! / total : 0 }))
+    .sort((a, b) => b.sets - a.sets || FOCUS_AREAS.indexOf(a.area) - FOCUS_AREAS.indexOf(b.area));
+}
+
+/** A full-body programme: every day's required slots reach both the upper and the lower body. */
+export function isFullBodyProgramme(programme: Pick<Programme, "days">): boolean {
+  return programme.days.length > 0 && programme.days.every((day) => {
+    const groups = day.slots.filter((slot) => !slot.optional).map(slotGroup);
+    return groups.some((group) => UPPER_GROUPS.has(group)) && groups.some((group) => LOWER_GROUPS.has(group));
+  });
+}
+
+/** The areas a programme trains: full body first when every day is full body, then the others, most work first. */
+export function programmeAreas(programme: Pick<Programme, "days">): FocusArea[] {
+  const shares = programmeAreaShares(programme).map((entry) => entry.area).filter((area) => area !== "full_body");
+  return isFullBodyProgramme(programme) ? ["full_body", ...shares] : shares;
+}
+
+/** The programmes that train an area, the most work for it first (full body: the full-body programmes, in order). */
+export function programmesForArea<T extends Pick<Programme, "days">>(programmes: readonly T[], area: FocusArea): T[] {
+  if (area === "full_body") return programmes.filter(isFullBodyProgramme);
+  const shareOf = (programme: T) => programmeAreaShares(programme).find((entry) => entry.area === area)?.share ?? 0;
+  return programmes.map((programme, index) => ({ programme, index, share: shareOf(programme) }))
+    .filter((entry) => entry.share > 0)
+    .sort((a, b) => b.share - a.share || a.index - b.index)
+    .map((entry) => entry.programme);
+}
+
+/** Body-map heat for a programme: each area's regions at its share of the work, relative to the busiest area. */
+export function programmeRegionLevels(programme: Pick<Programme, "days">): Partial<Record<RegionKey, number>> {
+  const shares = programmeAreaShares(programme).filter((entry) => entry.area !== "full_body");
+  const top = Math.max(0, ...shares.map((entry) => entry.share));
+  const levels: Partial<Record<RegionKey, number>> = {};
+  if (!top) return levels;
+  for (const entry of shares) {
+    const level = Math.round((entry.share / top) * 1000) / 1000;
+    for (const region of FOCUS_AREA_INFO[entry.area].regions) levels[region] = Math.max(levels[region] ?? 0, level);
+  }
+  return levels;
+}
+
+/** A slot's prescription as authored: "4 × 6–8", "3 × 12", "3 × 40 s". */
+export function slotPrescription(slot: Pick<SlotSpec, "sets" | "reps" | "seconds">): string {
+  if (slot.seconds) return `${slot.sets} × ${slot.seconds} s`;
+  const [low, high] = slot.reps;
+  return `${slot.sets} × ${low === high ? low : `${low}–${high}`}`;
+}
+
+/** Training and rest days in a week for the chosen weekdays. */
+export function weeklyPattern(weekdays: readonly number[]): { training: number; rest: number } {
+  const training = new Set(weekdays.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)).size;
+  return { training, rest: 7 - training };
 }
 
 /** The authored day that matches a profile's workout_split, for one-off "Auto plan" workouts. */

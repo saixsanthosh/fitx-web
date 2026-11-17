@@ -1,0 +1,90 @@
+/* The programme day strip (ProgrammeDayStrip.tsx). Theme tokens only (scripts/check-raw-colors.mjs).
+   Done days use the success colour, today a primary ring, rest days a quiet surface with a moon, days not
+   planned yet a dashed edge. A missed day stays neutral: it is never shown as an error. */
+
+.scroller {
+  position: relative;
+  overflow-x: auto;
+  margin-inline: -4px;
+  padding: 4px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+.scroller::-webkit-scrollbar { display: none; }
+
+.strip {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: grid;
+  width: 58px;
+  min-height: 84px;
+  flex: 0 0 auto;
+  align-content: center;
+  justify-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 1px solid var(--fitx-border);
+  border-radius: 14px;
+  background: var(--fitx-surface);
+  color: var(--fitx-text);
+  scroll-snap-align: center;
+  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+.chip:hover { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); }
+
+.weekday { color: var(--fitx-text-secondary); font-size: .68rem; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.date { font-size: 1.15rem; font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.mark { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 999px; color: var(--fitx-text-secondary); }
+
+.chip[data-state="done"] { border-color: var(--fitx-success-border); background: var(--fitx-success-bg); }
+.chip[data-state="done"] .mark { border: 1.5px solid var(--fitx-success); color: var(--fitx-success); }
+
+.chip[data-state="today"] .mark,
+.chip[data-state="planned"] .mark { background: color-mix(in srgb, var(--fitx-primary) 12%, transparent); color: var(--fitx-primary-text); }
+
+.chip[data-state="rest"] { background: var(--fitx-surface-variant); }
+.chip[data-state="rest"] .date { color: var(--fitx-text-secondary); }
+
+.chip[data-state="projected"],
+.chip[data-state="paused"] { border-style: dashed; }
+
+.chip[data-state="before_start"],
+.chip[data-state="after_end"] { opacity: .55; }
+
+/* Today: a primary ring around the chip whatever its state. */
+.chip[data-today="true"] { border-color: var(--fitx-primary); box-shadow: inset 0 0 0 1px var(--fitx-primary); }
+.chip[data-today="true"] .weekday { color: var(--fitx-primary-text); }
+
+/* The day whose details are shown. */
+.chip[aria-selected="true"] { background: color-mix(in srgb, var(--fitx-primary) 9%, var(--fitx-surface)); box-shadow: 0 0 0 2px var(--fitx-primary); }
+
+.chip:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 3px; }
+
+/* The journey page: one row of seven days per week, each day a toggle (aria-pressed). */
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.week .chip { width: 100%; min-height: 76px; }
+.chip[aria-pressed="true"] { background: color-mix(in srgb, var(--fitx-primary) 9%, var(--fitx-surface)); box-shadow: 0 0 0 2px var(--fitx-primary); }
+@media (min-width: 640px) {
+  .week { gap: 8px; }
+}
+
+@media (min-width: 768px) {
+  .chip { width: 64px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip { transition: none; }
+}
