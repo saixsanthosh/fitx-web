@@ -8,7 +8,8 @@ grant select, insert on table public.fitx_admin_audit_logs to service_role;
 
 -- Rows keep the actor's account ID after that account is deleted. Copies of this table made before
 -- that rule (the old Admin draft schema) declared actor_id with a foreign key to auth.users that
--- cleared it on deletion; any such key is dropped here, so deleting an account never touches the log.
+-- cleared it on deletion. 20261118180000 drops any such key; it is checked again here because, with
+-- the append-only trigger below, that key would make deleting any account named in the log fail.
 do $do$
 declare
   fk record;
