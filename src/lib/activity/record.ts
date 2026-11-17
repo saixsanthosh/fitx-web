@@ -3,7 +3,7 @@ import type { ActivityEngine } from "./engine";
 import { simplify, type Bounds } from "./geo";
 import { encodeRoute, encodeTrackChunk } from "./polyline";
 import { privateBounds, trimForPrivacy } from "./privacy";
-import type { ControlEvent, Fix, Gap, LatLng, LogEntry, Split, Sport } from "./types";
+import type { ActivitySource, ControlEvent, Fix, Gap, ImportFormat, LatLng, LogEntry, Split, Sport } from "./types";
 
 /** Version of the engine rules that produced a summary; stored so old summaries can be recomputed. */
 export const ENGINE_VERSION = 1;
@@ -45,6 +45,15 @@ export type ActivityRecord = {
   pointCount: number;
   chunks: TrackChunk[];
   engineVersion: number;
+  /**
+   * Where the data came from. Absent (older device copies) or "fitx_gps" for the Record screen;
+   * those uploads never send the source columns, so they work before migration 20261119100000.
+   */
+  source?: ActivitySource;
+  /** For imports: the file's format, the device or app the file names (never guessed) and when it was imported. */
+  sourceFormat?: ImportFormat | null;
+  sourceDevice?: string | null;
+  importedAt?: number | null;
 };
 
 const round1 = (value: number) => Math.round(value * 10) / 10;

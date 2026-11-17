@@ -9,7 +9,9 @@ import { EmptyState } from "@/components/app/EmptyState";
 import { SPORT_LABEL, SPORT_NOUN, usesPace } from "@/lib/activity/config";
 import { formatActivityDate, formatDistance, formatDuration, kmValue, localDateKey, paceValue, speedValue } from "@/lib/activity/format";
 import type { LocksLike } from "@/lib/activity/device-recordings";
+import { uploadWithin, type KeptReason } from "@/lib/activity/finish";
 import { recordingStore, type RecordingStore, type StoredRecording } from "@/lib/activity/local-store";
+import type { ActivityRecord } from "@/lib/activity/record";
 import { ActivityRecorder, type FinishResult, type RecorderSnapshot } from "@/lib/activity/recorder";
 import { toGpx } from "@/lib/activity/gpx";
 import { replayStored } from "@/lib/activity/replay";
@@ -19,6 +21,7 @@ import { SPORTS, type Sport } from "@/lib/activity/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
+import { FinishedResult } from "./FinishedResult";
 import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, SCREEN_ON_NOTE, SIGNAL_TEXT, WAKE_LOCK_TEXT } from "./messages";
 import { SportIcon } from "./sports";
 import { useActivityAccount } from "./useActivityAccount";
@@ -64,11 +67,11 @@ function SignalPill({ snapshot }: { snapshot: RecorderSnapshot }) {
   );
 }
 
-function Stat({ label, value, unit, large = false }: { label: string; value: string; unit?: string; large?: boolean }) {
+function Stat({ label, value, unit, large = false, className }: { label: string; value: string; unit?: string; large?: boolean; className?: string }) {
   return (
-    <div className="min-w-0">
+    <div className={cn("min-w-0", className)}>
       <p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">{label}</p>
-      <p className={cn("mt-1 truncate font-semibold tabular-nums tracking-tight text-fitx-text", large ? "text-[56px] leading-none sm:text-[64px]" : "text-2xl sm:text-[28px]")}>
+      <p className={cn("mt-1 truncate font-semibold tabular-nums tracking-tight text-fitx-text", large ? "text-[56px] leading-none sm:text-[64px]" : "text-[22px] sm:text-[28px]")}>
         {value}
         {unit && <span className={cn("ml-1 font-medium text-fitx-text-secondary", large ? "text-xl" : "text-sm")}>{unit}</span>}
       </p>
@@ -88,12 +91,15 @@ export function ActivityRecorderScreen() {
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [unsaved, setUnsaved] = useState<FinishResult | null>(null);
+  // A finished activity whose upload hasn't worked yet: its result is shown here, from the device copy.
+  const [finished, setFinished] = useState<{ record: ActivityRecord; reason: KeptReason } | null>(null);
   // Keyboard and screen-reader users land on the safe choice when a confirmation opens, and back
   // on the button that opened it when it closes.
   const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
   const finishTriggerRef = useRef<HTMLButtonElement | null>(null);
   const discardTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [error, setError] = useState("");
+  const openSaved = useCallback((id: string) => router.replace(`/activity/${id}`), [router]);
   const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => {
@@ -225,17 +231,25 @@ export function ActivityRecorderScreen() {
       ? stored
       : { clientId: record.clientId, userId: account.userId, sport: record.sport, startedAt: record.startedAt, state: "finished", updatedAt: Date.now(), record };
     if (store && supabase) {
-      const outcome = await uploadRecording(store, supabase, account.userId, row);
-      if (outcome.result.status === "ok") {
-        router.replace(`/activity/${outcome.result.data.id}`);
+      // Never wait long on the network: after a few seconds the result shows from the device copy.
+      const outcome = await uploadWithin(() => uploadRecording(store, supabase, account.userId, row));
+      if (outcome.kind === "uploaded") {
+        router.replace(`/activity/${outcome.id}`);
         return;
       }
-      if (await store.getRecording(record.clientId).catch(() => null)) {
-        router.replace(`/activity/local-${record.clientId}`);
+      if (result.savedLocally || (await store.getRecording(record.clientId).catch(() => null))) {
+        setSaving(false);
+        setUnsaved(null);
+        setFinished({ record, reason: outcome.reason });
+        // A slow upload that still finishes moves on to the saved activity.
+        void outcome.pending?.then((late) => {
+          if (late.result.status === "ok") router.replace(`/activity/${late.result.data.id}`);
+        });
         return;
       }
     } else if (result.savedLocally) {
-      router.replace(`/activity/local-${record.clientId}`);
+      setSaving(false);
+      setFinished({ record, reason: "error" });
       return;
     }
     setSaving(false);
@@ -299,6 +313,9 @@ export function ActivityRecorderScreen() {
     await saveFinished(result);
   }
 
+  if (finished && account.status === "ready") {
+    return <FinishedResult record={finished.record} userId={account.userId} reason={finished.reason} onUploaded={openSaved} />;
+  }
   if (account.status === "loading" || (account.status === "ready" && !snapshot)) {
     return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Preparing activity tracking…</div>;
   }
@@ -363,33 +380,34 @@ export function ActivityRecorderScreen() {
       )}
       {recentGap && <p role="status" className="fitx-alert mb-4 flex gap-3 text-[13px]"><Info size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info" />{gapSentence(recentGap)}</p>}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="order-2 lg:order-1">
+      {/* Phones: the map leads and the controls sit on a sheet over its lower edge. Large screens: map left, controls right. */}
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-4">
+        <div className="relative">
           {showMap ? (
-            <ActivityMap
-              segments={segments}
-              version={stats?.routeVersion ?? 0}
-              current={current}
-              follow
-              className="h-[42vh] min-h-64 w-full lg:h-[calc(100dvh-220px)] lg:min-h-[480px]"
-              label={recording ? "Map of your route so far" : "Map of your current position"}
-            />
+            <>
+              <ActivityMap
+                segments={segments}
+                version={stats?.routeVersion ?? 0}
+                current={current}
+                follow
+                className="h-[44dvh] min-h-64 w-full [--fitx-map-inset-bottom:28px] lg:h-[calc(100dvh-220px)] lg:min-h-[480px] lg:[--fitx-map-inset-bottom:0px]"
+                label={recording ? "Map of your route so far" : "Map of your current position"}
+              />
+              <button type="button" onClick={toggleMap} aria-label="Hide map (saves battery)" className="absolute left-2.5 top-2.5 z-[3] inline-flex min-h-11 items-center gap-2 rounded-lg border border-fitx-border bg-fitx-elevated/95 px-3 text-sm font-medium text-fitx-text-secondary shadow-sm hover:text-fitx-text">
+                <EyeOff size={16} aria-hidden="true" />Hide map
+              </button>
+            </>
           ) : (
-            <div className="grid h-40 place-items-center rounded-xl border border-dashed border-fitx-border bg-fitx-surface text-center text-sm text-fitx-text-secondary lg:h-[calc(100dvh-220px)]">
-              <p className="px-6">Map hidden to save battery. Tracking continues.</p>
+            <div className="mb-4 flex min-h-16 flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-fitx-border bg-fitx-surface px-4 py-3 text-sm text-fitx-text-secondary lg:mb-0 lg:h-[calc(100dvh-220px)] lg:flex-col lg:justify-center lg:text-center">
+              <p>Map hidden to save battery. Tracking continues.</p>
+              <button type="button" onClick={toggleMap} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text"><Eye size={16} aria-hidden="true" />Show map</button>
             </div>
           )}
-          <div className="mt-2 flex justify-end">
-            <button type="button" onClick={toggleMap} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
-              {showMap ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-              {showMap ? "Hide map (saves battery)" : "Show map"}
-            </button>
-          </div>
         </div>
 
-        <div className="order-1 space-y-4 lg:order-2">
+        <div className={cn("relative z-[4] space-y-4", showMap && "-mt-7 lg:mt-0")}>
           {!recording && phase !== "finished" && (
-            <section className="fitx-panel p-4 sm:p-5" aria-labelledby="sport-title">
+            <section className="fitx-panel p-4 shadow-lg sm:p-5 lg:shadow-none" aria-labelledby="sport-title">
               <h2 id="sport-title" className="text-sm font-semibold text-fitx-text">Activity</h2>
               <div className="mt-3 grid grid-cols-3 gap-2" role="group" aria-label="Activity type">
                 {SPORTS.map((option) => (
@@ -422,7 +440,7 @@ export function ActivityRecorderScreen() {
           )}
 
           {(recording || phase === "finished") && stats && (
-            <section className="fitx-panel p-4 sm:p-5" aria-label="Live statistics">
+            <section className="fitx-panel p-4 shadow-lg sm:p-5 lg:shadow-none" aria-label="Live statistics">
               <Stat label="Distance" value={kmValue(stats.distanceM)} unit="km" large />
               <div className="mt-5 grid grid-cols-2 gap-4">
                 <Stat label="Time" value={formatDuration(stats.activeSeconds)} />
@@ -433,6 +451,8 @@ export function ActivityRecorderScreen() {
                   ? <Stat label="Avg pace" value={paceValue(stats.avgPaceSecondsPerKm)} unit="/km" />
                   : <Stat label="Avg speed" value={speedValue(stats.avgSpeedMps)} unit="km/h" />}
                 <Stat label="Moving" value={formatDuration(stats.movingSeconds)} />
+                {/* Climb only when the phone reports a usable altitude; never shown as 0 without one. */}
+                {stats.elevationGainM !== null && <Stat label="Climb (GPS)" value={String(stats.elevationGainM)} unit="m" className="col-span-2" />}
               </div>
               <div className="mt-4 flex flex-wrap gap-2 text-xs text-fitx-text-secondary">
                 {stats.stopped && phase === "recording" && <span className="rounded-full bg-fitx-surface-variant px-2.5 py-1">Stopped · moving time held</span>}

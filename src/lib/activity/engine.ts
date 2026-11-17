@@ -31,6 +31,13 @@ import type { ControlEvent, Fix, Gap, LatLng, LogEntry, RoutePoint, Split, Sport
 export type EngineStatus = "idle" | "recording" | "paused" | "finished";
 export type DistanceModel = "position" | "doppler";
 
+/**
+ * Optional engine settings. `configFor` replaces the per-sport thresholds (SPORT_CONFIG): imported
+ * files use it (src/lib/activity/import/config.ts), because a watch's own track can be sparser than
+ * the phone's one fix a second. Replays of an activity must use the same settings it was built with.
+ */
+export type EngineOptions = { configFor?: (sport: Sport) => SportConfig };
+
 type Sample = { t: number; d: number; segment: number };
 
 export type EngineSnapshot = {
@@ -143,6 +150,7 @@ export class ActivityEngine {
   status: EngineStatus = "idle";
   sport: Sport = "walk";
   private cfg: SportConfig = SPORT_CONFIG.walk;
+  private readonly configFor: (sport: Sport) => SportConfig;
   startedAt: number | null = null;
   endedAt: number | null = null;
   private pausedMs = 0;
@@ -202,9 +210,13 @@ export class ActivityEngine {
   private rejectedAccuracy = 0;
   private rejectedJump = 0;
 
+  constructor(options: EngineOptions = {}) {
+    this.configFor = options.configFor ?? ((sport: Sport) => SPORT_CONFIG[sport]);
+  }
+
   /** Builds an engine from a recording log. */
-  static replay(entries: Iterable<LogEntry>): ActivityEngine {
-    const engine = new ActivityEngine();
+  static replay(entries: Iterable<LogEntry>, options: EngineOptions = {}): ActivityEngine {
+    const engine = new ActivityEngine(options);
     for (const entry of entries) engine.apply(entry);
     return engine;
   }
@@ -223,7 +235,7 @@ export class ActivityEngine {
       case "start":
         if (this.status !== "idle") return;
         this.sport = event.sport;
-        this.cfg = SPORT_CONFIG[event.sport];
+        this.cfg = this.configFor(event.sport);
         this.status = "recording";
         this.startedAt = event.t;
         this.lastCommitT = event.t;

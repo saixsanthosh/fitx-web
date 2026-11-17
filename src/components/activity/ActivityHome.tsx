@@ -2,22 +2,27 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, CloudOff, Play, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { ChevronRight, CloudOff, FileUp, Play, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
-import { SPORT_LABEL, SPORT_NOUN, usesPace } from "@/lib/activity/config";
-import { formatActivityDate, formatDistance, formatDuration, formatPace, formatSpeed, kmValue } from "@/lib/activity/format";
+import { SPORT_NOUN, usesPace } from "@/lib/activity/config";
+import { formatActivityDate, formatDistance, formatDuration, formatPace, formatSpeed } from "@/lib/activity/format";
 import { busyRecordings, clearDeviceActivityData, reconcileRecordings, type LocksLike } from "@/lib/activity/device-recordings";
 import { recordingStore, type StoredRecording } from "@/lib/activity/local-store";
 import { decodeRoute } from "@/lib/activity/polyline";
-import { deleteAllActivities, listActivities, totalsOf, totalsSince, viewFromRecord, type ActivityView, type PeriodTotals } from "@/lib/activity/repository";
+import { deleteAllActivities, listActivities, listActivitySummaries, viewFromRecord, type ActivitySummary, type ActivityView } from "@/lib/activity/repository";
+import { mergeSummaries, periods, periodTotals, personalBests, weekChange } from "@/lib/activity/stats";
+import { listStrengthSessions, strengthTotals, type StrengthSession } from "@/lib/activity/strength";
 import { uploadPending } from "@/lib/activity/sync";
-import { SPORTS } from "@/lib/activity/types";
-import { groupByWeek, startOfWeek, weekLabel } from "@/lib/activity/weeks";
+import { mergeTimeline, nextToLoad } from "@/lib/activity/timeline";
+import { groupByWeek, weekLabel } from "@/lib/activity/weeks";
 import { createClient } from "@/lib/supabase/client";
 import { AccountError } from "./AccountError";
+import { PeriodTotalsPanel, PersonalBestsPanel, WeekPanel } from "./ActivityStats";
+import { ActivitySourceBadge } from "./ActivitySourceBadge";
 import { RouteSvg } from "./RouteSvg";
 import { SportIcon } from "./sports";
+import { StrengthRow } from "./StrengthRow";
 import { useActivityAccount } from "./useActivityAccount";
 
 const PAGE = 20;
@@ -27,6 +32,10 @@ type History =
   | { status: "unavailable" }
   | { status: "error"; offline: boolean }
   | { status: "ready"; items: ActivityView[]; more: boolean };
+
+/** Completed strength sessions for the timeline: "missing" when they couldn't be read (the timeline then shows activities only). */
+type Sessions = { status: "loading" | "ready" | "missing"; items: StrengthSession[]; more: boolean };
+type Stats = { rows: ActivitySummary[]; complete: boolean };
 
 function ActivityRow({ activity }: { activity: ActivityView }) {
   const href = activity.local ? `/activity/local-${activity.clientId}` : `/activity/${activity.id}`;
@@ -43,6 +52,7 @@ function ActivityRow({ activity }: { activity: ActivityView }) {
           <p className="mt-0.5 text-xs tabular-nums text-fitx-text-secondary">
             {formatDistance(activity.distanceM)} · {formatDuration(activity.movingSeconds)} · {usesPace(activity.sport) ? formatPace(activity.avgPaceSecondsPerKm) : formatSpeed(activity.avgSpeedMps)}
           </p>
+          <ActivitySourceBadge info={activity} className="mt-1 max-w-full" />
         </div>
         <ChevronRight size={18} aria-hidden="true" className="shrink-0 text-fitx-text-disabled group-hover:text-fitx-primary" />
       </Link>
@@ -50,10 +60,17 @@ function ActivityRow({ activity }: { activity: ActivityView }) {
   );
 }
 
+const summaryOf = (view: ActivityView): ActivitySummary => ({
+  id: view.id, clientId: view.clientId, sport: view.sport, title: view.title, startedAt: view.startedAt, distanceM: view.distanceM,
+  movingSeconds: view.movingSeconds, avgPaceSecondsPerKm: view.avgPaceSecondsPerKm, avgSpeedMps: view.avgSpeedMps, local: view.local,
+});
+
 export function ActivityHome() {
   const account = useActivityAccount();
   const [history, setHistory] = useState<History>({ status: "loading" });
-  const [week, setWeek] = useState<PeriodTotals | null>(null);
+  const [sessions, setSessions] = useState<Sessions>({ status: "loading", items: [], more: false });
+  const [recentStrength, setRecentStrength] = useState<StrengthSession[] | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [local, setLocal] = useState<StoredRecording[]>([]);
   const [now, setNow] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -84,11 +101,18 @@ export function ActivityHome() {
     await refreshLocal(uid);
     const time = Date.now();
     setNow(time);
-    const [list, totals] = await Promise.all([listActivities(supabase, uid, { limit: PAGE }), totalsSince(supabase, uid, startOfWeek(time))]);
+    const [list, summaries, strength, recent] = await Promise.all([
+      listActivities(supabase, uid, { limit: PAGE }),
+      listActivitySummaries(supabase, uid),
+      listStrengthSessions(supabase, uid, { limit: PAGE }),
+      listStrengthSessions(supabase, uid, { since: periods(time).lastWeek.start, limit: 200 }),
+    ]);
     if (list.status === "unavailable") setHistory({ status: "unavailable" });
     else if (list.status !== "ok") setHistory({ status: "error", offline: list.status === "error" && list.offline });
     else setHistory({ status: "ready", items: list.data, more: list.data.length === PAGE });
-    setWeek(totals.status === "ok" ? totals.data : null);
+    setStats(summaries.status === "ok" ? summaries.data : null);
+    setSessions(strength.status === "ok" ? { status: "ready", items: strength.data, more: strength.data.length === PAGE } : { status: "missing", items: [], more: false });
+    setRecentStrength(recent.status === "ok" ? recent.data : null);
   }, [refreshLocal]);
 
   useEffect(() => {
@@ -103,14 +127,25 @@ export function ActivityHome() {
   }, [userId, load]);
 
   async function loadMore() {
-    if (!userId || history.status !== "ready" || !history.items.length) return;
+    if (!userId || history.status !== "ready") return;
     const supabase = createClient();
     if (!supabase) return;
+    const activitiesPage = { items: history.items, more: history.more };
+    const sessionsPage = { items: sessions.items, more: sessions.more };
+    const next = nextToLoad(activitiesPage, sessionsPage);
+    if (!next) return;
     setLoadingMore(true);
-    const before = history.items[history.items.length - 1].startedAt;
-    const next = await listActivities(supabase, userId, { limit: PAGE, before });
+    if (next === "activities") {
+      const before = history.items[history.items.length - 1].startedAt;
+      const page = await listActivities(supabase, userId, { limit: PAGE, before });
+      if (page.status === "ok") setHistory({ status: "ready", items: [...history.items, ...page.data], more: page.data.length === PAGE });
+    } else {
+      const before = sessions.items[sessions.items.length - 1].startedAt;
+      const page = await listStrengthSessions(supabase, userId, { limit: PAGE, before });
+      if (page.status === "ok") setSessions({ status: "ready", items: [...sessions.items, ...page.data], more: page.data.length === PAGE });
+      else setSessions({ ...sessions, more: false });
+    }
     setLoadingMore(false);
-    if (next.status === "ok") setHistory({ status: "ready", items: [...history.items, ...next.data], more: next.data.length === PAGE });
   }
 
   async function syncNow() {
@@ -132,7 +167,7 @@ export function ActivityHome() {
     }
     await clearDeviceActivityData(store, userId);
     setConfirmDeleteAll(false);
-    setNotice(result.status === "unavailable" ? "Activity data on this device was deleted." : "All your activities and routes were deleted.");
+    setNotice(result.status === "unavailable" ? "Activity data on this device was deleted." : "All your walks, runs and rides and their routes were deleted.");
     await load(userId);
   }
 
@@ -149,15 +184,28 @@ export function ActivityHome() {
   const waiting = onDevice.filter((r) => !r.uploadRejected);
   const waitingViews = onDevice.map((r) => viewFromRecord(r.record!));
   const items = history.status === "ready" ? history.items : [];
-  const groups = groupByWeek([...waitingViews, ...items].sort((a, b) => b.startedAt - a.startedAt));
-  const weekTotals = week ?? (history.status === "unavailable" && now !== null ? totalsOf(waitingViews.filter((v) => v.startedAt >= startOfWeek(now))) : null);
+  const timeline = mergeTimeline({ items, more: history.status === "ready" && history.more }, { items: sessions.items, more: sessions.more }, waitingViews);
+  const groups = groupByWeek(timeline.entries);
+
+  // Statistics from every saved activity plus the ones still only on this device.
+  const statRows = stats ? mergeSummaries(stats.rows, waitingViews.map(summaryOf)) : history.status === "unavailable" ? waitingViews.map(summaryOf) : null;
+  const totals = statRows && now !== null ? periodTotals(statRows, now) : null;
+  const bounds = now !== null ? periods(now) : null;
+  const strengthWeek = recentStrength && bounds ? strengthTotals(recentStrength, bounds.week.start, bounds.week.end) : null;
+  const bests = statRows ? personalBests(statRows) : null;
+  const hasAnything = (statRows?.length ?? 0) > 0 || groups.length > 0;
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       <PageHeading
         title="Activity"
-        description="Walks, runs and rides tracked with your phone’s GPS: route, distance, time, pace and a card to share."
-        actions={<Link href="/activity/record" className="fitx-button min-h-11"><Play size={16} aria-hidden="true" />Start activity</Link>}
+        description="Walks, runs and rides recorded with your phone’s GPS or imported from a watch, next to your strength sessions."
+        actions={(
+          <>
+            <Link href="/activity/import" className="fitx-button fitx-button-secondary min-h-11"><FileUp size={16} aria-hidden="true" />Import</Link>
+            <Link href="/activity/record" className="fitx-button min-h-11"><Play size={16} aria-hidden="true" />Start activity</Link>
+          </>
+        )}
       />
 
       {notice && <p role="status" className="fitx-alert fitx-alert-success">{notice}</p>}
@@ -172,22 +220,11 @@ export function ActivityHome() {
         </Link>
       )}
 
-      {weekTotals && (weekTotals.count > 0 || groups.length > 0) && (
-        <section className="fitx-panel p-4 sm:p-5" aria-labelledby="week-title">
-          <h2 id="week-title" className="text-sm font-semibold text-fitx-text">This week</h2>
-          <div className="mt-3 grid grid-cols-3 gap-3">
-            <div><p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Distance</p><p className="mt-1 text-2xl font-semibold tabular-nums">{kmValue(weekTotals.distanceM)}<span className="ml-1 text-sm font-medium text-fitx-text-secondary">km</span></p></div>
-            <div><p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Moving time</p><p className="mt-1 text-2xl font-semibold tabular-nums">{formatDuration(weekTotals.movingSeconds)}</p></div>
-            <div><p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Activities</p><p className="mt-1 text-2xl font-semibold tabular-nums">{weekTotals.count}</p></div>
-          </div>
-          {weekTotals.count > 0 && (
-            <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fitx-text-secondary">
-              {SPORTS.filter((sport) => weekTotals.bySport[sport].count > 0).map((sport) => (
-                <span key={sport} className="inline-flex items-center gap-1.5"><SportIcon sport={sport} size={13} />{SPORT_LABEL[sport]} {formatDistance(weekTotals.bySport[sport].distanceM)}</span>
-              ))}
-            </p>
-          )}
-        </section>
+      {totals && hasAnything && (
+        <>
+          <WeekPanel week={totals.week} change={totals.lastWeek.count > 0 || totals.week.count > 0 ? weekChange(totals.week, totals.lastWeek) : null} strength={strengthWeek} />
+          {now !== null && <PeriodTotalsPanel totals={totals} now={now} complete={stats?.complete ?? true} />}
+        </>
       )}
 
       {history.status === "unavailable" && (
@@ -209,25 +246,42 @@ export function ActivityHome() {
       {history.status === "loading" ? (
         <div className="space-y-2" aria-hidden="true">{[0, 1, 2].map((i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-fitx-surface-variant" />)}</div>
       ) : groups.length === 0 ? (
-        history.status === "ready" && <EmptyState title="No activities yet" description="Start a walk, run or ride. Keep FITX open with the screen on while you record." action={<Link href="/activity/record" className="fitx-button min-h-11"><Play size={16} aria-hidden="true" />Start activity</Link>} />
+        history.status === "ready" && (
+          <EmptyState
+            title="No activities yet"
+            description="Start a walk, run or ride (keep FITX open with the screen on while you record), or import one from your watch."
+            action={(
+              <div className="flex flex-wrap justify-center gap-2">
+                <Link href="/activity/record" className="fitx-button min-h-11"><Play size={16} aria-hidden="true" />Start activity</Link>
+                <Link href="/activity/import" className="fitx-button fitx-button-secondary min-h-11"><FileUp size={16} aria-hidden="true" />Import a file</Link>
+              </div>
+            )}
+          />
+        )
       ) : (
         <div className="space-y-5">
           {groups.map((group) => (
             <section key={group.weekStart} aria-label={now === null ? undefined : weekLabel(group.weekStart, now)}>
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-[.12em] text-fitx-text-secondary">{now === null ? "" : weekLabel(group.weekStart, now)}</h2>
-              <ul className="space-y-2">{group.items.map((activity) => <ActivityRow key={activity.local ? `local-${activity.clientId}` : activity.id ?? activity.clientId} activity={activity} />)}</ul>
+              <ul className="space-y-2">
+                {group.items.map((entry) => (entry.kind === "activity" ? <ActivityRow key={entry.key} activity={entry.activity} /> : <StrengthRow key={entry.key} session={entry.session} />))}
+              </ul>
             </section>
           ))}
-          {history.status === "ready" && history.more && (
+          {history.status === "ready" && timeline.more && (
             <button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="fitx-button fitx-button-secondary min-h-11 w-full">{loadingMore ? "Loading…" : "Show older activities"}</button>
           )}
+          {sessions.status === "missing" && history.status === "ready" && <p className="text-xs text-fitx-text-secondary">Strength sessions couldn’t be loaded here right now. They’re in Workouts.</p>}
         </div>
       )}
+
+      {bests && <PersonalBestsPanel bests={bests} />}
 
       <section className="fitx-panel p-4 sm:p-5" aria-labelledby="privacy-title">
         <h2 id="privacy-title" className="flex items-center gap-2 text-sm font-semibold text-fitx-text"><ShieldCheck size={16} aria-hidden="true" className="text-fitx-primary" />Your location data</h2>
         <ul className="mt-2 space-y-1.5 text-xs leading-5 text-fitx-text-secondary">
           <li>Location is used while the Record screen is open (to show the GPS signal, then to record); only the positions from while you record are kept, and routes are visible only to you.</li>
+          <li>Imported files are read on this device: only the activity’s summary, route and points are saved, never the file itself.</li>
           <li>Map images come from OpenFreeMap (openfreemap.org), which receives the map area shown (around you on the Record screen, around a route on an activity page) and your IP address, not your route or account.</li>
           <li>Share images leave out the area around your start and finish.</li>
           <li>Detailed GPS points are deleted after 90 days; activity summaries and routes stay until you delete them.</li>
@@ -235,7 +289,7 @@ export function ActivityHome() {
         </ul>
         {confirmDeleteAll ? (
           <div className="mt-4 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="delete-all-question">
-            <p id="delete-all-question" className="text-sm font-semibold text-fitx-danger">Delete every activity, route and GPS point in your account and on this device? This can’t be undone.</p>
+            <p id="delete-all-question" className="text-sm font-semibold text-fitx-danger">Delete every walk, run and ride, with their routes and GPS points, in your account and on this device? Strength sessions aren’t affected. This can’t be undone.</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" ref={focusOnMount} onClick={() => { setConfirmDeleteAll(false); window.setTimeout(() => deleteAllTriggerRef.current?.focus(), 0); }} className="fitx-button fitx-button-secondary min-h-11">Keep my data</button>
               <button type="button" onClick={() => void deleteAll()} className="fitx-button fitx-button-danger min-h-11"><Trash2 size={15} aria-hidden="true" />Delete everything</button>

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { recordingLockName, type LocksLike } from "@/lib/activity/device-recordings";
+import { defaultTitle } from "@/lib/activity/format";
 import { MemoryRecordingStore, type StoredRecording } from "@/lib/activity/local-store";
 import { ActivityRecorder, MAX_ELAPSED_MS, RESUME_LIMIT_MS, signalFor, toFix, WATCH_OPTIONS, type RecorderDeps } from "@/lib/activity/recorder";
 import type { LatLng } from "@/lib/activity/types";
@@ -235,7 +236,8 @@ test("a recording survives a reload: restore, resume with the time away as a gap
   const record = (await second.recorder.finish(null))?.record;
   assert.ok(record);
   assert.equal(record.kcal, null, "no weight, no calories");
-  assert.equal(record.title, "Morning walk");
+  // The usual title for the local time of day (T0 is a morning in India, the night before in UTC).
+  assert.equal(record.title, defaultTitle("walk", new Date(record.startedAt)));
   assert.equal(record.gaps.length, 1);
   assert.equal(record.gaps[0].kind, "hidden");
   assert.ok((record.gaps[0].end - record.gaps[0].start) / 1000 > 290);

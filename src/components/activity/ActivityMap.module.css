@@ -31,7 +31,7 @@
 .recenter {
   position: absolute;
   right: 10px;
-  bottom: 44px;
+  bottom: calc(44px + var(--fitx-map-inset-bottom, 0px));
   z-index: 2;
   display: grid;
   width: 44px;
@@ -42,6 +42,13 @@
   background: var(--fitx-elevated);
   color: var(--fitx-primary);
   box-shadow: 0 6px 18px color-mix(in srgb, var(--fitx-scrim) 18%, transparent);
+}
+
+/* A sheet laid over the map's lower edge (the phone Record screen) sets --fitx-map-inset-bottom, so the
+   attribution and bottom controls stay visible above it. */
+.frame :global(.maplibregl-ctrl-bottom-right),
+.frame :global(.maplibregl-ctrl-bottom-left) {
+  bottom: var(--fitx-map-inset-bottom, 0px);
 }
 
 .frame :global(.maplibregl-ctrl-attrib) {
