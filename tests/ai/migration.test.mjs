@@ -12,7 +12,7 @@ const code = sql.replace(/--[^\n]*/g, "");
 const tables = [...code.matchAll(/create table if not exists public\.(\w+)/g)].map((match) => match[1]);
 
 test("every new table has row-level security and nothing is granted to anon", () => {
-  assert.deepEqual(tables.sort(), ["ai_coach_actions", "ai_coach_consents", "ai_coach_limits", "ai_coach_messages", "ai_coach_threads", "ai_coach_usage_events"]);
+  assert.deepEqual(tables.sort(), ["ai_coach_actions", "ai_coach_consents", "ai_coach_limits", "ai_coach_messages", "ai_coach_safety_notes", "ai_coach_threads", "ai_coach_usage_events"]);
   for (const table of tables) assert.match(code, new RegExp(`alter table public\\.${table} enable row level security`), table);
   assert.doesNotMatch(code, /grant[^;]*\bto\s+[^;]*\banon\b/i);
   for (const table of tables) assert.match(code, new RegExp(`revoke all on table[^;]*public\\.${table}[^;]*from public, anon, authenticated`), table);
@@ -20,7 +20,7 @@ test("every new table has row-level security and nothing is granted to anon", ()
 
 test("policies are owner-only with (select auth.uid())", () => {
   const policies = [...code.matchAll(/create policy (\w+) on public\.(\w+)[^;]*;/g)];
-  assert.equal(policies.length, 4);
+  assert.equal(policies.length, 5);
   for (const [statement] of policies) {
     assert.match(statement, /to authenticated/);
     assert.match(statement, /using \(\(select auth\.uid\(\)\) = user_id\) with check \(\(select auth\.uid\(\)\) = user_id\)/);
@@ -39,6 +39,18 @@ test("security definer functions pin search_path to '' and are not callable by a
   // The quota table is only written by definer functions; members cannot update their own counts.
   assert.doesNotMatch(code, /grant [^;]*on table public\.ai_coach_usage_events/);
   assert.doesNotMatch(code, /grant [^;]*on table public\.ai_coach_limits/);
+});
+
+test("the eating-disorder pause outlives its conversation, and only “Delete my coach data” removes it", () => {
+  const table = code.match(/create table if not exists public\.ai_coach_safety_notes \(([\s\S]*?)\n\);/)?.[1] ?? "";
+  assert.match(table, /user_id uuid not null references auth\.users \(id\) on delete cascade/);
+  assert.doesNotMatch(table, /ai_coach_threads|ai_coach_messages|content/, "no link to a conversation and none of the member's words");
+  assert.match(code, /grant select, insert on table public\.ai_coach_safety_notes to authenticated;/);
+  assert.doesNotMatch(code, /grant [^;]*\b(update|delete)\b[^;]*on table public\.ai_coach_safety_notes/);
+  const remove = code.match(/function public\.ai_coach_delete_my_data\([\s\S]*?end \$\$/)?.[0] ?? "";
+  assert.match(remove, /security definer/);
+  assert.match(remove, /delete from public\.ai_coach_safety_notes n where n\.user_id = uid;/);
+  for (const statement of remove.match(/delete from [^;]*;/g) ?? []) assert.match(statement, /\.user_id = uid\b/, `${statement} keeps to the caller's rows`);
 });
 
 test("data sharing is off unless the member chooses it, and the limit is a rolling 24 hours", () => {

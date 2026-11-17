@@ -24,6 +24,8 @@ select pg_temp.check(not has_table_privilege('authenticated', 'public.ai_coach_l
 select pg_temp.check(not has_column_privilege('authenticated', 'public.ai_coach_actions', 'payload', 'update'), 'members cannot edit a proposal payload');
 select pg_temp.check(has_column_privilege('authenticated', 'public.ai_coach_actions', 'status', 'update'), 'members can change proposal status');
 select pg_temp.check(not has_table_privilege('authenticated', 'public.ai_coach_messages', 'update'), 'messages are not editable');
+select pg_temp.check(not has_table_privilege('authenticated', 'public.ai_coach_safety_notes', 'delete') and not has_table_privilege('authenticated', 'public.ai_coach_safety_notes', 'update'), 'members cannot remove or change a safety note themselves');
+select pg_temp.check(not exists (select 1 from pg_constraint where conrelid = 'public.ai_coach_safety_notes'::regclass and confrelid in ('public.ai_coach_threads'::regclass, 'public.ai_coach_messages'::regclass)), 'a safety note does not go with its conversation');
 
 -- every coach table has RLS on
 select pg_temp.check(bool_and(c.relrowsecurity), 'RLS on all coach tables') from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname like 'ai_coach_%' and c.relkind = 'r';
@@ -41,6 +43,10 @@ insert into public.ai_coach_actions (id, user_id, thread_id, message_id, kind, p
   '{"custom_food": {"name": "Idli", "serving_size": "3 pieces (114 g)", "serving_grams": 114, "calories_per_100g": 128, "protein_per_100g": 6.36, "carbs_per_100g": 24.98, "fat_per_100g": 0.35}}'),
  ('cccccccc-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000001', 'workout_plan',
   '{"workout": {"title": "Push day", "location": "home", "exercises": [{"exercise_id": "push_up_t", "exercise_name": "Push-Up T", "sets": 3, "reps_min": 8, "reps_max": 12, "rest_seconds": 90, "hold_seconds": 0}, {"exercise_id": "push_up_t", "exercise_name": "Push-Up hold", "sets": 3, "reps_min": 1, "reps_max": 1, "rest_seconds": 45, "hold_seconds": 30}]}}');
+
+-- the 30-day pause after an eating-disorder note: A adds and reads its own note
+insert into public.ai_coach_safety_notes (user_id, topic) values ('11111111-1111-4111-8111-111111111111', 'eating_disorder');
+select pg_temp.check((select count(*) = 1 from public.ai_coach_safety_notes where topic = 'eating_disorder'), 'A reads its safety note');
 
 -- a consent's updated_at (the history cut-off) comes from the database clock, whatever the client sends
 update public.ai_coach_consents set share_personal_data = false, updated_at = '2000-01-01' where user_id = '11111111-1111-4111-8111-111111111111';
@@ -79,6 +85,7 @@ select pg_temp.check((select not already_applied from public.ai_coach_apply_acti
 set request.jwt.claim.sub = '22222222-2222-4222-8222-222222222222';
 select pg_temp.check((select count(*) = 0 from public.ai_coach_threads), 'B sees no threads of A');
 select pg_temp.check((select count(*) = 0 from public.ai_coach_actions), 'B sees no actions of A');
+select pg_temp.check((select count(*) = 0 from public.ai_coach_safety_notes), 'B sees no safety notes of A');
 do $$ begin
   perform public.ai_coach_apply_action('cccccccc-0000-4000-8000-000000000001');
   raise exception 'FAIL: B applied A''s action';
@@ -97,6 +104,7 @@ select pg_temp.check((select allowed from public.ai_coach_take_quota('plan')), '
 set request.jwt.claim.sub = '11111111-1111-4111-8111-111111111111';
 select pg_temp.check((select threads_deleted = 1 and consent_withdrawn from public.ai_coach_delete_my_data()), 'delete my coach data');
 select pg_temp.check((select count(*) = 0 from public.ai_coach_messages) and (select count(*) = 0 from public.ai_coach_actions), 'messages and actions cascade');
+select pg_temp.check((select count(*) = 0 from public.ai_coach_safety_notes), 'and the safety notes go too');
 select pg_temp.check((select count(*) = 1 from public.custom_foods), 'added foods stay');
 select pg_temp.check((select used = 30 from public.ai_coach_quota_status() where quota_kind = 'chat'), 'the 24-hour limit still holds after delete');
 reset role;

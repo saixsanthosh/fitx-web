@@ -190,6 +190,9 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
 
     if (safety.kind === "stop") {
       const note = await store.insertMessage(deps.db, deps.userId, { threadId: thread.id, role: "safety", task: "chat", content: safety.message, data: { safety: safety.topic } });
+      // The 30 days after the eating-disorder note also hold when this conversation is deleted. If keeping
+      // that record fails, the note in the conversation still starts them: the member sees it either way.
+      if (safety.topic === "eating_disorder") await store.recordSafetyNote(deps.db, deps.userId, "eating_disorder").catch(() => undefined);
       await store.touchThread(deps.db, deps.userId, thread.id);
       emit({ type: "message", message: note, actions: [] });
       emit({ type: "done", quota: null });

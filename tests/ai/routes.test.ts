@@ -575,6 +575,32 @@ describe("meal plans, Add to My Food Plan and swaps", () => {
     assert.equal(db.usage.filter((event) => event.kind === "plan" && !event.released).length, 1, "only the first plan counted");
   });
 
+  test("deleting the conversation with the eating-disorder note doesn't end the 30 days; “Delete my coach data” does", async () => {
+    seedMember();
+    consentTo();
+    const noted = await events(await chat.POST(request("/api/coach/chat", { body: { message: "I make myself throw up after meals" } })));
+    assert.equal(messageOf(noted)?.message.role, "safety");
+    const kept = db.rows("ai_coach_safety_notes");
+    assert.deepEqual(kept.map((row) => [row.user_id, row.topic]), [[MEMBER, "eating_disorder"]]);
+    // The fake database adds id and timestamps to every row; the app writes only these.
+    assert.deepEqual(Object.keys(kept[0]).filter((key) => !["id", "created_at", "updated_at"].includes(key)).sort(), ["topic", "user_id"], "the topic and the time, not the member's words");
+    assert.ok(!JSON.stringify(kept).includes("throw up"));
+
+    assert.equal((await threadRoute.DELETE(request(`/api/coach/threads/${threadOf(noted)}`, { method: "DELETE" }), params(threadOf(noted)))).status, 200);
+    assert.equal(db.rows("ai_coach_messages").length, 0, "the conversation and FITX's note in it are gone");
+    route = groqJson(MEAL_PLAN);
+    const asked = await chat.POST(request("/api/coach/chat", { body: { message: "Plan my meals", mode: "meal_plan" } }));
+    assert.equal(asked.status, 409, "still no meal plans");
+    assert.match((await errorOf(asked)).message, /30 days/);
+    assert.equal(providers.calls.length, 0);
+
+    assert.equal((await data.DELETE(request("/api/coach/data", { method: "DELETE" }))).status, 200);
+    assert.equal(db.rows("ai_coach_safety_notes").length, 0, "removed with the rest of the coach data");
+    consentTo();
+    const planned = await events(await chat.POST(request("/api/coach/chat", { body: { message: "Plan my meals", mode: "meal_plan" } })));
+    assert.ok(planOf(planned), "plans again after the member deleted their coach data");
+  });
+
   test("pregnancy or a medical condition stops FITX making plans, with the reason", async () => {
     seedMember();
     consentTo();

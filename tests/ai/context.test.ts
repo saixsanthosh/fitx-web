@@ -352,6 +352,12 @@ describe("privacy page", () => {
     assert.match(coach, /\bafter an eating-disorder support note the coach makes no meal plans or swaps and gives no calorie targets for 30 days\b/);
     assert.match(coach, /\bpregnancy stops plans and swaps in that conversation, and a medical condition stops its meal plans and swaps\b/);
     assert.match(coach, /“Delete my coach data” removes these notes too\./);
+    // The 30 days hold when the conversation is deleted: the note is also kept apart from it (tests/ai/routes.test.ts deletes one).
+    const read = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
+    assert.match(read("lib/ai/coach.ts"), /if \(safety\.topic === "eating_disorder"\) await store\.recordSafetyNote\(/);
+    assert.match(read("lib/ai/store.ts"), /db\.from\("ai_coach_safety_notes"\)\.select\("id"\)/);
+    assert.match(migration, /delete from public\.ai_coach_safety_notes n where n\.user_id = uid;/);
+    assert.match(coach, /\bDeleting the conversation with the eating-disorder note doesn’t end those 30 days\./);
     assert.match(coach, /\bthe coach asks for your consent again\b/);
     assert.match(coach, /\bby name, not by full recipe\b/);
   });

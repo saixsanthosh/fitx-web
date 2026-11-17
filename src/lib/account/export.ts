@@ -48,6 +48,7 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   { table: "ai_coach_threads", label: "AI coach conversations", owner: "user_id", order: "id" },
   { table: "ai_coach_messages", label: "AI coach messages", owner: "user_id", order: "id" },
   { table: "ai_coach_actions", label: "AI coach suggestions", owner: "user_id", order: "id" },
+  { table: "ai_coach_safety_notes", label: "AI coach safety notes", owner: "user_id", order: "id" },
   // Members may read only these columns of their requests; each request carries its messages.
   {
     table: "support_requests",

@@ -28,7 +28,9 @@ none of it (and no key) can reach the browser. Providers are called with plain `
   note with help lines instead of a model reply. Every prompt also tells the model what to do for those
   topics in any other language.
 - After the eating-disorder note, meal plans and swaps pause for 30 days (`CARE_DAYS`) and no calorie
-  targets or weight numbers go to the model. Workouts and gentle questions still work.
+  targets or weight numbers go to the model. Workouts and gentle questions still work. The note is also
+  kept apart from its conversation (`ai_coach_safety_notes`: topic and time only), so deleting that
+  conversation doesn't end the 30 days; "Delete my coach data" does.
 - Pregnancy or breastfeeding in a conversation stops meal plans, workouts and swaps in it; a medical condition
   stops meal plans and swaps. The member is told why.
 - A meal plan below the member's minimum (`calorieFloor`) is resized or refused, never shown.
@@ -73,8 +75,9 @@ A short summary (about 1-2k tokens) rebuilt on every request: age, sex, height, 
 weight, goal, training setup, injuries or limitations, diet, allergies, budget, 7-day food totals and
 most-logged foods, saved food names, 28-day training, personal records, active goals, and how many
 workouts and other planner items are planned for the next 7 days. Never a name, email, photo, account
-or row id, private notes or exact times. Members who choose "Questions only", and every member under 18,
-send no summary. Every prompt still carries the lowest daily calories the coach may suggest
+or row id, private notes or exact times. Members who choose "Questions only", every member under 18, and
+every account without an age in its profile send no summary: only a profile age of 18 or over
+(`facts.adult`) lets "Use my FITX data" on. Every prompt still carries the lowest daily calories the coach may suggest
 (`calorieFloor`, which depends on sex), and an under-18 member's prompt says they are under 18.
 `sharedSummaryLines` in `status.ts` is the consent screen's list; tests keep it and the privacy page in
 step with the summary.
@@ -84,8 +87,9 @@ replies together, about 8,000 characters). With "Use my FITX data" off, only mes
 sent (`recentTurns`' `since`, from `ai_coach_consents.updated_at`), so replies written from the member's
 data are not sent again; switching it off in Coach settings also starts a new conversation. The
 database sets `updated_at`, so it and the messages' `created_at` share one clock. If the profile turns
-under 18 while "Use my FITX data" is on (an age corrected in Profile), the coach asks again on the
-under-18 consent screen before it sends anything, and agreeing there moves the cut-off to that moment.
+under 18 or loses its age while "Use my FITX data" is on (an age corrected or removed in Profile), the
+coach asks again on the consent screen before it sends anything, and agreeing there moves the cut-off to
+that moment.
 A message the safety screen stopped, and FITX's own safety notes, are never sent.
 
 ## Limits

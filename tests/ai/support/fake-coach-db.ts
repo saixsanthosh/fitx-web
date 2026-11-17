@@ -9,7 +9,7 @@ import { makeJwt } from "../../support/fake-supabase.ts";
 type Row = Record<string, unknown>;
 const OWNER_COLUMN: Record<string, string> = { profiles: "id" };
 const PUBLIC_TABLES = new Set(["exercise_library"]);
-const COACH_TABLES = ["ai_coach_consents", "ai_coach_threads", "ai_coach_messages", "ai_coach_actions"];
+const COACH_TABLES = ["ai_coach_consents", "ai_coach_threads", "ai_coach_messages", "ai_coach_actions", "ai_coach_safety_notes"];
 
 export class FakeCoachDb {
   server!: Server;
@@ -243,6 +243,7 @@ export class FakeCoachDb {
       const ids = new Set(threads.map((row) => row.id));
       this.tables.set("ai_coach_threads", this.rows("ai_coach_threads").filter((row) => row.user_id !== userId));
       for (const child of ["ai_coach_messages", "ai_coach_actions"]) this.tables.set(child, this.rows(child).filter((row) => !ids.has(row.thread_id)));
+      this.tables.set("ai_coach_safety_notes", this.rows("ai_coach_safety_notes").filter((row) => row.user_id !== userId));
       const consents = this.rows("ai_coach_consents").length;
       this.tables.set("ai_coach_consents", this.rows("ai_coach_consents").filter((row) => row.user_id !== userId));
       return send(200, [{ threads_deleted: threads.length, consent_withdrawn: consents !== this.rows("ai_coach_consents").length }]);

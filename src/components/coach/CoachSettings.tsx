@@ -129,7 +129,7 @@ export function CoachSettings({
         <section aria-labelledby="coach-delete-title" className="rounded-xl border border-fitx-danger-border p-4">
           <h3 id="coach-delete-title" className="text-sm font-semibold">Delete my coach data</h3>
           <p className="mt-1 text-sm leading-6 text-fitx-text-secondary">
-            Removes every coach conversation and suggestion, and your consent. Foods and workouts you already added stay in Nutrition and Workouts.
+            Removes every coach conversation and suggestion, FITX’s safety notes and your consent. Foods and workouts you already added stay in Nutrition and Workouts.
           </p>
           {confirming ? (
             <div className="mt-3 flex flex-wrap gap-2">

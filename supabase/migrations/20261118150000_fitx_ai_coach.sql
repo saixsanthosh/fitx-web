@@ -1,4 +1,4 @@
--- FITX AI Coach: consent, conversations, proposed actions and a per-account limit over any 24 hours.
+-- FITX AI Coach: consent, conversations, proposed actions, safety notes and a per-account limit over any 24 hours.
 --
 -- Additive: new tables and functions only. No existing table, column, policy or row changes.
 -- Every new table has row-level security on. Members reach only their own rows, through policies
@@ -76,6 +76,20 @@ create table if not exists public.ai_coach_actions (
 create index if not exists ai_coach_actions_message_owner_idx on public.ai_coach_actions (message_id, user_id);
 create index if not exists ai_coach_actions_thread_owner_idx on public.ai_coach_actions (thread_id, user_id);
 
+-- ─────────────────────────── safety notes ───────────────────────────
+-- One row each time FITX showed its eating-disorder support note. The note itself is also a 'safety'
+-- message in its conversation; this row keeps the 30 days after it (no meal plans, swaps or calorie
+-- targets) when that conversation is deleted. Only the topic and the time, never the member's words.
+-- Members read and add their own rows; only "Delete my coach data" (ai_coach_delete_my_data) and
+-- deleting the account remove them.
+create table if not exists public.ai_coach_safety_notes (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  topic text not null check (topic in ('eating_disorder')),
+  created_at timestamptz not null default now()
+);
+create index if not exists ai_coach_safety_notes_user_topic_idx on public.ai_coach_safety_notes (user_id, topic, created_at desc);
+
 -- ─────────────────────────── daily limits ───────────────────────────
 -- Requests a member may make in any 24 hours (a rolling window, so changing time zone cannot reset it).
 -- The owner edits these rows in the SQL editor.
@@ -104,6 +118,7 @@ alter table public.ai_coach_consents enable row level security;
 alter table public.ai_coach_threads enable row level security;
 alter table public.ai_coach_messages enable row level security;
 alter table public.ai_coach_actions enable row level security;
+alter table public.ai_coach_safety_notes enable row level security;
 alter table public.ai_coach_limits enable row level security;
 alter table public.ai_coach_usage_events enable row level security;
 
@@ -123,16 +138,22 @@ drop policy if exists ai_coach_actions_owner on public.ai_coach_actions;
 create policy ai_coach_actions_owner on public.ai_coach_actions for all to authenticated
   using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 
+drop policy if exists ai_coach_safety_notes_owner on public.ai_coach_safety_notes;
+create policy ai_coach_safety_notes_owner on public.ai_coach_safety_notes for all to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+
 -- ai_coach_limits and ai_coach_usage_events have no policies: only the functions below use them.
 
 revoke all on table public.ai_coach_consents, public.ai_coach_threads, public.ai_coach_messages,
-  public.ai_coach_actions, public.ai_coach_limits, public.ai_coach_usage_events from public, anon, authenticated;
+  public.ai_coach_actions, public.ai_coach_safety_notes, public.ai_coach_limits, public.ai_coach_usage_events from public, anon, authenticated;
 grant select, insert, update, delete on table public.ai_coach_consents, public.ai_coach_threads to authenticated;
 -- Messages are never edited.
 grant select, insert, delete on table public.ai_coach_messages to authenticated;
 -- A proposal's content is fixed once written; only its status changes.
 grant select, insert, delete on table public.ai_coach_actions to authenticated;
 grant update (status, applied_ref, applied_at) on table public.ai_coach_actions to authenticated;
+-- Safety notes are added, never edited, and removed only with all coach data (or the account).
+grant select, insert on table public.ai_coach_safety_notes to authenticated;
 
 -- ───────────────────────────── functions ─────────────────────────────
 
@@ -358,13 +379,15 @@ end $$;
 revoke all on function public.ai_coach_apply_action(uuid) from public, anon;
 grant execute on function public.ai_coach_apply_action(uuid) to authenticated;
 
--- "Delete my coach data": every conversation (with its messages and proposals) and the consent.
--- Foods and workouts the member already added stay; they are the member's own data now. Usage rows
--- (times and counts only) stay until they expire after 7 days, so the 24-hour limit still holds.
+-- "Delete my coach data": every conversation (with its messages and proposals), the safety notes and
+-- the consent. Foods and workouts the member already added stay; they are the member's own data now.
+-- Usage rows (times and counts only) stay until they expire after 7 days, so the 24-hour limit still holds.
+-- Security definer, because members cannot delete safety notes themselves; every statement is limited to
+-- the caller's own rows.
 create or replace function public.ai_coach_delete_my_data()
 returns table (threads_deleted integer, consent_withdrawn boolean)
 language plpgsql
-security invoker
+security definer
 set search_path = ''
 as $$
 declare
@@ -377,6 +400,7 @@ begin
   end if;
   delete from public.ai_coach_threads t where t.user_id = uid;
   get diagnostics thread_count = row_count;
+  delete from public.ai_coach_safety_notes n where n.user_id = uid;
   delete from public.ai_coach_consents c where c.user_id = uid;
   get diagnostics consent_count = row_count;
   return query select thread_count, consent_count > 0;
@@ -388,6 +412,7 @@ comment on table public.ai_coach_consents is 'FITX AI Coach: per-account consent
 comment on table public.ai_coach_threads is 'FITX AI Coach conversations (owner-only).';
 comment on table public.ai_coach_messages is 'FITX AI Coach messages; role safety marks FITX''s own safety notes.';
 comment on table public.ai_coach_actions is 'Checked coach proposals; applied only by ai_coach_apply_action() after the member presses its button.';
+comment on table public.ai_coach_safety_notes is 'When FITX showed its eating-disorder support note (topic and time only); keeps the 30-day pause on meal plans when the conversation is deleted.';
 comment on table public.ai_coach_limits is 'Owner-set coach limits per account over any 24 hours (chat, plan).';
 comment on table public.ai_coach_usage_events is 'Coach requests counted against the 24-hour limit; counts and times only.';
 

@@ -217,19 +217,29 @@ export async function recentTurns(db: Db, userId: string, threadId: string, opti
   return turns;
 }
 
-/** Whether FITX showed this member a safety note on `topic` in the last `days` days (in any conversation). */
+/**
+ * Records, apart from the conversation, that FITX showed its eating-disorder note (ai_coach_safety_notes):
+ * the 30 days after it then hold when the member deletes that conversation. Only "Delete my coach data"
+ * and deleting the account remove it.
+ */
+export async function recordSafetyNote(db: Db, userId: string, topic: Extract<SafetyStopTopic, "eating_disorder">) {
+  const { error } = await db.from("ai_coach_safety_notes").insert({ user_id: userId, topic });
+  if (error) fail(error, "save safety note");
+}
+
+/**
+ * Whether FITX showed this member a safety note on `topic` in the last `days` days: a kept note
+ * (recordSafetyNote), or the note itself in any conversation that still exists.
+ */
 export async function hasRecentSafetyNote(db: Db, userId: string, topic: SafetyStopTopic, days: number): Promise<boolean> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
-  const { data, error } = await db
-    .from("ai_coach_messages")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role", "safety")
-    .eq("data->>safety", topic)
-    .gte("created_at", since)
-    .limit(1);
-  if (error) fail(error, "read safety notes");
-  return Array.isArray(data) && data.length > 0;
+  const [kept, shown] = await Promise.all([
+    db.from("ai_coach_safety_notes").select("id").eq("user_id", userId).eq("topic", topic).gte("created_at", since).limit(1),
+    db.from("ai_coach_messages").select("id").eq("user_id", userId).eq("role", "safety").eq("data->>safety", topic).gte("created_at", since).limit(1),
+  ]);
+  if (kept.error) fail(kept.error, "read safety notes");
+  if (shown.error) fail(shown.error, "read safety notes");
+  return [kept.data, shown.data].some((rows) => Array.isArray(rows) && rows.length > 0);
 }
 
 /** Health topics (pregnancy, a medical condition…) the member raised in this conversation's recent messages. */
