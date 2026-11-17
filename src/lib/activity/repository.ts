@@ -1,6 +1,7 @@
+import { columnList, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { isMissingColumnError, isMissingFunctionError } from "@/lib/supabase/errors";
 import type { ActivityRecord, TrackChunk } from "./record";
-import { isSport, type ControlEvent, type Gap, type Split, type Sport } from "./types";
+import { isImportFormat, isSport, type ActivitySource, type ControlEvent, type Gap, type ImportFormat, type Split, type Sport } from "./types";
 
 /*
  * Reading and writing activities in Supabase (public.activities, public.activity_track_chunks;
@@ -96,15 +97,37 @@ export type ActivityView = {
   chunkCount: number;
   /** True while it exists only on this device (not uploaded yet). */
   local: boolean;
+  /** Where the data came from; "fitx_gps" before migration 20261119100000 (every older row is a FITX recording). */
+  source: ActivitySource;
+  sourceFormat: ImportFormat | null;
+  /** The device or app an imported file names, as the file names it. */
+  sourceDevice: string | null;
+  importedAt: number | null;
 };
 
-const SUMMARY_COLUMNS = [
+const SUMMARY_COLUMN_LIST = [
   "id", "client_id", "sport", "title", "started_at", "ended_at", "elapsed_seconds", "moving_seconds", "paused_seconds",
   "distance_m", "avg_speed_mps", "max_speed_mps", "avg_pace_seconds_per_km", "elevation_gain_m", "kcal_estimate", "kcal_method",
   "weight_kg_used", "gap_count", "gap_seconds", "route_polyline", "share_polyline", "share_bbox", "point_count", "chunk_count",
-].join(",");
-const DETAIL_COLUMNS = `${SUMMARY_COLUMNS},splits,gaps,timeline`;
+];
+const DETAIL_COLUMN_LIST = [...SUMMARY_COLUMN_LIST, "splits", "gaps", "timeline"];
+/** Columns added by migration 20261119100000; reads fall back without them until it is applied. */
+export const SOURCE_COLUMNS = ["source", "source_format", "source_device", "imported_at"] as const;
 const TIMELINE_TYPES = new Set(["start", "pause", "resume", "hidden", "visible", "finish"]);
+
+/** Clients (by object) whose database turned out not to have the source columns yet: later reads skip them. */
+const sourceColumnsMissing = new WeakMap<object, true>();
+
+/**
+ * Runs a read with the source columns, and again without them when the database doesn't have them
+ * yet. Before the migration, history keeps working and every row reads as a FITX recording (which
+ * is what every row then is).
+ */
+async function withSourceColumns<R extends PromiseLike<{ error: unknown }>>(client: SupabaseLike, run: (includeSource: boolean) => R) {
+  const outcome = await withOptionalColumns(SOURCE_COLUMNS, run, sourceColumnsMissing.has(client) ? { includeOptional: false } : {});
+  if (!outcome.includedOptional && outcome.missing) sourceColumnsMissing.set(client, true);
+  return outcome;
+}
 
 type Row = Record<string, unknown>;
 const num = (value: unknown): number | null => {
@@ -183,6 +206,18 @@ export function viewFromRow(row: Row): ActivityView | null {
     pointCount: num(row.point_count) ?? 0,
     chunkCount: num(row.chunk_count) ?? 0,
     local: false,
+    ...sourceFromRow(row),
+  };
+}
+
+/** The source fields of a row; a row read without them (before the migration) is a FITX recording. */
+export function sourceFromRow(row: Row): Pick<ActivityView, "source" | "sourceFormat" | "sourceDevice" | "importedAt"> {
+  const imported = Date.parse(str(row.imported_at));
+  return {
+    source: row.source === "file" ? "file" : "fitx_gps",
+    sourceFormat: isImportFormat(row.source_format) ? row.source_format : null,
+    sourceDevice: str(row.source_device).trim() || null,
+    importedAt: Number.isFinite(imported) ? imported : null,
   };
 }
 
@@ -217,12 +252,30 @@ export function viewFromRecord(record: ActivityRecord): ActivityView {
     pointCount: record.pointCount,
     chunkCount: record.chunks.length,
     local: true,
+    source: record.source === "file" ? "file" : "fitx_gps",
+    sourceFormat: record.sourceFormat ?? null,
+    sourceDevice: record.sourceDevice ?? null,
+    importedAt: record.importedAt ?? null,
   };
 }
 
+/**
+ * The row to save. A FITX recording never sends the source columns (their default says
+ * 'fitx_gps'), so phone uploads keep working whether or not migration 20261119100000 is applied.
+ * An import sends them, and so needs the migration (the import page checks for it first).
+ */
 export function rowFromRecord(record: ActivityRecord, userId: string): Row {
   const iso = (ms: number) => new Date(ms).toISOString();
+  const source: Row = record.source === "file"
+    ? {
+        source: "file",
+        source_format: record.sourceFormat ?? null,
+        source_device: record.sourceDevice ? record.sourceDevice.slice(0, 120) : null,
+        imported_at: record.importedAt ? iso(record.importedAt) : null,
+      }
+    : {};
   return {
+    ...source,
     user_id: userId,
     client_id: record.clientId,
     sport: record.sport,
@@ -293,12 +346,92 @@ export async function saveActivity(client: SupabaseLike, userId: string, record:
 
 export async function listActivities(client: SupabaseLike, userId: string, options: { limit?: number; before?: number | null } = {}): Promise<DbResult<ActivityView[]>> {
   try {
-    let query = table(client, "activities").select(SUMMARY_COLUMNS).eq("user_id", userId).order("started_at", { ascending: false }).limit(options.limit ?? 20);
-    if (options.before) query = query.lt("started_at", new Date(options.before).toISOString());
-    const result = await query;
+    const { result } = await withSourceColumns(client, (includeSource) => {
+      let query = table(client, "activities").select(columnList(SUMMARY_COLUMN_LIST, SOURCE_COLUMNS, includeSource)).eq("user_id", userId).order("started_at", { ascending: false }).limit(options.limit ?? 20);
+      if (options.before) query = query.lt("started_at", new Date(options.before).toISOString());
+      return query;
+    });
     if (result.error) return failure(result.error);
     const rows = Array.isArray(result.data) ? (result.data as Row[]) : [];
     return { status: "ok", data: rows.map(viewFromRow).filter((view): view is ActivityView => view !== null) };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/**
+ * Whether imports can be saved: true once migration 20261119100000 has added the source columns,
+ * false before. "unavailable" when there is no activities table at all.
+ */
+export async function activitySourcesReady(client: SupabaseLike, userId: string): Promise<DbResult<boolean>> {
+  try {
+    const result = await table(client, "activities").select("id,source").eq("user_id", userId).limit(1);
+    if (!result.error) return { status: "ok", data: true };
+    if (isMissingColumnError(result.error)) {
+      sourceColumnsMissing.set(client, true);
+      return { status: "ok", data: false };
+    }
+    return failure(result.error);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** The account's activities with these device ids (imports already saved). */
+export async function findActivitiesByClientIds(client: SupabaseLike, userId: string, clientIds: readonly string[]): Promise<DbResult<ActivityView[]>> {
+  if (!clientIds.length) return { status: "ok", data: [] };
+  try {
+    const { result } = await withSourceColumns(client, (includeSource) =>
+      table(client, "activities").select(columnList(SUMMARY_COLUMN_LIST, SOURCE_COLUMNS, includeSource)).eq("user_id", userId).in("client_id", [...clientIds]).limit(clientIds.length));
+    if (result.error) return failure(result.error);
+    const rows = Array.isArray(result.data) ? (result.data as Row[]) : [];
+    return { status: "ok", data: rows.map(viewFromRow).filter((view): view is ActivityView => view !== null) };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** The account's activities that share any time with [from, to] (newest first, at most `limit`). */
+export async function findActivitiesBetween(client: SupabaseLike, userId: string, from: number, to: number, limit = 1000): Promise<DbResult<ActivityView[]>> {
+  try {
+    const { result } = await withSourceColumns(client, (includeSource) =>
+      table(client, "activities").select(columnList(SUMMARY_COLUMN_LIST, SOURCE_COLUMNS, includeSource)).eq("user_id", userId)
+        .lt("started_at", new Date(to).toISOString()).gt("ended_at", new Date(from).toISOString())
+        .order("started_at", { ascending: false }).limit(limit));
+    if (result.error) return failure(result.error);
+    const rows = Array.isArray(result.data) ? (result.data as Row[]) : [];
+    return { status: "ok", data: rows.map(viewFromRow).filter((view): view is ActivityView => view !== null) };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** The few numbers statistics need, for every activity of the account. */
+export type ActivitySummary = Pick<ActivityView, "id" | "clientId" | "sport" | "title" | "startedAt" | "distanceM" | "movingSeconds" | "avgPaceSecondsPerKm" | "avgSpeedMps" | "local">;
+
+const STATS_COLUMNS = "id,client_id,sport,title,started_at,ended_at,distance_m,moving_seconds,avg_pace_seconds_per_km,avg_speed_mps";
+/** Rows per request (PostgREST's usual cap) and the most read for statistics. */
+const STATS_PAGE = 1000;
+export const STATS_MAX_ROWS = 10_000;
+
+/**
+ * Every activity's summary numbers, newest first, read in pages (for totals and personal bests).
+ * `complete` is false when the account has more than STATS_MAX_ROWS activities.
+ */
+export async function listActivitySummaries(client: SupabaseLike, userId: string): Promise<DbResult<{ rows: ActivitySummary[]; complete: boolean }>> {
+  try {
+    const rows: ActivitySummary[] = [];
+    for (let from = 0; from < STATS_MAX_ROWS; from += STATS_PAGE) {
+      const result = await table(client, "activities").select(STATS_COLUMNS).eq("user_id", userId).order("started_at", { ascending: false }).order("id", { ascending: true }).range(from, from + STATS_PAGE - 1);
+      if (result.error) return failure(result.error);
+      const page = Array.isArray(result.data) ? (result.data as Row[]) : [];
+      for (const row of page) {
+        const view = viewFromRow(row);
+        if (view) rows.push({ id: view.id, clientId: view.clientId, sport: view.sport, title: view.title, startedAt: view.startedAt, distanceM: view.distanceM, movingSeconds: view.movingSeconds, avgPaceSecondsPerKm: view.avgPaceSecondsPerKm, avgSpeedMps: view.avgSpeedMps, local: false });
+      }
+      if (page.length < STATS_PAGE) return { status: "ok", data: { rows, complete: true } };
+    }
+    return { status: "ok", data: { rows, complete: false } };
   } catch (error) {
     return failure(error);
   }
@@ -335,7 +468,8 @@ export async function totalsSince(client: SupabaseLike, userId: string, since: n
 
 export async function getActivity(client: SupabaseLike, userId: string, id: string): Promise<DbResult<ActivityView | null>> {
   try {
-    const result = await table(client, "activities").select(DETAIL_COLUMNS).eq("user_id", userId).eq("id", id).maybeSingle();
+    const { result } = await withSourceColumns(client, (includeSource) =>
+      table(client, "activities").select(columnList(DETAIL_COLUMN_LIST, SOURCE_COLUMNS, includeSource)).eq("user_id", userId).eq("id", id).maybeSingle());
     if (result.error) return failure(result.error);
     return { status: "ok", data: result.data ? viewFromRow(result.data as Row) : null };
   } catch (error) {

@@ -12,6 +12,19 @@ export function isSport(value: unknown): value is Sport {
   return value === "walk" || value === "run" || value === "ride";
 }
 
+/**
+ * Where an activity's data came from (public.activities.source, migration 20261119100000):
+ *   fitx_gps  recorded on the Record screen with the phone's GPS;
+ *   file      imported from a GPX, TCX or FIT file exported by a watch or another app.
+ */
+export type ActivitySource = "fitx_gps" | "file";
+export type ImportFormat = "gpx" | "tcx" | "fit";
+export const IMPORT_FORMATS: readonly ImportFormat[] = ["gpx", "tcx", "fit"];
+
+export function isImportFormat(value: unknown): value is ImportFormat {
+  return value === "gpx" || value === "tcx" || value === "fit";
+}
+
 /** A latitude/longitude pair in degrees. */
 export type LatLng = { lat: number; lng: number };
 

@@ -67,10 +67,10 @@ test("routes fit inside the card area, centred, with the aspect ratio kept", () 
   assert.deepEqual(single[0][0], { x: 500, y: 500 });
 });
 
-test("share stats: pace for walks and runs, speed for rides, calories only when known", () => {
+test("share stats: pace for walks and runs, speed for rides, climb whenever recorded, calories only when known", () => {
   const base = { title: "x", startedAt: 0, distanceM: 5000, movingSeconds: 1500, avgSpeedMps: 5000 / 1500, avgPaceSecondsPerKm: 300, kcal: 380, elevationGainM: 12, sharePolyline: "" };
-  assert.deepEqual(cardStats({ ...base, sport: "run" }).map((s) => s.label), ["Moving time", "Avg pace", "Calories (est.)"]);
-  assert.deepEqual(cardStats({ ...base, sport: "ride", kcal: null }).map((s) => s.label), ["Moving time", "Avg speed", "Climb (GPS)"]);
+  assert.deepEqual(cardStats({ ...base, sport: "run" }).map((s) => s.label), ["Avg pace", "Moving time", "Climb (GPS)", "Calories (est.)"]);
+  assert.deepEqual(cardStats({ ...base, sport: "ride", kcal: null }).map((s) => s.label), ["Avg speed", "Moving time", "Climb (GPS)"]);
   assert.deepEqual(cardStats({ ...base, sport: "walk", kcal: null, elevationGainM: null }).map((s) => s.label), ["Moving time", "Avg pace"]);
-  assert.equal(cardStats({ ...base, sport: "run" })[1].value, "5:00");
+  assert.equal(cardStats({ ...base, sport: "run" })[0].value, "5:00");
 });

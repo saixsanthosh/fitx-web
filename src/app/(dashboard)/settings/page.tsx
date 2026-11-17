@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronRight, CircleHelp, CreditCard, Sparkles, UserRound } from "lucide-react";
+import { ChevronRight, CircleHelp, CreditCard, Sparkles, UserRound, Watch } from "lucide-react";
 import { PageHeading } from "@/components/app/PageHeading";
 import { SettingsAccount } from "./SettingsAccount";
 import { SettingsAppearance } from "./SettingsAppearance";
@@ -10,6 +10,7 @@ export const metadata: Metadata = { title: "Settings" };
 
 /** Settings that live on their own pages. */
 const ELSEWHERE = [
+  { href: "/activity/import", label: "Devices and imports", hint: "Bring in walks, runs and rides from a watch or another app as GPX, TCX or FIT files.", icon: Watch },
   { href: "/ai-coach", label: "AI coach", hint: "Choose whether the coach uses your FITX data, or delete your coach data, in Coach settings.", icon: Sparkles },
   { href: "/subscription", label: "Subscription", hint: "Premium, renewals and payment history", icon: CreditCard },
   { href: "/help", label: "Help and feedback", hint: "Ask a question, report a problem or share an idea with the FITX team.", icon: CircleHelp },
@@ -31,7 +32,7 @@ export default function SettingsPage() {
         </Link>
       </section>
       <section className="fitx-panel p-5" aria-labelledby="settings-elsewhere">
-        <h2 id="settings-elsewhere" className="text-base font-semibold text-fitx-text">Coach, subscription and help</h2>
+        <h2 id="settings-elsewhere" className="text-base font-semibold text-fitx-text">Devices, coach, subscription and help</h2>
         <ul className="mt-3 space-y-2">
           {ELSEWHERE.map(({ href, label, hint, icon: Icon }) => (
             <li key={href}>
