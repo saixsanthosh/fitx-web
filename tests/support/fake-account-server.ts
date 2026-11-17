@@ -1,5 +1,5 @@
-// A stand-in for the Supabase Auth, Auth admin, Storage and billing-ledger endpoints that /api/account
-// uses, on 127.0.0.1. Access tokens are HS256-shaped JWTs (so supabase-js verifies them through GET
+// A stand-in for the Supabase Auth, Auth admin, Storage, Admin-membership and billing-ledger endpoints that
+// /api/account uses, on 127.0.0.1. Access tokens are HS256-shaped JWTs (so supabase-js verifies them through GET
 // /auth/v1/user) carrying an `amr` claim, which is how the route tells how recent a sign-in is.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -24,6 +24,10 @@ export class FakeAccountServer {
   subscriptions: Array<Record<string, unknown>> = [];
   /** Bodies of POST /rest/v1/rpc/billing_apply_event. */
   billingEvents: unknown[] = [];
+  /** FITX Admin memberships for GET /rest/v1/fitx_admin_members (secret key only). */
+  adminMembers = new Map<string, { is_active: boolean }>();
+  /** "missing": answer as before the Admin migrations; "error": a database failure. */
+  adminMembersState: "ok" | "missing" | "error" = "ok";
   calls: Array<{ method: string; path: string; auth: string }> = [];
 
   async start() {
@@ -46,6 +50,8 @@ export class FakeAccountServer {
     this.files.clear();
     this.subscriptions = [];
     this.billingEvents = [];
+    this.adminMembers.clear();
+    this.adminMembersState = "ok";
   }
 
   addUser(id: string, email: string, lastSignInAt = new Date().toISOString()) {
@@ -127,6 +133,13 @@ export class FakeAccountServer {
       if (!admin) return send(401, { code: "42501", message: "permission denied for table billing_subscriptions" });
       const value = (name: string) => url.searchParams.get(name)?.replace(/^eq\./, "");
       return send(200, this.subscriptions.filter((row) => row.user_id === value("user_id") && row.mode === value("mode")));
+    }
+    if (url.pathname === "/rest/v1/fitx_admin_members" && req.method === "GET") {
+      if (!admin) return send(401, { code: "42501", message: "permission denied for table fitx_admin_members" });
+      if (this.adminMembersState === "missing") return send(404, { code: "PGRST205", message: "Could not find the table 'public.fitx_admin_members' in the schema cache" });
+      if (this.adminMembersState === "error") return send(500, { code: "XX000", message: "database unavailable" });
+      const member = this.adminMembers.get(url.searchParams.get("user_id")?.replace(/^eq\./, "") ?? "");
+      return send(200, member ? [{ is_active: member.is_active }] : []);
     }
     if (url.pathname === "/rest/v1/rpc/billing_apply_event" && req.method === "POST") {
       if (!admin) return send(401, { code: "42501", message: "permission denied for function billing_apply_event" });

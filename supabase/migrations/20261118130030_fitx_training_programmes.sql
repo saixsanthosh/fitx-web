@@ -74,6 +74,18 @@ create policy programme_enrolments_owner on public.programme_enrolments for all 
   using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 grant select, insert, update, delete on public.programme_enrolments to authenticated;
 
+-- A member keeps reading the programme they follow, and its days, after it is unpublished, so its card
+-- (with "Leave programme"), planning ahead and the move to the next day keep working. Separate policies
+-- for signed-in members only: anon cannot read programme_enrolments.
+drop policy if exists training_programmes_read_enrolled on public.training_programmes;
+create policy training_programmes_read_enrolled on public.training_programmes for select to authenticated
+  using (exists (select 1 from public.programme_enrolments e
+    where e.programme_id = training_programmes.id and e.user_id = (select auth.uid()) and e.status = 'active'));
+drop policy if exists training_programme_days_read_enrolled on public.training_programme_days;
+create policy training_programme_days_read_enrolled on public.training_programme_days for select to authenticated
+  using (exists (select 1 from public.programme_enrolments e
+    where e.programme_id = training_programme_days.programme_id and e.user_id = (select auth.uid()) and e.status = 'active'));
+
 -- Programme days become ordinary dated plans, so starting, logging and history work unchanged.
 alter table public.workout_plans
   add column if not exists programme_enrolment_id uuid,

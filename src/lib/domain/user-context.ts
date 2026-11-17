@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingFunctionError } from "@/lib/supabase/errors";
+import { equipmentFor, loadEquipmentProfiles } from "@/lib/training/data";
 import { localDateKey } from "./dates";
 import { calculateNutritionTargets, type NutritionTargets } from "./nutrition";
 import {
@@ -27,6 +28,7 @@ import {
   WEIGHT_UNIT_OPTIONS,
   isOption,
   joinKnown,
+  joinLimitations,
   normalizeDietType,
   normalizeEquipment,
   normalizeFoodRules,
@@ -37,7 +39,6 @@ import {
   type BudgetLevel,
   type Cuisine,
   type DietType,
-  type EquipmentKey,
   type Experience,
   type FoodRule,
   type Goal,
@@ -90,7 +91,8 @@ export type ProfileValues = {
 
 export type PreferenceValues = {
   workout_location: TrainingLocation;
-  equipment: EquipmentKey[];
+  /** Training-taxonomy keys from the original equipment answer (it seeds the Home list until one is saved). */
+  equipment: string[];
   fitness_level: Experience;
   primary_goal: Goal;
   workouts_per_week: number;
@@ -126,6 +128,8 @@ export type UserContextData = {
   hasPreferences: boolean;
   /** Stored values that are not part of the vocabulary, kept so screens can mention them. */
   legacy: { dietaryPreferences: string[]; unknownEquipment: string[] };
+  /** Home and Gym equipment as Workouts sees it. */
+  equipmentLists: EquipmentLists;
   latestWeighIn: WeighIn | null;
   /** The latest weigh-in, or the profile weight when nothing has been logged. */
   currentWeightKg: number | null;
@@ -134,7 +138,15 @@ export type UserContextData = {
   schema: { preferencesV2: boolean };
 };
 
-export type LoadPart = "profile" | "preferences" | "weigh_in";
+export type LoadPart = "profile" | "preferences" | "weigh_in" | "equipment";
+
+/** The Home and Gym equipment lists Workouts uses (user_equipment_profiles), with their starting points. */
+export type EquipmentLists = {
+  /** False until the equipment-lists migration exists; until then only the original answer can be saved. */
+  available: boolean;
+  home: { keys: string[]; saved: boolean };
+  gym: { keys: string[]; saved: boolean };
+};
 export type LoadResult = { data: UserContextData; error: null } | { data: null; error: { part: LoadPart; cause: unknown } };
 
 type Row = Record<string, unknown>;
@@ -170,7 +182,7 @@ export function normalizeProfile(row: Row | null | undefined): ProfileValues | n
 /** Preference values with the vocabulary's defaults for anything missing or unknown. */
 export function normalizePreferences(row: Row | null | undefined): { values: PreferenceValues; legacy: UserContextData["legacy"] } {
   const source = row ?? {};
-  const equipment = normalizeEquipment(source.equipment ?? ["bodyweight"]);
+  const equipment = normalizeEquipment(source.equipment ?? []);
   const allergies = splitAllergies(source.allergies);
   const limitations = splitLimitations(source.limitations);
   const legacyDiet = stringList(source.dietary_preferences);
@@ -182,7 +194,7 @@ export function normalizePreferences(row: Row | null | undefined): { values: Pre
   return {
     values: {
       workout_location: pick(LOCATION_OPTIONS, source.workout_location, DEFAULT_LOCATION),
-      equipment: equipment.keys.includes("bodyweight") ? equipment.keys : ["bodyweight", ...equipment.keys],
+      equipment: equipment.keys,
       fitness_level: pick(EXPERIENCE_OPTIONS, source.fitness_level, DEFAULT_EXPERIENCE),
       primary_goal: pick(GOAL_OPTIONS, source.primary_goal, DEFAULT_GOAL),
       workouts_per_week: between(source.workouts_per_week, 1, 7, DEFAULT_DAYS_PER_WEEK),
@@ -198,7 +210,7 @@ export function normalizePreferences(row: Row | null | undefined): { values: Pre
       food_dislikes: normalizeTags(source.food_dislikes, { max: MAX_FOOD_DISLIKES }),
       food_budget_level: pickOrNull(BUDGET_LEVEL_OPTIONS, source.food_budget_level),
       monthly_food_budget_inr: budget !== null && budget >= 500 && budget <= 500000 ? Math.round(budget) : null,
-      limitations: joinKnown(limitations.keys, limitations.custom),
+      limitations: joinLimitations(limitations.keys, limitations.custom),
       height_unit: pick(HEIGHT_UNIT_OPTIONS, source.height_unit, DEFAULT_HEIGHT_UNIT),
       weight_unit: pick(WEIGHT_UNIT_OPTIONS, source.weight_unit, DEFAULT_WEIGHT_UNIT),
       timezone: typeof source.timezone === "string" && source.timezone ? source.timezone : "UTC",
@@ -218,7 +230,7 @@ export function targetsFor(profile: ProfileValues | null, preferences: Preferenc
 }
 
 export async function loadUserContext(supabase: SupabaseClient, user: { id: string; email?: string | null }): Promise<LoadResult> {
-  const [profileResult, preferenceOutcome, weighInResult] = await Promise.all([
+  const [profileResult, preferenceOutcome, weighInResult, equipmentResult] = await Promise.all([
     supabase.from("profiles").select(PROFILE_COLUMNS.join(",")).eq("id", user.id).maybeSingle(),
     withOptionalColumns(PREFERENCE_COLUMNS_V2, (includeOptional) =>
       supabase
@@ -236,11 +248,14 @@ export async function loadUserContext(supabase: SupabaseClient, user: { id: stri
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    loadEquipmentProfiles(supabase, user.id),
   ]);
   if (profileResult.error) return { data: null, error: { part: "profile", cause: profileResult.error } };
   const preferenceResult = preferenceOutcome.result;
   if (preferenceResult.error) return { data: null, error: { part: "preferences", cause: preferenceResult.error } };
   if (weighInResult.error) return { data: null, error: { part: "weigh_in", cause: weighInResult.error } };
+  // A failed read must not look like "no lists yet": Profile would then save to the wrong place.
+  if (equipmentResult.error) return { data: null, error: { part: "equipment", cause: equipmentResult.error } };
 
   const profile = normalizeProfile(profileResult.data as Row | null);
   const { values: preferences, legacy } = normalizePreferences(preferenceResult.data as Row | null);
@@ -248,6 +263,14 @@ export async function loadUserContext(supabase: SupabaseClient, user: { id: stri
   const loggedWeight = numberOrNull(weighInRow?.weight);
   const latestWeighIn = loggedWeight !== null && typeof weighInRow?.date === "string" ? { weight: loggedWeight, date: weighInRow.date } : null;
   const currentWeightKg = latestWeighIn?.weight ?? profile?.weight ?? null;
+  const profiles = equipmentResult.profiles;
+  const preferenceRow = preferenceResult.data as unknown as Row | null;
+  const legacyWords = Array.isArray(preferenceRow?.equipment) ? (preferenceRow.equipment as unknown[]).filter((item): item is string => typeof item === "string") : null;
+  const equipmentLists: EquipmentLists = {
+    available: profiles.available,
+    home: equipmentFor(profiles, "home", legacyWords),
+    gym: equipmentFor(profiles, "gym", legacyWords),
+  };
   return {
     data: {
       userId: user.id,
@@ -256,6 +279,7 @@ export async function loadUserContext(supabase: SupabaseClient, user: { id: stri
       preferences,
       hasPreferences: Boolean(preferenceResult.data),
       legacy,
+      equipmentLists,
       latestWeighIn,
       currentWeightKg,
       targets: targetsFor(profile, preferences, currentWeightKg),

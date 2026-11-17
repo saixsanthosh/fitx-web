@@ -1,4 +1,5 @@
 import "server-only";
+import { parseFoodQuery } from "@/lib/domain/food-query";
 import type { JsonSchema } from "./types";
 import { clampNumber, cleanText, isRecord, oneOf } from "./validate";
 
@@ -117,37 +118,68 @@ export const SWAP_SCHEMA: JsonSchema = {
 
 export function parseFood(value: unknown): ModelFood | null {
   if (!isRecord(value)) return null;
-  const name = cleanText(value.name, 80);
-  const unit = oneOf(value.unit, FOOD_UNITS) ?? "serving";
+  const name = cleanText(value.name ?? value.food ?? value.item, 80);
+  // Models without the schema sometimes write the amount as text ("3 pieces", "150 g").
+  let amount: unknown = value.quantity ?? value.qty ?? value.amount;
+  let unitText: unknown = value.unit ?? value.units;
+  if (typeof amount === "string" && !/^\s*\d+(?:\.\d+)?\s*$/.test(amount)) {
+    const parsed = parseFoodQuery(amount);
+    if (parsed.amount !== null) {
+      amount = parsed.amount;
+      if (!unitText && parsed.unit) unitText = parsed.unit;
+    }
+  }
+  const unit = unitWord(unitText);
   // Grams and millilitres can run into the hundreds; counts (pieces, cups, servings) cannot.
-  const quantity = clampNumber(value.quantity, 0, unit === "g" || unit === "ml" ? 2000 : 50);
-  const grams = clampNumber(value.grams, 0, 2000);
+  const quantity = clampNumber(amount, 0, unit === "g" || unit === "ml" ? 2000 : 50);
+  const grams = clampNumber(value.grams ?? value.weight_g ?? value.weight_grams, 0, 2000);
   if (!name || quantity === null || quantity <= 0 || grams === null || grams <= 0) return null;
   const macro = (field: unknown, max: number) => clampNumber(field, 0, max) ?? 0;
-  return {
+  const food: ModelFood = {
     name,
     search: cleanText(value.search, 60) ?? name,
     quantity,
     unit,
     grams,
-    calories: macro(value.calories, 3000),
-    protein: macro(value.protein, 300),
-    carbs: macro(value.carbs, 500),
-    fat: macro(value.fat, 300),
+    calories: macro(value.calories ?? value.kcal ?? value.energy_kcal, 3000),
+    protein: macro(value.protein ?? value.protein_g, 300),
+    carbs: macro(value.carbs ?? value.carbohydrates ?? value.carbs_g, 500),
+    fat: macro(value.fat ?? value.fat_g, 300),
     cost: oneOf(value.cost, COST_LEVELS),
     brand: cleanText(value.brand, 60),
     note: cleanText(value.note, 140),
   };
+  // Impossible numbers mean the model mixed up its units (2 g for two rotis): more energy than pure fat,
+  // or more protein, carbs and fat than the food weighs. Such an item is dropped, never saved.
+  if ((food.calories / food.grams) * 100 > 900 || food.protein + food.carbs + food.fat > food.grams * 1.05) return null;
+  return food;
+}
+
+/** "pieces", "Grams", "cups" → the plan's unit words; anything else counts as a serving. */
+function unitWord(value: unknown): FoodUnitWord {
+  const direct = oneOf(value, FOOD_UNITS);
+  if (direct) return direct;
+  if (typeof value !== "string" || !value.trim()) return "serving";
+  const parsed = parseFoodQuery(`1 ${value}`).unit;
+  return oneOf(parsed, FOOD_UNITS) ?? "serving";
 }
 
 export function parseMealPlan(value: unknown): ModelMealPlan | null {
-  if (!isRecord(value) || !Array.isArray(value.meals)) return null;
-  const meals = value.meals
+  if (!isRecord(value)) return null;
+  // Also accept { breakfast: [...], lunch: [...] } and meals with "foods" instead of "items".
+  const rawMeals = Array.isArray(value.meals)
+    ? value.meals
+    : Object.entries(value)
+        .filter(([key, items]) => /^(breakfast|lunch|dinner|snacks?|brunch|supper|pre.?workout|post.?workout|evening snack|morning snack)$/i.test(key) && Array.isArray(items))
+        .map(([key, items]) => ({ name: key.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase()), items }));
+  const meals = rawMeals
     .slice(0, 8)
     .map((meal) => {
-      if (!isRecord(meal) || !Array.isArray(meal.items)) return null;
-      const items = meal.items.slice(0, 10).map(parseFood).filter((item): item is ModelFood => item !== null);
-      const name = cleanText(meal.name, 40);
+      if (!isRecord(meal)) return null;
+      const list = meal.items ?? meal.foods ?? meal.dishes;
+      if (!Array.isArray(list)) return null;
+      const items = list.slice(0, 10).map(parseFood).filter((item): item is ModelFood => item !== null);
+      const name = cleanText(meal.name ?? meal.meal ?? meal.title, 40);
       return name && items.length ? { name, items } : null;
     })
     .filter((meal): meal is ModelMealPlan["meals"][number] => meal !== null);
@@ -166,19 +198,25 @@ export function parseWorkout(value: unknown, allowedIds: ReadonlySet<string>): M
   const seen = new Set<string>();
   const exercises: ModelWorkout["exercises"] = [];
   for (const raw of value.exercises.slice(0, 16)) {
-    if (!isRecord(raw) || typeof raw.id !== "string") continue;
-    const id = raw.id.trim();
+    if (!isRecord(raw)) continue;
+    const rawId = raw.id ?? raw.exercise_id;
+    if (typeof rawId !== "string") continue;
+    const id = rawId.trim();
     if (!allowedIds.has(id) || seen.has(id)) continue;
     seen.add(id);
-    const hold = Math.round(clampNumber(raw.hold_seconds, 0, 600) ?? 0);
-    const repsMin = hold ? 1 : Math.round(clampNumber(raw.reps_min, 1, 100) ?? 8);
-    const repsMax = hold ? 1 : Math.max(repsMin, Math.round(clampNumber(raw.reps_max, 1, 100) ?? repsMin + 4));
+    const hold = Math.round(clampNumber(raw.hold_seconds ?? raw.hold ?? raw.duration_seconds, 0, 600) ?? 0);
+    // "reps": 10 or "8-12" when the model did not use reps_min and reps_max.
+    const range = typeof raw.reps === "string" ? /^\s*(\d+)\s*(?:-|–|to)\s*(\d+)\s*$/.exec(raw.reps) : null;
+    const repsFrom = raw.reps_min ?? (range ? range[1] : raw.reps);
+    const repsTo = raw.reps_max ?? (range ? range[2] : raw.reps);
+    const repsMin = hold ? 1 : Math.round(clampNumber(repsFrom, 1, 100) ?? 8);
+    const repsMax = hold ? 1 : Math.max(repsMin, Math.round(clampNumber(repsTo, 1, 100) ?? repsMin + 4));
     exercises.push({
       id,
       sets: Math.round(clampNumber(raw.sets, 1, 10) ?? 3),
       repsMin,
       repsMax,
-      restSeconds: Math.round(clampNumber(raw.rest_seconds, 15, 600) ?? 90),
+      restSeconds: Math.round(clampNumber(raw.rest_seconds ?? raw.rest ?? raw.rest_sec, 15, 600) ?? 90),
       holdSeconds: hold >= 5 ? hold : null,
       note: cleanText(raw.note, 140),
     });
@@ -189,8 +227,10 @@ export function parseWorkout(value: unknown, allowedIds: ReadonlySet<string>): M
 }
 
 export function parseSwap(value: unknown): ModelSwap | null {
-  if (!isRecord(value) || !Array.isArray(value.options)) return null;
-  const options = value.options
+  if (!isRecord(value)) return null;
+  const list = value.options ?? value.replacements ?? value.alternatives ?? value.swaps ?? value.suggestions;
+  if (!Array.isArray(list)) return null;
+  const options = list
     .slice(0, 3)
     .map((option) => {
       const food = parseFood(option);
@@ -202,4 +242,29 @@ export function parseSwap(value: unknown): ModelSwap | null {
 
 function tipsOf(value: unknown): string[] {
   return Array.isArray(value) ? value.map((tip) => cleanText(tip, 200)).filter((tip): tip is string => tip !== null).slice(0, 3) : [];
+}
+
+/**
+ * The schema written out for the prompt, so every model sees the exact shape, including models that
+ * only get plain JSON mode (Gemini and OpenRouter also get the schema itself as a request parameter).
+ */
+export function jsonShape(schema: JsonSchema): string {
+  return [
+    "Reply with only one JSON object in exactly this shape (no other keys, no text before or after it; fields marked (optional) may be left out):",
+    render(schema, ""),
+  ].join("\n");
+}
+
+function render(schema: JsonSchema, indent: string): string {
+  if (schema.type === "object" && schema.properties) {
+    const required = new Set(schema.required ?? []);
+    const lines = Object.entries(schema.properties).map(([key, value]) => {
+      const note = [required.has(key) ? "" : "(optional)", value.description ?? ""].filter(Boolean).join(" ");
+      return `${indent}  "${key}": ${render(value, `${indent}  `)}${note ? ` // ${note}` : ""}`;
+    });
+    return `{\n${lines.join(",\n")}\n${indent}}`;
+  }
+  if (schema.type === "array") return `[ ${schema.items ? render(schema.items, indent) : "any"}, … ]`;
+  if (schema.enum) return schema.enum.map((value) => `"${value}"`).join(" | ");
+  return schema.type;
 }

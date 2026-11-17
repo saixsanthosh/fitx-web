@@ -1,5 +1,5 @@
 import { usesPace } from "./config";
-import { formatDuration, kmValue, paceValue, speedValue } from "./format";
+import { formatDuration, kmValue, localDateKey, paceValue, speedValue } from "./format";
 import { decodeRoute } from "./polyline";
 import type { LatLng, Sport } from "./types";
 
@@ -259,8 +259,7 @@ export async function renderShareCard(data: CardData, format: CardFormat, host: 
 }
 
 export function cardFileName(data: CardData, format: CardFormat): string {
-  const day = new Date(data.startedAt).toISOString().slice(0, 10);
-  return `fitx-${data.sport}-${day}-${format}.png`;
+  return `fitx-${data.sport}-${localDateKey(data.startedAt)}-${format}.png`;
 }
 
 export type ShareOutcome = "shared" | "cancelled" | "unsupported" | "failed";

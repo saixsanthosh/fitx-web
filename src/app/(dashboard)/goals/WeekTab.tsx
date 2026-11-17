@@ -29,12 +29,12 @@ export function WeekTab({ today }: { today: string }) {
   const [editor, setEditor] = useState<{ mode: "add" | "edit"; draft: TodoDraft; item?: TodoItem; key: number } | null>(null);
   const groups = groupByDay(todos.items, days);
   const progress = todoProgress(todos.items);
-  const selectedDay = days.includes(selected) ? selected : days[0];
+  // The picked day when it is in the shown week, else today when it is, else Monday.
+  const selectedDay = days.includes(selected) ? selected : days.includes(today) ? today : days[0];
 
+  // From the latest week, so taps in quick succession each move one week.
   function shift(weeks: number) {
-    const next = addDays(monday, weeks * 7);
-    setMonday(next);
-    setSelected(weekKeys(next).includes(today) ? today : next);
+    setMonday((current) => addDays(current, weeks * 7));
   }
 
   const range = `${keyToLocalDate(days[0]).toLocaleDateString(undefined, { day: "numeric", month: "short" })} – ${keyToLocalDate(days[6]).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;

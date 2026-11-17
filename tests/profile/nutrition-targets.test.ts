@@ -46,16 +46,21 @@ describe("daily targets", () => {
     assert.equal(targets.maintenance, 1148);
     assert.equal(targets.calories, 1148);
     assert.equal(targets.adjustment, 0);
-    assert.equal(targets.floorApplied, CALORIE_FLOORS.female);
+    // The floor did not set this number (maintenance did), so it is not reported as applied.
+    assert.equal(targets.floorApplied, null);
+    assert.equal(targets.maintenanceBelowFloor, true);
+    assert.equal(targets.weeklyChangeKg, 0);
 
     const lean = calculateNutritionTargets({ age: 40, gender: "male", height: 165, weight: 55 }, "sedentary", "weight_loss")!;
     // maintenance 550 + 1031.25 - 200 + 5 = 1386 * 1.2 = 1663; -20% would be 1330, raised to 1,500
     assert.equal(lean.calories, CALORIE_FLOORS.male);
     assert.equal(lean.floorApplied, CALORIE_FLOORS.male);
+    assert.equal(lean.maintenanceBelowFloor, false);
     assert.equal(lean.adjustment, CALORIE_FLOORS.male - lean.maintenance);
 
     const unspecified = calculateNutritionTargets({ age: 35, gender: null, height: 158, weight: 52 }, "sedentary", "weight_loss")!;
     assert.equal(unspecified.calories, CALORIE_FLOORS.other);
+    assert.equal(unspecified.floorApplied, CALORIE_FLOORS.other);
   });
 
   test("under-18s with a loss goal stay at maintenance", () => {

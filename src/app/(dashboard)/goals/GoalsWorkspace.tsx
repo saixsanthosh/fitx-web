@@ -4,7 +4,6 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import { CalendarDays, ListChecks, Target } from "lucide-react";
 import { PageHeading } from "@/components/app/PageHeading";
 import { useToday } from "@/components/widgets/useHomeData";
-import type { GoalTemplateKey } from "@/lib/domain/goals";
 import { TodayTab } from "./TodayTab";
 import { GoalsTab } from "./GoalsTab";
 import { WeekTab } from "./WeekTab";
@@ -18,7 +17,7 @@ const GOALS_TABS: ReadonlyArray<{ id: GoalsTabId; label: string; icon: typeof Ta
 ];
 
 /** The Goals section: today's To-Do list, goals, and the week's schedule (the former Planner). */
-export function GoalsWorkspace({ initialTab, newTemplate }: { initialTab: GoalsTabId; newTemplate: GoalTemplateKey | null }) {
+export function GoalsWorkspace({ initialTab }: { initialTab: GoalsTabId }) {
   const today = useToday();
   const [tab, setTab] = useState<GoalsTabId>(initialTab);
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -70,7 +69,7 @@ export function GoalsWorkspace({ initialTab, newTemplate }: { initialTab: GoalsT
         ) : tab === "today" ? (
           <TodayTab today={today} />
         ) : tab === "goals" ? (
-          <GoalsTab today={today} newTemplate={newTemplate} />
+          <GoalsTab today={today} />
         ) : (
           <WeekTab today={today} />
         )}

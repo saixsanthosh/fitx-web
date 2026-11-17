@@ -29,7 +29,9 @@ test("policies are owner-only with (select auth.uid())", () => {
 
 test("security definer functions pin search_path to '' and are not callable by anon", () => {
   const functions = [...code.matchAll(/create or replace function public\.(\w+)\(([^)]*)\)([\s\S]*?)\$\$;?/g)];
-  assert.ok(functions.length >= 6);
+  assert.deepEqual(functions.map(([, name]) => name).sort(), [
+    "ai_coach_apply_action", "ai_coach_delete_my_data", "ai_coach_quota_status", "ai_coach_release_quota", "ai_coach_take_quota",
+  ]);
   for (const [, name, , header] of functions) {
     assert.match(header, /set search_path = ''/, name);
     if (/security definer/.test(header)) assert.match(code, new RegExp(`revoke all on function public\\.${name}\\([^)]*\\) from public, anon`), name);
@@ -37,6 +39,21 @@ test("security definer functions pin search_path to '' and are not callable by a
   // The quota table is only written by definer functions; members cannot update their own counts.
   assert.doesNotMatch(code, /grant [^;]*on table public\.ai_coach_usage_events/);
   assert.doesNotMatch(code, /grant [^;]*on table public\.ai_coach_limits/);
+});
+
+test("data sharing is off unless the member chooses it, and the limit is a rolling 24 hours", () => {
+  assert.match(code, /share_personal_data boolean not null default false/);
+  for (const fn of ["ai_coach_take_quota", "ai_coach_quota_status"]) {
+    const body = code.match(new RegExp(`function public\\.${fn}\\([\\s\\S]*?end \\$\\$`))?.[0] ?? "";
+    assert.match(body, /created_at > pg_catalog\.now\(\) - interval '24 hours'/, fn);
+    assert.doesNotMatch(body, /timezone|local_day/, `${fn} does not depend on the member's editable time zone`);
+  }
+});
+
+test("Add to My Food Plan fills Nutrition v2's columns when they exist, and re-adds an archived food", () => {
+  const apply = code.match(/function public\.ai_coach_apply_action\([\s\S]*?end \$\$/)?.[0] ?? "";
+  for (const column of ["origin", "value_basis", "image_url", "source_ref", "archived_at"]) assert.match(apply, new RegExp(`'${column}' = any\\(food_columns\\)`), column);
+  assert.match(apply, /f\.archived_at is null/);
 });
 
 test("additive only: no existing table is altered or dropped", () => {

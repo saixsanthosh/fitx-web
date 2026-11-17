@@ -106,6 +106,29 @@ describe("Phase 3 SQL on a local Postgres", { skip }, () => {
     pg.exec(`update public.planner_events set starts_at = starts_at - interval '1 day' where id = '${ids.call}';`, asA);
   });
 
+  test("the day the client sends wins when an untimed item gets a time or a time changes within the day", () => {
+    // B's saved time zone is UTC while B enters times in India (UTC+5:30), the case where the trigger
+    // would otherwise move items: 02:00 in India on the 18th is 20:30 UTC on the 17th.
+    pg.exec(`insert into public.user_preferences (user_id, timezone) values ('${B}', 'UTC') on conflict (user_id) do update set timezone = 'UTC';`);
+    const id = pg.json(`
+      with t as (insert into public.planner_events (user_id, event_type, title, local_date) values ('${B}', 'task', 'Night feed', '${TODAY}') returning id)
+      select to_json(id) from t;`, asB);
+    const timed = pg.json(`
+      update public.planner_events set starts_at = '2026-11-17T20:30:00Z', ends_at = '2026-11-17T21:30:00Z', local_date = '${TODAY}' where id = '${id}';
+      select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
+    assert.equal(timed.day, TODAY, "giving an untimed To-Do a time keeps its day");
+    const retimed = pg.json(`
+      update public.planner_events set starts_at = '2026-11-17T21:00:00Z', ends_at = '2026-11-17T22:00:00Z' where id = '${id}';
+      select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
+    assert.equal(retimed.day, TODAY, "a later time the same day keeps it");
+    const moved = pg.json(`
+      update public.planner_events set starts_at = '2026-11-19T20:30:00Z', ends_at = '2026-11-19T21:30:00Z' where id = '${id}';
+      select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
+    assert.equal(moved.day, "2026-11-19", "an older client moving it two days without a day still moves it");
+    pg.exec(`delete from public.planner_events where id = '${id}';`, asB);
+    pg.exec(`delete from public.user_preferences where user_id = '${B}';`);
+  });
+
   test("planner_events rejects items without a day, unknown types and an end without a start", () => {
     const noDay = pg.run(`insert into public.planner_events (user_id, event_type, title) values ('${A}', 'task', 'Nowhere');`, asA);
     assert.equal(noDay.ok, false);

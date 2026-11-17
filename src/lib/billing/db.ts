@@ -36,7 +36,7 @@ export function isMissingTableError(error: unknown): boolean {
 export const isMissingBillingSchema = (error: unknown) =>
   isMissingTableError(error) || isMissingColumnError(error) || isMissingFunctionError(error);
 
-export type BillingStoreFailure = "missing_schema" | "mode_mismatch" | "already_subscribed" | "conflict" | "failed";
+export type BillingStoreFailure = "missing_schema" | "mode_mismatch" | "already_subscribed" | "rate_limited" | "conflict" | "failed";
 
 export class BillingStoreError extends Error {
   readonly kind: BillingStoreFailure;
@@ -57,6 +57,7 @@ export function toStoreError(error: PostgrestError | { code?: string; message?: 
   if (isMissingBillingSchema(error)) kind = "missing_schema";
   else if (message.includes("billing_mode_mismatch")) kind = "mode_mismatch";
   else if (message.includes("billing_already_subscribed")) kind = "already_subscribed";
+  else if (message.includes("billing_checkout_limit")) kind = "rate_limited";
   else if (code === "23505") kind = "conflict";
   return new BillingStoreError(kind, code, `${scope}: ${kind}${code ? ` (${code})` : ""}`);
 }

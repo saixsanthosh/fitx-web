@@ -1,8 +1,17 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Pencil } from "lucide-react";
-import type { NutritionTargets } from "@/lib/domain/nutrition";
+
+/** The edit form's first field. In a radio group that is the chosen option, where Tab would land too. */
+function firstField(section: HTMLElement | null): HTMLElement | null {
+  const first = section?.querySelector<HTMLElement>("form input:not([disabled]), form select:not([disabled]), form textarea:not([disabled]), form button:not([disabled])") ?? null;
+  if (first instanceof HTMLInputElement && first.type === "radio" && first.name) {
+    const chosen = first.form?.querySelector<HTMLInputElement>(`input[type="radio"][name="${CSS.escape(first.name)}"]:checked:not([disabled])`);
+    if (chosen) return chosen;
+  }
+  return first;
+}
 
 /** A Profile section: a summary of saved values, or its edit form. */
 export function SectionCard({
@@ -24,8 +33,20 @@ export function SectionCard({
   canEdit: boolean;
   children: ReactNode;
 }) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const wasEditing = useRef(editing);
+  // Keyboard and screen-reader users keep their place: into the form when it opens, back to Edit when it closes.
+  useEffect(() => {
+    if (editing && !wasEditing.current) {
+      firstField(sectionRef.current)?.focus();
+    } else if (!editing && wasEditing.current) {
+      editButton.current?.focus();
+    }
+    wasEditing.current = editing;
+  }, [editing]);
   return (
-    <section id={id} aria-labelledby={`${id}-title`} className="fitx-panel scroll-mt-24 p-4 sm:p-6">
+    <section ref={sectionRef} id={id} aria-labelledby={`${id}-title`} className="fitx-panel scroll-mt-24 p-4 sm:p-6">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
           <span aria-hidden="true" className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fitx-primary/10 text-fitx-primary">{icon}</span>
@@ -35,7 +56,7 @@ export function SectionCard({
           </div>
         </div>
         {!editing && canEdit && (
-          <button type="button" onClick={onEdit} className="fitx-button fitx-button-secondary min-h-11 shrink-0 px-3.5 text-sm" aria-label={`Edit ${title.toLowerCase()}`}>
+          <button ref={editButton} type="button" onClick={onEdit} className="fitx-button fitx-button-secondary min-h-11 shrink-0 px-3.5 text-sm" aria-label={`Edit ${title.toLowerCase()}`}>
             <Pencil size={15} aria-hidden="true" />
             <span className="hidden sm:inline">Edit</span>
           </button>
@@ -84,13 +105,4 @@ export function EditActions({ saving, onCancel, error }: { saving: boolean; onCa
       </div>
     </div>
   );
-}
-
-/** One sentence on how the calorie target was set. */
-export function targetReason(targets: NutritionTargets) {
-  if (targets.youthMaintenance) return "Under 18, FITX keeps you at maintenance rather than setting a calorie deficit.";
-  if (targets.floorApplied) return `Kept at a safe minimum of ${targets.floorApplied.toLocaleString("en-IN")} kcal a day.`;
-  if (targets.rule === "deficit") return `About ${Math.abs(targets.adjustment).toLocaleString("en-IN")} kcal under maintenance, roughly ${Math.abs(targets.weeklyChangeKg).toFixed(1)} kg a week.`;
-  if (targets.rule === "surplus") return `About ${targets.adjustment.toLocaleString("en-IN")} kcal over maintenance, roughly ${targets.weeklyChangeKg.toFixed(1)} kg a week.`;
-  return "Set at maintenance, to keep your weight steady.";
 }

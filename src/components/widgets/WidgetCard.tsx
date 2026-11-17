@@ -49,6 +49,16 @@ export function WidgetError({ message, onRetry }: { message: string; onRetry: ()
   );
 }
 
+/** Shown above numbers that could not be refreshed: they are the last ones that loaded. */
+export function WidgetStale({ onRetry }: { onRetry: () => void }) {
+  return (
+    <p className={styles.stale} role="status">
+      Couldn&apos;t refresh, showing the last numbers.
+      <button type="button" className={styles.noteLink} onClick={onRetry}>Try again</button>
+    </p>
+  );
+}
+
 /** A quiet note inside a widget, e.g. "Add your age in Profile to estimate a target". */
 export function WidgetNote({ children, href, action }: { children: ReactNode; href?: string; action?: string }) {
   return (

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, LoaderCircle } from "lucide-react";
 import { BRAND } from "@/config/brand";
 import { formatInr, periodLabel } from "@/lib/billing/money";
-import { formatBillingDate, subscriptionStatusLabel, subscriptionTone } from "@/lib/billing/status";
+import { formatBillingDate, formatPaidThrough, subscriptionStatusLabel, subscriptionTone } from "@/lib/billing/status";
 import type { BillingMode, PlanView, SubscriptionView } from "@/lib/billing/types";
 import { StatusPill, TestTag } from "./BillingBits";
 
@@ -76,20 +76,29 @@ const FAST_POLL = { every: 2000, until: 90_000 };
 const SLOW_POLL = { every: 15_000, until: 15 * 60_000 };
 
 /**
- * Asks the server whether Razorpay's webhook has confirmed the payment. Calls onSlow once when the
- * fast phase ends without a confirmation. Returns a function that stops polling.
+ * Asks the server whether Razorpay has confirmed the payment of this subscription (not whether the
+ * account has Premium, which it may still have from an earlier one). Calls onSlow once when the fast
+ * phase ends without a confirmation. Returns a function that stops polling.
  */
-function pollForPremium({ onConfirmed, onSlow }: { onConfirmed: () => void; onSlow: () => void }): () => void {
+function pollForConfirmation({
+  subscriptionId,
+  onConfirmed,
+  onSlow,
+}: {
+  subscriptionId: string;
+  onConfirmed: () => void;
+  onSlow: () => void;
+}): () => void {
   const started = Date.now();
   let timer: number | null = null;
   let stopped = false;
   let slow = false;
   const check = async () => {
     try {
-      const response = await fetch("/api/billing/status", { cache: "no-store" });
-      const body = (await response.json().catch(() => null)) as { premium?: boolean } | null;
+      const response = await fetch(`/api/billing/status?subscription=${encodeURIComponent(subscriptionId)}`, { cache: "no-store" });
+      const body = (await response.json().catch(() => null)) as { confirmed?: boolean } | null;
       if (stopped) return;
-      if (response.ok && body?.premium) return onConfirmed();
+      if (response.ok && body?.confirmed === true) return onConfirmed();
     } catch {
       // keep waiting; a network blip is not a failed payment
     }
@@ -111,12 +120,16 @@ function pollForPremium({ onConfirmed, onSlow }: { onConfirmed: () => void; onSl
 
 const isFuture = (iso: string | null | undefined) => Boolean(iso) && Date.parse(iso!) > Date.now();
 
+/** Razorpay never charges a subscription in these statuses again. */
+const ENDED_STATUSES: ReadonlySet<string> = new Set(["cancelled", "completed", "expired"]);
+
 const CHECKOUT_ERRORS: Record<string, string> = {
   already_subscribed: "You already have a subscription. The page has been refreshed to show it.",
   sign_in_required: "Your session has ended. Sign in again to subscribe.",
   unavailable: "Subscriptions aren’t open right now. Nothing was charged.",
   plan_not_found: "That plan is no longer offered. The page has been refreshed.",
   provider_error: "Razorpay didn’t respond. Nothing was charged; try again in a moment.",
+  rate_limited: "You’ve started several checkouts in the last day. Nothing was charged; please try again later.",
 };
 
 function priceLine(amountPaise: number | null, period: PlanView["period"] | null, interval: number | null) {
@@ -141,6 +154,8 @@ export function SubscriptionPanel({
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [notice, setNotice] = useState<{ tone: "error" | "info" | "success"; text: string } | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  // Read when the member opens the cancel prompt: during the renewal grace the paid period is over.
+  const [paidPeriodOver, setPaidPeriodOver] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const stopPolling = useRef<(() => void) | null>(null);
   const keepSubscriptionRef = useRef<HTMLButtonElement | null>(null);
@@ -161,9 +176,10 @@ export function SubscriptionPanel({
     if (confirmingCancel) keepSubscriptionRef.current?.focus();
   }, [confirmingCancel]);
 
-  function waitForConfirmation() {
+  function waitForConfirmation(subscriptionId: string) {
     stopPolling.current?.();
-    stopPolling.current = pollForPremium({
+    stopPolling.current = pollForConfirmation({
+      subscriptionId,
       onConfirmed: () => {
         setPhase({ kind: "confirmed" });
         setNotice({ tone: "success", text: "Razorpay confirmed your payment. Premium is on." });
@@ -241,7 +257,8 @@ export function SubscriptionPanel({
           headers: { "content-type": "application/json" },
           body: JSON.stringify(result),
         }).catch(() => undefined);
-        waitForConfirmation();
+        // The id FITX's server issued for this checkout, not the one Checkout handed back.
+        waitForConfirmation(session.subscriptionId);
       },
     });
     checkout.on("payment.failed", (failure) => {
@@ -260,13 +277,14 @@ export function SubscriptionPanel({
     setNotice(null);
     try {
       const response = await fetch("/api/billing/cancel", { method: "POST" });
-      const body = (await response.json().catch(() => null)) as { accessUntil?: string | null; error?: string } | null;
-      if (response.ok) {
-        const until = formatBillingDate(body?.accessUntil ?? null);
+      const body = (await response.json().catch(() => null)) as { status?: string; accessUntil?: string | null; error?: string } | null;
+      // Only a subscription Razorpay reports as ended stops the charges.
+      if (response.ok && ENDED_STATUSES.has(body?.status ?? "")) {
+        const through = formatPaidThrough(body?.accessUntil ?? null);
         setNotice({
           tone: "success",
-          text: until && isFuture(body?.accessUntil)
-            ? `Renewal cancelled. You won’t be charged again, and Premium stays on until ${until}.`
+          text: through && isFuture(body?.accessUntil)
+            ? `Renewal cancelled. You won’t be charged again, and Premium stays on through ${through}.`
             : "Subscription cancelled. You won’t be charged again.",
         });
         setConfirmingCancel(false);
@@ -276,17 +294,30 @@ export function SubscriptionPanel({
       } else if (body?.error === "nothing_to_cancel") {
         setConfirmingCancel(false);
         router.refresh();
+      } else if (body?.error === "still_billing") {
+        setNotice({
+          tone: "error",
+          text: "Razorpay didn’t cancel the subscription, so it still renews. Try again in a minute; if this keeps happening, contact FITX support.",
+        });
       } else {
-        setNotice({ tone: "error", text: "Razorpay didn’t confirm the cancellation, so nothing changed. Please try again." });
+        setNotice({
+          tone: "error",
+          text: "FITX couldn’t confirm the cancellation with Razorpay. Reload this page to see whether it went through before trying again.",
+        });
       }
     } catch {
-      setNotice({ tone: "error", text: "The cancellation couldn’t be sent. Check your connection; nothing changed." });
+      setNotice({
+        tone: "error",
+        text: "FITX couldn’t be reached. Check your connection, then reload this page to see whether the cancellation went through.",
+      });
     } finally {
       setCancelling(false);
     }
   }
 
-  const busy = phase.kind === "starting" || phase.kind === "paying" || phase.kind === "confirming";
+  // A payment that went through but is not confirmed yet: offering the plans again invites a second one.
+  const awaitingConfirmation = phase.kind === "confirming" || phase.kind === "slow";
+  const busy = phase.kind === "starting" || phase.kind === "paying" || awaitingConfirmation;
 
   return (
     <div className="space-y-5">
@@ -302,8 +333,12 @@ export function SubscriptionPanel({
         billing={billing}
         canChange={mode !== null}
         confirmingCancel={confirmingCancel}
+        paidPeriodOver={paidPeriodOver}
         cancelling={cancelling}
-        onAskCancel={() => setConfirmingCancel(true)}
+        onAskCancel={() => {
+          setPaidPeriodOver(!isFuture(current?.paidUntil));
+          setConfirmingCancel(true);
+        }}
         onKeep={() => setConfirmingCancel(false)}
         onCancel={cancel}
         keepRef={keepSubscriptionRef}
@@ -319,7 +354,7 @@ export function SubscriptionPanel({
         )}
       </div>
 
-      {canSubscribe && phase.kind !== "confirmed" && (
+      {canSubscribe && phase.kind !== "confirmed" && !awaitingConfirmation && (
         <section aria-labelledby="subscription-plans" className="space-y-3">
           <div>
             <h2 id="subscription-plans" className="text-base font-semibold text-fitx-text">
@@ -327,7 +362,7 @@ export function SubscriptionPanel({
             </h2>
             <p className="mt-1 text-sm leading-6 text-fitx-text-secondary">
               Renews automatically until you cancel. Cancelling stops future charges; Premium lasts until the end of the period you paid for.
-              {premium && current?.paidUntil ? ` Your current access runs until ${formatBillingDate(current.paidUntil)}; a new subscription is charged right away.` : ""}
+              {premium && current?.paidUntil ? ` Your current access runs through ${formatPaidThrough(current.paidUntil)}; a new subscription is charged right away.` : ""}
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -384,6 +419,7 @@ function CurrentSubscription({
   billing,
   canChange,
   confirmingCancel,
+  paidPeriodOver,
   cancelling,
   onAskCancel,
   onKeep,
@@ -395,13 +431,15 @@ function CurrentSubscription({
   billing: boolean;
   canChange: boolean;
   confirmingCancel: boolean;
+  /** The paid period has ended (renewal grace): cancelling ends Premium straight away. */
+  paidPeriodOver: boolean;
   cancelling: boolean;
   onAskCancel: () => void;
   onKeep: () => void;
   onCancel: () => void;
   keepRef: RefObject<HTMLButtonElement | null>;
 }) {
-  const paidUntil = formatBillingDate(current.paidUntil);
+  const paidThrough = formatPaidThrough(current.paidUntil);
   const chargeAt = formatBillingDate(current.chargeAt);
   const price = priceLine(current.amountPaise, current.period, current.interval);
   const amount = current.amountPaise !== null ? formatInr(current.amountPaise) : null;
@@ -426,10 +464,10 @@ function CurrentSubscription({
       summary = "This subscription is paused, so no payments are taken. Contact FITX support to resume it.";
       break;
     case "cancelled":
-      summary = premium && paidUntil ? `Cancelled. You won’t be charged again; Premium stays on until ${paidUntil}.` : "Cancelled. Premium has ended and you won’t be charged again.";
+      summary = premium && paidThrough ? `Cancelled. You won’t be charged again; Premium stays on through ${paidThrough}.` : "Cancelled. Premium has ended and you won’t be charged again.";
       break;
     case "completed":
-      summary = premium && paidUntil ? `All billing cycles are complete. Premium stays on until ${paidUntil}.` : "All billing cycles are complete.";
+      summary = premium && paidThrough ? `All billing cycles are complete. Premium stays on through ${paidThrough}.` : "All billing cycles are complete.";
       break;
     default:
       summary = "This subscription has ended.";
@@ -453,8 +491,8 @@ function CurrentSubscription({
         </div>
       </div>
       <p className="mt-4 text-sm leading-6 text-fitx-text">{summary}</p>
-      {paidUntil && premium && current.status === "active" && (
-        <p className="mt-1 text-xs text-fitx-text-secondary">Paid through {paidUntil}.</p>
+      {paidThrough && premium && current.status === "active" && (
+        <p className="mt-1 text-xs text-fitx-text-secondary">Paid through {paidThrough}.</p>
       )}
 
       {billing && !canChange && (
@@ -472,7 +510,9 @@ function CurrentSubscription({
             <div className="space-y-3" role="group" aria-labelledby="cancel-question">
               <p id="cancel-question" className="text-sm leading-6 text-fitx-text">
                 Stop renewals? Razorpay won’t charge you again.
-                {premium && paidUntil ? ` You keep Premium until ${paidUntil}.` : ""} This can’t be undone, but you can subscribe again later.
+                {premium && paidPeriodOver ? " Your paid period has already ended, so Premium stops as soon as you cancel." : ""}
+                {premium && !paidPeriodOver && paidThrough ? ` You keep Premium through ${paidThrough}.` : ""} This can’t be undone, but you can
+                subscribe again later.
               </p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="fitx-button fitx-button-danger min-h-11" onClick={onCancel} disabled={cancelling}>

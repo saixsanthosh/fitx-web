@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { formatClock } from "./CoachStage";
 import type { CameraCountResult } from "./FormCoach";
 import { FormCoach } from "./FormCoach";
+import { lockScroll } from "./scroll-lock";
 
 export interface CountWithCameraProps {
   /** The workout exercise: its exercise_library id and/or its name. */
@@ -71,11 +72,7 @@ function CameraCountSheet({ rule, target, setLabel, onClose, onUse }: { rule: Ex
 
   useEffect(() => {
     closeButton.current?.focus({ preventScroll: true });
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = overflow;
-    };
+    return lockScroll();
   }, []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

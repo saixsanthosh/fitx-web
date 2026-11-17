@@ -8,6 +8,7 @@ import type { CoachSnapshot } from "@/lib/form-rules/session";
 import type { ExerciseRule } from "@/lib/form-rules/types";
 import { firstLoadMegabytes } from "@/lib/pose/assets";
 import { cn } from "@/lib/utils";
+import { lockScroll } from "./scroll-lock";
 import type { CoachRefs, FormCoachController } from "./useFormCoach";
 
 export function formatClock(totalSeconds: number): string {
@@ -42,11 +43,7 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
   useEffect(() => {
     if (!open) return;
     finishRef.current?.focus({ preventScroll: true });
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = overflow;
-    };
+    return lockScroll();
   }, [open]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -107,7 +104,8 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
               aria-label={`Camera view for ${rule.name}. Video stays on this device.`}
               className={cn("absolute inset-0 h-full w-full object-cover", coach.mirrored && "-scale-x-100")}
             />
-            <canvas ref={canvasRef} aria-hidden="true" className={cn("pointer-events-none absolute inset-0 h-full w-full", coach.mirrored && "-scale-x-100")} />
+            {/* Cropped like the video, so the skeleton stays on the body even while the box is catching up with a new picture size. */}
+            <canvas ref={canvasRef} aria-hidden="true" className={cn("pointer-events-none absolute inset-0 h-full w-full object-cover", coach.mirrored && "-scale-x-100")} />
             {stage.name === "running" && reps && (
               <div className="absolute bottom-3 right-3 top-3 flex w-3 flex-col sm:right-4 sm:top-4" aria-hidden="true">
                 <div className="relative flex-1 overflow-hidden rounded-full bg-fitx-bg/70">

@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CircleHelp, RotateCcw } from "lucide-react";
+import { DeleteAccount } from "@/components/account/DeleteAccount";
 import { LogoutButton } from "@/components/app/LogoutButton";
 import { ChipGroup, ChoiceGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
 import { Logo } from "@/components/ui/Logo";
+import { EquipmentPicker } from "@/components/workouts/EquipmentPicker";
 import { calculateNutritionTargets } from "@/lib/domain/nutrition";
 import {
   ACTIVITY_OPTIONS,
@@ -15,7 +18,6 @@ import {
   CUISINE_OPTIONS,
   DAYS_PER_WEEK,
   DIET_OPTIONS,
-  EQUIPMENT_OPTIONS,
   EXPERIENCE_OPTIONS,
   FOOD_RULE_OPTIONS,
   GOAL_OPTIONS,
@@ -23,7 +25,9 @@ import {
   HEIGHT_RANGE_CM,
   LIMITATION_OPTIONS,
   LOCATION_OPTIONS,
+  MAX_CUSTOM_LIMITATIONS,
   MAX_FOOD_DISLIKES,
+  MAX_LIMITATION_LENGTH,
   MEALS_PER_DAY,
   MONTHLY_BUDGET_RANGE,
   NAME_MAX_LENGTH,
@@ -31,9 +35,11 @@ import {
   SEX_OPTIONS,
   SPLIT_OPTIONS,
   WEIGHT_RANGE_KG,
+  commitDraft,
   formatRupees,
   inRange,
   joinKnown,
+  joinLimitations,
   legacyDietaryPreferences,
   parseRupees,
   splitAllergies,
@@ -43,7 +49,6 @@ import {
   type BudgetLevel,
   type Cuisine,
   type DietType,
-  type EquipmentKey,
   type Experience,
   type FoodRule,
   type Goal,
@@ -54,8 +59,10 @@ import {
   type WeightUnit,
   type WorkoutSplit,
 } from "@/lib/domain/profile-options";
+import { targetReason } from "@/lib/domain/target-reason";
 import { ensureProfileRow, loadUserContext, logWeighIn, savePreferences, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import { createClient } from "@/lib/supabase/client";
+import { saveEquipmentProfile } from "@/lib/training/data";
 
 type Form = {
   name: string;
@@ -70,7 +77,8 @@ type Form = {
   activity: ActivityLevel;
   location: TrainingLocation;
   experience: Experience;
-  equipment: EquipmentKey[];
+  /** Home equipment, as training-taxonomy keys (the list Workouts uses at home). */
+  equipment: string[];
   limitations: LimitationKey[];
   customLimitations: string[];
   days: number;
@@ -85,6 +93,10 @@ type Form = {
   cuisines: Cuisine[];
   foodRules: FoodRule[];
   dislikes: string[];
+  /** Typed into a tag field but not added yet; saved with the step. */
+  allergyDraft: string;
+  limitationDraft: string;
+  dislikeDraft: string;
 };
 
 type StepId = "body" | "goal" | "training" | "schedule" | "food" | "budget";
@@ -92,17 +104,16 @@ type Errors = Partial<Record<string, string>>;
 
 const STEP_COPY: Record<StepId, { label: string; title: string; description: string }> = {
   body: { label: "About you", title: "Tell us about you", description: "FITX uses these to estimate your daily calories and protein. Only you can see them, except what the AI coach sends to outside AI services if you use it." },
-  goal: { label: "Your goal", title: "What are you working toward?", description: "Your goal sets your calorie target and shapes your plan. You can change it any time in Profile." },
-  training: { label: "Training", title: "Where and how do you train?", description: "FITX only suggests exercises that fit your space, equipment and experience." },
-  schedule: { label: "Schedule", title: "How much time do you have?", description: "Plans are sized to the days and session length you can keep up." },
-  food: { label: "Food", title: "How do you eat?", description: "Saved with your profile for food suggestions and meal plans, so they fit how you eat." },
-  budget: { label: "Food and budget", title: "Food and budget", description: "Optional, for meal plans that fit your budget and taste. Skip it if you like; you can add it later in Profile." },
+  goal: { label: "Your goal", title: "What are you working toward?", description: "Your goal and activity set your daily calorie and protein targets. You can change them any time in Profile." },
+  training: { label: "Training", title: "Where and how do you train?", description: "Auto workouts pick exercises that fit where you train, your equipment and your experience." },
+  schedule: { label: "Schedule", title: "How much time do you have?", description: "Session length sets how long auto workouts are and your split shapes them. Training days set your weekly goal on Home." },
+  food: { label: "Food", title: "How do you eat?", description: "Saved with your profile. If you’re 18 or over and turn on “Use my FITX data” in the AI coach, its meal plans follow your diet and leave out your allergies." },
+  budget: { label: "Food and budget", title: "Food and budget", description: "Optional. If you’re 18 or over and turn on “Use my FITX data” in the AI coach, its meal plans take these into account. Skip it if you like; you can add it later in Profile." },
 };
 
 const SESSION_OPTIONS = SESSION_LENGTHS.map((minutes) => ({ value: minutes, label: `${minutes} min` }));
 const DAY_OPTIONS = DAYS_PER_WEEK.map((days) => ({ value: days, label: String(days) }));
 const MEAL_OPTIONS = MEALS_PER_DAY.map((meals) => ({ value: meals, label: String(meals) }));
-const TRAINING_EQUIPMENT = EQUIPMENT_OPTIONS.filter((option) => option.value !== "bodyweight");
 
 function initialForm(context: UserContextData, metadataName: string): Form {
   const profile = context.profile;
@@ -122,7 +133,7 @@ function initialForm(context: UserContextData, metadataName: string): Form {
     activity: prefs.activity_level,
     location: prefs.workout_location,
     experience: prefs.fitness_level,
-    equipment: prefs.equipment,
+    equipment: context.equipmentLists.home.keys,
     limitations: limitations.keys,
     customLimitations: limitations.custom,
     days: prefs.workouts_per_week,
@@ -137,6 +148,22 @@ function initialForm(context: UserContextData, metadataName: string): Form {
     cuisines: prefs.cuisines,
     foodRules: prefs.food_rules,
     dislikes: prefs.food_dislikes,
+    allergyDraft: "",
+    limitationDraft: "",
+    dislikeDraft: "",
+  };
+}
+
+/** The form with any text still in a tag field added as an entry, as it is saved. */
+function withDraftsAdded(form: Form): Form {
+  return {
+    ...form,
+    customAllergies: commitDraft(form.customAllergies, form.allergyDraft),
+    customLimitations: commitDraft(form.customLimitations, form.limitationDraft, { max: MAX_CUSTOM_LIMITATIONS, maxLength: MAX_LIMITATION_LENGTH }),
+    dislikes: commitDraft(form.dislikes, form.dislikeDraft, { max: MAX_FOOD_DISLIKES }),
+    allergyDraft: "",
+    limitationDraft: "",
+    dislikeDraft: "",
   };
 }
 
@@ -267,14 +294,20 @@ export function OnboardingFlow() {
     }
     const patch: Record<string, unknown> =
       current === "goal" ? { primary_goal: values.goal, activity_level: values.activity, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }
-      : current === "training" ? { workout_location: values.location, fitness_level: values.experience, equipment: ["bodyweight", ...values.equipment.filter((key) => key !== "bodyweight")], limitations: joinKnown(values.limitations, values.customLimitations) }
+      : current === "training" ? { workout_location: values.location, fitness_level: values.experience, equipment: [...values.equipment, ...context.legacy.unknownEquipment], limitations: joinLimitations(values.limitations, values.customLimitations) }
       : current === "schedule" ? { workouts_per_week: values.days, session_duration_minutes: values.minutes, workout_split: values.split }
       : current === "food" ? { diet_type: values.diet, dietary_preferences: legacyDietaryPreferences(values.diet, context.legacy.dietaryPreferences), allergies: joinKnown(values.allergies, values.customAllergies), meals_per_day: values.meals }
       : skipBudget ? {}
       : { food_budget_level: values.budgetLevel, monthly_food_budget_inr: parseRupees(values.monthlyBudget), cuisines: values.cuisines, food_rules: values.foodRules, food_dislikes: values.dislikes };
     if (!Object.keys(patch).length) return null;
     const saved = await savePreferences(supabase, userId, patch, { v2 });
-    return saved.error ? fail(saved.error) : null;
+    if (saved.error) return fail(saved.error);
+    // Home kit also becomes the Home list Workouts uses (once that list can be saved).
+    if (current === "training" && values.location !== "gym" && context.equipmentLists.available) {
+      const listed = await saveEquipmentProfile(supabase, userId, "home", values.equipment);
+      if (listed.error) return fail(listed.error);
+    }
+    return null;
   }
 
   async function finish(values: Form) {
@@ -282,15 +315,22 @@ export function OnboardingFlow() {
     if (!supabase || !context) return "Your session has ended. Sign in again to continue.";
     const done = await updateProfileRow(supabase, context.userId, { onboarded: true });
     if (done.error) return "We couldn't finish setting up your account. Please try again.";
-    // The first weigh-in starts the weight history on Progress (never added twice).
-    const prior = await supabase.from("body_metrics").select("id").eq("user_id", context.userId).not("weight", "is", null).limit(1).maybeSingle();
-    if (!prior.error && !prior.data && values.weightKg !== null) await logWeighIn(supabase, context.userId, values.weightKg, "Starting weight");
+    // The weight typed here becomes the current weight: logged when there is no weigh-in yet, or when it
+    // differs from the newest one (an older account's history), never twice for the same value.
+    const prior = await supabase.from("body_metrics").select("weight").eq("user_id", context.userId).not("weight", "is", null)
+      .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const latest = prior.data ? Number((prior.data as { weight: unknown }).weight) : null;
+    if (!prior.error && values.weightKg !== null && (latest === null || Math.abs(latest - values.weightKg) >= 0.05)) {
+      await logWeighIn(supabase, context.userId, values.weightKg, latest === null ? "Starting weight" : "Onboarding update");
+    }
     return null;
   }
 
   async function advance({ skipBudget = false } = {}) {
     if (!form || saving) return;
-    const found = skipBudget ? {} : validate(step, form);
+    // Text typed into a tag field but not added still counts.
+    const values = withDraftsAdded(form);
+    const found = skipBudget ? {} : validate(step, values);
     setErrors(found);
     setSaveError("");
     if (Object.keys(found).length) {
@@ -299,7 +339,7 @@ export function OnboardingFlow() {
       return;
     }
     setSaving(true);
-    const problem = (await saveStep(step, form, { skipBudget })) ?? (isLast ? await finish(form) : null);
+    const problem = (await saveStep(step, values, { skipBudget })) ?? (isLast ? await finish(values) : null);
     if (problem) {
       setSaving(false);
       setSaveError(problem);
@@ -310,6 +350,7 @@ export function OnboardingFlow() {
       window.location.assign("/dashboard");
       return;
     }
+    setForm(values);
     setSaving(false);
     movedStep.current = true;
     setStepIndex((index) => index + 1);
@@ -328,7 +369,7 @@ export function OnboardingFlow() {
   }
   if (phase === "load_failed" || !form || !context) {
     return (
-      <Shell>
+      <Shell reachable>
         <div role="alert" className="fitx-alert fitx-alert-danger">
           We couldn’t load your details, so setup is paused to keep them safe.
           <button type="button" className="fitx-alert-action inline-flex min-h-11 items-center gap-1" onClick={() => { setPhase("loading"); setReload((count) => count + 1); }}>
@@ -361,9 +402,9 @@ export function OnboardingFlow() {
               <TextField label="Age" value={form.age} onChange={(value) => update("age", value.replace(/[^\d]/g, ""))} error={errors.age} inputMode="numeric" suffix="years" maxLength={3} required />
             </div>
             <ChoiceGroup legend="Sex for the calorie formula" options={SEX_OPTIONS} value={form.gender} onChange={(value) => update("gender", value)} columns="grid-cols-1 sm:grid-cols-3" showHints={false} error={errors.gender} />
-            <HeightField cm={form.heightCm} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => update("heightUnit", unit)} error={errors.heightCm} required />
-            <WeightField label="Current weight" kg={form.weightKg} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.weightKg} required />
-            <WeightField label="Target weight" hint="If you have one in mind." kg={form.targetWeightKg} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.targetWeightKg} />
+            <HeightField cm={form.heightCm} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => update("heightUnit", unit)} error={errors.heightCm} required showUnits={v2} />
+            <WeightField label="Current weight" kg={form.weightKg} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.weightKg} required showUnits={v2} />
+            <WeightField label="Target weight" hint="If you have one in mind." kg={form.targetWeightKg} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.targetWeightKg} showUnits={v2} />
           </>}
 
           {step === "goal" && <>
@@ -382,10 +423,19 @@ export function OnboardingFlow() {
           {step === "training" && <>
             <ChoiceGroup legend="Where do you usually train?" options={LOCATION_OPTIONS} value={form.location} onChange={(value) => update("location", value)} columns="grid-cols-2" showHints={false} compact />
             <ChoiceGroup legend="Training experience" options={EXPERIENCE_OPTIONS} value={form.experience} onChange={(value) => update("experience", value)} columns="grid-cols-1" />
-            <ChipGroup legend="Equipment you can use" hint="Bodyweight exercises are always included." options={TRAINING_EQUIPMENT} values={form.equipment} onChange={(values) => update("equipment", values)} />
+            {form.location !== "gym" && (
+              <fieldset>
+                <legend className="text-sm font-semibold text-fitx-text">Equipment you have at home</legend>
+                <p className="mb-3 mt-1 text-xs leading-5 text-fitx-text-secondary">Choose “No equipment” if you train with your body weight only.</p>
+                <EquipmentPicker context="home" value={form.equipment} onChange={(keys) => update("equipment", keys)} />
+              </fieldset>
+            )}
+            {(form.location === "gym" || form.location === "both") && (
+              <p className="text-xs leading-5 text-fitx-text-secondary">At the gym, auto workouts assume a fully equipped gym. You can change your gym’s equipment later in Profile or on the Workouts page.</p>
+            )}
             {v2 && <>
-              <ChipGroup legend="Injuries or areas to go easy on" hint="Optional. Saved with your profile for workout plans and coaching that work around them." options={LIMITATION_OPTIONS} values={form.limitations} onChange={(values) => update("limitations", values)} />
-              <TagInput legend="Anything else to work around?" hint="For example a recent surgery or an old injury." values={form.customLimitations} onChange={(values) => update("customLimitations", values)} addLabel="Add limitation" placeholder="Describe it briefly" maxLength={60} max={5} />
+              <ChipGroup legend="Injuries or areas to go easy on" hint="Optional. Auto workouts don’t avoid these yet, so skip or swap any exercise that hurts. The AI coach takes them into account if you turn on “Use my FITX data”." options={LIMITATION_OPTIONS} values={form.limitations} onChange={(values) => update("limitations", values)} />
+              <TagInput legend="Anything else to work around?" hint="For example a recent surgery or an old injury." values={form.customLimitations} onChange={(values) => update("customLimitations", values)} draft={form.limitationDraft} onDraftChange={(value) => update("limitationDraft", value)} addLabel="Add limitation" placeholder="Describe it briefly" maxLength={MAX_LIMITATION_LENGTH} max={MAX_CUSTOM_LIMITATIONS} />
             </>}
           </>}
 
@@ -398,7 +448,7 @@ export function OnboardingFlow() {
           {step === "food" && <>
             <ChoiceGroup legend="Which describes you best?" options={DIET_OPTIONS} value={form.diet} onChange={(value) => update("diet", value)} error={errors.diet} />
             <ChipGroup legend="Food allergies or intolerances" hint="Leave these empty if you have none." options={ALLERGY_OPTIONS} values={form.allergies} onChange={(values) => update("allergies", values)} />
-            <TagInput legend="Other allergies" hint="Anything not listed above." values={form.customAllergies} onChange={(values) => update("customAllergies", values)} addLabel="Add allergy" placeholder="For example kiwi" />
+            <TagInput legend="Other allergies" hint="Anything not listed above." values={form.customAllergies} onChange={(values) => update("customAllergies", values)} draft={form.allergyDraft} onDraftChange={(value) => update("allergyDraft", value)} addLabel="Add allergy" placeholder="For example kiwi" />
             <ChoiceGroup legend="Meals a day" hint="Snacks count as meals." options={MEAL_OPTIONS} value={form.meals} onChange={(value) => update("meals", value)} columns="grid-cols-6" showHints={false} compact />
             {!v2 && <p className="text-xs leading-5 text-fitx-text-secondary">Food budget, cuisines and injury details arrive with the next FITX update. You can add them in Profile then.</p>}
           </>}
@@ -408,7 +458,7 @@ export function OnboardingFlow() {
             <TextField label="Monthly food budget" hint="Roughly what you spend on food a month, in rupees." value={form.monthlyBudget} onChange={(value) => update("monthlyBudget", value)} error={errors.monthlyBudget} inputMode="numeric" placeholder="For example 6,000" suffix="₹ / month" />
             <ChipGroup legend="Cuisines you enjoy" options={CUISINE_OPTIONS} values={form.cuisines} onChange={(values) => update("cuisines", values)} />
             <ChipGroup legend="Food rules you follow" options={FOOD_RULE_OPTIONS} values={form.foodRules} onChange={(values) => update("foodRules", values)} />
-            <TagInput legend="Foods you don't eat" hint="Dislikes count too." values={form.dislikes} onChange={(values) => update("dislikes", values)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />
+            <TagInput legend="Foods you don't eat" hint="Dislikes count too." values={form.dislikes} onChange={(values) => update("dislikes", values)} draft={form.dislikeDraft} onDraftChange={(value) => update("dislikeDraft", value)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />
           </>}
         </div>
 
@@ -426,32 +476,43 @@ export function OnboardingFlow() {
           </div>
         </div>
       </form>
-      {/* Signed in with the wrong Google account? Onboarding is the only page such an account can reach. */}
-      <div className="mt-4 flex justify-center"><LogoutButton label="Use a different account" /></div>
+      {/* Signed in with the wrong Google account? Besides Help, onboarding is the only page such an account can
+          reach, so it can sign out or delete the account from here. */}
+      <div className="mt-4 flex flex-wrap justify-center gap-x-6">
+        <LogoutButton label="Use a different account" />
+        <HelpLink />
+        <DeleteAccount variant="link" returnTo="/onboarding" />
+      </div>
     </div>
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/** `reachable`: FITX's services answer, so Help and deleting the account can work from here. */
+function Shell({ children, reachable = false }: { children: React.ReactNode; reachable?: boolean }) {
   return (
     <div className="mx-auto w-full max-w-[560px] space-y-4">
       <Logo size={40} />
       {children}
-      <div className="flex justify-center"><LogoutButton label="Use a different account" /></div>
+      <div className="flex flex-wrap justify-center gap-x-6">
+        <LogoutButton label="Use a different account" />
+        {reachable && <HelpLink />}
+        {reachable && <DeleteAccount variant="link" returnTo="/onboarding" />}
+      </div>
     </div>
   );
 }
 
+/** Help is open to an account still in setup (src/lib/auth/before-onboarding.ts); a request sent from there notes it came from setup. */
+function HelpLink() {
+  return (
+    <Link href="/help?from=%2Fonboarding" className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text">
+      <CircleHelp size={16} aria-hidden="true" />Get help
+    </Link>
+  );
+}
+
 function TargetPreview({ targets }: { targets: NonNullable<ReturnType<typeof calculateNutritionTargets>> }) {
-  const reason = targets.youthMaintenance
-    ? "Under 18, FITX keeps you at maintenance rather than setting a calorie deficit."
-    : targets.floorApplied
-      ? `Kept at a safe minimum of ${targets.floorApplied.toLocaleString("en-IN")} kcal.`
-      : targets.rule === "deficit"
-        ? `About ${Math.abs(targets.adjustment).toLocaleString("en-IN")} kcal under maintenance, roughly ${Math.abs(targets.weeklyChangeKg).toFixed(1)} kg a week.`
-        : targets.rule === "surplus"
-          ? `About ${targets.adjustment.toLocaleString("en-IN")} kcal over maintenance, roughly ${targets.weeklyChangeKg.toFixed(1)} kg a week.`
-          : "Set at maintenance, to keep your weight steady.";
+  const reason = targetReason(targets);
   return (
     <div className="rounded-xl border border-fitx-border bg-fitx-surface-variant p-4" aria-live="polite">
       <p className="text-xs font-semibold uppercase tracking-[.14em] text-fitx-text-secondary">Your starting targets</p>

@@ -1,5 +1,6 @@
 "use client";
 
+import type { Ref } from "react";
 import { Camera, CircleAlert, RotateCcw, ShieldCheck } from "lucide-react";
 import type { ExerciseRule } from "@/lib/form-rules/types";
 import { cameraHelp, detectPlatform } from "@/lib/pose/camera";
@@ -21,10 +22,12 @@ interface CoachSetupProps {
   /** Shown above the tips in a workout (e.g. "Set 2 · target 12 reps"). */
   context?: string;
   onChangeExercise?: () => void;
+  /** The Start / Try again button, focused when the live camera view closes onto this card. */
+  actionRef?: Ref<HTMLButtonElement>;
 }
 
 /** Before the camera starts: what the coach checks, how to place the phone, voice, privacy and limits. */
-export function CoachSetup({ rule, coach, context, onChangeExercise }: CoachSetupProps) {
+export function CoachSetup({ rule, coach, context, onChangeExercise, actionRef }: CoachSetupProps) {
   const { stage } = coach;
   const problem = stage.name === "camera-error"
     ? cameraHelp(stage.problem, detectPlatform(navigator.userAgent, navigator.maxTouchPoints))
@@ -94,7 +97,7 @@ export function CoachSetup({ rule, coach, context, onChangeExercise }: CoachSetu
             </div>
           )}
 
-          <button type="button" onClick={() => coach.start(rule)} className="fitx-button w-full">
+          <button ref={actionRef} type="button" onClick={() => coach.start(rule)} className="fitx-button w-full">
             {problem ? <RotateCcw size={17} aria-hidden="true" /> : <Camera size={17} aria-hidden="true" />}
             {problem ? "Try again" : "Start camera"}
           </button>

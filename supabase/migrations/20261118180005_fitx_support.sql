@@ -156,13 +156,18 @@ revoke all on function public.fitx_reply_support_request(uuid, text) from public
 grant execute on function public.fitx_submit_support_request(text, text, text, text) to authenticated;
 grant execute on function public.fitx_reply_support_request(uuid, text) to authenticated;
 
--- Admin: change status, priority or assignee. The assignee must be an active member who can see support.
+-- Admin: change status, priority or assignee. A new assignee must be an active member who can see
+-- support; an unchanged one is kept even if they no longer qualify. p_expected_updated_at is the
+-- request's updated_at when the agent's page loaded: if the request changed since (the person replied,
+-- or another agent saved), nothing is written and 40001 asks the agent to reload.
+drop function if exists public.fitx_admin_support_update(uuid, uuid, text, text, uuid);
 create or replace function public.fitx_admin_support_update(
   p_actor_id uuid,
   p_request_id uuid,
   p_status text,
   p_priority text,
-  p_assigned_to uuid
+  p_assigned_to uuid,
+  p_expected_updated_at timestamptz default null
 )
 returns void
 language plpgsql
@@ -181,13 +186,18 @@ begin
   if p_priority is null or p_priority not in ('low', 'normal', 'high', 'urgent') then
     raise exception using errcode = '22023', message = 'Invalid priority';
   end if;
-  if p_assigned_to is not null and not public.fitx_admin_actor_can(p_assigned_to, 'support.view') then
-    raise exception using errcode = '22023', message = 'The assignee must be an active Admin member with support access';
-  end if;
 
   select * into previous from public.support_requests where id = p_request_id for update;
   if not found then
     raise exception using errcode = 'P0002', message = 'Support request not found';
+  end if;
+  if p_expected_updated_at is not null and previous.updated_at is distinct from p_expected_updated_at then
+    raise exception using errcode = '40001', message = 'support_request_changed';
+  end if;
+  if p_assigned_to is not null
+     and p_assigned_to is distinct from previous.assigned_to
+     and not public.fitx_admin_actor_can(p_assigned_to, 'support.view') then
+    raise exception using errcode = '22023', message = 'The assignee must be an active Admin member with support access';
   end if;
 
   update public.support_requests
@@ -259,9 +269,9 @@ as $function$
   from (select status, count(*) as n from public.support_requests group by status) counts;
 $function$;
 
-revoke all on function public.fitx_admin_support_update(uuid, uuid, text, text, uuid) from public, anon, authenticated;
+revoke all on function public.fitx_admin_support_update(uuid, uuid, text, text, uuid, timestamptz) from public, anon, authenticated;
 revoke all on function public.fitx_admin_support_reply(uuid, uuid, text, text) from public, anon, authenticated;
 revoke all on function public.fitx_admin_support_counts() from public, anon, authenticated;
-grant execute on function public.fitx_admin_support_update(uuid, uuid, text, text, uuid) to service_role;
+grant execute on function public.fitx_admin_support_update(uuid, uuid, text, text, uuid, timestamptz) to service_role;
 grant execute on function public.fitx_admin_support_reply(uuid, uuid, text, text) to service_role;
 grant execute on function public.fitx_admin_support_counts() to service_role;

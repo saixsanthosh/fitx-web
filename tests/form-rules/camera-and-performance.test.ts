@@ -97,3 +97,47 @@ test("a GPU path slower than any real GPU switches to the CPU first; CPU slownes
   assert.ok(!run(false).includes("use-cpu"));
   assert.equal(run(false)[0], "use-lite");
 });
+
+/**
+ * A camera sending `cameraFps` frames a second. Frames are analysed when due; while a detection
+ * runs the page misses the camera's callbacks, but presentedFrames still counts those frames.
+ */
+function film(governor: FrameGovernor, options: { cameraFps: number; inferenceMs: number; seconds: number; onGpu?: boolean }) {
+  const profile = initialProfile({ mobile: false, cores: 10 });
+  const period = 1000 / options.cameraFps;
+  const advice: string[] = [];
+  let busyUntil = -Infinity;
+  let presented = 0;
+  for (let now = 0; now < options.seconds * 1000; now += period) {
+    presented += 1;
+    if (now < busyUntil) continue;
+    governor.cameraFrame(now, presented);
+    if (!governor.due(now)) continue;
+    governor.record(now, options.inferenceMs);
+    busyUntil = now + options.inferenceMs;
+    const next = governor.advise(now + options.inferenceMs, profile, options.onGpu);
+    if (next) advice.push(next);
+  }
+  return advice;
+}
+
+test("a camera slowed by a dim room is not taken for slow detection", () => {
+  // Quick detection (20 ms on the GPU) behind a 9 fps camera: a lighter model, the CPU or a smaller
+  // picture would not add a single frame, so nothing is switched and nothing is said.
+  const dim = new FrameGovernor(30);
+  assert.deepEqual(film(dim, { cameraFps: 9, inferenceMs: 20, seconds: 20, onGpu: true }), []);
+  assert.ok(Math.abs((dim.cameraFps() ?? 0) - 9) < 0.5, `camera measured at ${dim.cameraFps()} fps`);
+  // Below 8 frames a second quick reps can slip between frames, so the user is told; more light helps.
+  const darker = new FrameGovernor(30);
+  assert.deepEqual(film(darker, { cameraFps: 6, inferenceMs: 20, seconds: 20, onGpu: true }), ["slow-camera"]);
+});
+
+test("detection slower than the camera's frames still gets the lighter model", () => {
+  const slow = new FrameGovernor(30);
+  const advice = film(slow, { cameraFps: 30, inferenceMs: 90, seconds: 20 });
+  assert.equal(advice[0], "use-lite");
+  assert.ok(!advice.includes("slow-camera"));
+  // A 15 fps camera with 60 ms detections: every second frame is skipped for detection.
+  const mid = new FrameGovernor(30);
+  assert.equal(film(mid, { cameraFps: 15, inferenceMs: 60, seconds: 20 })[0], "use-lite");
+});

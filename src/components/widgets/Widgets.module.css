@@ -18,6 +18,8 @@
 .error { display: grid; justify-items: start; gap: 10px; border: 1px solid var(--fitx-danger-border); border-radius: 12px; background: var(--fitx-danger-bg); padding: 12px 14px; color: var(--fitx-danger); font-size: .85rem; line-height: 1.5; }
 .retry { display: inline-flex; min-height: 44px; align-items: center; gap: 7px; border: 1px solid var(--fitx-danger-border); border-radius: 10px; padding: 0 14px; color: var(--fitx-danger); font-size: .82rem; font-weight: 650; }
 .retry:hover { border-color: var(--fitx-danger); }
+.stale { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-bottom: 12px; border: 1px solid var(--fitx-border); border-radius: 10px; background: var(--fitx-surface-variant); padding: 4px 4px 4px 12px; color: var(--fitx-text-secondary); font-size: .78rem; }
+.stale .noteLink { min-height: 36px; padding: 0 8px; }
 .note { margin-top: 12px; color: var(--fitx-text-secondary); font-size: .78rem; line-height: 1.5; }
 .noteLink { display: inline-flex; min-height: 32px; align-items: center; color: var(--fitx-primary-text); font-weight: 650; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--fitx-primary) 40%, transparent); text-underline-offset: 3px; }
 .noteLink:hover { text-decoration-color: currentColor; }
@@ -31,7 +33,7 @@
 .ofTarget { color: var(--fitx-text-secondary); font-size: .88rem; }
 .subtle { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--fitx-text-secondary); font-size: .8rem; line-height: 1.5; }
 .success { display: flex; align-items: center; gap: 8px; color: var(--fitx-success); font-size: .88rem; font-weight: 650; }
-.secondaryAction { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--fitx-border); border-radius: 11px; background: var(--fitx-surface); padding: 0 14px; color: var(--fitx-text); font-size: .84rem; font-weight: 650; transition: border-color .16s ease, background-color .16s ease; }
+.secondaryAction { display: inline-flex; min-height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; border: 1px solid var(--fitx-border); border-radius: 11px; background: var(--fitx-surface); padding: 0 14px; color: var(--fitx-text); font-size: .84rem; font-weight: 650; transition: border-color .16s ease, background-color .16s ease; }
 .secondaryAction:hover:not(:disabled) { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); }
 .secondaryAction:disabled { opacity: .6; }
 .secondaryAction svg { color: var(--fitx-primary); }

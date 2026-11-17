@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 export type ActionState = "proposed" | "applying" | "applied" | "dismissed" | "error";
 
-/** "Add to My Food Plan" / "Save as a workout draft", and what happened after the press. */
+/** "Add to My Food Plan" (saved to My foods in Nutrition) / "Save as a workout draft", and what happened after the press. */
 export function ActionButton({
   state,
   onApply,

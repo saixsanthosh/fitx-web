@@ -5,7 +5,7 @@ import { Check, CheckCircle2, History, Pause, Pencil, Play, RotateCcw, Trash2 } 
 import { RowMenu } from "@/components/tasks/RowMenu";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import type { GoalsSchema } from "@/lib/data/goals";
-import { CATEGORY_LABELS, GOAL_METRICS, PERIOD_LABELS, evaluateView, periodLabel, progressSummary, remainingLabel, type GoalView } from "@/lib/domain/goals";
+import { CATEGORY_LABELS, GOAL_METRICS, PERIOD_LABELS, evaluateView, parseProgressAmount, periodLabel, progressSummary, remainingLabel, type GoalView } from "@/lib/domain/goals";
 import styles from "./Goals.module.css";
 
 const shortDate = (key: string | null) => (key ? keyToLocalDate(key).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
@@ -22,6 +22,7 @@ export type GoalCardActions = {
 export function GoalCard({ goal, today, schema, actions }: { goal: GoalView; today: string; schema: GoalsSchema; actions: GoalCardActions }) {
   const [amount, setAmount] = useState("");
   const [logging, setLogging] = useState(false);
+  const [error, setError] = useState("");
   const evaluation = evaluateView(goal);
   const over = evaluation.state === "over_limit";
   const manual = goal.metric === "manual";
@@ -31,12 +32,15 @@ export function GoalCard({ goal, today, schema, actions }: { goal: GoalView; tod
 
   async function log(event: FormEvent) {
     event.preventDefault();
-    const value = Number(amount.replace(",", "."));
-    if (!Number.isFinite(value) || value === 0) return;
+    const value = parseProgressAmount(amount);
+    if (value === null) { setError("Enter a number, for example 2 or 1.5."); return; }
+    if (value < 0 && schema === "v1") { setError("To take progress off, delete the entry in Progress history."); return; }
+    setError("");
     setLogging(true);
     if (await actions.onLog(value)) setAmount("");
     setLogging(false);
   }
+
 
   return (
     <article className={`fitx-panel ${styles.goalCard} ${!active ? styles.goalInactive : ""}`} aria-labelledby={`goal-${goal.id}`}>
@@ -92,9 +96,11 @@ export function GoalCard({ goal, today, schema, actions }: { goal: GoalView; tod
       {manual && active && !reachedLongTerm && (
         <form className={styles.logForm} onSubmit={(event) => void log(event)}>
           <label className="sr-only" htmlFor={`log-${goal.id}`}>Progress to add to {goal.title}</label>
-          <input id={`log-${goal.id}`} className="fitx-field" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={`Add ${goal.unit || "progress"}`} />
+          <input id={`log-${goal.id}`} className="fitx-field" inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); setError(""); }} placeholder={`Add ${goal.unit || "progress"}`} aria-invalid={error ? true : undefined} aria-describedby={error ? `log-error-${goal.id}` : undefined} />
           <button type="submit" className="fitx-button fitx-button-secondary" disabled={logging || !amount.trim()}>{logging ? "Saving…" : "Log"}</button>
-          {schema === "v2" && <small>Use a minus sign to correct a mistake, e.g. −1.</small>}
+          {error
+            ? <small id={`log-error-${goal.id}`} role="alert" className={styles.logError}>{error}</small>
+            : <small>Logged too much? <button type="button" className={styles.inlineButton} onClick={actions.onHistory}>Remove an entry</button> in Progress history.</small>}
         </form>
       )}
     </article>

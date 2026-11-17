@@ -13,7 +13,14 @@ export function createAdapters(config: AiConfig): Partial<Record<ProviderId, Pro
   const adapters: Partial<Record<ProviderId, ProviderAdapter>> = {};
   if (config.keys.gemini) adapters.gemini = createGeminiAdapter(config.keys.gemini);
   if (config.keys.groq) {
-    adapters.groq = createOpenAiCompatibleAdapter({ id: "groq", baseUrl: GROQ_BASE_URL, apiKey: config.keys.groq, extraBody: groqExtras });
+    adapters.groq = createOpenAiCompatibleAdapter({
+      id: "groq",
+      baseUrl: GROQ_BASE_URL,
+      apiKey: config.keys.groq,
+      extraBody: groqExtras,
+      // Groq's structured outputs accept a JSON schema on the gpt-oss models.
+      jsonSchema: (model) => model.startsWith("openai/gpt-oss"),
+    });
   }
   if (config.keys.openrouter) {
     adapters.openrouter = createOpenAiCompatibleAdapter({
@@ -22,8 +29,9 @@ export function createAdapters(config: AiConfig): Partial<Record<ProviderId, Pro
       apiKey: config.keys.openrouter,
       // OpenRouter asks apps to identify themselves; no member data goes in these headers.
       headers: { "HTTP-Referer": config.siteUrl, "X-Title": "FITX" },
-      // Route only to providers that do not collect prompts.
-      extraBody: () => ({ provider: { data_collection: "deny" } }),
+      // Route only to providers that do not collect prompts, and, for plans, that honour the JSON schema.
+      extraBody: (_model, request) => ({ provider: { data_collection: "deny", ...(request.json ? { require_parameters: true } : {}) } }),
+      jsonSchema: () => true,
     });
   }
   if (config.ollama) adapters.ollama = createOpenAiCompatibleAdapter({ id: "ollama", baseUrl: config.ollama.baseUrl });

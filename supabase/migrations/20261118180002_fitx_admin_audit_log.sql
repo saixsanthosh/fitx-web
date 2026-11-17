@@ -6,23 +6,31 @@
 revoke update, delete, truncate on table public.fitx_admin_audit_logs from public, anon, authenticated, service_role;
 grant select, insert on table public.fitx_admin_audit_logs to service_role;
 
--- A trigger also stops the table owner. The one change allowed is the foreign key clearing actor_id
--- when that account is deleted (on delete set null); without it, deleting any account that ever
--- appeared in the log would fail.
+-- Rows keep the actor's account ID after that account is deleted. Copies of this table made before
+-- that rule (the old Admin draft schema) declared actor_id with a foreign key to auth.users that
+-- cleared it on deletion; any such key is dropped here, so deleting an account never touches the log.
+do $do$
+declare
+  fk record;
+begin
+  for fk in
+    select conname from pg_catalog.pg_constraint
+    where conrelid = 'public.fitx_admin_audit_logs'::regclass
+      and contype = 'f'
+      and confrelid = 'auth.users'::regclass
+  loop
+    execute pg_catalog.format('alter table public.fitx_admin_audit_logs drop constraint %I', fk.conname);
+  end loop;
+end
+$do$;
+
+-- A trigger also stops the table owner: no row is ever changed or removed.
 create or replace function public.fitx_admin_audit_logs_append_only()
 returns trigger
 language plpgsql
 set search_path = ''
 as $function$
 begin
-  -- NEW and OLD are only read for UPDATE; they are null for DELETE and TRUNCATE.
-  if tg_op = 'UPDATE' then
-    if new.actor_id is null
-       and old.actor_id is not null
-       and (to_jsonb(new) - 'actor_id') = (to_jsonb(old) - 'actor_id') then
-      return new;
-    end if;
-  end if;
   raise exception using errcode = '42501', message = 'The FITX Admin audit log is append-only';
 end;
 $function$;

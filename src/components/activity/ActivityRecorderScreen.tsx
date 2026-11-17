@@ -4,18 +4,22 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronLeft, CloudOff, Eye, EyeOff, Flag, Info, LocateFixed, Pause, Play, ShieldCheck, Sun, Trash2, TriangleAlert } from "lucide-react";
+import { ChevronLeft, CloudOff, Download, Eye, EyeOff, Flag, Info, LocateFixed, Pause, Play, RefreshCw, ShieldCheck, Sun, Trash2, TriangleAlert } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SPORT_LABEL, SPORT_NOUN, usesPace } from "@/lib/activity/config";
-import { formatActivityDate, formatDistance, formatDuration, kmValue, paceValue, speedValue } from "@/lib/activity/format";
-import { recordingStore, type RecordingStore } from "@/lib/activity/local-store";
-import { ActivityRecorder, type RecorderSnapshot } from "@/lib/activity/recorder";
+import { formatActivityDate, formatDistance, formatDuration, kmValue, localDateKey, paceValue, speedValue } from "@/lib/activity/format";
+import type { LocksLike } from "@/lib/activity/device-recordings";
+import { recordingStore, type RecordingStore, type StoredRecording } from "@/lib/activity/local-store";
+import { ActivityRecorder, type FinishResult, type RecorderSnapshot } from "@/lib/activity/recorder";
+import { toGpx } from "@/lib/activity/gpx";
+import { replayStored } from "@/lib/activity/replay";
+import { downloadBlob } from "@/lib/activity/share-card";
 import { uploadRecording } from "@/lib/activity/sync";
 import { SPORTS, type Sport } from "@/lib/activity/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
-import { gapSentence, ISSUE_TEXT, SCREEN_ON_NOTE, SIGNAL_TEXT, WAKE_LOCK_TEXT } from "./messages";
+import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, SCREEN_ON_NOTE, SIGNAL_TEXT, WAKE_LOCK_TEXT } from "./messages";
 import { SportIcon } from "./sports";
 import { useActivityAccount } from "./useActivityAccount";
 
@@ -82,6 +86,13 @@ export function ActivityRecorderScreen() {
   const [showMap, setShowMap] = useState(true);
   const [confirm, setConfirm] = useState<"finish" | "discard" | null>(null);
   const [saving, setSaving] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [unsaved, setUnsaved] = useState<FinishResult | null>(null);
+  // Keyboard and screen-reader users land on the safe choice when a confirmation opens, and back
+  // on the button that opened it when it closes.
+  const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
+  const finishTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const discardTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
 
@@ -103,11 +114,12 @@ export function ActivityRecorderScreen() {
       const store = await recordingStore();
       if (disposed) return;
       storeRef.current = store;
-      const nav = navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<WakeLockSentinel> } };
+      const nav = navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<WakeLockSentinel> }; locks?: LocksLike };
       instance = new ActivityRecorder({
         geolocation: "geolocation" in navigator ? navigator.geolocation : null,
         queryPermission: navigator.permissions?.query ? () => navigator.permissions.query({ name: "geolocation" as PermissionName }) : null,
         wakeLock: nav.wakeLock ?? null,
+        locks: nav.locks ?? null,
         document,
         window,
         isSecureContext: window.isSecureContext,
@@ -134,16 +146,18 @@ export function ActivityRecorderScreen() {
   const phase = snapshot?.phase ?? "idle";
   const recording = phase === "recording" || phase === "paused";
 
-  // Leaving or reloading the page stops location updates: ask first while recording.
+  // Leaving or reloading the page stops location updates: ask first while recording, and while a
+  // finished activity exists only in this tab.
+  const guardLeaving = recording || unsaved !== null;
   useEffect(() => {
-    if (!recording) return;
+    if (!guardLeaving) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [recording]);
+  }, [guardLeaving]);
 
   const stats = snapshot?.stats ?? null;
   const latestGap = stats?.gaps.length ? stats.gaps[stats.gaps.length - 1] : null;
@@ -176,10 +190,15 @@ export function ActivityRecorderScreen() {
   }
 
   async function start() {
-    if (!recorder || account.status !== "ready") return;
+    if (!recorder || account.status !== "ready" || starting) return;
+    setStarting(true);
     setError("");
-    await recorder.start(sport, account.weightKg);
-    setAnnouncement(`${SPORT_LABEL[sport]} started`);
+    try {
+      await recorder.start(sport, account.weightKg);
+      setAnnouncement(`${SPORT_LABEL[sport]} started`);
+    } finally {
+      setStarting(false);
+    }
   }
 
   function pause() {
@@ -192,28 +211,69 @@ export function ActivityRecorderScreen() {
     setAnnouncement("Recording");
   }
 
+  /**
+   * Uploads a just-finished activity. The upload uses the record in memory when the device copy
+   * couldn't be written, and if neither worked the activity stays on this screen (not lost).
+   */
+  async function saveFinished(result: FinishResult) {
+    if (account.status !== "ready") return;
+    const { record } = result;
+    const store = storeRef.current;
+    const supabase = createClient();
+    const stored = store ? await store.getRecording(record.clientId).catch(() => null) : null;
+    const row: StoredRecording = stored?.record
+      ? stored
+      : { clientId: record.clientId, userId: account.userId, sport: record.sport, startedAt: record.startedAt, state: "finished", updatedAt: Date.now(), record };
+    if (store && supabase) {
+      const outcome = await uploadRecording(store, supabase, account.userId, row);
+      if (outcome.result.status === "ok") {
+        router.replace(`/activity/${outcome.result.data.id}`);
+        return;
+      }
+      if (await store.getRecording(record.clientId).catch(() => null)) {
+        router.replace(`/activity/local-${record.clientId}`);
+        return;
+      }
+    } else if (result.savedLocally) {
+      router.replace(`/activity/local-${record.clientId}`);
+      return;
+    }
+    setSaving(false);
+    setUnsaved(result);
+  }
+
   async function finish() {
     if (!recorder || account.status !== "ready") return;
     setSaving(true);
     setError("");
     setConfirm(null);
-    const record = await recorder.finish(null);
-    if (!record) {
+    const result = await recorder.finish(null);
+    if (!result) {
       setSaving(false);
       setError("This activity could not be finished. Try again.");
       return;
     }
-    const store = storeRef.current;
-    const supabase = createClient();
-    const stored = store ? await store.getRecording(record.clientId) : null;
-    if (store && supabase && stored) {
-      const outcome = await uploadRecording(store, supabase, account.userId, stored);
-      if (outcome.result.status === "ok") {
-        router.replace(`/activity/${outcome.result.data.id}`);
-        return;
-      }
-    }
-    router.replace(`/activity/local-${record.clientId}`);
+    await saveFinished(result);
+  }
+
+  async function retryUnsaved() {
+    if (!unsaved) return;
+    setSaving(true);
+    await saveFinished(unsaved);
+  }
+
+  function downloadUnsavedGpx() {
+    if (!unsaved) return;
+    const { record } = unsaved;
+    const engine = replayStored(record.sport, record.startedAt, record.timeline, record.chunks);
+    const gpx = toGpx({ name: record.title, sport: record.sport, segments: engine.acceptedSegments.filter((segment) => segment.length > 1) });
+    downloadBlob(new Blob([gpx], { type: "application/gpx+xml" }), `fitx-${record.sport}-${localDateKey(record.startedAt)}.gpx`);
+  }
+
+  function cancelConfirm() {
+    const trigger = confirm === "discard" ? discardTriggerRef : finishTriggerRef;
+    setConfirm(null);
+    window.setTimeout(() => trigger.current?.focus(), 0);
   }
 
   async function discard() {
@@ -230,23 +290,13 @@ export function ActivityRecorderScreen() {
   async function finishRestored() {
     if (!recorder || account.status !== "ready") return;
     setSaving(true);
-    const record = await recorder.finishRestored(account.weightKg);
-    if (!record) {
+    const result = await recorder.finishRestored(account.weightKg);
+    if (!result) {
       setSaving(false);
       setError("This recording could not be finished.");
       return;
     }
-    const store = storeRef.current;
-    const supabase = createClient();
-    const stored = store ? await store.getRecording(record.clientId) : null;
-    if (store && supabase && stored) {
-      const outcome = await uploadRecording(store, supabase, account.userId, stored);
-      if (outcome.result.status === "ok") {
-        router.replace(`/activity/${outcome.result.data.id}`);
-        return;
-      }
-    }
-    router.replace(`/activity/local-${record.clientId}`);
+    await saveFinished(result);
   }
 
   if (account.status === "loading" || (account.status === "ready" && !snapshot)) {
@@ -279,16 +329,31 @@ export function ActivityRecorderScreen() {
         <section className="fitx-panel mb-4 flex flex-col gap-3 border-fitx-primary/40 p-4 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="restore-title">
           <div>
             <h2 id="restore-title" className="text-sm font-semibold text-fitx-text">Unfinished {SPORT_NOUN[snapshot.restorable.sport]} on this device</h2>
-            <p className="mt-1 text-xs text-fitx-text-secondary">Started {formatActivityDate(snapshot.restorable.startedAt)} · {formatDistance(snapshot.restorable.distanceM)} so far{snapshot.restorable.paused ? " · paused" : ""}. Time away from this screen is marked as a gap.</p>
+            <p className="mt-1 text-xs text-fitx-text-secondary">
+              Started {formatActivityDate(snapshot.restorable.startedAt)} · {formatDistance(snapshot.restorable.distanceM)} so far{snapshot.restorable.paused ? " · paused" : ""}.{" "}
+              {snapshot.restorable.canResume ? "Time away from this screen is marked as a gap." : "It’s too old to continue (an activity can last at most 48 hours): finish it to save it as it was."}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => void resumeRestored()} className="fitx-button min-h-11"><Play size={15} aria-hidden="true" />Resume</button>
-            <button type="button" disabled={saving} onClick={() => void finishRestored()} className="fitx-button fitx-button-secondary min-h-11"><Flag size={15} aria-hidden="true" />Finish &amp; save</button>
-            <button type="button" onClick={() => setConfirm("discard")} className="fitx-button fitx-button-quiet min-h-11"><Trash2 size={15} aria-hidden="true" />Discard</button>
+            {snapshot.restorable.canResume && <button type="button" onClick={() => void resumeRestored()} className="fitx-button min-h-11"><Play size={15} aria-hidden="true" />Resume</button>}
+            <button type="button" disabled={saving} onClick={() => void finishRestored()} className={cn("fitx-button min-h-11", snapshot.restorable.canResume && "fitx-button-secondary")}><Flag size={15} aria-hidden="true" />Finish &amp; save</button>
+            <button type="button" ref={discardTriggerRef} onClick={() => setConfirm("discard")} className="fitx-button fitx-button-quiet min-h-11"><Trash2 size={15} aria-hidden="true" />Discard</button>
           </div>
         </section>
       )}
 
+      {snapshot.elsewhere && !recording && (
+        <p role="status" className="fitx-alert mb-4 flex gap-2"><Info size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info" />An activity is being recorded in another FITX window or tab. Finish it there before starting a new one.</p>
+      )}
+      {unsaved && (
+        <section role="alert" className="fitx-alert fitx-alert-danger mb-4 space-y-3" aria-label="Activity not saved yet">
+          <p><span className="font-semibold">Your {SPORT_NOUN[unsaved.record.sport]} isn’t saved yet.</span> It couldn’t be stored on this device or uploaded. Keep this screen open and try again, or download its GPX file.</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void retryUnsaved()} disabled={saving} className="fitx-button min-h-11"><RefreshCw size={15} aria-hidden="true" />{saving ? "Trying…" : "Try again"}</button>
+            <button type="button" onClick={downloadUnsavedGpx} className="fitx-button fitx-button-secondary min-h-11"><Download size={15} aria-hidden="true" />Download GPX</button>
+          </div>
+        </section>
+      )}
       {error && <p role="alert" className="fitx-alert fitx-alert-danger mb-4">{error}</p>}
       {issue && (
         <div role={blocking ? "alert" : "status"} className={cn("fitx-alert mb-4 flex gap-3", blocking || snapshot.issue === "coarse" ? "fitx-alert-danger" : "")}>
@@ -339,11 +404,11 @@ export function ActivityRecorderScreen() {
               {needsPermission ? (
                 <div className="mt-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-4">
                   <p className="flex items-center gap-2 text-sm font-semibold text-fitx-text"><LocateFixed size={16} aria-hidden="true" className="text-fitx-primary" />Allow location to record</p>
-                  <p className="mt-1.5 text-[13px] leading-5 text-fitx-text-secondary">Once you allow it, FITX uses your location while this screen is open, to show the GPS signal and then to record, until you finish or leave. Only the positions from while you record are kept, and your routes are private to your account.</p>
+                  <p className="mt-1.5 text-[13px] leading-5 text-fitx-text-secondary">Once you allow it, FITX uses your location while this screen is open, to show the GPS signal and then to record, until you finish or leave. Only the positions from while you record are kept, and your routes are private to your account. {MAP_TILES_NOTE}</p>
                   <button type="button" onClick={() => recorder?.warmUp()} className="fitx-button mt-3 min-h-11 w-full">Allow location</button>
                 </div>
               ) : (
-                <button type="button" disabled={blocking || !recorder} onClick={() => void start()} className="fitx-button mt-4 min-h-14 w-full text-base">
+                <button type="button" disabled={blocking || !recorder || starting || snapshot.elsewhere} onClick={() => void start()} className="fitx-button mt-4 min-h-14 w-full text-base">
                   <Play size={18} aria-hidden="true" />Start {SPORT_NOUN[sport]}
                 </button>
               )}
@@ -351,6 +416,7 @@ export function ActivityRecorderScreen() {
                 <p className="mt-2 text-xs text-fitx-text-secondary">{snapshot.signal === "none" ? "Waiting for GPS. You can start now; the route begins with the first good position." : "The signal is weak: the route may be less precise until it improves."}</p>
               )}
               <p className="mt-4 flex gap-2 text-xs leading-5 text-fitx-text-secondary"><Sun size={15} aria-hidden="true" className="mt-0.5 shrink-0" />{SCREEN_ON_NOTE}</p>
+              {!needsPermission && <p className="mt-2 flex gap-2 text-xs leading-5 text-fitx-text-secondary"><LocateFixed size={15} aria-hidden="true" className="mt-0.5 shrink-0" />{LOCATION_USE_NOTE} {MAP_TILES_NOTE}</p>}
               {!snapshot.durable && <p className="mt-2 flex gap-2 text-xs leading-5 text-fitx-warning"><CloudOff size={15} aria-hidden="true" className="mt-0.5 shrink-0" />This browser can’t keep a backup on the device. Keep this page open until you finish.</p>}
             </section>
           )}
@@ -376,49 +442,51 @@ export function ActivityRecorderScreen() {
               </div>
 
               {confirm === "finish" ? (
-                <div className="mt-5 rounded-lg border border-fitx-border bg-fitx-surface-variant p-4" role="group" aria-label="Finish this activity?">
-                  <p className="text-sm font-semibold text-fitx-text">Finish and save this {SPORT_NOUN[activeSport]}?</p>
+                <div className="mt-5 rounded-lg border border-fitx-border bg-fitx-surface-variant p-4" role="alertdialog" aria-labelledby="finish-question">
+                  <p id="finish-question" className="text-sm font-semibold text-fitx-text">Finish and save this {SPORT_NOUN[activeSport]}?</p>
                   {shortRecording && <p className="mt-1 text-xs text-fitx-text-secondary">Almost no distance was recorded. You can still save it, or discard it.</p>}
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setConfirm(null)} className="fitx-button fitx-button-secondary min-h-12">Keep going</button>
+                    <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep going</button>
                     <button type="button" onClick={() => void finish()} disabled={saving} className="fitx-button min-h-12"><Flag size={16} aria-hidden="true" />{saving ? "Saving…" : "Finish"}</button>
                   </div>
                 </div>
               ) : confirm === "discard" ? (
-                <div className="mt-5 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="group" aria-label="Discard this activity?">
-                  <p className="text-sm font-semibold text-fitx-danger">Discard this {SPORT_NOUN[activeSport]}? It can’t be recovered.</p>
+                <div className="mt-5 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-question">
+                  <p id="discard-question" className="text-sm font-semibold text-fitx-danger">Discard this {SPORT_NOUN[activeSport]}? It can’t be recovered.</p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setConfirm(null)} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
+                    <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
                     <button type="button" onClick={() => void discard()} className="fitx-button fitx-button-danger min-h-12"><Trash2 size={16} aria-hidden="true" />Discard</button>
                   </div>
                 </div>
               ) : phase === "recording" ? (
                 <div className="mt-5 grid grid-cols-[1fr_auto] gap-2">
                   <button type="button" onClick={pause} className="fitx-button min-h-14 text-base"><Pause size={18} aria-hidden="true" />Pause</button>
-                  <button type="button" onClick={() => setConfirm("finish")} className="fitx-button fitx-button-secondary min-h-14 px-5"><Flag size={17} aria-hidden="true" />Finish</button>
+                  <button type="button" ref={finishTriggerRef} onClick={() => setConfirm("finish")} className="fitx-button fitx-button-secondary min-h-14 px-5"><Flag size={17} aria-hidden="true" />Finish</button>
                 </div>
               ) : phase === "paused" ? (
                 <div className="mt-5 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" onClick={resume} className="fitx-button min-h-14 text-base"><Play size={18} aria-hidden="true" />Resume</button>
-                    <button type="button" onClick={() => setConfirm("finish")} className="fitx-button fitx-button-secondary min-h-14"><Flag size={17} aria-hidden="true" />Finish</button>
+                    <button type="button" ref={finishTriggerRef} onClick={() => setConfirm("finish")} className="fitx-button fitx-button-secondary min-h-14"><Flag size={17} aria-hidden="true" />Finish</button>
                   </div>
-                  <button type="button" onClick={() => setConfirm("discard")} className="fitx-button fitx-button-quiet min-h-11 w-full"><Trash2 size={15} aria-hidden="true" />Discard</button>
+                  <button type="button" ref={discardTriggerRef} onClick={() => setConfirm("discard")} className="fitx-button fitx-button-quiet min-h-11 w-full"><Trash2 size={15} aria-hidden="true" />Discard</button>
                 </div>
               ) : (
-                <p className="mt-5 text-sm text-fitx-text-secondary" role="status">Saving your {SPORT_NOUN[activeSport]}…</p>
+                !unsaved && <p className="mt-5 text-sm text-fitx-text-secondary" role="status">Saving your {SPORT_NOUN[activeSport]}…</p>
               )}
             </section>
           )}
 
-          {(recording || phase === "finished") && (
-            <p className="flex gap-2 px-1 text-xs leading-5 text-fitx-text-secondary"><ShieldCheck size={15} aria-hidden="true" className="mt-0.5 shrink-0" />Saved on this device as you go. Leaving this screen stops location updates; come back to continue, and the time away is shown as a gap.</p>
+          {(recording || (phase === "finished" && !unsaved)) && (
+            snapshot.durable
+              ? <p className="flex gap-2 px-1 text-xs leading-5 text-fitx-text-secondary"><ShieldCheck size={15} aria-hidden="true" className="mt-0.5 shrink-0" />Saved on this device as you go. Leaving this screen stops location updates; come back to continue, and the time away is shown as a gap.</p>
+              : <p className="flex gap-2 px-1 text-xs leading-5 text-fitx-warning"><CloudOff size={15} aria-hidden="true" className="mt-0.5 shrink-0" />Kept in this tab only: this browser can’t save it on the device, so don’t reload or close FITX until you finish.</p>
           )}
           {confirm === "discard" && !recording && snapshot.restorable && (
-            <div className="rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="group" aria-label="Discard the unfinished recording?">
-              <p className="text-sm font-semibold text-fitx-danger">Discard the unfinished {SPORT_NOUN[snapshot.restorable.sport]}? It can’t be recovered.</p>
+            <div className="rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-restorable-question">
+              <p id="discard-restorable-question" className="text-sm font-semibold text-fitx-danger">Discard the unfinished {SPORT_NOUN[snapshot.restorable.sport]}? It can’t be recovered.</p>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setConfirm(null)} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
+                <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
                 <button type="button" onClick={() => void discard()} className="fitx-button fitx-button-danger min-h-12"><Trash2 size={16} aria-hidden="true" />Discard</button>
               </div>
             </div>

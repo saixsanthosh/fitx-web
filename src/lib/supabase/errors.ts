@@ -16,3 +16,9 @@ export function isMissingFunctionError(error: unknown): boolean {
   const code = codeOf(error);
   return code === "PGRST202" || code === "42883";
 }
+
+/** A table does not exist yet (its migration is not applied): PostgREST PGRST205, Postgres 42P01. */
+export function isMissingTableError(error: unknown): boolean {
+  const code = codeOf(error);
+  return code === "PGRST205" || code === "42P01";
+}

@@ -4,6 +4,7 @@ import { MessageSquarePlus, Trash2 } from "lucide-react";
 import type { CoachThreadSummary } from "@/lib/ai/types";
 import { cn } from "@/lib/utils";
 import { relativeDay } from "./format";
+import { useHydrated } from "./use-hydrated";
 
 /** The member's past conversations. */
 export function ConversationList({
@@ -21,6 +22,8 @@ export function ConversationList({
   onDelete: (thread: CoachThreadSummary) => void;
   busy: boolean;
 }) {
+  // Days and times are in the viewer's own time zone, so they appear once the page is running in the browser.
+  const hydrated = useHydrated();
   return (
     <nav aria-label="Coach conversations" className="flex min-h-0 flex-col">
       <button type="button" onClick={onNew} disabled={busy} className="fitx-button fitx-button-secondary w-full justify-start">
@@ -43,7 +46,7 @@ export function ConversationList({
                 )}
               >
                 <span className={cn("truncate text-sm", thread.id === activeId ? "font-semibold text-fitx-primary-text" : "text-fitx-text")}>{thread.title}</span>
-                <span className="text-[11px] text-fitx-text-secondary">{relativeDay(thread.updatedAt)}</span>
+                <span className="min-h-4 text-[11px] text-fitx-text-secondary">{hydrated ? relativeDay(thread.updatedAt) : ""}</span>
               </button>
               <button
                 type="button"

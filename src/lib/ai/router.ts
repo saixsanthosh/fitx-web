@@ -63,10 +63,14 @@ export function createAiRouter(deps: RouterDeps) {
   const adapters = deps.adapters ?? createAdapters(deps.config);
   const log = deps.log ?? defaultLog;
 
-  function plan(task: AiRequest["task"]): Candidate[] {
+  function plan(task: AiRequest["task"], personalData = false): Candidate[] {
     if (!deps.config.enabled) throw new AiUnavailableError("disabled");
-    const candidates = candidatesFor(task, deps.config).filter((candidate) => adapters[candidate.provider]);
-    if (!candidates.length) throw new AiUnavailableError("not_configured");
+    const candidates = candidatesFor(task, deps.config, { personalData }).filter((candidate) => adapters[candidate.provider]);
+    if (!candidates.length) {
+      // Keys exist, but only for providers that may not receive member data (see registry.ts).
+      const anyAtAll = candidatesFor(task, deps.config).some((candidate) => adapters[candidate.provider]);
+      throw new AiUnavailableError(anyAtAll ? "private" : "not_configured");
+    }
     return candidates;
   }
 
@@ -77,7 +81,7 @@ export function createAiRouter(deps: RouterDeps) {
     deadlineMs: number,
     attempt: (adapter: ProviderAdapter, candidate: Candidate, attemptSignal: AbortSignal, budgetMs: number) => Promise<T>,
   ): Promise<{ result: T; candidate: Candidate; attempts: AttemptLog[] }> {
-    const candidates = plan(request.task);
+    const candidates = plan(request.task, request.personalData);
     const attempts: AttemptLog[] = [];
     const deadline = now() + deadlineMs;
     let refusals = 0;
@@ -120,9 +124,9 @@ export function createAiRouter(deps: RouterDeps) {
   }
 
   return {
-    /** The models this task would try, in order (after the kill switch and free-only guard). */
-    candidates(task: AiRequest["task"]) {
-      return plan(task);
+    /** The models this task would try, in order (after the kill switch, the free-only guard and the member-data rule). */
+    candidates(task: AiRequest["task"], options: { personalData?: boolean } = {}) {
+      return plan(task, options.personalData);
     },
 
     /** A structured task: the reply must parse as JSON and pass `parse`, or the next model is tried. */

@@ -12,6 +12,9 @@
  *    (`data-fitx-loader`) until the app hydrates, for at most about a second,
  *  - never shows either on a focus screen (a live workout, /workouts/active, or the activity recorder,
  *    /activity/record): the account's film waits for the next app page,
+ *  - never plays the account's film on Help either, which an account still in setup can open (see
+ *    src/lib/auth/before-onboarding.ts): the film waits for the first app page after setup, and someone
+ *    asking for help is not shown it first. Help still gets the loader,
  *  - keeps Skip/Escape working before React hydrates, and gives the page back if the app never
  *    starts the intro (e.g. its JavaScript failed to load).
  * Keep it tiny, dependency-free and ES5-safe: it blocks parsing while it runs. No backslashes in it:
@@ -38,7 +41,7 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
     var path = window.location.pathname;
     var section = path.split("/")[1] || "";
     var focus = path.indexOf("/workouts/active") === 0 || path.indexOf("/activity/record") === 0;
-    var appPath = ["dashboard", "workouts", "nutrition", "activity", "ai-coach", "progress", "goals", "planner", "profile", "settings", "exercises", "form-coach", "help"].indexOf(section) !== -1 && !focus;
+    var appPath = ["dashboard", "workouts", "nutrition", "activity", "ai-coach", "progress", "goals", "planner", "profile", "settings", "exercises", "form-coach"].indexOf(section) !== -1 && !focus;
     var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     var intro = cookie("fitx_intro");
     var asked = (window.location.search.match(/[?&]intro=([a-z]+)/) || [])[1];

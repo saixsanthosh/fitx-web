@@ -3,12 +3,13 @@
  * workout generator, nutrition targets and the AI coach all read values and labels from here, so the
  * same stored value never shows two different names.
  *
- * Values are what the database stores (snake_case keys); labels are what people read. Equipment keys
- * match the tags in `exercise_library.equipment` exactly, because the workout generator only offers an
- * exercise when every tag it lists is in the user's equipment.
+ * Values are what the database stores (snake_case keys); labels are what people read. Equipment comes
+ * from the training taxonomy, so Profile, onboarding and Workouts edit the same keys.
  *
- * This module has no imports, so it runs unchanged in the app and under `node --test`.
+ * Its only imports are the import-free training taxonomy helpers, so it runs under `node --test`.
  */
+
+import { equipmentKeyFor, sortEquipmentKeys } from "@/lib/training/equipment";
 
 export type Option<V extends string = string> = { readonly value: V; readonly label: string; readonly hint?: string };
 
@@ -94,66 +95,28 @@ export const SPLIT_OPTIONS = [
 export type WorkoutSplit = (typeof SPLIT_OPTIONS)[number]["value"];
 export const DEFAULT_SPLIT: WorkoutSplit = "full_body";
 
-/** Equipment, keyed exactly like the `exercise_library.equipment` tags. */
-export const EQUIPMENT_OPTIONS = [
-  { value: "bodyweight", label: "Bodyweight", hint: "Always included" },
-  { value: "dumbbell", label: "Dumbbells" },
-  { value: "barbell", label: "Barbell" },
-  { value: "ez_bar", label: "EZ curl bar" },
-  { value: "bench", label: "Bench" },
-  { value: "rack", label: "Squat rack" },
-  { value: "kettlebell", label: "Kettlebell" },
-  { value: "cable", label: "Cable machine" },
-  { value: "machine", label: "Weight machines" },
-  { value: "bands", label: "Resistance bands" },
-  { value: "pull_up_bar", label: "Pull-up bar" },
-  { value: "medicine_ball", label: "Medicine ball" },
-  { value: "exercise_ball", label: "Exercise ball" },
-  { value: "foam_roller", label: "Foam roller" },
-  { value: "other", label: "Other gym gear", hint: "Sled, rings, boxes, ropes, plates" },
-] as const satisfies readonly Option[];
-export type EquipmentKey = (typeof EQUIPMENT_OPTIONS)[number]["value"];
-
-/** Typed spellings people (and the old free-text Profile field) used, mapped to catalogue keys. */
-const EQUIPMENT_SYNONYMS: Readonly<Record<string, EquipmentKey>> = {
-  body_weight: "bodyweight", none: "bodyweight", no_equipment: "bodyweight",
-  dumbbells: "dumbbell", db: "dumbbell",
-  barbells: "barbell",
-  ezbar: "ez_bar", ez_bars: "ez_bar", ez_curl_bar: "ez_bar",
-  benches: "bench", flat_bench: "bench",
-  squat_rack: "rack", power_rack: "rack", racks: "rack",
-  kettlebells: "kettlebell", kettle_bell: "kettlebell",
-  cables: "cable", cable_machine: "cable", cable_machines: "cable",
-  machines: "machine", weight_machine: "machine", weight_machines: "machine",
-  band: "bands", resistance_band: "bands", resistance_bands: "bands",
-  pullup_bar: "pull_up_bar", pull_up: "pull_up_bar", chin_up_bar: "pull_up_bar", chinup_bar: "pull_up_bar",
-  med_ball: "medicine_ball", medicine_balls: "medicine_ball",
-  swiss_ball: "exercise_ball", stability_ball: "exercise_ball", exercise_balls: "exercise_ball",
-  foam_rollers: "foam_roller",
-};
-
-export const DEFAULT_EQUIPMENT: readonly EquipmentKey[] = ["bodyweight"];
-
 /** `Dumbbells`, `cable machine` and `pull-up bar` become `dumbbells`, `cable_machine`, `pull_up_bar`. */
 export function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 /**
- * Catalogue keys from stored or typed equipment, in catalogue order, plus whatever could not be matched
- * (so the screen can say it is not used for workouts instead of dropping it silently).
+ * Equipment uses the training taxonomy (src/lib/training/taxonomy.ts): the keys Workouts, the Home and
+ * Gym equipment lists and the exercise catalogue share. Older stored words ("Dumbbells", "bands",
+ * "cable machine", this module's earlier keys) map to those keys; "bodyweight" and "none" mean no
+ * equipment. Whatever matches nothing is returned as `unknown`, so screens can say it is not used for
+ * workouts instead of dropping it silently.
  */
-export function normalizeEquipment(input: unknown): { keys: EquipmentKey[]; unknown: string[] } {
-  const found = new Set<EquipmentKey>();
+export function normalizeEquipment(input: unknown): { keys: string[]; unknown: string[] } {
+  const keys: string[] = [];
   const unknown: string[] = [];
   for (const raw of Array.isArray(input) ? input : []) {
     if (typeof raw !== "string" || !raw.trim()) continue;
-    const key = slug(raw);
-    const match = isOption(EQUIPMENT_OPTIONS, key) ? key : EQUIPMENT_SYNONYMS[key];
-    if (match) found.add(match);
-    else if (!unknown.some((item) => item.toLowerCase() === raw.trim().toLowerCase())) unknown.push(raw.trim());
+    const key = equipmentKeyFor(raw);
+    if (key) keys.push(key);
+    else if (key === null && !unknown.some((item) => item.toLowerCase() === raw.trim().toLowerCase())) unknown.push(raw.trim());
   }
-  return { keys: EQUIPMENT_OPTIONS.map((option) => option.value).filter((key) => found.has(key)), unknown };
+  return { keys: sortEquipmentKeys(keys), unknown };
 }
 
 export const SESSION_LENGTHS = [20, 30, 45, 60, 75, 90] as const;
@@ -235,7 +198,9 @@ const ALLERGY_SYNONYMS: Readonly<Record<string, AllergyKey>> = {
   milk: "dairy", lactose: "dairy", milk_dairy: "dairy",
   egg: "eggs",
   peanut: "peanuts", groundnut: "peanuts", groundnuts: "peanuts",
-  tree_nut: "tree_nuts", nuts: "tree_nuts",
+  // "Nuts" stays the user's own entry: mapping it to tree nuts would drop peanuts. Synonyms only ever
+  // name the same or a broader allergy.
+  tree_nut: "tree_nuts",
   wheat: "wheat_gluten", gluten: "wheat_gluten", wheat_gluten: "wheat_gluten",
   soya: "soy", soybean: "soy", soybeans: "soy",
   shell_fish: "shellfish", crustaceans: "shellfish", prawns: "shellfish", shrimp: "shellfish",
@@ -244,12 +209,17 @@ const ALLERGY_SYNONYMS: Readonly<Record<string, AllergyKey>> = {
 export const MAX_CUSTOM_ENTRIES = 10;
 export const MAX_CUSTOM_LENGTH = 40;
 export const MAX_FOOD_DISLIKES = 30;
+/** Injury notes need room for the detail that matters ("no jumping until March"). */
+export const MAX_CUSTOM_LIMITATIONS = 5;
+export const MAX_LIMITATION_LENGTH = 60;
+
+export type TagLimits = { max?: number; maxLength?: number };
 
 /**
  * Trimmed, de-duplicated free-text entries (case-insensitive), each at most `maxLength` characters,
  * at most `max` of them.
  */
-export function normalizeTags(input: unknown, { max = MAX_CUSTOM_ENTRIES, maxLength = MAX_CUSTOM_LENGTH } = {}): string[] {
+export function normalizeTags(input: unknown, { max = MAX_CUSTOM_ENTRIES, maxLength = MAX_CUSTOM_LENGTH }: TagLimits = {}): string[] {
   const out: string[] = [];
   for (const raw of Array.isArray(input) ? input : []) {
     if (typeof raw !== "string") continue;
@@ -261,6 +231,11 @@ export function normalizeTags(input: unknown, { max = MAX_CUSTOM_ENTRIES, maxLen
   return out;
 }
 
+/** The list after adding what was typed (commas separate entries): what a tag field saves on Enter, +, or leaving it. */
+export function commitDraft(values: readonly string[], draft: string, limits: TagLimits = {}): string[] {
+  return normalizeTags([...values, ...draft.split(",")], limits);
+}
+
 /**
  * Splits a stored list into known keys (old labels such as "Tree nuts" included) and the user's own
  * entries, e.g. allergies `["Dairy", "sesame", "Kiwi"]` -> keys `["dairy", "sesame"]`, custom `["Kiwi"]`.
@@ -269,6 +244,7 @@ export function splitKnown<V extends string>(
   options: readonly Option<V>[],
   input: unknown,
   synonyms: Readonly<Record<string, V>> = {},
+  limits: TagLimits = {},
 ): { keys: V[]; custom: string[] } {
   const keys = new Set<V>();
   const custom: string[] = [];
@@ -280,7 +256,7 @@ export function splitKnown<V extends string>(
     if (match) keys.add(match);
     else custom.push(raw);
   }
-  return { keys: options.map((option) => option.value).filter((value) => keys.has(value)), custom: normalizeTags(custom) };
+  return { keys: options.map((option) => option.value).filter((value) => keys.has(value)), custom: normalizeTags(custom, limits) };
 }
 
 export function splitAllergies(input: unknown) {
@@ -288,12 +264,18 @@ export function splitAllergies(input: unknown) {
 }
 
 export function splitLimitations(input: unknown) {
-  return splitKnown(LIMITATION_OPTIONS, input, { back: "lower_back", knees: "knee", shoulders: "shoulder", wrists: "wrist", elbow: "wrist", elbows: "wrist", hips: "hip", ankles: "ankle", feet: "ankle", foot: "ankle" });
+  // Only same-meaning or broader matches: "back" stays as typed rather than becoming "lower back".
+  return splitKnown(LIMITATION_OPTIONS, input, { knees: "knee", shoulders: "shoulder", wrists: "wrist", elbow: "wrist", elbows: "wrist", hips: "hip", ankles: "ankle", feet: "ankle", foot: "ankle" }, { maxLength: MAX_LIMITATION_LENGTH });
 }
 
 /** Known keys first (in list order), then custom entries: the shape stored in the database. */
-export function joinKnown(keys: readonly string[], custom: readonly string[]): string[] {
-  return [...keys, ...normalizeTags(custom)];
+export function joinKnown(keys: readonly string[], custom: readonly string[], limits: TagLimits = {}): string[] {
+  return [...keys, ...normalizeTags(custom, limits)];
+}
+
+/** Limitations keep custom notes up to MAX_LIMITATION_LENGTH characters. */
+export function joinLimitations(keys: readonly string[], custom: readonly string[]): string[] {
+  return joinKnown(keys, custom, { maxLength: MAX_LIMITATION_LENGTH });
 }
 
 export const FOOD_RULE_OPTIONS = [

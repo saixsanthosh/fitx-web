@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
-import { Dumbbell, Ruler, Salad } from "lucide-react";
+import { Dumbbell, Ruler, Salad, X } from "lucide-react";
 import { ChipGroup, ChoiceGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
+import { EquipmentPicker } from "@/components/workouts/EquipmentPicker";
 import {
   ACTIVITY_OPTIONS,
   AGE_RANGE,
@@ -11,7 +12,6 @@ import {
   CUISINE_OPTIONS,
   DAYS_PER_WEEK,
   DIET_OPTIONS,
-  EQUIPMENT_OPTIONS,
   EXPERIENCE_OPTIONS,
   FOOD_RULE_OPTIONS,
   GOAL_OPTIONS,
@@ -19,7 +19,9 @@ import {
   HEIGHT_RANGE_CM,
   LIMITATION_OPTIONS,
   LOCATION_OPTIONS,
+  MAX_CUSTOM_LIMITATIONS,
   MAX_FOOD_DISLIKES,
+  MAX_LIMITATION_LENGTH,
   MEALS_PER_DAY,
   MONTHLY_BUDGET_RANGE,
   SESSION_LENGTHS,
@@ -27,11 +29,13 @@ import {
   SPLIT_OPTIONS,
   WATER_RANGE_ML,
   WEIGHT_RANGE_KG,
+  commitDraft,
   formatHeight,
   formatRupees,
   formatWeight,
   inRange,
   joinKnown,
+  joinLimitations,
   legacyDietaryPreferences,
   optionLabel,
   parseRupees,
@@ -42,7 +46,6 @@ import {
   type BudgetLevel,
   type Cuisine,
   type DietType,
-  type EquipmentKey,
   type Experience,
   type FoodRule,
   type Goal,
@@ -55,6 +58,8 @@ import {
 } from "@/lib/domain/profile-options";
 import { changedFields, logWeighIn, savePreferences, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import { createClient } from "@/lib/supabase/client";
+import { saveEquipmentProfile } from "@/lib/training/data";
+import { equipmentLabel } from "@/lib/training/equipment";
 import { ChipList, Detail, DetailList, EditActions, NotSet, SectionCard } from "./ProfileParts";
 
 type SectionProps = {
@@ -73,6 +78,11 @@ const labelsFor = <V extends string>(options: readonly { value: V; label: string
   values.map((value) => optionLabel(options, value) ?? value);
 
 const sameWeight = (a: number | null, b: number | null) => (a === null || b === null ? a === b : Math.abs(a - b) < 0.05);
+const sameKeys = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].sort().every((key, index) => key === [...b].sort()[index]);
+
+/** What auto workouts on the Workouts page read (location, equipment, level, session length, split). */
+const AUTO_WORKOUT_COLUMNS = ["workout_location", "fitness_level", "session_duration_minutes", "workout_split"];
+const INJURY_NOTE = "Auto workouts don’t avoid these yet, so skip or swap any exercise that hurts. The AI coach takes them into account when you turn on “Use my FITX data”.";
 
 // ─── Body and goal ───────────────────────────────────────────────────────────────────────────────
 
@@ -123,9 +133,10 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
   async function save(event: FormEvent) {
     event.preventDefault();
     const found: Record<string, string> = {};
-    const age = Number(draft.age);
-    if (!draft.age.trim() || !Number.isInteger(age) || !inRange(age, AGE_RANGE)) found.age = `Enter a whole number from ${AGE_RANGE.min} to ${AGE_RANGE.max}.`;
-    if (!inRange(draft.heightCm, HEIGHT_RANGE_CM)) found.heightCm = "Enter a height between 90 and 250 cm (2 ft 11 in to 8 ft 2 in).";
+    // Age and height may be removed (the targets then need them again); weight comes from weigh-ins.
+    const age = draft.age.trim() ? Number(draft.age) : null;
+    if (age !== null && (!Number.isInteger(age) || !inRange(age, AGE_RANGE))) found.age = `Enter a whole number from ${AGE_RANGE.min} to ${AGE_RANGE.max}, or leave it empty.`;
+    if (draft.heightCm !== null && !inRange(draft.heightCm, HEIGHT_RANGE_CM)) found.heightCm = "Enter a height between 90 and 250 cm (2 ft 11 in to 8 ft 2 in), or leave it empty.";
     if (!inRange(draft.weightKg, WEIGHT_RANGE_KG)) found.weightKg = "Enter a weight between 30 and 500 kg (66 to 1,102 lb).";
     if (draft.targetWeightKg !== null && !inRange(draft.targetWeightKg, WEIGHT_RANGE_KG)) found.targetWeightKg = "Enter a target between 30 and 500 kg, or leave it empty.";
     setErrors(found);
@@ -165,13 +176,15 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
       const logged = await logWeighIn(supabase, data.userId, draft.weightKg, "Profile update");
       if (logged.error) return failed(setSaving, setError, "Your details were saved, but the new weight couldn't be added to your progress. Try saving again.");
     }
-    await onSaved("Body and goal saved. Your daily targets are updated.");
+    await onSaved(age !== null && draft.heightCm !== null
+      ? "Body and goal saved. Your daily targets are updated."
+      : "Body and goal saved. Add your age and height to see your daily targets.");
     setSaving(false);
     onClose();
   }
 
   return (
-    <SectionCard id="body" title="Body and goal" description="Used for your calorie and protein targets." icon={<Ruler size={18} />} editing={editing} onEdit={start} canEdit>
+    <SectionCard id="body" title="Body and goal" description="Used for your calorie and protein targets, and in the AI coach’s advice if you use it." icon={<Ruler size={18} />} editing={editing} onEdit={start} canEdit>
       {!editing ? (
         <DetailList>
           <Detail label="Age">{profile?.age != null ? `${profile.age} years` : <NotSet />}</Detail>
@@ -188,14 +201,15 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
       ) : (
         <form ref={formRef} noValidate onSubmit={(event) => void save(event)}>
           <div className="space-y-6">
+            <p className="text-xs leading-5 text-fitx-text-secondary">Your daily targets need your age and height. You can leave them empty, but FITX then can’t calculate targets.</p>
             <div className="grid gap-5 sm:grid-cols-2">
-              <TextField label="Age" value={draft.age} onChange={(value) => set("age", value.replace(/[^\d]/g, ""))} error={errors.age} inputMode="numeric" suffix="years" maxLength={3} required />
+              <TextField label="Age" value={draft.age} onChange={(value) => set("age", value.replace(/[^\d]/g, ""))} error={errors.age} inputMode="numeric" suffix="years" maxLength={3} />
             </div>
             <ChoiceGroup legend="Sex for the calorie formula" options={SEX_OPTIONS} value={draft.gender} onChange={(value) => set("gender", value)} columns="grid-cols-1 sm:grid-cols-3" showHints={false} />
             <div className="grid gap-5 lg:grid-cols-2">
-              <HeightField cm={draft.heightCm} unit={draft.heightUnit} onChange={(cm) => set("heightCm", cm)} onUnitChange={(unit) => set("heightUnit", unit)} error={errors.heightCm} required />
-              <WeightField label="Current weight" hint="A change is logged as today's weigh-in." kg={draft.weightKg} unit={draft.weightUnit} onChange={(kg) => set("weightKg", kg)} onUnitChange={(unit) => set("weightUnit", unit)} error={errors.weightKg} required />
-              <WeightField label="Target weight" kg={draft.targetWeightKg} unit={draft.weightUnit} onChange={(kg) => set("targetWeightKg", kg)} onUnitChange={(unit) => set("weightUnit", unit)} error={errors.targetWeightKg} />
+              <HeightField cm={draft.heightCm} unit={draft.heightUnit} onChange={(cm) => set("heightCm", cm)} onUnitChange={(unit) => set("heightUnit", unit)} error={errors.heightCm} showUnits={v2} />
+              <WeightField label="Current weight" hint="A change is logged as today's weigh-in." kg={draft.weightKg} unit={draft.weightUnit} onChange={(kg) => set("weightKg", kg)} onUnitChange={(unit) => set("weightUnit", unit)} error={errors.weightKg} required showUnits={v2} />
+              <WeightField label="Target weight" kg={draft.targetWeightKg} unit={draft.weightUnit} onChange={(kg) => set("targetWeightKg", kg)} onUnitChange={(unit) => set("weightUnit", unit)} error={errors.targetWeightKg} showUnits={v2} />
             </div>
             <ChoiceGroup
               legend="Main goal"
@@ -227,6 +241,9 @@ type DietDraft = {
   dislikes: string[];
   budgetLevel: BudgetLevel | null;
   monthlyBudget: string;
+  /** Typed into a tag field but not added yet; saved with the section. */
+  allergyDraft: string;
+  dislikeDraft: string;
 };
 
 export function DietSection({ data, editing, onEdit, onClose, onSaved }: SectionProps) {
@@ -244,6 +261,8 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     dislikes: prefs.food_dislikes,
     budgetLevel: prefs.food_budget_level,
     monthlyBudget: prefs.monthly_food_budget_inr == null ? "" : String(prefs.monthly_food_budget_inr),
+    allergyDraft: "",
+    dislikeDraft: "",
   };
   const [draft, setDraft] = useState(original);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -283,9 +302,12 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
       diet_type: prefs.diet_type, allergies: prefs.allergies, meals_per_day: prefs.meals_per_day, daily_water_goal_ml: prefs.daily_water_goal_ml,
       food_rules: prefs.food_rules, cuisines: prefs.cuisines, food_dislikes: prefs.food_dislikes, food_budget_level: prefs.food_budget_level, monthly_food_budget_inr: prefs.monthly_food_budget_inr,
     };
+    // Text still in a tag field counts as an entry.
+    const customAllergies = commitDraft(draft.customAllergies, draft.allergyDraft);
+    const dislikes = commitDraft(draft.dislikes, draft.dislikeDraft, { max: MAX_FOOD_DISLIKES });
     const after = {
-      diet_type: draft.diet, allergies: joinKnown(draft.allergies, draft.customAllergies), meals_per_day: draft.meals, daily_water_goal_ml: Math.round(water),
-      food_rules: draft.foodRules, cuisines: draft.cuisines, food_dislikes: draft.dislikes, food_budget_level: draft.budgetLevel, monthly_food_budget_inr: budget,
+      diet_type: draft.diet, allergies: joinKnown(draft.allergies, customAllergies), meals_per_day: draft.meals, daily_water_goal_ml: Math.round(water),
+      food_rules: draft.foodRules, cuisines: draft.cuisines, food_dislikes: dislikes, food_budget_level: draft.budgetLevel, monthly_food_budget_inr: budget,
     };
     const patch: Record<string, unknown> = changedFields(before, after);
     if ("diet_type" in patch) patch.dietary_preferences = legacyDietaryPreferences(draft.diet, data.legacy.dietaryPreferences);
@@ -297,13 +319,15 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     setError("");
     const saved = await savePreferences(supabase, data.userId, patch, { v2 });
     if (saved.error) return failed(setSaving, setError);
-    await onSaved(saved.skipped.length ? "Diet saved. Budget, cuisines and food rules will save once FITX's next update is live." : "Diet saved.");
+    // The diet type is also kept in the original column, so only the other new answers can be pending.
+    const pending = saved.skipped.filter((column) => column !== "diet_type");
+    await onSaved(pending.length ? "Diet saved. Budget, cuisines and food rules will save once FITX's next update is live." : "Diet saved.");
     setSaving(false);
     onClose();
   }
 
   return (
-    <SectionCard id="diet" title="Diet" description="For food suggestions and meal plans that fit how you eat." icon={<Salad size={18} />} editing={editing} onEdit={start} canEdit>
+    <SectionCard id="diet" title="Diet" description="How you eat and what you avoid. The AI coach’s meal plans follow these when you turn on “Use my FITX data” (18 and over)." icon={<Salad size={18} />} editing={editing} onEdit={start} canEdit>
       {!editing ? (
         <DetailList>
           <Detail label="Diet">{optionLabel(DIET_OPTIONS, prefs.diet_type) ?? <NotSet />}</Detail>
@@ -324,19 +348,19 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
       ) : (
         <form ref={formRef} noValidate onSubmit={(event) => void save(event)}>
           <div className="space-y-7">
-            <ChoiceGroup legend="Which describes you best?" options={DIET_OPTIONS} value={draft.diet} onChange={(value) => set("diet", value)} />
+            <ChoiceGroup legend="Which describes you best?" options={DIET_OPTIONS} value={draft.diet} onChange={(value) => set("diet", value)} onClear={() => set("diet", null)} clearLabel="Clear your diet" />
             <ChipGroup legend="Food allergies or intolerances" hint="Leave these empty if you have none." options={ALLERGY_OPTIONS} values={draft.allergies} onChange={(values) => set("allergies", values)} />
-            <TagInput legend="Other allergies" values={draft.customAllergies} onChange={(values) => set("customAllergies", values)} addLabel="Add allergy" placeholder="For example kiwi" />
+            <TagInput legend="Other allergies" values={draft.customAllergies} onChange={(values) => set("customAllergies", values)} draft={draft.allergyDraft} onDraftChange={(value) => set("allergyDraft", value)} addLabel="Add allergy" placeholder="For example kiwi" />
             <div className="grid gap-6 sm:grid-cols-2">
               <ChoiceGroup legend="Meals a day" options={mealOptions} value={draft.meals} onChange={(value) => set("meals", value)} columns="grid-cols-6 sm:grid-cols-3" showHints={false} compact />
               <TextField label="Daily water target" value={draft.water} onChange={(value) => set("water", value.replace(/[^\d]/g, ""))} error={errors.water} inputMode="numeric" suffix="ml" maxLength={5} required />
             </div>
             {v2 ? <>
-              <ChoiceGroup legend="How tight is your food budget?" options={BUDGET_LEVEL_OPTIONS} value={draft.budgetLevel} onChange={(value) => set("budgetLevel", value)} columns="grid-cols-1 sm:grid-cols-3" />
+              <ChoiceGroup legend="How tight is your food budget?" options={BUDGET_LEVEL_OPTIONS} value={draft.budgetLevel} onChange={(value) => set("budgetLevel", value)} columns="grid-cols-1 sm:grid-cols-3" onClear={() => set("budgetLevel", null)} clearLabel="Clear your budget level" />
               <TextField label="Monthly food budget" hint="Roughly what you spend on food a month, in rupees." value={draft.monthlyBudget} onChange={(value) => set("monthlyBudget", value)} error={errors.monthlyBudget} inputMode="numeric" placeholder="For example 6,000" suffix="₹ / month" />
               <ChipGroup legend="Food rules you follow" options={FOOD_RULE_OPTIONS} values={draft.foodRules} onChange={(values) => set("foodRules", values)} />
               <ChipGroup legend="Cuisines you enjoy" options={CUISINE_OPTIONS} values={draft.cuisines} onChange={(values) => set("cuisines", values)} />
-              <TagInput legend="Foods you don't eat" hint="Dislikes count too." values={draft.dislikes} onChange={(values) => set("dislikes", values)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />
+              <TagInput legend="Foods you don't eat" hint="Dislikes count too." values={draft.dislikes} onChange={(values) => set("dislikes", values)} draft={draft.dislikeDraft} onDraftChange={(value) => set("dislikeDraft", value)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />
             </> : <p className="text-xs leading-5 text-fitx-text-secondary">Food budget, cuisines and food rules arrive with the next FITX update.</p>}
           </div>
           <EditActions saving={saving} onCancel={onClose} error={error} />
@@ -351,29 +375,36 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
 type TrainingDraft = {
   location: TrainingLocation;
   experience: Experience;
-  equipment: EquipmentKey[];
+  homeEquipment: string[];
+  gymEquipment: string[];
+  /** Older typed equipment that matches no item; kept unless the user removes it. */
+  unknownEquipment: string[];
   days: number;
   minutes: number;
   split: WorkoutSplit;
   limitations: LimitationKey[];
   customLimitations: string[];
+  /** Typed into the limitations field but not added yet; saved with the section. */
+  limitationDraft: string;
 };
-
-const TRAINING_EQUIPMENT = EQUIPMENT_OPTIONS.filter((option) => option.value !== "bodyweight");
 
 export function TrainingSection({ data, editing, onEdit, onClose, onSaved }: SectionProps) {
   const prefs = data.preferences;
   const v2 = data.schema.preferencesV2;
+  const lists = data.equipmentLists;
   const limitations = splitLimitations(prefs.limitations);
   const original: TrainingDraft = {
     location: prefs.workout_location,
     experience: prefs.fitness_level,
-    equipment: prefs.equipment,
+    homeEquipment: lists.home.keys,
+    gymEquipment: lists.gym.keys,
+    unknownEquipment: data.legacy.unknownEquipment,
     days: prefs.workouts_per_week,
     minutes: prefs.session_duration_minutes,
     split: prefs.workout_split,
     limitations: limitations.keys,
     customLimitations: limitations.custom,
+    limitationDraft: "",
   };
   const [draft, setDraft] = useState(original);
   const [saving, setSaving] = useState(false);
@@ -385,6 +416,7 @@ export function TrainingSection({ data, editing, onEdit, onClose, onSaved }: Sec
   const sessionOptions = [...new Set([...SESSION_LENGTHS, prefs.session_duration_minutes])].sort((a, b) => a - b).map((value) => ({ value, label: `${value} min` }));
   const dayOptions = DAYS_PER_WEEK.map((value) => ({ value, label: String(value) }));
   const unknown = data.legacy.unknownEquipment;
+  const equipmentChips = (keys: readonly string[]) => keys.map(equipmentLabel);
 
   const start = () => {
     setDraft(original);
@@ -397,56 +429,112 @@ export function TrainingSection({ data, editing, onEdit, onClose, onSaved }: Sec
     const supabase = createClient();
     if (!supabase) return setError(WRITE_FAILED);
     const before = {
-      workout_location: prefs.workout_location, fitness_level: prefs.fitness_level, equipment: prefs.equipment, workouts_per_week: prefs.workouts_per_week,
+      workout_location: prefs.workout_location, fitness_level: prefs.fitness_level, workouts_per_week: prefs.workouts_per_week,
       session_duration_minutes: prefs.session_duration_minutes, workout_split: prefs.workout_split, limitations: prefs.limitations,
     };
     const after = {
-      workout_location: draft.location, fitness_level: draft.experience, equipment: ["bodyweight", ...draft.equipment.filter((key) => key !== "bodyweight")], workouts_per_week: draft.days,
-      session_duration_minutes: draft.minutes, workout_split: draft.split, limitations: joinKnown(draft.limitations, draft.customLimitations),
+      workout_location: draft.location, fitness_level: draft.experience, workouts_per_week: draft.days,
+      session_duration_minutes: draft.minutes, workout_split: draft.split,
+      limitations: joinLimitations(draft.limitations, commitDraft(draft.customLimitations, draft.limitationDraft, { max: MAX_CUSTOM_LIMITATIONS, maxLength: MAX_LIMITATION_LENGTH })),
     };
     const patch: Record<string, unknown> = changedFields(before, after);
-    // Saving equipment also replaces any old typed entries the workout generator couldn't match.
-    if (unknown.length && !("equipment" in patch)) patch.equipment = after.equipment;
-    if (!Object.keys(patch).length) {
+    const homeChanged = !sameKeys(draft.homeEquipment, original.homeEquipment);
+    const gymChanged = !sameKeys(draft.gymEquipment, original.gymEquipment);
+    const unknownChanged = !sameKeys(draft.unknownEquipment, original.unknownEquipment);
+    // The original answer seeds the Home list until one is saved, and the AI coach reads it; older words that
+    // match nothing stay unless the user removed them.
+    if (homeChanged || unknownChanged) patch.equipment = [...draft.homeEquipment, ...draft.unknownEquipment];
+    if (!Object.keys(patch).length && !homeChanged && !gymChanged) {
       onClose();
       return void onSaved(NO_CHANGES);
     }
     setSaving(true);
     setError("");
-    const saved = await savePreferences(supabase, data.userId, patch, { v2 });
-    if (saved.error) return failed(setSaving, setError);
-    await onSaved(saved.skipped.length ? "Training saved. Injury details will save once FITX's next update is live." : "Training saved. New workouts use these settings.");
+    if (lists.available) {
+      // The lists Workouts uses. One that was never saved stays a starting point unless it changed here.
+      for (const [context, changed, keys] of [["home", homeChanged, draft.homeEquipment], ["gym", gymChanged, draft.gymEquipment]] as const) {
+        if (!changed) continue;
+        const result = await saveEquipmentProfile(supabase, data.userId, context, keys);
+        if (result.error) return failed(setSaving, setError);
+      }
+    }
+    let skipped: string[] = [];
+    if (Object.keys(patch).length) {
+      const saved = await savePreferences(supabase, data.userId, patch, { v2 });
+      if (saved.error) return failed(setSaving, setError);
+      skipped = saved.skipped;
+    }
+    const usedByAutoWorkouts = homeChanged || gymChanged || AUTO_WORKOUT_COLUMNS.some((column) => column in patch);
+    const parts = [usedByAutoWorkouts ? "Training saved. New auto workouts use these settings." : "Training saved."];
+    if (skipped.includes("limitations")) parts.push("Injury details will save once FITX’s next update is live.");
+    else if ("limitations" in patch && after.limitations.length) parts.push("Auto workouts don’t avoid injuries yet.");
+    await onSaved(parts.join(" "));
     setSaving(false);
     onClose();
   }
 
   return (
-    <SectionCard id="training" title="Training" description="Workouts are built from these." icon={<Dumbbell size={18} />} editing={editing} onEdit={start} canEdit>
+    <SectionCard id="training" title="Training" description="Auto workouts use where you train, your equipment, experience, session length and split." icon={<Dumbbell size={18} />} editing={editing} onEdit={start} canEdit>
       {!editing ? (
         <DetailList>
           <Detail label="Where you train">{optionLabel(LOCATION_OPTIONS, prefs.workout_location)}</Detail>
           <Detail label="Experience">{optionLabel(EXPERIENCE_OPTIONS, prefs.fitness_level)}</Detail>
-          <Detail label="Training days">{prefs.workouts_per_week} a week</Detail>
+          <Detail label="Training days">{prefs.workouts_per_week} a week<span className="block text-xs font-normal text-fitx-text-secondary">Your weekly workout goal on Home</span></Detail>
           <Detail label="Session length">{prefs.session_duration_minutes} min</Detail>
           <Detail label="Split">{optionLabel(SPLIT_OPTIONS, prefs.workout_split)}</Detail>
-          <Detail label="Equipment" wide>
-            <ChipList items={labelsFor(EQUIPMENT_OPTIONS, prefs.equipment)} />
-            {unknown.length > 0 && <span className="mt-2 block text-xs font-normal leading-5 text-fitx-text-secondary">Not used for workouts: {unknown.join(", ")}. Edit and pick the matching equipment to use it.</span>}
+          <Detail label="Equipment at home" wide><ChipList items={equipmentChips(lists.home.keys)} empty="No equipment" /></Detail>
+          <Detail label="Equipment at the gym" wide>
+            {lists.gym.saved ? <ChipList items={equipmentChips(lists.gym.keys)} empty="No equipment" /> : <span className="font-normal text-fitx-text-secondary">A fully equipped gym, until you change it</span>}
+            {unknown.length > 0 && <span className="mt-2 block text-xs font-normal leading-5 text-fitx-text-secondary">Older entries that match no equipment, so workouts don’t use them: {unknown.join(", ")}.</span>}
           </Detail>
-          {v2 && <Detail label="Injuries or areas to go easy on" wide><ChipList items={labelsFor(LIMITATION_OPTIONS, prefs.limitations)} /></Detail>}
+          {v2 && (
+            <Detail label="Injuries or areas to go easy on" wide>
+              <ChipList items={labelsFor(LIMITATION_OPTIONS, prefs.limitations)} />
+              {prefs.limitations.length > 0 && <span className="mt-2 block text-xs font-normal leading-5 text-fitx-text-secondary">{INJURY_NOTE}</span>}
+            </Detail>
+          )}
         </DetailList>
       ) : (
         <form noValidate onSubmit={(event) => void save(event)}>
           <div className="space-y-7">
             <ChoiceGroup legend="Where do you usually train?" options={LOCATION_OPTIONS} value={draft.location} onChange={(value) => set("location", value)} columns="grid-cols-2 sm:grid-cols-4" showHints={false} compact />
             <ChoiceGroup legend="Training experience" options={EXPERIENCE_OPTIONS} value={draft.experience} onChange={(value) => set("experience", value)} columns="grid-cols-1 sm:grid-cols-3" />
-            <ChipGroup legend="Equipment you can use" hint="Bodyweight exercises are always included." options={TRAINING_EQUIPMENT} values={draft.equipment} onChange={(values) => set("equipment", values)} />
-            <ChoiceGroup legend="Training days a week" options={dayOptions} value={draft.days} onChange={(value) => set("days", value)} columns="grid-cols-4 sm:grid-cols-7" showHints={false} compact />
-            <ChoiceGroup legend="Typical session length" options={sessionOptions} value={draft.minutes} onChange={(value) => set("minutes", value)} columns="grid-cols-3 sm:grid-cols-6" showHints={false} compact />
+            <fieldset>
+              <legend className="text-sm font-semibold text-fitx-text">Equipment at home</legend>
+              <p className="mb-3 mt-1 text-xs leading-5 text-fitx-text-secondary">What you can use when you train at home. The same list is on the Workouts page.</p>
+              <EquipmentPicker context="home" value={draft.homeEquipment} onChange={(keys) => set("homeEquipment", keys)} />
+            </fieldset>
+            {lists.available ? (
+              <fieldset>
+                <legend className="text-sm font-semibold text-fitx-text">Equipment at the gym</legend>
+                <p className="mb-3 mt-1 text-xs leading-5 text-fitx-text-secondary">{lists.gym.saved ? "What your gym has." : "Starts as a fully equipped gym: untick anything yours doesn’t have."}</p>
+                <EquipmentPicker context="gym" value={draft.gymEquipment} onChange={(keys) => set("gymEquipment", keys)} />
+              </fieldset>
+            ) : (
+              <p className="text-xs leading-5 text-fitx-text-secondary">Your gym’s equipment can be saved after FITX’s next update. Until then, auto workouts assume a fully equipped gym.</p>
+            )}
+            {draft.unknownEquipment.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-fitx-text">Older entries that match no equipment</p>
+                <p className="mt-1 text-xs leading-5 text-fitx-text-secondary">Workouts don’t use these. Pick the matching item above, then remove them.</p>
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {draft.unknownEquipment.map((word) => (
+                    <li key={word} className="inline-flex min-h-11 items-center rounded-full border border-fitx-border bg-fitx-surface-variant pl-4 text-sm text-fitx-text">
+                      <span className="max-w-[16rem] truncate">{word}</span>
+                      <button type="button" onClick={() => set("unknownEquipment", draft.unknownEquipment.filter((item) => item !== word))} aria-label={`Remove ${word}`} className="grid min-h-11 min-w-11 place-items-center rounded-full text-fitx-text-secondary hover:text-fitx-text">
+                        <X size={15} aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <ChoiceGroup legend="Training days a week" hint="Sets your weekly workout goal on Home." options={dayOptions} value={draft.days} onChange={(value) => set("days", value)} columns="grid-cols-4 sm:grid-cols-7" showHints={false} compact />
+            <ChoiceGroup legend="Typical session length" hint="Sets how long auto workouts are." options={sessionOptions} value={draft.minutes} onChange={(value) => set("minutes", value)} columns="grid-cols-3 sm:grid-cols-6" showHints={false} compact />
             <ChoiceGroup legend="Preferred training split" options={SPLIT_OPTIONS} value={draft.split} onChange={(value) => set("split", value)} />
             {v2 ? <>
-              <ChipGroup legend="Injuries or areas to go easy on" options={LIMITATION_OPTIONS} values={draft.limitations} onChange={(values) => set("limitations", values)} />
-              <TagInput legend="Anything else to work around?" values={draft.customLimitations} onChange={(values) => set("customLimitations", values)} addLabel="Add limitation" placeholder="Describe it briefly" maxLength={60} max={5} />
+              <ChipGroup legend="Injuries or areas to go easy on" hint={INJURY_NOTE} options={LIMITATION_OPTIONS} values={draft.limitations} onChange={(values) => set("limitations", values)} />
+              <TagInput legend="Anything else to work around?" values={draft.customLimitations} onChange={(values) => set("customLimitations", values)} draft={draft.limitationDraft} onDraftChange={(value) => set("limitationDraft", value)} addLabel="Add limitation" placeholder="Describe it briefly" maxLength={MAX_LIMITATION_LENGTH} max={MAX_CUSTOM_LIMITATIONS} />
             </> : <p className="text-xs leading-5 text-fitx-text-secondary">Injury and limitation details arrive with the next FITX update.</p>}
           </div>
           <EditActions saving={saving} onCancel={onClose} error={error} />

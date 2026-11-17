@@ -99,11 +99,20 @@ export async function deleteGoalEntry(db: Db, userId: string, goal: GoalView, en
   }
 }
 
-export type GoalOption = { id: string; title: string };
+export type GoalOption = { id: string; title: string; countsTodos: boolean };
 
-/** Goals a To-Do can count toward: active and paused ones. */
-export async function loadGoalOptions(db: Db, userId: string): Promise<GoalOption[]> {
-  const result = await db.from("goals").select("id,title").eq("user_id", userId).in("status", ["active", "paused"]).order("created_at").limit(100);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Goals a To-Do can count toward: active and paused Checklist goals (metric tasks_completed), the only
+ * kind whose progress counts linked To-Dos. `keepId` also returns the goal a To-Do is already linked
+ * to, whatever its kind, so editing it does not silently drop the link.
+ */
+export async function loadGoalOptions(db: Db, userId: string, keepId?: string | null): Promise<GoalOption[]> {
+  const base = db.from("goals").select("id,title,metric").eq("user_id", userId).in("status", ["active", "paused"]);
+  const query = keepId && UUID.test(keepId) ? base.or(`metric.eq.tasks_completed,id.eq.${keepId}`) : base.eq("metric", "tasks_completed");
+  const result = await query.order("created_at").limit(100);
   if (result.error) throw new DataError("Your goals could not be loaded.", result.error);
-  return (result.data ?? []) as GoalOption[];
+  return ((result.data ?? []) as Array<{ id: string; title: string; metric: string }>)
+    .map((goal) => ({ id: goal.id, title: goal.title, countsTodos: goal.metric === "tasks_completed" }));
 }

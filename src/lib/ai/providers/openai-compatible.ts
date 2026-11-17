@@ -1,5 +1,5 @@
 import "server-only";
-import type { AiRequest } from "../types";
+import type { AiRequest, JsonSchema } from "../types";
 import { readSseData } from "./sse";
 import { ProviderError, errorDetail, errorForStatus, isAbort, retryAfterHeader } from "./types";
 import type { ProviderAdapter, ProviderCall, ProviderResult, ProviderStreamCall } from "./types";
@@ -15,6 +15,8 @@ export type OpenAiCompatibleOptions = {
   headers?: Record<string, string>;
   /** Provider-specific body fields, such as Groq's reasoning controls or OpenRouter's data policy. */
   extraBody?: (model: string, request: AiRequest) => Record<string, unknown>;
+  /** Whether this model accepts a JSON schema (response_format json_schema); otherwise plain JSON mode is used. */
+  jsonSchema?: (model: string) => boolean;
 };
 
 type ChatChoice = { message?: { content?: unknown }; delta?: { content?: unknown }; finish_reason?: string | null };
@@ -81,16 +83,32 @@ export function createOpenAiCompatibleAdapter(options: OpenAiCompatibleOptions):
 }
 
 /** The request body. Exported for tests. */
-export function chatBody(model: string, request: AiRequest, stream: boolean, extra?: OpenAiCompatibleOptions["extraBody"]) {
+export function chatBody(model: string, request: AiRequest, stream: boolean, extra?: OpenAiCompatibleOptions["extraBody"], useSchema = false) {
+  const responseFormat = request.json
+    ? useSchema
+      ? { type: "json_schema", json_schema: { name: request.json.name, schema: toJsonSchema(request.json.schema), strict: false } }
+      : { type: "json_object" }
+    : null;
   return {
     model,
     messages: [{ role: "system", content: request.system }, ...request.messages.map((message) => ({ role: message.role, content: message.content }))],
     temperature: request.temperature,
     max_tokens: request.maxOutputTokens,
     stream,
-    ...(request.json ? { response_format: { type: "json_object" } } : {}),
+    ...(responseFormat ? { response_format: responseFormat } : {}),
     ...(extra ? extra(model, request) : {}),
   };
+}
+
+/** The schema as standard JSON Schema (lower-case types), for response_format json_schema. */
+export function toJsonSchema(schema: JsonSchema): Record<string, unknown> {
+  const out: Record<string, unknown> = { type: schema.nullable ? [schema.type, "null"] : schema.type };
+  if (schema.description) out.description = schema.description;
+  if (schema.enum) out.enum = schema.enum;
+  if (schema.items) out.items = toJsonSchema(schema.items);
+  if (schema.properties) out.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, value]) => [key, toJsonSchema(value)]));
+  if (schema.required) out.required = schema.required;
+  return out;
 }
 
 async function send(call: ProviderCall, url: string, options: OpenAiCompatibleOptions, stream: boolean) {
@@ -104,7 +122,7 @@ async function send(call: ProviderCall, url: string, options: OpenAiCompatibleOp
         ...(options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {}),
         ...options.headers,
       },
-      body: JSON.stringify(chatBody(call.model, call.request, stream, options.extraBody)),
+      body: JSON.stringify(chatBody(call.model, call.request, stream, options.extraBody, options.jsonSchema?.(call.model) ?? false)),
       signal: call.signal,
       cache: "no-store",
     });

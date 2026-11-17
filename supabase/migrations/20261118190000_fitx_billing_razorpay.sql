@@ -60,6 +60,12 @@ create table if not exists public.billing_subscriptions (
   mode text not null check (mode in ('test', 'live')),
   provider_subscription_id text not null unique check (provider_subscription_id ~ '^sub_[A-Za-z0-9]{1,60}$'),
   provider_plan_id text not null check (provider_plan_id ~ '^plan_[A-Za-z0-9]{1,60}$'),
+  -- The price the subscription started at, copied from the plan row whose Razorpay plan the server
+  -- checked at checkout. A Razorpay plan's amount never changes, so every renewal charges this.
+  amount_paise integer check (amount_paise >= 0),
+  currency text check (currency ~ '^[A-Z]{3}$'),
+  billing_period text check (billing_period in ('monthly', 'yearly')),
+  billing_interval integer check (billing_interval >= 1),
   provider_customer_id text check (char_length(provider_customer_id) <= 80),
   status text not null default 'created' check (status in (
     'created', 'authenticated', 'active', 'pending', 'halted', 'paused', 'cancelled', 'completed', 'expired'
@@ -299,6 +305,17 @@ as $$
   select case p_status when 'pending' then 0 when 'failed' then 1 when 'processed' then 2 else -1 end
 $$;
 
+-- Lifecycle order of a subscription, used only between snapshots from the same second: created, then
+-- authenticated, then any later status.
+create or replace function public.billing_subscription_rank(p_status text)
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select case p_status when 'created' then 0 when 'authenticated' then 1 else 2 end
+$$;
+
 -- Applying Razorpay events ----------------------------------------------------------------------
 
 -- Applies one normalised Razorpay event in a single transaction and returns what happened.
@@ -386,7 +403,14 @@ begin
 
     if v_sub_row.status in ('cancelled', 'completed', 'expired') then
       v_detail := 'subscription_already_final';
-    elsif v_sub_row.provider_synced_at is not null and v_at < v_sub_row.provider_synced_at then
+    elsif v_sub_row.provider_synced_at is not null and (
+      v_at < v_sub_row.provider_synced_at
+      -- Webhook times are whole seconds. Within one second the start of the lifecycle never wins
+      -- over a later step: an "authenticated" arriving after "charged" must not undo it.
+      or (v_at = v_sub_row.provider_synced_at
+          and public.billing_subscription_rank(coalesce(v_sub->>'status', v_sub_row.status))
+            < public.billing_subscription_rank(v_sub_row.status))
+    ) then
       v_detail := 'older_than_applied_snapshot';
     else
       update public.billing_subscriptions s set
@@ -544,15 +568,16 @@ begin
     end if;
   end if;
 
+  -- Recompute paid_until; the row (and updated_at) is touched only when it actually changes.
   if v_target_sub is not null then
     update public.billing_subscriptions s
-    set paid_until = (
-          select pg_catalog.max(p.period_end)
-          from public.billing_payments p
-          where p.subscription_id = s.id and p.status = 'captured'
-        ),
-        updated_at = pg_catalog.now()
-    where s.id = v_target_sub;
+    set paid_until = c.paid_until, updated_at = pg_catalog.now()
+    from (
+      select pg_catalog.max(p.period_end) as paid_until
+      from public.billing_payments p
+      where p.subscription_id = v_target_sub and p.status = 'captured'
+    ) c
+    where s.id = v_target_sub and s.paid_until is distinct from c.paid_until;
   end if;
 
   if not v_applied then
@@ -577,8 +602,10 @@ end
 $$;
 
 -- Records the Razorpay subscription the server just created for a signed-in user's checkout.
--- Serialised per account; refuses when the account already has a subscription Razorpay is billing,
--- and marks any older unpaid checkout of the same mode as abandoned.
+-- Serialised per account; refuses when the account already has a subscription Razorpay is billing or
+-- has started 10 checkouts of this mode in the last 24 hours (the server checks the same limit before
+-- it contacts Razorpay; this catches a burst of parallel requests), marks any older unpaid checkout
+-- of the same mode as abandoned, and stores the plan's current price on the new subscription.
 create or replace function public.billing_record_checkout(
   p_user_id uuid,
   p_plan_id uuid,
@@ -607,19 +634,41 @@ begin
   ) then
     raise exception using errcode = 'P0001', message = 'billing_already_subscribed';
   end if;
+  if (
+    select pg_catalog.count(*) from public.billing_subscriptions
+    where user_id = p_user_id and mode = p_mode and created_at > pg_catalog.now() - interval '1 day'
+  ) >= 10 then
+    raise exception using errcode = 'P0001', message = 'billing_checkout_limit';
+  end if;
 
   update public.billing_subscriptions
   set abandoned_at = pg_catalog.now(), updated_at = pg_catalog.now()
   where user_id = p_user_id and mode = p_mode and status = 'created' and abandoned_at is null;
 
-  insert into public.billing_subscriptions (user_id, plan_id, mode, provider_subscription_id, provider_plan_id, total_count)
-  values (p_user_id, p_plan_id, p_mode, p_provider_subscription_id, p_provider_plan_id, p_total_count)
+  insert into public.billing_subscriptions (
+    user_id, plan_id, mode, provider_subscription_id, provider_plan_id, total_count,
+    amount_paise, currency, billing_period, billing_interval
+  )
+  select p_user_id, p.id, p_mode, p_provider_subscription_id, p_provider_plan_id, p_total_count,
+         p.amount_paise, p.currency, p.billing_period, p.billing_interval
+  from public.billing_plans p
+  where p.id = p_plan_id
   returning id into v_id;
+  if v_id is null then
+    raise exception using errcode = '22023', message = 'billing_record_checkout: unknown plan';
+  end if;
   return v_id;
 end
 $$;
 
--- Subscriptions the nightly reconciliation should compare with Razorpay, least recently checked first.
+-- Subscriptions the nightly reconciliation should compare with Razorpay, in this order:
+--   1. every subscription Razorpay may still bill, and each account's open checkout (a missed
+--      activation or renewal webhook is repaired here);
+--   2. ended ones while a refund is still plausible: 40 days after they ended. ended_at and
+--      provider_synced_at no longer change once a subscription is final, so these age out;
+--   3. checkouts replaced by a newer one, for a week (an already open Checkout window can still pay
+--      them), last so they can never crowd out the others.
+-- Least recently checked first within each group.
 create or replace function public.billing_reconcile_candidates(p_mode text, p_limit integer)
 returns table (id uuid, provider_subscription_id text, status text)
 language sql
@@ -633,9 +682,17 @@ as $$
     and (
       s.status in ('authenticated', 'active', 'pending', 'halted', 'paused')
       or (s.status = 'created' and s.created_at > pg_catalog.now() - interval '7 days')
-      or (s.status in ('cancelled', 'completed', 'expired') and s.updated_at > pg_catalog.now() - interval '40 days')
+      or (s.status in ('cancelled', 'completed', 'expired')
+          and coalesce(s.ended_at, s.provider_synced_at, s.created_at) > pg_catalog.now() - interval '40 days')
     )
-  order by s.last_reconciled_at nulls first, s.created_at
+  order by
+    case
+      when s.status = 'created' and s.abandoned_at is not null then 2
+      when s.status in ('cancelled', 'completed', 'expired') then 1
+      else 0
+    end,
+    s.last_reconciled_at nulls first,
+    s.created_at
   limit least(greatest(coalesce(p_limit, 100), 1), 500)
 $$;
 
@@ -769,7 +826,9 @@ stable
 security definer
 set search_path = ''
 as $$
-  select s.id, s.user_id, u.email::text, p.name, p.amount_paise, p.billing_period, p.billing_interval,
+  select s.id, s.user_id, u.email::text, p.name,
+         coalesce(s.amount_paise, p.amount_paise), coalesce(s.billing_period, p.billing_period),
+         coalesce(s.billing_interval, p.billing_interval),
          s.status, public.billing_grants_access(s.status, s.paid_until),
          s.paid_until, s.charge_at, s.cancel_requested_at, s.provider_subscription_id, s.created_at,
          pg_catalog.count(*) over ()
@@ -834,6 +893,7 @@ $$;
 revoke all on function public.billing_grants_access(text, timestamptz) from public, anon, authenticated, service_role;
 revoke all on function public.billing_payment_rank(text) from public, anon, authenticated, service_role;
 revoke all on function public.billing_refund_rank(text) from public, anon, authenticated, service_role;
+revoke all on function public.billing_subscription_rank(text) from public, anon, authenticated, service_role;
 
 revoke all on function public.has_premium(uuid) from public, anon;
 grant execute on function public.has_premium(uuid) to authenticated, service_role;

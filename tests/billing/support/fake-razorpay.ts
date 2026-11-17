@@ -16,6 +16,8 @@ export class FakeRazorpay {
   failNext: { path: RegExp; status: number } | null = null;
   /** The next matching request gets no answer at all (connection dropped). */
   dropNext: RegExp | null = null;
+  /** The next matching request is carried out, but its answer is lost (as when the caller times out). */
+  dropAnswerNext: RegExp | null = null;
   readonly expectedAuthorization: string;
   private server!: Server;
   private counter = 0;
@@ -64,7 +66,13 @@ export class FakeRazorpay {
     const body = req.method === "POST" ? await this.body(req) : undefined;
     const path = `${url.pathname}${url.search}`;
     this.calls.push({ method: req.method ?? "GET", path, authorization: req.headers.authorization, body });
+    const loseAnswer = Boolean(this.dropAnswerNext?.test(path));
+    if (loseAnswer) this.dropAnswerNext = null;
     const send = (status: number, payload: unknown) => {
+      if (loseAnswer) {
+        req.socket.destroy();
+        return;
+      }
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(payload));
     };

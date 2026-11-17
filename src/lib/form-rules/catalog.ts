@@ -12,9 +12,10 @@ const pushUp: ExerciseRule = {
   id: "push_up",
   name: "Push-up",
   view: "side",
+  landscape: true,
   checks: "Counts reps from your elbow angle and watches that your hips stay in one line with your shoulders and ankles.",
   setupTips: [
-    "Turn your phone sideways and stand it on the floor, about 2 metres away.",
+    "With auto-rotate on (rotation lock off), turn your phone sideways and stand it on the floor, about 2 metres away.",
     "Get side-on to the camera so it sees your head, hands and feet.",
     "Start at the top with straight arms.",
   ],
@@ -67,7 +68,7 @@ const bodyweightSquat: ExerciseRule = {
     "Turn side-on so the camera sees one hip, knee and ankle clearly.",
     "Start standing tall with your whole body in view.",
   ],
-  limits: "From the side the camera can't see your knees moving inwards; a front view would be needed for that.",
+  limits: "From the side the camera can't see your knees moving inwards; a front view would be needed for that. Jogging or high knees on the spot can be miscounted as squats.",
   required: ["shoulder", "hip", "knee", "ankle"],
   minVisibility: 0.6,
   metrics: {
@@ -106,7 +107,7 @@ const splitSquat: ExerciseRule = {
     "Stand side-on in a split stance, one foot forward, staying in the same spot.",
     "Do all reps on one leg, then switch sides; the count runs across both.",
   ],
-  limits: "Walking lunges leave the camera's view, so count those by hand. The camera can't tell which leg is in front.",
+  limits: "Walking lunges leave the camera's view, so count those by hand. The camera can't tell which leg is in front, and jogging on the spot can be miscounted as reps.",
   required: ["shoulder", "hip", "knee", "ankle"],
   minVisibility: 0.6,
   metrics: {
@@ -139,9 +140,10 @@ const gluteBridge: ExerciseRule = {
   id: "glute_bridge",
   name: "Glute bridge",
   view: "side",
+  landscape: true,
   checks: "Counts reps when your hips rise until knees, hips and shoulders line up, and flags an over-arched back.",
   setupTips: [
-    "Turn your phone sideways and stand it on the floor, about 2 metres away.",
+    "With auto-rotate on (rotation lock off), turn your phone sideways and stand it on the floor, about 2 metres away.",
     "Lie on your back side-on to the camera, knees bent and feet flat.",
     "Start with your hips resting on the floor.",
   ],
@@ -178,9 +180,10 @@ const plank: ExerciseRule = {
   id: "plank",
   name: "Plank",
   view: "side",
+  landscape: true,
   checks: "Times your hold only while your body stays in one straight line, and tells you when your hips sag or rise.",
   setupTips: [
-    "Turn your phone sideways and stand it on the floor, about 2 metres away.",
+    "With auto-rotate on (rotation lock off), turn your phone sideways and stand it on the floor, about 2 metres away.",
     "Get side-on to the camera on your forearms or hands, legs straight.",
     "The timer starts when your body forms a straight line.",
   ],

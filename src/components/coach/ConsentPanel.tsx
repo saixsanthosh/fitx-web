@@ -9,18 +9,34 @@ import { CoachRequestError, saveConsent } from "./coach-client";
 
 /**
  * The first screen of the coach: what it does, exactly what it would share and with whom, and a
- * real choice. Nothing is sent anywhere until the member presses "Start coaching".
+ * real choice that starts unmade: nothing is shared unless the member picks "Use my FITX data".
+ * Nothing is sent anywhere until the member presses "Start coaching".
  */
-export function ConsentPanel({ providers, sharedSummary, minor, onDone }: { providers: ProviderNotice[]; sharedSummary: string[]; minor: boolean; onDone: (shareData: boolean) => void }) {
-  const [shareData, setShareData] = useState(!minor);
+export function ConsentPanel({
+  providers,
+  sharedSummary,
+  minor,
+  memberDataAvailable,
+  onDone,
+}: {
+  providers: ProviderNotice[];
+  sharedSummary: string[];
+  minor: boolean;
+  memberDataAvailable: boolean;
+  onDone: (shareData: boolean) => void;
+}) {
+  // null until the member chooses; under-18 accounts never share.
+  const [shareData, setShareData] = useState<boolean | null>(minor ? false : null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const chosen = minor || shareData !== null;
 
   async function start() {
+    if (!chosen) return;
     setSaving(true);
     setError("");
     try {
-      const result = await saveConsent(shareData && !minor);
+      const result = await saveConsent(shareData === true && !minor);
       onDone(result.consent.shareData);
     } catch (caught) {
       setError(caught instanceof CoachRequestError ? caught.message : "Couldn't save your choice. Please try again.");
@@ -40,7 +56,7 @@ export function ConsentPanel({ providers, sharedSummary, minor, onDone }: { prov
           <ul className="mt-5 grid gap-3 sm:grid-cols-3">
             {[
               { icon: MessageCircle, title: "Ask anything", text: "Training, food and recovery questions" },
-              { icon: Utensils, title: "Meal plans", text: minor ? "Not available under 18" : "Fit your diet, allergies and budget" },
+              { icon: Utensils, title: "Meal plans", text: minor ? "Not available under 18" : "Planned around your diet, allergies and budget. Check labels too" },
               { icon: Dumbbell, title: "Workouts", text: minor ? "Not available under 18" : "Only exercises you can do with your kit" },
             ].map(({ icon: Icon, title, text }) => (
               <li key={title} className="rounded-lg border border-fitx-border bg-fitx-surface-variant/60 p-3">
@@ -62,15 +78,30 @@ export function ConsentPanel({ providers, sharedSummary, minor, onDone }: { prov
             <fieldset>
               <legend className="text-sm font-semibold text-fitx-text">How should the coach work?</legend>
               <div className="mt-3 grid gap-3">
-                <Choice checked={shareData} onSelect={() => setShareData(true)} title="Use my FITX data (recommended)" text="Personal answers, meal plans and workouts based on your real logs." />
-                <Choice checked={!shareData} onSelect={() => setShareData(false)} title="Questions only" text="General answers, and plans are off. The coach gets your questions with the recent messages of that conversation, and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile." />
+                <Choice
+                  checked={shareData === true}
+                  onSelect={() => setShareData(true)}
+                  disabled={!memberDataAvailable}
+                  title="Use my FITX data"
+                  text={
+                    memberDataAvailable
+                      ? "Personal answers, meal plans and workouts based on your real logs."
+                      : "Not switched on yet: FITX sends your data only to AI services that don't let people read it, and none is connected yet."
+                  }
+                />
+                <Choice
+                  checked={shareData === false}
+                  onSelect={() => setShareData(false)}
+                  title="Questions only"
+                  text="General answers, and plans are off. The coach gets your questions with the recent messages of that conversation, and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile."
+                />
               </div>
             </fieldset>
           )}
 
-          {!minor && shareData && sharedSummary.length > 0 && (
+          {!minor && memberDataAvailable && shareData !== false && sharedSummary.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-fitx-text">What the coach reads, as a short summary</h3>
+              <h3 className="text-sm font-semibold text-fitx-text">What “Use my FITX data” lets the coach read, as a short summary</h3>
               <ul className="mt-2 space-y-1.5 text-sm leading-6 text-fitx-text-secondary">
                 {sharedSummary.map((line) => <li key={line} className="flex gap-2"><span aria-hidden="true" className="mt-[11px] h-1 w-1 shrink-0 rounded-full bg-fitx-text-disabled" />{line}</li>)}
               </ul>
@@ -104,8 +135,11 @@ export function ConsentPanel({ providers, sharedSummary, minor, onDone }: { prov
           {error && <p role="alert" className="fitx-alert fitx-alert-danger">{error}</p>}
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
+            {!chosen && <p id="coach-consent-choose" className="text-sm text-fitx-text-secondary sm:mr-auto">Choose how the coach should work to start.</p>}
             <Link href="/dashboard" className="fitx-button fitx-button-quiet">Not now</Link>
-            <button type="button" onClick={start} disabled={saving} className="fitx-button">{saving ? "Starting…" : "Start coaching"}</button>
+            <button type="button" onClick={start} disabled={saving || !chosen} aria-describedby={chosen ? undefined : "coach-consent-choose"} className="fitx-button">
+              {saving ? "Starting…" : "Start coaching"}
+            </button>
           </div>
         </div>
       </div>
@@ -113,10 +147,16 @@ export function ConsentPanel({ providers, sharedSummary, minor, onDone }: { prov
   );
 }
 
-function Choice({ checked, onSelect, title, text }: { checked: boolean; onSelect: () => void; title: string; text: string }) {
+function Choice({ checked, onSelect, title, text, disabled = false }: { checked: boolean; onSelect: () => void; title: string; text: string; disabled?: boolean }) {
   return (
-    <label className={cn("flex min-h-11 cursor-pointer gap-3 rounded-lg border p-3.5 transition-colors", checked ? "border-fitx-primary bg-fitx-primary/5" : "border-fitx-border hover:bg-fitx-hover")}>
-      <input type="radio" name="coach-data-choice" checked={checked} onChange={onSelect} className="mt-1 h-4 w-4 shrink-0 accent-[var(--fitx-primary)]" />
+    <label
+      className={cn(
+        "flex min-h-11 gap-3 rounded-lg border p-3.5 transition-colors",
+        disabled ? "cursor-not-allowed border-fitx-border opacity-70" : "cursor-pointer",
+        !disabled && (checked ? "border-fitx-primary bg-fitx-primary/5" : "border-fitx-border hover:bg-fitx-hover"),
+      )}
+    >
+      <input type="radio" name="coach-data-choice" checked={checked} disabled={disabled} onChange={onSelect} className="mt-1 h-4 w-4 shrink-0 accent-[var(--fitx-primary)]" />
       <span>
         <span className="block text-sm font-semibold text-fitx-text">{title}</span>
         <span className="mt-0.5 block text-xs leading-5 text-fitx-text-secondary">{text}</span>

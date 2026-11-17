@@ -10,14 +10,17 @@ export const metadata: Metadata = { title: "Subscription" };
 // Per-account billing details: always rendered for the request, never prerendered or cached.
 export const dynamic = "force-dynamic";
 
-function OpensSoon() {
+/** No plan can be bought here right now; `configured` is false before Razorpay billing is set up. */
+function OpensSoon({ configured }: { configured: boolean }) {
   return (
     <section className="fitx-panel p-6 sm:p-8" aria-labelledby="subscription-soon">
       <p className="text-xs font-semibold uppercase tracking-[.18em] text-fitx-primary-text">FITX Premium</p>
-      <h2 id="subscription-soon" className="mt-3 text-2xl font-semibold tracking-tight text-fitx-text">Subscriptions open soon</h2>
+      <h2 id="subscription-soon" className="mt-3 text-2xl font-semibold tracking-tight text-fitx-text">
+        {configured ? "Premium isn’t on sale right now" : "Subscriptions open soon"}
+      </h2>
       <p className="mt-3 max-w-xl text-sm leading-6 text-fitx-text-secondary">
-        Everything in FITX today is free to use. When paid plans open, their prices and what they include will be shown here
-        before anything is charged.
+        A FITX account is free. When Premium plans are on sale, their prices and what they include are shown here before anything
+        is charged.
       </p>
       <Link href="/pricing" className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text underline-offset-4 hover:underline">
         See pricing
@@ -37,7 +40,7 @@ export default async function SubscriptionPage() {
           We couldn’t load your billing details. Check your connection and reload the page.
         </p>
       ) : model.state !== "ready" ? (
-        <OpensSoon />
+        <OpensSoon configured={false} />
       ) : (
         <>
           {model.current || model.checkoutOpen ? (
@@ -49,11 +52,11 @@ export default async function SubscriptionPage() {
               mode={model.mode}
             />
           ) : (
-            <OpensSoon />
+            <OpensSoon configured={model.mode !== null} />
           )}
           <BillingHistory payments={model.payments} refunds={model.refunds} />
           <p className="text-xs leading-5 text-fitx-text-secondary">
-            Payments are processed by Razorpay; FITX never sees your card or UPI details. Read the{" "}
+            Payments are processed by Razorpay; FITX never stores your card, UPI or bank details. Read the{" "}
             <Link href="/terms" className="font-medium text-fitx-primary-text underline underline-offset-2">terms</Link> and{" "}
             <Link href="/refunds" className="font-medium text-fitx-primary-text underline underline-offset-2">refund policy</Link>.
           </p>

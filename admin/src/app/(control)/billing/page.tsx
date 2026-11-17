@@ -7,6 +7,7 @@ import styles from "./billing.module.css";
 import {
   formatInr,
   formatSignedInr,
+  lastCoveredInstant,
   monthLabel,
   netPaise,
   parseMode,
@@ -212,7 +213,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
                           {row.cancelRequestedAt && <span className="table-subline">Cancelled by member {formatIstDate(row.cancelRequestedAt)}</span>}
                         </td>
                         <td>{row.hasAccess ? "Yes" : "No"}</td>
-                        <td>{formatIstDate(row.paidUntil) ?? "—"}</td>
+                        <td>{formatIstDate(lastCoveredInstant(row.paidUntil)) ?? "—"}</td>
                         <td>{["active", "pending"].includes(row.status) ? formatIstDate(row.chargeAt) ?? "—" : "—"}</td>
                         <td>{formatIstDate(row.createdAt) ?? "—"}</td>
                         <td className="mono-cell">{row.providerId}</td>
@@ -257,7 +258,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
                         <td><strong>{row.email ?? "Deleted account"}</strong></td>
                         <td>
                           {row.planName ?? "—"}
-                          {row.periodStart && row.periodEnd && <span className="table-subline">{formatIstDate(row.periodStart)} – {formatIstDate(row.periodEnd)}</span>}
+                          {row.periodStart && row.periodEnd && <span className="table-subline">{formatIstDate(row.periodStart)} – {formatIstDate(lastCoveredInstant(row.periodEnd))}</span>}
                         </td>
                         <td className={styles.money}>{row.currency === "INR" ? formatInr(row.amountPaise) : `${(row.amountPaise / 100).toFixed(2)} ${row.currency}`}</td>
                         <td><span className={`status-pill ${paymentPill(row.status)}`}><i />{paymentLabel(row.status, row.refundedPaise)}</span></td>
@@ -338,7 +339,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       )}
 
       <p className="privacy-note">
-        Card numbers, UPI IDs and bank details never reach FITX; Razorpay keeps them. This page shows account emails, amounts, statuses and
+        FITX never stores card, UPI or bank details: Razorpay keeps them, and the server drops the ones its payment notices carry. This page shows account emails, amounts, statuses and
         Razorpay reference ids only. Refunds are issued in the Razorpay Dashboard.
       </p>
     </div>

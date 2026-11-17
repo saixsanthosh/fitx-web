@@ -29,9 +29,10 @@ export function sumMacros<T extends FoodMacros>(items: T[]): FoodMacros {
 
 // ─── Daily targets ───────────────────────────────────────────────────────────────────────────────
 // Mifflin-St Jeor BMR × activity gives maintenance; the goal then adds a surplus or takes a deficit as
-// a share of maintenance, capped in calories. Loss goals never go below a safe floor (1,200 kcal for
-// women, 1,500 for men, 1,350 otherwise) and under-18s stay at maintenance. Callers pass the latest
-// weigh-in as `weight` (see loadUserContext), so targets follow what the user logs.
+// a share of maintenance, capped in calories. A loss goal's deficit never takes the target below a safe
+// floor (1,200 kcal for women, 1,500 for men, 1,350 otherwise); when maintenance is already under that
+// floor there is no deficit at all and the target stays at maintenance. Under-18s stay at maintenance.
+// Callers pass the latest weigh-in as `weight` (see loadUserContext), so targets follow what the user logs.
 
 type TargetProfile = {
   age?: number | null;
@@ -49,8 +50,10 @@ export type NutritionTargets = FoodMacros & {
   /** Calories added to maintenance (negative for a deficit), after the floor and the under-18 rule. */
   adjustment: number;
   rule: TargetRule;
-  /** The floor that raised a loss target, or null when the goal's own deficit applied. */
+  /** The floor that set a loss target (the target equals it), or null when it didn't. */
   floorApplied: number | null;
+  /** True when a loss goal was chosen but maintenance is already under the floor, so the target stays at maintenance. */
+  maintenanceBelowFloor: boolean;
   /** True when an under-18 picked a loss goal: FITX keeps the target at maintenance. */
   youthMaintenance: boolean;
   proteinPerKg: number;
@@ -110,12 +113,15 @@ export function calculateNutritionTargets(
 
   let calories = maintenance + adjustment;
   let floorApplied: number | null = null;
+  let maintenanceBelowFloor = false;
   if (adjustment < 0) {
     const floor = calorieFloor(profile.gender);
-    // Never below the floor; when maintenance itself is under the floor, no deficit at all.
-    const lowest = Math.min(floor, maintenance);
-    if (calories < lowest) {
-      calories = lowest;
+    if (maintenance < floor) {
+      // Maintenance is already under the floor: no deficit at all. The floor did not set this number.
+      calories = maintenance;
+      maintenanceBelowFloor = true;
+    } else if (calories < floor) {
+      calories = floor;
       floorApplied = floor;
     }
   }
@@ -139,6 +145,7 @@ export function calculateNutritionTargets(
     adjustment,
     rule,
     floorApplied,
+    maintenanceBelowFloor,
     youthMaintenance,
     proteinPerKg: rules.proteinPerKg,
     weeklyChangeKg: Math.round(((adjustment * 7) / KCAL_PER_KG) * 100) / 100 || 0,

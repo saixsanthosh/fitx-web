@@ -104,17 +104,19 @@ export function CoachSettings({
           </div>
         </section>
 
-        <section aria-labelledby="coach-providers-title">
-          <h3 id="coach-providers-title" className="text-sm font-semibold">Who answers</h3>
-          <ul className="mt-2 space-y-2">
-            {providers.map((provider) => (
-              <li key={provider.id} className="rounded-lg border border-fitx-border px-3 py-2.5">
-                <p className="text-sm font-medium">{provider.name}</p>
-                <p className="mt-0.5 text-xs leading-5 text-fitx-text-secondary">{provider.dataUse}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
+        {providers.length > 0 && (
+          <section aria-labelledby="coach-providers-title">
+            <h3 id="coach-providers-title" className="text-sm font-semibold">Who answers</h3>
+            <ul className="mt-2 space-y-2">
+              {providers.map((provider) => (
+                <li key={provider.id} className="rounded-lg border border-fitx-border px-3 py-2.5">
+                  <p className="text-sm font-medium">{provider.name}</p>
+                  <p className="mt-0.5 text-xs leading-5 text-fitx-text-secondary">{provider.dataUse}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section aria-labelledby="coach-delete-title" className="rounded-xl border border-fitx-danger-border p-4">
           <h3 id="coach-delete-title" className="text-sm font-semibold">Delete my coach data</h3>

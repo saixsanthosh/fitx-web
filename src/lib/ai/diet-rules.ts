@@ -1,9 +1,11 @@
 import "server-only";
 
 /**
- * Diet and allergy rules FITX enforces in code on every food the coach suggests, whatever the model
- * said. Word lists include common Indian names (paneer, ghee, groundnut, atta, maida, suji…).
- * When in doubt a food is treated as containing the ingredient: a vegetarian never gets an egg dish.
+ * Diet and allergy rules FITX checks in code on every food the coach suggests, whatever the model
+ * said. They are word lists, including common Indian ingredients and dishes (paneer, ghee, groundnut,
+ * atta, maida, makhani, kadhi, momos, poha…), and a dish counts as containing an ingredient it is often
+ * made with: a peanut allergy rules out poha and sabudana. A name can still hide an ingredient, so
+ * every plan for a member with allergies also tells them to check ingredients and labels.
  */
 
 export type DietRule = "vegetarian" | "eggetarian" | "vegan" | "pescatarian" | "halal" | "jain" | "no_onion_garlic" | "no_beef" | "no_pork";
@@ -15,34 +17,40 @@ const MEAT: Terms = {
   words: [
     "chicken", "mutton", "lamb", "goat", "beef", "pork", "bacon", "ham", "sausage", "salami", "pepperoni", "turkey", "duck",
     "keema", "kheema", "meat", "steak", "venison", "veal", "liver", "gosht", "boti", "nihari", "haleem", "meatball", "jerky", "prosciutto", "chorizo",
+    "murgh", "murg", "kaleji", "kalegi", "mangsho", "paya", "bheja", "tangdi", "galouti", "shami", "sorpotel",
   ],
 };
 const FISH: Terms = {
   words: [
     "fish", "salmon", "tuna", "sardine", "mackerel", "rohu", "pomfret", "surmai", "hilsa", "ilish", "katla", "basa", "tilapia", "cod",
-    "anchovy", "bangda", "seer", "trout", "haddock", "herring", "machli", "macchi", "meen",
+    "anchovy", "bangda", "seer", "trout", "haddock", "herring", "machli", "macchi", "meen", "maach", "maacher", "macher", "bombil",
+    "karimeen", "nethili", "rawas",
   ],
 };
 const SHELLFISH: Terms = {
-  words: ["prawn", "shrimp", "crab", "lobster", "squid", "octopus", "oyster", "mussel", "clam", "scallop", "crayfish", "jhinga", "calamari", "seafood"],
+  words: ["prawn", "shrimp", "crab", "lobster", "squid", "octopus", "oyster", "mussel", "clam", "scallop", "crayfish", "jhinga", "calamari", "seafood", "chingri", "kolambi", "konju"],
 };
-const EGG: Terms = { words: ["egg", "omelette", "omelet", "anda", "mayonnaise", "mayo", "meringue", "frittata"], phrases: ["egg bhurji"] };
+const EGG: Terms = { words: ["egg", "omelette", "omelet", "anda", "mayonnaise", "mayo", "meringue", "frittata", "baida", "akuri"], phrases: ["egg bhurji", "mughlai paratha"] };
 const DAIRY: Terms = {
   words: [
     "milk", "curd", "dahi", "yogurt", "yoghurt", "paneer", "cheese", "ghee", "butter", "cream", "khoa", "khoya", "mawa", "lassi", "raita",
     "buttermilk", "chaas", "chhaas", "whey", "casein", "kheer", "payasam", "malai", "kulfi", "rabri", "rabdi", "shrikhand", "milkshake",
     "latte", "cappuccino", "chai", "custard", "mozzarella", "cheddar", "ricotta", "burfi", "barfi", "peda", "rasgulla", "rasmalai", "gulab", "kefir",
+    // Dishes made with milk, cream, curd, chhena or ghee.
+    "makhani", "makhanwala", "kadhi", "korma", "shahi", "chhena", "chenna", "sandesh", "basundi", "doi", "chaach", "chhach", "halwa", "phirni",
+    "firni", "kalakand", "falooda", "faluda", "rosogolla", "rasgolla", "chamcham", "malpua", "gujiya", "balushahi", "ladoo", "laddu", "laddoo",
   ],
-  phrases: ["ice cream"],
+  phrases: ["ice cream", "mysore pak"],
 };
 /** Phrases that look dairy but are not. */
 const DAIRY_EXCEPTIONS = [
   "coconut milk", "almond milk", "soy milk", "soya milk", "oat milk", "rice milk", "cashew milk", "peanut butter", "almond butter",
   "nut butter", "cocoa butter", "apple butter", "butter bean", "butter beans", "coconut cream", "vegan cheese", "coconut yogurt", "coconut curd",
 ];
-const PEANUT: Terms = { words: ["peanut", "groundnut", "moongphali", "mungfali", "chikki"] };
+/** Poha, sabudana dishes and chivda are usually made with peanuts. */
+const PEANUT: Terms = { words: ["peanut", "groundnut", "moongphali", "mungfali", "chikki", "shengdana", "singdana", "poha", "sabudana", "chivda", "chiwda"] };
 const TREE_NUTS: Terms = {
-  words: ["almond", "badam", "cashew", "kaju", "walnut", "akhrot", "pistachio", "pista", "hazelnut", "pecan", "macadamia", "chilgoza", "praline", "marzipan", "nut", "nuts"],
+  words: ["almond", "badam", "cashew", "kaju", "walnut", "akhrot", "pistachio", "pista", "hazelnut", "pecan", "macadamia", "chilgoza", "praline", "marzipan", "chironji", "charoli", "nut", "nuts"],
   phrases: ["dry fruit", "dry fruits", "brazil nut", "pine nut"],
 };
 const NUT_EXCEPTIONS = ["coconut", "nutmeg", "butternut", "doughnut", "donut", "nutrela", "nutrition"];
@@ -52,19 +60,25 @@ const WHEAT: Terms = {
     "puri", "poori", "naan", "bread", "pasta", "noodle", "spaghetti", "macaroni", "couscous", "bulgur", "seitan", "dalia", "upma", "biscuit",
     "cracker", "barley", "rye", "kulcha", "bhatura", "samosa", "kachori", "pizza", "burger", "sandwich", "toast", "cake", "muffin", "bun", "pav",
     "vermicelli", "sevai", "seviyan", "khakhra", "thepla", "mathri", "cookie",
+    // Dishes made with wheat flour, maida or rawa.
+    "momo", "rawa", "chowmein", "rusk", "tortilla", "wrap", "bhature", "parotta", "porotta", "barotta", "luchi", "poli", "manchurian", "baati",
+    "litti", "semiya", "sheermal", "bakarkhani", "falooda", "faluda", "malpua", "gujiya", "balushahi", "jalebi", "shakarpara", "frankie", "pao",
+    "dabeli", "puff", "pastry", "croissant", "bagel", "pita", "lavash", "dumpling", "wonton", "ramen", "udon", "soba", "lasagna", "lasagne",
+    "penne", "fusilli", "ravioli",
   ],
+  phrases: ["chow mein", "kathi roll", "spring roll", "egg roll", "hakka noodle"],
 };
 const SOY: Terms = { words: ["soy", "soya", "tofu", "edamame", "tempeh", "miso", "nutrela"], phrases: ["soy sauce", "soya chunks"] };
-const SESAME: Terms = { words: ["sesame", "til", "tahini", "gingelly", "hummus"] };
-const MUSTARD: Terms = { words: ["mustard", "sarson", "rai", "kasundi"] };
-const PORK_ALCOHOL: Terms = { words: ["pork", "bacon", "ham", "lard", "gelatin", "gelatine", "wine", "beer", "rum", "vodka", "whisky", "whiskey", "alcohol", "pepperoni", "salami", "prosciutto", "chorizo"] };
+const SESAME: Terms = { words: ["sesame", "til", "tahini", "gingelly", "hummus", "gajak", "revdi", "rewri", "ellu"] };
+const MUSTARD: Terms = { words: ["mustard", "sarson", "rai", "kasundi", "shorshe", "sorshe"] };
+const PORK_ALCOHOL: Terms = { words: ["pork", "bacon", "ham", "lard", "gelatin", "gelatine", "wine", "beer", "rum", "vodka", "whisky", "whiskey", "alcohol", "pepperoni", "salami", "prosciutto", "chorizo", "sorpotel"] };
 const HONEY_GELATIN: Terms = { words: ["honey", "gelatin", "gelatine"] };
 const GELATIN: Terms = { words: ["gelatin", "gelatine"] };
 /** Jain diets also avoid root vegetables. */
 const ROOTS: Terms = { words: ["onion", "garlic", "potato", "aloo", "carrot", "beetroot", "radish", "mooli", "ginger", "turnip", "yam", "sweet potato", "shakarkandi"] };
 const ONION_GARLIC: Terms = { words: ["onion", "onions", "garlic", "pyaz", "pyaaz", "lahsun", "lehsun", "shallot", "leek", "chive", "chives"] };
 const BEEF: Terms = { words: ["beef", "veal"] };
-const PORK: Terms = { words: ["pork", "bacon", "ham", "lard", "pepperoni", "salami", "prosciutto", "chorizo", "sausage"] };
+const PORK: Terms = { words: ["pork", "bacon", "ham", "lard", "pepperoni", "salami", "prosciutto", "chorizo", "sausage", "sorpotel"] };
 
 const ALLERGY_TERMS: Record<AllergyRule, Terms> = {
   dairy: DAIRY,

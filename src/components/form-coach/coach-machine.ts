@@ -16,7 +16,11 @@ import type { PosePoint, Side } from "@/lib/pose/landmarks";
 import { landmarkIndex } from "@/lib/pose/landmarks";
 import type { CaptureProfile, ModelVariant, PerformanceAdvice } from "@/lib/pose/performance";
 import { FrameGovernor, initialProfile, readDeviceHints } from "@/lib/pose/performance";
+import type { FrameSize } from "./video-size";
+import { videoSize, watchVideoSize } from "./video-size";
 import { CoachVoice } from "./voice";
+
+export type { FrameSize } from "./video-size";
 
 export type CoachStage =
   | { name: "idle" }
@@ -25,12 +29,8 @@ export type CoachStage =
   | { name: "paused"; reason: "hidden" | "camera-ended"; detail?: string }
   | { name: "camera-error"; problem: CameraProblem }
   | { name: "engine-error"; problem: EngineProblem }
-  | { name: "finished"; summary: CoachSummary };
-
-export interface FrameSize {
-  width: number;
-  height: number;
-}
+  /** `endedEarly`: the pose model failed mid-set; the counts made until then are kept. */
+  | { name: "finished"; summary: CoachSummary; endedEarly?: boolean };
 
 export interface CoachUi {
   setStage(stage: CoachStage): void;
@@ -46,7 +46,7 @@ export interface CoachUi {
 }
 
 type VideoWithFrames = HTMLVideoElement & {
-  requestVideoFrameCallback?: (callback: () => void) => number;
+  requestVideoFrameCallback?: (callback: (now: number, metadata?: { presentedFrames?: number }) => void) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
 };
 
@@ -70,12 +70,15 @@ interface Run {
   facing: "user" | "environment";
   looping: boolean;
   cancelFrame: (() => void) | null;
+  /** Stops following the current stream's picture size. */
+  stopWatchingSize: (() => void) | null;
   swapping: boolean;
   /** Counting has run at least once, so this run holds counts worth keeping. */
   everRan: boolean;
 }
 
 const SLOW_DEVICE_NOTICE = "This device is analysing the camera slowly, so quick reps may be missed. Good light and closing other apps help.";
+const SLOW_CAMERA_NOTICE = "The camera is sending few pictures a second, which often means the room is dim, so quick reps may be missed. More light helps.";
 
 /** Landmarks the rule measures, drawn in the accent colour. */
 function focusFor(rule: ExerciseRule, side: Side | null): Set<number> {
@@ -146,6 +149,7 @@ export class CoachMachine {
       facing: "user",
       looping: false,
       cancelFrame: null,
+      stopWatchingSize: null,
       swapping: false,
       everRan: false,
     };
@@ -302,7 +306,12 @@ export class CoachMachine {
     }
     await waitForVideoSize(video);
     if (!this.isCurrent(generation)) return false;
-    this.ui.setFrame(video.videoWidth > 0 ? { width: video.videoWidth, height: video.videoHeight } : null);
+    this.ui.setFrame(videoSize(video));
+    // Turning the phone (auto-rotate on) or a smaller camera picture changes the size mid-stream.
+    run.stopWatchingSize?.();
+    run.stopWatchingSize = watchVideoSize(video, (size) => {
+      if (this.run === run && run.stream === stream) this.ui.setFrame(size);
+    });
     void listCameras().then((cameras) => {
       if (this.isCurrent(generation)) this.ui.setCameraCount(cameras.length);
     });
@@ -325,8 +334,23 @@ export class CoachMachine {
       run.engine = engine;
       return true;
     } catch (error) {
-      if (this.isCurrent(generation)) this.fail({ name: "engine-error", problem: error instanceof PoseEngineError ? error.problem : "start" });
+      if (this.isCurrent(generation)) this.engineFailed(run, error instanceof PoseEngineError ? error.problem : "start");
       return false;
+    }
+  }
+
+  /**
+   * The pose model can't go on. Counts already made are kept: the set ends with its summary, as if
+   * Finish was pressed (like a camera that won't come back). With nothing counted, the error shows.
+   */
+  private engineFailed(run: Run, problem: EngineProblem) {
+    if (this.run !== run) return;
+    const summary = run.session.summary();
+    if (run.everRan && (summary.reps > 0 || summary.holdSeconds > 0)) {
+      this.stopAll();
+      this.setStage({ name: "finished", summary, endedEarly: true });
+    } else {
+      this.fail({ name: "engine-error", problem });
     }
   }
 
@@ -370,7 +394,11 @@ export class CoachMachine {
     const schedule = () => {
       if (!run.looping) return;
       if (typeof video.requestVideoFrameCallback === "function") {
-        const handle = video.requestVideoFrameCallback(step);
+        const handle = video.requestVideoFrameCallback((_now, metadata) => {
+          // Every camera frame is counted, analysed or not, so a slow camera isn't taken for slow detection.
+          if (run.looping) run.governor.cameraFrame(performance.now(), metadata?.presentedFrames);
+          step();
+        });
         run.cancelFrame = () => video.cancelVideoFrameCallback?.(handle);
       } else {
         const handle = requestAnimationFrame(step);
@@ -448,8 +476,8 @@ export class CoachMachine {
   }
 
   private async applyAdvice(run: Run, advice: PerformanceAdvice) {
-    if (advice === "too-slow") {
-      this.ui.setNotice(SLOW_DEVICE_NOTICE);
+    if (advice === "too-slow" || advice === "slow-camera") {
+      this.ui.setNotice(advice === "too-slow" ? SLOW_DEVICE_NOTICE : SLOW_CAMERA_NOTICE);
       return;
     }
     if (advice === "lower-resolution") {
@@ -515,7 +543,7 @@ export class CoachMachine {
       run.governor.restart();
     } catch {
       lease?.release();
-      if (this.run === run) this.fail({ name: "engine-error", problem: "runtime" });
+      this.engineFailed(run, "runtime");
     } finally {
       run.swapping = false;
     }
@@ -552,6 +580,8 @@ export class CoachMachine {
   }
 
   private stopCamera(run: Run) {
+    run.stopWatchingSize?.();
+    run.stopWatchingSize = null;
     stopStream(run.stream);
     run.stream = null;
     const video = this.ui.video();

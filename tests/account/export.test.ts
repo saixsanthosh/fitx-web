@@ -4,7 +4,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { FakeQueryClient } from "../support/fake-query-client.ts";
 import { EXPORT_PAGE_SIZE, EXPORT_TABLES, ExportError, countRecords, exportAccountData, exportFileName, isMissingTable } from "@/lib/account/export";
 
-const USER = { id: "11111111-1111-4111-8111-111111111111", email: "me@example.test", created_at: "2026-10-01T00:00:00Z", last_sign_in_at: "2026-11-16T09:00:00Z", identities: [{ provider: "google" }, { provider: "email" }] };
+const USER = {
+  id: "11111111-1111-4111-8111-111111111111",
+  email: "me@example.test",
+  created_at: "2026-10-01T00:00:00Z",
+  last_sign_in_at: "2026-11-16T09:00:00Z",
+  user_metadata: { full_name: "Asha Rao", avatar_url: "https://lh3.example/photo.jpg", email_verified: true },
+  identities: [
+    { provider: "google", identity_data: { sub: "1234567890", name: "Asha Rao", picture: "https://lh3.example/photo.jpg" }, created_at: "2026-10-01T00:00:00Z", last_sign_in_at: "2026-11-16T09:00:00Z" },
+    { provider: "email" },
+  ],
+};
 let fake: FakeQueryClient;
 const client = () => fake as unknown as SupabaseClient;
 
@@ -38,6 +48,11 @@ describe("data export", () => {
     assert.deepEqual(data.tables.profiles, [{ id: USER.id, name: "Asha" }]);
     assert.equal(countRecords(data), EXPORT_PAGE_SIZE + 5 + 2);
     assert.deepEqual(data.account.sign_in_methods, ["google", "email"]);
+    // The sign-in profile FITX holds is part of "everything": what Google shared, and each linked identity.
+    assert.deepEqual(data.account.profile_from_sign_in, USER.user_metadata);
+    assert.deepEqual(data.account.identities[0], { provider: "google", details: USER.identities[0].identity_data, created_at: "2026-10-01T00:00:00Z", last_sign_in_at: "2026-11-16T09:00:00Z" });
+    assert.deepEqual(data.account.identities[1], { provider: "email", details: {}, created_at: null, last_sign_in_at: null });
+    assert.doesNotMatch(JSON.stringify(data.account), /token/i);
     assert.ok(progress.includes("Food log"));
     // Two pages were read for meals: 0-999 and 1000-1999.
     assert.deepEqual(fake.calls.filter((call) => call.table === "meals").map((call) => call.range), [[0, 999], [1000, 1999]]);

@@ -69,6 +69,8 @@
 .field legend { margin-bottom: 6px; padding: 0; }
 .field em { margin-left: 4px; color: var(--fitx-text-disabled); font-style: normal; font-weight: 500; }
 .field small { color: var(--fitx-text-secondary); font-size: .74rem; line-height: 1.45; }
+.fieldHint { color: var(--fitx-text-secondary); font-size: .8rem; line-height: 1.5; }
+.inlineLink { color: var(--fitx-primary-text); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .fieldRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { position: relative; cursor: pointer; }

@@ -11,8 +11,11 @@ export type WebhookResult = { status: number; body: Record<string, unknown> };
 /** Razorpay webhook bodies are a few kilobytes; anything far larger is not from Razorpay. */
 export const MAX_WEBHOOK_BYTES = 256 * 1024;
 
-/** Payment events that may arrive without their subscription; the invoice names it. */
-const INVOICE_LINKED_EVENTS: ReadonlySet<string> = new Set(["payment.captured", "payment.failed"]);
+/**
+ * Payment events that carry only the payment; its invoice names the subscription. payment.authorized
+ * usually arrives before subscription.charged, so without the invoice it would be ignored as unknown.
+ */
+const INVOICE_LINKED_EVENTS: ReadonlySet<string> = new Set(["payment.authorized", "payment.captured", "payment.failed"]);
 
 /**
  * Verifies and applies one Razorpay webhook delivery.

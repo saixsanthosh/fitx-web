@@ -28,7 +28,7 @@ export default async function PricingPage() {
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
       <p className="text-xs font-semibold uppercase tracking-[.2em] text-fitx-primary-text">Pricing</p>
       <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-        {catalog.open ? "Free to use. Premium when you want more." : "Free to use today."}
+        {catalog.open ? "Free to use. Premium when you want more." : "Free to use."}
       </h1>
       <p className="mt-5 max-w-2xl text-base leading-7 text-fitx-text-secondary">
         {catalog.open
@@ -88,10 +88,11 @@ export default async function PricingPage() {
         ) : (
           <section className="fitx-panel flex flex-col p-6" aria-labelledby="plan-premium">
             <h2 id="plan-premium" className="text-sm font-semibold text-fitx-primary-text">FITX Premium</h2>
-            <p className="mt-3 text-2xl font-semibold tracking-tight">Subscriptions open soon</p>
+            <p className="mt-3 text-2xl font-semibold tracking-tight">
+              {catalog.reason === "not_configured" ? "Subscriptions open soon" : "Not on sale right now"}
+            </p>
             <p className="mt-3 text-sm leading-6 text-fitx-text-secondary">
-              Paid plans are not on sale yet. When they open, each plan’s price and what it includes will be listed here before
-              anything is charged.
+              When Premium plans are on sale, each plan’s price and what it includes are listed here before you pay.
             </p>
           </section>
         )}
@@ -105,13 +106,13 @@ export default async function PricingPage() {
             paid for.
           </p>
           <p>
-            Payments are processed by Razorpay; FITX never sees or stores your card or UPI details. See the{" "}
+            Payments are processed by Razorpay; FITX never stores your card, UPI or bank details. See the{" "}
             <Link href="/terms" className="font-medium text-fitx-primary-text underline underline-offset-2">terms</Link> and{" "}
             <Link href="/refunds" className="font-medium text-fitx-primary-text underline underline-offset-2">refund policy</Link>.
           </p>
         </div>
       ) : (
-        <p className="mt-6 text-xs text-fitx-text-secondary">If paid plans are introduced, prices and terms are published here before any charge is made.</p>
+        <p className="mt-6 text-xs text-fitx-text-secondary">Prices and terms for any paid plan are published here before it is sold.</p>
       )}
     </main>
   );

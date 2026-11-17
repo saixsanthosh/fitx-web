@@ -49,7 +49,7 @@ export function MealPlanCard({ plan, actions }: { plan: CoachMealPlan; actions: 
                   state={actions.stateOf(meal.actionId)}
                   onApply={() => actions.apply(meal.actionId!)}
                   label="Add whole meal"
-                  doneLabel="Meal added"
+                  doneLabel="Saved to My foods"
                   doneHref="/nutrition"
                   doneLinkLabel="Open Nutrition"
                 />
@@ -158,7 +158,7 @@ function FoodRow({ item, actions, nested = false }: { item: CoachFoodItem; actio
         </div>
         {item.actionId && (
           <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
-            <ActionButton state={actions.stateOf(item.actionId)} onApply={() => actions.apply(item.actionId!)} label="Add to My Food Plan" doneLabel="Added" doneHref="/nutrition" doneLinkLabel="View in Nutrition" describedBy={detailId} />
+            <ActionButton state={actions.stateOf(item.actionId)} onApply={() => actions.apply(item.actionId!)} label="Add to My Food Plan" doneLabel="Saved to My foods" doneHref="/nutrition" doneLinkLabel="View in Nutrition" describedBy={detailId} />
             {actions.canSwap && !nested && (
               <button type="button" onClick={() => setSwapOpen((open) => !open)} aria-expanded={swapOpen} className="min-h-11 text-sm font-medium text-fitx-text-secondary underline-offset-4 hover:text-fitx-text hover:underline">
                 Can&apos;t afford this?

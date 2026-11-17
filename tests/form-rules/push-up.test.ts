@@ -127,4 +127,6 @@ test("going back down before straightening the arms asks for a full lockout and 
   const result = play(createCoachSession(rule), sequence(5000, (t) => pushUp(curve(t))));
   assert.equal(result.last.reps, 1);
   assert.ok(cueIds(result.events).includes("lockout"));
+  assert.equal(result.last.cleanReps, 0, "a rep that needed the lockout cue is not a rep without a form cue");
+  assert.deepEqual(result.summary.cues.map((cue) => [cue.id, cue.count]), [["lockout", 1]]);
 });

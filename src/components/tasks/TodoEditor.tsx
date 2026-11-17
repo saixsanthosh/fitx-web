@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Trash2 } from "lucide-react";
 import { loadGoalOptions, type GoalOption } from "@/lib/data/goals";
@@ -38,7 +39,7 @@ export function TodoEditor({ open, mode, initial, schema, onClose, onSubmit, onD
         const { db, userId } = await getSession();
         const [planList, goalList] = await Promise.all([
           loadPlanOptions(db, userId).catch(() => [] as PlanOption[]),
-          legacy ? Promise.resolve([] as GoalOption[]) : loadGoalOptions(db, userId).catch(() => [] as GoalOption[]),
+          legacy ? Promise.resolve([] as GoalOption[]) : loadGoalOptions(db, userId, initial.goalId || null).catch(() => [] as GoalOption[]),
         ]);
         if (active) { setPlans(planList); setGoals(goalList); }
       } catch {
@@ -46,7 +47,7 @@ export function TodoEditor({ open, mode, initial, schema, onClose, onSubmit, onD
       }
     })();
     return () => { active = false; };
-  }, [open, legacy]);
+  }, [open, legacy, initial.goalId]);
 
   const set = <K extends keyof TodoDraft>(key: K, value: TodoDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
 
@@ -103,7 +104,7 @@ export function TodoEditor({ open, mode, initial, schema, onClose, onSubmit, onD
               <option value="">{plans === null ? "Loading your workouts…" : plans.length ? "None" : "No saved workouts yet"}</option>
               {(plans ?? []).map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}
             </select>
-            <small>Linked workouts get a Start button, and finishing the workout ticks this off.</small>
+            <small>Linked workouts get a Start button. Finishing that workout on this day, or later if it is overdue, ticks this off.</small>
           </label>
         )}
         <div className={styles.fieldRow}>
@@ -116,15 +117,20 @@ export function TodoEditor({ open, mode, initial, schema, onClose, onSubmit, onD
             <input className="fitx-field" type="time" value={draft.time} onChange={(event) => set("time", event.target.value)} />
           </label>
         </div>
-        {!legacy && (
+        {!legacy && (goals === null || goals.length > 0 || draft.goalId ? (
           <label className={styles.field}>
             <span>Counts toward <em>optional</em></span>
             <select className="fitx-field" value={draft.goalId} onChange={(event) => set("goalId", event.target.value)}>
               <option value="">{goals === null ? "Loading your goals…" : "No goal"}</option>
-              {(goals ?? []).map((goal) => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
+              {(goals ?? []).map((goal) => <option key={goal.id} value={goal.id}>{goal.countsTodos ? goal.title : `${goal.title} (doesn't count To-Dos)`}</option>)}
             </select>
+            <small>Checklist goals count the To-Dos you finish for them.</small>
           </label>
-        )}
+        ) : (
+          <p className={styles.fieldHint}>
+            To make To-Dos count toward a goal, <Link href="/goals?tab=goals&new=checklist" className={styles.inlineLink}>create a Checklist goal</Link>.
+          </p>
+        ))}
         <label className={styles.field}>
           <span>Notes <em>optional</em></span>
           <textarea className="fitx-field" maxLength={1000} value={draft.description} onChange={(event) => set("description", event.target.value)} />

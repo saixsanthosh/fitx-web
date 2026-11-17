@@ -358,6 +358,8 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 /* Frosted bars; low-power devices get a solid bar instead (see data-fitx-lite below). */
 .fitx-glass { -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2); }
 
+/* Unlayered like the rest of this file, so Tailwind utilities cannot override it: hide a skip link by
+   wrapping it (e.g. <div className="md:hidden">), never with a class on the link. */
 .fitx-skip-link {
   position: fixed; z-index: 100; top: 10px; left: 10px; display: inline-flex; min-height: 44px; align-items: center;
   border-radius: 10px; background: var(--fitx-strong-bg); color: var(--fitx-on-strong); padding: 0 16px; font-size: .875rem; font-weight: 650;
@@ -384,18 +386,21 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 @keyframes fitx-fade-in { from { opacity: 0; } }
 :root:has(dialog[open]) { overflow: hidden; }
 
-/* Large selectable options (e.g. Settings → Appearance), built on native radios or checkboxes. */
-.fitx-choice {
-  position: relative; display: flex; min-height: 56px; cursor: pointer; align-items: center; gap: 12px;
+/* Large selectable options (e.g. Settings → Appearance): a visually hidden native radio or checkbox
+   followed by .fitx-choice__box. The states use sibling selectors, which every supported browser
+   understands (no :has()). */
+.fitx-choice { position: relative; display: block; cursor: pointer; }
+.fitx-choice > input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.fitx-choice__box {
+  display: flex; min-height: 56px; align-items: center; gap: 12px;
   border: 1px solid var(--fitx-border); border-radius: 12px; background: var(--fitx-surface); padding: 10px 14px;
   transition: border-color .16s ease, background-color .16s ease;
 }
-.fitx-choice > input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .fitx-choice__icon { flex: 0 0 auto; color: var(--fitx-text-secondary); }
-.fitx-choice:hover { border-color: color-mix(in srgb, var(--fitx-primary) 40%, var(--fitx-border)); }
-.fitx-choice:has(> input:checked) { border-color: var(--fitx-primary); background: color-mix(in srgb, var(--fitx-primary) 8%, var(--fitx-surface)); box-shadow: inset 0 0 0 1px var(--fitx-primary); }
-.fitx-choice:has(> input:checked) .fitx-choice__icon { color: var(--fitx-primary); }
-.fitx-choice:has(> input:focus-visible) { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.fitx-choice:hover > .fitx-choice__box { border-color: color-mix(in srgb, var(--fitx-primary) 40%, var(--fitx-border)); }
+.fitx-choice > input:checked + .fitx-choice__box { border-color: var(--fitx-primary); background: color-mix(in srgb, var(--fitx-primary) 8%, var(--fitx-surface)); box-shadow: inset 0 0 0 1px var(--fitx-primary); }
+.fitx-choice > input:checked + .fitx-choice__box .fitx-choice__icon { color: var(--fitx-primary); }
+.fitx-choice > input:focus-visible + .fitx-choice__box { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 
 /* Touch screens: 16px form text so iOS does not zoom the page when a field is focused. */
 @media (pointer: coarse) {

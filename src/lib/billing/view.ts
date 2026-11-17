@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkoutAllowedFor, logBillingUnavailable, readBillingConfig } from "./config";
 import { isMissingBillingSchema, PLAN_COLUMNS, providerPlanId, toPlanView, type PlanRow } from "./db";
 import {
+  FINAL_SUBSCRIPTION_STATUSES,
   isPaymentStatus,
   isRefundStatus,
   isSubscriptionStatus,
@@ -35,11 +36,16 @@ export type SubscriptionPageModel =
     };
 
 type PlanJoin = { name: string; amount_paise: number; billing_period: BillingPeriod; billing_interval: number } | null;
-type SubscriptionRead = {
+export type SubscriptionRead = {
   id: string;
   plan_id: string;
   mode: BillingMode;
   status: string;
+  /** The price the subscription started at (null on rows recorded before it was stored). */
+  amount_paise: number | null;
+  billing_period: BillingPeriod | null;
+  billing_interval: number | null;
+  paid_count: number | null;
   paid_until: string | null;
   charge_at: string | null;
   cancel_requested_at: string | null;
@@ -48,18 +54,21 @@ type SubscriptionRead = {
   billing_plans: PlanJoin | PlanJoin[];
 };
 
-function toSubscriptionView(row: SubscriptionRead): SubscriptionView | null {
+/** The renewal price is the subscription's own, not the plan row's: the owner may change that row later. */
+export function toSubscriptionView(row: SubscriptionRead): SubscriptionView | null {
   if (!isSubscriptionStatus(row.status)) return null;
   const plan = Array.isArray(row.billing_plans) ? row.billing_plans[0] ?? null : row.billing_plans;
+  const own = row.amount_paise !== null && row.billing_period !== null;
   return {
     id: row.id,
     planId: row.plan_id,
     planName: plan?.name ?? null,
-    amountPaise: plan?.amount_paise ?? null,
-    period: plan?.billing_period ?? null,
-    interval: plan?.billing_interval ?? null,
+    amountPaise: own ? row.amount_paise : plan?.amount_paise ?? null,
+    period: own ? row.billing_period : plan?.billing_period ?? null,
+    interval: own ? row.billing_interval ?? 1 : plan?.billing_interval ?? null,
     status: row.status,
     mode: row.mode,
+    paidCount: row.paid_count ?? 0,
     paidUntil: row.paid_until,
     chargeAt: row.charge_at,
     cancelRequestedAt: row.cancel_requested_at,
@@ -70,12 +79,17 @@ function toSubscriptionView(row: SubscriptionRead): SubscriptionView | null {
 const stillPaid = (subscription: SubscriptionView, now: number) =>
   Boolean(subscription.paidUntil) && Date.parse(subscription.paidUntil!) > now;
 
+/** A checkout nobody paid for: still open, or ended (expired or cancelled) without a single charge. */
+const neverPaid = (subscription: SubscriptionView) =>
+  subscription.status === "created" ||
+  (FINAL_SUBSCRIPTION_STATUSES.has(subscription.status) && subscription.paidCount === 0 && !subscription.paidUntil);
+
 /**
  * The subscription the page talks about: one Razorpay is still billing, else one whose paid period
  * has not ended, else the most recent one that was ever paid or used. Unpaid checkouts are skipped.
  */
 export function pickCurrentSubscription(subscriptions: SubscriptionView[], now = Date.now()): SubscriptionView | null {
-  const used = subscriptions.filter((subscription) => subscription.status !== "created");
+  const used = subscriptions.filter((subscription) => !neverPaid(subscription));
   return (
     used.find((subscription) => LIVE_SUBSCRIPTION_STATUSES.has(subscription.status)) ??
     used.find((subscription) => stillPaid(subscription, now)) ??
@@ -88,7 +102,9 @@ async function readOwnBilling(supabase: SupabaseClient, user: User) {
   const [subscriptions, payments, refunds, premium, plans] = await Promise.all([
     supabase
       .from("billing_subscriptions")
-      .select("id,plan_id,mode,status,paid_until,charge_at,cancel_requested_at,abandoned_at,created_at,billing_plans(name,amount_paise,billing_period,billing_interval)")
+      .select(
+        "id,plan_id,mode,status,amount_paise,billing_period,billing_interval,paid_count,paid_until,charge_at,cancel_requested_at,abandoned_at,created_at,billing_plans(name,amount_paise,billing_period,billing_interval)",
+      )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(25),
