@@ -3,9 +3,10 @@
 -- This replaces the draft that used to live in admin/supabase/migrations (20261116000000, marked
 -- "prepared for review only"; removed, so nobody applies it after 20261118180001 and brings back its
 -- two-role functions). It is written to be safe whether or not that draft was ever applied by hand:
--- tables are created only when missing, policies are recreated, the overview function is replaced,
--- and the two functions that 20261118180001 replaces are created only when missing. It seeds no
--- Admin member. The migrations after this one (20261118180001 onwards) extend it for Phase 10.
+-- tables are created only when missing, the draft's foreign key from the audit log to accounts is
+-- dropped, policies are recreated, the overview function is replaced, and the two functions that
+-- 20261118180001 replaces are created only when missing. It seeds no Admin member. The migrations
+-- after this one (20261118180001 onwards) extend it for Phase 10.
 
 create table if not exists public.fitx_admin_members (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -39,6 +40,25 @@ create table if not exists public.fitx_admin_audit_logs (
   details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+-- Where the draft was applied by hand (the hosted project has it), the table above already existed,
+-- with actor_id referencing auth.users on delete set null. That key is dropped here, so this file
+-- leaves the same audit log on every database; 20261118180002 checks again before it makes the log
+-- append-only.
+do $do$
+declare
+  fk record;
+begin
+  for fk in
+    select conname from pg_catalog.pg_constraint
+    where conrelid = 'public.fitx_admin_audit_logs'::regclass
+      and contype = 'f'
+      and confrelid = 'auth.users'::regclass
+  loop
+    execute pg_catalog.format('alter table public.fitx_admin_audit_logs drop constraint %I', fk.conname);
+  end loop;
+end
+$do$;
 
 create index if not exists fitx_admin_audit_logs_created_at_idx
   on public.fitx_admin_audit_logs (created_at desc);
