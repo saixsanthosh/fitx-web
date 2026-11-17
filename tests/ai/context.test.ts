@@ -487,6 +487,45 @@ describe("privacy page", () => {
     assert.match(activity, /\bWhen you log out, FITX first uploads what it can and then removes your recordings from that device, and asks before deleting any that aren’t saved to your account yet\b/);
   });
 
+  test("the deletion, Profile and device-recording claims match the code", () => {
+    const read = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
+    const data = section("Your data: download, correction and deletion");
+    // Deleting the account clears this device's recordings, once the server says it worked.
+    const remove = read("components/account/DeleteAccount.tsx");
+    assert.match(remove, /recordingStore\(\)\.then\(async \(store\) => \{ await store\.deleteAll\(userId\); await store\.deleteOrphanEntries\(\); \}\)/);
+    assert.match(remove, /if \(response\.ok\) \{\s*writeStarted\(null\);\s*if \(userId\) await forgetDeviceRecordings\(userId\);/);
+    assert.match(data, /\bremoves the activity recordings kept on the device you delete it from\b/);
+    // The confirmation names the account it deletes.
+    assert.match(remove, /This permanently deletes the FITX account\{email \? <> for <strong className="[^"]*">\{email\}<\/strong><\/> : null\}/);
+    assert.match(data, /\bThe dialog shows which account it will delete\./);
+
+    // Profile can empty these fields and lists, and always keeps a goal and an activity level.
+    const profile = read("app/(dashboard)/profile/ProfileSections.tsx");
+    for (const [guard, field] of [["age", "age"], ["draft.heightCm", "heightCm"], ["draft.targetWeightKg", "targetWeightKg"], ["budget", "monthlyBudget"]]) {
+      assert.match(profile, new RegExp(`if \\(${guard.replace(".", "\\.")} !== null && [^\\n]*found\\.${field} = [^;]*or leave it empty`), `${field} may be left empty`);
+    }
+    assert.match(profile, /onClear=\{\(\) => set\("diet", null\)\} clearLabel="Clear your diet"/);
+    assert.match(profile, /onClear=\{\(\) => set\("budgetLevel", null\)\} clearLabel="Clear your budget level"/);
+    for (const legend of ["Food allergies or intolerances", "Cuisines you enjoy", "Injuries or areas to go easy on", "Food rules you follow"]) assert.match(profile, new RegExp(`<ChipGroup legend="${legend}"`), legend);
+    for (const list of ["customAllergies", "customLimitations", "dislikes"]) assert.match(profile, new RegExp(`<TagInput [^>]*values=\\{draft\\.${list}\\}`), list);
+    assert.match(read("components/profile/ProfileControls.tsx"), /aria-label=\{`Remove \$\{value\}`\}/);
+    const goal = profile.match(/<ChoiceGroup\s+legend="Main goal"[\s\S]*?\/>/)?.[0] ?? "";
+    const activity = profile.match(/<ChoiceGroup legend="Daily activity, outside workouts too"[\s\S]*?\/>/)?.[0] ?? "";
+    assert.ok(goal && activity, "the goal and activity pickers are found");
+    assert.doesNotMatch(goal + activity, /onClear/, "neither can be cleared");
+    const saved = section("Information you choose to save");
+    assert.match(saved, /\bThere you can also remove your age, height, target weight, diet, budget and any allergy, injury, cuisine or food entry\b/);
+    assert.match(saved, /\bYour goal and activity level always keep a value\./);
+
+    // A recording that can't be uploaded stays on the device until it is, or until the member deletes it.
+    const sync = read("lib/activity/sync.ts");
+    assert.match(sync, /if \(result\.status === "ok"\) \{\s*await store\.deleteRecording\(recording\.clientId\)/, "only an upload that worked removes the device copy");
+    assert.match(sync, /\/\/ Kept on the device either way \(it may be the only copy\)/);
+    assert.match(read("components/activity/ActivityDetailScreen.tsx"), /if \(view\.local\) \{[\s\S]*?await store\.deleteRecording\(view\.clientId\)/, "the activity's page deletes a device copy");
+    assert.match(read("components/activity/ActivityHome.tsx"), /await clearDeviceActivityData\(store, userId\);/, "and “Delete all activity data” clears the device too");
+    assert.match(section("Activity tracking and location"), /\bA recording that can’t be saved to your account yet \(for example while you are offline\) stays on the device until it is uploaded or you delete it\./);
+  });
+
   test("the page names the outside food databases that food search and the coach's food checks call", () => {
     const source = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
     const route = source("app/api/foods/search/route.ts");
