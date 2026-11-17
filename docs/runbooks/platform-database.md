@@ -5,7 +5,7 @@ time. It is written for the FITX owner. You do not need to know SQL. "The sessio
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **What is pending:** the 36 files from `20261115100000` to `20261118190000` in `supabase/migrations` on
+- **What is pending:** the 37 files from `20261115100000` to `20261118200000` in `supabase/migrations` on
   the branch `claude/train`. That folder is the source of truth. Production already has the 14 files from
   September 2026 and none of these.
 - **Older runbooks:** `docs/runbooks/phase1-database.md` covered the first five files for release 2. This
@@ -34,14 +34,14 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only these 36 files, only from `claude/train`. Never a copy from another branch or worktree, and never
+- Only these 37 files, only from `claude/train`. Never a copy from another branch or worktree, and never
   the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from `claude/train`).
 - Never run a September file again. `20260924162506` would put back its old profile rules and functions,
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Do all 36 in one sitting if you can, then deploy the new app (section 6.4) the same
-  day. If you need two sittings, stop after #11 and do #12 to #36 on the day you deploy: #12 changes muscle
+- Pick a quiet time. Do all 37 in one sitting if you can, then deploy the new app (section 6.4) the same
+  day. If you need two sittings, stop after #11 and do #12 to #37 on the day you deploy: #12 changes muscle
   names that the live app's automatic workout builder still uses.
 - The live app keeps working throughout. Only two files change something it uses: #12 (above) and #9 (goal
   totals, see #9). The new app checks for each file and works without the ones not applied yet.
@@ -96,7 +96,7 @@ other rows, or the numbers differ from the file names, stop and compare them wit
 ### 1.3 Nothing from these files is in the database yet
 
 ```sql
--- Start 2: changes from the 36 pending files that are already there. Expect: no rows
+-- Start 2: changes from the 37 pending files that are already there. Expect: no rows
 select m.file, m.object
 from (values
   ('20261115100000', 'column', 'workout_sessions.active_duration_seconds'),
@@ -255,6 +255,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 34 | `20261118180005_fitx_support` | Help requests and replies, with limits; support queue. | Additive · yes | #29, #30 | /help form, support queue | |
 | 35 | `20261118180006_fitx_announcements` | Announcements and dismissals. | Additive · yes | #29, #30 | Announcement banner | |
 | 36 | `20261118190000_fitx_billing_razorpay` | Billing tables and functions; seeds no plan. | Additive · yes | | Premium subscriptions, later | Best after #29 to #35: Admin's billing page uses their roles (the database does not need them). Nothing is sold until Razorpay is set up. |
+| 37 | `20261118200000_fitx_food_catalog_rajma_keywords` | Search words "rajma" and "rajmah" for the six kidney-bean foods. | Changes 6 catalogue rows · yes | #17; its foods come from #20 | "rajma" in food search | After #24. |
 
 ## 3. Each file: summary and check
 
@@ -962,6 +963,24 @@ select (select count(*) from pg_class where relnamespace = 'public'::regnamespac
   public.has_premium('00000000-0000-0000-0000-000000000000') as nobody_has_premium;
 ```
 
+### #37 `20261118200000_fitx_food_catalog_rajma_keywords`
+
+USDA names kidney beans only "Kidney beans" and "Beans, kidney, …", so a search for rajma found nothing. This
+adds the search words `rajma` and `rajmah` to the six kidney-bean foods from #20: four FNDDS ones and two
+Foundation ones. A search word helps search find a food but never selects it, so members still tap the kidney
+beans they mean. No values change. It updates only those six rows, and a second run changes nothing.
+
+```sql
+-- Check 20261118200000: expect 6 rows, 2644289, 2644290, 2707379, 2707380, 2707381 and 2707382 (kidney beans), each with t
+with member as materialized (
+  select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000000","role":"authenticated"}', true) as claims
+)
+select f.id, f.name, 'rajma' = any (f.keywords) as has_rajma
+from member, lateral public.search_foods('rajma', array['rajma'], 20) as f
+where not f.fuzzy
+order by f.id;
+```
+
 ## 4. If a migration fails part-way
 
 1. **Stop.** Do not apply the next file. The live app keeps working, and the new app waits for each file.
@@ -1009,6 +1028,7 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
+| 37 | SQL below. Removes the two search words; a search for rajma finds nothing again. |
 | 36 | Only while no real payment exists: SQL below. Once Razorpay has charged anyone, never drop these tables; they are the money trail. To stop selling, set every plan's `is_active` to false. |
 | 35, 34 | SQL below. Drops announcements, Help requests and replies. |
 | 33, 32 | SQL below. Drops functions only; Admin falls back to its older screens. |
@@ -1021,7 +1041,7 @@ feature off in the app is usually better than an undo.
 | 20 to 24 | SQL below hides the whole catalogue (search falls back to the built-in list); setting it back to `true` shows it again. Meals already logged keep their own copies. |
 | 19 | SQL below. The app falls back to its built-in food list. |
 | 18 | Undo #19 first. SQL below. Drops saved meals, routines, own targets, and custom foods' barcodes, photos and origin. |
-| 17 | Undo #19 to #24 first. SQL below. `pg_trgm` stays on (harmless). |
+| 17 | Undo #19 to #24 and #37 first. SQL below. `pg_trgm` stays on (harmless). |
 | 16 | SQL below. Workouts it closed as abandoned stay closed. |
 | 15 | SQL below unpublishes the programmes. Members already enrolled keep theirs. |
 | 14 | Undo #16 first. SQL below. Drops enrolments; plans made from programmes stay as plain plans. |
@@ -1038,6 +1058,12 @@ feature off in the app is usually better than an undo.
 | 3 | SQL below. The app then treats every account as having seen the film. |
 | 2 | Undo #16 first. SQL below. Drops weight and time targets and set times. |
 | 1 | SQL below. Drops saved pause times. |
+
+```sql
+-- Undo 20261118200000 (writes)
+update public.food_catalog set keywords = array_remove(array_remove(keywords, 'rajma'), 'rajmah')
+where id in ('2707379', '2707380', '2707381', '2707382', '2644289', '2644290') and keywords && array['rajma', 'rajmah'];
+```
 
 ```sql
 -- Undo 20261118190000 (writes; only while no real payment exists)
@@ -1335,14 +1361,15 @@ from (values
   ('20261118180000', 'fitx_admin_control_plane'), ('20261118180001', 'fitx_admin_roles'),
   ('20261118180002', 'fitx_admin_audit_log'), ('20261118180003', 'fitx_admin_metrics'),
   ('20261118180004', 'fitx_admin_people'), ('20261118180005', 'fitx_support'),
-  ('20261118180006', 'fitx_announcements'), ('20261118190000', 'fitx_billing_razorpay')
+  ('20261118180006', 'fitx_announcements'), ('20261118190000', 'fitx_billing_razorpay'),
+  ('20261118200000', 'fitx_food_catalog_rajma_keywords')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and not exists (select 1 from supabase_migrations.schema_migrations x where x.version = f.version);
 ```
 
 ```sql
--- History 2: expect 50 rows: the 14 September ones, then the 36 files of section 2 with the same numbers and names
+-- History 2: expect 51 rows: the 14 September ones, then the 37 files of section 2 with the same numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 

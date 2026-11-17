@@ -229,4 +229,26 @@ describe("Nutrition v2 SQL on a local Postgres", { skip }, () => {
     const search = pg.json(`select json_agg(r.id) from public.search_foods('idli', array['idli'], 5) r where r.kind = 'catalog';`, asA);
     assert.equal(search[0], "2708346");
   });
+
+  test("“rajma” finds the catalogue's kidney beans after 20261118200000, and running it again changes nothing", { skip: SEED_PARTS.length ? false : "no seed parts generated yet" }, () => {
+    // before() ran this migration too, on a catalogue without these foods, where it changed nothing.
+    if (pg.json(`select count(*) from public.food_catalog;`) < 1000) for (const name of SEED_PARTS) pg.applyFile(path.join(MIGRATIONS_DIR, name));
+    const kidneyBeans = ["2644289", "2644290", "2707379", "2707380", "2707381", "2707382"];
+    const found = (phrase) => pg.json(`select coalesce(json_agg(r.id order by r.id), '[]'::json) from public.search_foods('${phrase}', array['${phrase}'], 50) r where not r.fuzzy;`, asA);
+    assert.deepEqual(found("rajma"), [], "USDA's names alone don't say rajma");
+    const file = path.join(MIGRATIONS_DIR, "20261118200000_fitx_food_catalog_rajma_keywords.sql");
+    pg.applyFile(file);
+    assert.deepEqual(found("rajma"), kidneyBeans);
+    assert.deepEqual(found("rajmah"), kidneyBeans);
+    const rows = `select json_agg(json_build_object('id', id, 'keywords', keywords, 'aliases', aliases, 'updated', updated_at) order by id) from public.food_catalog where id in (${kidneyBeans.map((id) => `'${id}'`).join(", ")});`;
+    const once = pg.json(rows);
+    for (const row of once) {
+      assert.ok(row.keywords.includes("rajma") && row.keywords.includes("rajmah"), row.id);
+      // A keyword never selects a food (only a whole name or alias does), so "100 g rajma" still asks which one.
+      assert.ok(!row.aliases.includes("rajma"), `${row.id} must not answer to "rajma" exactly`);
+    }
+    assert.ok(once.find((row) => row.id === "2707379").keywords.includes("red"), "USDA's own keywords stay");
+    pg.applyFile(file);
+    assert.deepEqual(pg.json(rows), once, "running it again changes nothing, not even updated_at");
+  });
 });

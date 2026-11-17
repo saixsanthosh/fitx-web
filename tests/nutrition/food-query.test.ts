@@ -390,6 +390,11 @@ test("keywords help find a food but count less than its name and never select it
   assert.equal(matches.find((match) => match.food === sauce)?.exact, false);
   assert.equal(clearMatch(matchFoods([sauce], ["lobster"])), null);
   assert.equal(foodMatchScore(sauce, ["lobster"]), 2, "one less than the same word in a name");
+  // "100 g rajma" (20261118200000 gives USDA's kidney beans that keyword): each kidney bean is listed, none selected.
+  const beans = [{ name: "Kidney beans, NFS", keywords: ["red", "rajma", "rajmah"] }, { name: "Kidney beans, from dried, no added fat", keywords: ["frozen", "red", "rajma", "rajmah"] }];
+  const rajma = matchFoods(beans, parseFoodQuery("100 g rajma").words);
+  assert.equal(rajma.length, 2);
+  assert.equal(clearMatch(rajma), null);
 });
 
 test("a boost lifts recent foods among equal matches but never above an exact name", () => {
