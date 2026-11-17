@@ -41,6 +41,7 @@ import {
   type LibrarySort,
   type LibraryState,
 } from "./_lib/library-state";
+import { listsLoadNote } from "./_lib/equipment-lists";
 import { replaceSearch, useCatalogue, useLibraryAccount, useSavedExercises, useUrlSearch } from "./_lib/use-library";
 
 const PAGE_SIZE = 24;
@@ -121,6 +122,7 @@ export default function ExerciseLibraryPage() {
   const level = account.status === "ready" ? account.level : null;
   const contextName = state.context === "home" ? "Home" : "Gym";
   const listName = state.have ? "the equipment you chose" : `your ${contextName} list`;
+  const loadNote = account.status === "ready" ? listsLoadNote(account, state.context) : null;
 
   // Without a signed-in member there is no saved list to wait for: Saved then shows its empty state.
   const savedReady = !view.saved || saved.ready || (account.status !== "loading" && !userId);
@@ -159,7 +161,9 @@ export default function ExerciseLibraryPage() {
   }, [exercises, owned, level, visible]);
 
   // Each tile counts what choosing only that area would list, with the same filters, place and equipment as the results.
-  const counts = useMemo(() => (exercises && savedReady ? focusAreaCounts(exercises, query, { owned, level }) : null), [exercises, savedReady, query, owned, level]);
+  // The tiles show only without a search, so nothing is counted while one is typed (nor with a search still deferred).
+  const searching = state.q.trim().length > 0;
+  const counts = useMemo(() => (exercises && savedReady && !searching ? focusAreaCounts(exercises, { ...query, q: "" }, { owned, level }) : null), [exercises, savedReady, searching, query, owned, level]);
   const focusDetails = counts
     ? Object.fromEntries(FOCUS_AREAS.map((area) => {
       const { total, doable } = counts[area];
@@ -179,7 +183,6 @@ export default function ExerciseLibraryPage() {
   const wordFilter = useMemo(() => muscleWordFilter(state), [state]);
 
   const byId = useMemo(() => new Map((exercises ?? []).map((exercise) => [exercise.id, exercise])), [exercises]);
-  const searching = state.q.trim().length > 0;
   const chips = filterChips(state);
   const chipItems = chips.map((chip) => ({ id: `${chip.key}:${chip.value}`, kind: chip.kind, label: chip.label }));
   const recentlyViewed = recentIds.map((id) => byId.get(id)).filter((exercise): exercise is CatalogExercise => Boolean(exercise)).slice(0, RECENT_SHOWN);
@@ -331,7 +334,7 @@ export default function ExerciseLibraryPage() {
               </div>
             </div>
             {listNote && <p role={listNote.tone === "error" ? "alert" : "status"} className={`m-0 text-sm ${listNote.tone === "error" ? "text-fitx-danger" : "text-fitx-text-secondary"}`}>{listNote.text}</p>}
-            {account.status === "ready" && account.failed && <p className="m-0 text-xs text-fitx-text-secondary">Your saved lists could not be loaded, so a starting list is used for now.</p>}
+            {loadNote && <p className="m-0 text-xs text-fitx-text-secondary">{loadNote}</p>}
           </div>
         </DiscoverySection>
       )}

@@ -89,7 +89,7 @@ export function HistoryPanel({ history, exerciseId, exerciseName }: HistoryPanel
   }
   const shownCount = Math.min(sessions.length, pages * HISTORY_PAGE_SIZE);
   const moreHere = shownCount < sessions.length;
-  const basis = historyBasis(sessions.length, history.limit);
+  const basis = historyBasis(sessions.length, history.limit, history.truncated);
   return (
     <section aria-labelledby="exercise-history-heading">
       <div className="flex flex-wrap items-baseline justify-between gap-2">

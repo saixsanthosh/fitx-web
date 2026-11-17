@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { ChevronLeft, ChevronRight, CircleCheck } from "lucide-react";
 import { TodoList } from "@/components/tasks/TodoList";
 import { dayName, longDay } from "@/components/tasks/format";
@@ -10,9 +9,12 @@ import { addDays } from "@/lib/domain/day-keys";
 import { appliesOn, evaluateView, progressSummary, remainingLabel, sortGoals } from "@/lib/domain/goals";
 import styles from "./Goals.module.css";
 
-/** One day: its To-Do list and the daily goals for that day, with arrows to move between days. */
-export function TodayTab({ today }: { today: string }) {
-  const [day, setDay] = useState(today);
+/**
+ * One day: its To-Do list and the daily goals for that day, with arrows to move between days. The day shown is kept
+ * by GoalsWorkspace, so it stays when the tab remounts to load fresh.
+ */
+export function TodayTab({ today, day, onDayChange }: { today: string; day: string; onDayChange: (day: string) => void }) {
+  const setDay = onDayChange;
   const goals = useGoalsData(day);
   const isToday = day === today;
   const label = isToday ? "Today" : dayName(day, today).replace(/^./, (letter) => letter.toUpperCase());

@@ -6,7 +6,7 @@ import { destination } from "@/lib/activity/geo";
 import { IMPORT_ENGINE, importConfig, IMPORT_MAX_FIX_INTERVAL_MS } from "@/lib/activity/import/config";
 import { readActivityFile, sniffFormat } from "@/lib/activity/import/detect";
 import { fingerprintSecond, importClientId } from "@/lib/activity/import/fingerprint";
-import { checkImport, lookupWindow, OVERLAP_TOLERANCE_MS, saveFailure, shouldCountPoints, summariseResults, type KnownActivity } from "@/lib/activity/import/plan";
+import { checkImport, lookupWindow, mergeKnown, OVERLAP_TOLERANCE_MS, refillsSaved, saveFailure, shouldCountPoints, summariseResults, type KnownActivity, type RecordShape } from "@/lib/activity/import/plan";
 import { buildImportRecord, deviceDistance, importTimeline, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
 import { ImportError, type ImportPoint, type ParsedImport } from "@/lib/activity/import/types";
 import { replayStored } from "@/lib/activity/replay";
@@ -211,6 +211,39 @@ test("an earlier import saved without all its GPS points is offered again; a com
   assert.equal(checkImport(candidate, [known({ source: "file", missingPoints: true, local: true, id: null })], []).kind, "already", "a copy only on this device has nothing to add to");
   // A second file of the same session is still imported once.
   assert.equal(checkImport({ ...candidate, key: "f2" }, [partial], [candidate]).kind, "same-file");
+});
+
+test("only the file that made an incomplete import fills in its points; another export of the session does not", () => {
+  const shapeOf = (file: ParsedImport): RecordShape => {
+    const { record } = buildImportRecord(file, { sport: "run", clientId: CLIENT, weightKg: null, importedAt: NOW });
+    return { startedAt: record.startedAt, endedAt: record.endedAt, pointCount: record.pointCount, chunkCount: record.chunks.length, sourceFormat: record.sourceFormat ?? null };
+  };
+  const gpx = shapeOf(parsed([line({ seconds: 1800 })]));
+  // The same session from the watch: same first second (so the same device id), a point every 2 seconds.
+  const fit = shapeOf(parsed([line({ seconds: 1800, everyS: 2 })], { format: "fit" }));
+  const saved = known({ source: "file", missingPoints: true, startedAt: gpx.startedAt, endedAt: gpx.endedAt, pointCount: gpx.pointCount, chunkCount: gpx.chunkCount, sourceFormat: "gpx" });
+  assert.equal(refillsSaved(saved, gpx), true, "the same file again");
+  assert.equal(refillsSaved(saved, fit), false, "the FIT of the session the GPX was saved from");
+  assert.equal(refillsSaved(saved, { ...gpx, sourceFormat: "tcx" }), false);
+  assert.equal(refillsSaved(saved, { ...gpx, pointCount: gpx.pointCount - 1 }), false);
+  assert.equal(refillsSaved(saved, { ...gpx, chunkCount: gpx.chunkCount + 1 }), false);
+  assert.equal(refillsSaved(saved, { ...gpx, endedAt: gpx.endedAt + 5000 }), false);
+  assert.equal(refillsSaved(saved, null), false, "a file that can't be built");
+  assert.equal(refillsSaved({ ...saved, pointCount: undefined }, gpx), false, "unknown counts are not a match");
+  assert.equal(refillsSaved({ ...saved, sourceFormat: null }, gpx), false, "an unknown format is not a match");
+});
+
+test("a later lookup that finds an incomplete import only by time keeps its points count", () => {
+  const partial = known({ source: "file", missingPoints: true });
+  const byTime = known({ source: "file", title: "Renamed" });
+  const merged = mergeKnown([partial], [byTime]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].missingPoints, true, "not erased by a lookup that didn't count");
+  assert.equal(merged[0].title, "Renamed", "the newer view is used otherwise");
+  assert.equal(mergeKnown([partial], [known({ source: "file", missingPoints: false })])[0].missingPoints, false, "a new count wins");
+  assert.equal(mergeKnown([], [byTime])[0].missingPoints, undefined, "never counted stays unknown");
+  const device = known({ local: true, id: null });
+  assert.equal(mergeKnown([partial], [device]).length, 2, "a copy on this device is kept apart from the saved one");
 });
 
 test("only recent imports that should have points are counted (older ones lose them to the 90-day rule)", () => {

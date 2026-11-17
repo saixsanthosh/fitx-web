@@ -22,3 +22,15 @@ export function afterProfilesReload(
   if (reloaded.error) return current;
   return { profiles: reloaded.profiles, failed: false };
 }
+
+/**
+ * The note shown while the saved lists could not be read: a starting list stands in only for a list that is still
+ * unknown (one saved since then is known, and is what the results use). Null when nothing failed or both are known.
+ */
+export function listsLoadNote(account: { profiles: EquipmentProfiles; failed: boolean }, context: TrainingContext): string | null {
+  if (!account.failed) return null;
+  if (account.profiles[context] === null) return "Your saved lists could not be loaded, so a starting list is used for now.";
+  const other: TrainingContext = context === "home" ? "gym" : "home";
+  if (account.profiles[other] !== null) return null;
+  return `Your saved ${other === "home" ? "Home" : "Gym"} list could not be loaded, so a starting list is used there for now.`;
+}

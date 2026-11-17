@@ -130,7 +130,7 @@ export function ProgressPanel({ history, exerciseId, exerciseName }: ProgressPan
   const series = progressSeries(sessions);
   const topEstimate = series?.metric === "one_rep_max" ? Math.max(...series.points.map((point) => point.value)) : null;
   const volume = latestPoints(volumeSeries(sessions), VOLUME_BARS);
-  const basis = historyBasis(sessions.length, history.limit);
+  const basis = historyBasis(sessions.length, history.limit, history.truncated);
   const latest = sessions[0];
   return (
     <section aria-labelledby="exercise-progress-heading" className="space-y-4">

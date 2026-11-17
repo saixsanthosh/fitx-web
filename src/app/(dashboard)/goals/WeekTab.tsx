@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { Check, ChevronLeft, ChevronRight, Dumbbell, Moon, Plus, Target, Utensils } from "lucide-react";
 import { TodoEditor } from "@/components/tasks/TodoEditor";
 import { clockTime } from "@/components/tasks/format";
@@ -20,10 +20,17 @@ function KindIcon({ kind }: { kind: TodoItem["kind"] }) {
   return null;
 }
 
-/** The week at a glance (the former Planner): every To-Do and scheduled item, Monday to Sunday. */
-export function WeekTab({ today }: { today: string }) {
-  const [monday, setMonday] = useState(() => mondayOf(today));
-  const [selected, setSelected] = useState(today);
+/** The week shown and its picked day; null for this week with today picked. */
+export type WeekView = { monday: string; selected: string } | null;
+
+/**
+ * The week at a glance (the former Planner): every To-Do and scheduled item, Monday to Sunday. The week shown is
+ * kept by GoalsWorkspace (`view`), so it stays when the tab remounts to load fresh.
+ */
+export function WeekTab({ today, view, onViewChange }: { today: string; view: WeekView; onViewChange: Dispatch<SetStateAction<WeekView>> }) {
+  const monday = view?.monday ?? mondayOf(today);
+  const selected = view?.selected ?? today;
+  const setSelected = (day: string) => onViewChange((current) => ({ monday: current?.monday ?? mondayOf(today), selected: day }));
   const days = weekKeys(monday);
   const todos = useTodos({ from: days[0], to: days[6] });
   const [editor, setEditor] = useState<{ mode: "add" | "edit"; draft: TodoDraft; item?: TodoItem; key: number } | null>(null);
@@ -34,7 +41,7 @@ export function WeekTab({ today }: { today: string }) {
 
   // From the latest week, so taps in quick succession each move one week.
   function shift(weeks: number) {
-    setMonday((current) => addDays(current, weeks * 7));
+    onViewChange((current) => ({ monday: addDays(current?.monday ?? mondayOf(today), weeks * 7), selected: current?.selected ?? today }));
   }
 
   const range = `${keyToLocalDate(days[0]).toLocaleDateString(undefined, { day: "numeric", month: "short" })} – ${keyToLocalDate(days[6]).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
@@ -83,7 +90,7 @@ export function WeekTab({ today }: { today: string }) {
         <button type="button" className={styles.nav} onClick={() => shift(-1)} aria-label="Previous week"><ChevronLeft size={18} aria-hidden="true" /></button>
         <div className={styles.title}>
           <h2>{range}</h2>
-          <p>{todos.status === "ready" ? `${progress.done} of ${progress.total} done` : " "}{mondayOf(today) !== monday && <> · <button type="button" className={styles.thisWeek} onClick={() => { setMonday(mondayOf(today)); setSelected(today); }}>This week</button></>}</p>
+          <p>{todos.status === "ready" ? `${progress.done} of ${progress.total} done` : " "}{mondayOf(today) !== monday && <> · <button type="button" className={styles.thisWeek} onClick={() => onViewChange(null)}>This week</button></>}</p>
         </div>
         <button type="button" className={styles.nav} onClick={() => shift(1)} aria-label="Next week"><ChevronRight size={18} aria-hidden="true" /></button>
       </div>

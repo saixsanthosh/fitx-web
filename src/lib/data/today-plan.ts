@@ -17,6 +17,7 @@ import type { TodoItem } from "@/lib/domain/todo";
 import { BODY_REGIONS, exerciseRegions, type RegionKey } from "@/lib/training/anatomy";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { loadLibraryMuscles } from "@/lib/training/muscle-history";
+import { continuationStart } from "@/lib/training/programme-calendar";
 import { DataError } from "./missing-schema";
 import { loadTodos } from "./todo";
 
@@ -140,15 +141,19 @@ export async function loadTodayPlanData(db: Db, userId: string, today: string): 
   if (enrolment) {
     const weekdays = Array.isArray(enrolment.weekdays) ? enrolment.weekdays.map(Number).filter((day) => day >= 0 && day <= 6) : [];
     const days = programme?.days ?? [];
-    const nextIndex = days.length ? (((enrolment.next_day_index ?? 0) % days.length) + days.length) % days.length : null;
+    const open = ownPlans.filter((plan) => plan.planned_for && plan.planned_for > today && !finished.has(plan.id));
+    // With no day ahead left to do, the projection continues after the last planned day (done or not) at the day after
+    // it, as planning would (continuationStart), so it never lands on a date a finished day already holds.
+    const start = days.length ? continuationStart(ownPlans, enrolment.next_day_index ?? 0, today, days.length) : null;
+    const projectAfter = !open.length && start && start.fromKey > today ? addDays(start.fromKey, -1) : today;
     programmeToday = {
       title: programmeName ?? "your programme",
       trainsToday: trainsOn(weekdays, today),
       next: programmeNext({
-        today,
+        today: projectAfter,
         weekdays,
-        planned: ownPlans.filter((plan) => plan.planned_for && plan.planned_for > today && !finished.has(plan.id)).map((plan) => ({ date: plan.planned_for!, title: dayTitle(plan) })),
-        nextDayTitle: nextIndex === null ? null : days[nextIndex]?.title ?? null,
+        planned: open.map((plan) => ({ date: plan.planned_for!, title: dayTitle(plan) })),
+        nextDayTitle: start ? days[start.startDay]?.title ?? null : null,
       }),
     };
   }

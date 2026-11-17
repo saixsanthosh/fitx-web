@@ -5,16 +5,23 @@
 -- "Download my data" (src/lib/account/export.ts) and are deleted with the account.
 --
 -- On production this file changes nothing: the table, its index, its owner-only policy and its grants are
--- exactly experience 2.0's. On a new project it creates them. Additive; plain SQL, safe to run more than once.
+-- exactly experience 2.0's. On a new project it creates them. Additive and safe to run more than once.
 
-create table if not exists public.exercise_favorites (
-  user_id uuid not null references auth.users(id) on delete cascade,
-  exercise_id text not null references public.exercise_library(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  primary key (user_id, exercise_id)
-);
-create index if not exists exercise_favorites_exercise_idx
-  on public.exercise_favorites (exercise_id);
+-- Drift-aware: production's copy is found by name and left exactly as it is, without "already exists" notices.
+do $$
+begin
+  if to_regclass('public.exercise_favorites') is null then
+    create table public.exercise_favorites (
+      user_id uuid not null references auth.users(id) on delete cascade,
+      exercise_id text not null references public.exercise_library(id) on delete cascade,
+      created_at timestamptz not null default now(),
+      primary key (user_id, exercise_id)
+    );
+  end if;
+  if to_regclass('public.exercise_favorites_exercise_idx') is null then
+    create index exercise_favorites_exercise_idx on public.exercise_favorites (exercise_id);
+  end if;
+end $$;
 
 alter table public.exercise_favorites enable row level security;
 drop policy if exists exercise_favorites_owner on public.exercise_favorites;

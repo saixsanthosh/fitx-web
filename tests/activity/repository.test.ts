@@ -148,6 +148,26 @@ test("an import whose points fail part way is taken back out, so importing it ag
   assert.deepEqual(stored, { status: "ok", data: record.chunks.length });
 });
 
+test("importing again only adds the points an earlier import is missing, and never overwrites stored ones", async () => {
+  const device = gps({ sigmaM: 3, accuracyM: 5, speedSigma: 0.2 }, 91);
+  const log: LogEntry[] = recording("run", moveAlong(legs(ORIGIN, [[0, 8000]]), { speedMps: 3, startMs: T0, device }).fixes);
+  const built = buildActivityRecord(ActivityEngine.replay(log), { clientId: "imp-3", title: "Long run", weightKg: 70, log });
+  const record = { ...built, source: "file" as const, sourceFormat: "gpx" as const, sourceDevice: "Garmin", importedAt: T0 };
+  assert.ok(record.chunks.length > 1, `${record.chunks.length} chunks`);
+  const db = new FakeDb();
+  assert.equal((await saveImportedActivity(db, "u", record)).status, "ok");
+  // The upload had stopped after the first chunk; that chunk is marked to show it stays untouched.
+  db.tables.activity_track_chunks = db.tables.activity_track_chunks.filter((chunk) => chunk.seq === 0);
+  db.tables.activity_track_chunks[0].points = "stored";
+  const again = await saveImportedActivity(db, "u", record);
+  assert.equal(again.status, "ok");
+  assert.equal(db.tables.activity_track_chunks.length, record.chunks.length);
+  assert.equal(db.tables.activity_track_chunks.find((chunk) => chunk.seq === 0)?.points, "stored");
+  // A phone save still replaces its chunks from the device copy.
+  assert.equal((await saveActivity(db, "u", record)).status, "ok");
+  assert.equal(db.tables.activity_track_chunks.find((chunk) => chunk.seq === 0)?.points, record.chunks[0].points);
+});
+
 test("an import never removes a row that was already there, and a phone save never removes anything", async () => {
   const record = sampleRecord("imp-2");
   const db = new FakeDb();

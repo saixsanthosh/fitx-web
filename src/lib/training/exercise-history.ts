@@ -273,6 +273,8 @@ export async function loadExerciseHistory(db: Db, userId: string, exerciseIds: s
   const sessions: SessionRow[] = [];
   const sets: SetRow[] = [];
   const readSessionIds = new Set<string>();
+  // Rows are paged by offset: a row added meanwhile shifts the next page, so a row read already is not taken again.
+  const readRowIds = new Set<string>();
   let pending = requested;
   let truncated = false;
 
@@ -293,7 +295,11 @@ export async function loadExerciseHistory(db: Db, userId: string, exerciseIds: s
     pending.forEach((id, index) => {
       const data = (Array.isArray(exerciseAnswers[index].data) ? exerciseAnswers[index].data : []) as SessionExerciseRow[];
       if (data.length < rowLimit) exhausted.add(id);
-      fresh.push(...data.filter((row) => row.session_id !== options.excludeSessionId));
+      for (const row of data) {
+        if (row.session_id === options.excludeSessionId || readRowIds.has(row.id)) continue;
+        readRowIds.add(row.id);
+        fresh.push(row);
+      }
     });
     sessionExercises.push(...fresh);
 

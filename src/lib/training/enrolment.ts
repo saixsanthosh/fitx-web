@@ -235,6 +235,15 @@ export type TopUpSkip = "nothing" | "busy";
 export type TopUpOutcome = { created: number; skippedDays: string[]; unfilledSlots: string[]; error: unknown; ran: boolean; skipped: TopUpSkip | null };
 
 /**
+ * After a top-up the caller's own topUpWindow check said was needed: whether to read the programme's plans again. It
+ * planned or failed (`ran`), or found under the lock that the days were planned meanwhile (another tab or device), so
+ * the caller's copy of the plans is out of date. Not after "busy": that run is still going.
+ */
+export function plansChangedByTopUp(outcome: Pick<TopUpOutcome, "ran" | "skipped">): boolean {
+  return outcome.ran || outcome.skipped === "nothing";
+}
+
+/**
  * Keeps the next week of a followed programme planned: plans the training days after the last planned one up to a
  * week from today, as "Plan the next 7 days" does, and does nothing when they are planned already, so it can run on
  * every visit. One run at a time per enrolment (in this tab, and across this browser's tabs where the browser

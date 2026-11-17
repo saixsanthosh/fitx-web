@@ -115,6 +115,21 @@ test("today's plan: \"Next:\" skips a programme day already finished early", asy
   assert.ok(finishedCall && used(finishedCall, "in", "plan_id", ["p-push", "p-pull", "p-legs"]), "every programme day is checked, not just today's");
 });
 
+test("today's plan: with every day ahead finished early, the projected next day comes after them, not on their dates", async () => {
+  // Wednesday: Push today; Friday's Pull was finished early, so the programme moved on to Legs.
+  const stub = programmeDb({
+    programme_enrolments: () => ({ data: [{ id: "en1", programme_id: "ppl-3", weekdays: [1, 3, 5], next_day_index: 2 }] }),
+    workout_sessions: (call) => (used(call, "eq", "status", "completed") ? { data: [{ plan_id: "p-pull" }] } : { data: [] }),
+  });
+  const data = await loadTodayPlanData(db(stub), USER, DAY);
+  assert.deepEqual(data.programme?.next, { date: "2026-11-23", title: "Legs", projected: true }, "Monday, the first training day after Friday's finished Pull");
+  const none = await loadTodayPlanData(db(programmeDb({
+    programme_enrolments: () => ({ data: [{ id: "en1", programme_id: "ppl-3", weekdays: [1, 3, 5], next_day_index: 1 }] }),
+    workout_plans: () => ({ data: [] }),
+  })), USER, DAY);
+  assert.deepEqual(none.programme?.next, { date: "2026-11-20", title: "Pull", projected: true }, "nothing planned: the next training day at the enrolment's next day");
+});
+
 test("today's plan: no programme tables means no programme, not an error", async () => {
   const data = await loadTodayPlanData(db(programmeDb({
     programme_enrolments: () => ({ error: { code: "42P01", message: "relation does not exist" } }),

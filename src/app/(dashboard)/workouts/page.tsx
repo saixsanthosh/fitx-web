@@ -23,7 +23,7 @@ import { columnList, hasValuesIn, isMissingColumnError, isMissingFunctionError, 
 import { timedItemDay } from "@/lib/domain/todo";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { equipmentFor, loadCatalog, loadEquipmentProfiles, loadProgrammes, saveEquipmentProfile, type EquipmentProfiles } from "@/lib/training/data";
-import { enrolInProgramme, finishProgramme, leaveProgramme, loadCurrentEnrolment, loadEnrolmentPlans, pauseProgramme, programmeShortTitle, resumeProgramme, scheduleProgrammeDays, topUpProgrammeDays, topUpWindow, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
+import { enrolInProgramme, finishProgramme, leaveProgramme, loadCurrentEnrolment, loadEnrolmentPlans, pauseProgramme, plansChangedByTopUp, programmeShortTitle, resumeProgramme, scheduleProgrammeDays, topUpProgrammeDays, topUpWindow, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
 import { equipmentLabel, expandOwnedEquipment } from "@/lib/training/equipment";
 import { bestSet, formatBestSet, loadExerciseHistory, previousPerformance } from "@/lib/training/exercise-history";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
@@ -337,7 +337,8 @@ export default function WorkoutsPage() {
       level: asLevel(prefs.fitness_level), recentDays: recent, includeTargets: !targetsMissing, plans: enrolmentPlans.plans, todayKey, target,
     });
     setPlanningAhead(false);
-    if (!planned.ran) return;
+    // Also when another tab planned the days meanwhile: this page's copy still shows them unplanned.
+    if (!plansChangedByTopUp(planned)) return;
     const fresh = await loadEnrolmentPlans(supabase, uid, currentEnrolment.id, plansFrom);
     if (!fresh.error) setProgrammePlans(fresh.plans);
     if (planned.created > 0) setNotice(`Planned ${planned.created} more programme day${planned.created === 1 ? "" : "s"}, so your next 7 days are ready.`);

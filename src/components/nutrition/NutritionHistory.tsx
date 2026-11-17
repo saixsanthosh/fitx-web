@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/app/EmptyState";
 import { createClient } from "@/lib/supabase/client";
 import { buildHistory, dateKeyOf, lastDays, type HistoryDay, type HistoryEntry, type HistoryTargets } from "@/lib/domain/nutrition-history";
 import { isEstimateSnapshot } from "@/lib/food/client-data";
+import { unknownAverageNote } from "./history-tiles";
 import styles from "./History.module.css";
 
 type Range = 7 | 30;
@@ -74,8 +75,22 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
     return buildHistory(entries, lastDays(today, range), targets);
   }, [today, rows, range, targets]);
 
+  const header = (
+    <div className={styles.head}>
+      <div>
+        <h2 id="history-title" className="font-medium">History</h2>
+        <p className="mt-1 text-sm text-fitx-text-secondary">Averages count only the days you logged. A day with nothing logged is a gap, not 0 kcal.</p>
+      </div>
+      <div className={styles.range} role="group" aria-label="Period">
+        {([7, 30] as const).map((value) => <button key={value} type="button" aria-pressed={range === value} onClick={() => setRange(value)}>{value} days</button>)}
+      </div>
+    </div>
+  );
+
+  // While loading, or when the load failed, the heading and period buttons stay so the region keeps its name.
   if (!history) {
-    return <section className="fitx-panel p-4 sm:p-5">
+    return <section className="fitx-panel p-4 sm:p-5" aria-labelledby="history-title">
+      {header}
       {problem
         ? <div role="alert" className={styles.alert}>
           <p>{problem.text}</p>
@@ -87,30 +102,25 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
 
   const calorieTarget = targets?.calories && targets.calories > 0 ? targets.calories : null;
   const top = Math.max(1, calorieTarget ?? 0, ...history.days.map((day) => day.calories));
-  const grams = (value: number | null | undefined) => (value === null || value === undefined ? "—" : value);
+  // An average no logged day had a value for reads "no value", without a unit, so it never looks like a number.
+  const grams = (value: number | null | undefined) => (value === null || value === undefined ? <small>no value</small> : <>{value} <small>g</small></>);
   const lead = history.days.length ? (new Date(`${history.days[0].date}T12:00:00`).getDay() + 6) % 7 : 0;
   const unknownNote = (["protein", "carbs", "fat"] as const).filter((key) => history.daysWithUnknown[key] > 0)
     .map((key) => `${key} on ${history.daysWithUnknown[key]} ${history.daysWithUnknown[key] === 1 ? "day" : "days"}`);
+  const proteinUnknown = unknownAverageNote(history.averages, ["protein"]);
+  const carbsFatUnknown = unknownAverageNote(history.averages, ["carbs", "fat"]);
 
   return (
     <section className="fitx-panel p-4 sm:p-5" aria-labelledby="history-title">
-      <div className={styles.head}>
-        <div>
-          <h2 id="history-title" className="font-medium">History</h2>
-          <p className="mt-1 text-sm text-fitx-text-secondary">Averages count only the days you logged. A day with nothing logged is a gap, not 0 kcal.</p>
-        </div>
-        <div className={styles.range} role="group" aria-label="Period">
-          {([7, 30] as const).map((value) => <button key={value} type="button" aria-pressed={range === value} onClick={() => setRange(value)}>{value} days</button>)}
-        </div>
-      </div>
+      {header}
       {history.loggedDays === 0 ? (
         <EmptyState title="Nothing logged in this period" description="Log a meal and your days, averages and trends show up here."/>
       ) : <>
         <div className={styles.tiles}>
           <div><span>Days logged</span><strong>{history.loggedDays} <small>of {range}</small></strong></div>
           <div><span>Average calories</span><strong>{number(history.averages?.calories ?? 0)} <small>kcal a logged day</small></strong></div>
-          <div><span>Average protein</span><strong>{grams(history.averages?.protein)} <small>g</small></strong></div>
-          <div><span>Average carbs · fat</span><strong>{grams(history.averages?.carbs)} <small>g</small> · {grams(history.averages?.fat)} <small>g</small></strong></div>
+          <div title={proteinUnknown ?? undefined}><span>Average protein</span><strong>{grams(history.averages?.protein)}</strong>{proteinUnknown && <span className="sr-only">{proteinUnknown}</span>}</div>
+          <div title={carbsFatUnknown ?? undefined}><span>Average carbs · fat</span><strong>{grams(history.averages?.carbs)} · {grams(history.averages?.fat)}</strong>{carbsFatUnknown && <span className="sr-only">{carbsFatUnknown}</span>}</div>
         </div>
         {unknownNote.length > 0 && <p className={styles.note} role="note">Some entries have no value for {unknownNote.join(", ")}. Those values are left out of the totals, not counted as 0 g, so the averages for them may be low. A day with no value at all is left out of that average.</p>}
         {history.estimatedEntries > 0 && <p className={styles.note}>{history.estimatedEntries} of {history.totalEntries} entries are estimates (a typical recipe or an average portion weight).</p>}
@@ -133,11 +143,14 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
           ))}
         </div>
         {calorieTarget !== null && <p className={styles.legend} aria-hidden="true"><span className={styles.legendLine}/>Calorie target · dashed bars are days not logged</p>}
-        <table className="sr-only">
-          <caption>Calories logged each day, last {range} days</caption>
-          <thead><tr><th scope="col">Day</th><th scope="col">Calories</th><th scope="col">Protein (g)</th><th scope="col">Carbs (g)</th><th scope="col">Fat (g)</th></tr></thead>
-          <tbody>{history.days.map((day) => <DayRow key={day.date} day={day}/>)}</tbody>
-        </table>
+        {/* A table box ignores the 1 px size of sr-only and can widen the page on phones, so a block wrapper hides it. */}
+        <div className="sr-only">
+          <table>
+            <caption>Calories logged each day, last {range} days</caption>
+            <thead><tr><th scope="col">Day</th><th scope="col">Calories</th><th scope="col">Protein (g)</th><th scope="col">Carbs (g)</th><th scope="col">Fat (g)</th></tr></thead>
+            <tbody>{history.days.map((day) => <DayRow key={day.date} day={day}/>)}</tbody>
+          </table>
+        </div>
         <h3 className={styles.subhead}>Logged days</h3>
         <div className={styles.calendar} role="group" aria-label={`Days logged in the last ${range} days`}>
           {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((name) => <span key={name} className={styles.weekday} aria-hidden="true">{name}</span>)}

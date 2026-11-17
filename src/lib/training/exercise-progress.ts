@@ -100,11 +100,12 @@ export function latestPoints(points: readonly ProgressPoint[], count: number): P
 
 /**
  * What the figures are based on: every completed session with this exercise, or (when the read stopped at its
- * limit) the latest ones. `capped` says older sessions may exist.
+ * limit, or was cut off before it reached the oldest rows: `truncated` from loadExerciseHistory) the latest ones.
+ * `capped` says older sessions may exist.
  */
-export function historyBasis(count: number, limit: number): { capped: boolean; text: string } {
-  const capped = count >= limit;
-  if (capped) return { capped, text: `Based on your latest ${count} completed sessions with this exercise.` };
+export function historyBasis(count: number, limit: number, truncated = false): { capped: boolean; text: string } {
+  const capped = truncated || count >= limit;
+  if (capped) return { capped, text: `Based on your latest ${count === 1 ? "completed session" : `${count} completed sessions`} with this exercise.` };
   return { capped, text: `Based on ${count === 1 ? "your 1 completed session" : `all ${count} of your completed sessions`} with this exercise.` };
 }
 

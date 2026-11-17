@@ -178,10 +178,6 @@ const KNOWN_PRODUCTION_REDECLARATIONS = {
     ],
     reason: "the Admin draft created both tables and both indexes as this file declares them, apart from the audit log's key to accounts, which this file drops",
   },
-  "20261119100020_fitx_exercise_favorites.sql": {
-    notices: [/^relation "exercise_favorites" already exists, skipping$/, /^relation "exercise_favorites_exercise_idx" already exists, skipping$/],
-    reason: "experience 2.0 created the table (20261002172610) and its index (20261002172706) exactly as this file declares them; it adopts them",
-  },
 };
 
 // What experience 2.0 (20261002172610, 20261002172706) leaves on production after every pending migration and a

@@ -311,9 +311,10 @@ const CHUNK_BATCH = 6;
 
 /**
  * Saves the row and then its chunks. `created` is the id when this call inserted the row (it did not
- * exist before), so a caller can take it back out when the chunks then fail.
+ * exist before), so a caller can take it back out when the chunks then fail. With `keepChunks`, chunks
+ * already stored are left as they are and only the missing ones are added.
  */
-async function saveRowAndChunks(client: SupabaseLike, userId: string, record: ActivityRecord): Promise<{ result: DbResult<{ id: string }>; created: string | null }> {
+async function saveRowAndChunks(client: SupabaseLike, userId: string, record: ActivityRecord, keepChunks = false): Promise<{ result: DbResult<{ id: string }>; created: string | null }> {
   let created: string | null = null;
   try {
     const inserted = await table(client, "activities")
@@ -340,7 +341,7 @@ async function saveRowAndChunks(client: SupabaseLike, userId: string, record: Ac
         encoding: 1,
         points: chunk.points,
       }));
-      const saved = await table(client, "activity_track_chunks").upsert(rows, { onConflict: "activity_id,seq" });
+      const saved = await table(client, "activity_track_chunks").upsert(rows, keepChunks ? { onConflict: "activity_id,seq", ignoreDuplicates: true } : { onConflict: "activity_id,seq" });
       if (saved.error) return { result: failure(saved.error), created };
     }
     return { result: { status: "ok", data: { id } }, created };
@@ -359,10 +360,10 @@ export async function saveActivity(client: SupabaseLike, userId: string, record:
  * copy, but an import has no copy to retry from: when this call created the row and its points
  * then failed, the row is removed again (its chunks go with it), so importing the file again
  * starts clean instead of finding an activity without its points. A row that was already there
- * is never removed.
+ * is never removed, and its stored points are never overwritten: only the missing ones are added.
  */
 export async function saveImportedActivity(client: SupabaseLike, userId: string, record: ActivityRecord): Promise<DbResult<{ id: string }>> {
-  const { result, created } = await saveRowAndChunks(client, userId, record);
+  const { result, created } = await saveRowAndChunks(client, userId, record, true);
   if (result.status !== "ok" && created) await deleteActivity(client, userId, created);
   return result;
 }

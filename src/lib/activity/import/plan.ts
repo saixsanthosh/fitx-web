@@ -1,5 +1,5 @@
 import type { DbResult } from "../repository";
-import type { ActivitySource, Sport } from "../types";
+import type { ActivitySource, ImportFormat, Sport } from "../types";
 
 /*
  * Before anything is saved, each file is checked against the account and the other files chosen
@@ -26,6 +26,10 @@ export type KnownActivity = {
    * stopped part way, or the daily limit was reached): importing the file again sends them.
    */
   missingPoints?: boolean;
+  /** What the saved row holds (from the account; absent for a copy on this device). */
+  pointCount?: number;
+  chunkCount?: number;
+  sourceFormat?: ImportFormat | null;
 };
 
 export type Candidate = { key: string; clientId: string; startedAt: number; endedAt: number };
@@ -62,6 +66,43 @@ export function checkImport(candidate: Candidate, existing: readonly KnownActivi
   const sibling = earlier.find((other) => overlaps(other, candidate));
   if (sibling) return { kind: "overlap", activity: null, otherKey: sibling.key };
   return { kind: "ready" };
+}
+
+/** What a file builds to, for comparing with the saved row before filling in its points. */
+export type RecordShape = { startedAt: number; endedAt: number; pointCount: number; chunkCount: number; sourceFormat: ImportFormat | null };
+
+/**
+ * Whether a file can fill in the missing points of an earlier, incomplete import: only when it
+ * builds to the same activity as the saved row (same format, start, end, point and chunk counts).
+ * Another export of the session (its GPX after a FIT) shares the device id but not its points,
+ * and sending those would mix two files' points under one summary, so it is left as it is.
+ * Anything not known on either side is not a match.
+ */
+export function refillsSaved(activity: KnownActivity, shape: RecordShape | null): boolean {
+  if (!shape || activity.pointCount === undefined || activity.chunkCount === undefined || !activity.sourceFormat) return false;
+  return activity.sourceFormat === shape.sourceFormat
+    && activity.pointCount === shape.pointCount
+    && activity.chunkCount === shape.chunkCount
+    && Math.abs(activity.startedAt - shape.startedAt) < 1000
+    && Math.abs(activity.endedAt - shape.endedAt) < 1000;
+}
+
+/** The key one known activity is held under: saved and device copies of a session are kept apart. */
+export const knownKey = (activity: KnownActivity) => `${activity.local ? "local" : "saved"}:${activity.clientId}`;
+
+/**
+ * Adds a lookup's activities to what is already known. A later lookup that found an activity only
+ * by time did not count its points, so it keeps the earlier count instead of erasing it.
+ */
+export function mergeKnown(previous: readonly KnownActivity[], found: readonly KnownActivity[]): KnownActivity[] {
+  const merged = new Map(previous.map((activity) => [knownKey(activity), activity]));
+  for (const activity of found) {
+    const key = knownKey(activity);
+    const before = merged.get(key);
+    const missingPoints = activity.missingPoints ?? before?.missingPoints;
+    merged.set(key, missingPoints === undefined ? activity : { ...activity, missingPoints });
+  }
+  return [...merged.values()];
 }
 
 /** What happened to one file. */

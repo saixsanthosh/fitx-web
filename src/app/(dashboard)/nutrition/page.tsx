@@ -887,11 +887,13 @@ export default function NutritionPage() {
       {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={`${targetSourceText}.`}
         onOpenDay={(key) => { const [year, month, day] = key.split("-").map(Number); setDate(new Date(year, month - 1, day)); setTab("meals"); }}/>}
       {sheetOpen && selected && <Sheet title="Scanned product" description="Check the amount, pick the meal and add it." onClose={() => setSheetOpen(false)}
-        footer={<div className={ui.sheetActions}>
-          {/* The page's own alert sits behind this modal, so a rejected amount or a failed save is shown here. */}
-          {error && <p role="alert" className={ui.warning}>{error}</p>}
-          <button type="button" className="fitx-button" disabled={busy} onClick={() => void logFood(selected)}>{busy ? "Saving…" : `Add to ${meal}`}</button>
-          {selected.kind !== "custom" && <button type="button" className="fitx-button fitx-button-secondary" onClick={() => saveSelectedAsFood(selected)}>Save to My foods</button>}
+        footer={<div className="grid w-full gap-2">
+          {/* The page's own alert sits behind this modal, so a rejected amount or a failed save is shown here, on its own row above the buttons. */}
+          {error && <p role="alert" className={styles.alert}>{error}</p>}
+          <div className={ui.sheetActions}>
+            <button type="button" className="fitx-button" disabled={busy} onClick={() => void logFood(selected)}>{busy ? "Saving…" : `Add to ${meal}`}</button>
+            {selected.kind !== "custom" && <button type="button" className="fitx-button fitx-button-secondary" onClick={() => saveSelectedAsFood(selected)}>Save to My foods</button>}
+          </div>
         </div>}>
         {detailFor(selected, "chips", "sheet-portion", true)}
       </Sheet>}

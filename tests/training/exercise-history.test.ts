@@ -239,6 +239,36 @@ describe("loadExerciseHistory", () => {
     assert.equal(result.truncated, true);
   });
 
+  test("a row added between two page reads is read once, so its sets are not counted twice", async () => {
+    // 40 sessions wanted, 84 rows a page. Every third row counts, and r83 too: 29 on the first page, so a second
+    // is read. A new row arrives before it, shifting the offsets, so the second page starts again at r83.
+    let rowReads = 0;
+    const counted = (id: string) => id !== "rnew" && (Number(id.slice(1)) % 3 === 0 || id === "r83");
+    const stub = new StubDb((call) => {
+      const ids = (call.ops.find((op) => op.method === "in")?.args[1] ?? []) as string[];
+      if (call.name === "workout_session_exercises") {
+        const [from, to] = call.ops.find((op) => op.method === "range")!.args as [number, number];
+        rowReads += 1;
+        const rows = Array.from({ length: 300 }, (_, index) => `r${index}`);
+        const listed = rowReads === 1 ? rows : ["rnew", ...rows];
+        return { data: listed.slice(from, to + 1).map((id) => ({ id, session_id: id.replace("r", "s"), exercise_id: "bench_press", exercise_name: "Bench", target_duration_seconds: null })) };
+      }
+      const index = (id: string) => (id === "snew" ? -1 : Number(id.slice(1)));
+      if (call.name === "workout_sessions") {
+        return { data: ids.filter((id) => counted(id.replace("s", "r"))).map((id) => ({ id, name: "Push", status: "completed", started_at: new Date(Date.UTC(2026, 9, 1) - index(id) * 3_600_000).toISOString(), completed_at: at(1, 50) })) };
+      }
+      if (call.name === "workout_sets") return { data: ids.map((id) => ({ session_exercise_id: id, set_number: 1, reps: 8, weight_kg: 80, duration_seconds: null, completed_at: at(1, 10) })) };
+      return undefined;
+    });
+    const result = await loadExerciseHistory(db(stub), "user-1", "bench_press", { sessions: 40 });
+    assert.equal(rowReads, 2);
+    const sessions = result.byExercise.get("bench_press")!;
+    assert.equal(sessions.find((item) => item.sessionId === "s83")?.sets.length, 1);
+    assert.equal(new Set(sessions.map((item) => item.sessionId)).size, sessions.length);
+    const setReads = stub.callsTo("workout_sets").flatMap((call) => call.ops.find((op) => op.method === "in")!.args[1] as string[]);
+    assert.equal(setReads.filter((id) => id === "r83").length, 1, "its sets are read once");
+  });
+
   test("the exercise page: recent sessions, or none when they cannot be read", async () => {
     assert.deepEqual(await loadRecentSessions(db(new StubDb(handler)), "user-1", "bench_press"), [{ id: "s1", started_at: at(5), completedSets: 1, topSet: "80 kg × 8" }]);
     assert.deepEqual(await loadRecentSessions(db(new StubDb(() => ({ error: { code: "500", message: "x" } }))), "user-1", "bench_press"), []);

@@ -8,7 +8,7 @@ import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { formatActivityDate, formatDistance, formatDuration, formatDurationWords } from "@/lib/activity/format";
 import { readActivityFile } from "@/lib/activity/import/detect";
 import { importClientId } from "@/lib/activity/import/fingerprint";
-import { checkImport, lookupWindow, OVERLAP_TOLERANCE_MS, saveFailure, shouldCountPoints, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity } from "@/lib/activity/import/plan";
+import { checkImport, knownKey, lookupWindow, mergeKnown, OVERLAP_TOLERANCE_MS, refillsSaved, saveFailure, shouldCountPoints, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity, type RecordShape } from "@/lib/activity/import/plan";
 import { buildImportRecord, FORMAT_LABEL, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
 import { IMPORT_LIMITS, ImportError, type ParsedImport } from "@/lib/activity/import/types";
 import { timeRange } from "@/lib/activity/import/gpx";
@@ -42,7 +42,28 @@ type Entry = {
 const ACCEPT = ".gpx,.tcx,.fit,.gz,application/gpx+xml,application/vnd.garmin.tcx+xml,application/octet-stream,application/gzip";
 
 function knownFromView(view: ActivityView): KnownActivity {
-  return { id: view.id, clientId: view.clientId, sport: view.sport, title: view.title, startedAt: view.startedAt, endedAt: view.endedAt, source: view.source, local: view.local };
+  return {
+    id: view.id, clientId: view.clientId, sport: view.sport, title: view.title, startedAt: view.startedAt, endedAt: view.endedAt, source: view.source, local: view.local,
+    pointCount: view.pointCount, chunkCount: view.chunkCount, sourceFormat: view.sourceFormat,
+  };
+}
+
+/** What a file builds to with this sport (null when it can't be built), kept per file. */
+const shapes = new WeakMap<ParsedImport, Map<Sport, RecordShape | null>>();
+function shapeFor(parsed: ParsedImport, sport: Sport): RecordShape | null {
+  let bySport = shapes.get(parsed);
+  if (!bySport) shapes.set(parsed, (bySport = new Map()));
+  if (!bySport.has(sport)) {
+    let shape: RecordShape | null = null;
+    try {
+      const { record } = buildImportRecord(parsed, { sport, clientId: "00000000-0000-4000-8000-000000000000", weightKg: null, importedAt: Date.now() });
+      shape = { startedAt: record.startedAt, endedAt: record.endedAt, pointCount: record.pointCount, chunkCount: record.chunks.length, sourceFormat: record.sourceFormat ?? null };
+    } catch {
+      // A file that can't be built adds nothing.
+    }
+    bySport.set(sport, shape);
+  }
+  return bySport.get(sport) ?? null;
 }
 
 /** The numbers FITX will save for this file with this sport (replayed by its engine). */
@@ -62,7 +83,10 @@ function computeChecks(entries: readonly Entry[], existing: readonly KnownActivi
   for (const entry of entries) {
     if (entry.phase !== "ready" || !entry.parsed || !entry.clientId) continue;
     const candidate: Candidate = { key: entry.key, clientId: entry.clientId, startedAt: entry.parsed.startedAt, endedAt: entry.parsed.endedAt };
-    const check = checkImport(candidate, existing, earlier);
+    let check = checkImport(candidate, existing, earlier);
+    // Only the file that made the incomplete activity can fill in its points; another export of the
+    // same session (same device id, other points) would mix two files under one summary.
+    if (check.kind === "incomplete" && !refillsSaved(check.activity, shapeFor(entry.parsed, check.activity.sport))) check = { kind: "already", activity: check.activity };
     checks.set(entry.key, check);
     if (check.kind !== "already" && check.kind !== "same-file") earlier.push(candidate);
   }
@@ -298,12 +322,9 @@ export function ActivityImportScreen() {
       // No device storage: nothing recorded offline to compare with.
     }
     const unique = new Map<string, KnownActivity>();
-    for (const activity of found) unique.set(`${activity.local ? "local" : "saved"}:${activity.clientId}`, activity);
-    setExisting((previous) => {
-      const merged = new Map(previous.map((activity) => [`${activity.local ? "local" : "saved"}:${activity.clientId}`, activity]));
-      for (const [key, activity] of unique) merged.set(key, activity);
-      return [...merged.values()];
-    });
+    for (const activity of found) unique.set(knownKey(activity), activity);
+    // An activity found again only by time keeps the points count an earlier lookup made.
+    setExisting((previous) => mergeKnown(previous, [...unique.values()]));
     return true;
   }, [userId]);
 
@@ -430,6 +451,13 @@ export function ActivityImportScreen() {
       let result: ImportResult;
       try {
         const build = buildImportRecord(entry.parsed as ParsedImport, { sport: sportOf(entry) as Sport, clientId: entry.clientId as string, weightKg, importedAt: Date.now() });
+        const check = checks.get(entry.key);
+        if (check?.kind === "incomplete" && !refillsSaved(check.activity, { startedAt: build.record.startedAt, endedAt: build.record.endedAt, pointCount: build.record.pointCount, chunkCount: build.record.chunks.length, sourceFormat: build.record.sourceFormat ?? null })) {
+          result = { kind: "already", id: check.activity.id };
+          results.push(result);
+          update(entry.key, { result, phase: "done" });
+          continue;
+        }
         // A save that fails part way is taken back out, so importing the file again starts clean.
         const saved = await saveImportedActivity(supabase, userId, build.record);
         if (saved.status === "ok") {

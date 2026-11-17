@@ -81,6 +81,12 @@ describe("how much history is read", () => {
     assert.deepEqual(historyBasis(40, 40), { capped: true, text: "Based on your latest 40 completed sessions with this exercise." });
   });
 
+  test("a read cut off before the oldest rows is never called the whole history, however few sessions it found", () => {
+    assert.deepEqual(historyBasis(9, 40, true), { capped: true, text: "Based on your latest 9 completed sessions with this exercise." });
+    assert.deepEqual(historyBasis(1, 40, true), { capped: true, text: "Based on your latest completed session with this exercise." });
+    assert.equal(historyBasis(9, 40, false).capped, false, "fewer than asked for, not cut off: the whole history");
+  });
+
   test("a larger read follows the first, then none", () => {
     assert.equal(nextHistoryLoad(HISTORY_LOADS[0]), HISTORY_LOADS[1]);
     assert.equal(nextHistoryLoad(HISTORY_LOADS[HISTORY_LOADS.length - 1]), null);

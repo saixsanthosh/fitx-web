@@ -50,10 +50,11 @@ const elsewhere = (name) => typeof name === "string" && (ELSEWHERE_TABLES.has(na
 const LEFTOVERS = [
   {
     what:
-      "the tables exercise_favorites, food_favorites, outdoor_activities, activity_shares and user_release_reads, with their " +
+      "the tables food_favorites, outdoor_activities, activity_shares and user_release_reads (exercise_favorites was adopted by " +
+      "20261119100020), with their " +
       "columns, keys, checks, indexes, owner-only policies and grants: signed-in members can write their own rows, and " +
       "signed-out visitors hold every table privilege but no policy lets them reach a row",
-    pattern: /^(relation|column|constraint|index|policy|trigger|rows) public\.(exercise_favorites|food_favorites|outdoor_activities|activity_shares|user_release_reads)(\.|$)/,
+    pattern: /^(relation|column|constraint|index|policy|trigger|rows) public\.(food_favorites|outdoor_activities|activity_shares|user_release_reads)(\.|$)/,
   },
   {
     what: "exercise_library.aliases, tags, form_cues, common_mistakes (text[], empty) and breathing (text, null) on every exercise",

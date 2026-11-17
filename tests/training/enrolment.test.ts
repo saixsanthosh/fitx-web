@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { datesToSchedule, finishProgramme, leaveProgramme, ownProgrammeItems, pauseProgramme, programmeDayDone, programmeDaysToRemove, resumeProgramme, topUpWindow, upcomingProgrammeDays, type ProgrammePlan } from "@/lib/training/enrolment";
+import { datesToSchedule, finishProgramme, leaveProgramme, ownProgrammeItems, pauseProgramme, plansChangedByTopUp, programmeDayDone, programmeDaysToRemove, resumeProgramme, topUpProgrammeDays, topUpWindow, upcomingProgrammeDays, type ProgrammePlan, type TopUpInput } from "@/lib/training/enrolment";
+import { StubDb } from "../home/support/stub-db";
 
 const TODAY = "2026-11-18";
 /** A start time in the test's own time zone, as the app writes planner items from the browser. */
@@ -191,6 +192,26 @@ test("the top-up window: after the last planned day, only while active, and only
   // 3 sessions in all: one done and one planned leave one to plan.
   assert.equal(topUpWindow({ enrolment, plans, todayKey: TODAY, target: 3, dayCount: 3 })?.maxDays, 1);
   assert.equal(topUpWindow({ enrolment, plans, todayKey: TODAY, target: 2, dayCount: 3 }), null);
+});
+
+test("a top-up that finds the week planned meanwhile plans nothing, and says the page's plans are out of date", async () => {
+  // This page loaded no plans from today; another tab planned Wednesday, Friday and Monday before this run got the lock.
+  const enrolment = { id: "e", weekdays: [1, 3, 5], preferred_time: "18:00:00", context: "home" as const, next_day_index: 0, sessions_completed: 0, status: "active" };
+  const stub = new StubDb((call) => {
+    if (call.name === "programme_enrolments") return { data: { status: "active", next_day_index: 0, sessions_completed: 0 } };
+    if (call.name === "workout_plans") return { data: [["wed", "2026-11-18", 0], ["fri", "2026-11-20", 1], ["mon", "2026-11-23", 2]].map(([id, planned_for, programme_day_index]) => ({ id, title: id, planned_for, programme_day_index, workout_sessions: [] })) };
+    return { data: [] };
+  });
+  const input = {
+    userId: "member-1", enrolment, programme: { days: [{}, {}, {}] }, catalog: [], owned: new Set<string>(), level: "beginner", includeTargets: true, plans: [], todayKey: TODAY, target: null,
+  } as unknown as TopUpInput;
+  assert.ok(topUpWindow({ ...input, dayCount: 3 }), "the page's own check wanted to plan");
+  const outcome = await topUpProgrammeDays(stub as unknown as SupabaseClient, input);
+  assert.deepEqual([outcome.ran, outcome.skipped, outcome.created], [false, "nothing", 0]);
+  assert.equal(stub.calls.filter((call) => call.ops.some((op) => op.method === "insert")).length, 0, "nothing is planned twice");
+  assert.equal(plansChangedByTopUp(outcome), true, "the page reads its plans again");
+  assert.equal(plansChangedByTopUp({ ran: true, skipped: null }), true);
+  assert.equal(plansChangedByTopUp({ ran: false, skipped: "busy" }), false, "another run is still planning");
 });
 
 function programmeDb(status = "active") {
