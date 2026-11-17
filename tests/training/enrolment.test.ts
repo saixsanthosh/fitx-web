@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { leaveProgramme, ownProgrammeItems, programmeDayDone, programmeDaysToRemove, upcomingProgrammeDays, type ProgrammePlan } from "@/lib/training/enrolment";
+import { datesToSchedule, finishProgramme, leaveProgramme, ownProgrammeItems, pauseProgramme, programmeDayDone, programmeDaysToRemove, resumeProgramme, topUpWindow, upcomingProgrammeDays, type ProgrammePlan } from "@/lib/training/enrolment";
 
 const TODAY = "2026-11-18";
 /** A start time in the test's own time zone, as the app writes planner items from the browser. */
@@ -168,4 +168,71 @@ test("leaving reads each item's day, and still works on a database without local
   const older = new MiniDb(tables(false), ["local_date"]);
   assert.equal((await leaveProgramme(older as unknown as SupabaseClient, { userId: me, enrolmentId: "enrolment-1", todayKey: TODAY })).error, null);
   assert.deepEqual(statuses(older), { "fitx-own": "cancelled", "todo-thu": "scheduled" }, "before the planner migration: the start time's day in this browser");
+});
+
+// ---------------------------------------------------------------- keeping the next week planned, pausing and finishing
+
+test("a top-up plans only dates without a plan, keeps the cycle over the dates it leaves out, and stops at the sessions left", () => {
+  // From Monday 2026-11-16 on Monday, Wednesday and Friday, starting at day 0 of a three-day cycle.
+  const all = datesToSchedule({ fromKey: "2026-11-16", weekdays: [1, 3, 5], horizonDays: 7, startDay: 0, dayCount: 3 });
+  assert.deepEqual(all, [{ date: "2026-11-16", dayIndex: 0 }, { date: "2026-11-18", dayIndex: 1 }, { date: "2026-11-20", dayIndex: 2 }]);
+  // Another tab planned Wednesday meanwhile: it is left out, and Friday is still day 2.
+  assert.deepEqual(datesToSchedule({ fromKey: "2026-11-16", weekdays: [1, 3, 5], horizonDays: 7, startDay: 0, dayCount: 3, planned: new Set(["2026-11-18"]) }),
+    [{ date: "2026-11-16", dayIndex: 0 }, { date: "2026-11-20", dayIndex: 2 }]);
+  assert.deepEqual(datesToSchedule({ fromKey: "2026-11-16", weekdays: [1, 3, 5], horizonDays: 7, startDay: 0, dayCount: 3, maxDays: 1 }), [{ date: "2026-11-16", dayIndex: 0 }]);
+  assert.deepEqual(datesToSchedule({ fromKey: "2026-11-16", weekdays: [1, 3, 5], horizonDays: 7, startDay: 0, dayCount: 3, maxDays: 0 }), []);
+});
+
+test("the top-up window: after the last planned day, only while active, and only sessions a programme with a length still needs", () => {
+  const enrolment = { id: "e", weekdays: [1, 3, 5], preferred_time: "18:00:00", context: "home" as const, next_day_index: 1, sessions_completed: 1, status: "active" };
+  const plans = [{ ...day("mon", "2026-11-16", "2026-11-16"), programme_day_index: 0 }, { ...day("wed", "2026-11-18"), programme_day_index: 1 }];
+  assert.deepEqual(topUpWindow({ enrolment, plans, todayKey: TODAY, target: null, dayCount: 3 }), { fromKey: "2026-11-19", startDay: 2, horizonDays: 6, maxDays: null });
+  assert.equal(topUpWindow({ enrolment: { ...enrolment, status: "paused" }, plans, todayKey: TODAY, target: null, dayCount: 3 }), null);
+  // 3 sessions in all: one done and one planned leave one to plan.
+  assert.equal(topUpWindow({ enrolment, plans, todayKey: TODAY, target: 3, dayCount: 3 })?.maxDays, 1);
+  assert.equal(topUpWindow({ enrolment, plans, todayKey: TODAY, target: 2, dayCount: 3 }), null);
+});
+
+function programmeDb(status = "active") {
+  const me = "member-1";
+  const plan = (id: string, planned_for: string) => ({ id, user_id: me, programme_enrolment_id: "enrolment-1", planned_for });
+  return {
+    me,
+    db: new MiniDb({
+      workout_plans: [plan("mon", "2026-11-16"), plan("wed", "2026-11-18"), plan("fri", "2026-11-20")],
+      workout_sessions: [{ id: "s-mon", user_id: me, plan_id: "mon", status: "completed" }],
+      planner_events: [
+        { id: "wed-own", user_id: me, event_type: "workout", workout_plan_id: "wed", starts_at: at("2026-11-18", 18), status: "scheduled" },
+        { id: "fri-own", user_id: me, event_type: "workout", workout_plan_id: "fri", starts_at: at("2026-11-20", 18), status: "scheduled" },
+      ],
+      programme_enrolments: [{ id: "enrolment-1", user_id: me, status }],
+    }),
+  };
+}
+
+test("pausing removes the days not started from today on and keeps the enrolment's place; resuming makes it active again", async () => {
+  const { me, db } = programmeDb();
+  assert.equal((await pauseProgramme(db as unknown as SupabaseClient, { userId: me, enrolmentId: "enrolment-1", todayKey: TODAY })).error, null);
+  assert.deepEqual(db.tables.workout_plans.map((row) => row.id), ["mon"], "the coming days go; the done one stays");
+  assert.deepEqual(db.tables.planner_events.map((row) => row.status), ["cancelled", "cancelled"]);
+  assert.equal(db.tables.programme_enrolments[0].status, "paused");
+  const resumed = await resumeProgramme(db as unknown as SupabaseClient, { userId: me, enrolmentId: "enrolment-1" });
+  assert.equal(resumed.error, null);
+  assert.equal(resumed.alreadyActive, false);
+  assert.equal(db.tables.programme_enrolments[0].status, "active");
+});
+
+test("only an active programme is paused, and only a paused one resumed", async () => {
+  const left = programmeDb("left");
+  await pauseProgramme(left.db as unknown as SupabaseClient, { userId: left.me, enrolmentId: "enrolment-1", todayKey: TODAY });
+  assert.equal(left.db.tables.programme_enrolments[0].status, "left");
+  await resumeProgramme(left.db as unknown as SupabaseClient, { userId: left.me, enrolmentId: "enrolment-1" });
+  assert.equal(left.db.tables.programme_enrolments[0].status, "left");
+});
+
+test("finishing a programme marks it completed and removes the days not started", async () => {
+  const { me, db } = programmeDb();
+  assert.equal((await finishProgramme(db as unknown as SupabaseClient, { userId: me, enrolmentId: "enrolment-1", todayKey: TODAY })).error, null);
+  assert.equal(db.tables.programme_enrolments[0].status, "completed");
+  assert.deepEqual(db.tables.workout_plans.map((row) => row.id), ["mon"]);
 });

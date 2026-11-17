@@ -1,7 +1,7 @@
 // Flow 2: Workouts. Home equipment edited and saved; a home programme followed (today planned), today's day
-// started from the programme card; a set logged with reps and load, an exercise swapped, the session paused and
-// resumed, then finished: history, personal records and today's planner item ticked. A gym custom workout with a
-// timed movement runs its set timer. A finished session is repeated from history.
+// opened from the programme card in its plan preview and begun there; a set logged with reps and load, an exercise
+// swapped, the session paused and resumed, then finished: history, personal records and today's planner item
+// ticked. A gym custom workout with a timed movement runs its set timer. A finished session is repeated from history.
 import { kolkataDate, signInUi, textOf } from "./common.mjs";
 
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -90,9 +90,17 @@ export const flow = {
 
     await t.step("start today's programme day", async () => {
       const card = page.getByRole("region", { name: "Your programme" });
+      await card.getByRole("button", { name: /^Start/ }).first().click();
+      // Every plan opens in its preview first: the exercises in order, then Begin workout.
+      const preview = page.getByRole("dialog");
+      const begin = preview.getByRole("button", { name: "Begin workout" });
+      await begin.waitFor({ timeout: 20000 });
+      const exercises = await preview.getByRole("region", { name: /^Exercises/ }).getByRole("listitem").count();
+      t.expect(exercises > 0, "the preview should list the day's exercises", { exercises });
+      await t.checkpoint("plan preview", { fullPage: false });
       await Promise.all([
         page.waitForURL("**/workouts/active?session=*", { timeout: 30000 }),
-        card.getByRole("button", { name: /^Start/ }).first().click(),
+        begin.click(),
       ]);
       sessionId = new URL(page.url()).searchParams.get("session");
       await page.locator("#current-exercise-title").waitFor({ timeout: 20000 });

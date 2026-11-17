@@ -74,12 +74,14 @@ export const flow = {
       await page.getByRole("link", { name: "Start Evening push-ups" }).first().click();
       await page.waitForURL("**/workouts?plan=*", { timeout: 15000 });
       await t.settle();
-      await t.checkpoint("workouts opened from the To-Do");
-      const card = page.locator(`#workout-plan-${plan.plan_id}`);
-      await card.waitFor({ timeout: 15000 });
+      // The To-Do's link opens the plan's preview first; Begin workout starts it with the To-Do kept on the session.
+      const preview = page.getByRole("dialog", { name: "Evening push-ups" });
+      const begin = preview.getByRole("button", { name: "Begin workout" });
+      await begin.waitFor({ timeout: 15000 });
+      await t.checkpoint("workouts opened from the To-Do: the plan preview");
       await Promise.all([
         page.waitForURL("**/workouts/active?session=*", { timeout: 30000 }),
-        card.getByRole("button", { name: /^Start/ }).click(),
+        begin.click(),
       ]);
       const session = new URL(page.url()).searchParams.get("session");
       const linked = await standin.one(`select planner_event_id from public.workout_sessions where id = '${session}'`);

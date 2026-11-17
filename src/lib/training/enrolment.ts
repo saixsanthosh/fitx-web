@@ -3,6 +3,7 @@ import { columnList, isMissingRelationshipError, isMissingTableError, withOption
 import { timedItemDay } from "@/lib/domain/todo";
 import type { CatalogExercise } from "./catalog";
 import { generateDay, type GeneratedExercise } from "./generator";
+import { continuationStart, planningWindow, sessionsLeftToPlan, type PlanningWindow } from "./programme-calendar";
 import { scheduleDays, type Programme } from "./programmes";
 import { createPlanRecord, PLANNER_DAY_COLUMNS, schedulePlannerEvent, type PlanExerciseInput } from "./plans";
 import type { Level, TrainingContext } from "./taxonomy";
@@ -37,6 +38,21 @@ export async function loadActiveEnrolment(supabase: Db, userId: string): Promise
   return { enrolment: (result.data as Enrolment | null) ?? null, available: true, error: null };
 }
 
+/**
+ * The programme the member follows: the active enrolment, else the one they paused most recently. A member has at
+ * most one of either through the app (following another needs leaving first); if an older app left both, the
+ * active one wins. `available` is false until the programme migrations are applied.
+ */
+export async function loadCurrentEnrolment(supabase: Db, userId: string): Promise<{ enrolment: Enrolment | null; available: boolean; error: unknown }> {
+  const result = await supabase.from("programme_enrolments").select(ENROLMENT_COLUMNS).eq("user_id", userId).in("status", ["active", "paused"])
+    .order("status", { ascending: true }).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+  if (result.error) {
+    const missing = isMissingTableError(result.error);
+    return { enrolment: null, available: !missing, error: missing ? null : result.error };
+  }
+  return { enrolment: (result.data as Enrolment | null) ?? null, available: true, error: null };
+}
+
 function localKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -46,15 +62,20 @@ export function addDaysToKey(key: string, days: number): string {
   return localKey(new Date(year, month - 1, day + days));
 }
 
-/** The enrolment's plans dated from `fromKey`, oldest first, with each plan's latest finished day. */
-export async function loadEnrolmentPlans(supabase: Db, userId: string, enrolmentId: string, fromKey: string): Promise<{ plans: ProgrammePlan[]; error: unknown }> {
+/**
+ * The enrolment's plans dated from `fromKey` (to `toKey` when given), oldest first, with each plan's latest finished
+ * day. At most `limit` plans (default 40).
+ */
+export async function loadEnrolmentPlans(supabase: Db, userId: string, enrolmentId: string, fromKey: string, options: { toKey?: string; limit?: number } = {}): Promise<{ plans: ProgrammePlan[]; error: unknown }> {
+  const limit = Math.max(1, Math.min(400, Math.round(options.limit ?? 40)));
   const query = (withLastDone: boolean) => {
-    const base = supabase.from("workout_plans")
+    let base = supabase.from("workout_plans")
       .select(withLastDone ? "id,title,planned_for,programme_day_index,workout_sessions(started_at)" : "id,title,planned_for,programme_day_index")
       .eq("user_id", userId).eq("programme_enrolment_id", enrolmentId).gte("planned_for", fromKey);
+    if (options.toKey) base = base.lte("planned_for", options.toKey);
     return (withLastDone
       ? base.eq("workout_sessions.status", "completed").order("started_at", { referencedTable: "workout_sessions", ascending: false }).limit(1, { referencedTable: "workout_sessions" })
-      : base).order("planned_for", { ascending: true }).limit(40);
+      : base).order("planned_for", { ascending: true }).limit(limit);
   };
   let result = await query(true);
   if (isMissingRelationshipError(result.error)) result = await query(false);
@@ -88,10 +109,7 @@ export function upcomingProgrammeDays<T extends Pick<ProgrammePlan, "planned_for
  * its programme sequence), or today at the enrolment's next day when nothing is scheduled ahead.
  */
 export function nextScheduleStart(existing: readonly ProgrammePlan[], nextDayIndex: number, todayKey: string, dayCount: number): { fromKey: string; startDay: number } {
-  const ahead = existing.filter((plan) => plan.planned_for && plan.planned_for >= todayKey);
-  if (!ahead.length || dayCount <= 0) return { fromKey: todayKey, startDay: dayCount > 0 ? ((nextDayIndex % dayCount) + dayCount) % dayCount : 0 };
-  const last = ahead.reduce((latest, plan) => (plan.planned_for! > latest.planned_for! ? plan : latest));
-  return { fromKey: addDaysToKey(last.planned_for!, 1), startDay: ((last.programme_day_index ?? -1) + 1) % dayCount };
+  return continuationStart(existing, nextDayIndex, todayKey, dayCount);
 }
 
 export function toPlanExercises(items: readonly GeneratedExercise[]): PlanExerciseInput[] {
@@ -118,7 +136,25 @@ export type ScheduleInput = {
   startDay: number;
   horizonDays?: number;
   includeTargets: boolean;
+  /** Create at most this many days (the sessions left in a programme with a length). */
+  maxDays?: number | null;
+  /**
+   * Check the enrolment's plans in the range first and leave out dates that already have one (another tab or device
+   * planned them meanwhile). The cycle still advances over a date left out, so both runs agree on each day.
+   */
+  skipPlannedDates?: boolean;
 };
+
+/**
+ * The dates a run creates: the training weekdays from `fromKey` within the horizon, each with its programme day in
+ * order from `startDay`, without the dates in `planned` (the cycle still advances over them), at most `maxDays`.
+ */
+export function datesToSchedule(input: { fromKey: string; weekdays: readonly number[]; horizonDays: number; startDay: number; dayCount: number; planned?: ReadonlySet<string>; maxDays?: number | null }): Array<{ date: string; dayIndex: number }> {
+  const [year, month, day] = input.fromKey.split("-").map(Number);
+  const dates = scheduleDays({ from: new Date(year, month - 1, day), weekdays: input.weekdays, horizonDays: input.horizonDays, startDay: input.startDay, dayCount: input.dayCount });
+  const open = input.planned ? dates.filter((entry) => !input.planned!.has(entry.date)) : dates;
+  return input.maxDays == null ? open : open.slice(0, Math.max(0, input.maxDays));
+}
 
 /**
  * Creates dated plans (and planner events) for the programme days that fall on the enrolment's
@@ -126,8 +162,16 @@ export type ScheduleInput = {
  * equipment are skipped and reported; slots that could not be filled are reported by label.
  */
 export async function scheduleProgrammeDays(supabase: Db, input: ScheduleInput): Promise<{ created: number; skippedDays: string[]; unfilledSlots: string[]; error: unknown }> {
-  const [year, month, day] = input.fromKey.split("-").map(Number);
-  const dates = scheduleDays({ from: new Date(year, month - 1, day), weekdays: input.enrolment.weekdays, horizonDays: input.horizonDays ?? 7, startDay: input.startDay, dayCount: input.programme.days.length });
+  const horizonDays = input.horizonDays ?? 7;
+  let planned: Set<string> | undefined;
+  if (input.skipPlannedDates) {
+    const toKey = addDaysToKey(input.fromKey, horizonDays - 1);
+    const existing = await supabase.from("workout_plans").select("planned_for").eq("user_id", input.userId)
+      .eq("programme_enrolment_id", input.enrolment.id).gte("planned_for", input.fromKey).lte("planned_for", toKey);
+    if (existing.error) return { created: 0, skippedDays: [], unfilledSlots: [], error: existing.error };
+    planned = new Set(((existing.data ?? []) as Array<{ planned_for: string | null }>).flatMap((row) => (row.planned_for ? [row.planned_for] : [])));
+  }
+  const dates = datesToSchedule({ fromKey: input.fromKey, weekdays: input.enrolment.weekdays, horizonDays, startDay: input.startDay, dayCount: input.programme.days.length, planned, maxDays: input.maxDays });
   let created = 0;
   const skippedDays: string[] = [];
   const unfilledSlots = new Set<string>();
@@ -150,6 +194,58 @@ export async function scheduleProgrammeDays(supabase: Db, input: ScheduleInput):
     created++;
   }
   return { created, skippedDays, unfilledSlots: [...unfilledSlots], error: null };
+}
+
+export type TopUpInput = Omit<ScheduleInput, "fromKey" | "startDay" | "horizonDays" | "maxDays" | "skipPlannedDates" | "enrolment"> & {
+  enrolment: Pick<Enrolment, "id" | "weekdays" | "preferred_time" | "context" | "next_day_index" | "sessions_completed" | "status">;
+  /** The enrolment's plans dated today or later, as loaded (loadEnrolmentPlans). */
+  plans: readonly ProgrammePlan[];
+  todayKey: string;
+  /** The programme's target sessions (programme-calendar.ts targetSessions); null for an ongoing programme. */
+  target: number | null;
+  horizonDays?: number;
+};
+
+/** The days a top-up would plan now, or null when the next week is already planned (or nothing is left to plan). */
+export function topUpWindow(input: Pick<TopUpInput, "enrolment" | "plans" | "todayKey" | "target" | "horizonDays"> & { dayCount: number }): PlanningWindow | null {
+  const sessionsLeft = sessionsLeftToPlan({ target: input.target, sessionsCompleted: input.enrolment.sessions_completed, plans: input.plans, todayKey: input.todayKey });
+  return planningWindow({ plans: input.plans, enrolment: input.enrolment, todayKey: input.todayKey, dayCount: input.dayCount, horizonDays: input.horizonDays, sessionsLeft });
+}
+
+/** Enrolments being topped up in this tab. */
+const toppingUp = new Set<string>();
+
+type LockManager = { request: (name: string, options: { ifAvailable: boolean }, callback: (lock: unknown) => Promise<unknown>) => Promise<unknown> };
+
+/** Runs `work` while holding a lock shared by this browser's tabs, or not at all when another tab holds it. */
+async function withTabLock<T>(name: string, work: () => Promise<T>): Promise<T | null> {
+  const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
+  if (!locks || typeof locks.request !== "function") return work();
+  let outcome: T | null = null;
+  await locks.request(name, { ifAvailable: true }, async (lock) => { if (lock) outcome = await work(); });
+  return outcome;
+}
+
+/**
+ * Keeps the next week of a followed programme planned: plans the training days after the last planned one up to a
+ * week from today, as "Plan the next 7 days" does, and does nothing when they are planned already, so it can run on
+ * every visit. One run at a time per enrolment (in this tab, and across this browser's tabs where the browser
+ * supports locks), and dates that gained a plan meanwhile are left out, so no day is planned twice. A paused
+ * programme, or one with a length whose sessions are all planned or done, is left alone.
+ */
+export async function topUpProgrammeDays(supabase: Db, input: TopUpInput): Promise<{ created: number; skippedDays: string[]; unfilledSlots: string[]; error: unknown; ran: boolean }> {
+  const idle = { created: 0, skippedDays: [] as string[], unfilledSlots: [] as string[], error: null, ran: false };
+  const window = topUpWindow({ ...input, dayCount: input.programme.days.length });
+  if (!window || toppingUp.has(input.enrolment.id)) return idle;
+  toppingUp.add(input.enrolment.id);
+  try {
+    const result = await withTabLock(`fitx-programme-plan-${input.enrolment.id}`, () => scheduleProgrammeDays(supabase, {
+      ...input, fromKey: window.fromKey, startDay: window.startDay, horizonDays: window.horizonDays, maxDays: window.maxDays, skipPlannedDates: true,
+    }));
+    return result ? { ...result, ran: true } : idle;
+  } finally {
+    toppingUp.delete(input.enrolment.id);
+  }
 }
 
 /** Starts following a programme. Fails with `alreadyActive` when the user already follows one. */
@@ -195,6 +291,53 @@ export function ownProgrammeItems(items: readonly LinkedItem[], days: readonly D
  * earlier days, stay, so workouts keep their history.
  */
 export async function leaveProgramme(supabase: Db, input: { userId: string; enrolmentId: string; todayKey: string }): Promise<{ error: unknown }> {
+  const removed = await removeUpcomingProgrammeDays(supabase, input);
+  if (removed.error) return removed;
+  const left = await supabase.from("programme_enrolments").update({ status: "left", updated_at: new Date().toISOString() }).eq("id", input.enrolmentId).eq("user_id", input.userId);
+  return { error: left.error };
+}
+
+/**
+ * Pauses a programme: its days from today on that were not started are removed (with the planner items FITX
+ * scheduled for them, as leaving does) and the enrolment keeps its place in the cycle, so resuming continues at the
+ * day the member is on. Only an active enrolment is paused.
+ */
+export async function pauseProgramme(supabase: Db, input: { userId: string; enrolmentId: string; todayKey: string }): Promise<{ error: unknown }> {
+  const removed = await removeUpcomingProgrammeDays(supabase, input);
+  if (removed.error) return removed;
+  const paused = await supabase.from("programme_enrolments").update({ status: "paused", updated_at: new Date().toISOString() })
+    .eq("id", input.enrolmentId).eq("user_id", input.userId).eq("status", "active");
+  return { error: paused.error };
+}
+
+/**
+ * Resumes a paused programme; the caller then plans its next week. Fails with `alreadyActive` when the member
+ * follows another programme now (one active programme per member).
+ */
+export async function resumeProgramme(supabase: Db, input: { userId: string; enrolmentId: string }): Promise<{ error: unknown; alreadyActive: boolean }> {
+  const resumed = await supabase.from("programme_enrolments").update({ status: "active", updated_at: new Date().toISOString() })
+    .eq("id", input.enrolmentId).eq("user_id", input.userId).eq("status", "paused");
+  const code = (resumed.error as { code?: string } | null)?.code;
+  return { error: resumed.error, alreadyActive: code === "23505" };
+}
+
+/**
+ * Finishes a programme with a length once its sessions are done: like leaving, the days not started from today on
+ * are removed, and the enrolment is marked completed.
+ */
+export async function finishProgramme(supabase: Db, input: { userId: string; enrolmentId: string; todayKey: string }): Promise<{ error: unknown }> {
+  const removed = await removeUpcomingProgrammeDays(supabase, input);
+  if (removed.error) return removed;
+  const finished = await supabase.from("programme_enrolments").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", input.enrolmentId).eq("user_id", input.userId);
+  return { error: finished.error };
+}
+
+/**
+ * Removes a programme's days from today on that were not started, and cancels the planner items FITX scheduled for
+ * them; To-Do items the member linked to those days stay (unlinked). Days with a finished or running session, and
+ * earlier days, stay, so workouts keep their history.
+ */
+export async function removeUpcomingProgrammeDays(supabase: Db, input: { userId: string; enrolmentId: string; todayKey: string }): Promise<{ error: unknown }> {
   const ahead = await supabase.from("workout_plans").select("id,planned_for").eq("user_id", input.userId).eq("programme_enrolment_id", input.enrolmentId).gte("planned_for", input.todayKey);
   if (ahead.error) return { error: ahead.error };
   const days = (ahead.data ?? []) as DatedPlan[];
@@ -218,8 +361,7 @@ export async function leaveProgramme(supabase: Db, input: { userId: string; enro
       if (removed.error) return { error: removed.error };
     }
   }
-  const left = await supabase.from("programme_enrolments").update({ status: "left", updated_at: new Date().toISOString() }).eq("id", input.enrolmentId).eq("user_id", input.userId);
-  return { error: left.error };
+  return { error: null };
 }
 
 /** Moves an enrolment to the day after `dayIndex` when the database function is not there to do it. */
