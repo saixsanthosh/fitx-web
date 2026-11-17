@@ -5,8 +5,9 @@ import { destinationBeforeOnboarding } from "./before-onboarding";
 import {
   AUTH_HINT_COOKIE,
   hintCookieOptions,
+  INTRO_CHECKED_COOKIE,
   INTRO_COOKIE,
-  INTRO_PLAY_MAX_AGE,
+  introCookieOptions,
   ONBOARDED_COOKIE,
 } from "./cookies";
 import { safeNext } from "./safe-next";
@@ -55,7 +56,11 @@ export async function resolvePostSignIn({
   return { destination, onboarded, intro };
 }
 
-/** Sets the hint cookies that go with a fresh session. */
+/**
+ * Sets the hint cookies that go with a fresh session. The film's state was just taken from the account,
+ * so the device is marked as checked for this user and the proxy doesn't read it again; when the profile
+ * could not be read (onboarded null), the mark is cleared and the proxy reads it on the next request.
+ */
 export function applySignInCookies(
   response: NextResponse,
   { userId, onboarded, intro, secure }: { userId: string; onboarded: boolean | null; intro: IntroState; secure: boolean },
@@ -63,5 +68,7 @@ export function applySignInCookies(
   response.cookies.set(AUTH_HINT_COOKIE, "1", hintCookieOptions(secure));
   if (onboarded) response.cookies.set(ONBOARDED_COOKIE, userId, hintCookieOptions(secure, { httpOnly: true }));
   else response.cookies.set(ONBOARDED_COOKIE, "", hintCookieOptions(secure, { httpOnly: true, maxAge: 0 }));
-  response.cookies.set(INTRO_COOKIE, intro, hintCookieOptions(secure, intro === "play" ? { maxAge: INTRO_PLAY_MAX_AGE } : {}));
+  response.cookies.set(INTRO_COOKIE, intro, introCookieOptions(secure, intro));
+  if (onboarded === null) response.cookies.set(INTRO_CHECKED_COOKIE, "", hintCookieOptions(secure, { httpOnly: true, maxAge: 0 }));
+  else response.cookies.set(INTRO_CHECKED_COOKIE, userId, hintCookieOptions(secure, { httpOnly: true }));
 }

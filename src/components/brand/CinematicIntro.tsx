@@ -114,7 +114,7 @@ function readDebugConfig(): DebugConfig | null {
 
 /**
  * The branded welcome film, layered over the page. It plays when the head script marked it pending
- * (once per account after its first sign-in, or `?intro=…`) and on Replay.
+ * (every signed-out visit to the home page, once per account on an app page, or `?intro=…`) and on Replay.
  */
 export function CinematicIntro() {
   const [playback, setPlayback] = useState<Playback>("idle");

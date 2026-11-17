@@ -10,7 +10,7 @@ import {
   sessionSignedInAt,
   type DeletionStatus,
 } from "@/lib/account/deletion";
-import { AUTH_HINT_COOKIE, hintCookieOptions, ONBOARDED_COOKIE, SESSION_COOKIE_RE, sessionCookieOptions } from "@/lib/auth/cookies";
+import { AUTH_HINT_COOKIE, hintCookieOptions, INTRO_CHECKED_COOKIE, ONBOARDED_COOKIE, SESSION_COOKIE_RE, sessionCookieOptions } from "@/lib/auth/cookies";
 import { isSameOriginRequest } from "@/lib/auth/same-origin";
 import { cancelForUser } from "@/lib/billing/cancel";
 import { readBillingConfig } from "@/lib/billing/config";
@@ -126,6 +126,7 @@ export async function DELETE(request: NextRequest) {
   }
   response.cookies.set(AUTH_HINT_COOKIE, "", hintCookieOptions(route.secure, { maxAge: 0 }));
   response.cookies.set(ONBOARDED_COOKIE, "", hintCookieOptions(route.secure, { httpOnly: true, maxAge: 0 }));
+  response.cookies.set(INTRO_CHECKED_COOKIE, "", hintCookieOptions(route.secure, { httpOnly: true, maxAge: 0 }));
   return response;
 }
 

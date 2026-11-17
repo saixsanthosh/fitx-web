@@ -17,6 +17,8 @@ const { unstable_doesMiddlewareMatch } = await import("next/experimental/testing
 
 const ONBOARDED = { id: "11111111-1111-4111-8111-111111111111", email: "done@example.test" };
 const NEWCOMER = { id: "22222222-2222-4222-8222-222222222222", email: "new@example.test" };
+/** Set up long ago, but its film was reset (intro_completed_at null), like the 7 accounts on 2026-11-17. */
+const RESET = { id: "33333333-3333-4333-8333-333333333333", email: "reset@example.test" };
 const SITE = "https://fitnessx.vercel.app";
 const CODE = "3b241101-e2bb-4255-8caf-4136c566a962";
 
@@ -40,10 +42,14 @@ const location = (response: Response) => {
   return value ? new URL(value).pathname + new URL(value).search : null;
 };
 const restCalls = () => fake.calls.filter((call) => call.path.startsWith("/rest/v1/"));
+/** The columns each profile query asked for. */
+const profileSelects = () => restCalls().map((call) => new URL(call.path, fake.url).searchParams.get("select"));
+const filmCookies = (response: Response) => setCookies(response).filter((line) => /^fitx_(intro|intro_checked|onboarded)=/.test(line));
 
 before(() => {
   fake.addUser(ONBOARDED, { onboarded: true, intro_completed_at: "2026-11-01T00:00:00Z" });
   fake.addUser(NEWCOMER, { onboarded: false, intro_completed_at: null });
+  fake.addUser(RESET, { onboarded: true, intro_completed_at: null });
 });
 beforeEach(() => fake.reset());
 after(() => fake.stop());
@@ -97,7 +103,9 @@ describe("proxy", () => {
   });
 
   test("sends signed-in, onboarded visitors from the home page to the dashboard without a profile query", async () => {
-    const response = await proxy(request("/", { cookies: { ...sessionCookies(ONBOARDED.id), fitx_onboarded: ONBOARDED.id } }));
+    // The device already knows both answers: onboarding (fitx_onboarded) and the film (fitx_intro_checked + fitx_intro).
+    const cookies = { ...sessionCookies(ONBOARDED.id), fitx_onboarded: ONBOARDED.id, fitx_intro: "seen", fitx_intro_checked: ONBOARDED.id };
+    const response = await proxy(request("/", { cookies }));
     assert.equal(location(response), "/dashboard");
     assert.equal(restCalls().length, 0);
   });
@@ -180,10 +188,155 @@ describe("proxy", () => {
     }
   });
 
-  test("marks the sign-in hint and the intro state for existing sessions", async () => {
+  test("marks the sign-in hint for existing sessions and takes the film's state from the account", async () => {
+    // Until 2026-11-17 a device without fitx_intro was simply marked seen; now the account says.
     const response = await proxy(request("/dashboard", { cookies: { ...sessionCookies(ONBOARDED.id), fitx_onboarded: ONBOARDED.id } }));
     assert.match(cookieNamed(response, "fitx_auth") ?? "", /^fitx_auth=1;/);
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${ONBOARDED.id};`));
+  });
+});
+
+describe("proxy: the account's one-time film on a device that is already signed in", () => {
+  // The 7 reset accounts' devices hold fitx_intro=seen, because the server only says "play" at sign-in.
+  const resetDevice = () => ({ ...sessionCookies(RESET.id), fitx_auth: "1", fitx_onboarded: RESET.id, fitx_intro: "seen" });
+  beforeEach(() => fake.profiles.set(RESET.id, { onboarded: true, intro_completed_at: null }));
+
+  test("plays it on the next app page when the account hasn't seen it, and remembers the check", async () => {
+    const response = await proxy(request("/dashboard", { cookies: resetDevice() }));
+    assert.equal(location(response), null);
+    assert.equal(response.headers.get("x-middleware-next"), "1");
+    const play = cookieNamed(response, "fitx_intro") ?? "";
+    assert.match(play, /^fitx_intro=play;/);
+    assert.match(play, /Max-Age=86400/i, "a pending play lasts a day, as at sign-in");
+    assert.doesNotMatch(play, /HttpOnly/i, "the head script reads it");
+    const checked = cookieNamed(response, "fitx_intro_checked") ?? "";
+    assert.match(checked, new RegExp(`^fitx_intro_checked=${RESET.id};`));
+    assert.match(checked, /HttpOnly/i);
+    assert.match(checked, /Secure/i);
+    assert.match(checked, /SameSite=lax/i);
+    assert.match(checked, /Max-Age=34560000/i);
+    assert.deepEqual(profileSelects(), ["intro_completed_at"], "one query, for the film only: onboarding is cached");
+  });
+
+  test("on the home page the play rides on the redirect to the dashboard", async () => {
+    const response = await proxy(request("/", { cookies: resetDevice() }));
+    assert.equal(location(response), "/dashboard");
+    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;/);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};`));
+  });
+
+  test("an account that has seen it gets seen", async () => {
+    const response = await proxy(request("/workouts", { cookies: { ...sessionCookies(ONBOARDED.id), fitx_auth: "1", fitx_onboarded: ONBOARDED.id, fitx_intro: "seen" } }));
+    const seen = cookieNamed(response, "fitx_intro") ?? "";
+    assert.match(seen, /^fitx_intro=seen;/);
+    assert.match(seen, /Max-Age=34560000/i);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${ONBOARDED.id};`));
+  });
+
+  test("a device already checked for this account makes no profile query and changes nothing", async () => {
+    for (const film of ["seen", "play"]) {
+      const cookies = { ...resetDevice(), fitx_intro: film, fitx_intro_checked: RESET.id };
+      for (const path of ["/dashboard", "/workouts", "/activity/record", "/help", "/", "/signin"]) {
+        const response = await proxy(request(path, { cookies }));
+        assert.deepEqual(filmCookies(response), [], `${film} ${path}`);
+      }
+    }
+    assert.equal(restCalls().length, 0);
+  });
+
+  test("a second account on the same device is checked for itself, in the one onboarding query", async () => {
+    // The device was checked for someone else, and doesn't know this account's onboarding yet.
+    const cookies = { ...sessionCookies(RESET.id), fitx_auth: "1", fitx_intro: "seen", fitx_intro_checked: ONBOARDED.id };
+    const response = await proxy(request("/nutrition", { cookies }));
+    assert.equal(location(response), null);
+    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;/);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};`));
+    assert.match(cookieNamed(response, "fitx_onboarded") ?? "", new RegExp(`^fitx_onboarded=${RESET.id};`));
+    assert.deepEqual(profileSelects(), ["onboarded,intro_completed_at"], "never a second profile query");
+  });
+
+  test("a play that expired unwatched is checked again on the next request", async () => {
+    // fitx_intro=play lasts a day; the check stays, but the device no longer knows the film's state.
+    const cookies = { ...sessionCookies(RESET.id), fitx_auth: "1", fitx_onboarded: RESET.id, fitx_intro_checked: RESET.id };
+    const response = await proxy(request("/dashboard", { cookies }));
+    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;/);
+    assert.equal(restCalls().length, 1);
+  });
+
+  test("a failed profile read changes no cookie, and a later request tries again", async () => {
+    fake.profileError = { status: 500, code: "XX000", message: "database unavailable" };
+    const uncached = { ...sessionCookies(RESET.id), fitx_auth: "1", fitx_intro: "seen" };
+    for (const cookies of [resetDevice(), uncached]) {
+      const response = await proxy(request("/dashboard", { cookies }));
+      assert.equal(location(response), null, "never bounced");
+      assert.deepEqual(setCookies(response), [], "no cookie set or cleared");
+    }
+    fake.profileError = null;
+    const retried = await proxy(request("/dashboard", { cookies: resetDevice() }));
+    assert.match(cookieNamed(retried, "fitx_intro") ?? "", /^fitx_intro=play;/);
+    assert.match(cookieNamed(retried, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};`));
+  });
+
+  test("before the intro migration the film counts as seen, still with one profile query per request", async () => {
+    fake.introColumnMissing = true;
+    const response = await proxy(request("/dashboard", { cookies: resetDevice() }));
+    assert.equal(location(response), null);
+    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};`));
+
+    // Onboarding not cached either: the one query for both fails, so this request can't tell onboarding
+    // (like any unreadable profile, it isn't bounced) and the next one reads onboarding alone.
+    fake.reset();
+    fake.introColumnMissing = true;
+    fake.profiles.set(NEWCOMER.id, { onboarded: false, intro_completed_at: null });
+    const first = await proxy(request("/dashboard", { cookies: { ...sessionCookies(NEWCOMER.id), fitx_auth: "1" } }));
+    assert.equal(location(first), null);
+    assert.match(cookieNamed(first, "fitx_intro") ?? "", /^fitx_intro=seen;/);
+    assert.equal(cookieNamed(first, "fitx_onboarded"), undefined);
+    const next = await proxy(request("/dashboard", { cookies: { ...sessionCookies(NEWCOMER.id), fitx_auth: "1", fitx_intro: "seen", fitx_intro_checked: NEWCOMER.id } }));
+    assert.equal(location(next), "/onboarding");
+    assert.deepEqual(profileSelects(), ["onboarded,intro_completed_at", "onboarded"]);
+  });
+
+  test("plays once: after the film starts, no check on any device says play again", async () => {
+    const first = await proxy(request("/dashboard", { cookies: resetDevice() }));
+    assert.match(cookieNamed(first, "fitx_intro") ?? "", /^fitx_intro=play;/);
+    // The head script consumes the play (fitx_intro=seen) and the dashboard reports that the film started.
+    const device = { ...resetDevice(), fitx_intro: "seen", fitx_intro_checked: RESET.id };
+    const started = await introRoute.POST(request("/api/intro/complete", { method: "POST", cookies: device, headers: { "sec-fetch-site": "same-origin" } }));
+    assert.equal(started.status, 204);
+    assert.ok(fake.profiles.get(RESET.id)?.intro_completed_at, "recorded on the account");
+    fake.reset();
+    for (const path of ["/dashboard", "/workouts", "/"]) assert.deepEqual(filmCookies(await proxy(request(path, { cookies: device }))), [], path);
+    assert.equal(restCalls().length, 0, "this device asks no more");
+    // Another device of the account (or this one once its cookie is gone) is told seen.
+    const other = await proxy(request("/dashboard", { cookies: { ...sessionCookies(RESET.id), fitx_auth: "1", fitx_onboarded: RESET.id } }));
+    assert.match(cookieNamed(other, "fitx_intro") ?? "", /^fitx_intro=seen;/);
+  });
+
+  test("a signed-in visit to a public page makes no profile query and leaves the film's cookies alone", async () => {
+    for (const path of ["/features", "/pricing", "/privacy", "/cookies", "/reset-password"]) {
+      const response = await proxy(request(path, { cookies: { ...sessionCookies(RESET.id), fitx_auth: "1" } }));
+      assert.equal(location(response), null, path);
+      assert.deepEqual(filmCookies(response), [], path);
+    }
+    assert.equal(restCalls().length, 0);
+  });
+
+  test("signing out clears the account's cookies on the next request, but keeps the film's state", async () => {
+    // Log out signs out in the browser, clears fitx_auth, then opens /signin?signed_out=1.
+    const response = await proxy(request("/signin?signed_out=1", { cookies: { fitx_auth: "1", fitx_onboarded: RESET.id, fitx_intro_checked: RESET.id, fitx_intro: "play" } }));
+    assert.equal(location(response), null);
+    for (const name of ["fitx_auth", "fitx_onboarded", "fitx_intro_checked"]) {
+      const line = cookieNamed(response, name) ?? "";
+      assert.match(line, new RegExp(`^${name}=;`), name);
+      assert.match(line, /Max-Age=0/i, name);
+    }
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", /HttpOnly/i);
+    assert.equal(cookieNamed(response, "fitx_intro"), undefined, "the film's state stays on the device");
+    // A signed-out visitor without them gets nothing to clear.
+    assert.deepEqual(setCookies(await proxy(request("/"))), []);
   });
 });
 
@@ -195,6 +348,8 @@ describe("auth callback", () => {
     assert.ok(cookieNamed(response, SESSION_COOKIE));
     assert.match(cookieNamed(response, "fitx_auth") ?? "", /^fitx_auth=1;/);
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;.*Max-Age=86400/i);
+    // The film's state was just read from the account, so the proxy doesn't read it again for this device.
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${NEWCOMER.id};.*HttpOnly`, "i"));
     assert.match(response.headers.get("cache-control") ?? "", /no-store/);
   });
 
@@ -204,6 +359,30 @@ describe("auth callback", () => {
     assert.equal(location(response), "/progress");
     assert.match(cookieNamed(response, "fitx_onboarded") ?? "", new RegExp(`^fitx_onboarded=${ONBOARDED.id};`));
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${ONBOARDED.id};.*HttpOnly`, "i"));
+  });
+
+  test("an account whose film was reset gets it once more at sign-in, and the device is checked for it", async () => {
+    fake.profiles.set(RESET.id, { onboarded: true, intro_completed_at: null });
+    // The device was last checked for another account.
+    fake.codes.set(CODE, { userId: RESET.id, verifier: "v8" });
+    const response = await callback.GET(request(`/auth/callback?code=${CODE}`, { cookies: { [`${SESSION_COOKIE}-code-verifier`]: ssrCookieValue("v8/"), fitx_intro: "seen", fitx_intro_checked: ONBOARDED.id } }));
+    assert.equal(location(response), "/dashboard");
+    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;/);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};`));
+  });
+
+  test("a profile that can't be read at sign-in leaves the film's check to the proxy", async () => {
+    fake.profiles.set(RESET.id, { onboarded: true, intro_completed_at: null });
+    fake.profileError = { status: 500, code: "XX000", message: "database unavailable" };
+    fake.codes.set(CODE, { userId: RESET.id, verifier: "v9" });
+    const response = await callback.GET(request(`/auth/callback?code=${CODE}`, { cookies: { [`${SESSION_COOKIE}-code-verifier`]: ssrCookieValue("v9/"), fitx_intro_checked: RESET.id } }));
+    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/, "unknown counts as seen for now");
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", /^fitx_intro_checked=;.*Max-Age=0/i, "an older check is cleared");
+    // Once the profile reads again, the proxy finds the account hasn't seen the film.
+    fake.profileError = null;
+    const next = await proxy(request("/dashboard", { cookies: { ...sessionCookies(RESET.id), fitx_auth: "1", fitx_intro: "seen" } }));
+    assert.match(cookieNamed(next, "fitx_intro") ?? "", /^fitx_intro=play;/);
   });
 
   test("an account still in setup that asked for Help goes there; any other page waits for setup", async () => {
@@ -239,6 +418,7 @@ describe("auth callback", () => {
     const response = await callback.GET(request(`/auth/callback?code=${CODE}`, { cookies: { [`${SESSION_COOKIE}-code-verifier`]: ssrCookieValue("v4/") } }));
     assert.equal(location(response), "/onboarding");
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${NEWCOMER.id};`));
   });
 
   test("explains a link opened in another browser, a cancelled Google sign-in and an expired link", async () => {
@@ -275,8 +455,21 @@ describe("session route", () => {
     const response = await sessionRoute.POST(request("/api/auth/session", { method: "POST", cookies: sessionCookies(ONBOARDED.id), body: { intent: "sign-in", next: "/goals" }, headers: { "sec-fetch-site": "same-origin" } }));
     assert.deepEqual(await response.json(), { destination: "/goals" });
     assert.match(cookieNamed(response, "fitx_auth") ?? "", /^fitx_auth=1;/);
+    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${ONBOARDED.id};.*HttpOnly`, "i"));
     const signedOut = await sessionRoute.POST(request("/api/auth/session", { method: "POST", body: { intent: "sign-in" }, headers: { "sec-fetch-site": "same-origin" } }));
     assert.equal(signedOut.status, 401);
+  });
+
+  test("a password sign-in of an account whose film was reset plays it once and checks the device", async () => {
+    fake.profiles.set(RESET.id, { onboarded: true, intro_completed_at: null });
+    const response = await sessionRoute.POST(request("/api/auth/session", { method: "POST", cookies: { ...sessionCookies(RESET.id), fitx_intro: "seen" }, body: { intent: "sign-in" }, headers: { "sec-fetch-site": "same-origin" } }));
+    assert.deepEqual(await response.json(), { destination: "/dashboard" });
+    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;.*Max-Age=86400/i);
+    assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};.*HttpOnly`, "i"));
+    // A token refresh only re-sends the session: it never touches the film.
+    const refresh = await sessionRoute.POST(request("/api/auth/session", { method: "POST", cookies: sessionCookies(RESET.id), body: { intent: "refresh" }, headers: { "sec-fetch-site": "same-origin" } }));
+    assert.deepEqual(filmCookies(refresh), []);
   });
 
   test("after a password sign-in, an account still in setup goes to onboarding unless it asked for Help", async () => {

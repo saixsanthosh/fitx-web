@@ -3,11 +3,23 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { INTRO_BOOTSTRAP_SCRIPT } from "@/components/brand/introBootstrap";
 
-type Run = { attrs: Map<string, string>; cookieWrites: string[]; window: Record<string, unknown>; preloads: string[] };
+type Listener = (event: unknown) => void;
+type Run = {
+  attrs: Map<string, string>;
+  cookieWrites: string[];
+  /** localStorage / sessionStorage writes, as "<storage>.<key>". */
+  storageWrites: string[];
+  /** What the script listens for on `document` (Skip clicks, Escape). */
+  listeners: Map<string, Listener[]>;
+  window: Record<string, unknown>;
+  preloads: string[];
+};
 
 function run({ path = "/", search = "", cookie = "", reduce = false, theme = null as string | null } = {}): Run {
   const attrs = new Map<string, string>();
   const cookieWrites: string[] = [];
+  const storageWrites: string[] = [];
+  const listeners = new Map<string, Listener[]>();
   const preloads: string[] = [];
   const root = {
     setAttribute: (name: string, value: string) => void attrs.set(name, value),
@@ -20,17 +32,29 @@ function run({ path = "/", search = "", cookie = "", reduce = false, theme = nul
     set cookie(value: string) { cookieWrites.push(value); },
     createElement: () => ({ setAttribute() {}, set href(value: string) { preloads.push(value); } }),
     head: { appendChild() {} },
-    addEventListener() {},
+    addEventListener: (type: string, listener: Listener) => void listeners.set(type, [...(listeners.get(type) ?? []), listener]),
   };
+  const storage = (name: string) => ({
+    getItem: (key: string) => (name === "localStorage" && key === "fitx-theme" ? theme : null),
+    setItem: (key: string) => void storageWrites.push(`${name}.${key}`),
+    removeItem: (key: string) => void storageWrites.push(`${name}.${key}`),
+  });
   const window: Record<string, unknown> = {
-    localStorage: { getItem: () => theme },
+    localStorage: storage("localStorage"),
+    sessionStorage: storage("sessionStorage"),
     matchMedia: (query: string) => ({ matches: query.includes("reduced-motion") ? reduce : false }),
     location: { pathname: path, search, protocol: "https:" },
     setTimeout: () => 0,
   };
   vm.runInNewContext(INTRO_BOOTSTRAP_SCRIPT, { window, document, Date });
-  return { attrs, cookieWrites, window, preloads };
+  return { attrs, cookieWrites, storageWrites, listeners, window, preloads };
 }
+
+const dispatch = ({ listeners }: Run, type: string, event: unknown) => {
+  for (const listener of listeners.get(type) ?? []) listener(event);
+};
+/** A click on the overlay's Skip button (`data-fitx-skip`), as the script sees it. */
+const skipClick = { target: { closest: (selector: string) => (selector === "[data-fitx-skip]" ? {} : null) } };
 
 test("plays the account's one-time film on the first app page and consumes the cookie at once", () => {
   const { attrs, cookieWrites, preloads } = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" });
@@ -93,18 +117,74 @@ test("returning devices get the short brand loader instead", () => {
   assert.equal(typeof window.__fitxReleaseLoader, "function");
 });
 
-test("first-time visitors see the page itself: no film, no loader", () => {
-  const { attrs } = run({ path: "/" });
-  assert.equal(attrs.get("data-fitx-intro"), undefined);
-  assert.equal(attrs.get("data-fitx-loader"), undefined);
-  assert.equal(attrs.get("data-fitx-auth"), undefined);
+// Until 2026-11-17 a signed-out home page played no film; the owner asked for it on every visit again.
+test("signed-out visitors get the film on every full load of the home page, and it records nothing", () => {
+  // A first visit, a device that was signed in before (seen), and one whose account film is still pending (play).
+  for (const cookie of ["", "fitx_intro=seen", "fitx_intro=play"]) {
+    // Visits in a row: each starts from the same cookies, because none is written (checked below).
+    for (const [visit, search] of [[1, ""], [2, ""], [3, "?utm_source=newsletter"]] as const) {
+      const label = `${cookie || "no cookies"}, visit ${visit}${search}`;
+      const { attrs, cookieWrites, storageWrites, preloads } = run({ path: "/", search, cookie });
+      assert.equal(attrs.get("data-fitx-intro"), "pending", label);
+      assert.equal(attrs.get("data-fitx-intro-gate"), "visitor", label);
+      assert.equal(attrs.get("data-fitx-loader"), undefined, `${label}: the film, not the loader`);
+      assert.equal(attrs.get("data-fitx-auth"), undefined, label);
+      // Nothing is written, so the next visit plays it again and a pending account film is left alone.
+      assert.deepEqual(cookieWrites, [], label);
+      assert.deepEqual(storageWrites, [], label);
+      assert.deepEqual(preloads, ["/brand/intro/fitx-intro-light-landscape.webp"], label);
+    }
+  }
 });
 
-test("reduced motion gets neither the film nor the loader", () => {
-  for (const cookie of ["fitx_intro=play", "fitx_intro=seen"]) {
-    const { attrs } = run({ path: "/dashboard", cookie, reduce: true });
+test("Skip and Escape give the page back before React hydrates, the visitor's film included", () => {
+  for (const [type, event] of [["keydown", { key: "Escape" }], ["click", skipClick]] as const) {
+    for (const options of [{ path: "/" }, { path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" }]) {
+      const page = run(options);
+      assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${options.path} ${type}`);
+      dispatch(page, type, type === "keydown" ? { key: "Enter" } : { target: { closest: () => null } });
+      assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${options.path}: another key or click keeps it`);
+      dispatch(page, type, event);
+      assert.equal(page.attrs.get("data-fitx-intro"), undefined, `${options.path} ${type}`);
+    }
+  }
+});
+
+test("a signed-in visitor never gets the visitor's film on the home page", () => {
+  // The proxy sends a signed-in "/" to the dashboard; the fitx_auth hint guards the page if it ever renders.
+  for (const cookie of ["fitx_auth=1", "fitx_auth=1; fitx_intro=seen", "fitx_auth=1; fitx_intro=play"]) {
+    const { attrs, cookieWrites } = run({ path: "/", cookie });
     assert.equal(attrs.get("data-fitx-intro"), undefined, cookie);
-    assert.equal(attrs.get("data-fitx-loader"), undefined, cookie);
+    assert.equal(attrs.get("data-fitx-intro-gate"), undefined, cookie);
+    assert.equal(attrs.get("data-fitx-auth"), "1", cookie);
+    assert.deepEqual(cookieWrites, [], `${cookie}: the account's film waits for an app page`);
+  }
+  assert.equal(run({ path: "/", cookie: "fitx_auth=1; fitx_intro=seen" }).attrs.get("data-fitx-loader"), "on", "the loader, as on any cold load");
+});
+
+test("no other public page plays a film, signed out or not", () => {
+  const pages = ["/features", "/pricing", "/about", "/for-gyms", "/privacy", "/terms", "/cookies", "/refunds", "/signin", "/signup", "/forgot-password", "/reset-password", "/helpful-tips"];
+  for (const path of pages) {
+    for (const [cookie, search] of [["", ""], ["fitx_intro=play", ""], ["fitx_auth=1; fitx_intro=play", ""], ["", "?intro=play"]]) {
+      const { attrs, cookieWrites } = run({ path, search, cookie });
+      assert.equal(attrs.get("data-fitx-intro"), undefined, `${path}${search} ${cookie}`);
+      assert.equal(attrs.get("data-fitx-intro-gate"), undefined, `${path}${search} ${cookie}`);
+      assert.deepEqual(cookieWrites, [], `${path}${search} ${cookie}`);
+    }
+  }
+  assert.equal(run({ path: "/pricing", cookie: "fitx_intro=seen" }).attrs.get("data-fitx-loader"), "on", "returning devices keep the loader there");
+});
+
+test("reduced motion gets neither the film nor the loader, on the home page either", () => {
+  for (const [path, search] of [["/dashboard", ""], ["/", ""], ["/", "?intro=play"], ["/dashboard", "?intro=live"]]) {
+    for (const cookie of ["", "fitx_intro=play", "fitx_intro=seen", "fitx_auth=1; fitx_intro=play"]) {
+      const label = `${path}${search} ${cookie}`;
+      const { attrs, cookieWrites } = run({ path, search, cookie, reduce: true });
+      assert.equal(attrs.get("data-fitx-intro"), undefined, label);
+      assert.equal(attrs.get("data-fitx-intro-gate"), undefined, label);
+      assert.equal(attrs.get("data-fitx-loader"), undefined, label);
+      assert.deepEqual(cookieWrites, [], `${label}: a pending account film waits`);
+    }
   }
 });
 

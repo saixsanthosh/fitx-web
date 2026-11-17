@@ -6,7 +6,8 @@ import { createRouteSupabase } from "@/lib/supabase/route-client";
 
 /**
  * Called once the account's one-time intro film has started: remembers it on this device and on the
- * account, so signing in on another device doesn't play it again.
+ * account, so neither signing in on another device nor the proxy's check of a device that is already
+ * signed in (src/proxy.ts) plays it again.
  */
 export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) return new NextResponse(null, { status: 403 });

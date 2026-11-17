@@ -3,11 +3,17 @@
  *  - applies the saved site theme (`data-theme`),
  *  - marks signed-in visitors (`data-fitx-auth`, from the fitx_auth hint cookie) so static pages can
  *    show "Open dashboard" instead of "Log in" without a flash,
- *  - decides whether the intro film plays: once per account, on the first app page after that
- *    account's first sign-in (the server sets `fitx_intro=play`; this script consumes it at once, so a
- *    reload or a new tab never replays it), or on request with `?intro=live|video|play`. It then marks
- *    `<html data-fitx-intro="pending" data-fitx-intro-theme="light|dark">`, which CSS turns into the
- *    full-screen overlay showing the film's first frame, and preloads that frame,
+ *  - decides whether the intro film plays (`data-fitx-intro-gate` says why):
+ *     - "replay": on request with `?intro=live|video|play`, on the home page or an app page;
+ *     - "account": once per account, on the first app page after the server marked this device
+ *       `fitx_intro=play` (at sign-in, or from the proxy for a device that was already signed in while
+ *       the account had not seen the film; see src/proxy.ts). This script consumes it at once, so a
+ *       reload or a new tab never replays it; IntroCompletionReporter records it on the account;
+ *     - "visitor": signed-out visitors, on every full load of the home page "/" and no other page. It
+ *       records nothing and writes no cookie, so it never touches the account's film. Never for a
+ *       signed-in visitor (fitx_auth hint), whom the proxy sends on to the dashboard anyway.
+ *    It then marks `<html data-fitx-intro="pending" data-fitx-intro-theme="light|dark">`, which CSS
+ *    turns into the full-screen overlay showing the film's first frame, and preloads that frame,
  *  - otherwise, on a returning device (`fitx_intro=seen`), shows the short brand loader
  *    (`data-fitx-loader`) until the app hydrates, for at most about a second,
  *  - never shows either on a focus screen (a live workout, /workouts/active, or the activity recorder,
@@ -15,6 +21,7 @@
  *  - never plays the account's film on Help either, which an account still in setup can open (see
  *    src/lib/auth/before-onboarding.ts): the film waits for the first app page after setup, and someone
  *    asking for help is not shown it first. Help still gets the loader,
+ *  - never plays any film with prefers-reduced-motion, and never shows the loader then either,
  *  - keeps Skip/Escape working before React hydrates, and gives the page back if the app never
  *    starts the intro (e.g. its JavaScript failed to load).
  * Keep it tiny, dependency-free and ES5-safe: it blocks parsing while it runs. No backslashes in it:
@@ -37,7 +44,8 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
       }
       return null;
     };
-    if (cookie("fitx_auth") === "1") root.setAttribute("data-fitx-auth", "1");
+    var signedIn = cookie("fitx_auth") === "1";
+    if (signedIn) root.setAttribute("data-fitx-auth", "1");
     var path = window.location.pathname;
     var section = path.split("/")[1] || "";
     var focus = path.indexOf("/workouts/active") === 0 || path.indexOf("/activity/record") === 0;
@@ -46,7 +54,7 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
     var intro = cookie("fitx_intro");
     var asked = (window.location.search.match(/[?&]intro=([a-z]+)/) || [])[1];
     var forced = (path === "/" || appPath) && (asked === "live" || asked === "video" || asked === "play");
-    var gate = reduce ? null : forced ? "replay" : intro === "play" && appPath ? "account" : null;
+    var gate = reduce ? null : forced ? "replay" : intro === "play" && appPath ? "account" : path === "/" && !signedIn ? "visitor" : null;
     if (!gate) {
       if (reduce || intro !== "seen" || focus) return;
       root.setAttribute("data-fitx-loader", "on");

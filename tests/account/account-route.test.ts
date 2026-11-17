@@ -86,7 +86,7 @@ describe("deleting the account", () => {
     // The secret key is only ever used for the admin calls.
     assert.ok(fake.calls.filter((call) => call.path === "/auth/v1/user").every((call) => call.auth !== fake.secretKey));
     const cookies = response.headers.getSetCookie();
-    for (const name of [SESSION_COOKIE, "fitx_auth", "fitx_onboarded"]) {
+    for (const name of [SESSION_COOKIE, "fitx_auth", "fitx_onboarded", "fitx_intro_checked"]) {
       assert.ok(cookies.some((line) => line.startsWith(`${name}=;`) && /max-age=0/i.test(line)), `${name} cleared`);
     }
     assert.equal(fake.users.has(OTHER.id), true);

@@ -4,7 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   AUTH_HINT_COOKIE,
   hintCookieOptions,
+  INTRO_CHECKED_COOKIE,
   INTRO_COOKIE,
+  introCookieOptions,
   isSecureRequest,
   ONBOARDED_COOKIE,
   sessionCookieOptions,
@@ -12,6 +14,7 @@ import {
 import { openBeforeOnboarding } from "@/lib/auth/before-onboarding";
 import { safeNext } from "@/lib/auth/safe-next";
 import { canonicalOrigin } from "@/lib/site-url";
+import { isMissingColumnError } from "@/lib/supabase/errors";
 
 /** Signed-in areas. Everything else (marketing, legal, sign-in pages) is public. */
 const PRIVATE_ROOTS = [
@@ -39,7 +42,9 @@ const noStore = <T extends NextResponse>(response: T) => {
  *  3. the session is refreshed and every response, redirects included, carries the refreshed cookies;
  *  4. signed-in visitors skip the marketing home and the sign-in pages; signed-out visitors are sent
  *     to sign in from private pages; unfinished accounts go to onboarding from every page except
- *     onboarding and Help.
+ *     onboarding and Help;
+ *  5. a device that was already signed in takes the account's one-time intro film from the account,
+ *     once per device and account (readProfile), so it plays on the next full load of an app page.
  * Checks are optimistic (data stays protected by row-level security); a Supabase outage never
  * signs anyone out here.
  */
@@ -125,14 +130,12 @@ export async function proxy(request: NextRequest) {
   const hinted = request.cookies.get(AUTH_HINT_COOKIE)?.value === "1";
   if (userId && !hinted) hints.push([AUTH_HINT_COOKIE, "1", hintCookieOptions(secure)]);
   if (!userId && hinted) hints.push([AUTH_HINT_COOKIE, "", hintCookieOptions(secure, { maxAge: 0 })]);
-  if (!userId && request.cookies.has(ONBOARDED_COOKIE)) {
-    hints.push([ONBOARDED_COOKIE, "", hintCookieOptions(secure, { httpOnly: true, maxAge: 0 })]);
-  }
-  // Accounts signed in before the film became once-per-account have already seen it: from now on this
-  // device gets the short brand loader on cold loads.
-  if (userId && !request.cookies.has(INTRO_COOKIE)) hints.push([INTRO_COOKIE, "seen", hintCookieOptions(secure)]);
 
   if (!userId) {
+    // Signed out: the device forgets which account it belonged to (the film's own state, fitx_intro, stays).
+    for (const name of [ONBOARDED_COOKIE, INTRO_CHECKED_COOKIE]) {
+      if (request.cookies.has(name)) hints.push([name, "", hintCookieOptions(secure, { httpOnly: true, maxAge: 0 })]);
+    }
     if (!isPrivate(pathname)) return finish(response);
     return redirect(`/signin?next=${encodeURIComponent(safeNext(`${pathname}${search}`))}`);
   }
@@ -140,7 +143,7 @@ export async function proxy(request: NextRequest) {
   const isHome = pathname === "/";
   if (!isHome && !isPrivate(pathname) && !AUTH_ENTRY.has(pathname)) return finish(response);
 
-  const onboarded = await readOnboarded(request, supabase, userId, hints, secure);
+  const onboarded = await readProfile(request, supabase, userId, hints, secure);
   if (onboarded === null) return finish(response);
   // An account still in setup may open onboarding and Help only (src/lib/auth/before-onboarding.ts).
   if (!onboarded) return openBeforeOnboarding(pathname) ? finish(response) : redirect("/onboarding");
@@ -153,18 +156,46 @@ export async function proxy(request: NextRequest) {
   return finish(response);
 }
 
-/** True/false from the onboarded cookie or the profile; null when the profile can't be read right now. */
-async function readOnboarded(
+type ProfileRow = { onboarded?: boolean | null; intro_completed_at?: string | null } | null;
+
+/**
+ * What the proxy needs from the profile, answered by cookies where they can and otherwise by one profile
+ * query at most:
+ *  - onboarding: true/false from the onboarded cookie or the profile; null when the profile can't be read
+ *    right now;
+ *  - the account's one-time intro film on this device. Unless the device was already checked for this
+ *    user and still holds the film's state (fitx_intro_checked, fitx_intro), it sets fitx_intro=play for
+ *    a day (as at sign-in) when the account has not seen the film (intro_completed_at null), else seen
+ *    (also while the column doesn't exist yet), and marks the device checked for this user. So a device
+ *    that was already signed in plays the film on its next full load of an app page, a second account
+ *    on the device is checked for itself, and a "play" that expired unwatched is checked again. A failed
+ *    read changes no cookie and a later request retries. Never a loop: the completion route sets
+ *    intro_completed_at as soon as the film starts, so every later check says seen.
+ */
+async function readProfile(
   request: NextRequest,
   supabase: SupabaseClient,
   userId: string,
   hints: Array<[string, string, CookieOptions]>,
   secure: boolean,
 ): Promise<boolean | null> {
-  if (request.cookies.get(ONBOARDED_COOKIE)?.value === userId) return true;
-  const { data, error } = await supabase.from("profiles").select("onboarded").eq("id", userId).maybeSingle();
+  const knownOnboarded = request.cookies.get(ONBOARDED_COOKIE)?.value === userId;
+  const introChecked = request.cookies.get(INTRO_CHECKED_COOKIE)?.value === userId && request.cookies.has(INTRO_COOKIE);
+  if (knownOnboarded && introChecked) return true;
+  const columns = [knownOnboarded ? "" : "onboarded", introChecked ? "" : "intro_completed_at"].filter(Boolean).join(", ");
+  const { data, error } = await supabase.from("profiles").select(columns).eq("id", userId).maybeSingle();
+  const introMissing = !introChecked && error !== null && isMissingColumnError(error);
+  if (error && !introMissing) return knownOnboarded ? true : null;
+  const row = error ? null : (data as ProfileRow);
+  if (!introChecked) {
+    const intro = introMissing || row?.intro_completed_at ? "seen" : "play";
+    hints.push([INTRO_COOKIE, intro, introCookieOptions(secure, intro)]);
+    hints.push([INTRO_CHECKED_COOKIE, userId, hintCookieOptions(secure, { httpOnly: true })]);
+  }
+  if (knownOnboarded) return true;
+  // The missing intro column failed the query before onboarding was read: the next request reads it.
   if (error) return null;
-  const onboarded = Boolean((data as { onboarded?: boolean } | null)?.onboarded);
+  const onboarded = Boolean(row?.onboarded);
   if (onboarded) hints.push([ONBOARDED_COOKIE, userId, hintCookieOptions(secure, { httpOnly: true })]);
   return onboarded;
 }
