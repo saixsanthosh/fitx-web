@@ -7,30 +7,28 @@ import { useParams, useRouter } from "next/navigation";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
 import { ExerciseDemoPlayer } from "@/components/exercises/ExerciseDemoPlayer";
-import { exerciseMediaQuery, mediaRowsFrom } from "@/components/exercises/media-loader";
 import { rememberExercise } from "@/lib/domain/exercise-preferences";
-import { columnList, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { cameraRuleFor } from "@/lib/form-rules/catalog";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
-import { CATALOG_BASE_COLUMNS, CATALOG_V2_COLUMNS, toCatalogExercise, type CatalogExercise, type CatalogRow } from "@/lib/training/catalog";
-import { equipmentFor, loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
+import { equipmentFor } from "@/lib/training/data";
+import {
+  loadEquipmentState,
+  loadExerciseDetail,
+  loadRecentSessions,
+  loadRelatedExercises,
+  type EquipmentState,
+  type ExerciseDetail,
+  type RecentSession,
+  type RelatedExercise,
+} from "@/lib/training/exercise-detail";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { equipmentLabel, expandOwnedEquipment, missingEquipment } from "@/lib/training/equipment";
-import { resolveExerciseMedia, type ExerciseMedia } from "@/lib/training/media";
-import { isLiftSet } from "@/lib/training/sets";
 import { CATEGORY_LABELS, MUSCLE_GROUP_LABELS, type TrainingContext } from "@/lib/training/taxonomy";
 import { capitalize, formatSeconds, readable, workPerSet } from "../_lib/format";
 
-type Supabase = NonNullable<ReturnType<typeof createClient>>;
-type DetailRow = CatalogRow & { description?: string | null; instructions?: string[] | null; attribution?: string | null };
-type Detail = { exercise: CatalogExercise; description: string; instructions: string[]; attribution: string | null; media: ExerciseMedia };
-type Loaded = { id: string; detail: Detail; error: "" } | { id: string; detail: null; error: string };
-type Alternative = { id: string; name: string; primary_muscle: string };
-type ExerciseHistory = { id: string; started_at: string; completedSets: number; topSet: string };
-type Extras = { id: string; alternatives: Alternative[]; history: ExerciseHistory[] };
-type EquipmentState = { profiles: EquipmentProfiles; legacyWords: string[]; failed: boolean };
+type Loaded = { id: string; detail: ExerciseDetail; error: "" } | { id: string; detail: null; error: string };
+type Extras = { id: string; alternatives: RelatedExercise[]; history: RecentSession[] };
 
-const DETAIL_COLUMNS = [...CATALOG_BASE_COLUMNS, "description", "instructions", "attribution"];
 const CONTEXT_NAMES: Record<TrainingContext, string> = { home: "Home", gym: "Gym" };
 
 export default function ExerciseDetailPage() {
@@ -51,39 +49,23 @@ export default function ExerciseDetailPage() {
     void (async () => {
       const supabase = createClient();
       if (!supabase) { setLoaded({ id, detail: null, error: "Exercise information is unavailable in this environment." }); return; }
-      const [auth, row, media] = await Promise.all([
-        supabase.auth.getUser(),
-        withOptionalColumns(CATALOG_V2_COLUMNS, (include) =>
-          supabase.from("exercise_library").select(columnList(DETAIL_COLUMNS, CATALOG_V2_COLUMNS, include)).eq("id", id).eq("is_active", true).maybeSingle()),
-        exerciseMediaQuery(supabase, id),
-      ]);
+      const [auth, result] = await Promise.all([supabase.auth.getUser(), loadExerciseDetail(supabase, id, SUPABASE_URL)]);
       if (!active) return;
-      const data = row.result.data as unknown as DetailRow | null;
-      if (row.result.error || !data) {
-        setLoaded({ id, detail: null, error: row.result.error
+      if (result.status !== "found") {
+        setLoaded({ id, detail: null, error: result.status === "error"
           ? "This exercise could not be loaded. Check your connection and try again."
           : "This exercise is not in the library. It may have been removed or merged into a similar movement." });
         return;
       }
-      const exercise = toCatalogExercise(data);
-      setLoaded({
-        id,
-        error: "",
-        detail: {
-          exercise,
-          description: data.description?.trim() ?? "",
-          instructions: (data.instructions ?? []).map((step) => step.trim()).filter(Boolean),
-          attribution: data.attribution?.trim() || null,
-          media: resolveExerciseMedia({ exerciseId: exercise.id, name: exercise.name, sourceRef: exercise.source_ref, rows: mediaRowsFrom(media), supabaseUrl: SUPABASE_URL }),
-        },
-      });
+      const { exercise } = result.detail;
+      setLoaded({ id, error: "", detail: result.detail });
       const user = auth.data.user;
       setSignedIn(Boolean(user));
       if (user) rememberExercise(user.id, exercise.id);
       const [history, alternatives, lists] = await Promise.all([
-        user ? loadHistory(supabase, user.id, exercise.id) : Promise.resolve([]),
-        loadAlternatives(supabase, exercise.alternatives),
-        user ? loadEquipment(supabase, user.id) : Promise.resolve(null),
+        user ? loadRecentSessions(supabase, user.id, exercise.id) : Promise.resolve([]),
+        loadRelatedExercises(supabase, exercise.alternatives),
+        user ? loadEquipmentState(supabase, user.id) : Promise.resolve(null),
       ]);
       if (!active) return;
       setExtras({ id, history, alternatives });
@@ -190,46 +172,4 @@ function listSourceNote(lists: Array<{ context: TrainingContext; saved: boolean 
   if (home.saved && gym.saved) return "Checked against your saved Home and Gym lists.";
   if (!home.saved && !gym.saved) return "Checked against starting lists (your profile’s equipment at home, a full commercial gym) until you save your own.";
   return home.saved ? "Checked against your saved Home list and a starting Gym list (a full commercial gym)." : "Checked against a starting Home list from your profile and your saved Gym list.";
-}
-
-async function loadEquipment(supabase: Supabase, userId: string): Promise<EquipmentState> {
-  const [lists, preferences] = await Promise.all([
-    loadEquipmentProfiles(supabase, userId),
-    supabase.from("user_preferences").select("equipment").eq("user_id", userId).maybeSingle(),
-  ]);
-  const words = (preferences.data as { equipment?: string[] | null } | null)?.equipment;
-  return { profiles: lists.profiles, legacyWords: Array.isArray(words) ? words : [], failed: Boolean(lists.error) };
-}
-
-async function loadAlternatives(supabase: Supabase, ids: string[]): Promise<Alternative[]> {
-  if (!ids.length) return [];
-  const related = await supabase.from("exercise_library").select("id,name,primary_muscle").in("id", ids).eq("is_active", true).limit(8);
-  return (related.data || []) as Alternative[];
-}
-
-/** The user's completed sessions with this exercise, newest first, with each session's top set. */
-async function loadHistory(supabase: Supabase, userId: string, exerciseId: string): Promise<ExerciseHistory[]> {
-  const sessionExerciseResult = await supabase.from("workout_session_exercises").select("id,session_id,created_at").eq("user_id", userId).eq("exercise_id", exerciseId).order("created_at", { ascending: false }).limit(12);
-  if (sessionExerciseResult.error || !sessionExerciseResult.data?.length) return [];
-  const loggedRows = sessionExerciseResult.data as Array<{ id: string; session_id: string; created_at: string }>;
-  const sessionsResult = await supabase.from("workout_sessions").select("id,started_at").eq("user_id", userId).eq("status", "completed").in("id", [...new Set(loggedRows.map((row) => row.session_id))]).order("started_at", { ascending: false }).limit(8);
-  if (sessionsResult.error || !sessionsResult.data?.length) return [];
-  const completedSessions = sessionsResult.data as Array<{ id: string; started_at: string }>;
-  const completedExerciseRows = loggedRows.filter((row) => completedSessions.some((session) => session.id === row.session_id));
-  const setResult = await supabase.from("workout_sets").select("session_exercise_id,reps,weight_kg,duration_seconds,completed_at").eq("user_id", userId).in("session_exercise_id", completedExerciseRows.map((row) => row.id)).not("completed_at", "is", null);
-  if (setResult.error) return [];
-  const loggedSets = (setResult.data || []) as Array<{ session_exercise_id: string; reps: number | null; weight_kg: number; duration_seconds: number | null; completed_at: string | null }>;
-  return completedSessions.flatMap((session) => {
-    const movementIds = completedExerciseRows.filter((row) => row.session_id === session.id).map((row) => row.id);
-    const sets = loggedSets.filter((set) => movementIds.includes(set.session_exercise_id) && (Number(set.reps) > 0 || Number(set.duration_seconds) > 0));
-    if (!sets.length) return [];
-    // Sets with seconds logged are timed (a hold, a stretch, cardio): their best is a time, not a lift.
-    const lifted = sets.filter((set) => isLiftSet(set));
-    if (lifted.length) {
-      const best = lifted.reduce((winner, set) => Number(set.weight_kg) > Number(winner.weight_kg) || (Number(set.weight_kg) === Number(winner.weight_kg) && Number(set.reps) > Number(winner.reps)) ? set : winner);
-      return [{ id: session.id, started_at: session.started_at, completedSets: sets.length, topSet: Number(best.weight_kg) > 0 ? `${Number(best.weight_kg)} kg × ${best.reps}` : `${best.reps} reps` }];
-    }
-    const maxDuration = Math.max(...sets.map((set) => Number(set.duration_seconds || 0)));
-    return [{ id: session.id, started_at: session.started_at, completedSets: sets.length, topSet: `${maxDuration}s timed` }];
-  });
 }

@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateNutritionTargets } from "@/lib/domain/nutrition";
 import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, normalizeDietType } from "@/lib/domain/profile-options";
 import { isMissingColumnError } from "@/lib/supabase/errors";
+import { survivingExerciseId } from "@/lib/training/exercise-merges";
+import { isCountedSession, loadLibraryMuscles, regionsTrained, summariseMuscles, type LoggedSession } from "@/lib/training/muscle-history";
 import { allergyRulesFrom, describeAllergies, describeDiet, dietRulesFrom, type AllergyRule, type DietRule } from "./diet-rules";
 import { calorieFloor } from "./safety";
 import type { Macros } from "./types";
@@ -136,16 +138,50 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     ),
   ]);
 
-  // Which muscles the last week's sessions trained, so a workout suggestion can balance them.
-  const lastWeek = sessions.filter((session) => session.status === "completed" && Date.parse(session.started_at) >= now.getTime() - 7 * 86_400_000).map((session) => session.id);
-  const muscleRows = lastWeek.length
-    ? await rows<{ exercise_library: { primary_muscle?: string } | Array<{ primary_muscle?: string }> | null }>(
-        supabase.from("workout_session_exercises").select("exercise_library(primary_muscle)").eq("user_id", userId).in("session_id", lastWeek.slice(0, 30)).limit(200),
-      )
-    : [];
-  const recentMuscles = [...new Set(muscleRows.flatMap((row) => (Array.isArray(row.exercise_library) ? row.exercise_library : row.exercise_library ? [row.exercise_library] : []).map((item) => String(item.primary_muscle ?? "")).filter(Boolean)))];
+  const recentMuscles = await recentMusclesFrom(supabase, userId, sessions, now, withFallback);
 
   return { profile, preferences, weighIns, meals, customFoods, sessions, recentMuscles, records, goals, planner };
+}
+
+type FetchWithFallback = <T>(newer: () => PromiseLike<{ data: unknown; error: unknown }>, older: () => PromiseLike<{ data: unknown; error: unknown }>) => Promise<T[]>;
+type WorkoutSetRow = { reps: number | null; duration_seconds?: number | null; completed_at: string | null };
+type WorkoutExerciseRow = { id: string; session_id: string; exercise_id: string | null; exercise_name: string | null; workout_sets: WorkoutSetRow[] | null };
+
+/**
+ * The muscles the last 7 days of training worked directly, most sets first, so a workout suggestion can
+ * balance them. FITX's one counting rule (muscle-history.ts): completed sessions only, sets ticked as done with
+ * reps or seconds, each exercise's catalogue primary muscle as a body-map region. An exercise left unticked in a
+ * finished workout counts for nothing.
+ */
+async function recentMusclesFrom(supabase: Db, userId: string, sessions: Array<{ id: string; started_at: string; status: string }>, now: Date, withFallback: FetchWithFallback): Promise<string[]> {
+  const since = now.getTime() - 7 * 86_400_000;
+  // A session that started the evening before the window can still hold sets inside it.
+  const lastWeek = sessions.filter((session) => isCountedSession(session) && Date.parse(session.started_at) >= since - 86_400_000).slice(0, 30);
+  if (!lastWeek.length) return [];
+  const ids = lastWeek.map((session) => session.id);
+  const exerciseRows = await withFallback<WorkoutExerciseRow>(
+    () => supabase.from("workout_session_exercises").select("id, session_id, exercise_id, exercise_name, workout_sets(reps, duration_seconds, completed_at)").eq("user_id", userId).in("session_id", ids).limit(200),
+    // Before the timed-sets migration a set has no seconds column; reps alone decide.
+    () => supabase.from("workout_session_exercises").select("id, session_id, exercise_id, exercise_name, workout_sets(reps, completed_at)").eq("user_id", userId).in("session_id", ids).limit(200),
+  );
+  if (!exerciseRows.length) return [];
+  let library: Awaited<ReturnType<typeof loadLibraryMuscles>>["rows"];
+  try {
+    const result = await loadLibraryMuscles(supabase, exerciseRows.map((row) => row.exercise_id));
+    if (result.error) return [];
+    library = result.rows;
+  } catch {
+    return [];
+  }
+  const logged: LoggedSession[] = lastWeek.map((session) => ({
+    id: session.id, name: "", status: session.status, started_at: session.started_at, completed_at: null,
+    exercises: exerciseRows.filter((row) => row.session_id === session.id).map((row) => ({
+      id: row.id, exercise_id: row.exercise_id ?? null, name: row.exercise_name ?? "", target_duration_seconds: null,
+      library: row.exercise_id ? library.get(survivingExerciseId(row.exercise_id)) ?? null : null,
+      sets: (row.workout_sets ?? []).map((set) => ({ reps: set.reps ?? null, weight_kg: null, duration_seconds: set.duration_seconds ?? null, completed_at: set.completed_at ?? null })),
+    })),
+  }));
+  return regionsTrained(summariseMuscles(logged, { start: new Date(since), end: null }));
 }
 
 export function buildCoachContext(sources: ContextSources, now = new Date()): CoachContext {

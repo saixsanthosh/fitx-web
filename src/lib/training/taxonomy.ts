@@ -25,21 +25,30 @@ export const MUSCLE_GROUP_LABELS: Record<MuscleGroup, string> = {
   hips: "Hips and adductors", neck: "Neck", full_body: "Full body",
 };
 
-/** The catalogue's finer `primary_muscle` values and the group each belongs to. */
+/**
+ * The catalogue's finer muscle values and the group each belongs to: every `primary_muscle` value, plus the
+ * older words the 30 FITX starter rows use in `secondary_muscles` (front_deltoids, rear_deltoids, upper_chest,
+ * hip_flexors, ankles). Those follow the body map (anatomy.ts): the hip flexors are drawn as part of the
+ * quadriceps (the rectus femoris) and the ankles with the calves.
+ */
 export const MUSCLE_TO_GROUP: Readonly<Record<string, MuscleGroup>> = {
-  chest: "chest",
+  chest: "chest", upper_chest: "chest",
   lats: "back", middle_back: "back", back: "back", traps: "back", lower_back: "back",
-  shoulders: "shoulders",
+  shoulders: "shoulders", front_deltoids: "shoulders", rear_deltoids: "shoulders",
   biceps: "biceps", triceps: "triceps", forearms: "forearms",
   abdominals: "core", core: "core",
-  quadriceps: "quadriceps", hamstrings: "hamstrings", glutes: "glutes", calves: "calves",
+  quadriceps: "quadriceps", hip_flexors: "quadriceps", hamstrings: "hamstrings", glutes: "glutes", calves: "calves", ankles: "calves",
   adductors: "hips", abductors: "hips",
   neck: "neck",
   cardio: "full_body",
 };
 
+/** The group of a catalogue muscle value ("Lower_Back " → back); null for anything else. */
 export function muscleGroupOf(primaryMuscle: string): MuscleGroup | null {
-  return MUSCLE_TO_GROUP[primaryMuscle.trim().toLowerCase()] ?? null;
+  if (typeof primaryMuscle !== "string") return null;
+  const key = primaryMuscle.trim().toLowerCase();
+  // Own keys only, so "constructor" or "toString" from a URL is not read off Object.prototype.
+  return Object.hasOwn(MUSCLE_TO_GROUP, key) ? MUSCLE_TO_GROUP[key] : null;
 }
 
 /** Which split days a muscle group belongs to. */
