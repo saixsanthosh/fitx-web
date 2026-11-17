@@ -8,7 +8,6 @@ type CinematicMediaProps = {
   src: string;
   alt: string;
   ratio: "cinema" | "wide" | "portrait" | "square";
-  mobileSrc?: string;
   videoSrc?: string;
   posterSrc?: string;
   priority?: boolean;
@@ -16,7 +15,7 @@ type CinematicMediaProps = {
 };
 
 /** Keeps a calm, accessible frame in place when a remote image cannot load. */
-export function CinematicMedia({ src, alt, ratio, mobileSrc, videoSrc, posterSrc, priority = false, className = "" }: CinematicMediaProps) {
+export function CinematicMedia({ src, alt, ratio, videoSrc, posterSrc, priority = false, className = "" }: CinematicMediaProps) {
   const [failed, setFailed] = useState(false);
 
   return (
@@ -25,7 +24,8 @@ export function CinematicMedia({ src, alt, ratio, mobileSrc, videoSrc, posterSrc
         <div role="img" aria-label={alt} className={styles.mediaFallback} />
       ) : (
         <picture className={styles.mediaPicture}>
-          {mobileSrc && <source media="(max-width: 767px)" srcSet={mobileSrc} />}
+          {/* Phones get their size from `sizes` through /_next/image too: a <source> with the photo's own URL
+              would make the browser fetch it from the photo host directly. */}
           <Image
             src={src}
             alt={alt}

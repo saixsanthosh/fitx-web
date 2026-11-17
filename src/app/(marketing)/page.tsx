@@ -54,7 +54,6 @@ function photoAt(src: string, width: number) {
   return src.replace(/([?&]w=)\d+/, (_match, prefix: string) => `${prefix}${width}`);
 }
 
-const mobilePhoto = (src: string) => photoAt(src, 720);
 /** Full-bleed photos are requested at 2400 px so large and high-density screens stay sharp. */
 const widePhoto = (src: string) => photoAt(src, 2400);
 
@@ -111,7 +110,6 @@ export default function HomePage() {
         <div className={styles.personalVisual}>
           <CinematicMedia
             src={IMG.womanFit}
-            mobileSrc={mobilePhoto(IMG.womanFit)}
             alt="Athlete training in a gym"
             ratio="portrait"
             className={styles.roundedMedia}
@@ -174,7 +172,6 @@ export default function HomePage() {
         <div className={styles.workoutMedia}>
           <CinematicMedia
             src={IMG.training}
-            mobileSrc={mobilePhoto(IMG.training)}
             alt="Athlete preparing for a training session"
             ratio="wide"
             className={styles.roundedMedia}
@@ -192,7 +189,6 @@ export default function HomePage() {
           <div className={styles.exerciseMedia}>
             <CinematicMedia
               src={IMG.athlete}
-              mobileSrc={mobilePhoto(IMG.athlete)}
               alt="Athlete working through a strength training movement"
               ratio="wide"
               className={styles.roundedMedia}
@@ -222,7 +218,6 @@ export default function HomePage() {
         <div className={styles.foodPhoto}>
           <CinematicMedia
             src={IMG.saladBowl}
-            mobileSrc={mobilePhoto(IMG.saladBowl)}
             alt="A bowl of fresh food"
             ratio="portrait"
             className={styles.roundedMedia}
@@ -264,7 +259,6 @@ export default function HomePage() {
         <div className={styles.barcodeVisual}>
           <CinematicMedia
             src={IMG.veggies}
-            mobileSrc={mobilePhoto(IMG.veggies)}
             alt="Fresh ingredients prepared for a meal"
             ratio="wide"
             className={styles.barcodePhoto}
@@ -289,7 +283,6 @@ export default function HomePage() {
         <div className={styles.progressLayout}>
           <CinematicMedia
             src={IMG.gymEquipment}
-            mobileSrc={mobilePhoto(IMG.gymEquipment)}
             alt="Strength training equipment in a gym"
             ratio="wide"
             className={styles.roundedMedia}
@@ -312,7 +305,6 @@ export default function HomePage() {
         <div className={styles.contextVisual}>
           <CinematicMedia
             src={IMG.gymInterior}
-            mobileSrc={mobilePhoto(IMG.gymInterior)}
             alt="A calm, well-equipped training space"
             ratio="wide"
             className={styles.roundedMedia}
@@ -335,7 +327,6 @@ export default function HomePage() {
       <section className={styles.finalCta} aria-labelledby="final-title">
         <CinematicMedia
           src={widePhoto(IMG.heroGym)}
-          mobileSrc={mobilePhoto(IMG.heroGym)}
           alt="A gym floor with racks and free weights"
           ratio="cinema"
           className={styles.finalMedia}
