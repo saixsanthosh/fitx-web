@@ -45,6 +45,11 @@ create table if not exists public.fitx_admin_audit_logs (
 -- with actor_id referencing auth.users on delete set null. That key is dropped here, so this file
 -- leaves the same audit log on every database; 20261118180002 checks again before it makes the log
 -- append-only.
+-- Dropping the key also locks auth.users (ACCESS EXCLUSIVE, as it removes the key's triggers there)
+-- until this file commits, and every sign-in, token refresh and account lookup waits for that lock.
+-- So it waits at most 3 seconds for a request that is using the table, rather than queue them all
+-- behind it: on a timeout the file stops, nothing of it stays, and it can simply be run again. The
+-- setting lasts until this file's transaction ends; where there is no such key, nothing changes.
 do $do$
 declare
   fk record;
@@ -55,6 +60,7 @@ begin
       and contype = 'f'
       and confrelid = 'auth.users'::regclass
   loop
+    perform pg_catalog.set_config('lock_timeout', '3s', true);
     execute pg_catalog.format('alter table public.fitx_admin_audit_logs drop constraint %I', fk.conname);
   end loop;
 end

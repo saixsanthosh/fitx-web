@@ -18,10 +18,13 @@
 //   * on production, only 20261118180000 meets Admin objects that already exist: the draft's two tables and
 //     their two indexes;
 //   * the Admin files can be applied a second time on both without errors or changes;
-//   * the Phase 10 database checks (admin/tests/database/phase10-checks.sql) pass on both.
+//   * the Phase 10 database checks (admin/tests/database/phase10-checks.sql) pass on both;
+//   * on production, while a request holds the accounts table, 20261118180000 gives up after about 3 seconds
+//     and leaves nothing, rather than queue every sign-in behind its lock, and applies once the table is free.
 // Skipped when the PostgreSQL server binaries (initdb, pg_ctl, psql) are not on PATH.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -392,5 +395,54 @@ describe("the Admin migrations on a fresh database and on production's schema", 
       assert.deepEqual(passed, expected, db);
     }
     t.diagnostic(`${expected.length} groups of checks passed on both`);
+  });
+});
+
+// On production, 20261118180000 drops the draft's key from the audit log to accounts. That locks auth.users until the
+// file commits, and every sign-in, token refresh and account lookup waits for the lock. So while a request holds the
+// table, the file must give up after its 3-second lock_timeout and leave nothing, instead of queueing them all behind
+// it for as long as the request lasts; and it must apply once the table is free (the runbook: run it again).
+describe("20261118180000 on production while a request holds the accounts table", { skip }, () => {
+  /** @type {LocalPostgres} */
+  let pg;
+  /** @type {import("node:child_process").ChildProcess | null} */
+  let request = null;
+  const holdsAccounts = () => pg.json(`
+    select to_json(exists (select 1 from pg_locks where relation = 'auth.users'::regclass and granted and pid <> pg_backend_pid()))::text;`);
+  const until = async (condition, what) => {
+    for (let waited = 0; !condition(); waited += 50) {
+      assert.ok(waited < 10000, what);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+
+  before(() => {
+    pg = new LocalPostgres().start();
+    pg.applyMigrations({ before: DRIFT_FROM, skip: /^$/ });
+    for (const name of FIXTURES) pg.applyFile(path.join(FIXTURES_DIR, name), { singleTransaction: true });
+  });
+
+  after(() => {
+    request?.kill();
+    pg?.stop();
+  });
+
+  test("it waits about 3 seconds, stops with the draft's key still there, and applies once the table is free", async () => {
+    // A request that has read auth.users in a transaction that stays open for a minute.
+    request = spawn("psql", ["-h", pg.socket, "-U", "postgres", "-d", "postgres", "-X", "-q", "-c",
+      "begin; lock table auth.users in access share mode; select pg_sleep(60);"], { stdio: "ignore", env: { ...process.env, LC_ALL: "C", LANG: "C" } });
+    await until(holdsAccounts, "the request never got its lock on auth.users");
+    const started = Date.now();
+    const busy = pg.runFile(path.join(MIGRATIONS_DIR, CONTROL_PLANE), { singleTransaction: true });
+    const waited = Date.now() - started;
+    assert.equal(busy.ok, false, "it must not wait for the request to end");
+    assert.match(errorText(busy.stderr), /canceling statement due to lock timeout/);
+    assert.ok(waited >= 2500 && waited < 20000, `it gave up after ${waited} ms`);
+    assert.deepEqual(pg.json(AUDIT_LOG_FOREIGN_KEYS), ["FOREIGN KEY (actor_id) REFERENCES auth.users(id) ON DELETE SET NULL"], "nothing of the file stayed");
+    pg.exec("select pg_terminate_backend(pid) from pg_locks where relation = 'auth.users'::regclass and pid <> pg_backend_pid();");
+    await until(() => !holdsAccounts(), "the request still holds auth.users");
+    const free = pg.runFile(path.join(MIGRATIONS_DIR, CONTROL_PLANE), { singleTransaction: true });
+    assert.equal(free.ok, true, errorText(free.stderr));
+    assert.deepEqual(pg.json(AUDIT_LOG_FOREIGN_KEYS), [], "applied again once the table is free, it drops the key");
   });
 });
