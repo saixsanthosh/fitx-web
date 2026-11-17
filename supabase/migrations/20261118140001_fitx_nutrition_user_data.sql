@@ -1,11 +1,17 @@
 -- Nutrition v2 user data: custom foods you can manage, saved meals and daily routines, and editable targets.
--- Additive. Every table is owner-only under RLS, like custom_foods_owner. Until this is applied the app keeps
--- working without these features and says they need the database update.
+-- Additive, except that on production it replaces two older barcode rules (below). Every table is owner-only
+-- under RLS, like custom_foods_owner. Until this is applied the app keeps working without these features and
+-- says they need the database update.
 
 -- Custom foods: a barcode to find the product again, an image, where the food came from and how its values
 -- were obtained, and archiving instead of losing it.
+-- Production already has custom_foods.barcode (text), from 20261002172610_fitx_experience_2_0: a migration in its
+-- history that is not in this folder (a copy is in tests/integration/fixtures/production-drift). It came with its
+-- own rules, the check custom_foods_barcode_format_check and the unique index custom_foods_user_barcode_unique.
+-- There "add column if not exists" skips the column, and any check written with it, so the barcode check is added
+-- on its own below and the two older rules are dropped.
 alter table public.custom_foods
-  add column if not exists barcode text check (barcode is null or barcode ~ '^[0-9]{8,14}$'),
+  add column if not exists barcode text,
   -- user: typed in. barcode: saved from a scanned package. ai_coach: added by the AI coach's "Add to My Food Plan".
   add column if not exists origin text not null default 'user' check (origin in ('user', 'barcode', 'ai_coach')),
   add column if not exists value_basis text not null default 'user_entered'
@@ -19,8 +25,20 @@ alter table public.custom_foods
   add column if not exists source_ref text check (source_ref is null or char_length(source_ref) <= 64),
   add column if not exists archived_at timestamptz;
 
+-- A barcode is 8 to 14 digits. The older check allowed 8, 12, 13 or 14, so every barcode saved under it passes.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conrelid = 'public.custom_foods'::regclass and conname = 'custom_foods_barcode_check') then
+    alter table public.custom_foods add constraint custom_foods_barcode_check check (barcode is null or barcode ~ '^[0-9]{8,14}$');
+  end if;
+end $$;
+alter table public.custom_foods drop constraint if exists custom_foods_barcode_format_check;
+
+-- One active food per barcode per member: archiving a food frees its barcode. The older index also counted
+-- archived foods; this one covers fewer rows, so building it cannot fail where that one held.
 create unique index if not exists custom_foods_user_barcode_idx on public.custom_foods (user_id, barcode)
   where barcode is not null and archived_at is null;
+drop index if exists public.custom_foods_user_barcode_unique;
 
 drop trigger if exists custom_foods_touch_updated_at on public.custom_foods;
 create trigger custom_foods_touch_updated_at before update on public.custom_foods
