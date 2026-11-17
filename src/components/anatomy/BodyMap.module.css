@@ -1,0 +1,136 @@
+/* The FITX body map (BodyMap.tsx). Theme tokens only (scripts/check-raw-colors.mjs): the figure follows the light,
+   dark, system and inverse themes because every colour below is a token or a mix of tokens.
+   The body is a neutral base; muscle plates sit on it and the base-coloured stroke around each plate draws the
+   even gaps between them. */
+
+.root {
+  /* Body base and gaps, idle muscle, and the highlight colours. */
+  --bm-base: var(--fitx-track);
+  --bm-muscle: color-mix(in oklab, var(--fitx-text) 15%, var(--fitx-track));
+  --bm-accent: var(--fitx-primary);
+  --bm-secondary: color-mix(in oklab, var(--fitx-primary) 46%, var(--bm-muscle));
+  --bm-hover: color-mix(in oklab, var(--fitx-primary) 26%, var(--bm-muscle));
+  --bm-ring: var(--fitx-text);
+  /* Gap between plates, in drawing units (the figure is 188 units wide). */
+  --bm-gap: 1.3;
+  /* Largest width of one figure, and the space between the front and back figures. */
+  --bm-figure: 150px;
+  --bm-count: 2;
+  --bm-space: 12px;
+  display: grid;
+  width: 100%;
+  max-width: calc(var(--bm-figure) * var(--bm-count) + var(--bm-space) * (var(--bm-count) - 1));
+  justify-items: center;
+  gap: 8px;
+}
+
+.single { --bm-count: 1; }
+.pair { --bm-count: 2; }
+.sm { --bm-figure: 96px; --bm-space: 8px; --bm-gap: 1.5; }
+.md { --bm-figure: 150px; --bm-space: 12px; }
+.lg { --bm-figure: 210px; --bm-space: 18px; --bm-gap: 1.2; }
+
+.views {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(var(--bm-count), minmax(0, 1fr));
+  gap: var(--bm-space);
+}
+
+.figure {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 4px;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.silhouette { fill: var(--bm-base); }
+
+.plate {
+  fill: var(--bm-muscle);
+  stroke: var(--bm-base);
+  stroke-width: var(--bm-gap);
+  stroke-linejoin: round;
+}
+
+/* Region fills. Heat: any level above 0 starts at a visible tint (22%) and reaches the full accent at 1. */
+.region { --bm-fill: var(--bm-muscle); }
+.region[data-state="level"] { --bm-fill: color-mix(in oklab, var(--bm-accent) calc((0.22 + 0.78 * var(--level, 0)) * 100%), var(--bm-muscle)); }
+.region[data-state="secondary"] { --bm-fill: var(--bm-secondary); }
+.region[data-state="primary"],
+.region[data-state="selected"] { --bm-fill: var(--bm-accent); }
+.region .plate { fill: var(--bm-fill); }
+
+/* Picker: hover and focus. A hovered region moves toward the text colour (darker in light themes, lighter in
+   dark ones); an idle one takes a light accent tint. The focus ring follows the plate edges. */
+.interactive .region { cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; }
+.interactive .region.active .plate { fill: color-mix(in oklab, var(--bm-fill) 84%, var(--fitx-text)); }
+.interactive .region.active[data-state="idle"] .plate { fill: var(--bm-hover); }
+.interactive .region:focus-visible .plate {
+  stroke: var(--bm-ring);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .plate { transition: fill 160ms ease, stroke 160ms ease; }
+}
+
+.caption {
+  color: var(--fitx-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.sm .caption { font-size: 0.625rem; letter-spacing: 0.06em; }
+
+.label {
+  min-height: 1.3em;
+  margin: 0;
+  color: var(--fitx-text);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  color: var(--fitx-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  list-style: none;
+}
+.legend li { display: inline-flex; align-items: center; gap: 6px; }
+.legend .scale { gap: 8px; }
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 3px;
+  background: var(--bm-muscle);
+}
+.swatch[data-state="primary"] { background: var(--bm-accent); }
+.swatch[data-state="secondary"] { background: var(--bm-secondary); }
+
+.ramp {
+  width: 56px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--bm-accent) 22%, var(--bm-muscle)), var(--bm-accent));
+}
