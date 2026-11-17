@@ -1,9 +1,10 @@
+import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL } from "@/lib/supabase/client";
 import { listUserFiles, MEDIA_BUCKET } from "./export";
 
 /**
- * Server-only account administration (route handlers only; never import this from a client component).
+ * Server-only account administration (route handlers only; a client component importing this fails the build).
  * It needs SUPABASE_SECRET_KEY, a Supabase secret (or legacy service-role) key that must never be a
  * NEXT_PUBLIC_ variable. Without it, account deletion reports itself as not available.
  */
