@@ -13,8 +13,12 @@ type Run = {
   /** What localStorage and sessionStorage hold now. */
   local: Map<string, string>;
   session: Map<string, string>;
-  /** What the script listens for on `document` (Skip clicks, Escape, the page being shown). */
+  /** What the script listens for on `document` (Skip clicks, Escape, Tab, the page being shown). */
   listeners: Map<string, Listener[]>;
+  /** The listeners among those registered for the capture phase. */
+  capture: Set<Listener>;
+  /** Each time the script moved focus to the overlay's Skip button, whether it asked not to scroll. */
+  focused: Array<{ preventScroll: boolean }>;
   window: Record<string, unknown>;
   preloads: string[];
   /** Timers the script started, in order; call `fn` to let one run out. */
@@ -44,11 +48,16 @@ function run({
   local = {} as Record<string, string>,
   session = {} as Record<string, string>,
   now = NOW,
+  /** Whether the page has the overlay's Skip button (server-rendered by CinematicIntro). */
+  skipButton = true,
 } = {}): Run {
   const attrs = new Map<string, string>();
   const cookieWrites: string[] = [];
   const storageWrites: string[] = [];
   const listeners = new Map<string, Listener[]>();
+  const capture = new Set<Listener>();
+  const focused: Run["focused"] = [];
+  const skip = { focus: (options?: { preventScroll?: boolean }) => void focused.push({ preventScroll: options?.preventScroll === true }) };
   const preloads: string[] = [];
   const timers: Run["timers"] = [];
   const events: string[] = [];
@@ -66,7 +75,11 @@ function run({
     set cookie(value: string) { cookieWrites.push(value); },
     createElement: () => ({ setAttribute() {}, set href(value: string) { preloads.push(value); } }),
     head: { appendChild() {} },
-    addEventListener: (type: string, listener: Listener) => void listeners.set(type, [...(listeners.get(type) ?? []), listener]),
+    querySelector: (selector: string) => (skipButton && selector === "[data-fitx-skip]" ? skip : null),
+    addEventListener: (type: string, listener: Listener, options?: boolean | { capture?: boolean }) => {
+      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+      if (options === true || (typeof options === "object" && options.capture === true)) capture.add(listener);
+    },
     removeEventListener: (type: string, listener: Listener) => void listeners.set(type, (listeners.get(type) ?? []).filter((entry) => entry !== listener)),
   };
   const stores = { localStorage: new Map(Object.entries(local)), sessionStorage: new Map(Object.entries(session)) };
@@ -106,6 +119,8 @@ function run({
     local: stores.localStorage,
     session: stores.sessionStorage,
     listeners,
+    capture,
+    focused,
     window,
     preloads,
     timers,
@@ -257,6 +272,87 @@ test("Skip and Escape give the page back before React hydrates, the visitor's fi
   failed.timers[0].fn();
   assert.equal(failed.attrs.get("data-fitx-intro"), undefined);
   assert.equal(failed.session.has(VISITOR_FILM_SEEN_KEY), false);
+});
+
+/** A key press as the script sees it; `prevented` says whether the script cancelled what the browser does with it. */
+const key = (name: string, shiftKey = false) => {
+  const event = { key: name, shiftKey, prevented: false, preventDefault: () => { event.prevented = true; } };
+  return event;
+};
+
+test("Tab and Shift+Tab stay on Skip while the film waits for the app, and only then", () => {
+  // Until React starts the film and makes the page inert, Tab would reach the page's links hidden behind the overlay.
+  const shownLater = run({ path: "/", hidden: true });
+  shownLater.show();
+  const pending = {
+    visitor: run({ path: "/" }),
+    account: run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" }),
+    replay: run({ path: "/", search: "?intro=play" }),
+    "visitor, a background tab once shown": shownLater,
+  };
+  for (const [gate, page] of Object.entries(pending)) {
+    assert.equal(page.attrs.get("data-fitx-intro"), "pending", gate);
+    for (const shiftKey of [false, true, false, true]) {
+      const tab = key("Tab", shiftKey);
+      dispatch(page, "keydown", tab);
+      assert.equal(tab.prevented, true, `${gate}: ${shiftKey ? "Shift+Tab" : "Tab"} doesn't move focus into the page`);
+    }
+    assert.equal(page.focused.length, 4, `${gate}: each press puts focus on Skip`);
+    assert.ok(page.focused.every((call) => call.preventScroll), `${gate}: without scrolling the page behind`);
+    assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${gate}: Tab alone never skips the film`);
+    // Caught in the capture phase, before anything on the page can stop it; other keys are left alone.
+    const early = (page.listeners.get("keydown") ?? []).filter((listener) => page.capture.has(listener));
+    assert.equal(early.length, 1, gate);
+    const tab = key("Tab");
+    early[0](tab);
+    assert.equal(tab.prevented, true, gate);
+    const enter = key("Enter");
+    dispatch(page, "keydown", enter);
+    assert.equal(enter.prevented, false, gate);
+    assert.equal(page.focused.length, 5, gate);
+  }
+
+  const untouched = (page: Run, label: string) => {
+    for (const shiftKey of [false, true]) {
+      const tab = key("Tab", shiftKey);
+      dispatch(page, "keydown", tab);
+      assert.equal(tab.prevented, false, `${label}: ${shiftKey ? "Shift+Tab" : "Tab"} works as usual`);
+    }
+    assert.deepEqual(page.focused, [], `${label}: focus is left alone`);
+  };
+  // No film: another page, the same tab again, reduced motion, a returning device's loader, a tab nobody has shown yet.
+  const none = {
+    "/features": run({ path: "/features" }),
+    "same tab": run({ path: "/", session: { [VISITOR_FILM_SEEN_KEY]: "1" } }),
+    "reduced motion": run({ path: "/", reduce: true }),
+    loader: run({ path: "/nutrition", cookie: "fitx_intro=seen" }),
+    "hidden tab": run({ path: "/", hidden: true }),
+  };
+  for (const [label, page] of Object.entries(none)) {
+    assert.equal(page.attrs.get("data-fitx-intro"), undefined, label);
+    untouched(page, label);
+  }
+  // The page given back here: Skip, Escape, or the 8 s fallback.
+  const skipped = run({ path: "/" });
+  dispatch(skipped, "click", skipClick);
+  const escaped = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" });
+  dispatch(escaped, "keydown", key("Escape"));
+  const failed = run({ path: "/" });
+  failed.timers[0].fn();
+  for (const [label, page] of Object.entries({ "after Skip": skipped, "after Escape": escaped, "after the 8 s fallback": failed })) {
+    assert.equal(page.attrs.get("data-fitx-intro"), undefined, label);
+    untouched(page, label);
+  }
+  // Once the app has started the film, CinematicIntro owns focus (the page behind is inert), and then gives the page back.
+  const app = run({ path: "/" });
+  app.attrs.set("data-fitx-intro", "active");
+  untouched(app, "active");
+  app.attrs.delete("data-fitx-intro");
+  untouched(app, "given back by the app");
+  // No Skip button on the page: nothing to keep focus on, so Tab works as usual.
+  const bare = run({ path: "/", skipButton: false });
+  assert.equal(bare.attrs.get("data-fitx-intro"), "pending");
+  untouched(bare, "no Skip button");
 });
 
 test("a signed-in visitor never gets the visitor's film on the home page", () => {

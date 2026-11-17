@@ -407,12 +407,17 @@ export function CinematicIntro() {
     theme === "dark" ? styles.dark : styles.light,
     filmPlaying && !brandStage ? styles.cine : "",
   ].filter(Boolean).join(" ");
+  // Until a film starts here (run 0), CSS alone keeps the overlay from assistive tech: it is visibility: hidden
+  // unless the head script marked it pending, so screen readers reach the Skip that Tab focuses while it waits for
+  // the app (introBootstrap.ts). After a film it is aria-hidden again as soon as it is idle: it stays
+  // visibility: visible, fully transparent, for another 420 ms (the .intro transition).
+  const ariaHidden = run === 0 ? undefined : playback === "idle" && !leaving;
   return (
     <section
       ref={sectionRef}
       className={className}
       aria-label="FITX welcome"
-      aria-hidden={playback === "idle" && !leaving}
+      aria-hidden={ariaHidden}
       data-fitx-intro-overlay
       data-intro-playback={playback}
       data-intro-stage={filmStage}

@@ -43,7 +43,9 @@ const ACCOUNT_FILM_REPEAT_MS = (INTRO_PLAY_MAX_AGE + 60 * 60) * 1000;
  *    src/lib/auth/before-onboarding.ts): the film waits for the first app page after setup, and someone
  *    asking for help is not shown it first. Help still gets the loader,
  *  - never plays any film with prefers-reduced-motion, and never shows the loader then either,
- *  - keeps Skip/Escape working before React hydrates, and gives the page back if the app never
+ *  - keeps Skip/Escape working before React hydrates and, while the film is pending, keeps Tab and
+ *    Shift+Tab on Skip, so keyboard focus never lands on the page hidden behind it (once the film
+ *    starts, CinematicIntro makes the page inert instead); gives the page back if the app never
  *    starts the intro (e.g. its JavaScript failed to load) after 8 seconds of the page being shown.
  * Keep it tiny, dependency-free and ES5-safe: it blocks parsing while it runs. No backslashes in it:
  * this is a template literal.
@@ -122,6 +124,13 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
         if (target && target.closest && target.closest("[data-fitx-skip]")) release(true);
       });
       document.addEventListener("keydown", function (event) { if (event.key === "Escape") release(true); });
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Tab" || root.getAttribute("data-fitx-intro") !== "pending") return;
+        var skip = document.querySelector("[data-fitx-skip]");
+        if (!skip) return;
+        event.preventDefault();
+        skip.focus({ preventScroll: true });
+      }, true);
       var wait = function () {
         window.setTimeout(function () {
           if (!hidden()) return release(false);
