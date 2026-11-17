@@ -109,6 +109,24 @@ describe("proxy", () => {
     assert.match(cookieNamed(finished, "fitx_onboarded") ?? "", new RegExp(`^fitx_onboarded=${ONBOARDED.id};.*HttpOnly`, "i"));
   });
 
+  test("an account still in setup can open Help, but no other app page", async () => {
+    const cookies = sessionCookies(NEWCOMER.id);
+    for (const path of ["/help", "/help?from=%2Fonboarding", "/onboarding"]) {
+      const response = await proxy(request(path, { cookies }));
+      assert.equal(location(response), null, path);
+      assert.equal(response.headers.get("x-middleware-next"), "1", path);
+      assert.equal(cookieNamed(response, "fitx_onboarded"), undefined, `${path} does not mark the account as set up`);
+    }
+    // Every other app page, the sign-in pages, the home page and anything below Help go back to setup.
+    for (const path of ["/dashboard", "/settings", "/profile", "/workouts", "/ai-coach", "/activity/record", "/subscription", "/help/anything", "/signin", "/"]) {
+      assert.equal(location(await proxy(request(path, { cookies }))), "/onboarding", path);
+    }
+    // Finished accounts open Help as before, and are sent on from onboarding.
+    const finished = { ...sessionCookies(ONBOARDED.id), fitx_onboarded: ONBOARDED.id };
+    assert.equal(location(await proxy(request("/help", { cookies: finished }))), null);
+    assert.equal(location(await proxy(request("/onboarding", { cookies: finished }))), "/dashboard");
+  });
+
   test("a signed-in visitor on the sign-in page goes where they asked, never off-site", async () => {
     const cookies = { ...sessionCookies(ONBOARDED.id), fitx_onboarded: ONBOARDED.id };
     assert.equal(location(await proxy(request("/signin?next=%2Fnutrition", { cookies }))), "/nutrition");
@@ -188,6 +206,27 @@ describe("auth callback", () => {
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/);
   });
 
+  test("an account still in setup that asked for Help goes there; any other page waits for setup", async () => {
+    fake.codes.set(CODE, { userId: NEWCOMER.id, verifier: "v6" });
+    const help = await callback.GET(request(`/auth/callback?code=${CODE}&next=${encodeURIComponent("/help?from=%2Fonboarding")}`, { cookies: { [`${SESSION_COOKIE}-code-verifier`]: ssrCookieValue("v6/") } }));
+    assert.equal(location(help), "/help?from=%2Fonboarding");
+    assert.match(cookieNamed(help, "fitx_onboarded") ?? "", /Max-Age=0/i, "not marked as set up");
+    fake.codes.set(CODE, { userId: NEWCOMER.id, verifier: "v7" });
+    const other = await callback.GET(request(`/auth/callback?code=${CODE}&next=%2Fhelp%2Fanything`, { cookies: { [`${SESSION_COOKIE}-code-verifier`]: ssrCookieValue("v7/") } }));
+    assert.equal(location(other), "/onboarding");
+  });
+
+  test("where an account still in setup may go after signing in", async () => {
+    const { destinationBeforeOnboarding, openBeforeOnboarding } = await import("@/lib/auth/before-onboarding");
+    assert.equal(destinationBeforeOnboarding("/help"), "/help");
+    assert.equal(destinationBeforeOnboarding("/help?from=%2Fonboarding#form"), "/help?from=%2Fonboarding#form");
+    for (const next of [null, "", "/dashboard", "/helpdesk", "/help/anything", "https://evil.example/help", "//evil.example/help", "/api/support"]) {
+      assert.equal(destinationBeforeOnboarding(next), "/onboarding", String(next));
+    }
+    assert.equal(openBeforeOnboarding("/onboarding"), true);
+    assert.equal(openBeforeOnboarding("/settings"), false);
+  });
+
   test("password-reset links land on the reset form even before onboarding", async () => {
     fake.codes.set(CODE, { userId: NEWCOMER.id, verifier: "v3" });
     const response = await callback.GET(request(`/auth/callback?code=${CODE}&next=%2Freset-password`, { cookies: { [`${SESSION_COOKIE}-code-verifier`]: ssrCookieValue("v3/") } }));
@@ -238,6 +277,13 @@ describe("session route", () => {
     assert.match(cookieNamed(response, "fitx_auth") ?? "", /^fitx_auth=1;/);
     const signedOut = await sessionRoute.POST(request("/api/auth/session", { method: "POST", body: { intent: "sign-in" }, headers: { "sec-fetch-site": "same-origin" } }));
     assert.equal(signedOut.status, 401);
+  });
+
+  test("after a password sign-in, an account still in setup goes to onboarding unless it asked for Help", async () => {
+    const cookies = sessionCookies(NEWCOMER.id);
+    const destination = async (next: string) => (await (await sessionRoute.POST(request("/api/auth/session", { method: "POST", cookies, body: { intent: "sign-in", next }, headers: { "sec-fetch-site": "same-origin" } }))).json()).destination;
+    assert.equal(await destination("/help"), "/help");
+    assert.equal(await destination("/goals"), "/onboarding");
   });
 });
 

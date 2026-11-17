@@ -42,7 +42,7 @@ test("plays the account's one-time film on the first app page and consumes the c
 });
 
 test("plays it on the first page of any app section, the newer ones included", () => {
-  for (const path of ["/activity", "/activity/1b4e28ba-2fa1-41d2-883f-0016d3cca427", "/ai-coach", "/form-coach", "/help", "/workouts", "/exercises/bench_press"]) {
+  for (const path of ["/activity", "/activity/1b4e28ba-2fa1-41d2-883f-0016d3cca427", "/ai-coach", "/form-coach", "/workouts", "/exercises/bench_press"]) {
     const { attrs, cookieWrites } = run({ path, cookie: "fitx_intro=play" });
     assert.equal(attrs.get("data-fitx-intro"), "pending", path);
     assert.equal(attrs.get("data-fitx-intro-gate"), "account", path);
@@ -56,6 +56,17 @@ test("never plays it on onboarding, during a live workout or on the activity rec
     assert.equal(attrs.get("data-fitx-intro"), undefined, path);
     assert.equal(cookieWrites.length, 0, `${path} leaves the film for the next app page`);
   }
+});
+
+test("Help never plays the account's film, which waits for the first app page after setup, but gets the loader", () => {
+  // An account still in setup may open Help (src/lib/auth/before-onboarding.ts).
+  for (const search of ["", "?from=%2Fonboarding"]) {
+    const { attrs, cookieWrites } = run({ path: "/help", search, cookie: "fitx_auth=1; fitx_intro=play" });
+    assert.equal(attrs.get("data-fitx-intro"), undefined, search);
+    assert.equal(cookieWrites.length, 0, "the film's cookie is left for the next app page");
+  }
+  assert.equal(run({ path: "/dashboard", cookie: "fitx_intro=play" }).attrs.get("data-fitx-intro-gate"), "account", "where it then plays");
+  assert.equal(run({ path: "/help", cookie: "fitx_intro=seen" }).attrs.get("data-fitx-loader"), "on");
 });
 
 test("focus screens get no brand loader either", () => {

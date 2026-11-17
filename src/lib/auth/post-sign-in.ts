@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NextResponse } from "next/server";
 import { isMissingColumnError } from "@/lib/supabase/errors";
+import { destinationBeforeOnboarding } from "./before-onboarding";
 import {
   AUTH_HINT_COOKIE,
   hintCookieOptions,
@@ -46,10 +47,11 @@ export async function resolvePostSignIn({
   const onboarded = result.error ? null : Boolean(row?.onboarded);
   const intro: IntroState = result.error || !introColumn || row?.intro_completed_at ? "seen" : "play";
 
-  // A password-reset link must land on the reset form even before onboarding.
+  // A password-reset link must land on the reset form even before onboarding. Otherwise an account still
+  // in setup goes to onboarding, unless it asked for Help, which it may open (before-onboarding.ts).
   const destination = requestedNext === "/reset-password"
     ? "/reset-password"
-    : onboarded === false ? "/onboarding" : safeNext(requestedNext);
+    : onboarded === false ? destinationBeforeOnboarding(requestedNext) : safeNext(requestedNext);
   return { destination, onboarded, intro };
 }
 

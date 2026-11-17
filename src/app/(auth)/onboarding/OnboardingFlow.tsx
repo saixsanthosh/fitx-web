@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CircleHelp, RotateCcw } from "lucide-react";
 import { DeleteAccount } from "@/components/account/DeleteAccount";
 import { LogoutButton } from "@/components/app/LogoutButton";
 import { ChipGroup, ChoiceGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
@@ -368,7 +369,7 @@ export function OnboardingFlow() {
   }
   if (phase === "load_failed" || !form || !context) {
     return (
-      <Shell allowDelete>
+      <Shell reachable>
         <div role="alert" className="fitx-alert fitx-alert-danger">
           We couldn’t load your details, so setup is paused to keep them safe.
           <button type="button" className="fitx-alert-action inline-flex min-h-11 items-center gap-1" onClick={() => { setPhase("loading"); setReload((count) => count + 1); }}>
@@ -475,26 +476,38 @@ export function OnboardingFlow() {
           </div>
         </div>
       </form>
-      {/* Signed in with the wrong Google account? Onboarding is the only page such an account can reach, so it can
-          sign out or delete the account from here. */}
+      {/* Signed in with the wrong Google account? Besides Help, onboarding is the only page such an account can
+          reach, so it can sign out or delete the account from here. */}
       <div className="mt-4 flex flex-wrap justify-center gap-x-6">
         <LogoutButton label="Use a different account" />
+        <HelpLink />
         <DeleteAccount variant="link" returnTo="/onboarding" />
       </div>
     </div>
   );
 }
 
-function Shell({ children, allowDelete = false }: { children: React.ReactNode; allowDelete?: boolean }) {
+/** `reachable`: FITX's services answer, so Help and deleting the account can work from here. */
+function Shell({ children, reachable = false }: { children: React.ReactNode; reachable?: boolean }) {
   return (
     <div className="mx-auto w-full max-w-[560px] space-y-4">
       <Logo size={40} />
       {children}
       <div className="flex flex-wrap justify-center gap-x-6">
         <LogoutButton label="Use a different account" />
-        {allowDelete && <DeleteAccount variant="link" returnTo="/onboarding" />}
+        {reachable && <HelpLink />}
+        {reachable && <DeleteAccount variant="link" returnTo="/onboarding" />}
       </div>
     </div>
+  );
+}
+
+/** Help is open to an account still in setup (src/lib/auth/before-onboarding.ts); a request sent from there notes it came from setup. */
+function HelpLink() {
+  return (
+    <Link href="/help?from=%2Fonboarding" className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text">
+      <CircleHelp size={16} aria-hidden="true" />Get help
+    </Link>
   );
 }
 

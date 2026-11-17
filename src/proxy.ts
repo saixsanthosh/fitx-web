@@ -9,6 +9,7 @@ import {
   ONBOARDED_COOKIE,
   sessionCookieOptions,
 } from "@/lib/auth/cookies";
+import { openBeforeOnboarding } from "@/lib/auth/before-onboarding";
 import { safeNext } from "@/lib/auth/safe-next";
 import { canonicalOrigin } from "@/lib/site-url";
 
@@ -37,7 +38,8 @@ const noStore = <T extends NextResponse>(response: T) => {
  *     forwarded to /auth/callback instead of being dropped;
  *  3. the session is refreshed and every response, redirects included, carries the refreshed cookies;
  *  4. signed-in visitors skip the marketing home and the sign-in pages; signed-out visitors are sent
- *     to sign in from private pages; unfinished accounts go to onboarding.
+ *     to sign in from private pages; unfinished accounts go to onboarding from every page except
+ *     onboarding and Help.
  * Checks are optimistic (data stays protected by row-level security); a Supabase outage never
  * signs anyone out here.
  */
@@ -140,7 +142,8 @@ export async function proxy(request: NextRequest) {
 
   const onboarded = await readOnboarded(request, supabase, userId, hints, secure);
   if (onboarded === null) return finish(response);
-  if (!onboarded) return pathname === "/onboarding" ? finish(response) : redirect("/onboarding");
+  // An account still in setup may open onboarding and Help only (src/lib/auth/before-onboarding.ts).
+  if (!onboarded) return openBeforeOnboarding(pathname) ? finish(response) : redirect("/onboarding");
   if (isHome) {
     const intro = searchParams.get("intro");
     return redirect(intro ? `/dashboard?intro=${encodeURIComponent(intro)}` : "/dashboard");
