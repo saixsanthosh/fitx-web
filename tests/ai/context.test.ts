@@ -157,6 +157,26 @@ describe("onboarding v2 fields", () => {
     assert.equal(food.prefers_low_carb, true);
     assert.equal((summary.training_setup as Record<string, unknown>).limitations, "lower back, knee");
   });
+
+  test("a food rule removed in Profile doesn't come back from the first onboarding's labels", async () => {
+    const { normalizePreferences } = await import("@/lib/domain/user-context");
+    const base = sources();
+    const context = (preferences: Record<string, unknown>) => buildCoachContext({ ...base, preferences: { ...(base.preferences as Record<string, unknown>), ...preferences } } as never, NOW);
+    // The v2 backfill copied ["Pescatarian", "Low carb"] into food_rules; the member then unticked both in Profile.
+    const removed = { dietary_preferences: ["Pescatarian", "Low carb"], diet_type: null, food_rules: [] };
+    assert.deepEqual(normalizePreferences(removed).values.food_rules, [], "Profile shows no rule");
+    const after = context(removed);
+    assert.deepEqual(after.facts.diet, [], "no pescatarian rule: plans may include meat again");
+    assert.equal((after.summary.food_preferences as Record<string, unknown>).diet, "no diet restrictions recorded");
+    assert.equal((after.summary.food_preferences as Record<string, unknown>).prefers_low_carb, undefined, "and no low-carb preference");
+    // The diet label still counts while diet_type is empty, as Profile reads it.
+    assert.deepEqual(context({ dietary_preferences: ["Vegetarian", "Low carb"], diet_type: null, food_rules: [] }).facts.diet, ["vegetarian"]);
+    // A database without food_rules yet: the old labels are the member's rules, as Profile shows them.
+    const older = context({ dietary_preferences: ["Pescatarian", "Low carb"], diet_type: undefined, food_rules: undefined });
+    assert.deepEqual(normalizePreferences({ dietary_preferences: ["Pescatarian", "Low carb"] }).values.food_rules.sort(), ["low_carb", "pescatarian"]);
+    assert.deepEqual(older.facts.diet, ["pescatarian"]);
+    assert.equal((older.summary.food_preferences as Record<string, unknown>).prefers_low_carb, true);
+  });
 });
 
 describe("injuries and limitations", () => {

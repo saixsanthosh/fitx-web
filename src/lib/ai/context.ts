@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateNutritionTargets } from "@/lib/domain/nutrition";
-import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH } from "@/lib/domain/profile-options";
+import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, normalizeDietType } from "@/lib/domain/profile-options";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { allergyRulesFrom, describeAllergies, describeDiet, dietRulesFrom, type AllergyRule, type DietRule } from "./diet-rules";
 import { calorieFloor } from "./safety";
@@ -162,9 +162,13 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const estimated = minor ? null : estimateNutritionTargets({ age, gender: sex, height, weight }, activity, goal);
   const target = estimated ? { ...estimated, calories: Math.max(estimated.calories, floor) } : null;
 
-  // Onboarding v2 keeps the diet in diet_type plus food_rules; older accounts only have the v1 labels.
-  const dietChoice = text(prefs.diet_type) ? list(prefs.diet_type) : list(prefs.dietary_preferences);
-  const diet = dietRulesFrom([...dietChoice, ...list(prefs.food_rules)]);
+  // Onboarding v2 keeps the diet in diet_type plus food_rules. The first onboarding's labels
+  // (dietary_preferences) count as Profile reads them (user-context.ts): the diet label while diet_type is
+  // empty, and the food-rule labels ("Pescatarian", "Low carb") only on a database without food_rules. With
+  // that column, Profile edits the rules there, so a rule removed in Profile no longer reaches the coach.
+  const dietType = normalizeDietType(prefs.diet_type, prefs.dietary_preferences);
+  const legacyRules = prefs.food_rules === undefined ? list(prefs.dietary_preferences) : [];
+  const diet = dietRulesFrom([...(dietType ? [dietType] : []), ...list(prefs.food_rules), ...legacyRules]);
   const allergies = allergyRulesFrom([...list(prefs.allergies), ...list(prefs.other_allergies)]);
   const budget = budgetText(prefs);
   const equipment = [...new Set(list(prefs.equipment).map((item) => normalizeEquipment(String(item))).filter(Boolean))].slice(0, 20);
@@ -218,7 +222,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
       budget,
       cuisines: shortList(prefs.cuisines, 6, 30).map(humanize),
       dislikes: shortList(prefs.food_dislikes ?? prefs.disliked_foods, 10, 30),
-      prefers_low_carb: list(prefs.food_rules).includes("low_carb") || list(prefs.dietary_preferences).some((item) => /low.?carb/i.test(String(item))) || null,
+      prefers_low_carb: list(prefs.food_rules).includes("low_carb") || legacyRules.some((item) => /low.?carb/i.test(String(item))) || null,
     }),
     daily_targets: target ? { ...target, basis: "FITX estimate from age, height, weight, sex, activity and goal" } : null,
     nutrition: nutritionSummary(sources.meals, today),
