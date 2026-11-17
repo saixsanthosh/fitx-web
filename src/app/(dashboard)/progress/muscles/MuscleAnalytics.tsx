@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, ChevronRight, Dumbbell } from "lucide-react";
 import { BodyMap } from "@/components/anatomy/BodyMap";
+import { BarSeries } from "@/components/charts/BarSeries";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
 import { getSession } from "@/components/tasks/session";
@@ -14,8 +15,8 @@ import { WidgetError } from "@/components/widgets/WidgetCard";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import { BODY_REGIONS, REGIONS, listRegions, regionInView, type RegionKey } from "@/lib/training/anatomy";
 import {
-  MUSCLE_PERIODS, MUSCLE_PERIOD_LABELS, loadMuscleHistory, musclePeriodRange, summariseMuscles,
-  type LoggedSession, type MusclePeriod, type MuscleSummary, type RegionHistory,
+  MUSCLE_PERIODS, MUSCLE_PERIOD_LABELS, loadMuscleHistory, musclePeriodRange, summariseMuscles, weeklyRegionSets,
+  type LoggedSession, type MusclePeriod, type MuscleSummary, type RegionHistory, type WeekRegionSets,
 } from "@/lib/training/muscle-history";
 import styles from "./Muscles.module.css";
 
@@ -86,7 +87,7 @@ export function MuscleAnalytics({ initialPeriod, initialMuscle }: { initialPerio
         ? <WidgetError message={source.error} onRetry={source.reload} />
         : <div className={styles.loading} aria-busy="true" aria-label="Loading your muscles" />;
     }
-    return <PeriodView period={key} summary={summary} truncated={key === "all" && Boolean(all.data?.truncated)} muscle={muscle} onSelect={toggle} view={view} onView={setView} />;
+    return <PeriodView period={key} summary={summary} truncated={key === "all" && Boolean(all.data?.truncated)} muscle={muscle} onSelect={toggle} view={view} onView={setView} sessions={source.data?.sessions ?? []} today={today} />;
   };
 
   return (
@@ -112,7 +113,7 @@ export function MuscleAnalytics({ initialPeriod, initialMuscle }: { initialPerio
   );
 }
 
-export function PeriodView({ period, summary, truncated, muscle, onSelect, view, onView }: {
+export function PeriodView({ period, summary, truncated, muscle, onSelect, view, onView, sessions, today }: {
   period: MusclePeriod;
   summary: MuscleSummary;
   truncated: boolean;
@@ -120,6 +121,9 @@ export function PeriodView({ period, summary, truncated, muscle, onSelect, view,
   onSelect: (region: RegionKey) => void;
   view: View;
   onView: (view: View) => void;
+  /** The loaded workouts behind the summary, for the chosen muscle's weekly bars. */
+  sessions: readonly LoggedSession[];
+  today: string | null;
 }) {
   if (!summary.sets) {
     return (
@@ -130,10 +134,12 @@ export function PeriodView({ period, summary, truncated, muscle, onSelect, view,
       />
     );
   }
-  return <PeriodBody period={period} summary={summary} truncated={truncated} muscle={muscle} onSelect={onSelect} view={view} onView={onView} />;
+  return <PeriodBody period={period} summary={summary} truncated={truncated} muscle={muscle} onSelect={onSelect} view={view} onView={onView} sessions={sessions} today={today} />;
 }
 
-function PeriodBody({ period, summary, truncated, muscle, onSelect, view, onView }: Parameters<typeof PeriodView>[0]) {
+function PeriodBody({ period, summary, truncated, muscle, onSelect, view, onView, sessions, today }: Parameters<typeof PeriodView>[0]) {
+  // Weekly bars for the chosen muscle: the last 4 weeks (12 for all time), from the same logged sets.
+  const weeks = useMemo(() => (today ? weeklyRegionSets(sessions, { weeks: period === "all" ? 12 : 4, now: keyToLocalDate(today) }) : []), [sessions, period, today]);
   const detail = useRef<HTMLDivElement | null>(null);
   const fromList = useRef(false);
   const levels = Object.fromEntries(BODY_REGIONS.map((region) => [region, summary.regions[region].level])) as Record<RegionKey, number>;
@@ -188,7 +194,7 @@ function PeriodBody({ period, summary, truncated, muscle, onSelect, view, onView
         </div>
         {/* After the map on phones (where a tap on the map lands), under it on wide screens. */}
         <div ref={detail} className={styles.detailSlot}>
-          {muscle && selected ? <MuscleDetail region={selected} /> : <p className={styles.pickHint}>Choose a muscle on the map or in the list to see the exercises and workouts behind it.</p>}
+          {muscle && selected ? <MuscleDetail region={selected} weeks={weeks} /> : <p className={styles.pickHint}>Choose a muscle on the map or in the list to see the exercises and workouts behind it.</p>}
         </div>
       </div>
       <p className="sr-only" aria-live="polite">{selected ? `${selected.label}: ${plural(selected.primarySets, "direct set")}, ${selected.secondarySets} assisting, ${shareLabel(selected.share)} of the work.` : ""}</p>
@@ -196,9 +202,19 @@ function PeriodBody({ period, summary, truncated, muscle, onSelect, view, onView
   );
 }
 
-function MuscleDetail({ region }: { region: RegionHistory }) {
+function MuscleDetail({ region, weeks }: { region: RegionHistory; weeks: readonly WeekRegionSets[] }) {
   const label = region.label;
   const titleId = useId();
+  // Up to 4 bars have room for a date; 12 name the month under the first week that starts in it.
+  const months = weeks.map((week) => keyToLocalDate(week.weekStart).getMonth());
+  const bars = weeks.map((week, index) => ({
+    label: weeks.length <= 4
+      ? keyToLocalDate(week.weekStart).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+      : index > 0 && months[index] !== months[index - 1] ? keyToLocalDate(week.weekStart).toLocaleDateString(undefined, { month: "short" }) : "",
+    longLabel: `Week of ${dayLabel(week.weekStart)}${index === weeks.length - 1 ? " (this week, so far)" : ""}`,
+    value: week.regions[region.region].primarySets,
+    muted: index === weeks.length - 1,
+  }));
   return (
     <section className={styles.detail} aria-labelledby={titleId}>
       <div className={styles.detailHead}>
@@ -215,6 +231,12 @@ function MuscleDetail({ region }: { region: RegionHistory }) {
             <div><dt>Workouts</dt><dd>{region.sessions}</dd></div>
             <div><dt>Last trained</dt><dd>{region.lastTrainedOn ? dayLabel(region.lastTrainedOn) : "—"}</dd></div>
           </dl>
+          {bars.length > 1 && (
+            <div className={styles.detailChart}>
+              <h3 className={styles.detailSubtitle}>Direct sets a week</h3>
+              <BarSeries data={bars} label={`${label}: direct sets a week, last ${bars.length} weeks`} format={(value) => plural(value, "set")} showValues={bars.length <= 8} maxLabels={bars.length} height={96} emptyText="No direct sets in these weeks" />
+            </div>
+          )}
           <div className={styles.detailLists}>
             <div>
               <h3 className={styles.detailSubtitle}>Exercises behind it</h3>

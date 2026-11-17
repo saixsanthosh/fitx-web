@@ -50,6 +50,7 @@
 .detailNumbers dt { color: var(--fitx-text-secondary); font-size: .74rem; font-weight: 650; }
 .detailNumbers dd { margin: 2px 0 0; color: var(--fitx-text); font-size: 1.2rem; font-weight: 750; font-variant-numeric: tabular-nums; }
 .detailLists { display: grid; gap: 16px; }
+.detailChart { display: grid; gap: 4px; }
 .detailSubtitle { margin-bottom: 6px; color: var(--fitx-text-secondary); font-size: .76rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .rows { display: grid; margin: 0; padding: 0; list-style: none; }
 .rows li + li { border-top: 1px solid var(--fitx-divider); }
