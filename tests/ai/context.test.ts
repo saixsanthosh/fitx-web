@@ -381,7 +381,7 @@ describe("privacy page", () => {
     assert.match(activity, /\bShare images leave out at least 200 m around your start and finish\b/);
     const logout = readFileSync(new URL("../../src/components/app/LogoutButton.tsx", import.meta.url), "utf8");
     assert.match(logout, /prepareDeviceActivityForSignOut\(/);
-    assert.match(logout, /await activity\?\.clear\(\)/);
+    assert.match(logout, /await within\(ACTIVITY_CLEAR_LIMIT_MS, activity\.clear\(\)\)/, "after signing out, the device copy is removed");
     assert.match(activity, /\bWhen you log out, FITX first uploads what it can and then removes your recordings from that device\b/);
   });
 

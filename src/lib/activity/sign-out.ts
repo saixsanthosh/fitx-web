@@ -21,7 +21,7 @@ export type DeviceActivityAtSignOut = {
  * so a slow network never traps anyone signed in) and counts what would be lost if the device were
  * cleared now, so the app can ask first. Call `clear()` once signing out has worked.
  * This module brings the GPS engine with it (to tidy unfinished recordings), so LogoutButton loads it
- * only when someone signs out.
+ * only when the device holds recordings for the account.
  */
 export async function prepareDeviceActivityForSignOut(
   store: RecordingStore,

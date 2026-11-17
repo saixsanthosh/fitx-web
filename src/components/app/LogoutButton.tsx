@@ -31,7 +31,7 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
       return;
     }
     setBusy(true);
-    const activity = await deviceActivity(supabase);
+    const activity = await within(ACTIVITY_CHECK_LIMIT_MS, deviceActivity(supabase));
     if (activity && activity.notUploaded > 0 && !window.confirm(notUploadedQuestion(activity.notUploaded))) {
       setBusy(false);
       return;
@@ -51,7 +51,7 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
         if (name && SESSION_COOKIE_RE.test(name)) document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
       }
     }
-    await activity?.clear();
+    if (activity) await within(ACTIVITY_CLEAR_LIMIT_MS, activity.clear());
     document.cookie = `${AUTH_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
     window.location.replace("/signin?signed_out=1");
   }
@@ -72,6 +72,14 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
   );
 }
 
+/** Signing out never waits longer than this for the device's activity recordings (upload code included). */
+const ACTIVITY_CHECK_LIMIT_MS = 15000;
+const ACTIVITY_CLEAR_LIMIT_MS = 3000;
+
+function within<T>(ms: number, promise: Promise<T>): Promise<T | null> {
+  return Promise.race([promise, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+}
+
 function notUploadedQuestion(count: number) {
   return count === 1
     ? "1 activity on this device isn’t saved to your account yet. Sign out and delete it from this device?"
@@ -84,15 +92,19 @@ async function deviceActivity(supabase: SupabaseClient): Promise<DeviceActivityA
     const userId = (await supabase.auth.getSession()).data.session?.user.id;
     if (!userId) return null;
     const store = await recordingStore();
+    // The account's recordings, and log entries a crash left without one (what clearDeviceActivityData does).
+    const clear = () => store.deleteAll(userId).then(() => store.deleteOrphanEntries()).catch(() => undefined);
+    const kept = (await store.listRecordings(userId)).length;
+    // Nothing kept for this account, the usual case: no upload code to load.
+    if (!kept) return { notUploaded: 0, clear };
     try {
-      // The upload code (the GPS engine included) loads only when someone signs out, not with every page.
+      // The upload code (the GPS engine included) loads only when there is something to upload, not with every page.
       const { prepareDeviceActivityForSignOut } = await import("@/lib/activity/sign-out");
       const locks = (navigator as Navigator & { locks?: LocksLike }).locks ?? null;
       return await prepareDeviceActivityForSignOut(store, supabase, userId, { locks });
     } catch {
-      // It couldn't load (offline): nothing can be uploaded, but what this device holds is still counted and removed.
-      const notUploaded = (await store.listRecordings(userId)).length;
-      return { notUploaded, clear: () => store.deleteAll(userId).then(() => store.deleteOrphanEntries()).catch(() => undefined) };
+      // It couldn't load (offline): nothing can be uploaded, but what this device holds is still asked about and removed.
+      return { notUploaded: kept, clear };
     }
   } catch {
     // No IndexedDB here (private mode, blocked storage): nothing was kept on this device.
