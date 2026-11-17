@@ -986,6 +986,547 @@
       "carbs": 74.67,
       "fat": 1.51,
       "portions": []
+    },
+    {
+      "id": "2705418",
+      "fdcId": 2705418,
+      "name": "Yogurt, whole milk, plain",
+      "dataType": "Survey (FNDDS)",
+      "published": "2024-10-31",
+      "state": null,
+      "aliases": [
+        "curd",
+        "dahi",
+        "plain curd",
+        "homemade curd",
+        "set curd"
+      ],
+      "calories": 78,
+      "protein": 3.82,
+      "carbs": 5.57,
+      "fat": 4.48,
+      "portions": [
+        {
+          "label": "1 4 oz container",
+          "unit": "piece",
+          "grams": 113
+        },
+        {
+          "label": "1 6 oz container",
+          "unit": "piece",
+          "grams": 170
+        },
+        {
+          "label": "1 container, NFS",
+          "unit": "piece",
+          "grams": 170
+        },
+        {
+          "label": "1 cup",
+          "unit": "cup",
+          "grams": 245
+        }
+      ]
     }
-  ]
+  ],
+  "recipes": [
+    {
+      "id": "fitx-recipe-curd-rice",
+      "name": "Curd rice",
+      "aliases": [
+        "curd rice",
+        "dahi rice",
+        "dahi chawal",
+        "thayir sadam"
+      ],
+      "state": "cooked",
+      "diet": "veg",
+      "note": "Plain rice and plain yogurt only; no tempering, salt or extras.",
+      "ingredients": [
+        {
+          "fdcId": "2708408",
+          "name": "Rice, white, cooked",
+          "grams": 150,
+          "calories": 129,
+          "protein": 2.67,
+          "carbs": 27.99,
+          "fat": 0.28
+        },
+        {
+          "fdcId": "2259793",
+          "name": "Plain whole-milk yogurt",
+          "grams": 100,
+          "calories": 77.3,
+          "protein": 3.82,
+          "carbs": 5.57,
+          "fat": 4.48
+        }
+      ]
+    },
+    {
+      "id": "fitx-recipe-rajma-rice",
+      "name": "Rajma rice",
+      "aliases": [
+        "rajma rice",
+        "rajma chawal"
+      ],
+      "state": "cooked",
+      "diet": "veg",
+      "note": "Rice with a simple kidney bean curry: beans, onion, tomato and a little ghee. Oil, spices and water in the real dish vary.",
+      "ingredients": [
+        {
+          "fdcId": "2708408",
+          "name": "Rice, white, cooked",
+          "grams": 150,
+          "calories": 129,
+          "protein": 2.67,
+          "carbs": 27.99,
+          "fat": 0.28
+        },
+        {
+          "fdcId": "2707381",
+          "name": "Kidney beans, cooked from dried",
+          "grams": 120,
+          "calories": 126,
+          "protein": 8.62,
+          "carbs": 22.66,
+          "fat": 0.5
+        },
+        {
+          "fdcId": "170000",
+          "name": "Onion, raw",
+          "grams": 30,
+          "calories": 40,
+          "protein": 1.1,
+          "carbs": 9.34,
+          "fat": 0.1
+        },
+        {
+          "fdcId": "170457",
+          "name": "Tomato, raw",
+          "grams": 40,
+          "calories": 18,
+          "protein": 0.88,
+          "carbs": 3.89,
+          "fat": 0.2
+        },
+        {
+          "fdcId": "2710168",
+          "name": "Ghee",
+          "grams": 5,
+          "calories": 876,
+          "protein": 0.28,
+          "carbs": 0,
+          "fat": 99.48
+        }
+      ]
+    },
+    {
+      "id": "fitx-recipe-chole",
+      "name": "Chole (chickpea curry)",
+      "aliases": [
+        "chole",
+        "chhole",
+        "chana masala",
+        "chole masala"
+      ],
+      "state": "cooked",
+      "diet": "veg",
+      "note": "Chickpeas with onion, tomato and a little ghee. The oil, spices and gravy in the real dish vary.",
+      "ingredients": [
+        {
+          "fdcId": "173757",
+          "name": "Chickpeas, cooked",
+          "grams": 150,
+          "calories": 164,
+          "protein": 8.86,
+          "carbs": 27.42,
+          "fat": 2.59
+        },
+        {
+          "fdcId": "170000",
+          "name": "Onion, raw",
+          "grams": 40,
+          "calories": 40,
+          "protein": 1.1,
+          "carbs": 9.34,
+          "fat": 0.1
+        },
+        {
+          "fdcId": "170457",
+          "name": "Tomato, raw",
+          "grams": 50,
+          "calories": 18,
+          "protein": 0.88,
+          "carbs": 3.89,
+          "fat": 0.2
+        },
+        {
+          "fdcId": "2710168",
+          "name": "Ghee",
+          "grams": 8,
+          "calories": 876,
+          "protein": 0.28,
+          "carbs": 0,
+          "fat": 99.48
+        }
+      ]
+    },
+    {
+      "id": "fitx-recipe-dal-tadka",
+      "name": "Dal tadka",
+      "aliases": [
+        "dal tadka",
+        "tadka dal"
+      ],
+      "state": "cooked",
+      "diet": "veg",
+      "note": "USDA's dal plus one teaspoon of ghee for the tempering.",
+      "ingredients": [
+        {
+          "fdcId": "2707427",
+          "name": "Dal, cooked",
+          "grams": 200,
+          "calories": 145,
+          "protein": 8.6,
+          "carbs": 19.17,
+          "fat": 4.31
+        },
+        {
+          "fdcId": "2710168",
+          "name": "Ghee",
+          "grams": 5,
+          "calories": 876,
+          "protein": 0.28,
+          "carbs": 0,
+          "fat": 99.48
+        }
+      ]
+    },
+    {
+      "id": "fitx-recipe-khichdi",
+      "name": "Khichdi (rice and dal)",
+      "aliases": [
+        "khichdi",
+        "khichri",
+        "dal khichdi"
+      ],
+      "state": "cooked",
+      "diet": "veg",
+      "note": "Equal parts cooked rice and cooked dal with a little ghee. Real khichdi is cooked together with more water.",
+      "ingredients": [
+        {
+          "fdcId": "2708408",
+          "name": "Rice, white, cooked",
+          "grams": 120,
+          "calories": 129,
+          "protein": 2.67,
+          "carbs": 27.99,
+          "fat": 0.28
+        },
+        {
+          "fdcId": "2707427",
+          "name": "Dal, cooked",
+          "grams": 120,
+          "calories": 145,
+          "protein": 8.6,
+          "carbs": 19.17,
+          "fat": 4.31
+        },
+        {
+          "fdcId": "2710168",
+          "name": "Ghee",
+          "grams": 5,
+          "calories": 876,
+          "protein": 0.28,
+          "carbs": 0,
+          "fat": 99.48
+        }
+      ]
+    },
+    {
+      "id": "fitx-recipe-dal-rice",
+      "name": "Dal rice",
+      "aliases": [
+        "dal rice",
+        "dal chawal"
+      ],
+      "state": "cooked",
+      "diet": "veg",
+      "note": "Equal parts cooked dal and cooked rice.",
+      "ingredients": [
+        {
+          "fdcId": "2707427",
+          "name": "Dal, cooked",
+          "grams": 150,
+          "calories": 145,
+          "protein": 8.6,
+          "carbs": 19.17,
+          "fat": 4.31
+        },
+        {
+          "fdcId": "2708408",
+          "name": "Rice, white, cooked",
+          "grams": 150,
+          "calories": 129,
+          "protein": 2.67,
+          "carbs": 27.99,
+          "fat": 0.28
+        }
+      ]
+    },
+    {
+      "id": "fitx-recipe-cucumber-raita",
+      "name": "Cucumber raita",
+      "aliases": [
+        "raita",
+        "cucumber raita",
+        "kheera raita"
+      ],
+      "state": "cooked",
+      "diet": "veg",
+      "note": "Plain yogurt with raw cucumber; no salt, spices or onion.",
+      "ingredients": [
+        {
+          "fdcId": "2259793",
+          "name": "Plain whole-milk yogurt",
+          "grams": 100,
+          "calories": 77.3,
+          "protein": 3.82,
+          "carbs": 5.57,
+          "fat": 4.48
+        },
+        {
+          "fdcId": "2346406",
+          "name": "Cucumber, raw",
+          "grams": 40,
+          "calories": 13.9,
+          "protein": 0.63,
+          "carbs": 2.95,
+          "fat": 0.18
+        }
+      ]
+    },
+    {
+      "id": "fitx-recipe-lassi",
+      "name": "Plain lassi",
+      "aliases": [
+        "lassi",
+        "plain lassi",
+        "salted lassi",
+        "chaas",
+        "chhaas"
+      ],
+      "state": null,
+      "diet": "veg",
+      "note": "Plain yogurt and water in equal weights; no sugar or salt added.",
+      "ingredients": [
+        {
+          "fdcId": "2259793",
+          "name": "Plain whole-milk yogurt",
+          "grams": 100,
+          "calories": 77.3,
+          "protein": 3.82,
+          "carbs": 5.57,
+          "fat": 4.48
+        },
+        {
+          "fdcId": null,
+          "name": "Water",
+          "grams": 100,
+          "calories": 0,
+          "protein": 0,
+          "carbs": 0,
+          "fat": 0
+        }
+      ]
+    },
+    {
+      "id": "fitx-recipe-aloo-paratha",
+      "name": "Aloo paratha",
+      "aliases": [
+        "aloo paratha",
+        "aloo ka paratha",
+        "potato paratha"
+      ],
+      "state": "cooked",
+      "diet": "veg",
+      "note": "USDA's paratha plus a potato filling counted with raw potato values (boiled potato differs slightly). Spices in the filling are not counted.",
+      "ingredients": [
+        {
+          "fdcId": "2707715",
+          "name": "Paratha",
+          "grams": 70,
+          "calories": 326,
+          "protein": 6.36,
+          "carbs": 45.35,
+          "fat": 13.2
+        },
+        {
+          "fdcId": "2346401",
+          "name": "Potato, raw",
+          "grams": 40,
+          "calories": 81,
+          "protein": 2.27,
+          "carbs": 17.8,
+          "fat": 0.36
+        }
+      ]
+    }
+  ],
+  "names": {
+    "_about": "Everyday Indian names for foods already in FITX's USDA data. An alias selects the food when it is exactly what was typed; a keyword only helps find it. Values stay USDA's. No new data.",
+    "2259793": {
+      "keywords": [
+        "curd",
+        "dahi",
+        "plain curd"
+      ]
+    },
+    "2346401": {
+      "keywords": [
+        "aloo",
+        "alu",
+        "batata"
+      ]
+    },
+    "2346402": {
+      "keywords": [
+        "aloo",
+        "alu",
+        "batata"
+      ]
+    },
+    "2346403": {
+      "keywords": [
+        "aloo",
+        "alu",
+        "batata"
+      ]
+    },
+    "2685573": {
+      "aliases": [
+        "gobi",
+        "gobhi",
+        "phool gobi",
+        "phulkopi"
+      ]
+    },
+    "2346407": {
+      "aliases": [
+        "patta gobi",
+        "band gobi",
+        "bandh gobi"
+      ]
+    },
+    "1999633": {
+      "keywords": [
+        "palak"
+      ]
+    },
+    "1999632": {
+      "keywords": [
+        "palak"
+      ]
+    },
+    "2685577": {
+      "aliases": [
+        "baingan",
+        "brinjal",
+        "begun",
+        "aubergine"
+      ]
+    },
+    "2258586": {
+      "aliases": [
+        "gajar",
+        "carrot"
+      ]
+    },
+    "2346406": {
+      "aliases": [
+        "kheera",
+        "kakdi",
+        "cucumber"
+      ]
+    },
+    "2685576": {
+      "aliases": [
+        "beetroot",
+        "chukandar"
+      ]
+    },
+    "2346400": {
+      "keywords": [
+        "french beans",
+        "beans"
+      ]
+    },
+    "2644291": {
+      "keywords": [
+        "matar",
+        "mutter",
+        "green peas",
+        "peas"
+      ]
+    },
+    "2710834": {
+      "keywords": [
+        "aam"
+      ]
+    },
+    "2710833": {
+      "keywords": [
+        "aam"
+      ]
+    },
+    "1105314": {
+      "keywords": [
+        "kela"
+      ]
+    },
+    "746771": {
+      "keywords": [
+        "santra"
+      ]
+    },
+    "1750339": {
+      "keywords": [
+        "seb"
+      ]
+    },
+    "1750340": {
+      "keywords": [
+        "seb"
+      ]
+    },
+    "1750341": {
+      "keywords": [
+        "seb"
+      ]
+    },
+    "1750342": {
+      "keywords": [
+        "seb"
+      ]
+    },
+    "1750343": {
+      "keywords": [
+        "seb"
+      ]
+    },
+    "1105073": {
+      "keywords": [
+        "kela"
+      ]
+    },
+    "2647437": {
+      "keywords": [
+        "curd",
+        "dahi",
+        "nonfat curd",
+        "skimmed curd"
+      ]
+    }
+  }
 }

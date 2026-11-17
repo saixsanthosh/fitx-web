@@ -15,6 +15,92 @@ export function scaleMacros(per100g: FoodMacros, grams: number): FoodMacros {
   };
 }
 
+/** The three macros a source can leave blank. Energy is always required. */
+export type MacroKey = "protein" | "carbs" | "fat";
+export const MACRO_KEYS: readonly MacroKey[] = ["protein", "carbs", "fat"];
+export const MACRO_LABEL: Record<MacroKey, string> = { protein: "protein", carbs: "carbs", fat: "fat" };
+
+/** Per-100 g values where a blank protein, carbs or fat is listed in `missing` (and held as 0 only so arithmetic works). */
+export type KnownMacros = FoodMacros & { missing: MacroKey[] };
+
+/** The macros of a logged entry, where null means the source did not give the value. */
+export interface MacroTotals {
+  calories: number;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+}
+
+/** Unknown values of a set of entries, added up without them: how many entries lack each value. */
+export interface KnownTotals extends FoodMacros {
+  unknown: Record<MacroKey, number>;
+}
+
+/**
+ * Totals that leave unknown (null) protein, carbs or fat out and count the entries that lack each one, so a day with
+ * an unlabelled fat value says "1 item has no fat value" instead of quietly adding 0 g.
+ */
+export function sumKnown(items: ReadonlyArray<{ calories: number | null; protein: number | null; carbs: number | null; fat: number | null }>): KnownTotals {
+  const total: KnownTotals = { calories: 0, protein: 0, carbs: 0, fat: 0, unknown: { protein: 0, carbs: 0, fat: 0 } };
+  for (const item of items) {
+    total.calories += Number(item.calories || 0);
+    for (const key of MACRO_KEYS) {
+      const value = item[key];
+      if (value === null || value === undefined || !Number.isFinite(Number(value))) total.unknown[key] += 1;
+      else total[key] += Number(value);
+    }
+  }
+  return total;
+}
+
+/** Grams of a nutrient in `grams` of a food that has `per100` of it, or null when the food does not say. */
+export function scaleNutrient(per100: number | null | undefined, grams: number): number | null {
+  if (per100 === null || per100 === undefined || !Number.isFinite(per100) || !(grams >= 0)) return null;
+  return round((per100 * grams) / 100);
+}
+
+/**
+ * Remaining calories: the target minus what was eaten, and nothing else. Exercise is not added back, because FITX
+ * only has an estimate of it. Null when there is no valid target (a positive finite number).
+ */
+export function calorieBalance(consumed: number, target: number | null | undefined): { remaining: number; over: boolean } | null {
+  if (typeof target !== "number" || !Number.isFinite(target) || target <= 0) return null;
+  const remaining = Math.round(target) - Math.round(consumed);
+  return { remaining: Math.abs(remaining), over: remaining < 0 };
+}
+
+/** Kilocalories per gram (Atwater general factors): the split of energy between the macros a food actually lists. */
+const KCAL_PER_GRAM: Record<MacroKey, number> = { protein: 4, carbs: 4, fat: 9 };
+
+/**
+ * The share of a food's energy that comes from each macro, in whole percent (largest remainder, so the shares add up
+ * to 100). A macro the source did not give is left out of the split (`share` null) and the others are shares of what
+ * is known. Null when no listed macro has energy, so there is nothing to split.
+ */
+export function macroEnergySplit(values: { protein: number | null; carbs: number | null; fat: number | null }): { kcal: Record<MacroKey, number | null>; share: Record<MacroKey, number | null> } | null {
+  const kcal: Record<MacroKey, number | null> = { protein: null, carbs: null, fat: null };
+  let total = 0;
+  for (const key of MACRO_KEYS) {
+    const grams = values[key];
+    if (grams === null || grams === undefined || !Number.isFinite(grams) || grams < 0) continue;
+    kcal[key] = grams * KCAL_PER_GRAM[key];
+    total += kcal[key] as number;
+  }
+  if (total <= 0) return null;
+  const known = MACRO_KEYS.filter((key) => kcal[key] !== null);
+  const exact = known.map((key) => ({ key, exact: ((kcal[key] as number) / total) * 100 }));
+  const floors = exact.map((item) => ({ ...item, floor: Math.floor(item.exact) }));
+  let left = 100 - floors.reduce((sum, item) => sum + item.floor, 0);
+  for (const item of [...floors].sort((a, b) => (b.exact - b.floor) - (a.exact - a.floor))) {
+    if (left <= 0) break;
+    item.floor += 1;
+    left -= 1;
+  }
+  const share: Record<MacroKey, number | null> = { protein: null, carbs: null, fat: null };
+  for (const item of floors) share[item.key] = item.floor;
+  return { kcal, share };
+}
+
 export function sumMacros<T extends FoodMacros>(items: T[]): FoodMacros {
   return items.reduce(
     (sum, item) => ({
@@ -179,8 +265,10 @@ const MAX_KCAL_PER_100G = 950;
  * Per-100 g values from an Open Food Facts `nutriments` object, or null when the label can't be trusted.
  * Only the `_100g` fields are used: the plain `energy-kcal` field follows the label's own basis, which
  * can be per serving. Labels that give only kJ are converted; a declared 0 kcal (water, black coffee) is kept.
+ * A blank protein, carbs or fat field is unknown, not 0 g: it is listed in `missing` (held as 0 only so the
+ * arithmetic works) and the caller shows it as unknown and stores it as NULL.
  */
-export function per100gFromOpenFoodFacts(nutriments: unknown): FoodMacros | null {
+export function per100gFromOpenFoodFacts(nutriments: unknown): KnownMacros | null {
   const values = (nutriments && typeof nutriments === "object" ? nutriments : {}) as Record<string, unknown>;
   const protein = labelAmount(values.proteins_100g);
   const carbs = labelAmount(values.carbohydrates_100g);
@@ -195,10 +283,43 @@ export function per100gFromOpenFoodFacts(nutriments: unknown): FoodMacros | null
   const complete = [values.proteins_100g, values.carbohydrates_100g, values.fat_100g].every((value) => labelNumber(value) !== null);
   const calories = labelKcal(values, expected, complete);
   if (calories === null) return null;
-  const macros = { calories: Math.round(calories), protein, carbs, fat };
+  const missing = MACRO_KEYS.filter((key) => !isGiven(values[OFF_FIELD[key]]));
+  const macros = { calories: Math.round(calories), protein, carbs, fat, missing };
   // A "0 kcal" label that lists real protein, carbs or fat was entered wrongly; treat it as having no energy value.
   if (macros.calories === 0 && protein + carbs + fat > 1) return null;
   return macros;
+}
+
+/** The other nutrients on a label, per 100 g (sodium in mg); null for each one the label does not list. */
+export interface LabelExtras {
+  fiber: number | null;
+  sugar: number | null;
+  saturatedFat: number | null;
+  sodiumMg: number | null;
+  /** The sodium was worked out from the salt figure (salt = sodium x 2.5). */
+  sodiumFromSalt: boolean;
+}
+
+/**
+ * Fibre, sugars, saturated fat and sodium from an Open Food Facts `nutriments` object. OFF stores grams per 100 g;
+ * sodium becomes milligrams. When sodium is blank but salt is given, sodium is salt / 2.5 and says so. Blank or
+ * invalid values stay null, never 0.
+ */
+export function extrasFromOpenFoodFacts(nutriments: unknown): LabelExtras {
+  const values = (nutriments && typeof nutriments === "object" ? nutriments : {}) as Record<string, unknown>;
+  const grams = (key: string) => {
+    const number = labelNumber(values[key]);
+    return number !== null && number >= 0 ? round(number) : null;
+  };
+  // Sodium and salt are converted from the label's own figures, not from values already rounded to 0.1 g.
+  const raw = (key: string) => {
+    const number = labelNumber(values[key]);
+    return number !== null && number >= 0 ? number : null;
+  };
+  const sodiumG = raw("sodium_100g");
+  const saltG = raw("salt_100g");
+  const sodiumMg = sodiumG !== null ? Math.round(sodiumG * 1000) : saltG !== null ? Math.round((saltG / 2.5) * 1000) : null;
+  return { fiber: grams("fiber_100g"), sugar: grams("sugars_100g"), saturatedFat: grams("saturated-fat_100g"), sodiumMg, sodiumFromSalt: sodiumG === null && saltG !== null };
 }
 
 /**
@@ -238,6 +359,14 @@ function labelNumber(value: unknown): number | null {
     return Number.isFinite(number) ? number : null;
   }
   return null;
+}
+
+const OFF_FIELD: Record<MacroKey, string> = { protein: "proteins_100g", carbs: "carbohydrates_100g", fat: "fat_100g" };
+
+/** A label value that is a number of at least 0. */
+function isGiven(value: unknown): boolean {
+  const number = labelNumber(value);
+  return number !== null && number >= 0;
 }
 
 function labelAmount(value: unknown) {

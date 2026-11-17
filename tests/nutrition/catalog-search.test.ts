@@ -15,7 +15,8 @@ test("word stems match every spelling of a word in the database", () => {
 });
 
 test("the built-in list puts the curated staples first and lists each food once", () => {
-  assert.equal(local.staples.length, 33);
+  // 33 curated staples plus plain yogurt, which the "curd" and "dahi" names point to.
+  assert.equal(local.staples.length, 34);
   assert.equal(local.all[0].id, local.staples[0].id);
   const milk = local.all.filter((food) => food.id === "746782");
   assert.equal(milk.length, 1, "whole milk is a staple and in the Foundation snapshot, but listed once");

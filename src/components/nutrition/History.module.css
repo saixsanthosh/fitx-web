@@ -1,0 +1,32 @@
+/* Nutrition history. Colours come only from --fitx-* theme tokens. */
+.head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
+.range { display: inline-flex; gap: .25rem; border: 1px solid var(--fitx-border); border-radius: .65rem; background: var(--fitx-surface); padding: .2rem; }
+.range button { min-height: 2.75rem; min-width: 4.5rem; border-radius: .5rem; padding: .25rem .8rem; color: var(--fitx-text-secondary); font-size: .8rem; font-weight: 600; }
+.range button[aria-pressed="true"] { background: color-mix(in srgb, var(--fitx-primary) 10%, var(--fitx-surface)); color: var(--fitx-text); }
+.range button:focus-visible,.day:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.alert { border: 1px solid var(--fitx-danger-border); border-radius: .6rem; background: var(--fitx-danger-bg); padding: .7rem .9rem; color: var(--fitx-text); font-size: .85rem; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit,minmax(9rem,1fr)); gap: .6rem; }
+.tiles > div { border: 1px solid var(--fitx-border); border-radius: .75rem; background: var(--fitx-surface); padding: .75rem .85rem; }
+.tiles span { display: block; color: var(--fitx-text-secondary); font-size: .7rem; }
+.tiles strong { display: block; margin-top: .3rem; color: var(--fitx-text); font-size: 1.3rem; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+.tiles small { color: var(--fitx-text-disabled); font-size: .66rem; font-weight: 500; letter-spacing: 0; }
+.note { margin-top: .7rem; color: var(--fitx-text-secondary); font-size: .76rem; line-height: 1.5; }
+.adherence { margin-top: .8rem; color: var(--fitx-text); font-size: .85rem; line-height: 1.55; }
+.source { color: var(--fitx-text-disabled); font-size: .72rem; }
+.bars { display: flex; align-items: stretch; gap: 3px; height: 9rem; margin-top: 1.2rem; }
+.barCol { display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; gap: .25rem; }
+.barArea { position: relative; display: flex; flex: 1 1 auto; align-items: flex-end; }
+.bar { display: block; width: 100%; min-height: 2px; border-radius: 3px 3px 0 0; background: var(--fitx-success); transform-origin: bottom; animation: bar-up .6s cubic-bezier(.22,.8,.26,1) both; }
+.barOver { background: var(--fitx-warning); }
+.gap { display: block; width: 100%; height: 100%; border: 1px dashed var(--fitx-border); border-radius: 3px; opacity: .7; }
+.targetLine { position: absolute; left: 0; right: 0; z-index: 1; border-top: 2px dashed var(--fitx-text-secondary); opacity: .75; }
+.barLabel { color: var(--fitx-text-disabled); font-size: .64rem; text-align: center; }
+.legend { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; color: var(--fitx-text-disabled); font-size: .68rem; }
+.legendLine { width: 1.2rem; border-top: 2px dashed var(--fitx-text-secondary); }
+.subhead { margin: 1.4rem 0 .5rem; color: var(--fitx-text); font-size: .88rem; font-weight: 600; }
+.calendar { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: .3rem; max-width: 26rem; }
+.weekday { color: var(--fitx-text-disabled); font-size: .62rem; text-align: center; }
+.day { min-height: 2.75rem; border: 1px dashed var(--fitx-border); border-radius: .5rem; background: transparent; color: var(--fitx-text-disabled); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.dayLogged { border-style: solid; border-color: color-mix(in srgb, var(--fitx-success) 55%, var(--fitx-border)); background: color-mix(in srgb, var(--fitx-success) 14%, var(--fitx-surface)); color: var(--fitx-text); font-weight: 650; }
+@keyframes bar-up { from { transform: scaleY(0); } }
+@media(prefers-reduced-motion: reduce) { .bar { animation: none; } }

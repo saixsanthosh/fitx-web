@@ -11,13 +11,13 @@ test("reports how far a day went over its target", () => {
 });
 
 test("converts kJ-only Open Food Facts labels to kcal", () => {
-  assert.deepEqual(per100gFromOpenFoodFacts({ "energy-kj_100g": 418.4, proteins_100g: 3.2, carbohydrates_100g: 4.8, fat_100g: 1 }), { calories: 100, protein: 3.2, carbs: 4.8, fat: 1 });
+  assert.deepEqual(per100gFromOpenFoodFacts({ "energy-kj_100g": 418.4, proteins_100g: 3.2, carbohydrates_100g: 4.8, fat_100g: 1 }), { calories: 100, protein: 3.2, carbs: 4.8, fat: 1, missing: [] });
   assert.equal(per100gFromOpenFoodFacts({ energy_100g: 1046 })?.calories, 250, "energy_100g is stored in kJ");
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": "52.5", "energy-kj_100g": 999 })?.calories, 53, "kcal wins over kJ");
 });
 
 test("keeps genuine zero-calorie products", () => {
-  assert.deepEqual(per100gFromOpenFoodFacts({ "energy-kcal_100g": 0, proteins_100g: 0, carbohydrates_100g: 0, fat_100g: 0 }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  assert.deepEqual(per100gFromOpenFoodFacts({ "energy-kcal_100g": 0, proteins_100g: 0, carbohydrates_100g: 0, fat_100g: 0 }), { calories: 0, protein: 0, carbs: 0, fat: 0, missing: [] });
   assert.equal(per100gFromOpenFoodFacts({ "energy-kj_100g": 0 })?.calories, 0);
 });
 
@@ -27,7 +27,8 @@ test("skips labels without a per-100 g energy value", () => {
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal": 180, "energy-kcal_serving": 180 }), null, "per-serving energy is not per 100 g");
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": "" }), null);
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": -5 }), null);
-  assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 40, proteins_100g: "n/a" })?.protein, 0);
+  // A value that is not a number is unknown: it is listed in `missing`, never presented as a measured 0 g.
+  assert.deepEqual(per100gFromOpenFoodFacts({ "energy-kcal_100g": 40, proteins_100g: "n/a" })?.missing, ["protein", "carbs", "fat"]);
 });
 
 test("reads kJ typed into the kcal field as kJ when that fits the label's nutrients", () => {
@@ -93,7 +94,7 @@ test("keeps ordinary labels, including drinks with alcohol", () => {
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 83, carbohydrates_100g: 2.6, alcohol_100g: 12.5 })?.calories, 83, "wine: alcohol counts");
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 43, proteins_100g: 0.5, carbohydrates_100g: 3.6 })?.calories, 43, "beer without its alcohol listed");
   assert.equal(per100gFromOpenFoodFacts({ "energy-kcal_100g": 345, proteins_100g: 14, carbohydrates_100g: 47, fat_100g: 4.5, fiber_100g: 27 })?.calories, 345, "bran cereal: fibre counts");
-  assert.deepEqual(per100gFromOpenFoodFacts({ "energy-kcal_100g": 900, fat_100g: 100, proteins_100g: 0.5, carbohydrates_100g: 0.4 }), { calories: 900, protein: 0.5, carbs: 0.4, fat: 100 }, "label rounding past 100 g");
+  assert.deepEqual(per100gFromOpenFoodFacts({ "energy-kcal_100g": 900, fat_100g: 100, proteins_100g: 0.5, carbohydrates_100g: 0.4 }), { calories: 900, protein: 0.5, carbs: 0.4, fat: 100, missing: [] }, "label rounding past 100 g");
 });
 
 test("keeps pure fats whose labels round above 900 kcal per 100 g", () => {

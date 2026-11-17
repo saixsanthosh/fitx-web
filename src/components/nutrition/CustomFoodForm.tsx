@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { formatAmount } from "@/lib/domain/food-query";
 import { checkBarcode, barcodeProblem } from "@/lib/food/barcode";
 import { customFoodWarning, savedFoodSource, type CustomFoodInput, type CustomFoodRow } from "@/lib/food/client-data";
-import type { CustomFoodOrigin } from "@/lib/food/types";
+import type { CustomFoodOrigin, ValueBasis } from "@/lib/food/types";
 import styles from "./FoodUi.module.css";
 
 /** What a new food can start from: a scanned barcode, or a package found on Open Food Facts. */
@@ -22,6 +22,10 @@ export interface CustomFoodPrefill {
   imageAttribution?: string | null;
   origin?: CustomFoodOrigin;
   sourceRef?: string | null;
+  /** Protein, carbs or fat the source does not list: left blank in the form, because a saved food cannot hold an unknown value. */
+  missing?: Array<"protein" | "carbs" | "fat">;
+  /** When copying a food from the catalogue: how its values were obtained, kept while the values are not changed. */
+  valueBasis?: ValueBasis;
 }
 
 interface CustomFoodFormProps {
@@ -57,11 +61,11 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
       servingLabel: label,
       grams: String(grams),
       calories: per100 ? perServing(per100.calories, grams) : "",
-      protein: per100 ? perServing(per100.protein, grams) : "",
-      carbs: per100 ? perServing(per100.carbs, grams) : "",
-      fat: per100 ? perServing(per100.fat, grams) : "",
+      protein: per100 && !prefill?.missing?.includes("protein") ? perServing(per100.protein, grams) : "",
+      carbs: per100 && !prefill?.missing?.includes("carbs") ? perServing(per100.carbs, grams) : "",
+      fat: per100 && !prefill?.missing?.includes("fat") ? perServing(per100.fat, grams) : "",
       barcode: editing?.barcode ?? prefill?.barcode ?? "",
-      fromLabel: editing ? editing.value_basis === "label" : Boolean(prefill?.per100g || prefill?.barcode),
+      fromLabel: editing ? editing.value_basis === "label" : prefill?.valueBasis ? prefill.valueBasis === "label" : Boolean(prefill?.per100g || prefill?.barcode),
     };
   });
   /** The form as it opened, to tell whether an edit changed the values. */
@@ -113,7 +117,11 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
     const asNumber = (value: string) => (value.trim() === "" ? 0 : Number(value));
     const valueKeys = ["grams", "calories", "protein", "carbs", "fat"] as const;
     const changed = valueKeys.some((key) => asNumber(form[key]) !== asNumber(start[key])) || form.fromLabel !== start.fromLabel;
-    const { origin, valueBasis } = savedFoodSource(editing, changed, form.fromLabel, prefill?.origin ?? (barcode ? "barcode" : "user"));
+    const typedSource = savedFoodSource(editing, changed, form.fromLabel, prefill?.origin ?? (barcode ? "barcode" : "user"));
+    // A catalogue food copied as it is keeps where its values came from (USDA lab analysis, a typical recipe...).
+    const keepsBasis = !editing && !changed && prefill?.valueBasis !== undefined;
+    const origin = typedSource.origin;
+    const valueBasis = keepsBasis ? (prefill?.valueBasis as ValueBasis) : typedSource.valueBasis;
     onSave({
       name: form.name,
       brand: form.brand,
@@ -132,7 +140,7 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
   }
 
   const field = (key: "grams" | "calories" | "protein" | "carbs" | "fat", label: string, min = "0") => (
-    <label>{label}<input className="fitx-field" type="number" inputMode="decimal" min={min} step="any" required={key === "grams" || key === "calories"} value={form[key]} onChange={(event) => set(key, event.target.value)}/></label>
+    <label>{label}<input className="fitx-field" type="number" inputMode="decimal" min={min} step="any" required={key === "grams" || key === "calories" || Boolean(!editing && (key === "protein" || key === "carbs" || key === "fat") && prefill?.missing?.includes(key))} value={form[key]} onChange={(event) => set(key, event.target.value)}/></label>
   );
 
   return (
@@ -167,6 +175,7 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
             <input type="checkbox" checked={form.fromLabel} onChange={(event) => set("fromLabel", event.target.checked)}/>
             <span>These values are copied from the package label</span>
           </label>}
+          {!editing && prefill?.missing?.length ? <p className={`${styles.hint} ${styles.wide}`}>The source doesn&apos;t list {prefill.missing.join(", ")}. Enter {prefill.missing.length > 1 ? "them" : "it"} if you know, or 0 if there is none; FITX won&apos;t guess.</p> : null}
           {warning && <p className={`${styles.warning} ${styles.wide}`}>{warning}</p>}
           {!v2 && <p className={`${styles.hint} ${styles.wide}`}>Barcodes and labels for your foods arrive with the next database update.</p>}
           {problem && <p role="alert" className={`${styles.warning} ${styles.wide}`}>{problem}</p>}

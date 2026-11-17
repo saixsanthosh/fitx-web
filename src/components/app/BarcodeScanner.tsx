@@ -6,6 +6,7 @@ import type { DecodeHintType as HintType } from "@zxing/library";
 import { Barcode, Camera, Flashlight, ImageUp, X } from "lucide-react";
 import { checkBarcode } from "@/lib/food/barcode";
 import { openCamera, stopCamera } from "@/lib/food/camera";
+import styles from "./BarcodeScanner.module.css";
 
 /** The parts of the Barcode Detection API FITX uses (Chrome on Android has it; Safari on iPhone does not). */
 interface NativeDetector {
@@ -215,6 +216,14 @@ export function BarcodeScanner({ onDetected }: { onDetected: (value: string) => 
         <div className="p-4">
           <div className="relative overflow-hidden rounded-xl bg-fitx-scrim">
             <video ref={video} autoPlay muted playsInline className="aspect-video w-full object-cover"/>
+            {/* Where to hold the barcode. Reading uses the whole picture, so the frame is only a guide. */}
+            <div className={styles.frame} aria-hidden="true">
+              <div className={styles.window}>
+                <span className={`${styles.corner} ${styles.tl}`}/><span className={`${styles.corner} ${styles.tr}`}/>
+                <span className={`${styles.corner} ${styles.bl}`}/><span className={`${styles.corner} ${styles.br}`}/>
+              </div>
+              <span className={styles.line}/>
+            </div>
             {torch.available && <button type="button" onClick={() => void toggleTorch()} aria-pressed={torch.on} className="absolute right-2 top-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-fitx-elevated px-3 text-xs font-medium text-fitx-text">
               <Flashlight size={15}/>{torch.on ? "Torch off" : "Torch on"}
             </button>}
