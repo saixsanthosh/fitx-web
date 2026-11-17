@@ -4,7 +4,25 @@ import { loadCatalog, readUpstreamSnapshot, summarizeCatalog, validateCatalog } 
 import { REPO_ROOT, sourceMigrations } from "./source.mjs";
 
 export const MIGRATION_PATH = "supabase/migrations/20261118130010_fitx_exercise_catalog_cleanup.sql";
+const MIGRATION_VERSION = "20261118130010";
 const DOLLAR_TAG = "$catalog$";
+
+/**
+ * Members' tables that point at an exercise by id and follow a merged duplicate to the exercise it was merged
+ * into, with the migration that creates each. This migration re-points the tables that existed when it ran
+ * (keeping the applied file exactly as it is); a table created later re-points its own rows in the migration
+ * that creates it. A later catalogue clean-up must re-point every table listed here.
+ * tests/training/exercise-notes-sql.test.mjs checks that every member table with an exercise_id is listed.
+ */
+export const MERGE_REPOINT_TABLES = [
+  { table: "workout_plan_exercises", migration: "20260924170604_fitx_v1_core_product.sql" },
+  { table: "workout_session_exercises", migration: "20260924170604_fitx_v1_core_product.sql" },
+  { table: "personal_records", migration: "20260924170604_fitx_v1_core_product.sql" },
+  { table: "exercise_notes", migration: "20261119100010_fitx_exercise_notes.sql" },
+];
+
+/** The tables this migration re-points: those created before it. */
+const REPOINTED_HERE = MERGE_REPOINT_TABLES.filter(({ migration }) => migration < MIGRATION_VERSION).map(({ table }) => table);
 
 /** Column order of the data rows; `name` is for review only and is not written. */
 export const MIGRATION_COLUMNS = [
@@ -77,7 +95,7 @@ export function renderMigration(rows, { sources, upstreamSnapshot = false }) {
     "where e.id = c.id;",
     "",
     "-- Saved plans, workout sessions and personal records follow a merged duplicate to its survivor.",
-    ...["workout_plan_exercises", "workout_session_exercises", "personal_records"].flatMap((table) => [
+    ...REPOINTED_HERE.flatMap((table) => [
       `update public.${table} as t`,
       "set exercise_id = e.merged_into",
       "from public.exercise_library as e",

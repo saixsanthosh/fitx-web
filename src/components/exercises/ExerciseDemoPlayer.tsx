@@ -23,18 +23,73 @@ export function usePrefersReducedMotion() {
 }
 
 /**
- * Shows an exercise's demonstration media: a muted video loop when one exists (none do yet), else
- * its photos with a user-controlled photo switch. Photos only alternate on their own after the user
- * presses the button, never when the device asks for reduced motion. Give it a `key` per exercise.
+ * Shows an exercise's demonstration media: a muted video loop when one exists (none do yet), else its photos.
+ * `layout`:
+ *  - "single" (default, the live workout): one photo at a time with a user-controlled photo switch. Photos only
+ *    alternate on their own after the user presses the button, never when the device asks for reduced motion.
+ *  - "sequence" (the exercise page): every photo at once as a numbered sequence, side by side from 640 px and
+ *    swiped sideways on phones. The numbers are the source's order; nothing claims which photo is the start.
+ * Give it a `key` per exercise.
  */
-export function ExerciseDemoPlayer({ media, name }: { media: ExerciseMedia; name: string }) {
+export function ExerciseDemoPlayer({ media, name, layout = "single" }: { media: ExerciseMedia; name: string; layout?: "single" | "sequence" }) {
   const [failedVideos, setFailedVideos] = useState<string[]>([]);
   const video = media.videos.find((item) => !failedVideos.includes(item.url));
   if (video) {
     return <VideoLoop key={video.url} video={video} poster={media.stills[0] ?? null} name={name}
       onError={() => setFailedVideos((current) => (current.includes(video.url) ? current : [...current, video.url]))} />;
   }
-  return <StillPhotos stills={media.stills} />;
+  return layout === "sequence" ? <StillSequence stills={media.stills} name={name} /> : <StillPhotos stills={media.stills} />;
+}
+
+/** The photos as a numbered sequence: a swipeable row on phones, side by side from 640 px. */
+function StillSequence({ stills, name }: { stills: MediaItem[]; name: string }) {
+  const [failed, setFailed] = useState<string[]>([]);
+  const shown = stills.filter((still) => !failed.includes(still.url));
+  if (!shown.length) return <MediaUnavailable failed={stills.length > 0} demonstration />;
+  const count = stills.length;
+  const several = count > 1;
+  const credits = mediaCreditLines(shown);
+  return (
+    <figure className="m-0">
+      <div
+        role="region"
+        aria-label={several ? `${name}: demonstration photos 1 to ${count}` : `${name}: demonstration photo`}
+        tabIndex={several ? 0 : undefined}
+        className={several ? "-mx-4 snap-x snap-mandatory scroll-px-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:overflow-visible sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden" : ""}
+      >
+        <ol className={`m-0 flex list-none gap-2.5 p-0 ${several ? "sm:grid sm:grid-cols-2 sm:gap-3" : ""}`}>
+          {stills.map((still, index) => (
+            <li key={still.url} className={several ? "w-[82%] shrink-0 snap-start sm:w-auto" : "w-full"}>
+              <div className="relative aspect-[4/3] overflow-hidden rounded-xl border border-fitx-border bg-fitx-surface-variant">
+                {failed.includes(still.url) ? (
+                  <p className="m-0 grid h-full place-items-center px-4 text-center text-xs text-fitx-text-secondary">Photo {index + 1} could not be loaded.</p>
+                ) : (
+                  <Image
+                    src={still.url}
+                    alt={still.alt}
+                    fill
+                    sizes="(max-width: 640px) 82vw, (max-width: 1024px) 46vw, 420px"
+                    unoptimized={!isOptimizableImageUrl(still.url, SUPABASE_URL)}
+                    className="object-contain p-2"
+                    onError={() => setFailed((current) => (current.includes(still.url) ? current : [...current, still.url]))}
+                  />
+                )}
+                {several && (
+                  <span aria-hidden="true" className="absolute left-2 top-2 grid h-7 min-w-7 place-items-center rounded-full border border-fitx-border bg-fitx-card px-2 text-xs font-bold tabular-nums text-fitx-text">
+                    {index + 1}
+                  </span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <figcaption className="mt-2 text-xs leading-5 text-fitx-text-secondary">
+        <span className="block">{several ? `Photos 1 ${count === 2 ? "and" : "to"} ${count}, in the source’s order. Photos, not an animation.` : "A photo of the movement, not an animation."}</span>
+        {credits.map((line) => <span key={line} className="block text-[11px] text-fitx-text-disabled">{line}</span>)}
+      </figcaption>
+    </figure>
+  );
 }
 
 function StillPhotos({ stills }: { stills: MediaItem[] }) {
@@ -137,15 +192,19 @@ function VideoLoop({ video, poster, name, onError }: { video: MediaItem; poster:
   );
 }
 
-function MediaUnavailable({ failed }: { failed: boolean }) {
+function MediaUnavailable({ failed, demonstration = false }: { failed: boolean; demonstration?: boolean }) {
+  const title = failed ? "The photos could not be loaded" : demonstration ? "No demonstration yet" : "No photos for this exercise yet";
+  const detail = failed
+    ? "Check your connection and reload the page."
+    : demonstration
+      ? "There are no photos of this exact movement yet, so follow the written steps."
+      : "Follow the written steps. Realistic animated or 3D demonstrations need licensed motion-capture data and are not available yet.";
   return (
-    <figure className="grid min-h-48 place-items-center rounded-xl border border-dashed border-fitx-border bg-fitx-surface-variant px-5 py-8 text-center">
+    <figure className={`grid place-items-center rounded-xl border border-dashed border-fitx-border bg-fitx-surface-variant px-5 text-center ${demonstration ? "min-h-36 py-6" : "min-h-48 py-8"}`}>
       <div className="max-w-sm">
         <ImageOff size={24} aria-hidden="true" className="mx-auto mb-2 text-fitx-text-disabled" />
-        <p className="text-sm font-medium text-fitx-text">{failed ? "The photos could not be loaded" : "No photos for this exercise yet"}</p>
-        <p className="mt-1 text-xs leading-5 text-fitx-text-secondary">
-          {failed ? "Check your connection and reload the page." : "Follow the written steps. Realistic animated or 3D demonstrations need licensed motion-capture data and are not available yet."}
-        </p>
+        <p className="text-sm font-medium text-fitx-text">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-fitx-text-secondary">{detail}</p>
       </div>
     </figure>
   );
