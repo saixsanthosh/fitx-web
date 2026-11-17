@@ -2,7 +2,7 @@ import "server-only";
 import { loadCatalog, loadEquipmentProfiles, ownedEquipmentSet } from "@/lib/training/data";
 import { equipmentLabel, isDoableWith } from "@/lib/training/equipment";
 import type { TrainingContext } from "@/lib/training/taxonomy";
-import type { AiConfig } from "./config";
+import { hasAnyProvider, type AiConfig } from "./config";
 import { buildCoachContext, loadContextSources, type CoachContext, type MemberFacts } from "./context";
 import { describeAllergies, foodConflict } from "./diet-rules";
 import type { CatalogueFood } from "./food-catalogue";
@@ -114,11 +114,12 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
   const startedAt = clock();
   const now = deps.now?.() ?? new Date();
   const consent = await store.getConsent(deps.db, deps.userId);
-  if (!consent) throw new CoachError("consent_required", "Agree to how the coach uses your data first.");
+  // Consent is asked for only while an AI service can answer: the consent screen names them (coachStatus order).
+  if (!consent) throw unavailableError(deps.config) ?? new CoachError("consent_required", "Agree to how the coach uses your data first.");
 
   const basics = await loadContextSources(deps.db, deps.userId, now, { full: false });
   const basicFacts = buildCoachContext(basics, now).facts;
-  if (store.needsNewConsent(consent, basicFacts.adult)) throw new CoachError("consent_required", askAgain(basicFacts));
+  if (store.needsNewConsent(consent, basicFacts.adult)) throw unavailableError(deps.config) ?? new CoachError("consent_required", askAgain(basicFacts));
   const safety = screenMessage(input.message, { floor: basicFacts.calorieFloor });
   // Only an account whose profile says 18 or over shares its data, whatever the consent says.
   const sharesData = consent.shareData && basicFacts.adult;
@@ -421,13 +422,13 @@ export async function runSwap(deps: CoachDeps, input: { actionId: string; note: 
   const startedAt = clock();
   const now = deps.now?.() ?? new Date();
   const consent = await store.getConsent(deps.db, deps.userId);
-  if (!consent) throw new CoachError("consent_required", "Agree to how the coach uses your data first.");
+  if (!consent) throw unavailableError(deps.config) ?? new CoachError("consent_required", "Agree to how the coach uses your data first.");
   const original = await store.getAction(deps.db, deps.userId, input.actionId);
   const item = original?.payload?.item as CoachFoodItem | undefined;
   if (!original || original.kind !== "food" || !item || typeof item.calories !== "number") throw new CoachError("not_found", "That food is no longer in your plan.");
 
   const context = buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: consent.shareData }), now);
-  if (store.needsNewConsent(consent, context.facts.adult)) throw new CoachError("consent_required", askAgain(context.facts));
+  if (store.needsNewConsent(consent, context.facts.adult)) throw unavailableError(deps.config) ?? new CoachError("consent_required", askAgain(context.facts));
   if (!consent.shareData || !context.facts.adult) throw new CoachError("plans_unavailable", "Swaps use your FITX data. Turn on “Use my FITX data” in the coach's settings.");
   const noteSafety = input.note ? screenMessage(input.note, { floor: context.facts.calorieFloor }) : null;
   if (noteSafety?.kind === "stop") {
@@ -496,6 +497,17 @@ export async function applyProposal(db: store.Db, userId: string, actionId: stri
   } catch (error) {
     throw toCoachError(error);
   }
+}
+
+/**
+ * The coach's own error while it is paused or has no AI service set up, in coachStatus's order (paused first),
+ * or null when it is on. A member who has agreed keeps their path (FITX's fixed safety notes need no service);
+ * consent is never asked for, or stored, while no service is there to name on the consent screen.
+ */
+export function unavailableError(config: AiConfig): CoachError | null {
+  if (!config.enabled) return toCoachError(new AiUnavailableError("disabled"));
+  if (!hasAnyProvider(config)) return toCoachError(new AiUnavailableError("not_configured"));
+  return null;
 }
 
 /**

@@ -178,6 +178,40 @@ describe("POST /api/coach/chat: the gate", () => {
     assert.equal(providers.calls.length, 0);
   });
 
+  test("while the coach is not set up or paused, nobody is asked to agree and no consent is stored", async () => {
+    seedMember();
+    const ask = () => chat.POST(request("/api/coach/chat", { body: { message: "Plan my meals for today" } }));
+    const agree = (shareData: boolean) => consent.POST(request("/api/coach/consent", { body: { shareData } }));
+    const swapFood = () => swap.POST(request("/api/coach/swap", { body: { actionId: "55555555-5555-4555-8555-555555555555" } }));
+    setKeys({});
+    for (const answer of [await ask(), await agree(true), await swapFood()]) {
+      assert.equal(answer.status, 503);
+      assert.equal((await errorOf(answer)).code, "not_configured", "the same answer as /api/coach/status, not consent_required");
+    }
+    assert.equal(db.rows("ai_coach_consents").length, 0, "no consent without the consent screen that names the AI services");
+
+    setKeys({ ...KEYS, AI_COACH_ENABLED: "false" });
+    for (const answer of [await ask(), await agree(true), await swapFood()]) assert.equal((await errorOf(answer)).code, "paused");
+    assert.equal(db.rows("ai_coach_consents").length, 0);
+
+    setKeys();
+    assert.equal((await statusOf()).state, "consent", "once a service is set up, the member sees the consent screen first");
+    assert.equal((await ask()).status, 409, "and the coach asks for consent");
+
+    // Agreeing again after the profile lost its age: while not set up, the honest state, not the consent request.
+    consentTo(MEMBER, true);
+    db.rows("profiles")[0].age = null;
+    setKeys({});
+    assert.equal((await errorOf(await ask())).code, "not_configured");
+
+    // A member who already agreed can still change sharing in Coach settings while the coach is not set up.
+    db.rows("profiles")[0].age = 29;
+    const changed = await agree(false);
+    assert.equal(changed.status, 200);
+    assert.equal(db.rows("ai_coach_consents")[0].share_personal_data, false);
+    assert.equal(providers.calls.length, 0);
+  });
+
   test("the limit is enforced before any provider is called", async () => {
     seedMember();
     consentTo();
