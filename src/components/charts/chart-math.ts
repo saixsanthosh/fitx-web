@@ -64,13 +64,25 @@ export function barFractions(values: ReadonlyArray<number | null | undefined>): 
   return values.map((value) => (typeof value !== "number" || !Number.isFinite(value) || value < 0 ? null : max === 0 ? 0 : value / max));
 }
 
-/** Which label indexes to print so they do not collide: always the first and last, evenly thinned between. */
+/**
+ * Which label indexes to print so they do not collide: always the first and last (only the last when
+ * maxLabels < 2), evenly thinned between, never more than maxLabels and never two closer than an even spread
+ * of maxLabels would put them.
+ */
 export function labelIndexes(count: number, maxLabels: number): number[] {
   if (count <= 0) return [];
   if (count <= maxLabels || maxLabels < 2) return count <= maxLabels ? Array.from({ length: count }, (_, i) => i) : [count - 1];
-  const step = Math.ceil((count - 1) / (maxLabels - 1));
+  const last = count - 1;
+  const spacing = last / (maxLabels - 1);
+  const step = Math.ceil(spacing);
   const picked: number[] = [];
-  for (let index = count - 1; index >= 0; index -= step) picked.unshift(index);
+  for (let index = 0; index <= last; index += step) picked.push(index);
+  const end = picked[picked.length - 1];
+  if (end !== last) {
+    // The last label is always shown; the stepped label before it stays only when it is far enough away.
+    if (last - end < spacing) picked.pop();
+    picked.push(last);
+  }
   return picked;
 }
 

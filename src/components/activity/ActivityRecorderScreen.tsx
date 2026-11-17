@@ -99,7 +99,18 @@ export function ActivityRecorderScreen() {
   const finishTriggerRef = useRef<HTMLButtonElement | null>(null);
   const discardTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [error, setError] = useState("");
-  const openSaved = useCallback((id: string) => router.replace(`/activity/${id}`), [router]);
+  // An upload that finishes after the member has left this screen must not pull them back to the
+  // activity: only open it while the recorder (and so its finished result) is still on screen.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const openSaved = useCallback((id: string) => {
+    if (mountedRef.current) router.replace(`/activity/${id}`);
+  }, [router]);
   const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => {
@@ -234,7 +245,7 @@ export function ActivityRecorderScreen() {
       // Never wait long on the network: after a few seconds the result shows from the device copy.
       const outcome = await uploadWithin(() => uploadRecording(store, supabase, account.userId, row));
       if (outcome.kind === "uploaded") {
-        router.replace(`/activity/${outcome.id}`);
+        openSaved(outcome.id);
         return;
       }
       if (result.savedLocally || (await store.getRecording(record.clientId).catch(() => null))) {
@@ -243,7 +254,7 @@ export function ActivityRecorderScreen() {
         setFinished({ record, reason: outcome.reason });
         // A slow upload that still finishes moves on to the saved activity.
         void outcome.pending?.then((late) => {
-          if (late.result.status === "ok") router.replace(`/activity/${late.result.data.id}`);
+          if (late.result.status === "ok") openSaved(late.result.data.id);
         });
         return;
       }
@@ -390,7 +401,7 @@ export function ActivityRecorderScreen() {
                 version={stats?.routeVersion ?? 0}
                 current={current}
                 follow
-                className="h-[44dvh] min-h-64 w-full [--fitx-map-inset-bottom:28px] lg:h-[calc(100dvh-220px)] lg:min-h-[480px] lg:[--fitx-map-inset-bottom:0px]"
+                className="h-[44dvh] min-h-64 w-full [--fitx-map-inset-bottom:28px] [--fitx-map-inset-top:52px] lg:h-[calc(100dvh-220px)] lg:min-h-[480px] lg:[--fitx-map-inset-bottom:0px]"
                 label={recording ? "Map of your route so far" : "Map of your current position"}
               />
               <button type="button" onClick={toggleMap} aria-label="Hide map (saves battery)" className="absolute left-2.5 top-2.5 z-[3] inline-flex min-h-11 items-center gap-2 rounded-lg border border-fitx-border bg-fitx-elevated/95 px-3 text-sm font-medium text-fitx-text-secondary shadow-sm hover:text-fitx-text">

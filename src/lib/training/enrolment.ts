@@ -198,7 +198,10 @@ export async function scheduleProgrammeDays(supabase: Db, input: ScheduleInput):
 
 export type TopUpInput = Omit<ScheduleInput, "fromKey" | "startDay" | "horizonDays" | "maxDays" | "skipPlannedDates" | "enrolment"> & {
   enrolment: Pick<Enrolment, "id" | "weekdays" | "preferred_time" | "context" | "next_day_index" | "sessions_completed" | "status">;
-  /** The enrolment's plans dated today or later, as loaded (loadEnrolmentPlans). */
+  /**
+   * The enrolment's plans dated today or later, as loaded (loadEnrolmentPlans): a first check only. A run reads them
+   * again once it holds the lock and plans from those.
+   */
   plans: readonly ProgrammePlan[];
   todayKey: string;
   /** The programme's target sessions (programme-calendar.ts targetSessions); null for an ongoing programme. */
@@ -226,33 +229,56 @@ async function withTabLock<T>(name: string, work: () => Promise<T>): Promise<T |
   return outcome;
 }
 
+/** Why a top-up planned nothing: the days are planned already (or nothing is left), or a run is under way. */
+export type TopUpSkip = "nothing" | "busy";
+
+export type TopUpOutcome = { created: number; skippedDays: string[]; unfilledSlots: string[]; error: unknown; ran: boolean; skipped: TopUpSkip | null };
+
 /**
  * Keeps the next week of a followed programme planned: plans the training days after the last planned one up to a
  * week from today, as "Plan the next 7 days" does, and does nothing when they are planned already, so it can run on
  * every visit. One run at a time per enrolment (in this tab, and across this browser's tabs where the browser
- * supports locks), and dates that gained a plan meanwhile are left out, so no day is planned twice. A paused
- * programme, or one with a length whose sessions are all planned or done, is left alone.
+ * supports locks); a run skipped for that says `skipped: "busy"`. Once it holds the lock it reads the enrolment and
+ * its plans from today again, so days another tab planned, a session finished since, or a pause or leave meanwhile
+ * are taken into account and no day is planned twice or past the programme's length. A paused programme, or one with
+ * a length whose sessions are all planned or done, is left alone.
  */
-export async function topUpProgrammeDays(supabase: Db, input: TopUpInput): Promise<{ created: number; skippedDays: string[]; unfilledSlots: string[]; error: unknown; ran: boolean }> {
-  const idle = { created: 0, skippedDays: [] as string[], unfilledSlots: [] as string[], error: null, ran: false };
-  const window = topUpWindow({ ...input, dayCount: input.programme.days.length });
-  if (!window || toppingUp.has(input.enrolment.id)) return idle;
+export async function topUpProgrammeDays(supabase: Db, input: TopUpInput): Promise<TopUpOutcome> {
+  const idle = (skipped: TopUpSkip): TopUpOutcome => ({ created: 0, skippedDays: [], unfilledSlots: [], error: null, ran: false, skipped });
+  const dayCount = input.programme.days.length;
+  if (!topUpWindow({ ...input, dayCount })) return idle("nothing");
+  if (toppingUp.has(input.enrolment.id)) return idle("busy");
   toppingUp.add(input.enrolment.id);
   try {
-    const result = await withTabLock(`fitx-programme-plan-${input.enrolment.id}`, () => scheduleProgrammeDays(supabase, {
-      ...input, fromKey: window.fromKey, startDay: window.startDay, horizonDays: window.horizonDays, maxDays: window.maxDays, skipPlannedDates: true,
-    }));
-    return result ? { ...result, ran: true } : idle;
+    const result = await withTabLock(`fitx-programme-plan-${input.enrolment.id}`, async (): Promise<TopUpOutcome> => {
+      const [current, fresh] = await Promise.all([
+        supabase.from("programme_enrolments").select("status,next_day_index,sessions_completed").eq("id", input.enrolment.id).eq("user_id", input.userId).maybeSingle(),
+        loadEnrolmentPlans(supabase, input.userId, input.enrolment.id, input.todayKey, { limit: 400 }),
+      ]);
+      const failed = current.error ?? fresh.error;
+      if (failed) return { created: 0, skippedDays: [], unfilledSlots: [], error: failed, ran: true, skipped: null };
+      if (!current.data) return idle("nothing");
+      const enrolment = { ...input.enrolment, ...(current.data as Pick<Enrolment, "status" | "next_day_index" | "sessions_completed">) };
+      const window = topUpWindow({ enrolment, plans: fresh.plans, todayKey: input.todayKey, target: input.target, horizonDays: input.horizonDays, dayCount });
+      if (!window) return idle("nothing");
+      const scheduled = await scheduleProgrammeDays(supabase, {
+        ...input, enrolment, fromKey: window.fromKey, startDay: window.startDay, horizonDays: window.horizonDays, maxDays: window.maxDays, skipPlannedDates: true,
+      });
+      return { ...scheduled, ran: true, skipped: null };
+    });
+    return result ?? idle("busy");
   } finally {
     toppingUp.delete(input.enrolment.id);
   }
 }
 
-/** Starts following a programme. Fails with `alreadyActive` when the user already follows one. */
-export async function enrolInProgramme(supabase: Db, input: { userId: string; programme: Programme; context: TrainingContext; weekdays: number[]; time: string }): Promise<{ enrolment: Enrolment | null; alreadyActive: boolean; error: unknown }> {
+/** Starts following a programme from the member's local today. Fails with `alreadyActive` when the user already follows one. */
+export async function enrolInProgramme(supabase: Db, input: { userId: string; programme: Programme; context: TrainingContext; weekdays: number[]; time: string; todayKey?: string }): Promise<{ enrolment: Enrolment | null; alreadyActive: boolean; error: unknown }> {
   const result = await supabase.from("programme_enrolments").insert({
     user_id: input.userId, programme_id: input.programme.id, context: input.context, weekdays: [...new Set(input.weekdays)].sort(),
     preferred_time: `${input.time || "18:00"}:00`, next_day_index: 0, status: "active",
+    // The member's own day, as every calendar rule reads it; the column's default is the database's (UTC) date.
+    started_on: input.todayKey ?? localKey(new Date()),
   }).select(ENROLMENT_COLUMNS).single();
   if (result.error) {
     const code = (result.error as { code?: string }).code;

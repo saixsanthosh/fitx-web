@@ -115,6 +115,14 @@ export function knownTotal(total: MacroTotal): number | null {
   return total.known > 0 ? Math.round(total.sum * 10) / 10 : null;
 }
 
+/**
+ * True when food is logged but none of it gives this value, so the day's total is unknown (not 0) and a screen
+ * shows no number, percent or "left" for it. False when nothing is logged (a true 0) or the check is unavailable.
+ */
+export function unknownDayTotal(food: MealTotals | null | undefined, key: MacroKey): boolean {
+  return Boolean(food && food.entries > 0 && food[key].known === 0);
+}
+
 const NOUNS: Record<MacroKey, string> = { calories: "calorie", protein: "protein", carbs: "carb", fat: "fat" };
 
 /** "1 food has no protein value", "3 foods have no carb value"; "" when none is missing. */

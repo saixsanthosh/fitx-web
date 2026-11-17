@@ -40,7 +40,7 @@ export function LibraryPicker({ catalog, selectedIds, owned, listName, full, onT
     <section aria-labelledby={`${ids}-heading`} className="mt-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 id={`${ids}-heading`} className="text-sm font-semibold">Add exercises</h3>
-        <p className="text-xs text-fitx-text-secondary" aria-live="polite">{selected.size} in the plan · {results.length.toLocaleString()} match{results.length === 1 ? "es" : ""}</p>
+        <p className="text-xs text-fitx-text-secondary" aria-live="polite">{selected.size} in the plan · {results.length.toLocaleString()} {results.length === 1 ? "match" : "matches"}</p>
       </div>
       <input className="fitx-field mt-2" value={query} onChange={(event) => { setQuery(event.target.value); reset(); }} placeholder="Search by name, muscle or body area" aria-label="Search exercises to add" />
       <div role="group" aria-label="Body area" className="-mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

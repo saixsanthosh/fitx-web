@@ -29,6 +29,7 @@ import {
 import { PINNED_PHOTO_BASE } from "@/lib/training/media";
 import {
   activeFilterCount,
+  browseByMuscleHref,
   canonicalLibrarySearch,
   DEFAULT_LIBRARY_STATE,
   filterChips,
@@ -242,6 +243,19 @@ describe("difficultyWindows", () => {
 });
 
 describe("library URL state", () => {
+  test("Browse by muscle keeps the library's place and ?have= list, nothing else", () => {
+    assert.equal(browseByMuscleHref(DEFAULT_LIBRARY_STATE), "/exercises/muscles");
+    const home = readLibraryState("context=home&focus=chest&q=press");
+    assert.equal(browseByMuscleHref(home), "/exercises/muscles?context=home");
+    const have = readLibraryState("have=dumbbell,bench&doable=1");
+    const href = browseByMuscleHref(have);
+    assert.equal(href, `/exercises/muscles?${writeLibraryState({ ...DEFAULT_LIBRARY_STATE, have: have.have })}`);
+    assert.ok(href.startsWith("/exercises/muscles?have=") && !href.includes("doable"));
+    const back = readLibraryState(href.split("?")[1]);
+    assert.deepEqual([back.context, back.have], ["gym", have.have], "the muscles page reads them back");
+    assert.equal(readLibraryState(browseByMuscleHref(readLibraryState("have=none")).split("?")[1]).have?.length, 0, "no equipment stays no equipment");
+  });
+
   test("reads the page's own keys, lists included", () => {
     assert.deepEqual(readLibraryState("?q=row&context=home&doable=1&focus=chest,arms&muscle=lats,back&uses=dumbbell,none,machines&have=dumbbell,bench&difficulty=advanced,beginner&category=strength&movement=pull&mechanic=compound&saved=1&sort=difficulty"), {
       q: "row", context: "home", doable: true, focus: ["chest", "arms"], muscles: ["lats", "back"], uses: ["dumbbell", "none", "machines"], have: ["dumbbell", "bench"],
@@ -549,6 +563,17 @@ describe("searchCatalog and thumbnails against PostgREST", () => {
     assert.deepEqual(names(chest.exercises), ["Dumbbell Bench Press", "Push-Up"], "only doable ones with doable= (staples first)");
     const pulls = await searchCatalog(db, params({ movements: ["pull"] }));
     assert.deepEqual(names(pulls.exercises), ["Pullups", "Row Variation A_B"]);
+  });
+
+  test("curated: muscle_group=full_body follows the full-body rule whatever the sort", async () => {
+    fake.use("curated");
+    const byName = await searchCatalog(db, params({ muscleGroups: ["full_body"], sort: "name" }));
+    assert.ok(!fake.libraryRequests().some((request) => request.query.has("muscle_group")), "never the one-value column in Postgres");
+    const best = await searchCatalog(db, params({ muscleGroups: ["full_body"], sort: "best" }));
+    const easiest = await searchCatalog(db, params({ muscleGroups: ["full_body"], sort: "difficulty" }));
+    assert.deepEqual([byName.total, easiest.total], [best.total, best.total]);
+    assert.deepEqual(names(byName.exercises).sort(), names(best.exercises).sort());
+    assert.deepEqual(names(easiest.exercises).sort(), names(best.exercises).sort());
   });
 
   test("curated: rows the clean-up has not reached still show without filters, marked uncurated", async () => {

@@ -10,7 +10,7 @@ const TODAY = "2026-11-18"; // a Wednesday
 const ago = (days: number) => addDays(TODAY, -days);
 
 function input(overrides: Partial<InsightInput> = {}): InsightInput {
-  return { today: TODAY, sessions: [], activityStarts: [], foodDays: new Map(), proteinTarget: null, ...overrides };
+  return { today: TODAY, sessions: [], activityStarts: [], activitiesFailed: false, foodDays: new Map(), proteinTarget: null, ...overrides };
 }
 
 test("with too little logged, nothing is suggested and the reason is 'not enough data'", () => {
@@ -109,6 +109,14 @@ test("nothing logged this week is pointed out only when something by now is usua
 
   const thisWeek = improveNext(input({ sessions: usual, activityStarts: [at(ago(22), 7), at(ago(1), 7)] }));
   assert.equal(thisWeek.insights.some((insight) => insight.kind === "consistency"), false, "an activity this week counts");
+});
+
+test("nothing logged this week is not said when activities could not be read", () => {
+  // Workouts in 3 of the 4 weeks before, none this week: the nudge would fire on workouts alone.
+  const usual = [16, 23, 30].map((days) => session(ago(days), [exercise("squat", ago(days))]));
+  assert.ok(improveNext(input({ sessions: usual, activityStarts: null })).insights.some((insight) => insight.kind === "consistency"), "activities unavailable on this database: workouts decide");
+  const failed = improveNext(input({ sessions: usual, activityStarts: null, activitiesFailed: true }));
+  assert.equal(failed.insights.some((insight) => insight.kind === "consistency"), false, "runs this week may be in the activities that failed to load");
 });
 
 test("enough data with nothing to point out says so instead of inventing a suggestion", () => {

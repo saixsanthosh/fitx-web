@@ -86,7 +86,7 @@ function lead(plan: TodayPlan, today: string): Lead {
         eyebrow: plan.programme,
         title: "Rest day",
         meta: <>Recovery is part of the programme. {nextLine(plan.next, today) ?? ""}</>,
-        actions: plan.next?.projected ? <Link href="/workouts/programme" className={styles.secondaryAction}><CalendarPlus size={15} aria-hidden="true" />Plan the week</Link> : null,
+        actions: plan.next?.projected ? <Link href="/workouts" className={styles.secondaryAction}><CalendarPlus size={15} aria-hidden="true" />Plan the week</Link> : null,
       };
     case "plan_week":
       return plan.programme
@@ -95,7 +95,7 @@ function lead(plan: TodayPlan, today: string): Lead {
           eyebrow: plan.programme,
           title: "Plan this week",
           meta: "Today is one of your training days, but this week's programme days aren't planned yet.",
-          actions: <Link href="/workouts/programme" className="fitx-button"><CalendarPlus size={16} aria-hidden="true" />Plan the week</Link>,
+          actions: <Link href="/workouts" className="fitx-button"><CalendarPlus size={16} aria-hidden="true" />Plan the week</Link>,
         }
         : {
           tone: "empty",

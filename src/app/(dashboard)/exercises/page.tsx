@@ -15,16 +15,17 @@ import { FocusTiles } from "@/components/training/FocusTiles";
 import { clearRecentSearches, forgetSearch, readRecentExercises, readRecentSearches, rememberSearch } from "@/lib/domain/exercise-preferences";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
-import { loadCatalogThumbnails, queryCatalog, relaxSuggestions, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
+import { focusAreaCounts, loadCatalogThumbnails, queryCatalog, relaxSuggestions, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
 import { equipmentFor, saveEquipmentProfile } from "@/lib/training/data";
 import { expandOwnedEquipment, sortEquipmentKeys } from "@/lib/training/equipment";
 import { survivingExerciseIds } from "@/lib/training/exercise-merges";
-import { FOCUS_AREAS, focusCounts } from "@/lib/training/focus";
+import { FOCUS_AREAS } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { buildVocabulary, highlightRanges, suggestSpelling } from "@/lib/training/search-terms";
 import { rankSubstitutes } from "@/lib/training/substitutions";
 import type { TrainingContext } from "@/lib/training/taxonomy";
 import {
+  browseByMuscleHref,
   canonicalLibrarySearch,
   equipmentListText,
   filterChips,
@@ -74,7 +75,7 @@ export default function ExerciseLibraryPage() {
   // Results follow the URL a moment behind typing, so the field never waits for the list.
   const view = useDeferredValue(state);
   const { catalogue, retry } = useCatalogue();
-  const { account, reloadProfiles } = useLibraryAccount();
+  const { account, reloadProfiles, retry: retryAccount } = useLibraryAccount();
   const userId = account.status === "ready" ? account.userId : "";
   const exercises = catalogue.status === "ready" ? catalogue.exercises : null;
   const knownIds = useMemo(() => (catalogue.status === "ready" ? new Set(catalogue.exercises.map((exercise) => exercise.id)) : catalogue.status === "error" ? null : undefined), [catalogue]);
@@ -121,7 +122,8 @@ export default function ExerciseLibraryPage() {
   const contextName = state.context === "home" ? "Home" : "Gym";
   const listName = state.have ? "the equipment you chose" : `your ${contextName} list`;
 
-  const savedReady = !view.saved || saved.ready;
+  // Without a signed-in member there is no saved list to wait for: Saved then shows its empty state.
+  const savedReady = !view.saved || saved.ready || (account.status !== "loading" && !userId);
   const query = useMemo(() => libraryQuery(view, saved.ids), [view, saved.ids]);
   const result = useMemo(() => (exercises && savedReady ? queryCatalog(exercises, query, { owned, level }) : null), [exercises, savedReady, query, owned, level]);
   const viewKey = writeLibraryState(view);
@@ -156,9 +158,14 @@ export default function ExerciseLibraryPage() {
     return found;
   }, [exercises, owned, level, visible]);
 
-  const counts = useMemo(() => (exercises ? focusCounts(exercises, owned) : null), [exercises, owned]);
+  // Each tile counts what choosing only that area would list, with the same filters, place and equipment as the results.
+  const counts = useMemo(() => (exercises && savedReady ? focusAreaCounts(exercises, query, { owned, level }) : null), [exercises, savedReady, query, owned, level]);
   const focusDetails = counts
-    ? Object.fromEntries(FOCUS_AREAS.map((area) => [area, counts[area].doable === null ? `${counts[area].total} exercises` : `${counts[area].total} exercises · ${counts[area].doable} you can do`]))
+    ? Object.fromEntries(FOCUS_AREAS.map((area) => {
+      const { total, doable } = counts[area];
+      const text = `${total.toLocaleString()} ${total === 1 ? "exercise" : "exercises"}`;
+      return [area, doable === null ? text : `${text} · ${doable.toLocaleString()} you can do`];
+    }))
     : undefined;
 
   const vocabulary = useMemo(() => (exercises ? buildVocabulary(exercises.map((exercise) => exercise.name)) : null), [exercises]);
@@ -200,7 +207,7 @@ export default function ExerciseLibraryPage() {
     const { error } = await saveEquipmentProfile(supabase, account.userId, state.context, state.have);
     setSavingList(false);
     if (error) { setListNote({ tone: "error", text: `Your ${contextName} list could not be saved. Check your connection and try again.` }); return; }
-    await reloadProfiles();
+    await reloadProfiles({ context: state.context, keys: state.have });
     navigate({ ...state, have: null });
     setListNote({ tone: "info", text: `Saved as your ${contextName} list. Workouts uses it too.` });
   }
@@ -229,7 +236,7 @@ export default function ExerciseLibraryPage() {
         title="Exercise library"
         description="Search every FITX exercise, or choose what you want to train and what you have, and the exercises you can do come first."
         actions={<>
-          <Link href="/exercises/muscles" className="fitx-button fitx-button-secondary min-h-11 px-3.5"><PersonStanding size={16} aria-hidden="true" />Browse by muscle</Link>
+          <Link href={browseByMuscleHref(state)} className="fitx-button fitx-button-secondary min-h-11 px-3.5"><PersonStanding size={16} aria-hidden="true" />Browse by muscle</Link>
           <Link href="/workouts" className="fitx-button min-h-11 px-3.5">Build a workout<ArrowRight size={15} aria-hidden="true" /></Link>
         </>}
       />
@@ -266,6 +273,12 @@ export default function ExerciseLibraryPage() {
         )}
         {filtersOpen && <FilterPanel id="exercise-filters" state={state} onChange={navigate} />}
         {catalogue.status === "ready" && !catalogue.curated && <p className="m-0 text-xs leading-5 text-fitx-text-secondary">Some filters are approximate until FITX’s exercise catalogue update is applied.</p>}
+        {account.status === "error" && (
+          <p role="alert" className="fitx-alert fitx-alert-danger m-0">
+            Your account could not be checked, so your equipment lists and saved exercises are not shown. Check your connection and try again.
+            <button type="button" className="fitx-alert-action" onClick={retryAccount}>Try again</button>
+          </p>
+        )}
         {saved.problem && <p role="alert" className="fitx-alert fitx-alert-danger m-0">{saved.problem}</p>}
         {saved.moved > 0 && <p role="status" className="m-0 text-xs text-fitx-text-secondary">{saved.moved === 1 ? "1 exercise you saved on this device is" : `${saved.moved} exercises you saved on this device are`} now saved to your account, so they show on every device.</p>}
       </section>
@@ -284,7 +297,7 @@ export default function ExerciseLibraryPage() {
 
       {!searching && (
         <DiscoverySection id="equipment" title="What do you have?" open={sections.equipment} onToggle={() => toggleSection("equipment")}
-          summary={account.status === "loading" ? "Loading your equipment lists…" : haveKeys ? `${state.have ? "Changed for this search" : list?.saved ? `Your saved ${contextName} list` : `A starting ${contextName} list`}: ${equipmentListText(haveKeys)}.` : "Sign in to check exercises against your equipment."}
+          summary={account.status === "loading" ? "Loading your equipment lists…" : account.status === "error" && !haveKeys ? "Your equipment lists could not be loaded." : haveKeys ? `${state.have ? "Changed for this search" : list?.saved ? `Your saved ${contextName} list` : `A starting ${contextName} list`}: ${equipmentListText(haveKeys)}.` : "Sign in to check exercises against your equipment."}
           actions={(
             <div role="group" aria-label="Where you train" className="grid grid-cols-2 gap-1 rounded-lg border border-fitx-border bg-fitx-surface-variant p-1">
               {(["home", "gym"] as const).map((value) => (
@@ -386,7 +399,11 @@ export default function ExerciseLibraryPage() {
             ))}
           </div>
         ) : result.items.length === 0 ? (
-          view.saved && !saved.ids.length ? (
+          view.saved && !userId ? (
+            <NoResults title="Saved exercises unavailable" options={[]} onRelax={() => undefined}
+              description={account.status === "error" ? "Your account could not be checked, so your saved exercises cannot be shown yet." : "Sign in to save exercises and see them here."}
+              clearLabel="Show all exercises" onClear={() => update({ saved: false })} />
+          ) : view.saved && !saved.ids.length ? (
             <NoResults title="No saved exercises yet" options={[]} onRelax={() => undefined}
               description={`Save an exercise with its bookmark and it stays here${saved.store === "account" ? " on every device you sign in on" : " on this device"}.`}
               clearLabel="Show all exercises" onClear={() => update({ saved: false })} />

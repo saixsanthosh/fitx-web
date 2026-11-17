@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { StubDb, used, type StubCall } from "../home/support/stub-db";
 import {
-  bestSet, buildExerciseSessions, durationSeries, formatBestSet, loadExerciseHistory, oneRepMaxSeries, previousPerformance, progressSeries,
+  MAX_ROW_PAGES, bestSet, buildExerciseSessions, durationSeries, formatBestSet, loadExerciseHistory, oneRepMaxSeries, previousPerformance, progressSeries,
   repsSeries, sessionVolumeKg, storedIdsOf, type ExerciseSession, type HistorySet,
 } from "@/lib/training/exercise-history";
 import { loadExerciseDetail, loadRecentSessions, recentSessionRows } from "@/lib/training/exercise-detail";
@@ -153,7 +153,10 @@ describe("loadExerciseHistory", () => {
     const rowsCall = stub.callsTo("workout_session_exercises")[0];
     assert.ok(used(rowsCall, "in", "exercise_id", ["bench_press", "free-exercise-db-Barbell_Bench_Press_-_Medium_Grip"]));
     assert.ok(used(rowsCall, "order", "created_at", { ascending: false }));
-    assert.ok(used(rowsCall, "limit", 20));
+    assert.ok(used(rowsCall, "order", "id", { ascending: false }), "a stable order, so pages do not overlap");
+    assert.ok(used(rowsCall, "range", 0, 19));
+    assert.equal(result.truncated, false);
+    assert.equal(stub.callsTo("workout_session_exercises").length, 1, "a short page is the last one");
     const sessionCall = stub.callsTo("workout_sessions")[0];
     assert.ok(used(sessionCall, "eq", "status", "completed"));
     assert.ok(used(sessionCall, "in", "id", ["s1"]), "the session in progress is not read");
@@ -167,7 +170,7 @@ describe("loadExerciseHistory", () => {
     assert.deepEqual([...result.byExercise.keys()], ["bench_press", "push_up"]);
     assert.equal(stub.callsTo("workout_session_exercises").length, 2);
     const none = new StubDb(handler);
-    assert.deepEqual(await loadExerciseHistory(db(none), "user-1", []), { error: null, byExercise: new Map() });
+    assert.deepEqual(await loadExerciseHistory(db(none), "user-1", []), { error: null, byExercise: new Map(), truncated: false });
     assert.equal(none.calls.length, 0);
   });
 
@@ -182,6 +185,58 @@ describe("loadExerciseHistory", () => {
     const failure = { code: "57014", message: "timeout" };
     const failed = await loadExerciseHistory(db(new StubDb(() => ({ error: failure }))), "user-1", "bench_press");
     assert.deepEqual([failed.error, failed.byExercise.size], [failure, 0]);
+  });
+
+  // A member's rows for one exercise, newest first: `counted` of every `every` rows is a completed session with
+  // a ticked set; the rest are abandoned sessions. Pages are answered from the range asked for.
+  const pagedHistory = (total: number, every: number) => new StubDb((call) => {
+    const rangeOp = call.ops.find((op) => op.method === "range");
+    if (call.name === "workout_session_exercises") {
+      const [from, to] = (rangeOp?.args ?? [0, 0]) as [number, number];
+      const rows = Array.from({ length: total }, (_, index) => ({ id: `r${index}`, session_id: `s${index}`, exercise_id: "bench_press", exercise_name: "Bench", target_duration_seconds: null }));
+      return { data: rows.slice(from, to + 1) };
+    }
+    const inOp = call.ops.find((op) => op.method === "in");
+    const ids = (inOp?.args[1] ?? []) as string[];
+    const index = (id: string) => Number(id.slice(1));
+    if (call.name === "workout_sessions") {
+      return { data: ids.filter((id) => index(id) % every === 0).map((id) => ({ id, name: "Push", status: "completed", started_at: new Date(Date.UTC(2026, 9, 1) - index(id) * 3_600_000).toISOString(), completed_at: at(1, 50) })) };
+    }
+    if (call.name === "workout_sets") {
+      return { data: ids.map((id) => ({ session_exercise_id: id, set_number: 1, reps: 8, weight_kg: 80, duration_seconds: null, completed_at: at(1, 10) })) };
+    }
+    return undefined;
+  });
+
+  test("reads older pages of rows while too few sessions count, so a short history is the whole history", async () => {
+    // 40 sessions wanted, 84 rows a page; only every third row is a completed session: 28 on the first page.
+    const stub = pagedHistory(300, 3);
+    const result = await loadExerciseHistory(db(stub), "user-1", "bench_press", { sessions: 40 });
+    assert.equal(result.error, null);
+    assert.equal(result.byExercise.get("bench_press")!.length, 40);
+    assert.equal(result.truncated, false);
+    const pages = stub.callsTo("workout_session_exercises");
+    assert.equal(pages.length, 2);
+    assert.ok(used(pages[1], "range", 84, 167));
+    const secondIds = stub.callsTo("workout_sessions")[1].ops.find((op) => op.method === "in")!.args[1] as string[];
+    assert.deepEqual([secondIds[0], secondIds.length], ["s84", 84], "only the new page's sessions are read");
+    assert.deepEqual(result.byExercise.get("bench_press")!.slice(0, 2).map((item) => item.sessionId), ["s0", "s3"], "newest first");
+  });
+
+  test("rows that run out end the read with every counted session, not truncated", async () => {
+    const stub = pagedHistory(100, 3);
+    const result = await loadExerciseHistory(db(stub), "user-1", "bench_press", { sessions: 40 });
+    assert.equal(result.byExercise.get("bench_press")!.length, 34);
+    assert.equal(result.truncated, false);
+    assert.equal(stub.callsTo("workout_session_exercises").length, 2);
+  });
+
+  test("a read that reaches the page cap first says it is truncated", async () => {
+    const stub = pagedHistory(5000, 50);
+    const result = await loadExerciseHistory(db(stub), "user-1", "bench_press", { sessions: 40 });
+    assert.equal(stub.callsTo("workout_session_exercises").length, MAX_ROW_PAGES);
+    assert.equal(result.byExercise.get("bench_press")!.length, 9, "rows 0 to 419, every 50th");
+    assert.equal(result.truncated, true);
   });
 
   test("the exercise page: recent sessions, or none when they cannot be read", async () => {

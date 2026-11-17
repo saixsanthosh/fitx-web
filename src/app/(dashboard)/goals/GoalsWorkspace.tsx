@@ -46,7 +46,9 @@ export function GoalsWorkspace({ initialTab }: { initialTab: GoalsTabId }) {
         panelClassName={styles.panel}
         tabs={GOALS_TABS.map((entry) => {
           const Icon = entry.icon;
-          return { id: entry.id, label: <><Icon size={16} aria-hidden="true" />{entry.label}</>, content: content(entry.id) };
+          // Only the open tab is rendered, so switching remounts it and its goals and To-Dos load fresh (a change
+          // made on one tab shows on the next).
+          return { id: entry.id, label: <><Icon size={16} aria-hidden="true" />{entry.label}</>, content: entry.id === tab ? content(entry.id) : null };
         })}
       />
     </div>

@@ -9,6 +9,7 @@ import {
   EMPTY_QUERY,
   expandUses,
   facetActive,
+  focusAreaCounts,
   MOVEMENT_PATTERNS,
   movementOf,
   normaliseMuscleValues,
@@ -18,7 +19,7 @@ import {
   type CatalogQuery,
 } from "@/lib/training/catalog-search";
 import { expandOwnedEquipment, isDoableWith } from "@/lib/training/equipment";
-import { focusRole } from "@/lib/training/focus";
+import { FOCUS_AREAS, focusCounts, focusRole } from "@/lib/training/focus";
 import { DEFAULT_GYM_EQUIPMENT, levelRank } from "@/lib/training/taxonomy";
 
 const catalog = (deriveCatalog() as Array<CatalogRow & { is_active: boolean }>).filter((row) => row.is_active).map(toCatalogExercise);
@@ -145,6 +146,41 @@ describe("filters: OR within a kind, AND across kinds", () => {
     assert.equal(result.items[0].exercise.id, "barbell_back_squat");
     const home = run({ muscles: ["quadriceps"] }, []);
     assert.ok(home.items[0].exercise.required_equipment.length === 0, "nothing needed comes first with no equipment");
+  });
+});
+
+describe("focus tile counts match the results each tile opens", () => {
+  const check = (query: Partial<CatalogQuery>, owned: readonly string[] | null) => {
+    const full: CatalogQuery = { ...EMPTY_QUERY, ...query };
+    const context = { owned: owned ? expandOwnedEquipment(owned) : null };
+    const counts = focusAreaCounts(catalog, full, context);
+    for (const area of FOCUS_AREAS) {
+      const result = queryCatalog(catalog, { ...full, focus: [area] }, context);
+      assert.deepEqual(counts[area], { total: result.items.length, doable: result.doableCount }, area);
+    }
+    return counts;
+  };
+
+  test("at the gym, assisting exercises count as the results list them", () => {
+    const counts = check({}, DEFAULT_GYM_EQUIPMENT);
+    const mainOnly = focusCounts(catalog, expandOwnedEquipment(DEFAULT_GYM_EQUIPMENT));
+    assert.ok(counts.shoulders.total > mainOnly.shoulders.total, "main and assisting, like the results header");
+  });
+
+  test("at home, the Home rule applies to the tiles too", () => {
+    const home = check({ environment: "home" }, []);
+    const anywhere = check({}, []);
+    assert.ok(home.chest.total < anywhere.chest.total, "gym-only chest exercises are not counted at home");
+    assert.equal(home.chest.doable, anywhere.chest.doable, "what the member can do is home-friendly by definition");
+  });
+
+  test("other filters, only-what-I-can-do and no equipment list", () => {
+    check({ difficulties: ["beginner"], uses: ["dumbbell"] }, ["dumbbell", "bench"]);
+    check({ doableOnly: true, environment: "home" }, ["dumbbell"]);
+    const unknown = check({ muscles: ["lats"] }, null);
+    assert.ok(FOCUS_AREAS.every((area) => unknown[area].doable === null), "no equipment list: no doable count, never 0");
+    const saved = check({ ids: ["push_up", "pull_up"] }, []);
+    assert.equal(saved.chest.total, 1);
   });
 });
 

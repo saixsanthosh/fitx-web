@@ -11,7 +11,7 @@ import { getSession, messageFor } from "@/components/tasks/session";
 import { logWater, saveWeighIn, type SummaryResult } from "@/lib/data/today";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import { appliesOn, dailyGoalsMet, evaluateView, formatGoalValue, progressSummary, remainingLabel, sortGoals } from "@/lib/domain/goals";
-import { missingNote, type MacroKey, type MealTotals } from "@/lib/domain/meal-totals";
+import { missingNote, unknownDayTotal, type MacroKey, type MealTotals } from "@/lib/domain/meal-totals";
 import { todayTargets, weekStrip, weightView, type DailyTarget } from "@/lib/domain/today";
 import { notifyUserContextChanged } from "@/lib/domain/user-context";
 import { WEIGHT_RANGE_KG, weightRangeText, weightText, weightToKg, weightUnitName, weightUnitOf } from "@/lib/domain/weight-display";
@@ -21,6 +21,11 @@ import styles from "./Widgets.module.css";
 
 const shortDate = (key: string | null) => (key ? keyToLocalDate(key).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
 const kcal = (value: number) => Math.round(value).toLocaleString();
+
+/** A total no logged food gives a value for (contract C11): a dash, read out as "Not known". */
+function Unknown() {
+  return <><span aria-hidden="true">—</span><span className="sr-only">Not known</span></>;
+}
 
 function SourceTag({ target }: { target: DailyTarget }) {
   if (!target.target || !target.source) return null;
@@ -56,11 +61,14 @@ export function TodayWidget({ summary, goals }: { summary: Resource<SummaryResul
           const met = goals.data ? dailyGoalsMet(goals.data.goals, today.localDate) : null;
           const calories = targets.calories;
           const protein = targets.protein;
-          const caloriesOver = calories.target !== null && calories.over > 0;
+          // Food is logged but none of it gives this value: the total is unknown, so no number, ring or "left".
+          const caloriesUnknown = unknownDayTotal(food, "calories");
+          const proteinUnknown = unknownDayTotal(food, "protein");
+          const caloriesOver = !caloriesUnknown && calories.target !== null && calories.over > 0;
           const estimated = calories.source === "estimate" || protein.source === "estimate";
           const ringLabel = [
-            `${kcal(calories.value)} kcal${calories.target ? ` of ${calories.source === "estimate" ? "an estimated " : ""}${kcal(calories.target)} kcal` : " logged"}`,
-            `${Math.round(protein.value)} g protein${protein.target ? ` of ${protein.source === "estimate" ? "an estimated " : ""}${Math.round(protein.target)} g` : ""}`,
+            caloriesUnknown ? "Calories not known" : `${kcal(calories.value)} kcal${calories.target ? ` of ${calories.source === "estimate" ? "an estimated " : ""}${kcal(calories.target)} kcal` : " logged"}`,
+            proteinUnknown ? "protein not known" : `${Math.round(protein.value)} g protein${protein.target ? ` of ${protein.source === "estimate" ? "an estimated " : ""}${Math.round(protein.target)} g` : ""}`,
           ].join("; ");
           return (
             <div className={styles.today}>
@@ -70,21 +78,21 @@ export function TodayWidget({ summary, goals }: { summary: Resource<SummaryResul
                 gap={6}
                 label={ringLabel}
                 rings={[
-                  { value: calories.value, target: calories.target, color: caloriesOver ? "var(--fitx-warning)" : "var(--fitx-primary)" },
-                  { value: protein.value, target: protein.target, color: "var(--fitx-gold)" },
+                  { value: calories.value, target: caloriesUnknown ? null : calories.target, color: caloriesOver ? "var(--fitx-warning)" : "var(--fitx-primary)" },
+                  { value: protein.value, target: proteinUnknown ? null : protein.target, color: "var(--fitx-gold)" },
                 ]}
               >
-                <span className={styles.ringValue}>{kcal(calories.value)}</span>
+                <span className={styles.ringValue}>{caloriesUnknown ? <Unknown /> : kcal(calories.value)}</span>
                 <span className={styles.ringUnit}>kcal today</span>
               </ProgressRings>
               <div className={styles.legend}>
-                <TodayRow name="Calories" color="var(--fitx-primary)" target={calories} format={(value) => `${kcal(value)}`} unit="kcal" over={caloriesOver} />
-                <TodayRow name="Protein" color="var(--fitx-gold)" target={protein} format={(value) => `${Math.round(value)}`} unit="g" />
+                <TodayRow name="Calories" color="var(--fitx-primary)" target={calories} format={(value) => `${kcal(value)}`} unit="kcal" over={caloriesOver} unknown={caloriesUnknown} />
+                <TodayRow name="Protein" color="var(--fitx-gold)" target={protein} format={(value) => `${Math.round(value)}`} unit="g" unknown={proteinUnknown} />
                 {met && met.total > 0 && (
                   <p className={styles.met}><CircleCheck size={15} aria-hidden="true" />{met.met} of {met.total} daily {met.total === 1 ? "goal" : "goals"} done</p>
                 )}
               </div>
-              {calories.target && calories.value <= calories.target ? (
+              {!caloriesUnknown && calories.target && calories.value <= calories.target ? (
                 <p className={styles.left}>
                   <strong>{kcal(calories.target - calories.value)}</strong> kcal left
                   <span>Your {calories.source === "estimate" ? "estimated target" : calories.source === "goal" ? (calories.direction === "limit" ? "limit" : "goal") : "target"} minus food logged. Exercise isn&apos;t added back.</span>
@@ -107,19 +115,19 @@ export function TodayWidget({ summary, goals }: { summary: Resource<SummaryResul
   );
 }
 
-function TodayRow({ name, color, target, format, unit, over = false }: { name: string; color: string; target: DailyTarget; format: (value: number) => string; unit: string; over?: boolean }) {
+function TodayRow({ name, color, target, format, unit, over = false, unknown = false }: { name: string; color: string; target: DailyTarget; format: (value: number) => string; unit: string; over?: boolean; unknown?: boolean }) {
   return (
     <div className={styles.legendRow}>
       <span className={styles.dot} style={{ background: over ? "var(--fitx-warning)" : color }} aria-hidden="true" />
       <div className={styles.legendText}>
         <p className={styles.legendName}>{name} <SourceTag target={target} /></p>
         <p className={styles.legendValue}>
-          <strong>{format(target.value)}</strong>
+          <strong>{unknown ? <Unknown /> : format(target.value)}</strong>
           {target.target ? <> / {format(target.target)} {unit}</> : <> {unit}</>}
         </p>
         {over && <p className={styles.over}>{format(target.over)} {unit} over</p>}
       </div>
-      {target.target ? <span className={styles.legendPercent}>{target.percent}%</span> : null}
+      {target.target && !unknown ? <span className={styles.legendPercent}>{target.percent}%</span> : null}
     </div>
   );
 }
@@ -352,17 +360,21 @@ export function MacrosWidget({ summary, goals }: { summary: Resource<SummaryResu
       <SummaryGate summary={summary} label="Loading today's macros">
         {({ summary: today, food }) => {
           const targets = todayTargets(today, goals.data?.goals);
-          const rows: Array<[string, DailyTarget, string]> = [["Protein", targets.protein, "var(--fitx-gold)"], ["Carbs", targets.carbs, "var(--fitx-info)"], ["Fat", targets.fat, "var(--fitx-primary)"]];
+          const rows: Array<[string, DailyTarget, string, MacroKey]> = [["Protein", targets.protein, "var(--fitx-gold)", "protein"], ["Carbs", targets.carbs, "var(--fitx-info)", "carbs"], ["Fat", targets.fat, "var(--fitx-primary)", "fat"]];
           return (
             <div className={styles.macros}>
-              {rows.map(([name, target, color]) => (
-                <div key={name} className={styles.macroRow}>
-                  <p><span>{name} <SourceTag target={target} /></span><strong>{Math.round(target.value)}{target.target ? ` / ${Math.round(target.target)}` : ""} g</strong></p>
-                  <div className="fitx-progress-track h-1.5" role="progressbar" aria-label={`${name} today`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={target.percent}>
-                    <div className="fitx-progress-fill" style={{ width: `${target.target ? target.percent : 0}%`, background: color }} />
+              {rows.map(([name, target, color, key]) => {
+                // Food logged but none of it gives this value: unknown, not 0 (the note below says why).
+                const unknown = unknownDayTotal(food, key);
+                return (
+                  <div key={name} className={styles.macroRow}>
+                    <p><span>{name} <SourceTag target={target} /></span><strong>{unknown ? <Unknown /> : Math.round(target.value)}{target.target ? ` / ${Math.round(target.target)}` : ""} g</strong></p>
+                    <div className="fitx-progress-track h-1.5" role="progressbar" aria-label={`${name} today`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={unknown ? undefined : target.percent} aria-valuetext={unknown ? "Not known" : undefined}>
+                      <div className="fitx-progress-fill" style={{ width: `${target.target && !unknown ? target.percent : 0}%`, background: color }} />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <FoodNotes food={food} keys={["protein", "carbs", "fat"]} />
               {!targets.protein.target && !targets.carbs.target && !targets.fat.target && (
                 <WidgetNote href="/nutrition" action="Set targets in Nutrition">No targets yet. Set your own, or add your age, height and weight in Profile for an estimate.</WidgetNote>

@@ -111,7 +111,7 @@ export default function BrowseByMusclePage() {
     : undefined;
   const training: TrainingFigures = account.status === "signed-out" || account.status === "unavailable"
     ? { status: "signed-out" }
-    : history.status === "error" ? { status: "error" }
+    : account.status === "error" || history.status === "error" ? { status: "error" }
       : history.status !== "ready" || !region ? { status: "loading" }
         : {
           status: "ready",
@@ -125,7 +125,8 @@ export default function BrowseByMusclePage() {
     ? { status: workouts.status === "error" ? "error" : "loading" }
     : {
       status: "ready",
-      plansFailed: workouts.plansFailed || catalogue.status === "error",
+      // Without the account check the member's plans were not read at all.
+      plansFailed: workouts.plansFailed || catalogue.status === "error" || account.status === "error",
       plans: exercises ? plansTraining(workouts.plans, workouts.exercises, catalogById, region, today) : [],
       programmes: programmesTraining(workouts.programmes, region),
     };

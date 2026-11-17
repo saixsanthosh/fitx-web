@@ -110,3 +110,13 @@ test("an unsourced food is named, unless the member's own food already covers it
   assert.equal(unsourcedFor("rice", []), null);
   assert.equal(unsourcedFor("", []), null);
 });
+
+test("a USDA record of the food itself covers an unsourced food; a dish or a mention does not", () => {
+  const usda = (name: string) => ({ name, kind: "catalog", source: "USDA FoodData Central" });
+  assert.equal(unsourcedFor("okra", [usda("Okra, raw"), usda("Okra, cooked")]), null);
+  assert.equal(unsourcedFor("bhindi", [usda("Okra, frozen")]), null, "any of the entry's words counts");
+  assert.equal(unsourcedFor("paneer", [usda("PANEER")]), null, "a USDA Branded label is a real value");
+  assert.equal(unsourcedFor("okra", [usda("Soup, chicken gumbo, with okra")])?.label, "Bhindi (okra)", "a dish that mentions it is not the food");
+  assert.equal(unsourcedFor("paneer", [usda("Palak paneer")])?.label, "Plain paneer");
+  assert.equal(unsourcedFor("paneer", [{ name: "Paneer", kind: "catalog", source: "FITX recipe estimate" }])?.label, "Plain paneer", "only USDA records count this way");
+});

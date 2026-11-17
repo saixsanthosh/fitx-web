@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readGpx, parseXmlTime, cleanDeviceName } from "@/lib/activity/import/gpx";
 import { sportFromLabel, sportFromTcx } from "@/lib/activity/import/sport";
 import { readTcx } from "@/lib/activity/import/tcx";
-import { ImportError } from "@/lib/activity/import/types";
+import { ImportError, sumIfAllKnown } from "@/lib/activity/import/types";
 import { decodeEntities, scanXml, XmlError } from "@/lib/activity/import/xml";
 
 const iso = (s: number) => new Date(Date.UTC(2026, 10, 12, 1, 32, 0) + s * 1000).toISOString();
@@ -162,6 +162,20 @@ test("a TCX activity: creator device, sport, laps as one stream, device totals",
   assert.equal(parsed.skippedPoints, 1, "the point without a position");
   assert.equal(parsed.startedAt, Date.parse(iso(-2)), "the device's own start, just before the first point");
   assert.deepEqual(parsed.totals, { distanceM: 270, timerSeconds: 90, elapsedSeconds: null, ascentM: null, kcal: 18 });
+});
+
+test("TCX lap totals count only values every lap has (a lap without calories leaves them unknown)", () => {
+  const parsed = readTcx(tcx.replace("<Calories>6</Calories>", ""));
+  assert.equal(parsed.totals?.kcal, null, "not 12 from the first lap alone");
+  assert.equal(parsed.totals?.distanceM, 270);
+  assert.equal(parsed.totals?.timerSeconds, 90);
+});
+
+test("sumIfAllKnown adds values only when none is unknown", () => {
+  assert.equal(sumIfAllKnown([1, 2, 3]), 6);
+  assert.equal(sumIfAllKnown([1, null, 3]), null);
+  assert.equal(sumIfAllKnown([]), null);
+  assert.equal(sumIfAllKnown([0, 0]), 0);
 });
 
 test("TCX sports and refusals", () => {

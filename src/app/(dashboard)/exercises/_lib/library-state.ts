@@ -138,6 +138,15 @@ export function writeLibraryState(state: LibraryState): string {
   return params.toString();
 }
 
+/**
+ * Browse by muscle for this library view: it keeps the place (Home) and a ?have= list, so its exercises are
+ * ranked against the same equipment and its links lead back to the same view. Other filters stay behind.
+ */
+export function browseByMuscleHref(state: Pick<LibraryState, "context" | "have">): string {
+  const search = writeLibraryState({ ...DEFAULT_LIBRARY_STATE, context: state.context, have: state.have });
+  return `/exercises/muscles${search ? `?${search}` : ""}`;
+}
+
 /** The same search written with the current keys (older links are rewritten once, on arrival). */
 export function canonicalLibrarySearch(search: string): string {
   return writeLibraryState(readLibraryState(search));

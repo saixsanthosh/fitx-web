@@ -70,6 +70,7 @@ function ProgressContent({ today }: { today: string }) {
       today,
       sessions: trends.data.sessions,
       activityStarts: trends.data.activities ? trends.data.activities.map((activity) => activity.startedAt) : null,
+      activitiesFailed: trends.data.activitiesState === "error",
       foodDays: trends.data.foodDays,
       proteinTarget: proteinTargetFrom(target),
     });

@@ -93,7 +93,7 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
         <div className="mt-4 rounded-lg border border-fitx-success-border bg-fitx-success-bg p-3 text-sm">
           <p className="font-semibold text-fitx-success">You’ve done all {target} sessions of this plan.</p>
           <p className="mt-1 text-fitx-text-secondary">Finish it to choose your next programme. Your workouts stay in your history.</p>
-          <button type="button" onClick={onFinish} disabled={busy} className="fitx-button mt-3 min-h-11 text-sm"><Flag size={15} aria-hidden="true" />Finish programme</button>
+          <button type="button" onClick={onFinish} disabled={busy || planning} className="fitx-button mt-3 min-h-11 text-sm"><Flag size={15} aria-hidden="true" />Finish programme</button>
         </div>
       )}
 
@@ -110,8 +110,8 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
         {canPlan && <button type="button" onClick={onPlanAhead} disabled={busy} className="fitx-button fitx-button-quiet min-h-11 text-sm"><CalendarPlus size={15} aria-hidden="true" />{busy ? "Planning…" : "Plan the next 7 days"}</button>}
         {paused
           ? <button type="button" onClick={onResume} disabled={busy} className="fitx-button min-h-11 text-sm"><Play size={15} aria-hidden="true" />Resume programme</button>
-          : !status.complete && <button type="button" onClick={onPause} disabled={busy || activeSession} className="fitx-button fitx-button-quiet min-h-11 text-sm"><Pause size={15} aria-hidden="true" />Pause</button>}
-        <button type="button" onClick={onLeave} disabled={busy} className="fitx-button fitx-button-quiet min-h-11 text-sm">Leave programme</button>
+          : !status.complete && <button type="button" onClick={onPause} disabled={busy || planning || activeSession} className="fitx-button fitx-button-quiet min-h-11 text-sm"><Pause size={15} aria-hidden="true" />Pause</button>}
+        <button type="button" onClick={onLeave} disabled={busy || planning} className="fitx-button fitx-button-quiet min-h-11 text-sm">Leave programme</button>
       </div>
       {activeSession && !paused && <p className="mt-2 text-xs text-fitx-text-secondary">Pausing waits until your workout in progress is finished.</p>}
     </section>

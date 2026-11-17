@@ -121,14 +121,29 @@ export function regionsForMuscle(muscle: string): RegionKey[] {
 }
 
 /**
+ * Whether a muscle value is a broad group word that spreads over several regions without saying which one
+ * ("back" → traps, lats, middle back and lower back; "hips" → abductors and adductors). A region name, an
+ * alias, or a group of a single region ("core" → abdominals) is not broad.
+ */
+export function isBroadMuscleWord(muscle: string): boolean {
+  if (typeof muscle !== "string") return false;
+  const key = normalise(muscle);
+  if (isRegionKey(key) || ALIASES.has(key)) return false;
+  return regionsForMuscle(key).length > 1;
+}
+
+/**
  * An exercise's primary and secondary regions for a two-tone map. A region counts once, at its highest role:
- * secondary regions never repeat a primary one.
+ * secondary regions never repeat a primary one. A broad secondary word (isBroadMuscleWord, such as the
+ * starter rows' "back" on a hip hinge) is skipped: it does not say which region assists, so no region is
+ * credited rather than all of them.
  */
 export function exerciseRegions(primary: string | null | undefined, secondary?: readonly string[] | null): { primary: RegionKey[]; secondary: RegionKey[] } {
   const primaryRegions = primary ? regionsForMuscle(primary) : [];
   const taken = new Set<RegionKey>(primaryRegions);
   const secondaryRegions: RegionKey[] = [];
   for (const muscle of secondary ?? []) {
+    if (isBroadMuscleWord(muscle)) continue;
     for (const region of regionsForMuscle(muscle)) {
       if (taken.has(region)) continue;
       taken.add(region);

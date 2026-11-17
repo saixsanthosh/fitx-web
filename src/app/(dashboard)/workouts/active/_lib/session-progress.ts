@@ -146,6 +146,14 @@ export function stepAfterCurrentSet(exercises: readonly Pick<ProgressExercise, "
 }
 
 /**
+ * The exercises with one set replaced by `update(set)`; every other set and exercise is kept as given. A save that
+ * returns applies itself to the exercises as they are then, so ticks and typing made while it was in flight stay.
+ */
+export function updateSet<E extends { id: string; sets: readonly { id: string }[] }>(exercises: readonly E[], exerciseId: string, setId: string, update: (set: E["sets"][number]) => E["sets"][number]): E[] {
+  return exercises.map((exercise) => exercise.id !== exerciseId ? exercise : { ...exercise, sets: exercise.sets.map((set) => (set.id === setId ? update(set) : set)) });
+}
+
+/**
  * Where the page moves after a set is ticked: the same exercise while it has sets to do, else the next exercise
  * with sets to do (forward first), else it stays.
  */
@@ -256,6 +264,27 @@ export function formatCountdown(seconds: number): string {
   const minutes = Math.floor((whole % 3600) / 60);
   const rest = String(whole % 60).padStart(2, "0");
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`;
+}
+
+/**
+ * Whole seconds a set timer has run at `at`: at least 1, never more than it was set for. Stopping or pausing early
+ * records this as the set's seconds.
+ */
+export function timerSecondsDone(timer: { startedAt: number; seconds: number }, at: number): number {
+  return Math.min(Math.max(1, Math.round(timer.seconds)), Math.max(1, Math.round((at - timer.startedAt) / 1000)));
+}
+
+/**
+ * The live workout's tally line: "4 completed sets · 1,200 kg logged · 0:25 timed". The weight part is left out when
+ * no completed set carries a weight (a body-weight workout is never "0 kg"), and the time part when no timed set is
+ * logged or `showTimed` is false. Takes session-stats.ts numbers.
+ */
+export function sessionTally(stats: { completedSets: number; volumeKg: number | null; timedSets: number; timedSeconds: number }, showTimed: boolean, locale?: string): string {
+  return [
+    `${stats.completedSets.toLocaleString(locale)} completed ${stats.completedSets === 1 ? "set" : "sets"}`,
+    stats.volumeKg === null ? null : `${Math.round(stats.volumeKg).toLocaleString(locale)} kg logged`,
+    showTimed && stats.timedSets > 0 ? `${formatCountdown(stats.timedSeconds)} timed` : null,
+  ].filter(Boolean).join(" · ");
 }
 
 /** 90 → "90 s", 120 → "2 min", 150 → "2 min 30 s" (under two minutes reads in seconds, as gym timers do). */

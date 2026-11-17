@@ -4,7 +4,8 @@
  *
  * Every rule fires only above a data threshold and says only what the logs show (no medical or diet advice):
  *  - consistency  nothing logged this week so far, while by this weekday something was logged in at least 3 of
- *                 the 4 weeks before (finished workouts and recorded activities);
+ *                 the 4 weeks before (finished workouts and recorded activities; not said when activities
+ *                 could not be read);
  *  - muscle_gap   a muscle with at least 4 direct sets spread over at least 2 of the 4 weeks before the last 7
  *                 days, and no set at all (direct or assisting) in the last 7 days, while the member did train in
  *                 those 7 days (otherwise it is a break, which `consistency` covers);
@@ -64,8 +65,13 @@ export type InsightInput = {
   today: string;
   /** Completed sessions with their sets, covering at least the last INSIGHT_WINDOW_DAYS days. */
   sessions: readonly LoggedSession[];
-  /** Start times of recorded activities in that window; null when activities cannot be read. */
+  /** Start times of recorded activities in that window; null when this database has no activities or they could not be read. */
   activityStarts: readonly string[] | null;
+  /**
+   * The activities request failed (not merely unavailable on this database). Activities may then have been logged
+   * this week, so "nothing logged yet" is not said: unknown is not none.
+   */
+  activitiesFailed: boolean;
   /** Food totals per logged day, covering at least the 7 days before today. */
   foodDays: ReadonlyMap<string, MealTotals>;
   proteinTarget: ProteinTarget | null;
@@ -106,6 +112,7 @@ const grams = (value: number) => `${Math.round(value)} g`;
 // ---------------------------------------------------------------- rules
 
 function consistency(input: InsightInput): Insight | null {
+  if (input.activitiesFailed) return null;
   const monday = mondayOf(input.today);
   const span = daysBetween(monday, input.today);
   const days = [

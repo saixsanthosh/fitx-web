@@ -99,6 +99,22 @@ test("today's plan: a programme day finished early counts as done; a workout in 
   assert.deepEqual(finished.inProgress, { id: "s9", name: "Legs", startedAt: at("2026-11-17", 18), planId: null }, "yesterday's unfinished workout can still be resumed");
 });
 
+test("today's plan: \"Next:\" skips a programme day already finished early", async () => {
+  const stub = programmeDb({
+    workout_plans: () => ({ data: [
+      { id: "p-push", title: "Push A · Push, Pull, Legs", planned_for: DAY, programme_enrolment_id: "en1", programme_day_index: 0 },
+      { id: "p-pull", title: "Pull A · Push, Pull, Legs", planned_for: "2026-11-20", programme_enrolment_id: "en1", programme_day_index: 1 },
+      { id: "p-legs", title: "Legs A · Push, Pull, Legs", planned_for: "2026-11-23", programme_enrolment_id: "en1", programme_day_index: 2 },
+    ] }),
+    workout_sessions: (call) => (used(call, "eq", "status", "completed") ? { data: [{ plan_id: "p-pull" }] } : { data: [] }),
+  });
+  const data = await loadTodayPlanData(db(stub), USER, DAY);
+  assert.deepEqual(data.programme?.next, { date: "2026-11-23", title: "Legs", projected: false });
+  assert.equal(data.workouts[0].done, false, "today's Push is still to do");
+  const finishedCall = stub.callsTo("workout_sessions").find((call) => used(call, "eq", "status", "completed"));
+  assert.ok(finishedCall && used(finishedCall, "in", "plan_id", ["p-push", "p-pull", "p-legs"]), "every programme day is checked, not just today's");
+});
+
 test("today's plan: no programme tables means no programme, not an error", async () => {
   const data = await loadTodayPlanData(db(programmeDb({
     programme_enrolments: () => ({ error: { code: "42P01", message: "relation does not exist" } }),

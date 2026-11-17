@@ -1,6 +1,6 @@
 import { timeRange } from "./gpx";
 import { sportFromFit } from "./sport";
-import { IMPORT_LIMITS, ImportError, type DeviceTotals, type ImportPoint, type ParsedImport } from "./types";
+import { IMPORT_LIMITS, ImportError, sumIfAllKnown, type DeviceTotals, type ImportPoint, type ParsedImport } from "./types";
 
 /*
  * A small decoder for FIT activity files (the binary format of Garmin, COROS, Wahoo, Polar, Suunto
@@ -294,7 +294,8 @@ export function readFit(bytes: Uint8Array): ParsedImport {
   }
 
   const session = sessions[0] ?? null;
-  const sumOf = (key: "timer" | "distance" | "kcal" | "ascent" | "elapsed") => (laps.some((lap) => lap[key] !== null) ? laps.reduce((sum, lap) => sum + (lap[key] ?? 0), 0) : null);
+  // Without a session message the laps are added up, but only when every lap has the value.
+  const sumOf = (key: "timer" | "distance" | "kcal" | "ascent" | "elapsed") => sumIfAllKnown(laps.map((lap) => lap[key]));
   const totals: DeviceTotals = session
     ? { distanceM: session.distance, timerSeconds: session.timer, elapsedSeconds: session.elapsed, ascentM: session.ascent, kcal: session.kcal }
     : { distanceM: sumOf("distance"), timerSeconds: sumOf("timer"), elapsedSeconds: sumOf("elapsed"), ascentM: sumOf("ascent"), kcal: sumOf("kcal") };

@@ -4,7 +4,9 @@
  * home portion, written down in src/data/fitx-staples.json and src/data/DATA_SOURCES.md, so the result is always an
  * estimate: a dish made with other proportions differs. Every ingredient is a USDA FoodData Central record already in
  * FITX's data; tests/nutrition/recipe.test.ts checks each one against that record.
- * Only already-cooked or ready ingredients are used, so the weights add up without a guess at cooking losses.
+ * Ingredients are cooked or ready where FITX's data has such a record. FITX has only raw onion, tomato and potato, so
+ * rajma rice, chole and aloo paratha use their raw weights and values with no guess at cooking losses, and each of
+ * those dishes says so in its note.
  * Pure, with no runtime imports of its own, so the search route, the tests and `node --test` all load it.
  */
 import type { FoodPortion } from "@/lib/domain/food-query";

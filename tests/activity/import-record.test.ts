@@ -6,7 +6,7 @@ import { destination } from "@/lib/activity/geo";
 import { IMPORT_ENGINE, importConfig, IMPORT_MAX_FIX_INTERVAL_MS } from "@/lib/activity/import/config";
 import { readActivityFile, sniffFormat } from "@/lib/activity/import/detect";
 import { fingerprintSecond, importClientId } from "@/lib/activity/import/fingerprint";
-import { checkImport, lookupWindow, OVERLAP_TOLERANCE_MS, summariseResults, type KnownActivity } from "@/lib/activity/import/plan";
+import { checkImport, lookupWindow, OVERLAP_TOLERANCE_MS, saveFailure, shouldCountPoints, summariseResults, type KnownActivity } from "@/lib/activity/import/plan";
 import { buildImportRecord, deviceDistance, importTimeline, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
 import { ImportError, type ImportPoint, type ParsedImport } from "@/lib/activity/import/types";
 import { replayStored } from "@/lib/activity/replay";
@@ -201,6 +201,38 @@ test("checks: a session already in FITX, the same session twice in one import, a
   assert.deepEqual(sibling, { kind: "overlap", activity: null, otherKey: "f0" });
   assert.deepEqual(lookupWindow([candidate, { ...candidate, startedAt: START - 5000, endedAt: START }]), { from: START - 5000, to: START + 2400_000 });
   assert.equal(lookupWindow([]), null);
+});
+
+test("an earlier import saved without all its GPS points is offered again; a complete or phone one is not", () => {
+  const candidate = { key: "f1", clientId: "c-existing", startedAt: START, endedAt: START + 1800_000 };
+  const partial = known({ source: "file", missingPoints: true });
+  assert.deepEqual(checkImport(candidate, [partial], []), { kind: "incomplete", activity: partial });
+  assert.equal(checkImport(candidate, [known({ source: "file", missingPoints: false })], []).kind, "already");
+  assert.equal(checkImport(candidate, [known({ source: "file", missingPoints: true, local: true, id: null })], []).kind, "already", "a copy only on this device has nothing to add to");
+  // A second file of the same session is still imported once.
+  assert.equal(checkImport({ ...candidate, key: "f2" }, [partial], [candidate]).kind, "same-file");
+});
+
+test("only recent imports that should have points are counted (older ones lose them to the 90-day rule)", () => {
+  const base = { id: "a1", source: "file" as const, local: false, chunkCount: 3, endedAt: NOW - 86_400_000 };
+  assert.equal(shouldCountPoints(base, NOW, POINTS_KEPT_DAYS), true);
+  assert.equal(shouldCountPoints({ ...base, chunkCount: 0 }, NOW, POINTS_KEPT_DAYS), false, "saved without points on purpose");
+  assert.equal(shouldCountPoints({ ...base, endedAt: NOW - 91 * 86_400_000 }, NOW, POINTS_KEPT_DAYS), false, "points removed by retention");
+  assert.equal(shouldCountPoints({ ...base, source: "fitx_gps" }, NOW, POINTS_KEPT_DAYS), false, "phone recordings retry from the device copy");
+  assert.equal(shouldCountPoints({ ...base, id: null, local: true }, NOW, POINTS_KEPT_DAYS), false);
+});
+
+test("save failures: each daily cap says which one, and stops the files after it", () => {
+  const gps = saveFailure({ status: "error", message: "GPS data limit reached: at most 1000 chunks a day", offline: false });
+  assert.equal(gps.stop, true);
+  assert.match(gps.reason, /GPS points/);
+  assert.doesNotMatch(gps.reason, /50 activities/);
+  const rows = saveFailure({ status: "error", message: "activity limit reached: at most 50 activities a day", offline: false });
+  assert.equal(rows.stop, true);
+  assert.match(rows.reason, /50 activities a day/);
+  assert.deepEqual(saveFailure({ status: "error", message: "Request failed", offline: true }).stop, true);
+  assert.deepEqual(saveFailure({ status: "rejected", message: "x" }).stop, false);
+  assert.deepEqual(saveFailure({ status: "error", message: "boom", offline: false }), { reason: "It couldn’t be saved just now. Try again.", stop: false });
 });
 
 test("the result summary counts each outcome in plain words", () => {

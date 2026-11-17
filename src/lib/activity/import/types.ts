@@ -87,3 +87,12 @@ export const IMPORT_LIMITS = {
   /** Files read at once on the import page. */
   maxFiles: 50,
 } as const;
+
+/**
+ * The total of per-lap values, or null unless every lap has one: a lap without a value is unknown,
+ * not 0, so adding the others would give a figure that looks complete but is too low.
+ */
+export function sumIfAllKnown(values: ReadonlyArray<number | null>): number | null {
+  if (!values.length || values.some((value) => value === null)) return null;
+  return values.reduce<number>((sum, value) => sum + (value as number), 0);
+}

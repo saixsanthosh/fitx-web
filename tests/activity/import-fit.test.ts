@@ -176,3 +176,23 @@ test("timer pauses: stops and starts pair up inside the activity; a final stop i
   assert.deepEqual(timerPauses([{ t: t(10), running: false }, { t: t(12), running: false }, { t: t(20), running: true }], t(0), t(15)), [{ start: t(10), end: t(15) }]);
   assert.deepEqual(timerPauses([], t(0), t(10)), []);
 });
+
+test("without a session, lap totals count only values every lap has (a missing one is unknown, not 0)", () => {
+  const w = new FitWriter();
+  w.define(0, MSG.fileId, FILE_ID_FIELDS).data(0, [4, 1, 3990, fitTime(START), null]);
+  w.define(2, MSG.event, EVENT_FIELDS).data(2, [fitTime(START), 0, 0]);
+  w.define(3, MSG.record, RECORD_FIELDS);
+  for (const p of runPoints(60)) w.data(3, recordValues(p));
+  const middle = START + 30_000;
+  const end = START + 59_000;
+  w.data(2, [fitTime(end), 0, 4]);
+  // Two laps; the second has no calories (as in some crash-recovered and third-party files).
+  w.define(4, MSG.lap, LAP_FIELDS)
+    .data(4, [fitTime(middle), fitTime(START), 30_000, 30_000, 9_000, 15, 6])
+    .data(4, [fitTime(end), fitTime(middle), 29_000, 29_000, 8_700, null, 6]);
+  const parsed = readFit(w.build());
+  assert.equal(parsed.totals?.kcal, null, "the device's calories are unknown, not 15");
+  assert.equal(parsed.totals?.distanceM, 177);
+  assert.equal(parsed.totals?.timerSeconds, 59);
+  assert.equal(parsed.totals?.ascentM, 12);
+});

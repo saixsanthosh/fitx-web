@@ -85,6 +85,7 @@ export function SessionRecordScreen({ id }: { id: string }) {
     if (!supabase || repeating) return;
     setRepeating(true);
     setRepeatError("");
+    if (record.musclesFailed) { setRepeating(false); setRepeatError("The exercise library couldn’t be loaded, so this workout can’t be copied yet. Reload the page and try again."); return; }
     // The copy keeps the original plan's split and place when that plan still exists, else where the member trains.
     const original = session.plan_id ? await supabase.from("workout_plans").select("split,workout_location").eq("id", session.plan_id).eq("user_id", userId).maybeSingle() : null;
     const plan = (original?.data ?? null) as { split?: string | null; workout_location?: string | null } | null;
@@ -109,7 +110,7 @@ export function SessionRecordScreen({ id }: { id: string }) {
         actions={<button type="button" onClick={() => void repeat()} disabled={repeating} className="fitx-button min-h-11"><RotateCcw size={15} aria-hidden="true" />{repeating ? "Copying…" : "Repeat this workout"}</button>}
       />
       {repeatError && <p role="alert" className="fitx-alert fitx-alert-danger">{repeatError}</p>}
-      <p className="-mt-3 text-xs text-fitx-text-secondary">Repeat saves a copy to your plans, ready to start.{repeatPreview.leftOut > 0 && ` ${repeatPreview.leftOut === 1 ? "1 exercise is" : `${repeatPreview.leftOut} exercises are`} no longer in the library and will be left out.`}</p>
+      <p className="-mt-3 text-xs text-fitx-text-secondary">Repeat saves a copy to your plans, ready to start.{!record.musclesFailed && repeatPreview.leftOut > 0 && ` ${repeatPreview.leftOut === 1 ? "1 exercise is" : `${repeatPreview.leftOut} exercises are`} no longer in the library and will be left out.`}</p>
 
       {!counted && (
         <p className="flex items-start gap-2 rounded-xl border border-fitx-border bg-fitx-surface px-4 py-3 text-sm text-fitx-text-secondary">
@@ -127,7 +128,7 @@ export function SessionRecordScreen({ id }: { id: string }) {
         <section aria-labelledby="record-muscles" className="fitx-panel p-4 sm:p-6">
           <h2 id="record-muscles" className="text-base font-semibold">Muscles trained</h2>
           <p className="mb-4 mt-1 text-xs text-fitx-text-secondary">Highlighted by how much of this workout each muscle took.</p>
-          <SessionMuscles summary={muscles} />
+          <SessionMuscles summary={muscles} failed={record.musclesFailed} />
         </section>
       )}
 
@@ -142,7 +143,7 @@ export function SessionRecordScreen({ id }: { id: string }) {
       <section aria-labelledby="record-exercises" className="space-y-3">
         <h2 id="record-exercises" className="text-base font-semibold">Exercises <span className="font-normal text-fitx-text-secondary">· {stats.exercisesDone} of {stats.exercisesPlanned} done</span></h2>
         {record.exercises.length
-          ? <ol className="m-0 grid list-none gap-3 p-0 lg:grid-cols-2 lg:items-start">{record.exercises.map((exercise, index) => <ExerciseCard key={exercise.id} exercise={exercise} position={index + 1} />)}</ol>
+          ? <ol className="m-0 grid list-none gap-3 p-0 lg:grid-cols-2 lg:items-start">{record.exercises.map((exercise, index) => <ExerciseCard key={exercise.id} exercise={exercise} position={index + 1} libraryFailed={record.musclesFailed} />)}</ol>
           : <EmptyState title="No exercises" description="This workout has no exercises recorded." />}
       </section>
 
@@ -151,7 +152,7 @@ export function SessionRecordScreen({ id }: { id: string }) {
   );
 }
 
-function ExerciseCard({ exercise, position }: { exercise: RecordExercise; position: number }) {
+function ExerciseCard({ exercise, position, libraryFailed }: { exercise: RecordExercise; position: number; libraryFailed: boolean }) {
   const sets = countedSets(exercise);
   const timed = exercise.target_duration_seconds !== null;
   const notDone = exercise.sets.length - sets.length;
@@ -171,7 +172,7 @@ function ExerciseCard({ exercise, position }: { exercise: RecordExercise; positi
           <p className="m-0 mt-1 text-xs text-fitx-text-secondary">
             {regions && regions.primary.length
               ? <>{regions.primary.map(regionLabel).join(", ")}{regions.secondary.length ? <> · also {regions.secondary.map((region) => regionLabel(region).toLowerCase()).join(", ")}</> : null}</>
-              : exercise.exercise_id ? "Not in the exercise library now, so its muscles aren’t shown" : "Added by name, not from the exercise library"}
+              : !exercise.exercise_id ? "Added by name, not from the exercise library" : libraryFailed ? "Its muscles couldn’t be loaded" : "Not in the exercise library now, so its muscles aren’t shown"}
           </p>
         </div>
       </div>
@@ -218,7 +219,7 @@ function SessionNote({ record, userId, editable }: { record: SessionRecord; user
       {editable ? (
         <form className="mt-3 space-y-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <label htmlFor="record-note-text" className="text-xs text-fitx-text-secondary">How it went, what to change next time. Only you can see it.</label>
-          <textarea id="record-note-text" className="fitx-field" maxLength={NOTE_MAX_LENGTH} value={draft} onChange={(event) => { setDraft(event.target.value); setState("idle"); }} />
+          <textarea id="record-note-text" className="fitx-field" maxLength={NOTE_MAX_LENGTH} value={draft} readOnly={state === "saving"} aria-busy={state === "saving"} onChange={(event) => { setDraft(event.target.value); setState("idle"); }} />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs tabular-nums text-fitx-text-secondary">{draft.length}/{NOTE_MAX_LENGTH}</span>
             <div className="flex items-center gap-3">

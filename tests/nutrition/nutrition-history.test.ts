@@ -33,7 +33,24 @@ test("unknown values are left out of a day's total and disclosed, not averaged a
   const today = history.days[6];
   assert.deepEqual([today.fat, today.unknown.fat, today.entries], [5, 1, 2]);
   assert.deepEqual(history.daysWithUnknown, { protein: 1, carbs: 0, fat: 1 });
-  assert.deepEqual(history.averages, { calories: 600, protein: 20, carbs: 45, fat: 8 });
+  // 17 Nov has no protein value at all, so the protein average is over 18 Nov alone (not 40 and 0 averaged to 20).
+  assert.deepEqual(history.averages, { calories: 600, protein: 40, carbs: 45, fat: 8 });
+});
+
+test("a macro no logged day has a value for has no average, not 0", () => {
+  const history = buildHistory([entry("2026-11-18", 500, 30, 40, null), entry("2026-11-17", 400, 20, 30, null)], dates, null);
+  assert.deepEqual(history.averages, { calories: 450, protein: 25, carbs: 35, fat: null });
+  const mixed = buildHistory([entry("2026-11-18", 2000, 120, 250, 60), entry("2026-11-17", 900, null, null, null)], dates, null);
+  assert.deepEqual(mixed.averages, { calories: 1450, protein: 120, carbs: 250, fat: 60 });
+});
+
+test("a calorie goal alone gives calorie adherence and no protein adherence", () => {
+  const history = buildHistory([entry("2026-11-18", 1950, 80, 0, 0), entry("2026-11-17", 2500, 200, 0, 0)], dates, { calories: 2000, protein: null });
+  assert.deepEqual(history.adherence, { calorieDays: 1, proteinDays: null, proteinUnknownDays: null });
+  assert.deepEqual(history.days.slice(5).map((day) => day.proteinState), [null, null]);
+  const proteinOnly = buildHistory([entry("2026-11-18", 1950, 80, 0, 0)], dates, { calories: null, protein: 60 });
+  assert.deepEqual(proteinOnly.adherence, { calorieDays: null, proteinDays: 1, proteinUnknownDays: 0 });
+  assert.equal(buildHistory([entry("2026-11-18", 1950, 80, 0, 0)], dates, { calories: null, protein: 0 }).adherence, null, "no positive target, no adherence");
 });
 
 test("adherence is within 10 percent of the calorie target, and protein met, per logged day", () => {

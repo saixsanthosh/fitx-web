@@ -226,6 +226,8 @@ type Answer = { data: unknown; error: unknown };
 const OPTIONAL_COLUMNS = ["target_duration_seconds", "duration_seconds"];
 const ID_CHUNK = 100;
 const SET_CHUNK = 30;
+/** Pages of session rows read per exercise before the read stops and says it may be incomplete. */
+export const MAX_ROW_PAGES = 5;
 
 const chunks = <T,>(items: readonly T[], size: number): T[][] =>
   Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, index * size + size));
@@ -235,18 +237,26 @@ export type ExerciseHistoryResult = {
   error: unknown | null;
   /** Requested id (as listed now) → its sessions, newest first. */
   byExercise: Map<string, ExerciseSession[]>;
+  /**
+   * True when the read stopped at MAX_ROW_PAGES before it found the sessions asked for, or ran out of rows,
+   * for some exercise: older completed sessions may exist, so its history is not complete.
+   */
+  truncated: boolean;
 };
 
 /**
  * The member's latest completed sessions with each exercise (default 12 each), newest first, with the sets
- * that count. `excludeSessionId` leaves out the session in progress (for "Last time"). Three plain requests
- * (the session rows per exercise, then their sessions, then their sets); databases without the timed-sets
- * columns are read without them.
+ * that count. `excludeSessionId` leaves out the session in progress (for "Last time"). Plain requests in pages:
+ * the session rows per exercise, then their sessions, then their sets; another page of rows is read while an
+ * exercise has fewer counted sessions than asked for and its rows have not run out (abandoned, in-progress and
+ * skipped rows do not count), up to MAX_ROW_PAGES (then `truncated`). So fewer sessions than asked for, with
+ * `truncated` false, is the whole history. Databases without the timed-sets columns are read without them.
  */
 export async function loadExerciseHistory(db: Db, userId: string, exerciseIds: string | readonly string[], options: { sessions?: number; excludeSessionId?: string | null } = {}): Promise<ExerciseHistoryResult> {
   const limit = Math.max(1, Math.round(options.sessions ?? 12));
   const requested = [...new Set((typeof exerciseIds === "string" ? [exerciseIds] : [...exerciseIds]).filter((id) => typeof id === "string" && id).map(survivingExerciseId))];
-  if (!requested.length) return { error: null, byExercise: new Map() };
+  if (!requested.length) return { error: null, byExercise: new Map(), truncated: false };
+  const failed = (error: unknown): ExerciseHistoryResult => ({ error, byExercise: new Map(), truncated: false });
   let optional = true;
   const run = async (query: (withOptional: boolean) => PromiseLike<Answer>): Promise<Answer> => {
     let answer = await query(optional);
@@ -257,34 +267,57 @@ export async function loadExerciseHistory(db: Db, userId: string, exerciseIds: s
     return answer;
   };
 
-  // A few rows more than sessions wanted: some may be abandoned, in progress or without a counted set.
+  // A few rows more than sessions wanted per page: some may be abandoned, in progress or without a counted set.
   const rowLimit = Math.min(200, limit * 2 + 4);
-  const exerciseAnswers = await Promise.all(requested.map((id) => run((withOptional) => db.from("workout_session_exercises")
-    .select(withOptional ? "id,session_id,exercise_id,exercise_name,target_duration_seconds,created_at" : "id,session_id,exercise_id,exercise_name,created_at")
-    .eq("user_id", userId).in("exercise_id", storedIdsOf(id)).order("created_at", { ascending: false }).limit(rowLimit))));
-  const failedRows = exerciseAnswers.find((answer) => answer.error);
-  if (failedRows) return { error: failedRows.error, byExercise: new Map() };
-  const sessionExercises = exerciseAnswers.flatMap((answer) => (Array.isArray(answer.data) ? answer.data : []) as SessionExerciseRow[])
-    .filter((row) => row.session_id !== options.excludeSessionId);
-
-  const sessionIds = [...new Set(sessionExercises.map((row) => row.session_id))];
+  const sessionExercises: SessionExerciseRow[] = [];
   const sessions: SessionRow[] = [];
-  for (const ids of chunks(sessionIds, ID_CHUNK)) {
-    const answer = await db.from("workout_sessions").select("id,name,status,started_at,completed_at").eq("user_id", userId).eq("status", "completed").in("id", ids);
-    if (answer.error) return { error: answer.error, byExercise: new Map() };
-    sessions.push(...((Array.isArray(answer.data) ? answer.data : []) as SessionRow[]));
-  }
-
-  const completed = new Set(sessions.map((session) => session.id));
-  const rowIds = sessionExercises.filter((row) => completed.has(row.session_id)).map((row) => row.id);
   const sets: SetRow[] = [];
-  for (const ids of chunks(rowIds, SET_CHUNK)) {
-    const answer = await run((withOptional) => db.from("workout_sets")
-      .select(withOptional ? "session_exercise_id,set_number,reps,weight_kg,duration_seconds,completed_at" : "session_exercise_id,set_number,reps,weight_kg,completed_at")
-      .eq("user_id", userId).in("session_exercise_id", ids).not("completed_at", "is", null).limit(1000));
-    if (answer.error) return { error: answer.error, byExercise: new Map() };
-    sets.push(...((Array.isArray(answer.data) ? answer.data : []) as SetRow[]));
+  const readSessionIds = new Set<string>();
+  let pending = requested;
+  let truncated = false;
+
+  for (let page = 0; pending.length; page++) {
+    if (page === MAX_ROW_PAGES) {
+      truncated = true;
+      break;
+    }
+    const from = page * rowLimit;
+    const exerciseAnswers = await Promise.all(pending.map((id) => run((withOptional) => db.from("workout_session_exercises")
+      .select(withOptional ? "id,session_id,exercise_id,exercise_name,target_duration_seconds,created_at" : "id,session_id,exercise_id,exercise_name,created_at")
+      .eq("user_id", userId).in("exercise_id", storedIdsOf(id))
+      .order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, from + rowLimit - 1))));
+    const failedRows = exerciseAnswers.find((answer) => answer.error);
+    if (failedRows) return failed(failedRows.error);
+    const exhausted = new Set<string>();
+    const fresh: SessionExerciseRow[] = [];
+    pending.forEach((id, index) => {
+      const data = (Array.isArray(exerciseAnswers[index].data) ? exerciseAnswers[index].data : []) as SessionExerciseRow[];
+      if (data.length < rowLimit) exhausted.add(id);
+      fresh.push(...data.filter((row) => row.session_id !== options.excludeSessionId));
+    });
+    sessionExercises.push(...fresh);
+
+    const sessionIds = [...new Set(fresh.map((row) => row.session_id))].filter((id) => !readSessionIds.has(id));
+    for (const id of sessionIds) readSessionIds.add(id);
+    for (const ids of chunks(sessionIds, ID_CHUNK)) {
+      const answer = await db.from("workout_sessions").select("id,name,status,started_at,completed_at").eq("user_id", userId).eq("status", "completed").in("id", ids);
+      if (answer.error) return failed(answer.error);
+      sessions.push(...((Array.isArray(answer.data) ? answer.data : []) as SessionRow[]));
+    }
+
+    const completed = new Set(sessions.map((session) => session.id));
+    const rowIds = fresh.filter((row) => completed.has(row.session_id)).map((row) => row.id);
+    for (const ids of chunks(rowIds, SET_CHUNK)) {
+      const answer = await run((withOptional) => db.from("workout_sets")
+        .select(withOptional ? "session_exercise_id,set_number,reps,weight_kg,duration_seconds,completed_at" : "session_exercise_id,set_number,reps,weight_kg,completed_at")
+        .eq("user_id", userId).in("session_exercise_id", ids).not("completed_at", "is", null).limit(1000));
+      if (answer.error) return failed(answer.error);
+      sets.push(...((Array.isArray(answer.data) ? answer.data : []) as SetRow[]));
+    }
+
+    const found = buildExerciseSessions(pending, { sessionExercises, sessions, sets }, { limit, excludeSessionId: options.excludeSessionId });
+    pending = pending.filter((id) => !exhausted.has(id) && (found.get(id)?.length ?? 0) < limit);
   }
 
-  return { error: null, byExercise: buildExerciseSessions(requested, { sessionExercises, sessions, sets }, { limit, excludeSessionId: options.excludeSessionId }) };
+  return { error: null, byExercise: buildExerciseSessions(requested, { sessionExercises, sessions, sets }, { limit, excludeSessionId: options.excludeSessionId }), truncated };
 }

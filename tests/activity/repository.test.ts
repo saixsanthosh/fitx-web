@@ -5,7 +5,7 @@ import { MemoryRecordingStore } from "@/lib/activity/local-store";
 import { buildActivityRecord } from "@/lib/activity/record";
 import {
   deleteActivity, deleteActivityByClientId, deleteAllActivities, getActivity, getTrackChunks, isMissingTableError, isNetworkError,
-  isPermanentRejection, latestWeight, listActivities, saveActivity, totalsSince, updateActivity, type SupabaseLike,
+  countTrackChunks, isPermanentRejection, latestWeight, listActivities, saveActivity, saveImportedActivity, totalsSince, updateActivity, type SupabaseLike,
 } from "@/lib/activity/repository";
 import { clearActivityDataOnSignOut, prepareActivitySignOut, uploadPending } from "@/lib/activity/sync";
 import type { LogEntry } from "@/lib/activity/types";
@@ -123,6 +123,41 @@ test("saving is idempotent: a retried upload reuses the activity and replaces it
   assert.equal(db.tables.activities.length, 1);
   assert.equal(db.tables.activity_track_chunks.length, record.chunks.length);
   assert.ok(db.tables.activity_track_chunks.every((chunk) => chunk.user_id === "user-1" && chunk.encoding === 1));
+});
+
+test("an import whose points fail part way is taken back out, so importing it again starts clean", async () => {
+  const record = { ...sampleRecord("imp-1"), source: "file" as const, sourceFormat: "gpx" as const, sourceDevice: "Garmin", importedAt: T0 };
+  assert.ok(record.chunks.length > 0);
+  const db = new FakeDb();
+  let chunkWrites = 0;
+  const flaky: SupabaseLike = {
+    from(name: string) {
+      if (name === "activity_track_chunks" && ++chunkWrites === 1) db.failures.activity_track_chunks = { code: "54000", message: "GPS data limit reached: at most 1000 chunks a day" };
+      return db.from(name);
+    },
+  };
+  const result = await saveImportedActivity(flaky, "u", record);
+  assert.equal(result.status, "error");
+  assert.equal(result.status === "error" && result.message, "GPS data limit reached: at most 1000 chunks a day");
+  assert.equal(db.tables.activities.length, 0, "the activity row is removed (its chunks go with it in the database)");
+  delete db.failures.activity_track_chunks;
+  const again = await saveImportedActivity(db, "u", record);
+  assert.equal(again.status, "ok");
+  assert.equal(db.tables.activities.length, 1);
+  const stored = again.status === "ok" ? await countTrackChunks(db, "u", again.data.id) : null;
+  assert.deepEqual(stored, { status: "ok", data: record.chunks.length });
+});
+
+test("an import never removes a row that was already there, and a phone save never removes anything", async () => {
+  const record = sampleRecord("imp-2");
+  const db = new FakeDb();
+  assert.equal((await saveActivity(db, "u", record)).status, "ok");
+  db.failures.activity_track_chunks = { message: "upstream timeout" };
+  assert.equal((await saveImportedActivity(db, "u", record)).status, "error");
+  assert.equal(db.tables.activities.length, 1, "the earlier save stays");
+  const phone = sampleRecord("phone-1");
+  assert.equal((await saveActivity(db, "u", phone)).status, "error");
+  assert.equal(db.tables.activities.length, 2, "a phone recording keeps its row and retries from the device copy");
 });
 
 test("before the migration, every call says 'unavailable' instead of failing", async () => {

@@ -8,12 +8,12 @@ import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { formatActivityDate, formatDistance, formatDuration, formatDurationWords } from "@/lib/activity/format";
 import { readActivityFile } from "@/lib/activity/import/detect";
 import { importClientId } from "@/lib/activity/import/fingerprint";
-import { checkImport, lookupWindow, OVERLAP_TOLERANCE_MS, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity } from "@/lib/activity/import/plan";
-import { buildImportRecord, FORMAT_LABEL } from "@/lib/activity/import/to-record";
+import { checkImport, lookupWindow, OVERLAP_TOLERANCE_MS, saveFailure, shouldCountPoints, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity } from "@/lib/activity/import/plan";
+import { buildImportRecord, FORMAT_LABEL, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
 import { IMPORT_LIMITS, ImportError, type ParsedImport } from "@/lib/activity/import/types";
 import { timeRange } from "@/lib/activity/import/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
-import { activitySourcesReady, findActivitiesBetween, findActivitiesByClientIds, saveActivity, type ActivityView, type DbResult } from "@/lib/activity/repository";
+import { activitySourcesReady, countTrackChunks, findActivitiesBetween, findActivitiesByClientIds, saveImportedActivity, type ActivityView } from "@/lib/activity/repository";
 import { SPORTS, type Sport } from "@/lib/activity/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -55,14 +55,6 @@ function failureText(error: unknown): string {
   return error instanceof ImportError ? error.message : "This file couldn’t be read.";
 }
 
-function saveFailure(result: Exclude<DbResult<unknown>, { status: "ok" }>): { reason: string; stop: boolean } {
-  if (result.status === "unavailable") return { reason: "Imports aren’t switched on yet.", stop: true };
-  if (result.status === "rejected") return { reason: "FITX can’t keep this activity: it’s outside what an activity can hold.", stop: false };
-  if (result.offline) return { reason: "You’re offline. Try again when you’re connected.", stop: true };
-  if (/limit reached/i.test(result.message)) return { reason: "FITX adds at most 50 activities a day. Import the rest tomorrow: files already imported are recognised.", stop: true };
-  return { reason: "It couldn’t be saved just now. Try again.", stop: false };
-}
-
 /** The per-file check against the account and the files before it. */
 function computeChecks(entries: readonly Entry[], existing: readonly KnownActivity[]): Map<string, ImportCheck> {
   const checks = new Map<string, ImportCheck>();
@@ -96,9 +88,15 @@ function SportChoice({ entry, onChoose }: { entry: Entry; onChoose: (sport: Spor
   );
 }
 
-function CheckLine({ entry, check, names, checking, onConfirm }: { entry: Entry; check: ImportCheck | undefined; names: Map<string, string>; checking: boolean; onConfirm: (value: boolean) => void }) {
+function CheckLine({ entry, check, names, checking, unchecked, onConfirm }: { entry: Entry; check: ImportCheck | undefined; names: Map<string, string>; checking: boolean; unchecked: boolean; onConfirm: (value: boolean) => void }) {
   if (checking && (!check || check.kind === "ready")) {
     return <p className="mt-3 flex items-center gap-1.5 text-xs text-fitx-text-secondary" role="status"><LoaderCircle size={14} aria-hidden="true" className="animate-spin" />Checking your activities for this session…</p>;
+  }
+  if (unchecked && (!check || check.kind === "ready" || check.kind === "overlap")) {
+    return <p className="mt-3 flex items-center gap-1.5 text-xs text-fitx-text-secondary"><CircleAlert size={14} aria-hidden="true" />Not checked against your activities yet, so it can’t be imported.</p>;
+  }
+  if (check?.kind === "incomplete") {
+    return <p className="mt-3 flex items-center gap-1.5 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="text-fitx-info" />Already in FITX without all its GPS points. Importing it again adds them.</p>;
   }
   if (!check || check.kind === "ready") {
     return entry.sport
@@ -147,7 +145,7 @@ function ResultLine({ result }: { result: ImportResult }) {
   return <p className="mt-3 flex gap-1.5 text-sm text-fitx-danger"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />Not imported: {result.reason}</p>;
 }
 
-function FileCard({ entry, check, names, onSport, onConfirm, onRemove, busy, checking = false }: { entry: Entry; check: ImportCheck | undefined; names: Map<string, string>; onSport: (sport: Sport) => void; onConfirm: (value: boolean) => void; onRemove: () => void; busy: boolean; checking?: boolean }) {
+function FileCard({ entry, check, names, onSport, onConfirm, onRemove, busy, checking = false, unchecked = false }: { entry: Entry; check: ImportCheck | undefined; names: Map<string, string>; onSport: (sport: Sport) => void; onConfirm: (value: boolean) => void; onRemove: () => void; busy: boolean; checking?: boolean; unchecked?: boolean }) {
   const parsed = entry.parsed;
   const preview = entry.preview;
   const deviceDiffers = preview && preview.deviceDistanceM !== null && Math.abs(preview.deviceDistanceM - preview.distanceM) > Math.max(50, preview.distanceM * 0.01);
@@ -196,13 +194,13 @@ function FileCard({ entry, check, names, onSport, onConfirm, onRemove, busy, che
         <p className="mt-3 flex gap-1.5 text-sm text-fitx-danger"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />{entry.error}</p>
       ) : entry.phase === "unsupported" && parsed?.sport.kind === "unsupported" ? (
         <p className="mt-3 flex gap-1.5 text-sm text-fitx-text-secondary"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />{parsed.sport.label} isn’t a walk, run or ride, so FITX can’t import it.</p>
-      ) : entry.phase === "ready" && check?.kind !== "already" && check?.kind !== "same-file" ? (
+      ) : entry.phase === "ready" && check?.kind !== "already" && check?.kind !== "same-file" && check?.kind !== "incomplete" ? (
         <>
           <SportChoice entry={entry} onChoose={onSport} />
-          <CheckLine entry={entry} check={check} names={names} checking={checking} onConfirm={onConfirm} />
+          <CheckLine entry={entry} check={check} names={names} checking={checking} unchecked={unchecked} onConfirm={onConfirm} />
         </>
       ) : entry.phase === "ready" ? (
-        <CheckLine entry={entry} check={check} names={names} checking={checking} onConfirm={onConfirm} />
+        <CheckLine entry={entry} check={check} names={names} checking={checking} unchecked={unchecked} onConfirm={onConfirm} />
       ) : null}
     </li>
   );
@@ -223,6 +221,8 @@ export function ActivityImportScreen() {
   const [summary, setSummary] = useState("");
   const [notice, setNotice] = useState("");
   const [dragging, setDragging] = useState(false);
+  // The account couldn't be checked for repeats and overlaps: nothing is imported until it has been.
+  const [lookupFailed, setLookupFailed] = useState(false);
   const counter = useRef(0);
   const userId = account.status === "ready" ? account.userId : null;
   const weightKg = account.status === "ready" ? account.weightKg : null;
@@ -249,25 +249,42 @@ export function ActivityImportScreen() {
     setEntries((list) => list.map((entry) => (entry.key === key ? { ...entry, ...(typeof change === "function" ? change(entry) : change) } : entry)));
   }, []);
 
-  /** Looks up what the account (and this device) already holds around these files' times. */
-  const lookUp = useCallback(async (list: readonly Entry[]) => {
-    if (!userId) return;
+  /**
+   * Looks up what the account (and this device) already holds around these files' times. False
+   * when the account couldn't be read: the files are then unchecked, so none of them is imported.
+   */
+  const lookUp = useCallback(async (list: readonly Entry[]): Promise<boolean> => {
+    if (!userId) return false;
     const supabase = createClient();
-    if (!supabase) return;
+    if (!supabase) return false;
     const ready = list.filter((entry) => entry.phase === "ready" && entry.parsed && entry.clientId);
     const candidates: Candidate[] = ready.map((entry) => ({ key: entry.key, clientId: entry.clientId as string, startedAt: entry.parsed!.startedAt, endedAt: entry.parsed!.endedAt }));
     const span = lookupWindow(candidates);
-    if (!span) return;
+    if (!span) return true;
     const found: KnownActivity[] = [];
     const byId = await findActivitiesByClientIds(supabase, userId, candidates.map((candidate) => candidate.clientId));
-    if (byId.status === "ok") found.push(...byId.data.map(knownFromView));
+    if (byId.status !== "ok") return false;
+    // An earlier import that saved the activity but not all its points is offered again to add them.
+    const now = Date.now();
+    for (const view of byId.data) {
+      const known = knownFromView(view);
+      if (shouldCountPoints(view, now, POINTS_KEPT_DAYS)) {
+        const stored = await countTrackChunks(supabase, userId, view.id as string);
+        if (stored.status !== "ok") return false;
+        known.missingPoints = stored.data < view.chunkCount;
+      }
+      found.push(known);
+    }
     const around = await findActivitiesBetween(supabase, userId, span.from - OVERLAP_TOLERANCE_MS, span.to + OVERLAP_TOLERANCE_MS);
-    if (around.status === "ok") found.push(...around.data.map(knownFromView));
+    if (around.status !== "ok") return false;
+    // The client-id matches come first and win below; these add the activities around the files.
+    found.push(...around.data.filter((view) => !byId.data.some((match) => match.clientId === view.clientId)).map(knownFromView));
     // A long span (a history import) may hold more than one page: then each file is looked up on its own.
-    if (around.status === "ok" && around.data.length >= 1000) {
+    if (around.data.length >= 1000) {
       for (const candidate of candidates) {
         const near = await findActivitiesBetween(supabase, userId, candidate.startedAt - OVERLAP_TOLERANCE_MS, candidate.endedAt + OVERLAP_TOLERANCE_MS, 50);
-        if (near.status === "ok") found.push(...near.data.map(knownFromView));
+        if (near.status !== "ok") return false;
+        found.push(...near.data.filter((view) => !byId.data.some((match) => match.clientId === view.clientId)).map(knownFromView));
       }
     }
     try {
@@ -287,6 +304,7 @@ export function ActivityImportScreen() {
       for (const [key, activity] of unique) merged.set(key, activity);
       return [...merged.values()];
     });
+    return true;
   }, [userId]);
 
   async function addFiles(files: readonly File[]) {
@@ -325,7 +343,17 @@ export function ActivityImportScreen() {
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     }
     // Importing waits until the account has been checked for these sessions (repeats and overlaps).
-    await lookUp(readEntries).catch(() => undefined);
+    // After a failed check, the earlier files are checked again with the new ones.
+    const ok = await lookUp(lookupFailed ? [...entries, ...readEntries] : readEntries).catch(() => false);
+    setLookupFailed(!ok);
+    setReading(false);
+  }
+
+  async function checkAgain() {
+    if (reading || importing) return;
+    setReading(true);
+    const ok = await lookUp(entries).catch(() => false);
+    setLookupFailed(!ok);
     setReading(false);
   }
 
@@ -354,17 +382,22 @@ export function ActivityImportScreen() {
     void addFiles(event.dataTransfer?.files ? [...event.dataTransfer.files] : []);
   }
 
+  /** The sport to save with: an earlier, incomplete import keeps the sport it was saved with. */
+  const sportOf = (entry: Entry): Sport | null => {
+    const check = checks.get(entry.key);
+    return check?.kind === "incomplete" ? check.activity.sport : entry.sport;
+  };
   const importable = (entry: Entry) => {
     const check = checks.get(entry.key);
-    return entry.phase === "ready" && !entry.result && entry.sport !== null && entry.parsed !== null && entry.clientId !== null && check !== undefined
-      && (check.kind === "ready" || (check.kind === "overlap" && entry.confirmOverlap));
+    return !lookupFailed && entry.phase === "ready" && !entry.result && sportOf(entry) !== null && entry.parsed !== null && entry.clientId !== null && check !== undefined
+      && (check.kind === "ready" || check.kind === "incomplete" || (check.kind === "overlap" && entry.confirmOverlap));
   };
   const toImport = entries.filter(importable);
-  const unknownSport = entries.filter((entry) => entry.phase === "ready" && !entry.result && !entry.sport && entry.parsed?.sport.kind === "unknown").length;
-  const settled = entries.some((entry) => !entry.result && (entry.phase === "failed" || entry.phase === "unsupported" || (entry.phase === "ready" && entry.sport !== null)));
+  const unknownSport = entries.filter((entry) => entry.phase === "ready" && !entry.result && !entry.sport && entry.parsed?.sport.kind === "unknown" && checks.get(entry.key)?.kind !== "incomplete").length;
+  const settled = entries.some((entry) => !entry.result && (entry.phase === "failed" || entry.phase === "unsupported" || (entry.phase === "ready" && sportOf(entry) !== null)));
 
   async function importAll() {
-    if (!userId || importing || reading) return;
+    if (!userId || importing || reading || lookupFailed) return;
     const supabase = createClient();
     if (!supabase) return;
     setImporting(true);
@@ -396,8 +429,9 @@ export function ActivityImportScreen() {
       update(entry.key, { phase: "importing" });
       let result: ImportResult;
       try {
-        const build = buildImportRecord(entry.parsed as ParsedImport, { sport: entry.sport as Sport, clientId: entry.clientId as string, weightKg, importedAt: Date.now() });
-        const saved = await saveActivity(supabase, userId, build.record);
+        const build = buildImportRecord(entry.parsed as ParsedImport, { sport: sportOf(entry) as Sport, clientId: entry.clientId as string, weightKg, importedAt: Date.now() });
+        // A save that fails part way is taken back out, so importing the file again starts clean.
+        const saved = await saveImportedActivity(supabase, userId, build.record);
         if (saved.status === "ok") {
           result = { kind: "imported", id: saved.data.id };
         } else {
@@ -419,6 +453,7 @@ export function ActivityImportScreen() {
     setEntries([]);
     setSummary("");
     setNotice("");
+    setLookupFailed(false);
   }
 
   if (account.status === "loading") return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading…</div>;
@@ -472,6 +507,12 @@ export function ActivityImportScreen() {
             <h2 id="files-title" className="text-sm font-semibold text-fitx-text">{entries.length} {entries.length === 1 ? "file" : "files"}</h2>
             {!importing && <button type="button" onClick={clearList} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">Clear list</button>}
           </div>
+          {lookupFailed && !reading && (
+            <div role="alert" className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p>FITX couldn’t check your activities for these sessions, so nothing can be imported yet. Check your connection and try again.</p>
+              <button type="button" onClick={() => void checkAgain()} className="fitx-button fitx-button-secondary min-h-11 shrink-0">Check again</button>
+            </div>
+          )}
           {unknownSport > 1 && !importing && (
             <div className="fitx-panel p-4">
               <p className="text-sm text-fitx-text">{unknownSport} files don’t say their sport. Set them all to:</p>
@@ -493,6 +534,7 @@ export function ActivityImportScreen() {
                 names={names}
                 busy={importing}
                 checking={reading}
+                unchecked={lookupFailed}
                 onSport={(sport) => chooseSport(entry, sport)}
                 onConfirm={(value) => update(entry.key, { confirmOverlap: value })}
                 onRemove={() => setEntries((list) => list.filter((item) => item.key !== entry.key))}

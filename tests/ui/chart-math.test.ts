@@ -49,6 +49,29 @@ test("labelIndexes keeps the last and thins evenly", () => {
   assert.deepEqual(labelIndexes(0, 5), []);
 });
 
+test("labelIndexes always keeps the first label when the count does not line up with the step", () => {
+  // The exercise page's Volume per session card: up to 8 bars with the default 7 labels.
+  assert.deepEqual(labelIndexes(8, 7), [0, 2, 4, 7]);
+  assert.deepEqual(labelIndexes(10, 7), [0, 2, 4, 6, 9]);
+  assert.deepEqual(labelIndexes(30, 6), [0, 6, 12, 18, 29]);
+  assert.deepEqual(labelIndexes(13, 7), [0, 2, 4, 6, 8, 10, 12]);
+  assert.deepEqual(labelIndexes(9, 2), [0, 8]);
+  assert.deepEqual(labelIndexes(9, 1), [8]);
+  for (let count = 1; count <= 60; count++) {
+    for (let max = 2; max <= 10; max++) {
+      const picked = labelIndexes(count, max);
+      const label = `${count} of ${max}`;
+      assert.equal(picked[0], 0, label);
+      assert.equal(picked[picked.length - 1], count - 1, label);
+      assert.ok(picked.length <= max, label);
+      for (let i = 1; i < picked.length; i++) {
+        assert.ok(picked[i] > picked[i - 1], label);
+        if (count > max) assert.ok(picked[i] - picked[i - 1] >= (count - 1) / (max - 1), label);
+      }
+    }
+  }
+});
+
 test("summarizeSeries reads out range and flags unknowns", () => {
   const format = (value: number) => `${value} kg`;
   assert.equal(summarizeSeries([], format), "No data yet.");

@@ -27,7 +27,7 @@ const exercise = (id: string, library: LibraryMuscles | null, sets: RecordSet[],
 });
 const record = (status: string, exercises: RecordExercise[]): SessionRecord => ({
   session: { id: SESSION, name: "Push day", status, started_at: T(0), completed_at: status === "completed" ? T(45) : null, duration_seconds: 2400, notes: null, plan_id: null },
-  exercises, records: [], targetsIncluded: true,
+  exercises, records: [], targetsIncluded: true, musclesFailed: false,
 });
 
 const sample = [
@@ -193,6 +193,7 @@ describe("loadSessionRecord", () => {
     assert.equal(exercises[1].sourceRef, "Pushups");
     assert.equal(exercises[1].sets[0].rep_source, "camera");
     assert.equal(records?.[0].best_weight_kg, 60);
+    assert.equal(result.record.musclesFailed, false);
     assert.ok(used(stub.callsTo("workout_sessions")[0], "eq", "user_id", "user-1"));
     assert.ok(used(stub.callsTo("personal_records")[0], "eq", "session_id", SESSION));
     assert.match(selectOf(stub.callsTo("workout_sets")[0]), /duration_seconds,rep_source$/);
@@ -224,6 +225,17 @@ describe("loadSessionRecord", () => {
     assert.equal(failing.status, "error");
     const noRecords = await loadSessionRecord(db(new StubDb((call) => (call.name === "personal_records" ? { error: { code: "500", message: "boom" } } : handler(call)))), "user-1", SESSION);
     assert.equal(noRecords.status === "found" ? noRecords.record.records : "x", null, "records that cannot be read are unknown, not none");
+  });
+
+  test("a library that cannot be read leaves the record standing, with its muscles marked as unknown", async () => {
+    const stub = new StubDb((call) => (call.name === "exercise_library" && !selectOf(call).includes("source_ref") ? { error: { code: "500", message: "boom" } } : handler(call)));
+    const result = await loadSessionRecord(db(stub), "user-1", SESSION);
+    assert.equal(result.status, "found");
+    if (result.status !== "found") return;
+    assert.equal(result.record.musclesFailed, true);
+    assert.deepEqual(result.record.exercises.map((item) => item.library), [null, null], "unknown, never guessed");
+    assert.deepEqual(result.record.exercises[0].sets.map((item) => item.set_number), [1, 2], "the sets still show");
+    assert.equal(recordStats(result.record).completedSets, 3, "and so do the totals");
   });
 });
 

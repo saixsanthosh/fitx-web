@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   customFoodResult, customFoodRowValues, customFoodWarning, detectCapabilities, entryBasis, entryPer100g, entryUpdate, isMissingSchema, loadRecentFoods,
-  removeCustomFood, removeCustomFoodPhoto, rowsFromItems, savedFoodSource, targetProblem, withCurrentCustomFoods, type CustomFoodRow, type MealEntry,
+  foodFromEntry, removeCustomFood, removeCustomFoodPhoto, rowsFromItems, savedFoodSource, targetProblem, usualAmount, withCurrentCustomFoods, type CustomFoodRow, type MealEntry,
   type MealTemplateItem,
 } from "@/lib/food/client-data";
 
@@ -22,6 +22,14 @@ test("per-100 g values come from the snapshot, or from older entries' totals and
   assert.equal(entryBasis(idliEntry), "recipe_calculated");
   assert.equal(entryBasis({ ...idliEntry, source: "Open Food Facts", nutrition_snapshot: {} }), "label");
   assert.equal(entryBasis({ ...idliEntry, nutrition_snapshot: { value_basis: "ai_suggested" } }), "ai_suggested");
+});
+
+test("a frequent food is chosen again at the amount it was logged as, not a typed one", () => {
+  assert.deepEqual(usualAmount(idliEntry), { amount: 3, unitKey: "portion:0" });
+  assert.equal(foodFromEntry(idliEntry)?.portions[0]?.label, "1 item", "portion:0 is the entry's own portion");
+  assert.deepEqual(usualAmount({ ...idliEntry, nutrition_snapshot: {}, quantity_grams: 150 }), { amount: 150, unitKey: "g" });
+  assert.deepEqual(usualAmount({ ...idliEntry, nutrition_snapshot: { portion: { count: 0, label: "1 item", unit: "piece", grams_each: 38 } } }), { amount: 114, unitKey: "g" });
+  assert.equal(usualAmount({ ...idliEntry, nutrition_snapshot: {}, quantity_grams: null }), null);
 });
 
 test("editing an entry recomputes its totals and keeps or drops its portion", () => {

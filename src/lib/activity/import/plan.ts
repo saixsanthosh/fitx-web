@@ -1,3 +1,4 @@
+import type { DbResult } from "../repository";
 import type { ActivitySource, Sport } from "../types";
 
 /*
@@ -20,6 +21,11 @@ export type KnownActivity = {
   source: ActivitySource;
   /** Still only on this device (recorded offline, not uploaded yet). */
   local: boolean;
+  /**
+   * True when an earlier import saved the activity but not all of its GPS points (the upload
+   * stopped part way, or the daily limit was reached): importing the file again sends them.
+   */
+  missingPoints?: boolean;
 };
 
 export type Candidate = { key: string; clientId: string; startedAt: number; endedAt: number };
@@ -30,6 +36,8 @@ export type ImportCheck =
   | { kind: "same-file"; otherKey: string }
   /** The account already has this session. */
   | { kind: "already"; activity: KnownActivity }
+  /** The account has this session from an earlier import, without all its GPS points. */
+  | { kind: "incomplete"; activity: KnownActivity }
   /** It overlaps an activity in the account (or on this device), or another chosen file. */
   | { kind: "overlap"; activity: KnownActivity | null; otherKey: string | null };
 
@@ -48,7 +56,7 @@ export function checkImport(candidate: Candidate, existing: readonly KnownActivi
   const twin = earlier.find((other) => other.clientId === candidate.clientId);
   if (twin) return { kind: "same-file", otherKey: twin.key };
   const saved = existing.find((activity) => activity.clientId === candidate.clientId);
-  if (saved) return { kind: "already", activity: saved };
+  if (saved) return saved.missingPoints && !saved.local && saved.id ? { kind: "incomplete", activity: saved } : { kind: "already", activity: saved };
   const clash = existing.find((activity) => overlaps(activity, candidate));
   if (clash) return { kind: "overlap", activity: clash, otherKey: null };
   const sibling = earlier.find((other) => overlaps(other, candidate));
@@ -91,4 +99,26 @@ export function lookupWindow(candidates: readonly Candidate[]): { from: number; 
     to = Math.max(to, candidate.endedAt);
   }
   return { from, to };
+}
+
+/**
+ * Whether a saved activity found for a file should have its GPS points counted: an import that
+ * should have points (chunkCount > 0) and that ended recently enough for them to be kept. Older
+ * ones lose their points to the retention rule, so a short count there is expected, not a fault.
+ */
+export function shouldCountPoints(activity: { id: string | null; source: ActivitySource; local: boolean; chunkCount: number; endedAt: number }, now: number, keptDays: number): boolean {
+  return activity.id !== null && !activity.local && activity.source === "file" && activity.chunkCount > 0 && activity.endedAt >= now - keptDays * 86_400_000;
+}
+
+/**
+ * Why a file's save failed, in words for the person, and whether the files after it should stop
+ * (they would fail the same way). The daily caps raise "... limit reached" (migration 20261118160000).
+ */
+export function saveFailure(result: Exclude<DbResult<unknown>, { status: "ok" }>): { reason: string; stop: boolean } {
+  if (result.status === "unavailable") return { reason: "Imports aren’t switched on yet.", stop: true };
+  if (result.status === "rejected") return { reason: "FITX can’t keep this activity: it’s outside what an activity can hold.", stop: false };
+  if (result.offline) return { reason: "You’re offline. Try again when you’re connected.", stop: true };
+  if (/gps data limit reached/i.test(result.message)) return { reason: "FITX has saved as many GPS points as it can today. Import the rest tomorrow: files already imported are recognised.", stop: true };
+  if (/limit reached/i.test(result.message)) return { reason: "FITX adds at most 50 activities a day. Import the rest tomorrow: files already imported are recognised.", stop: true };
+  return { reason: "It couldn’t be saved just now. Try again.", stop: false };
 }

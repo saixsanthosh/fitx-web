@@ -44,6 +44,8 @@ import styles from "./Workouts.module.css";
 /** `last_done_key`: local day of the plan's latest finished session, or null when none is known. */
 type PlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; last_done_key: string | null };
 type PlanListRow = Omit<PlanRow, "last_done_key"> & { workout_sessions?: Array<{ started_at: string }> | null };
+/** A plan opened in the builder; `programme_enrolment_id` is read once the programme migrations are applied. */
+type EditedPlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; notes: string | null; workout_location: string | null; programme_enrolment_id?: string | null };
 type SupabaseBrowserClient = NonNullable<ReturnType<typeof createClient>>;
 type SessionRow = { id: string; name: string; started_at: string; duration_seconds: number; total_volume: number; status: string; plan_id?: string | null };
 type WorkoutPreferences = { workout_location?: string; equipment?: string[] | null; fitness_level?: string; session_duration_minutes?: number; workout_split?: string };
@@ -183,6 +185,9 @@ export default function WorkoutsPage() {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   // The edited plan's date when it was opened: its own planner event is the one on that day.
   const [editingPlannedFor, setEditingPlannedFor] = useState<string | null>(null);
+  // The edited plan is a programme day: its date stays (a programme day without one, or moved past the week, would
+  // drop out of the programme and its planning).
+  const [editingProgrammeDay, setEditingProgrammeDay] = useState(false);
   const [title, setTitle] = useState("Training session");
   const [planNotes, setPlanNotes] = useState("");
   const [split, setSplit] = useState("full_body");
@@ -349,7 +354,7 @@ export default function WorkoutsPage() {
     void Promise.resolve().then(() => {
       const exercise = catalog.find((item) => item.id === exerciseId);
       if (!exercise) return;
-      setMode("custom"); setEditingPlanId(null); setTitle("Custom workout"); setPlanNotes(""); setSplit(preferences.workout_split || "full_body"); setPlanLocation(preferences.workout_location || "gym");
+      setMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle("Custom workout"); setPlanNotes(""); setSplit(preferences.workout_split || "full_body"); setPlanLocation(preferences.workout_location || "gym");
       setPlannedFor(localDateKey());
       setPreview([plannedFrom(exercise, 0)]); setAutoNote("");
       setCreatorOpen(true);
@@ -486,7 +491,7 @@ export default function WorkoutsPage() {
 
   function openCreator(nextMode: BuilderMode, target: TrainingContext = context, areas: readonly FocusArea[] = []) {
     setMode(nextMode);
-    setEditingPlanId(null);
+    setEditingPlanId(null); setEditingProgrammeDay(false);
     setTitle(nextMode === "auto" ? "Personalized workout" : "Custom workout");
     setPlanNotes("");
     setSplit(preferences.workout_split || "full_body");
@@ -542,7 +547,7 @@ export default function WorkoutsPage() {
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     }).map((row, sort_order) => ({ ...row, sort_order }));
     if (!nextPreview.length) return setError("The movements from that workout are no longer in the library.");
-    setMode("custom"); setEditingPlanId(null); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
+    setMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
     setPlanLocation(context === "home" ? "home" : "gym"); setPlannedFor(localDateKey()); setTime("18:00"); setAutoNote("");
     setPreview(nextPreview); setCreatorOpen(true);
     if (nextPreview.length < rows.length) setNotice(`${rows.length - nextPreview.length} movement${rows.length - nextPreview.length === 1 ? " is" : "s are"} no longer in the library and ${rows.length - nextPreview.length === 1 ? "was" : "were"} left out.`);
@@ -569,7 +574,7 @@ export default function WorkoutsPage() {
     const supabase = createClient();
     if (!supabase || !userId) return "FITX is not connected to Supabase.";
     setProgrammeBusy(true);
-    const result = await enrolInProgramme(supabase, { userId, programme, context: programme.context, weekdays, time: startTime });
+    const result = await enrolInProgramme(supabase, { userId, programme, context: programme.context, weekdays, time: startTime, todayKey: localDateKey() });
     if (result.error || !result.enrolment) {
       setProgrammeBusy(false);
       return result.alreadyActive ? "You already follow a programme. Leave it first to start another." : "The programme couldn’t be started. Check your connection and try again.";
@@ -599,13 +604,16 @@ export default function WorkoutsPage() {
     });
     setProgrammeBusy(false);
     await load();
-    setNotice(scheduled.ran ? programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays) : "Your next 7 days are already planned.");
+    setNotice(scheduled.ran ? programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays)
+      : scheduled.skipped === "busy" ? "Your next days are being planned in another tab. Check again in a moment."
+      : "Your next 7 days are already planned.");
   }
 
   async function leave() {
     const supabase = createClient();
     const programme = followedProgramme(programmes, enrolment);
-    if (!supabase || !userId || !enrolment) return;
+    // Not while the next days are being planned: they would be created after the removal (see topUpProgrammeDays).
+    if (!supabase || !userId || !enrolment || planningAhead) return;
     if (!window.confirm(`Stop following ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner. Finished workouts stay in your history.`)) return;
     setProgrammeBusy(true);
     const result = await leaveProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
@@ -617,7 +625,7 @@ export default function WorkoutsPage() {
   async function pause() {
     const supabase = createClient();
     const programme = followedProgramme(programmes, enrolment);
-    if (!supabase || !userId || !enrolment || activeSession) return;
+    if (!supabase || !userId || !enrolment || activeSession || planningAhead) return;
     if (!window.confirm(`Pause ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner until you resume. Your place in the programme is kept.`)) return;
     setProgrammeBusy(true); setError(""); setNotice("");
     const result = await pauseProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
@@ -641,7 +649,7 @@ export default function WorkoutsPage() {
 
   async function finish() {
     const supabase = createClient();
-    if (!supabase || !userId || !enrolment) return;
+    if (!supabase || !userId || !enrolment || planningAhead) return;
     setProgrammeBusy(true); setError("");
     const result = await finishProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
     setProgrammeBusy(false);
@@ -697,12 +705,14 @@ export default function WorkoutsPage() {
     if (!supabase || !userId) return;
     setError(""); setNotice(""); setSaving(true);
     const [planResult, exercisesResult, eventResult] = await Promise.all([
-      supabase.from("workout_plans").select("id,title,planned_for,status,split,notes,workout_location").eq("id", planId).eq("user_id", userId).maybeSingle(),
+      withOptionalColumns(PROGRAMME_PLAN_COLUMNS, (include) =>
+        supabase.from("workout_plans").select(columnList(["id", "title", "planned_for", "status", "split", "notes", "workout_location"], PROGRAMME_PLAN_COLUMNS, include)).eq("id", planId).eq("user_id", userId).maybeSingle()),
       readPlanRows(planId),
       // The plan's own event gives the start time (see below); "scheduled" sorts before "completed".
       supabase.from("planner_events").select("status,starts_at").eq("workout_plan_id", planId).eq("user_id", userId).eq("event_type", "workout").neq("status", "cancelled").not("starts_at", "is", null).order("status", { ascending: false }).order("starts_at", { ascending: true }).limit(20),
     ]);
-    if (planResult.error || !planResult.data || exercisesResult.error) {
+    const planRow = planResult.result.data as unknown as EditedPlanRow | null;
+    if (planResult.result.error || !planRow || exercisesResult.error) {
       setSaving(false); setError("This workout could not be opened for editing. Check your connection and try again."); return;
     }
     const rows = exercisesResult.rows;
@@ -713,12 +723,13 @@ export default function WorkoutsPage() {
     if (rows.length && !nextPreview.length) {
       setSaving(false); setError("The saved movements are no longer available in the active library."); return;
     }
-    setMode("custom"); setEditingPlanId(planId); setEditingPlannedFor(planResult.data.planned_for || null); setTitle(planResult.data.title); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym");
+    setMode("custom"); setEditingPlanId(planId); setEditingPlannedFor(planRow.planned_for || null); setTitle(planRow.title); setPlanNotes(planRow.notes || ""); setSplit(planRow.split); setPlanLocation(planRow.workout_location || "gym");
+    setEditingProgrammeDay(Boolean(planRow.programme_enrolment_id && planRow.planned_for));
     // A To-Do workout linked to the plan has its own time: prefer the scheduled event on the plan's day.
-    const planDay = planResult.data.planned_for;
+    const planDay = planRow.planned_for;
     const timedEvents = (eventResult.data || []) as Array<{ status: string; starts_at: string }>;
     const ownEvent = timedEvents.find((event) => event.status === "scheduled" && localDateKey(new Date(event.starts_at)) === planDay) ?? timedEvents[0];
-    setPlannedFor(planResult.data.planned_for || ""); setTime(ownEvent ? new Date(ownEvent.starts_at).toTimeString().slice(0, 5) : "18:00");
+    setPlannedFor(planRow.planned_for || ""); setTime(ownEvent ? new Date(ownEvent.starts_at).toTimeString().slice(0, 5) : "18:00");
     setAutoNote(""); setPreview(nextPreview); setCreatorOpen(true); setSaving(false);
   }
 
@@ -737,7 +748,7 @@ export default function WorkoutsPage() {
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     });
     if (!nextPreview.length) { setSaving(false); setError("The saved movements are no longer available in the active library."); return; }
-    setMode("custom"); setEditingPlanId(null); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
+    setMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
     setAutoNote(""); setPreview(nextPreview); setCreatorOpen(true); setSaving(false);
   }
 
@@ -766,6 +777,7 @@ export default function WorkoutsPage() {
       setError(preview.length === 0 ? "Choose at least one exercise for your workout." : "Give this workout a name.");
       return;
     }
+    if (editingProgrammeDay && plannedFor !== editingPlannedFor) return setError("A programme day keeps its date.");
     const supabase = createClient();
     if (!supabase) return setError("FITX is not connected to Supabase.");
     setSaving(true);
@@ -1028,7 +1040,7 @@ export default function WorkoutsPage() {
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Workout name<input className="fitx-field" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Training split<select className="fitx-field" value={split} onChange={(event) => setSplit(event.target.value)}><option value="full_body">Full body</option><option value="upper_lower">Upper / lower</option><option value="push_pull_legs">Push / pull / legs</option><option value="bro_split">Bro split</option><option value="home_bodyweight">Home bodyweight</option><option value="home_dumbbell">Home dumbbells</option><option value="custom">Custom</option></select></label>
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Training location<select className="fitx-field" value={planLocation} onChange={(event) => { setPlanLocation(event.target.value); const target = contextForLocation(event.target.value); if (!editingPlanId && mode === "auto") applyAuto(target, autoDay, autoSeed); if (!editingPlanId && mode === "focus" && focusAreas.length) applyFocus(target, focusAreas, autoSeed); }}><option value="gym">Gym</option><option value="home">Home</option><option value="outdoor">Outdoor</option><option value="both">Home or gym</option></select></label>
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Schedule date<input className="fitx-field" type="date" value={plannedFor} onChange={(event) => setPlannedFor(event.target.value)} /></label>
+            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Schedule date<input className="fitx-field" type="date" value={plannedFor} onChange={(event) => setPlannedFor(event.target.value)} disabled={editingProgrammeDay} aria-describedby={editingProgrammeDay ? "programme-day-date-note" : undefined} />{editingProgrammeDay && <span id="programme-day-date-note">A programme day keeps its date.</span>}</label>
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Start time<input className="fitx-field" type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={!plannedFor} /></label>
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary sm:col-span-2 xl:col-span-1">Notes (optional)<input className="fitx-field" maxLength={500} value={planNotes} onChange={(event) => setPlanNotes(event.target.value)} placeholder="Short focus for this session" /></label>
             {builderProgramme && <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Day<select className="fitx-field" value={autoDay % builderProgramme.days.length} onChange={(event) => { const day = Number(event.target.value); setAutoDay(day); applyAuto(builderContext, day, autoSeed); }}>{builderProgramme.days.map((day, index) => <option key={day.key} value={index}>{day.title}</option>)}</select></label>}

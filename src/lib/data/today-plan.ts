@@ -111,7 +111,8 @@ export async function loadTodayPlanData(db: Db, userId: string, today: string): 
 
   const [muscles, finished] = await Promise.all([
     loadPlanMuscles(db, userId, todayPlanIds).catch(() => new Map()),
-    loadFinishedPlans(db, userId, todayPlanIds.filter((id) => programmePlanIds.has(id))).catch(() => new Set<string>()),
+    // Every programme day ahead too: one finished early is done, so "Next:" skips it.
+    loadFinishedPlans(db, userId, [...programmePlanIds]).catch(() => new Set<string>()),
   ]);
 
   const describe = (planId: string | null) => {
@@ -146,7 +147,7 @@ export async function loadTodayPlanData(db: Db, userId: string, today: string): 
       next: programmeNext({
         today,
         weekdays,
-        planned: ownPlans.filter((plan) => plan.planned_for && plan.planned_for > today).map((plan) => ({ date: plan.planned_for!, title: dayTitle(plan) })),
+        planned: ownPlans.filter((plan) => plan.planned_for && plan.planned_for > today && !finished.has(plan.id)).map((plan) => ({ date: plan.planned_for!, title: dayTitle(plan) })),
         nextDayTitle: nextIndex === null ? null : days[nextIndex]?.title ?? null,
       }),
     };

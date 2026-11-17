@@ -18,7 +18,9 @@ export const flow = {
     await t.goto("/nutrition", { label: "nutrition" });
 
     await t.step("\"curd\" selects plain yogurt and offers ml and katori", async () => {
-      await page.getByRole("textbox", { name: "Search foods" }).fill("curd");
+      // A food is selected for the member only when an amount is typed with it (otherwise they tap one), so this
+      // checks that the alias "curd" picks plain yogurt.
+      await page.getByRole("textbox", { name: "Search foods" }).fill("1 katori curd");
       await page.getByRole("button", { name: "Search food" }).click();
       await page.getByText("Loading foods…").waitFor({ state: "detached", timeout: 30000 }).catch(() => undefined);
       await t.settle(2000);

@@ -12,11 +12,13 @@
   inset: 0;
 }
 
+/* A control laid over the map's top-left corner (the Record screen's Hide map button) sets
+   --fitx-map-inset-top, so the notice sits below it instead of under it. */
 .notice {
   position: absolute;
   left: 10px;
   right: 10px;
-  top: 10px;
+  top: calc(10px + var(--fitx-map-inset-top, 0px));
   z-index: 2;
   margin: 0;
   border: 1px solid var(--fitx-border);

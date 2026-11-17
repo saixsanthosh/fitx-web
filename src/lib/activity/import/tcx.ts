@@ -1,6 +1,6 @@
 import { cleanDeviceName, parseXmlTime, timeRange } from "./gpx";
 import { sportFromTcx } from "./sport";
-import { IMPORT_LIMITS, ImportError, type DeviceTotals, type ImportPoint, type ParsedImport } from "./types";
+import { IMPORT_LIMITS, ImportError, sumIfAllKnown, type DeviceTotals, type ImportPoint, type ParsedImport } from "./types";
 import { scanXml, XmlError } from "./xml";
 
 /*
@@ -143,9 +143,9 @@ export function readTcx(xml: string): ParsedImport {
   if (!activities) throw new ImportError("not-activity", "This TCX file has no recorded activity (it may be a course or a workout plan).");
   if (!segments.length) throw new ImportError("no-points", "This TCX file has no GPS points (an indoor or treadmill session?). FITX imports walks, runs and rides with a recorded route.");
 
-  const sum = (values: Array<number | null>) => (values.some((v) => v !== null) ? values.reduce<number>((s, v) => s + (v ?? 0), 0) : null);
+  // Lap totals count only when every lap has the value (a lap without one is unknown, not 0).
   const totals: DeviceTotals | null = laps.length
-    ? { distanceM: sum(laps.map((l) => l.distance)), timerSeconds: sum(laps.map((l) => l.seconds)), elapsedSeconds: null, ascentM: null, kcal: sum(laps.map((l) => l.kcal)) }
+    ? { distanceM: sumIfAllKnown(laps.map((l) => l.distance)), timerSeconds: sumIfAllKnown(laps.map((l) => l.seconds)), elapsedSeconds: null, ascentM: null, kcal: sumIfAllKnown(laps.map((l) => l.kcal)) }
     : null;
   const { first, last } = timeRange(segments);
   const declaredStart = parseXmlTime(activityId) ?? parseXmlTime(firstLapStart);

@@ -3,7 +3,8 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   REST_MAX_SECONDS, adjustRest, describeNextStep, exerciseAfterTick, exerciseProgress, formatCountdown, formatKg, formatRest, nextExerciseWithOpenSets, restFraction,
-  restRemaining, sessionProgress, setHeadline, setTarget, setsLeftLabel, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, workTarget,
+  restRemaining, sessionProgress, sessionTally, setHeadline, setTarget, setsLeftLabel, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, timerSecondsDone,
+  updateSet, workTarget,
   type ProgressExercise, type ProgressSet,
 } from "@/app/(dashboard)/workouts/active/_lib/session-progress";
 
@@ -166,5 +167,40 @@ describe("number steppers", () => {
     assert.equal(stepValue("10", 1, { max: 500, decimals: 0 }), "11");
     assert.equal(stepValue("abc", 1, { max: 500, decimals: 0 }), "1");
     assert.equal(stepValue("30", -5, { max: 86400, decimals: 0 }), "25");
+  });
+});
+
+describe("a save that returns late", () => {
+  test("only the saved set changes; ticks and typing made meanwhile stay", () => {
+    type Row = ProgressSet & { draftReps: string };
+    const typed = (n: number, done: boolean, draftReps: string): Row => ({ ...set(n, done), draftReps });
+    // Set 2 was ticked and set 3 typed while set 1's save was in flight.
+    const now = [{ id: "a", sets: [typed(1, false, "8"), typed(2, true, "8"), typed(3, false, "6")] }, { id: "b", sets: [typed(1, false, "")] }];
+    const next = updateSet(now, "a", "s1", (row) => ({ ...row, completed_at: DONE, draftReps: "8" }));
+    assert.deepEqual(next[0].sets.map((row) => [row.id, Boolean(row.completed_at), row.draftReps]), [["s1", true, "8"], ["s2", true, "8"], ["s3", false, "6"]]);
+    assert.equal(next[1], now[1], "other exercises are kept as they are");
+    assert.equal(now[0].sets[0].completed_at, null, "the input is not changed");
+    assert.equal(sessionProgress(next).setsLeft, 2);
+  });
+});
+
+describe("set timer", () => {
+  test("the seconds held so far, at least 1 and never more than the timer was set for", () => {
+    const timer = { startedAt: 1_000_000, seconds: 60 };
+    assert.equal(timerSecondsDone(timer, 1_000_000 + 40_200), 40);
+    assert.equal(timerSecondsDone(timer, 1_000_000 + 100), 1);
+    assert.equal(timerSecondsDone(timer, 1_000_000 + 75_000), 60);
+  });
+});
+
+describe("the live tally", () => {
+  const stats = (extra: Partial<{ completedSets: number; volumeKg: number | null; timedSets: number; timedSeconds: number }>) => ({ completedSets: 0, volumeKg: null, timedSets: 0, timedSeconds: 0, ...extra });
+  test("body-weight work has no kilograms; short timed work reads in minutes and seconds", () => {
+    assert.equal(sessionTally(stats({ completedSets: 4, timedSets: 1, timedSeconds: 25 }), true, "en-GB"), "4 completed sets · 0:25 timed");
+    assert.equal(sessionTally(stats({ completedSets: 1, volumeKg: 1200.4, timedSets: 1, timedSeconds: 90 }), true, "en-GB"), "1 completed set · 1,200 kg logged · 1:30 timed");
+  });
+  test("the timed part only when timed sets can be stored and one is logged", () => {
+    assert.equal(sessionTally(stats({ completedSets: 2, volumeKg: 480, timedSets: 1, timedSeconds: 30 }), false, "en-GB"), "2 completed sets · 480 kg logged");
+    assert.equal(sessionTally(stats({}), true, "en-GB"), "0 completed sets");
   });
 });

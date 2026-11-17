@@ -33,6 +33,7 @@ export function NextFocusWidget({ date, training, activities, food, summary, goa
       today: date,
       sessions: training.data.sessions,
       activityStarts: activities.data?.available ? activities.data.activities.map((activity) => activity.startedAt) : null,
+      activitiesFailed: activities.status === "error" && !activities.data,
       foodDays: food.data.days,
       proteinTarget: proteinTargetFrom(target),
     });

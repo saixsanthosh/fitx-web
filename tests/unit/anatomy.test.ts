@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { loadCatalog } from "../../scripts/catalog/catalog.mjs";
 import { BODY_ART, BODY_VIEWBOX, type BodyView } from "@/components/anatomy/body-paths";
 import {
-  BODY_REGIONS, PRIMARY_SET_CREDIT, REGIONS, SECONDARY_SET_CREDIT, exerciseRegions, groupForRegion, isRegionKey, listRegions,
+  BODY_REGIONS, PRIMARY_SET_CREDIT, REGIONS, SECONDARY_SET_CREDIT, exerciseRegions, groupForRegion, isBroadMuscleWord, isRegionKey, listRegions,
   loadLevels, loadShare, muscleLoad, regionInView, regionsForGroup, regionsForMuscle, type RegionKey,
 } from "@/lib/training/anatomy";
 import { MUSCLE_GROUPS, MUSCLE_TO_GROUP, type MuscleGroup } from "@/lib/training/taxonomy";
@@ -149,7 +149,7 @@ test("muscleLoad: 1 per set for the primary muscle, 0.5 per set for each seconda
 });
 
 test("muscleLoad counts a region once per exercise, at its highest role, and ignores what it cannot place", () => {
-  // A secondary that repeats the primary, two secondaries on one region, a group word, unknown and empty values.
+  // A secondary that repeats the primary, two secondaries on one region, a broad group word, unknown and empty values.
   const load = muscleLoad([
     { primary: "hamstrings", secondary: ["hamstrings", "glutes", "back", "wings", ""], sets: 3 },
     { primary: "shoulders", secondary: ["front_deltoids", "rear_deltoids"], sets: 1 },
@@ -159,11 +159,12 @@ test("muscleLoad counts a region once per exercise, at its highest role, and ign
   ]);
   assert.equal(load.hamstrings, 3);
   assert.equal(load.glutes, 1.5);
-  for (const region of ["traps", "lats", "middle_back", "lower_back"] as const) assert.equal(load[region], 1.5);
+  // "back" on a hinge does not say which back muscle assists, so none is credited (C3: never guessed).
+  for (const region of ["traps", "lats", "middle_back", "lower_back"] as const) assert.equal(load[region], 0);
   assert.equal(load.shoulders, 1);
   assert.equal(load.calves, 1);
   assert.equal(load.forearms, 1);
-  assert.equal(sum(Object.values(load)), 3 + 1.5 + 6 + 1 + 1 + 1);
+  assert.equal(sum(Object.values(load)), 3 + 1.5 + 1 + 1 + 1);
 });
 
 test("muscleLoad: empty input and sets that are not positive numbers give zero", () => {
@@ -211,9 +212,22 @@ test("loadLevels: relative to the busiest region, 0 without load", () => {
   assert.ok(BODY_REGIONS.every((key) => none[key] === 0));
 });
 
+test("isBroadMuscleWord: group words over several regions, not regions, aliases or one-region groups", () => {
+  for (const word of ["back", "Back ", "hips", "HIPS"]) assert.equal(isBroadMuscleWord(word), true, word);
+  for (const word of ["lower_back", "lats", "upper_back", "erectors", "core", "abdominals", "cardio", "full_body", "wings", ""]) {
+    assert.equal(isBroadMuscleWord(word), false, word);
+  }
+  assert.equal(isBroadMuscleWord(42 as unknown as string), false);
+});
+
 test("exerciseRegions and listRegions, for the two-tone map and its label", () => {
   assert.deepEqual(exerciseRegions("chest", ["triceps", "front_deltoids", "upper_chest", "shoulders"]), { primary: ["chest"], secondary: ["triceps", "shoulders"] });
-  assert.deepEqual(exerciseRegions("lats", ["back", "biceps"]), { primary: ["lats"], secondary: ["traps", "middle_back", "lower_back", "biceps"] });
+  assert.deepEqual(exerciseRegions("lats", ["back", "biceps"]), { primary: ["lats"], secondary: ["biceps"] });
+  // The starter Romanian deadlift rows: hamstrings with glutes and a bare "back".
+  assert.deepEqual(exerciseRegions("hamstrings", ["glutes", "back"]), { primary: ["hamstrings"], secondary: ["glutes"] });
+  assert.deepEqual(exerciseRegions("glutes", ["Hips", "core", "lower back"]), { primary: ["glutes"], secondary: ["abdominals", "lower_back"] });
+  // A broad primary still covers its group: only an assisting muscle has to be named precisely.
+  assert.deepEqual(exerciseRegions("back", ["biceps"]), { primary: ["traps", "lats", "middle_back", "lower_back"], secondary: ["biceps"] });
   assert.deepEqual(exerciseRegions(null, null), { primary: [], secondary: [] });
   assert.equal(listRegions([]), "");
   assert.equal(listRegions(["chest"]), "chest");

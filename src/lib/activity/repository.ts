@@ -309,20 +309,25 @@ export function rowFromRecord(record: ActivityRecord, userId: string): Row {
 
 const CHUNK_BATCH = 6;
 
-/** Saves (or re-saves) a finished activity and its GPS chunks. Safe to retry. */
-export async function saveActivity(client: SupabaseLike, userId: string, record: ActivityRecord): Promise<DbResult<{ id: string }>> {
+/**
+ * Saves the row and then its chunks. `created` is the id when this call inserted the row (it did not
+ * exist before), so a caller can take it back out when the chunks then fail.
+ */
+async function saveRowAndChunks(client: SupabaseLike, userId: string, record: ActivityRecord): Promise<{ result: DbResult<{ id: string }>; created: string | null }> {
+  let created: string | null = null;
   try {
     const inserted = await table(client, "activities")
       .upsert(rowFromRecord(record, userId), { onConflict: "user_id,client_id", ignoreDuplicates: true })
       .select("id");
-    if (inserted.error) return failure(inserted.error);
+    if (inserted.error) return { result: failure(inserted.error), created };
     let id = Array.isArray(inserted.data) && inserted.data.length ? str((inserted.data[0] as Row).id) : "";
+    if (id) created = id;
     if (!id) {
       const existing = await table(client, "activities").select("id").eq("user_id", userId).eq("client_id", record.clientId).maybeSingle();
-      if (existing.error) return failure(existing.error);
+      if (existing.error) return { result: failure(existing.error), created };
       id = str((existing.data as Row | null)?.id);
     }
-    if (!id) return { status: "error", message: "The activity was not saved", offline: false };
+    if (!id) return { result: { status: "error", message: "The activity was not saved", offline: false }, created };
     const chunks = record.chunks;
     for (let i = 0; i < chunks.length; i += CHUNK_BATCH) {
       const rows = chunks.slice(i, i + CHUNK_BATCH).map((chunk: TrackChunk) => ({
@@ -336,12 +341,30 @@ export async function saveActivity(client: SupabaseLike, userId: string, record:
         points: chunk.points,
       }));
       const saved = await table(client, "activity_track_chunks").upsert(rows, { onConflict: "activity_id,seq" });
-      if (saved.error) return failure(saved.error);
+      if (saved.error) return { result: failure(saved.error), created };
     }
-    return { status: "ok", data: { id } };
+    return { result: { status: "ok", data: { id } }, created };
   } catch (error) {
-    return failure(error);
+    return { result: failure(error), created };
   }
+}
+
+/** Saves (or re-saves) a finished activity and its GPS chunks. Safe to retry. */
+export async function saveActivity(client: SupabaseLike, userId: string, record: ActivityRecord): Promise<DbResult<{ id: string }>> {
+  return (await saveRowAndChunks(client, userId, record)).result;
+}
+
+/**
+ * Saves an imported activity. A phone recording that fails part way is retried from the device
+ * copy, but an import has no copy to retry from: when this call created the row and its points
+ * then failed, the row is removed again (its chunks go with it), so importing the file again
+ * starts clean instead of finding an activity without its points. A row that was already there
+ * is never removed.
+ */
+export async function saveImportedActivity(client: SupabaseLike, userId: string, record: ActivityRecord): Promise<DbResult<{ id: string }>> {
+  const { result, created } = await saveRowAndChunks(client, userId, record);
+  if (result.status !== "ok" && created) await deleteActivity(client, userId, created);
+  return result;
 }
 
 export async function listActivities(client: SupabaseLike, userId: string, options: { limit?: number; before?: number | null } = {}): Promise<DbResult<ActivityView[]>> {
@@ -478,6 +501,17 @@ export async function getActivity(client: SupabaseLike, userId: string, id: stri
 }
 
 export type StoredChunk = { seq: number; startedAt: number; points: string };
+
+/** How many GPS chunks an activity has stored (an activity holds at most 200, so one page). */
+export async function countTrackChunks(client: SupabaseLike, userId: string, activityId: string): Promise<DbResult<number>> {
+  try {
+    const result = await table(client, "activity_track_chunks").select("seq").eq("user_id", userId).eq("activity_id", activityId);
+    if (result.error) return failure(result.error);
+    return { status: "ok", data: Array.isArray(result.data) ? result.data.length : 0 };
+  } catch (error) {
+    return failure(error);
+  }
+}
 
 /** The detailed GPS chunks of an activity (empty once the retention period removed them). */
 export async function getTrackChunks(client: SupabaseLike, userId: string, activityId: string): Promise<DbResult<StoredChunk[]>> {

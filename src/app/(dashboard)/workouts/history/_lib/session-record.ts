@@ -99,6 +99,11 @@ export type SessionRecord = {
   records: HeldRecord[] | null;
   /** False when the database has no target columns yet (targets were left out). */
   targetsIncluded: boolean;
+  /**
+   * True when the exercise library could not be read: every `library` is then unknown (null), not "not in the
+   * library", so the muscles are not shown and the workout cannot be repeated until it loads.
+   */
+  musclesFailed: boolean;
 };
 
 export type RecordResult =
@@ -326,7 +331,8 @@ async function loadThumbDetails(db: Db, ids: readonly string[]): Promise<Map<str
 
 /**
  * One session's record: the session, its exercises in order with every set, the library muscles, and the personal
- * records it still holds. "missing" when the member has no session with this id (owner RLS).
+ * records it still holds. "missing" when the member has no session with this id (owner RLS). A library that cannot
+ * be read leaves the record standing with `musclesFailed`.
  */
 export async function loadSessionRecord(db: Db, userId: string, sessionId: string): Promise<RecordResult> {
   if (!isSessionId(sessionId)) return { status: "missing" };
@@ -357,7 +363,8 @@ export async function loadSessionRecord(db: Db, userId: string, sessionId: strin
     loadThumbDetails(db, [...new Set(ids.filter((id): id is string => Boolean(id)).map(survivingExerciseId))]),
     db.from("personal_records").select("exercise_name,best_weight_kg,best_reps,estimated_one_rep_max,achieved_at").eq("user_id", userId).eq("session_id", sessionId),
   ]);
-  if (library.error) return { status: "error", error: library.error };
+  // Muscles are a detail of the record: without the library the sets, totals and note still show.
+  const libraryRows: ReadonlyMap<string, LibraryMuscles> = library.error ? new Map() : library.rows;
 
   const setsByExercise = new Map<string, RecordSet[]>();
   for (const row of setRows) {
@@ -387,7 +394,7 @@ export async function loadSessionRecord(db: Db, userId: string, sessionId: strin
           target_sets: row.target_sets, reps_min: row.reps_min, reps_max: row.reps_max, rest_seconds: row.rest_seconds,
           target_weight_kg: numberOrNull(row.target_weight_kg), target_duration_seconds: numberOrNull(row.target_duration_seconds),
           sets: (setsByExercise.get(row.id) ?? []).sort((a, b) => a.set_number - b.set_number),
-          library: survivor ? library.rows.get(survivor) ?? null : null,
+          library: survivor ? libraryRows.get(survivor) ?? null : null,
           sourceRef: thumb?.source_ref ?? null,
           equipment: Array.isArray(thumb?.required_equipment) ? thumb.required_equipment : null,
         };
@@ -397,6 +404,7 @@ export async function loadSessionRecord(db: Db, userId: string, sessionId: strin
         estimated_one_rep_max: Number(row.estimated_one_rep_max ?? 0), achieved_at: typeof row.achieved_at === "string" ? row.achieved_at : null,
       })),
       targetsIncluded: exerciseRead.included[0],
+      musclesFailed: Boolean(library.error),
     },
   };
 }

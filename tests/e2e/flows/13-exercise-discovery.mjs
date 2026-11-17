@@ -29,7 +29,7 @@ export const flow = {
     });
 
     await t.step("smart search: benchpress, bp and press-up find the right exercises", async () => {
-      const box = page.getByRole("searchbox", { name: "Search exercises" });
+      const box = page.getByRole("main").getByRole("searchbox", { name: "Search exercises" });
       await box.fill("benchpress");
       await page.getByRole("link", { name: "Barbell Bench Press", exact: true }).first().waitFor({ timeout: 15000 });
       await box.fill("bp");

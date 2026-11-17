@@ -61,7 +61,7 @@ export const flow = {
       await t.checkpoint("exercise details from the preview", { fullPage: false });
       await info.getByRole("button", { name: "Back" }).click();
       await info.waitFor({ state: "detached", timeout: 10000 });
-      await preview.getByRole("button", { name: "Close" }).click();
+      await preview.getByRole("button", { name: "Close", exact: true }).click();
       await preview.waitFor({ state: "detached", timeout: 10000 });
     });
 

@@ -31,7 +31,7 @@ import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { checkSectionName, mealForTime, mealSections } from "@/lib/domain/meal-time";
-import { calorieBalance, estimateNutritionTargets, goalPercent, goalProgress, MACRO_LABEL, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
+import { calorieBalance, estimateNutritionTargets, goalPercent, goalProgress, MACRO_LABEL, resolveDayTargets, resolveWaterTarget, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
 import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
@@ -40,7 +40,7 @@ import { unsourcedFor } from "@/lib/food/unsourced";
 import {
   buildMealValues, sameMeal, clearTargets, customFoodResult, deleteTemplate, detectCapabilities, entryUpdate, foodFromEntry, frequentFromEntries, insertEntries, isEstimateSnapshot, loadCustomFoods,
   loadRecentFoods, loadRecentMeals, loadTargets, loadTemplates, MEAL_COLUMNS, removeCustomFood, removeCustomFoodPhoto, rowsFromItems, saveCustomFood,
-  saveTargets, saveTemplate, withCurrentCustomFoods, type CustomFoodInput, type CustomFoodRow, type FrequentFood, type ManualTargets, type MealEntry,
+  saveTargets, saveTemplate, usualAmount, withCurrentCustomFoods, type CustomFoodInput, type CustomFoodRow, type FrequentFood, type ManualTargets, type MealEntry,
   type MealTemplate, type NutritionCapabilities,
 } from "@/lib/food/client-data";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
@@ -206,18 +206,16 @@ export default function NutritionPage() {
   }, []);
 
   const totals = useMemo(() => sumKnown(entries), [entries]);
-  const baseTarget = manualTargets ?? estimated;
   // Same order as Home (todayTargets): a daily calorie or protein goal for this day, then the targets the
-  // member set, then the estimate from the profile.
-  const calorieDailyGoal = dailyGoalFor(dailyGoals, "calories_kcal", dateKey);
-  const proteinDailyGoal = dailyGoalFor(dailyGoals, "protein_g", dateKey);
-  const target = baseTarget
-    ? { ...baseTarget, calories: calorieDailyGoal?.targetValue ?? baseTarget.calories, protein: proteinDailyGoal?.targetValue ?? baseTarget.protein }
-    : null;
-  const fromGoals = [calorieDailyGoal ? "calories" : null, proteinDailyGoal ? "protein" : null].filter(Boolean) as string[];
-  const targetSourceText = fromGoals.length
-    ? `${fromGoals.join(" and ").replace(/^./, (letter) => letter.toUpperCase())} from your daily ${fromGoals.length > 1 ? "goals" : "goal"}; the rest ${manualTargets ? "are targets you set" : "are estimated from your profile"}`
-    : manualTargets ? "Targets you set" : "Estimated daily target from your profile";
+  // member set, then the estimate from the profile. A daily goal counts on its own too.
+  const dayTargets = resolveDayTargets(
+    { calories: dailyGoalFor(dailyGoals, "calories_kcal", dateKey)?.targetValue, protein: dailyGoalFor(dailyGoals, "protein_g", dateKey)?.targetValue },
+    manualTargets, estimated,
+  );
+  const target = dayTargets?.targets ?? null;
+  const targetSourceText = dayTargets?.source ?? "";
+  // Water as on Home: a daily water goal for this day, then the member's saved setting.
+  const waterTarget = resolveWaterTarget(dailyGoalFor(dailyGoals, "water_ml", dateKey)?.targetValue, waterGoal);
   /** The food's own portions, then ml, cups and katori worked out for it, then any weight worked out from typing. */
   const portionOptions = useMemo(
     () => (selected ? [...selected.portions, ...extraPortions(selected.portions, selected.name, household), ...(derived ? [derived] : [])] : []),
@@ -228,7 +226,7 @@ export default function NutritionPage() {
   const amountNumber = amount.trim() ? Number(amount) : Number.NaN;
   const grams = Number.isFinite(amountNumber) ? Math.round(amountNumber * (chosenPortion ? chosenPortion.grams : 1) * 10) / 10 : Number.NaN;
   const selectedMacros = selected && grams > 0 ? scaleMacros(selected, grams) : null;
-  const calorieGoal = target ? goalProgress(totals.calories, target.calories) : null;
+  const calorieGoal = target?.calories ? goalProgress(totals.calories, target.calories) : null;
   const balance = calorieBalance(totals.calories, target?.calories);
   const filtering = dietFilter.nonVeg || dietFilter.egg;
   const shownResults = results.filter((food) => !hiddenByDiet(food.dietType, dietFilter));
@@ -382,7 +380,7 @@ export default function NutritionPage() {
     setQuery(value);
     const typed = parseFoodQuery(value);
     if (typed.text.length < 2) {
-      if (!value.trim()) { void browseFoods(); setLastSearch(""); return; }
+      if (!value.trim()) { void browseFoods(); setLastSearch(""); setLastQuery(NO_AMOUNT); return; }
       setResults([]);
       if (typed.amount !== null) setError("Add a food name after the amount, for example “150 g rice”.");
       return;
@@ -525,9 +523,13 @@ export default function NutritionPage() {
     }
   }
 
+  /** Tapping a frequent food's name chooses it at the amount the member usually has, not an amount typed in an earlier search. */
   function chooseFrequent(item: FrequentFood) {
     const food = foodFromEntry(item.entry);
-    if (food) chooseFood(food, lastQuery);
+    if (!food) return;
+    chooseFood(food);
+    const usual = usualAmount(item.entry);
+    if (usual) { setAmount(formatAmount(usual.amount)); setUnitKey(usual.unitKey); }
   }
 
   function pickMeal(next: string) {
@@ -725,7 +727,7 @@ export default function NutritionPage() {
 
   const macroRows = ([["Protein", "protein", target?.protein], ["Carbs", "carbs", target?.carbs], ["Fat", "fat", target?.fat]] as const)
     .map(([label, key, goal]) => ({ label, key, value: totals[key], goal, progress: goal ? goalProgress(totals[key], goal) : null, unknown: totals.unknown[key] }));
-  const calorieLabel = `${Math.round(totals.calories)} calories logged${target ? ` of ${target.calories} calorie target` : ""}${balance ? `, ${balance.remaining} ${balance.over ? "over" : "left"}` : ""}`;
+  const calorieLabel = `${Math.round(totals.calories)} calories logged${target?.calories ? ` of ${target.calories} calorie target` : ""}${balance ? `, ${balance.remaining} ${balance.over ? "over" : "left"}` : ""}`;
   const visibleSources = sources.filter((source) => source.status !== "not_used");
   const estimateCount = entries.filter(isEstimateSnapshot).length;
   const unknownTotals = (["protein", "carbs", "fat"] as const).filter((key) => totals.unknown[key] > 0);
@@ -762,7 +764,7 @@ export default function NutritionPage() {
             <div role="img" aria-label={calorieLabel}>
               <SegmentRing size="lg" segments={[{ percent: calorieGoal?.percent ?? 0, tone: calorieGoal?.isOver ? "over" : "energy" }]}>
                 <strong className={styles.ringNumber}>{Math.round(totals.calories).toLocaleString()}</strong>
-                <span className={styles.ringSmall}>{target ? `/ ${target.calories} kcal` : "kcal logged"}</span>
+                <span className={styles.ringSmall}>{target?.calories ? `/ ${target.calories} kcal` : "kcal logged"}</span>
               </SegmentRing>
             </div>
             <div className={styles.calorieNotes}>
@@ -808,7 +810,7 @@ export default function NutritionPage() {
             <input className="fitx-field" value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder="Barcode number" aria-label="Barcode number" inputMode="numeric"/>
             <button className="fitx-button fitx-button-secondary shrink-0 px-3" disabled={busy} aria-label="Find barcode"><Barcode size={17}/></button>
           </form>
-          <BarcodeScanner onDetected={onBarcodeDetected} autoOpen={scanOnLoad}/>
+          <BarcodeScanner onDetected={onBarcodeDetected} autoOpen={scanOnLoad} onAutoOpened={() => setScanOnLoad(false)}/>
           <div className={styles.searchTools}>
             {lastSearch && searchMode !== "packaged" && <button type="button" className={ui.textButton} disabled={searchingFoods} onClick={() => void runFoodSearch(lastSearch, true)}><PackageSearch size={13} className="mr-1 inline"/>Search packaged products for “{parseFoodQuery(lastSearch).text}”</button>}
             <label className={styles.filter}><input type="checkbox" checked={dietFilter.nonVeg} onChange={(event) => changeDietFilter({ nonVeg: event.target.checked })}/>Hide foods marked non-veg</label>
@@ -863,9 +865,9 @@ export default function NutritionPage() {
         <aside className={styles.nutritionAside}>
           <section className="fitx-panel p-4 sm:p-5">
             <h2 className="mb-3 flex items-center gap-2 font-medium"><Droplets size={17} className="text-fitx-info"/>Water intake</h2>
-            <p className="mb-3 text-sm text-fitx-text-secondary">{(waterMl / 1000).toFixed(1)} L{waterGoal ? <span className="text-fitx-text-disabled"> / {(waterGoal / 1000).toFixed(1)} L</span> : null}</p>
-            {waterGoal
-              ? <div className="fitx-progress-track mb-3 h-2"><div className="fitx-progress-fill h-full rounded-full bg-fitx-info" style={{ width: `${goalPercent(waterMl, waterGoal)}%`, background: "var(--fitx-info)" }}/></div>
+            <p className="mb-3 text-sm text-fitx-text-secondary">{(waterMl / 1000).toFixed(1)} L{waterTarget ? <span className="text-fitx-text-disabled"> / {(waterTarget / 1000).toFixed(1)} L</span> : null}</p>
+            {waterTarget
+              ? <div className="fitx-progress-track mb-3 h-2"><div className="fitx-progress-fill h-full rounded-full bg-fitx-info" style={{ width: `${goalPercent(waterMl, waterTarget)}%`, background: "var(--fitx-info)" }}/></div>
               : <p className="mb-3 text-xs text-fitx-text-secondary">No water target yet. <Link href="/goals?tab=goals&new=water_day" className={ui.textButton}>Set a daily water goal</Link></p>}
             <div className="flex gap-2">{[250, 500].map((ml) => <button key={ml} disabled={busy} onClick={() => void addWater(ml)} className="fitx-button fitx-button-secondary flex-1">+{ml} ml</button>)}</div>
           </section>
@@ -881,11 +883,13 @@ export default function NutritionPage() {
         onEdit={(row) => setFoodForm({ editing: row, prefill: null })} onRemove={(row) => void removeFood(row)}/>}
       {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
         onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
-      {tab === "insights" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-2 font-medium">Daily nutrition insights</h2><p className="mb-5 text-sm text-fitx-text-secondary">This view summarizes the food you have logged for the selected day{estimateCount > 0 ? `, including ${estimateCount} estimated ${estimateCount === 1 ? "item" : "items"}` : ""}. For more than one day, see History.</p>{unknownTotals.length > 0 && <p className="mb-4 text-xs text-fitx-text-secondary">{unknownTotals.map((key) => `${totals.unknown[key]} ${totals.unknown[key] === 1 ? "entry has" : "entries have"} no ${MACRO_LABEL[key]} value`).join(", ")}; those are left out of the totals, not counted as 0 g.</p>}{entries.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{([["Energy", Math.round(totals.calories), "kcal", target?.calories], ["Protein", Math.round(totals.protein), "g", target?.protein], ["Carbohydrates", Math.round(totals.carbs), "g", target?.carbs], ["Fat", Math.round(totals.fat), "g", target?.fat]] as const).map(([label, value, unit, goal]) => { const progress = goal ? goalProgress(value, goal) : null; return <div key={label} className="rounded-xl border border-fitx-border bg-fitx-surface p-4"><p className="text-xs text-fitx-text-secondary">{label}</p><p className="mt-2 text-2xl font-semibold">{value} <span className="text-sm font-normal text-fitx-text-disabled">{unit}</span></p>{progress && <p className={`mt-2 text-xs ${progress.isOver ? styles.macroOver : "text-fitx-text-disabled"}`}>{progress.isOver ? `${progress.over} ${unit} over the ${manualTargets ? "" : "estimated "}target` : `${progress.percent}% of ${manualTargets ? "your" : "estimated"} target`}</p>}</div>; })}</div> : <EmptyState title="No nutrition data yet" description="Logged meals will be summarized here."/>}</section>}
+      {tab === "insights" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-2 font-medium">Daily nutrition insights</h2><p className="mb-5 text-sm text-fitx-text-secondary">This view summarizes the food you have logged for the selected day{estimateCount > 0 ? `, including ${estimateCount} estimated ${estimateCount === 1 ? "item" : "items"}` : ""}. For more than one day, see History.</p>{unknownTotals.length > 0 && <p className="mb-4 text-xs text-fitx-text-secondary">{unknownTotals.map((key) => `${totals.unknown[key]} ${totals.unknown[key] === 1 ? "entry has" : "entries have"} no ${MACRO_LABEL[key]} value`).join(", ")}; those are left out of the totals, not counted as 0 g.</p>}{entries.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{([["Energy", Math.round(totals.calories), "kcal", "calories"], ["Protein", Math.round(totals.protein), "g", "protein"], ["Carbohydrates", Math.round(totals.carbs), "g", "carbs"], ["Fat", Math.round(totals.fat), "g", "fat"]] as const).map(([label, value, unit, key]) => { const goal = target?.[key] ?? null; const guessed = dayTargets?.estimated[key] ?? false; const progress = goal ? goalProgress(value, goal) : null; return <div key={label} className="rounded-xl border border-fitx-border bg-fitx-surface p-4"><p className="text-xs text-fitx-text-secondary">{label}</p><p className="mt-2 text-2xl font-semibold">{value} <span className="text-sm font-normal text-fitx-text-disabled">{unit}</span></p>{progress && <p className={`mt-2 text-xs ${progress.isOver ? styles.macroOver : "text-fitx-text-disabled"}`}>{progress.isOver ? `${progress.over} ${unit} over the ${guessed ? "estimated " : ""}target` : `${progress.percent}% of ${guessed ? "estimated" : "your"} target`}</p>}</div>; })}</div> : <EmptyState title="No nutrition data yet" description="Logged meals will be summarized here."/>}</section>}
       {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={`${targetSourceText}.`}
         onOpenDay={(key) => { const [year, month, day] = key.split("-").map(Number); setDate(new Date(year, month - 1, day)); setTab("meals"); }}/>}
       {sheetOpen && selected && <Sheet title="Scanned product" description="Check the amount, pick the meal and add it." onClose={() => setSheetOpen(false)}
         footer={<div className={ui.sheetActions}>
+          {/* The page's own alert sits behind this modal, so a rejected amount or a failed save is shown here. */}
+          {error && <p role="alert" className={ui.warning}>{error}</p>}
           <button type="button" className="fitx-button" disabled={busy} onClick={() => void logFood(selected)}>{busy ? "Saving…" : `Add to ${meal}`}</button>
           {selected.kind !== "custom" && <button type="button" className="fitx-button fitx-button-secondary" onClick={() => saveSelectedAsFood(selected)}>Save to My foods</button>}
         </div>}>

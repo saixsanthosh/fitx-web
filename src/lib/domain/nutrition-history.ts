@@ -16,9 +16,10 @@ export interface HistoryEntry {
   estimated: boolean;
 }
 
+/** The daily targets, or null for one the member has none for (a calorie goal alone sets no protein target). */
 export interface HistoryTargets {
-  calories: number;
-  protein: number;
+  calories: number | null;
+  protein: number | null;
 }
 
 export interface HistoryDay {
@@ -41,13 +42,17 @@ export interface HistoryDay {
 export interface NutritionHistory {
   days: HistoryDay[];
   loggedDays: number;
-  /** Averages over logged days only (null when no day was logged). */
-  averages: { calories: number; protein: number; carbs: number; fat: number } | null;
+  /**
+   * Averages over logged days only (null when no day was logged). A protein, carbs or fat average counts only the
+   * logged days with at least one known value for it, and is null when no day has one (never averaged as 0).
+   */
+  averages: { calories: number; protein: number | null; carbs: number | null; fat: number | null } | null;
   /** Logged days where at least one entry lacks the value, per macro: the average is then a lower bound. */
   daysWithUnknown: Record<MacroKey, number>;
   estimatedEntries: number;
   totalEntries: number;
-  adherence: { calorieDays: number; proteinDays: number; proteinUnknownDays: number } | null;
+  /** Logged days on target, or null for a target the member has none for (and as a whole when they have neither). */
+  adherence: { calorieDays: number | null; proteinDays: number | null; proteinUnknownDays: number | null } | null;
 }
 
 /** A band of 10 % either side of the calorie target counts as on target. */
@@ -70,18 +75,20 @@ export function buildHistory(entries: readonly HistoryEntry[], dates: readonly s
     const list = byDate.get(entry.date);
     if (list) list.push(entry); else byDate.set(entry.date, [entry]);
   }
+  const calorieTarget = positive(targets?.calories);
+  const proteinTarget = positive(targets?.protein);
   const days = dates.map((date): HistoryDay => {
     const list = byDate.get(date) ?? [];
     const totals: KnownTotals = sumKnown(list);
     const logged = list.length > 0;
     let caloriesState: HistoryDay["caloriesState"] = null;
     let proteinState: HistoryDay["proteinState"] = null;
-    if (logged && targets && targets.calories > 0) {
-      const ratio = totals.calories / targets.calories;
+    if (logged && calorieTarget !== null) {
+      const ratio = totals.calories / calorieTarget;
       caloriesState = ratio > 1 + CALORIE_BAND ? "over" : ratio < 1 - CALORIE_BAND ? "under" : "within";
     }
-    if (logged && targets && targets.protein > 0) {
-      proteinState = totals.protein >= targets.protein ? "met" : totals.unknown.protein > 0 ? "unknown" : "below";
+    if (logged && proteinTarget !== null) {
+      proteinState = totals.protein >= proteinTarget ? "met" : totals.unknown.protein > 0 ? "unknown" : "below";
     }
     return {
       date, logged, entries: list.length, calories: Math.round(totals.calories),
@@ -90,24 +97,33 @@ export function buildHistory(entries: readonly HistoryEntry[], dates: readonly s
     };
   });
   const logged = days.filter((day) => day.logged);
-  const average = (pick: (day: HistoryDay) => number) => Math.round(logged.reduce((sum, day) => sum + pick(day), 0) / logged.length);
+  const average = (list: readonly HistoryDay[], pick: (day: HistoryDay) => number) => Math.round(list.reduce((sum, day) => sum + pick(day), 0) / list.length);
+  // A day where no entry has the value has no known amount of it, so it is left out of that average, not counted as 0.
+  const macroAverage = (key: MacroKey) => {
+    const known = logged.filter((day) => day.unknown[key] < day.entries);
+    return known.length ? average(known, (day) => day[key]) : null;
+  };
   const daysWithUnknown = { protein: 0, carbs: 0, fat: 0 };
   for (const day of logged) for (const key of MACRO_KEYS) if (day.unknown[key] > 0) daysWithUnknown[key] += 1;
   return {
     days,
     loggedDays: logged.length,
-    averages: logged.length ? { calories: average((day) => day.calories), protein: average((day) => day.protein), carbs: average((day) => day.carbs), fat: average((day) => day.fat) } : null,
+    averages: logged.length ? { calories: average(logged, (day) => day.calories), protein: macroAverage("protein"), carbs: macroAverage("carbs"), fat: macroAverage("fat") } : null,
     daysWithUnknown,
     estimatedEntries: days.reduce((sum, day) => sum + day.estimated, 0),
     totalEntries: days.reduce((sum, day) => sum + day.entries, 0),
-    adherence: targets && logged.length
+    adherence: (calorieTarget !== null || proteinTarget !== null) && logged.length
       ? {
-        calorieDays: logged.filter((day) => day.caloriesState === "within").length,
-        proteinDays: logged.filter((day) => day.proteinState === "met").length,
-        proteinUnknownDays: logged.filter((day) => day.proteinState === "unknown").length,
+        calorieDays: calorieTarget !== null ? logged.filter((day) => day.caloriesState === "within").length : null,
+        proteinDays: proteinTarget !== null ? logged.filter((day) => day.proteinState === "met").length : null,
+        proteinUnknownDays: proteinTarget !== null ? logged.filter((day) => day.proteinState === "unknown").length : null,
       }
       : null,
   };
+}
+
+function positive(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function round1(value: number) {

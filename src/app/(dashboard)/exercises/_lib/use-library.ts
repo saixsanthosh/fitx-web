@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { loadSavedExercises, setExerciseSaved, type SavedStore } from "@/lib/domain/exercise-preferences";
+import { isAuthOutage } from "@/lib/account/deletion";
+import { loadSavedExercises, setExerciseSaved, withExerciseSaved, type SavedStore } from "@/lib/domain/exercise-preferences";
 import { createClient } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
-import { LEVELS, type Level } from "@/lib/training/taxonomy";
+import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { loadLightCatalogue } from "./catalogue";
+import { afterProfilesReload, withSavedList } from "./equipment-lists";
 
 /**
  * Data hooks shared by the exercise library and Browse by muscle (client components): the page's URL, the light
@@ -62,6 +64,8 @@ export function useCatalogue(): { catalogue: CatalogueState; retry: () => void }
 export type LibraryAccount =
   | { status: "loading" }
   | { status: "unavailable" }
+  /** Sign-in could not be checked (Supabase Auth unreachable); `retry` asks again. */
+  | { status: "error" }
   | { status: "signed-out" }
   | {
     status: "ready";
@@ -74,9 +78,17 @@ export type LibraryAccount =
     failed: boolean;
   };
 
-/** The signed-in member, their saved Home and Gym lists and their level; `reloadProfiles` after saving a list. */
-export function useLibraryAccount(): { account: LibraryAccount; reloadProfiles: () => Promise<void> } {
+/**
+ * The signed-in member, their saved Home and Gym lists and their level. `reloadProfiles` after saving a list (pass
+ * what was saved, so it shows even if the read back fails); `retry` after an "error".
+ */
+export function useLibraryAccount(): {
+  account: LibraryAccount;
+  reloadProfiles: (saved?: { context: TrainingContext; keys: readonly string[] }) => Promise<void>;
+  retry: () => void;
+} {
   const [account, setAccount] = useState<LibraryAccount>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
   const userIdRef = useRef("");
 
   useEffect(() => {
@@ -84,8 +96,10 @@ export function useLibraryAccount(): { account: LibraryAccount; reloadProfiles: 
     void (async () => {
       const supabase = createClient();
       if (!supabase) { if (active) setAccount({ status: "unavailable" }); return; }
-      const { data } = await supabase.auth.getUser();
+      const { data, error } = await supabase.auth.getUser().catch((caught: unknown) => ({ data: { user: null }, error: caught }));
       if (!active) return;
+      // An outage is not a sign-out: the member is told and can try again.
+      if (isAuthOutage(error)) { userIdRef.current = ""; setAccount({ status: "error" }); return; }
       const uid = data.user?.id ?? "";
       userIdRef.current = uid;
       if (!uid) { setAccount({ status: "signed-out" }); return; }
@@ -99,17 +113,20 @@ export function useLibraryAccount(): { account: LibraryAccount; reloadProfiles: 
       setAccount({ status: "ready", userId: uid, profiles: lists.profiles, legacyWords: Array.isArray(row?.equipment) ? row.equipment : [], level, failed: Boolean(lists.error) });
     })();
     return () => { active = false; };
-  }, []);
+  }, [attempt]);
 
-  const reloadProfiles = useCallback(async () => {
+  const retry = useCallback(() => { setAccount({ status: "loading" }); setAttempt((value) => value + 1); }, []);
+
+  const reloadProfiles = useCallback(async (saved?: { context: TrainingContext; keys: readonly string[] }) => {
+    if (saved) setAccount((current) => (current.status === "ready" ? { ...current, profiles: withSavedList(current.profiles, saved.context, saved.keys) } : current));
     const supabase = createClient();
     const uid = userIdRef.current;
     if (!supabase || !uid) return;
     const lists = await loadEquipmentProfiles(supabase, uid);
-    setAccount((current) => (current.status === "ready" ? { ...current, profiles: lists.profiles, failed: Boolean(lists.error) } : current));
+    setAccount((current) => (current.status === "ready" ? { ...current, ...afterProfilesReload(current, lists) } : current));
   }, []);
 
-  return { account, reloadProfiles };
+  return { account, reloadProfiles, retry };
 }
 
 // ---------------------------------------------------------------- saved exercises
@@ -148,15 +165,22 @@ export function useSavedExercises(userId: string, knownIds: ReadonlySet<string> 
   }, [userId, waiting, knownIds]);
 
   const savedSet = useMemo(() => new Set(saved.ids), [saved.ids]);
+  // Exercises whose save or remove is still on its way: another tap on one waits, so requests never cross.
+  const pending = useRef(new Set<string>());
 
   const toggle = useCallback(async (exerciseId: string) => {
-    if (!userId) return;
+    if (!userId || pending.current.has(exerciseId)) return;
+    pending.current.add(exerciseId);
     const wasSaved = savedSet.has(exerciseId);
-    const before = saved.ids;
-    setSaved((current) => ({ ...current, problem: "", ids: wasSaved ? current.ids.filter((id) => id !== exerciseId) : [exerciseId, ...current.ids] }));
-    const { error } = await setExerciseSaved(createClient(), userId, saved.store, exerciseId, !wasSaved);
-    if (error) setSaved((current) => ({ ...current, ids: before, problem: wasSaved ? "That exercise could not be removed from your saved list. Try again." : "That exercise could not be saved. Try again." }));
-  }, [saved.ids, saved.store, savedSet, userId]);
+    setSaved((current) => ({ ...current, problem: "", ids: withExerciseSaved(current.ids, exerciseId, !wasSaved) }));
+    try {
+      const { error } = await setExerciseSaved(createClient(), userId, saved.store, exerciseId, !wasSaved);
+      // Only this exercise is undone; saves of other exercises made meanwhile stay as they are.
+      if (error) setSaved((current) => ({ ...current, ids: withExerciseSaved(current.ids, exerciseId, wasSaved), problem: wasSaved ? "That exercise could not be removed from your saved list. Try again." : "That exercise could not be saved. Try again." }));
+    } finally {
+      pending.current.delete(exerciseId);
+    }
+  }, [saved.store, savedSet, userId]);
 
   return { saved, savedSet, toggle };
 }

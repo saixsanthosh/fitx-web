@@ -18,6 +18,7 @@ import {
   rememberSearch,
   setExerciseSaved,
   toggleExerciseFavorite,
+  withExerciseSaved,
 } from "@/lib/domain/exercise-preferences";
 
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -147,6 +148,17 @@ describe("recent searches (this device)", () => {
 });
 
 describe("saved exercises: the account when exercise_favorites exists, else this device", () => {
+  test("one exercise saved or removed, the rest of the list untouched", () => {
+    assert.deepEqual(withExerciseSaved(["a", "b"], "c", true), ["c", "a", "b"]);
+    assert.deepEqual(withExerciseSaved(["c", "a", "b"], "c", true), ["c", "a", "b"], "saving twice keeps one copy");
+    assert.deepEqual(withExerciseSaved(["a", "b"], "a", false), ["b"]);
+    assert.deepEqual(withExerciseSaved(["a"], "missing", false), ["a"]);
+    assert.deepEqual(withExerciseSaved(["bench_press", "pull_up"], "free-exercise-db-Pullups", false), ["bench_press"], "a merged duplicate reads as its survivor");
+    // Save A, then B; A fails: undoing only A keeps B.
+    const afterBoth = withExerciseSaved(withExerciseSaved([], "a", true), "b", true);
+    assert.deepEqual(withExerciseSaved(afterBoth, "a", false), ["b"]);
+  });
+
   test("ids that read as an exercise include the duplicates merged into it", () => {
     assert.deepEqual(idsReadingAs("pull_up"), ["pull_up", "free-exercise-db-Pullups"]);
     assert.deepEqual(idsReadingAs("free-exercise-db-Pullups"), ["pull_up", "free-exercise-db-Pullups"]);

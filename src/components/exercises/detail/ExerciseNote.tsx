@@ -37,6 +37,10 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
   const opener = useRef<HTMLButtonElement>(null);
   /** Set when the editor closes, so focus goes back to the button that opens it (rendered again by then). */
   const returnFocus = useRef(false);
+  const askDelete = useRef<HTMLButtonElement>(null);
+  const confirmDeleteButton = useRef<HTMLButtonElement>(null);
+  /** Set by "Keep it", so focus goes back to the Delete button once the confirmation closes. */
+  const backToDelete = useRef(false);
 
   useEffect(() => {
     if (editing) field.current?.focus();
@@ -45,6 +49,15 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
       opener.current?.focus();
     }
   }, [editing]);
+
+  // The confirmation replaces the buttons that held focus: move focus into it, and back to Delete on "Keep it".
+  useEffect(() => {
+    if (confirmDelete) confirmDeleteButton.current?.focus();
+    else if (backToDelete.current) {
+      backToDelete.current = false;
+      askDelete.current?.focus();
+    }
+  }, [confirmDelete]);
 
   if (load?.status === "unavailable") return null;
 
@@ -60,8 +73,14 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
     setEditing(true);
   }
 
+  function keepNote() {
+    backToDelete.current = true;
+    setConfirmDelete(false);
+  }
+
   function stopEditing() {
     returnFocus.current = true;
+    backToDelete.current = false;
     setEditing(false);
     setConfirmDelete(false);
   }
@@ -157,14 +176,14 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
             {length} of {NOTE_MAX_CHARS} characters
           </p>
           {confirmDelete ? (
-            <div className="mt-2 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-3">
-              <p className="m-0 text-sm text-fitx-text">Delete this note?</p>
+            <div role="group" aria-labelledby={`${fieldId}-delete`} className="mt-2 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-3">
+              <p id={`${fieldId}-delete`} className="m-0 text-sm text-fitx-text">Delete this note?</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                <button type="button" onClick={() => void remove()} disabled={busy !== null} className="fitx-button fitx-button-danger">
+                <button ref={confirmDeleteButton} type="button" onClick={() => void remove()} disabled={busy !== null} className="fitx-button fitx-button-danger">
                   {busy === "delete" ? <LoaderCircle size={15} aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <Trash2 size={15} aria-hidden="true" />}
                   {busy === "delete" ? "Deleting…" : "Delete note"}
                 </button>
-                <button type="button" onClick={() => setConfirmDelete(false)} disabled={busy !== null} className="fitx-button fitx-button-quiet">Keep it</button>
+                <button type="button" onClick={keepNote} disabled={busy !== null} className="fitx-button fitx-button-quiet">Keep it</button>
               </div>
             </div>
           ) : (
@@ -175,7 +194,7 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
               </button>
               <button type="button" onClick={stopEditing} disabled={busy !== null} className="fitx-button fitx-button-quiet">Cancel</button>
               {note && (
-                <button type="button" onClick={() => setConfirmDelete(true)} disabled={busy !== null} className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-semibold text-fitx-danger hover:underline">
+                <button ref={askDelete} type="button" onClick={() => setConfirmDelete(true)} disabled={busy !== null} className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-semibold text-fitx-danger hover:underline">
                   <Trash2 size={14} aria-hidden="true" />Delete
                 </button>
               )}

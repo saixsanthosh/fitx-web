@@ -12,7 +12,7 @@
  *
  * The muscle lists use the catalogue's muscle words and the body map's regions (anatomy.ts).
  */
-import { regionsForMuscle, type RegionKey } from "./anatomy";
+import { isBroadMuscleWord, regionsForMuscle, type RegionKey } from "./anatomy";
 
 export type GuideStep = {
   /** 1-based, as shown. */
@@ -124,7 +124,8 @@ export const SUMMARY_ASSISTING = 3;
 export function muscleSummary(primary: string | null | undefined, secondary: readonly string[] | null | undefined): string | null {
   if (!primary || !regionsForMuscle(primary).length) return null;
   const main = muscleWords(primary);
-  const others = uniqueMuscles(secondary ?? []).filter((word) => word !== main && regionsForMuscle(word).length > 0);
+  // A broad assisting word (the starter rows' "back" on a hip hinge) names no one muscle, as on the map.
+  const others = uniqueMuscles(secondary ?? []).filter((word) => word !== main && regionsForMuscle(word).length > 0 && !isBroadMuscleWord(word));
   const named = others.length > SUMMARY_ASSISTING ? [...others.slice(0, SUMMARY_ASSISTING), `${others.length - SUMMARY_ASSISTING} more`] : others;
   return `Works the ${main}${named.length ? `, with the ${listWords(named)} assisting` : ""}.`;
 }
@@ -148,7 +149,8 @@ export type MuscleRows = {
 /**
  * The primary and assisting muscles as listed in the catalogue, each with the body-map regions it covers. A
  * region is listed once, at its highest role, as on the map (exerciseRegions); an assisting muscle whose regions
- * are all listed already is left out.
+ * are all listed already is left out. A broad assisting word (isBroadMuscleWord, such as "back") is listed as not
+ * drawn: the map credits no region for it rather than all of them.
  */
 export function muscleRows(primary: string | null | undefined, secondary: readonly string[] | null | undefined): MuscleRows {
   const taken = new Set<RegionKey>();
@@ -157,7 +159,7 @@ export function muscleRows(primary: string | null | undefined, secondary: readon
   const primaryWord = primary && primary.trim() ? muscleWords(primary) : null;
   for (const word of words) {
     const all = regionsForMuscle(word);
-    if (!all.length) {
+    if (!all.length || (word !== primaryWord && isBroadMuscleWord(word))) {
       rows.notDrawn.push(word);
       continue;
     }

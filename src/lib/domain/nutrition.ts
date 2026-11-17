@@ -69,6 +69,55 @@ export function calorieBalance(consumed: number, target: number | null | undefin
   return { remaining: Math.abs(remaining), over: remaining < 0 };
 }
 
+/** Each daily target, or null when there is none (never 0, so nothing is measured against a missing target). */
+export interface DayTargets {
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+}
+
+const positive = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null);
+
+/**
+ * The day's food targets in Home's order (todayTargets): a daily calorie or protein goal first, then the targets the
+ * member set in Nutrition, then the estimate from the profile. A daily goal counts even with no set targets and no
+ * estimate. Null when no target of any kind exists. `source` says where the numbers came from.
+ */
+export function resolveDayTargets(
+  goals: { calories: number | null | undefined; protein: number | null | undefined },
+  manual: FoodMacros | null,
+  estimated: FoodMacros | null,
+): { targets: DayTargets; estimated: Record<keyof DayTargets, boolean>; source: string } | null {
+  const base = manual ?? estimated;
+  const calorieGoal = positive(goals.calories);
+  const proteinGoal = positive(goals.protein);
+  if (!base && calorieGoal === null && proteinGoal === null) return null;
+  const targets: DayTargets = {
+    calories: calorieGoal ?? positive(base?.calories),
+    protein: proteinGoal ?? positive(base?.protein),
+    carbs: positive(base?.carbs),
+    fat: positive(base?.fat),
+  };
+  // Only a value that came from the profile estimate is called an estimate; goals and set targets are the member's own.
+  const fromEstimate = (key: keyof DayTargets, goal: number | null) => goal === null && !manual && targets[key] !== null;
+  const estimatedKeys = { calories: fromEstimate("calories", calorieGoal), protein: fromEstimate("protein", proteinGoal), carbs: fromEstimate("carbs", null), fat: fromEstimate("fat", null) };
+  const fromGoals = [calorieGoal !== null ? "calories" : null, proteinGoal !== null ? "protein" : null].filter((name): name is string => name !== null);
+  const baseText = manual ? "targets you set" : "estimated from your profile";
+  let source: string;
+  if (!fromGoals.length) source = manual ? "Targets you set" : "Estimated daily target from your profile";
+  else {
+    const named = `${fromGoals.join(" and ").replace(/^./, (letter) => letter.toUpperCase())} from your daily ${fromGoals.length > 1 ? "goals" : "goal"}`;
+    source = base ? `${named}; the rest are ${baseText}` : named;
+  }
+  return { targets, estimated: estimatedKeys, source };
+}
+
+/** The daily water target in ml, as on Home: a daily water goal first, then the member's saved setting. Null when neither. */
+export function resolveWaterTarget(goalMl: number | null | undefined, preferenceMl: number | null | undefined): number | null {
+  return positive(goalMl) ?? positive(preferenceMl);
+}
+
 /** Kilocalories per gram (Atwater general factors): the split of energy between the macros a food actually lists. */
 const KCAL_PER_GRAM: Record<MacroKey, number> = { protein: 4, carbs: 4, fat: 9 };
 

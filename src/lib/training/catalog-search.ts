@@ -335,6 +335,32 @@ export function countCatalog(catalog: readonly CatalogExercise[], query: Catalog
   return count;
 }
 
+export type FocusAreaCount = {
+  /** Exercises the query would show with only this area chosen (main or assisting muscle). */
+  total: number;
+  /** How many of those the member can do; null when their equipment is not known. */
+  doable: number | null;
+};
+
+/**
+ * For the focus tiles: per area, what queryCatalog would show with the query's other filters and only that area
+ * chosen (`items.length` and `doableCount`), so a tile's figures match the results it opens.
+ */
+export function focusAreaCounts(catalog: readonly CatalogExercise[], query: CatalogQuery, context: QueryContext): Record<FocusArea, FocusAreaCount> {
+  const counts = Object.fromEntries(FOCUS_AREAS.map((area) => [area, { total: 0, doable: context.owned ? 0 : null }])) as Record<FocusArea, FocusAreaCount>;
+  const prepared = prepare({ ...query, focus: [] });
+  for (const exercise of catalog) {
+    const ranked = evaluate(exercise, prepared, context);
+    if (!ranked) continue;
+    for (const area of FOCUS_AREAS) {
+      if (!focusRole(exercise, area)) continue;
+      counts[area].total += 1;
+      if (ranked.doable) counts[area].doable = (counts[area].doable ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
 export type RelaxSuggestion = { facet: QueryFacet; count: number };
 
 /**
@@ -592,9 +618,13 @@ function readsCuratedValues(params: CatalogSearchParams): boolean {
     || params.equipment.length || params.doable || params.movements.length || params.mechanics.length);
 }
 
-/** True when the database alone can answer: no search, focus or ranking, and filters it can express. */
+/**
+ * True when the database alone can answer: no search, focus or ranking, and filters it can express. Full body is
+ * a rule (isFullBodyExercise), not the muscle_group column, so it always runs in memory.
+ */
 function databaseCanAnswer(params: CatalogSearchParams): boolean {
   return !params.q && !params.focus.length && params.sort !== "best" && !params.equipment.includes(NO_EQUIPMENT)
+    && !params.muscleGroups.includes("full_body")
     && !(params.muscleGroups.length && params.primary.length);
 }
 

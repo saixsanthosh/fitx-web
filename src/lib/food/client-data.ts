@@ -197,6 +197,18 @@ export function foodFromEntry(entry: MealEntry): FoodResult | null {
   };
 }
 
+/**
+ * The amount an entry was logged as, for choosing it again: its count of the portion foodFromEntry rebuilds (always
+ * that food's first portion, "portion:0"), else its grams. Null when the entry has neither.
+ */
+export function usualAmount(entry: Pick<MealEntry, "nutrition_snapshot" | "quantity_grams">): { amount: number; unitKey: string } | null {
+  const portion = entry.nutrition_snapshot?.portion;
+  const count = Number(portion?.count);
+  if (portion?.label && portion.unit && Number(portion.grams_each) > 0 && Number.isFinite(count) && count > 0) return { amount: count, unitKey: "portion:0" };
+  const grams = Number(entry.quantity_grams);
+  return Number.isFinite(grams) && grams > 0 ? { amount: round1(grams), unitKey: "g" } : null;
+}
+
 /** Whether an entry's values or its grams are an estimate (a typical recipe, an AI suggestion, an average portion weight). */
 export function isEstimateSnapshot(entry: Pick<MealEntry, "nutrition_snapshot" | "source">): boolean {
   return Boolean(entry.nutrition_snapshot?.portion?.estimate) || basisInfo(entryBasis(entry)).estimate;

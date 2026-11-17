@@ -38,7 +38,7 @@ import { readWithOptional, recordHref, stripStats } from "../history/_lib/sessio
 import { formatHistorySet, lastTimeForSet, summariseLastTime } from "./_lib/last-time";
 import {
   adjustRest, describeNextStep, exerciseAfterTick, exerciseProgress, formatKg, formatRest, restRemaining, sessionProgress, setHeadline, setTarget, setsLeftLabel,
-  startRest, stepAfterCurrentSet, stepAfterRest, stepValue, workTarget,
+  sessionTally, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, timerSecondsDone, updateSet, workTarget,
 } from "./_lib/session-progress";
 import { useScreenWakeLock, useWorkoutCues } from "./session-device";
 
@@ -146,6 +146,9 @@ export default function ActiveWorkoutPage() {
   const { cue } = cues;
   const wakeLock = useScreenWakeLock(Boolean(session && session.status === "in_progress" && !finished && clock && !clock.paused && cues.keepAwake));
   const timerRef = useRef(setTimer);
+  // The exercises as last rendered, for a save that returns after other changes (see saveSet).
+  const exercisesRef = useRef(exercises);
+  useEffect(() => { exercisesRef.current = exercises; }, [exercises]);
   const chipsRef = useRef<HTMLElement>(null);
   const restCueRef = useRef<{ endsAt: number | null; cued: boolean }>({ endsAt: null, cued: true });
   useEffect(() => { timerRef.current = setTimer; }, [setTimer]);
@@ -325,11 +328,12 @@ export default function ActiveWorkoutPage() {
   }
 
   /** Stopping early records the seconds actually done. */
-  function stopSetTimer() {
-    const running = setTimer;
+  function stopSetTimer(at = Date.now()) {
+    const running = timerRef.current;
     if (!running) return;
+    timerRef.current = null;
     setSetTimer(null);
-    const done = Math.max(1, Math.round((Date.now() - running.startedAt) / 1000));
+    const done = timerSecondsDone(running, at);
     changeSet(running.exerciseId, running.setId, "draftDuration", String(done));
     setTimerNotice(`Set ${running.setNumber} timer stopped at ${done} seconds.`);
   }
@@ -426,7 +430,8 @@ export default function ActiveWorkoutPage() {
       if (paused.error || !paused.data) return setError("The workout could not be paused. Check your connection and try again.");
       setSession({ ...session, paused_at: paused.data.paused_at, resumed_at: null, active_duration_seconds: Number(paused.data.active_duration_seconds || elapsed) });
     }
-    setSetTimer(null);
+    // A set timer stops at the moment of the pause and keeps the seconds held so far.
+    stopSetTimer(nowDate.getTime());
     setClock({ elapsedSeconds: elapsed, segmentStartedAt: null, paused: true });
     setRestHeldSeconds(restLeft);
     setRestEndsAt(null);
@@ -461,10 +466,11 @@ export default function ActiveWorkoutPage() {
     if (updated.result.error || !updated.result.data) { setError("That set could not be saved. Check your connection and try again."); return; }
     // What the database now holds: a duration it could not store is not kept as saved.
     const saved = { ...(updated.includedOptional ? patch : { ...patch, duration_seconds: null }), rep_source: includeSource ? repSource : null };
-    const nextExercises = exercises.map((item) => item.id !== exerciseId ? item : {
-      ...item, sets: item.sets.map((entry) => entry.id === set.id ? { ...entry, ...saved, draftWeight: String(weight), draftReps: String(reps), draftDuration: saved.duration_seconds ? String(saved.duration_seconds) : "" } : entry),
-    });
-    setExercises(nextExercises);
+    // Applied to the exercises as they are now, not as they were when the set was tapped: ticks, typing and timer
+    // seconds from while this save was in flight stay.
+    const applySaved = (items: LiveExercise[]) => updateSet(items, exerciseId, set.id, (entry) => ({ ...entry, ...saved, draftWeight: String(weight), draftReps: String(reps), draftDuration: saved.duration_seconds ? String(saved.duration_seconds) : "" }));
+    const nextExercises = applySaved(exercisesRef.current);
+    setExercises(applySaved);
     setError("");
     if (complete) {
       // Rest follows every set except the last one of the workout.
@@ -479,8 +485,9 @@ export default function ActiveWorkoutPage() {
         setTimerNotice(`Set ${set.set_number} logged. That was the last set: finish the workout when you’re ready.`);
       }
       setRestHeldSeconds(0);
+      // Moves on only when the member is still on this exercise.
       const index = nextExercises.findIndex((item) => item.id === exerciseId);
-      if (index === currentExerciseIndex) setExerciseIndex(exerciseAfterTick(nextExercises, index));
+      setExerciseIndex((current) => (index >= 0 && Math.max(0, Math.min(current, nextExercises.length - 1)) === index ? exerciseAfterTick(nextExercises, index) : current));
     } else { setRestEndsAt(null); setRestHeldSeconds(0); }
   }
 
@@ -662,7 +669,8 @@ export default function ActiveWorkoutPage() {
   const upNextExercise = nextAfterSet.kind === "exercise" ? exercises[nextAfterSet.exerciseIndex] : null;
   const upNextId = upNextExercise?.exercise_id ? survivingExerciseId(upNextExercise.exercise_id) : null;
   const afterRest = describeNextStep(stepAfterRest(exercises, currentExerciseIndex), exercises);
-  const timedSeconds = completedSets.reduce((sum, set) => sum + Number(set.duration_seconds || 0), 0);
+  // The same numbers as the finish screen and the record (session-stats.ts), so unknown weight is never "0 kg".
+  const tally = sessionTally(sessionStats({ status: "in_progress", started_at: session.started_at }, exercises), timedSetsSupported);
 
   return <div className={`mx-auto max-w-5xl space-y-4 sm:space-y-5 ${resting ? "pb-64 sm:pb-40" : "pb-28 sm:pb-10"}`}>
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
@@ -746,7 +754,7 @@ export default function ActiveWorkoutPage() {
             running: timerHere,
             text: timerHere && setTimer ? `Set ${setTimer.setNumber}: ${timerRemaining}s left` : `Set ${currentSet.set_number}: ${currentExercise.target_duration_seconds}s`,
             control: timerHere
-              ? <button type="button" onClick={stopSetTimer} className="fitx-button fitx-button-secondary min-h-11"><Square size={14} aria-hidden="true" />Stop</button>
+              ? <button type="button" onClick={() => stopSetTimer()} className="fitx-button fitx-button-secondary min-h-11"><Square size={14} aria-hidden="true" />Stop</button>
               : <button type="button" disabled={paused || Boolean(setTimer)} onClick={() => startSetTimer(currentExercise.id, currentSet.id, currentSet.set_number, currentExercise.target_duration_seconds!)} className="fitx-button min-h-11"><Play size={14} aria-hidden="true" />Start timer</button>,
           } : null}
           onChange={(setId, field, value) => changeSet(currentExercise.id, setId, field, value)}
@@ -769,7 +777,7 @@ export default function ActiveWorkoutPage() {
       </div>
     </section>}
 
-    <section className="fitx-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Trophy size={16} aria-hidden="true" className="shrink-0 text-fitx-primary" /><span>{completedSets.length} completed {completedSets.length === 1 ? "set" : "sets"} · {Math.round(liftedKilograms).toLocaleString()} kg logged{timedSetsSupported && timedSeconds > 0 && <> · {Math.round(timedSeconds / 60)} min timed</>}</span></p><div className="flex flex-col-reverse gap-2 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} disabled={saving || clockSaving} className="fitx-button fitx-button-quiet min-h-11"><X size={14} aria-hidden="true" />Abandon</button><button type="button" disabled={saving || clockSaving || paused} onClick={() => void finishWorkout()} className="fitx-button min-h-12">{saving ? "Saving…" : "Finish workout"}<Check size={15} aria-hidden="true" /></button></div></section>
+    <section className="fitx-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Trophy size={16} aria-hidden="true" className="shrink-0 text-fitx-primary" /><span>{tally}</span></p><div className="flex flex-col-reverse gap-2 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} disabled={saving || clockSaving} className="fitx-button fitx-button-quiet min-h-11"><X size={14} aria-hidden="true" />Abandon</button><button type="button" disabled={saving || clockSaving || paused} onClick={() => void finishWorkout()} className="fitx-button min-h-12">{saving ? "Saving…" : "Finish workout"}<Check size={15} aria-hidden="true" /></button></div></section>
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <button type="button" onClick={cues.toggleCues} aria-pressed={cues.cuesOn} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">{cues.cuesOn ? <Volume2 size={14} aria-hidden="true" /> : <VolumeX size={14} aria-hidden="true" />}{cues.cuesOn ? "Rest alert on" : "Rest alert off"}</button>
       <button type="button" onClick={cues.toggleKeepAwake} aria-pressed={cues.keepAwake} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><Smartphone size={14} aria-hidden="true" />{cues.keepAwake ? "Keep screen on" : "Screen can sleep"}</button>

@@ -30,7 +30,9 @@ const number = (value: number) => value.toLocaleString();
 export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets: HistoryTargets | null; targetSource: string; onOpenDay: (dateKey: string) => void }) {
   const [range, setRange] = useState<Range>(7);
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [problem, setProblem] = useState("");
+  /** Why the history could not be loaded; the rows stay unknown then, so nothing reads as "nothing logged". */
+  const [problem, setProblem] = useState<{ text: string; retry: boolean } | null>(null);
+  const [attempt, setAttempt] = useState(0);
   // Today is read once after mount so the server-rendered page never disagrees with the browser's clock.
   const [today, setToday] = useState<Date | null>(null);
 
@@ -44,19 +46,20 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
     let cancelled = false;
     void (async () => {
       const supabase = createClient();
-      if (!supabase) { setProblem("History needs a connection to your account."); setRows([]); return; }
+      if (!supabase) { setProblem({ text: "History needs a connection to your account.", retry: false }); setRows(null); return; }
       const { data: auth } = await supabase.auth.getUser();
-      if (!auth.user) { setProblem("Sign in to see your history."); setRows([]); return; }
+      if (cancelled) return;
+      if (!auth.user) { setProblem({ text: "Sign in to see your history.", retry: false }); setRows(null); return; }
       const since = lastDays(today, 30)[0];
       const { data, error } = await supabase.from("meals").select("date,calories,protein,carbs,fat,source,nutrition_snapshot")
         .eq("user_id", auth.user.id).gte("date", since).lte("date", dateKeyOf(today)).order("date", { ascending: true }).limit(3000);
       if (cancelled) return;
-      if (error) { setProblem("Your history could not be loaded. Please try again."); setRows([]); return; }
-      setProblem("");
+      if (error) { setProblem({ text: "Your history could not be loaded.", retry: true }); setRows(null); return; }
+      setProblem(null);
       setRows((data ?? []) as unknown as Row[]);
     })();
     return () => { cancelled = true; };
-  }, [today]);
+  }, [today, attempt]);
 
   const history = useMemo(() => {
     if (!today || !rows) return null;
@@ -71,9 +74,20 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
     return buildHistory(entries, lastDays(today, range), targets);
   }, [today, rows, range, targets]);
 
-  if (!history) return <section className="fitx-panel p-4 sm:p-5"><p className="text-sm text-fitx-text-secondary" role="status">Loading your history…</p></section>;
+  if (!history) {
+    return <section className="fitx-panel p-4 sm:p-5">
+      {problem
+        ? <div role="alert" className={styles.alert}>
+          <p>{problem.text}</p>
+          {problem.retry && <button type="button" className="fitx-button fitx-button-secondary mt-2 min-h-10 px-3 text-xs" onClick={() => { setProblem(null); setAttempt((value) => value + 1); }}>Try again</button>}
+        </div>
+        : <p className="text-sm text-fitx-text-secondary" role="status">Loading your history…</p>}
+    </section>;
+  }
 
-  const top = Math.max(1, targets?.calories ?? 0, ...history.days.map((day) => day.calories));
+  const calorieTarget = targets?.calories && targets.calories > 0 ? targets.calories : null;
+  const top = Math.max(1, calorieTarget ?? 0, ...history.days.map((day) => day.calories));
+  const grams = (value: number | null | undefined) => (value === null || value === undefined ? "—" : value);
   const lead = history.days.length ? (new Date(`${history.days[0].date}T12:00:00`).getDay() + 6) % 7 : 0;
   const unknownNote = (["protein", "carbs", "fat"] as const).filter((key) => history.daysWithUnknown[key] > 0)
     .map((key) => `${key} on ${history.daysWithUnknown[key]} ${history.daysWithUnknown[key] === 1 ? "day" : "days"}`);
@@ -89,37 +103,36 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
           {([7, 30] as const).map((value) => <button key={value} type="button" aria-pressed={range === value} onClick={() => setRange(value)}>{value} days</button>)}
         </div>
       </div>
-      {problem && <p role="alert" className={styles.alert}>{problem}</p>}
       {history.loggedDays === 0 ? (
         <EmptyState title="Nothing logged in this period" description="Log a meal and your days, averages and trends show up here."/>
       ) : <>
         <div className={styles.tiles}>
           <div><span>Days logged</span><strong>{history.loggedDays} <small>of {range}</small></strong></div>
           <div><span>Average calories</span><strong>{number(history.averages?.calories ?? 0)} <small>kcal a logged day</small></strong></div>
-          <div><span>Average protein</span><strong>{history.averages?.protein} <small>g</small></strong></div>
-          <div><span>Average carbs · fat</span><strong>{history.averages?.carbs} <small>g</small> · {history.averages?.fat} <small>g</small></strong></div>
+          <div><span>Average protein</span><strong>{grams(history.averages?.protein)} <small>g</small></strong></div>
+          <div><span>Average carbs · fat</span><strong>{grams(history.averages?.carbs)} <small>g</small> · {grams(history.averages?.fat)} <small>g</small></strong></div>
         </div>
-        {unknownNote.length > 0 && <p className={styles.note} role="note">Some entries have no value for {unknownNote.join(", ")}. Those values are left out of the totals, so the averages for them are a little low.</p>}
+        {unknownNote.length > 0 && <p className={styles.note} role="note">Some entries have no value for {unknownNote.join(", ")}. Those values are left out of the totals, not counted as 0 g, so the averages for them may be low. A day with no value at all is left out of that average.</p>}
         {history.estimatedEntries > 0 && <p className={styles.note}>{history.estimatedEntries} of {history.totalEntries} entries are estimates (a typical recipe or an average portion weight).</p>}
-        {history.adherence && targets
+        {history.adherence
           ? <p className={styles.adherence}>
-            Within 10% of your {number(targets.calories)} kcal target on <strong>{history.adherence.calorieDays} of {history.loggedDays}</strong> logged days
-            {" "}and protein target met on <strong>{history.adherence.proteinDays} of {history.loggedDays}</strong>{history.adherence.proteinUnknownDays > 0 ? ` (${history.adherence.proteinUnknownDays} could not be told because an entry has no protein value)` : ""}.
-            {" "}<span className={styles.source}>{targetSource}</span>
+            {calorieTarget !== null && history.adherence.calorieDays !== null && <>Within 10% of your {number(calorieTarget)} kcal target on <strong>{history.adherence.calorieDays} of {history.loggedDays}</strong> logged days. </>}
+            {history.adherence.proteinDays !== null && <>Protein target met on <strong>{history.adherence.proteinDays} of {history.loggedDays}</strong>{history.adherence.proteinUnknownDays ? ` (${history.adherence.proteinUnknownDays} could not be told because an entry has no protein value)` : ""}. </>}
+            <span className={styles.source}>{targetSource}</span>
           </p>
           : <p className={styles.note}>Set daily targets under Edit targets (or add your age, height and weight to your profile) to see how often you hit them.</p>}
         <div className={styles.bars} aria-hidden="true">
           {history.days.map((day) => (
             <div key={day.date} className={styles.barCol} title={day.logged ? `${dayName(day.date, { weekday: "short", day: "numeric", month: "short" })}: ${number(day.calories)} kcal` : `${dayName(day.date, { weekday: "short", day: "numeric", month: "short" })}: not logged`}>
               <div className={styles.barArea}>
-                {targets && <span className={styles.targetLine} style={{ bottom: `${(targets.calories / top) * 100}%` }}/>}
+                {calorieTarget !== null && <span className={styles.targetLine} style={{ bottom: `${(calorieTarget / top) * 100}%` }}/>}
                 {day.logged ? <span className={`${styles.bar} ${day.caloriesState === "over" ? styles.barOver : ""}`} style={{ height: `${Math.max(2, (day.calories / top) * 100)}%` }}/> : <span className={styles.gap}/>}
               </div>
               {range === 7 && <span className={styles.barLabel}>{dayName(day.date, { weekday: "short" })}</span>}
             </div>
           ))}
         </div>
-        {targets && <p className={styles.legend} aria-hidden="true"><span className={styles.legendLine}/>Calorie target · dashed bars are days not logged</p>}
+        {calorieTarget !== null && <p className={styles.legend} aria-hidden="true"><span className={styles.legendLine}/>Calorie target · dashed bars are days not logged</p>}
         <table className="sr-only">
           <caption>Calories logged each day, last {range} days</caption>
           <thead><tr><th scope="col">Day</th><th scope="col">Calories</th><th scope="col">Protein (g)</th><th scope="col">Carbs (g)</th><th scope="col">Fat (g)</th></tr></thead>

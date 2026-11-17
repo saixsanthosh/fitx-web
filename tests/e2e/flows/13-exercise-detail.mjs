@@ -46,7 +46,7 @@ export const flow = {
       await page.getByRole("button", { name: "Delete note" }).click();
       await page.getByText("Note removed.").waitFor({ timeout: 15000 });
       const left = await standin.one(`select count(*)::int n from public.exercise_notes where user_id = '${account.id}'`);
-      t.expect(left?.n === 0, "the note is deleted", left);
+      t.expect(Number(left?.n) === 0, "the note is deleted", left);
     });
 
     await t.step("Muscles: the body map, muscle links and alternatives; the tab is kept in the address", async () => {

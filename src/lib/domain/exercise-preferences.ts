@@ -157,6 +157,16 @@ export function idsReadingAs(exerciseId: string): string[] {
 }
 
 /**
+ * A saved list with one exercise saved (first) or removed, every other id left as it is. For optimistic updates
+ * and for undoing just that exercise when its request fails, while other saves may still be on their way.
+ */
+export function withExerciseSaved(ids: readonly string[], exerciseId: string, saved: boolean): string[] {
+  const reading = new Set(idsReadingAs(exerciseId));
+  const without = ids.filter((id) => !reading.has(id));
+  return saved ? [survivingExerciseId(exerciseId), ...without] : without;
+}
+
+/**
  * The ids to move from this device into the account: those not saved there yet, read as their survivor, and (when
  * `knownIds` is given) only exercises the catalogue still has, so a stale id never fails the insert.
  */

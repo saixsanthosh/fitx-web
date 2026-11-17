@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { goalPercent, goalProgress, per100gFromOpenFoodFacts, scaleMacros } from "@/lib/domain/nutrition";
+import { goalPercent, goalProgress, per100gFromOpenFoodFacts, resolveDayTargets, resolveWaterTarget, scaleMacros } from "@/lib/domain/nutrition";
 
 test("reports how far a day went over its target", () => {
   assert.deepEqual(goalProgress(2300, 2000), { percent: 100, over: 300, isOver: true });
@@ -126,4 +126,39 @@ test("keeps a kcal figure typed into both energy fields when the nutrients accou
 
 test("scales per-100 g values to the logged grams", () => {
   assert.deepEqual(scaleMacros({ calories: 128, protein: 6.36, carbs: 24.98, fat: 0.35 }, 114), { calories: 145.9, protein: 7.3, carbs: 28.5, fat: 0.4 });
+});
+
+const setTargets = { calories: 2200, protein: 120, carbs: 250, fat: 70 };
+const estimate = { calories: 2400, protein: 110, carbs: 300, fat: 80 };
+
+test("day targets follow Home: a daily goal, then set targets, then the estimate", () => {
+  assert.deepEqual(resolveDayTargets({ calories: null, protein: null }, setTargets, estimate), {
+    targets: setTargets, estimated: { calories: false, protein: false, carbs: false, fat: false }, source: "Targets you set",
+  });
+  assert.deepEqual(resolveDayTargets({ calories: undefined, protein: undefined }, null, estimate), {
+    targets: estimate, estimated: { calories: true, protein: true, carbs: true, fat: true }, source: "Estimated daily target from your profile",
+  });
+  const withGoal = resolveDayTargets({ calories: 2000, protein: null }, null, estimate);
+  assert.deepEqual(withGoal?.targets, { calories: 2000, protein: 110, carbs: 300, fat: 80 });
+  assert.deepEqual(withGoal?.estimated, { calories: false, protein: true, carbs: true, fat: true });
+  assert.equal(withGoal?.source, "Calories from your daily goal; the rest are estimated from your profile");
+  assert.equal(resolveDayTargets({ calories: 2000, protein: 150 }, setTargets, null)?.source, "Calories and protein from your daily goals; the rest are targets you set");
+});
+
+test("a daily goal counts with no set targets and no estimate, and leaves the rest without a target", () => {
+  assert.deepEqual(resolveDayTargets({ calories: 2000, protein: null }, null, null), {
+    targets: { calories: 2000, protein: null, carbs: null, fat: null },
+    estimated: { calories: false, protein: false, carbs: false, fat: false },
+    source: "Calories from your daily goal",
+  });
+  assert.deepEqual(resolveDayTargets({ calories: null, protein: 140 }, null, null)?.targets, { calories: null, protein: 140, carbs: null, fat: null });
+  assert.equal(resolveDayTargets({ calories: null, protein: null }, null, null), null);
+  assert.equal(resolveDayTargets({ calories: 0, protein: Number.NaN }, null, null), null, "a goal of 0 is no target");
+});
+
+test("the water target is the daily water goal first, then the saved setting", () => {
+  assert.equal(resolveWaterTarget(3000, 2500), 3000);
+  assert.equal(resolveWaterTarget(null, 2500), 2500);
+  assert.equal(resolveWaterTarget(undefined, null), null);
+  assert.equal(resolveWaterTarget(0, 0), null);
 });

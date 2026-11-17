@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { sessionVolumeKg, type ExerciseSession } from "@/lib/training/exercise-history";
-import { HISTORY_PAGE_SIZE, formatKg, historyBasis, setResult, topSetOf } from "@/lib/training/exercise-progress";
+import { HISTORY_PAGE_SIZE, formatKg, historyBasis, pagesAfterLoadMore, setResult, topSetOf } from "@/lib/training/exercise-progress";
 import { addToWorkoutHref, workoutRecordHref } from "./detail-text";
 import { TextLink } from "./TextLink";
 import type { ExerciseHistoryView } from "./useExerciseHistory";
@@ -104,7 +104,7 @@ export function HistoryPanel({ history, exerciseId, exerciseName }: HistoryPanel
           <button type="button" onClick={() => setPages((value) => value + 1)} className="fitx-button fitx-button-secondary">Show older sessions</button>
         )}
         {!moreHere && history.loadMore && (
-          <button type="button" onClick={() => { history.loadMore?.(); setPages((value) => value + 1); }} disabled={history.loadingMore} className="fitx-button fitx-button-secondary">
+          <button type="button" onClick={() => { const retrying = history.moreFailed; history.loadMore?.(); setPages((value) => pagesAfterLoadMore(value, retrying)); }} disabled={history.loadingMore} className="fitx-button fitx-button-secondary">
             {history.loadingMore && <LoaderCircle size={15} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />}
             {history.loadingMore ? "Loading older sessions…" : history.moreFailed ? "Try loading older sessions again" : "Show older sessions"}
           </button>

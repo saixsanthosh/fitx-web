@@ -101,19 +101,19 @@ Barcode results and the packaged-products search come from [Open Food Facts](htt
 
 ### FITX recipe estimates and everyday Indian names (`src/data/fitx-staples.json`)
 
-USDA FoodData Central has no poha, khichdi, kheer, raita, lassi or chole, and no plain paneer (FNDDS paneer is left out, see above). FITX does not copy values from IFCT 2017 or the Indian Nutrient Databank (licence). For the everyday dishes that can be built honestly from USDA records already in FITX's data, `recipes` in `fitx-staples.json` lists each dish's ingredients with their USDA values and gram weights, and `src/lib/food/recipe.ts` adds them up. The results are labelled **FITX recipe estimate · calculated from USDA ingredients** and show the ingredient list. The gram weights are FITX's assumption of a typical home portion, so the result is an estimate whatever the source of each ingredient's values, and a dish made with other proportions differs. Only already-cooked or ready ingredients are used, so weights add up without a guess at cooking losses. `tests/nutrition/indian-foods.test.ts` checks every ingredient against the catalogue seed.
+USDA FoodData Central has no poha, khichdi, kheer, raita, lassi or chole, and no plain paneer (FNDDS paneer is left out, see above). FITX does not copy values from IFCT 2017 or the Indian Nutrient Databank (licence). For the everyday dishes that can be built honestly from USDA records already in FITX's data, `recipes` in `fitx-staples.json` lists each dish's ingredients with their USDA values and gram weights, and `src/lib/food/recipe.ts` adds them up. The results are labelled **FITX recipe estimate · calculated from USDA ingredients** and show the ingredient list. The gram weights are FITX's assumption of a typical home portion, so the result is an estimate whatever the source of each ingredient's values, and a dish made with other proportions differs. Ingredients are cooked or ready where FITX's data has such a record. FITX has only raw onion, tomato and potato, so rajma rice, chole and aloo paratha use their raw weights and values, with no guess at cooking losses; each of those dishes says so in its note. `tests/nutrition/indian-foods.test.ts` checks every ingredient against the catalogue seed.
 
 | Dish | Per serving (grams) | What it leaves out |
 | --- | --- | --- |
 | Curd rice | cooked rice 150 + plain whole-milk yogurt 100 | tempering, salt |
-| Rajma rice | cooked rice 150 + kidney beans cooked from dried 120 + onion 30 + tomato 40 + ghee 5 | spices, extra oil and water |
-| Chole | cooked chickpeas 150 + onion 40 + tomato 50 + ghee 8 | spices, extra oil and gravy |
+| Rajma rice | cooked rice 150 + kidney beans cooked from dried 120 + raw onion 30 + raw tomato 40 + ghee 5 | spices, extra oil and water; water the onion and tomato lose in cooking |
+| Chole | cooked chickpeas 150 + raw onion 40 + raw tomato 50 + ghee 8 | spices, extra oil and gravy; water the onion and tomato lose in cooking |
 | Dal tadka | USDA dal 200 + ghee 5 | other tempering |
 | Khichdi | cooked rice 120 + USDA dal 120 + ghee 5 | the extra water of real khichdi |
 | Dal rice | USDA dal 150 + cooked rice 150 | |
 | Cucumber raita | plain yogurt 100 + cucumber 40 | salt, spices, onion |
 | Plain lassi | plain yogurt 100 + water 100 | sugar, salt |
-| Aloo paratha | USDA paratha 70 + potato 40 | spices in the filling; the potato uses raw values (boiled differs slightly) |
+| Aloo paratha | USDA paratha 70 + raw potato 40 | spices in the filling; water the potato loses in boiling |
 
 Not added, because FITX has no identifiable source for them: plain paneer, bhindi (okra), lauki, karela, methi, poha, rasam, pongal, kheer. The search says so and offers packaged products or a custom food instead of guessing. To add them, the owner can import the rest of USDA FNDDS and Foundation (see "FITX food catalogue") or set `USDA_API_KEY`.
 

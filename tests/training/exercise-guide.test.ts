@@ -136,7 +136,10 @@ describe("muscles", () => {
     assert.deepEqual(bench.primary, [{ name: "chest", regions: ["chest"], direct: true }]);
     assert.deepEqual(bench.assisting, [{ name: "triceps", regions: ["triceps"], direct: true }, { name: "front deltoids", regions: ["shoulders"], direct: false }]);
     const rdl = muscleRows("hamstrings", ["glutes", "back"]);
-    assert.deepEqual(rdl.assisting.map((row) => [row.name, row.regions]), [["glutes", ["glutes"]], ["back", ["traps", "lats", "middle_back", "lower_back"]]]);
+    // "back" names no one muscle: listed as not drawn, as the map credits no region for it (not all four).
+    assert.deepEqual(rdl.assisting.map((row) => [row.name, row.regions]), [["glutes", ["glutes"]]]);
+    assert.deepEqual(rdl.notDrawn, ["back"]);
+    assert.equal(muscleSummary("hamstrings", ["glutes", "back"]), "Works the hamstrings, with the glutes assisting.");
     const jacks = muscleRows("cardio", ["calves", "shoulders"]);
     assert.deepEqual([jacks.primary, jacks.notDrawn], [[], ["cardio"]]);
     assert.deepEqual(jacks.assisting.map((row) => row.name), ["calves", "shoulders"]);

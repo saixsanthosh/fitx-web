@@ -7,7 +7,7 @@ import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
 import { REGIONS, type RegionKey } from "@/lib/training/anatomy";
 import { MACHINES, MOVEMENTS, MOVEMENT_LABELS, NO_EQUIPMENT, type Movement } from "@/lib/training/catalog-search";
 import { CATEGORY_LABELS, EQUIPMENT_KEYS, EXERCISE_CATEGORIES, LEVELS, MECHANICS, type ExerciseCategory, type Level, type Mechanic } from "@/lib/training/taxonomy";
-import { toggleValue, usesLabel, type LibraryState } from "@/app/(dashboard)/exercises/_lib/library-state";
+import { browseByMuscleHref, toggleValue, usesLabel, type LibraryState } from "@/app/(dashboard)/exercises/_lib/library-state";
 
 const MUSCLE_SECTIONS: ReadonlyArray<{ title: string; regions: readonly RegionKey[] }> = [
   { title: "Upper body", regions: ["chest", "shoulders", "traps", "neck"] },
@@ -59,7 +59,7 @@ export function FilterPanel({ id, state, onChange }: { id: string; state: Librar
   return (
     <div id={id} className="grid gap-5 border-t border-fitx-divider pt-4">
       <Section title="Muscles" count={state.muscles.length} onClear={() => set({ muscles: [] })}
-        aside={<Link href="/exercises/muscles" className="inline-flex min-h-11 items-center text-xs font-semibold text-fitx-primary-text underline underline-offset-4">Browse by muscle</Link>}>
+        aside={<Link href={browseByMuscleHref(state)} className="inline-flex min-h-11 items-center text-xs font-semibold text-fitx-primary-text underline underline-offset-4">Browse by muscle</Link>}>
         <div className="grid w-full gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {MUSCLE_SECTIONS.map((section) => (
             <div key={section.title} className="grid gap-1.5">

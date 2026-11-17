@@ -1072,7 +1072,7 @@
       ],
       "state": "cooked",
       "diet": "veg",
-      "note": "Rice with a simple kidney bean curry: beans, onion, tomato and a little ghee. Oil, spices and water in the real dish vary.",
+      "note": "Rice with a simple kidney bean curry: beans, onion, tomato and a little ghee. The onion and tomato use raw weights and values, so water lost in cooking is not counted. Oil, spices and water in the real dish vary.",
       "ingredients": [
         {
           "fdcId": "2708408",
@@ -1132,7 +1132,7 @@
       ],
       "state": "cooked",
       "diet": "veg",
-      "note": "Chickpeas with onion, tomato and a little ghee. The oil, spices and gravy in the real dish vary.",
+      "note": "Chickpeas with onion, tomato and a little ghee. The onion and tomato use raw weights and values, so water lost in cooking is not counted. The oil, spices and gravy in the real dish vary.",
       "ingredients": [
         {
           "fdcId": "173757",
@@ -1351,7 +1351,7 @@
       ],
       "state": "cooked",
       "diet": "veg",
-      "note": "USDA's paratha plus a potato filling counted with raw potato values (boiled potato differs slightly). Spices in the filling are not counted.",
+      "note": "USDA's paratha plus a potato filling counted with raw potato weights and values, so water lost in boiling is not counted. Spices in the filling are not counted.",
       "ingredients": [
         {
           "fdcId": "2707715",

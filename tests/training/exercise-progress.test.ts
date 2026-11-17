@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExerciseSession, HistorySet } from "@/lib/training/exercise-history";
 import {
-  HISTORY_LOADS, bestSetText, formatDuration, formatKg, historyBasis, latestPoints, nextHistoryLoad, overallBest, setResult, topSetOf, volumeSeries,
+  HISTORY_LOADS, bestSetText, formatDuration, formatKg, historyBasis, latestPoints, nextHistoryLoad, overallBest, pagesAfterLoadMore, setResult, topSetOf, volumeSeries,
 } from "@/lib/training/exercise-progress";
 import { estimateOneRepMax } from "@/lib/training/one-rep-max";
 
@@ -85,5 +85,14 @@ describe("how much history is read", () => {
     assert.equal(nextHistoryLoad(HISTORY_LOADS[0]), HISTORY_LOADS[1]);
     assert.equal(nextHistoryLoad(HISTORY_LOADS[HISTORY_LOADS.length - 1]), null);
     assert.ok(HISTORY_LOADS[HISTORY_LOADS.length - 1] <= 100, "exercise-history reads at most 200 session rows, about 100 sessions");
+  });
+
+  test("a larger read moves History on one page, however many times a failed read is tried again", () => {
+    let pages = 4;
+    pages = pagesAfterLoadMore(pages, false);
+    assert.equal(pages, 5);
+    pages = pagesAfterLoadMore(pages, true);
+    pages = pagesAfterLoadMore(pages, true);
+    assert.equal(pages, 5, "retries keep the next ten sessions, not 70 at once");
   });
 });

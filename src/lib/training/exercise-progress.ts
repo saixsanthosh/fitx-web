@@ -112,3 +112,11 @@ export function historyBasis(count: number, limit: number): { capped: boolean; t
 export function nextHistoryLoad(limit: number): number | null {
   return HISTORY_LOADS.find((size) => size > limit) ?? null;
 }
+
+/**
+ * History pages to show after "Show older sessions" starts a larger read. The first click moves on one page (shown
+ * once the read arrives); trying a failed read again keeps the page that click already asked for.
+ */
+export function pagesAfterLoadMore(pages: number, retrying: boolean): number {
+  return retrying ? pages : pages + 1;
+}
