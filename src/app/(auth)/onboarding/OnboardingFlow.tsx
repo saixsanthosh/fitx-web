@@ -502,11 +502,15 @@ function Shell({ children, reachable = false }: { children: React.ReactNode; rea
   );
 }
 
-/** Help is open to an account still in setup (src/lib/auth/before-onboarding.ts); a request sent from there notes it came from setup. */
+/**
+ * Help is open to an account still in setup (src/lib/auth/before-onboarding.ts); a request sent from there notes it
+ * came from setup. The colour sits on the inner span: the global unlayered `a { color: inherit }` outranks utilities
+ * on the link itself, and this should look like the two buttons beside it.
+ */
 function HelpLink() {
   return (
-    <Link href="/help?from=%2Fonboarding" className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text">
-      <CircleHelp size={16} aria-hidden="true" />Get help
+    <Link href="/help?from=%2Fonboarding" className="group inline-flex min-h-11 items-center text-sm">
+      <span className="inline-flex items-center gap-2 text-fitx-text-secondary group-hover:text-fitx-text"><CircleHelp size={16} aria-hidden="true" />Get help</span>
     </Link>
   );
 }
