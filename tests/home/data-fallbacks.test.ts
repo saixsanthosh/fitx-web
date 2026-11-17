@@ -18,13 +18,25 @@ const MISSING_COLUMN = { code: "42703", message: "column planner_events.local_da
 const UNKNOWN_COLUMN = { code: "PGRST204", message: "Could not find the 'dashboard_layout' column" };
 const db = (stub: StubDb) => stub as unknown as SupabaseClient;
 
-test("the summary comes from one database call (plus the Nutrition targets) when fitx_today_summary exists", async () => {
-  const stub = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: { local_date: DAY, nutrition: { calories: 900 } } } : undefined));
+test("the summary comes from one database call (plus the Nutrition targets and today's entries) when fitx_today_summary exists", async () => {
+  const stub = new StubDb((call) => (call.name === "fitx_today_summary"
+    ? { data: { local_date: DAY, nutrition: { calories: 900, protein: 40 } } }
+    : call.name === "meals" ? { data: [{ calories: 500, protein: 40, carbs: 50, fat: 10, nutrition_snapshot: { value_basis: "lab_analysed" } }, { calories: 400, protein: null, carbs: null, fat: 12, nutrition_snapshot: { missing: ["protein", "carbs"], value_basis: "recipe_calculated" } }] } : undefined));
   const result = await loadTodaySummary(db(stub), USER, DAY, "Asia/Kolkata");
   assert.equal(result.source, "database");
   assert.equal(result.summary.nutrition.calories, 900);
-  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "nutrition_targets"]);
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets"]);
   assert.deepEqual(stub.calls[0].args, { p_local_date: DAY, p_tz: "Asia/Kolkata" });
+  assert.ok(used(stub.callsTo("meals")[0], "eq", "date", DAY));
+  assert.deepEqual(result.food?.protein, { sum: 40, known: 1, missing: 1 }, "the unknown protein is counted as missing, not as 0 g");
+  assert.equal(result.food?.estimated, 1);
+});
+
+test("today's entries failing to load leaves the sums standing and the checks unknown", async () => {
+  const stub = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: { local_date: DAY, nutrition: { calories: 900 } } } : call.name === "meals" ? { error: { code: "57014" } } : undefined));
+  const result = await loadTodaySummary(db(stub), USER, DAY, null);
+  assert.equal(result.summary.nutrition.calories, 900);
+  assert.equal(result.food, null);
 });
 
 test("without fitx_today_summary the browser adds up every row itself", async () => {
@@ -52,16 +64,16 @@ test("any other summary failure is reported, not hidden behind the fallback", as
   const stub = new StubDb(() => ({ error: { code: "57014", message: "timeout" } }));
   await assert.rejects(loadTodaySummary(db(stub), USER, DAY, null), DataError);
   assert.equal(stub.callsTo("fitx_today_summary").length, 1);
-  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "nutrition_targets"], "no fallback queries ran");
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets"], "no fallback queries ran");
 });
 
 test("layout: default when none is saved, read-only when the column is missing", async () => {
   const none = await loadDashboardLayout(db(new StubDb(() => ({ data: { dashboard_layout: null } }))), USER);
-  assert.deepEqual(none, { items: defaultLayout(), canSave: true });
+  assert.deepEqual(none, { items: defaultLayout(), canSave: true, fresh: [] });
   const saved = await loadDashboardLayout(db(new StubDb(() => ({ data: { dashboard_layout: { version: 1, items: [{ id: "weight", visible: true }] } } }))), USER);
   assert.deepEqual(visibleIds(saved.items), ["weight"]);
   const missing = await loadDashboardLayout(db(new StubDb(() => ({ error: MISSING_COLUMN }))), USER);
-  assert.deepEqual(missing, { items: defaultLayout(), canSave: false });
+  assert.deepEqual(missing, { items: defaultLayout(), canSave: false, fresh: [] });
 });
 
 test("layout: saved with an update, inserted only when there is no preferences row, honest when unavailable", async () => {

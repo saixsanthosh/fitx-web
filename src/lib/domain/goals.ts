@@ -5,13 +5,23 @@
  * turns that value into a percentage, an achieved/over-limit state and words. Daily goals restart
  * every day, weekly goals every Monday, and long-term goals run from their start to their due date.
  *
- * No runtime imports, so `node --test` can load this file directly.
+ * Imports only other pure domain files, so `node --test` can load this file directly.
  */
+import { addDays, mondayOf } from "./day-keys";
+import { localDateKey } from "./dates";
 import type { FoodMacros } from "./nutrition";
 
 export type GoalPeriod = "daily" | "weekly" | "long_term";
 export type GoalDirection = "increase" | "decrease" | "limit";
-export type GoalMetric = "manual" | "calories_kcal" | "protein_g" | "water_ml" | "workouts_completed" | "body_weight_kg" | "tasks_completed";
+export type GoalMetric =
+  | "manual" | "calories_kcal" | "protein_g" | "water_ml" | "workouts_completed" | "body_weight_kg" | "tasks_completed"
+  | ClientMetric;
+/**
+ * Goals measured in the browser from recorded activities (and finished workouts). The database only knows the
+ * seven metrics above (goals_metric_check), so these are stored as a manual goal whose unit is a reserved marker
+ * (CLIENT_METRIC_UNITS) and measured by the app (src/lib/data/goals.ts) from the member's own rows.
+ */
+export type ClientMetric = "activity_distance_km" | "active_minutes";
 export type GoalStatus = "active" | "paused" | "completed" | "cancelled";
 export type GoalCategory = "fitness" | "nutrition" | "body" | "consistency" | "personal";
 
@@ -40,7 +50,27 @@ export const GOAL_METRICS: Record<GoalMetric, MetricInfo> = {
   workouts_completed: { label: "Workouts", unit: "workouts", source: "From finished workouts", periods: GOAL_PERIODS, directions: ["increase"], category: "consistency" },
   body_weight_kg: { label: "Body weight", unit: "kg", source: "From your weigh-ins", periods: ["long_term"], directions: ["decrease", "increase"], category: "body" },
   tasks_completed: { label: "Linked To-Dos", unit: "To-Dos", source: "From To-Dos linked to this goal", periods: GOAL_PERIODS, directions: ["increase"], category: "personal" },
+  activity_distance_km: { label: "Distance", unit: "km", source: "From your recorded walks, runs and rides", periods: GOAL_PERIODS, directions: ["increase"], category: "fitness" },
+  active_minutes: { label: "Active minutes", unit: "min", source: "Moving time of your activities plus training time of finished workouts", periods: GOAL_PERIODS, directions: ["increase"], category: "fitness" },
 };
+
+/** The unit a client-measured goal is stored with (as metric 'manual'); reserved, so a custom goal cannot use it. */
+export const CLIENT_METRIC_UNITS: Readonly<Record<ClientMetric, string>> = {
+  activity_distance_km: "km (activities)",
+  active_minutes: "min (active time)",
+};
+
+export function isClientMetric(metric: unknown): metric is ClientMetric {
+  return metric === "activity_distance_km" || metric === "active_minutes";
+}
+
+/** The client metric a stored manual goal stands for, from its reserved unit; null for an ordinary manual goal. */
+export function clientMetricForUnit(unit: unknown): ClientMetric | null {
+  if (typeof unit !== "string") return null;
+  const wanted = unit.trim().toLowerCase();
+  for (const metric of Object.keys(CLIENT_METRIC_UNITS) as ClientMetric[]) if (CLIENT_METRIC_UNITS[metric] === wanted) return metric;
+  return null;
+}
 
 export function isGoalMetric(value: unknown): value is GoalMetric {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(GOAL_METRICS, value);
@@ -74,6 +104,11 @@ export type GoalView = {
   startValue: number | null;
   linkedTodos: number;
   linkedTodosDone: number;
+  /**
+   * Calorie and protein goals: food entries in the period without that value (left out of the total, never
+   * read as 0); null when not checked.
+   */
+  missingEntries: number | null;
 };
 
 const num = (value: unknown): number | null => {
@@ -87,7 +122,9 @@ const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback:
 
 /** One row of fitx_goal_progress, or a plain goals row from a database without goals v2. */
 export function parseGoalRow(raw: Record<string, unknown>): GoalView {
-  const metric = isGoalMetric(raw.metric) ? raw.metric : "manual";
+  const stored = isGoalMetric(raw.metric) && !isClientMetric(raw.metric) ? raw.metric : "manual";
+  const client = stored === "manual" ? clientMetricForUnit(raw.unit) : null;
+  const metric: GoalMetric = client ?? stored;
   const legacy = raw.period === undefined;
   return {
     id: String(raw.id),
@@ -98,7 +135,7 @@ export function parseGoalRow(raw: Record<string, unknown>): GoalView {
     direction: pick(raw.direction, ["increase", "decrease", "limit"] as const, "increase"),
     targetValue: num(raw.target_value) ?? 0,
     baselineValue: num(raw.baseline_value),
-    unit: String(raw.unit ?? ""),
+    unit: client ? GOAL_METRICS[client].unit : String(raw.unit ?? ""),
     startsOn: str(raw.starts_on) ?? "",
     dueOn: str(raw.due_on),
     status: pick(raw.status, ["active", "paused", "completed", "cancelled"] as const, "active"),
@@ -108,12 +145,14 @@ export function parseGoalRow(raw: Record<string, unknown>): GoalView {
     completedAt: str(raw.completed_at),
     periodStart: str(raw.period_start),
     periodEnd: str(raw.period_end),
-    // A database without goals v2 has only the browser-kept manual total.
-    currentValue: num(raw.current_value) ?? (legacy ? 0 : null),
+    // A database without goals v2 has only the browser-kept manual total. A client-measured goal has no value
+    // until the app measures it (src/lib/data/goals.ts): the stored manual total is not its progress.
+    currentValue: client ? null : num(raw.current_value) ?? (legacy ? 0 : null),
     valueAsOf: str(raw.value_as_of),
-    startValue: num(raw.start_value) ?? num(raw.baseline_value),
+    startValue: client ? null : num(raw.start_value) ?? num(raw.baseline_value),
     linkedTodos: num(raw.linked_todos) ?? 0,
     linkedTodosDone: num(raw.linked_todos_done) ?? 0,
+    missingEntries: null,
   };
 }
 
@@ -190,6 +229,10 @@ export function formatGoalValue(value: number | null, metric: GoalMetric, unit =
       return `${value.toFixed(1)} kg`;
     case "tasks_completed":
       return `${trimNumber(value, 0)} ${Math.round(value) === 1 ? "To-Do" : "To-Dos"}`;
+    case "activity_distance_km":
+      return `${trimNumber(value, 1)} km`;
+    case "active_minutes":
+      return `${Math.round(value).toLocaleString("en-US")} min`;
     default:
       return `${trimNumber(value, 2)}${unit ? ` ${unit}` : ""}`;
   }
@@ -205,9 +248,12 @@ function bareNumber(value: number, metric: GoalMetric, target: number): string {
       return Math.round(value).toLocaleString("en-US");
     case "workouts_completed":
     case "tasks_completed":
+    case "active_minutes":
       return trimNumber(value, 0);
     case "body_weight_kg":
       return value.toFixed(1);
+    case "activity_distance_km":
+      return trimNumber(value, 1);
     default:
       return trimNumber(value, 2);
   }
@@ -268,6 +314,56 @@ export function dailyGoalsMet(goals: readonly GoalView[], today: string): { met:
   return { met: daily.filter((goal) => evaluateView(goal).achieved).length, total: daily.length };
 }
 
+/**
+ * The days a goal's current period covers, as fitx_goal_progress measures them: today (daily), this Monday to
+ * Sunday (weekly), or from the start to the due date or today, whichever is earlier (long-term). The database's
+ * own period wins when it sent one. Null for a long-term goal that has not started yet.
+ */
+export function goalWindow(goal: Pick<GoalView, "period" | "startsOn" | "dueOn" | "periodStart" | "periodEnd">, today: string): { from: string; to: string } | null {
+  if (goal.periodStart && goal.periodEnd) return goal.periodStart <= goal.periodEnd ? { from: goal.periodStart, to: goal.periodEnd } : null;
+  if (goal.period === "daily") return { from: today, to: today };
+  if (goal.period === "weekly") return { from: mondayOf(today), to: addDays(mondayOf(today), 6) };
+  const to = goal.dueOn && goal.dueOn < today ? goal.dueOn : today;
+  const from = goal.startsOn || to;
+  return from <= to ? { from, to } : null;
+}
+
+export type GoalActivityRow = { startedAt: string; distanceM: number; movingSeconds: number };
+export type GoalSessionRow = { startedAt: string; durationSeconds: number };
+
+function localDay(iso: string): string | null {
+  const time = Date.parse(iso);
+  return Number.isFinite(time) ? localDateKey(new Date(time)) : null;
+}
+
+/**
+ * A client-measured goal's value over its window, from the member's own rows (by the local day each started):
+ * distance in km from recorded activities; active minutes from activity moving time plus the training time of
+ * finished workouts (pauses excluded). Null when a source it needs could not be read: unknown, never 0.
+ */
+export function clientGoalValue(
+  metric: ClientMetric,
+  window: { from: string; to: string },
+  activities: readonly GoalActivityRow[] | null,
+  sessions: readonly GoalSessionRow[] | null,
+): number | null {
+  if (!activities) return null;
+  const inWindow = (iso: string) => {
+    const day = localDay(iso);
+    return day !== null && day >= window.from && day <= window.to;
+  };
+  const counted = activities.filter((activity) => inWindow(activity.startedAt));
+  if (metric === "activity_distance_km") {
+    const metres = counted.reduce((sum, activity) => sum + (Number(activity.distanceM) > 0 ? Number(activity.distanceM) : 0), 0);
+    return Math.round(metres / 10) / 100;
+  }
+  if (!sessions) return null;
+  const moving = counted.reduce((sum, activity) => sum + (Number(activity.movingSeconds) > 0 ? Number(activity.movingSeconds) : 0), 0);
+  const training = sessions.filter((session) => inWindow(session.startedAt))
+    .reduce((sum, session) => sum + (Number(session.durationSeconds) > 0 ? Number(session.durationSeconds) : 0), 0);
+  return Math.round((moving + training) / 6) / 10;
+}
+
 /** The first active daily goal for a metric that applies today (used for Home targets). */
 export function dailyGoalFor(goals: readonly GoalView[] | null | undefined, metric: GoalMetric, today: string): GoalView | null {
   return sortGoals((goals ?? []).filter((goal) => goal.metric === metric && goal.period === "daily" && appliesOn(goal, today)))[0] ?? null;
@@ -276,7 +372,7 @@ export function dailyGoalFor(goals: readonly GoalView[] | null | undefined, metr
 // ---------------------------------------------------------------------------------------------
 // Creating and editing goals
 
-export type GoalTemplateKey = "workouts_week" | "protein_day" | "calories_day" | "water_day" | "weight" | "checklist" | "custom";
+export type GoalTemplateKey = "workouts_week" | "distance_week" | "active_week" | "protein_day" | "calories_day" | "water_day" | "weight" | "checklist" | "custom";
 
 export type GoalDraft = {
   template: GoalTemplateKey;
@@ -305,6 +401,8 @@ export type GoalContext = {
 
 export const GOAL_TEMPLATES: ReadonlyArray<{ key: GoalTemplateKey; label: string; hint: string }> = [
   { key: "workouts_week", label: "Workouts per week", hint: "Counts finished workouts, Monday to Sunday" },
+  { key: "distance_week", label: "Distance a week", hint: "Adds up your recorded walks, runs and rides" },
+  { key: "active_week", label: "Active minutes a week", hint: "Activity moving time plus workout training time" },
   { key: "protein_day", label: "Daily protein", hint: "Adds up the protein in the food you log" },
   { key: "calories_day", label: "Daily calories", hint: "A calorie target or a limit to stay under" },
   { key: "water_day", label: "Daily water", hint: "Adds up the water you log" },
@@ -321,9 +419,14 @@ export function templateTitle(draft: Pick<GoalDraft, "template" | "target" | "di
   const target = Number(draft.target);
   const has = draft.target.trim() !== "" && Number.isFinite(target) && target > 0;
   const n = (digits = 0) => (has ? target.toLocaleString("en-US", { maximumFractionDigits: digits }) : "…");
+  const per = draft.period === "daily" ? "a day" : draft.period === "weekly" ? "a week" : "in total";
   switch (draft.template) {
     case "workouts_week":
       return `Work out ${n()} ${has && target === 1 ? "time" : "times"} a week`;
+    case "distance_week":
+      return `Cover ${n(1)} km ${per}`;
+    case "active_week":
+      return `Be active for ${n()} minutes ${per}`;
     case "protein_day":
       return `Eat ${n()} g of protein a day`;
     case "calories_day":
@@ -353,6 +456,13 @@ export function goalDraft(template: GoalTemplateKey, context: GoalContext): Goal
   switch (template) {
     case "workouts_week":
       draft = { ...base, category: "consistency", metric: "workouts_completed", period: "weekly", unit: "workouts", target: asText(context.workoutsPerWeek ?? 3) };
+      break;
+    // No target is suggested: FITX has no number of the member's own to start from.
+    case "distance_week":
+      draft = { ...base, category: "fitness", metric: "activity_distance_km", period: "weekly", unit: "km" };
+      break;
+    case "active_week":
+      draft = { ...base, category: "fitness", metric: "active_minutes", period: "weekly", unit: "min" };
       break;
     case "protein_day":
       draft = { ...base, category: "nutrition", metric: "protein_g", period: "daily", unit: "g", target: asText(context.estimate ? round(context.estimate.protein, 5) : null) };
@@ -421,18 +531,21 @@ export function validateGoalDraft(draft: GoalDraft): { ok: true; value: GoalInpu
   if (draft.dueOn && draft.dueOn < draft.startsOn) return { ok: false, error: "The end date can't be before the start date." };
   const notes = draft.notes.trim();
   if (notes.length > 1000) return { ok: false, error: "Keep notes under 1,000 characters." };
+  if (draft.metric === "manual" && clientMetricForUnit(draft.unit)) return { ok: false, error: "FITX keeps that unit for its own goals. Choose another unit, or the Distance or Active minutes goal." };
   const direction = draft.metric === "body_weight_kg" ? weightDirection(baseline, target) : draft.direction;
+  const client = isClientMetric(draft.metric) ? draft.metric : null;
   return {
     ok: true,
     value: {
       title,
       category: draft.category,
-      metric: draft.metric,
+      // A client-measured goal is stored as a manual goal with its reserved unit (the database knows no such metric).
+      metric: client ? "manual" : draft.metric,
       period: draft.period,
       direction,
       target_value: Number(target.toFixed(2)),
-      baseline_value: baseline === null ? null : Number(baseline.toFixed(2)),
-      unit: (draft.metric === "manual" ? draft.unit.trim() : metric.unit).slice(0, 24),
+      baseline_value: client || baseline === null ? null : Number(baseline.toFixed(2)),
+      unit: (client ? CLIENT_METRIC_UNITS[client] : draft.metric === "manual" ? draft.unit.trim() : metric.unit).slice(0, 24),
       starts_on: draft.startsOn,
       due_on: draft.dueOn || null,
       notes: notes || null,
@@ -444,6 +557,8 @@ export function validateGoalDraft(draft: GoalDraft): { ok: true; value: GoalInpu
 export function draftFromGoal(goal: GoalView): GoalDraft {
   const template: GoalTemplateKey =
     goal.metric === "workouts_completed" && goal.period === "weekly" ? "workouts_week"
+      : goal.metric === "activity_distance_km" ? "distance_week"
+      : goal.metric === "active_minutes" ? "active_week"
       : goal.metric === "protein_g" ? "protein_day"
         : goal.metric === "calories_kcal" ? "calories_day"
           : goal.metric === "water_ml" ? "water_day"

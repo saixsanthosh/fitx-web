@@ -2,14 +2,15 @@
 
 import { useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Reorder, useDragControls, useReducedMotion } from "framer-motion";
-import { CalendarDays, ChevronDown, ChevronUp, Droplets, Dumbbell, EyeOff, GripVertical, ListChecks, PieChart, Plus, Scale, Target, Utensils } from "lucide-react";
+import { BicepsFlexed, CalendarCheck2, CalendarDays, ChevronDown, ChevronUp, Compass, Droplets, EyeOff, GripVertical, ListChecks, PieChart, Plus, Scale, Target, Utensils } from "lucide-react";
 import { Sheet } from "@/components/tasks/Sheet";
 import { WIDGETS, describePosition, hiddenIds, visibleIds, type LayoutAction, type LayoutItem, type WidgetId } from "@/lib/domain/dashboard-layout";
 import type { SaveState } from "./useHomeData";
 import styles from "./Widgets.module.css";
 
 export const WIDGET_ICONS: Record<WidgetId, typeof PieChart> = {
-  today: PieChart, todo: ListChecks, goals: Target, weight: Scale, water: Droplets, workout: Dumbbell, week: CalendarDays, macros: Utensils,
+  plan: CalendarCheck2, today: PieChart, next: Compass, muscles: BicepsFlexed, todo: ListChecks, goals: Target, weight: Scale,
+  water: Droplets, week: CalendarDays, macros: Utensils,
 };
 
 /** Arrange Home: drag or use the arrows to order widgets, hide them, or add hidden ones back. */

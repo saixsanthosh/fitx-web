@@ -6,9 +6,13 @@
  * completed and deleted the way Phase 1 did it; automatic goals wait for the update.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseGoalRow, type GoalInput, type GoalStatus, type GoalView } from "@/lib/domain/goals";
+import { addDays } from "@/lib/domain/day-keys";
+import { clientGoalValue, goalWindow, isClientMetric, parseGoalRow, type GoalActivityRow, type GoalInput, type GoalSessionRow, type GoalStatus, type GoalView } from "@/lib/domain/goals";
+import { macroValue, type MealValueRow } from "@/lib/domain/meal-totals";
+import { loadActivitiesBetween } from "./activities";
 import { browserTimeZone } from "./today";
 import { DataError, FeatureUnavailableError, isMissingFunctionError, isMissingSchemaError } from "./missing-schema";
+import { pagedRows, startOfDayIso, toNumber } from "./rows";
 
 type Db = SupabaseClient;
 export type GoalsSchema = "v2" | "v1";
@@ -17,11 +21,76 @@ const V1_COLUMNS = "id,title,category,metric,target_value,current_value,unit,sta
 
 export async function loadGoals(db: Db, userId: string, localDate: string, timeZone = browserTimeZone()): Promise<{ goals: GoalView[]; schema: GoalsSchema }> {
   const rpc = await db.rpc("fitx_goal_progress", { p_local_date: localDate, p_tz: timeZone });
-  if (!rpc.error) return { goals: ((rpc.data ?? []) as Record<string, unknown>[]).map(parseGoalRow), schema: "v2" };
+  if (!rpc.error) return { goals: await measureInBrowser(db, userId, localDate, ((rpc.data ?? []) as Record<string, unknown>[]).map(parseGoalRow)), schema: "v2" };
   if (!isMissingFunctionError(rpc.error)) throw new DataError("Your goals could not be loaded.", rpc.error);
   const legacy = await db.from("goals").select(V1_COLUMNS).eq("user_id", userId).neq("status", "cancelled").order("created_at", { ascending: true });
   if (legacy.error) throw new DataError("Your goals could not be loaded.", legacy.error);
-  return { goals: ((legacy.data ?? []) as Record<string, unknown>[]).map(parseGoalRow), schema: "v1" };
+  return { goals: await measureInBrowser(db, userId, localDate, ((legacy.data ?? []) as Record<string, unknown>[]).map(parseGoalRow)), schema: "v1" };
+}
+
+type Window = { from: string; to: string };
+
+function span(windows: ReadonlyArray<Window | null>): Window | null {
+  const known = windows.filter((window): window is Window => window !== null);
+  if (!known.length) return null;
+  return { from: known.reduce((min, window) => (window.from < min ? window.from : min), known[0].from), to: known.reduce((max, window) => (window.to > max ? window.to : max), known[0].to) };
+}
+
+/** Finished workouts' training time (pauses excluded) that started on the days of `window`; null when unreadable. */
+async function loadSessionTimes(db: Db, userId: string, window: Window): Promise<GoalSessionRow[] | null> {
+  const result = await pagedRows<{ started_at: string; duration_seconds: unknown }>((from, to) => db.from("workout_sessions")
+    .select("started_at,duration_seconds").eq("user_id", userId).eq("status", "completed")
+    .gte("started_at", startOfDayIso(window.from)).lt("started_at", startOfDayIso(addDays(window.to, 1)))
+    .order("started_at", { ascending: true }).range(from, to), { maxPages: 5 });
+  if (result.error || result.capped) return null;
+  return result.rows.map((row) => ({ startedAt: row.started_at, durationSeconds: Math.max(0, toNumber(row.duration_seconds) ?? 0) }));
+}
+
+/** Food entries without a calorie or protein value on the days of `window`, per day; null when unreadable. */
+async function loadMissingFood(db: Db, userId: string, window: Window): Promise<MealValueRow[] | null> {
+  const result = await pagedRows<Record<string, unknown>>((from, to) => db.from("meals")
+    .select("date,calories,protein,missing:nutrition_snapshot->missing").eq("user_id", userId)
+    .gte("date", window.from).lte("date", window.to).order("date", { ascending: true }).range(from, to), { maxPages: 3 });
+  if (result.error || result.capped) return null;
+  return result.rows.map((row) => ({ ...row, nutrition_snapshot: { missing: Array.isArray(row.missing) ? row.missing : [] } }));
+}
+
+/**
+ * What the database cannot measure, measured here from the member's own rows:
+ *  - Distance and Active minutes goals (stored as manual goals with a reserved unit): recorded activities and
+ *    finished workouts in the goal's period; unknown (null) when activities cannot be read.
+ *  - Calorie and protein goals: how many food entries in the period have no value for the goal (the database
+ *    sum leaves them out), so the goal can say so instead of passing them off as 0.
+ * A failure here never hides the goals: the affected numbers stay unknown.
+ */
+async function measureInBrowser(db: Db, userId: string, today: string, goals: GoalView[]): Promise<GoalView[]> {
+  const windows = new Map(goals.map((goal) => [goal.id, goalWindow(goal, today)]));
+  const client = goals.filter((goal) => isClientMetric(goal.metric));
+  const food = goals.filter((goal) => (goal.metric === "protein_g" || goal.metric === "calories_kcal") && goal.period !== "long_term");
+  if (!client.length && !food.length) return goals;
+
+  const clientSpan = span(client.map((goal) => windows.get(goal.id) ?? null));
+  const foodSpan = span(food.map((goal) => windows.get(goal.id) ?? null));
+  const needsSessions = client.some((goal) => goal.metric === "active_minutes");
+  const [activities, sessions, meals] = await Promise.all([
+    clientSpan ? loadActivitiesBetween(db, userId, clientSpan.from, clientSpan.to).then((result) => (result.available && !result.capped ? result.activities : null), () => null) : Promise.resolve(null),
+    clientSpan && needsSessions ? loadSessionTimes(db, userId, clientSpan).catch(() => null) : Promise.resolve(null),
+    foodSpan ? loadMissingFood(db, userId, foodSpan).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  return goals.map((goal) => {
+    const window = windows.get(goal.id) ?? null;
+    if (isClientMetric(goal.metric)) {
+      const rows: GoalActivityRow[] | null = activities ? activities.map(({ startedAt, distanceM, movingSeconds }) => ({ startedAt, distanceM, movingSeconds })) : null;
+      return { ...goal, currentValue: window ? clientGoalValue(goal.metric, window, rows, sessions) : null };
+    }
+    if (food.includes(goal) && window && meals) {
+      const key = goal.metric === "protein_g" ? "protein" : "calories";
+      const missing = meals.filter((row) => typeof row.date === "string" && row.date >= window.from && row.date <= window.to && macroValue(row, key) === null).length;
+      return { ...goal, missingEntries: missing };
+    }
+    return goal;
+  });
 }
 
 function v1Payload(input: GoalInput) {

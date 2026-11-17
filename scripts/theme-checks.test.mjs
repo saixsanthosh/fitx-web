@@ -105,7 +105,9 @@ test("files converted to tokens in this stream contain no raw colours", () => {
     "src/app/(dashboard)/progress",
     "src/app/(dashboard)/profile",
   ];
-  const files = owned.flatMap((path) => (statSync(path).isDirectory() ? readdirSync(path).map((name) => join(path, name)) : [path]));
+  // Route folders can hold sub-routes (e.g. /progress/muscles), so folders are read all the way down.
+  const filesIn = (path) => (statSync(path).isDirectory() ? readdirSync(path).flatMap((name) => filesIn(join(path, name))) : [path]);
+  const files = owned.flatMap(filesIn);
   const findings = files.flatMap((file) => findRawColors(readFileSync(file, "utf8"), { file }));
   assert.deepEqual(findings.map((finding) => `${finding.file}:${finding.line} ${finding.value}`), []);
 });

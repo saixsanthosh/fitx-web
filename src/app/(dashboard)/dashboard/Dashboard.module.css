@@ -10,6 +10,8 @@
 
 .grid { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 16px; }
 .slot { min-width: 0; }
+/* Today's plan is the page's lead: it spans the grid. */
+.wide { grid-column: 1 / -1; }
 .placeholder { min-height: 220px; border: 1px solid var(--fitx-divider); border-radius: 16px; background: linear-gradient(90deg, var(--fitx-surface), color-mix(in srgb, var(--fitx-surface-variant) 60%, var(--fitx-surface)), var(--fitx-surface)); background-size: 200% 100%; animation: shimmer 1.5s ease-in-out infinite; }
 .lineShort, .lineLong { display: block; height: 14px; border-radius: 7px; background: var(--fitx-surface-variant); }
 .lineShort { width: 160px; }

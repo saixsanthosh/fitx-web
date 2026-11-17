@@ -2,10 +2,16 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { localDateKey } from "@/lib/domain/dates";
-import { layoutReducer, sameLayout, type LayoutAction, type LayoutItem } from "@/lib/domain/dashboard-layout";
+import { addDays } from "@/lib/domain/day-keys";
+import { layoutReducer, sameLayout, type LayoutAction, type LayoutItem, type WidgetId } from "@/lib/domain/dashboard-layout";
+import { INSIGHT_WINDOW_DAYS, dayWindow } from "@/lib/domain/insights";
+import { loadActivitiesBetween, type ActivitiesResult } from "@/lib/data/activities";
 import { loadGoals, type GoalsSchema } from "@/lib/data/goals";
+import { loadFoodDays, type FoodDays } from "@/lib/data/meals";
 import { loadDashboardLayout, loadTodaySummary, saveDashboardLayout, type SummaryResult } from "@/lib/data/today";
+import { loadTodayPlanData, type TodayPlanData } from "@/lib/data/today-plan";
 import type { GoalView } from "@/lib/domain/goals";
+import { loadMuscleHistory, type LoggedSession } from "@/lib/training/muscle-history";
 import { getSession, messageFor } from "@/components/tasks/session";
 
 /** A value loaded from the database: loading, ready (kept while it reloads) or failed. */
@@ -18,7 +24,7 @@ type ResourceState<T> = Omit<Resource<T>, "reload"> & { from: (() => Promise<T>)
  * fails, with status "error"), but a new loader, such as the next day's, starts empty: yesterday's
  * numbers never sit under today's date.
  */
-function useResource<T>(load: () => Promise<T>, fallbackMessage: string): Resource<T> {
+export function useResource<T>(load: () => Promise<T>, fallbackMessage: string): Resource<T> {
   const [state, setState] = useState<ResourceState<T>>({ status: "loading", data: null, error: "", from: null });
   const generation = useRef(0);
   const run = useCallback(() => {
@@ -43,6 +49,76 @@ export function useTodaySummary(date: string): Resource<SummaryResult> {
     return loadTodaySummary(db, userId, date);
   }, [date]);
   return useResource(load, "Today's numbers could not be loaded.");
+}
+
+/**
+ * A resource that loads only while `enabled` (its widget is on Home). While disabled it stays "loading" and
+ * sends nothing; enabling it starts a fresh load.
+ */
+export function useOptionalResource<T>(load: () => Promise<T>, enabled: boolean, fallbackMessage: string): Resource<T> {
+  const idle = useCallback(() => new Promise<T>(() => undefined), []);
+  return useResource(enabled ? load : idle, fallbackMessage);
+}
+
+/** Today's plan: a workout in progress, today's planned and programme workouts, and what comes next. */
+export function useTodayPlan(date: string, enabled: boolean): Resource<TodayPlanData> {
+  const load = useCallback(async () => {
+    const { db, userId } = await getSession();
+    return loadTodayPlanData(db, userId, date);
+  }, [date]);
+  return useOptionalResource(load, enabled, "Today's plan could not be loaded.");
+}
+
+/** Recorded activities of the last five weeks (this week's strip and the "usual" for Focus next). */
+export function useRecentActivities(date: string, enabled: boolean): Resource<ActivitiesResult> {
+  const load = useCallback(async () => {
+    const { db, userId } = await getSession();
+    return loadActivitiesBetween(db, userId, addDays(date, -(INSIGHT_WINDOW_DAYS - 1)), date);
+  }, [date]);
+  return useOptionalResource(load, enabled, "Your activities could not be loaded.");
+}
+
+export type TrainingHistory = { sessions: LoggedSession[]; truncated: boolean };
+
+/** Completed workouts of the last five weeks with their sets and muscles (contract C3). */
+export function useTrainingHistory(date: string, enabled: boolean): Resource<TrainingHistory> {
+  const load = useCallback(async () => {
+    const { db, userId } = await getSession();
+    const result = await loadMuscleHistory(db, userId, { since: dayWindow(addDays(date, -(INSIGHT_WINDOW_DAYS - 1)), date).start, maxSessions: 300 });
+    if (result.error) throw result.error;
+    return { sessions: result.sessions, truncated: result.truncated };
+  }, [date]);
+  return useOptionalResource(load, enabled, "Your workouts could not be loaded.");
+}
+
+/** Food logged on the 7 days before today, per day (the protein check in Focus next). */
+export function useRecentFood(date: string, enabled: boolean): Resource<FoodDays> {
+  const load = useCallback(async () => {
+    const { db, userId } = await getSession();
+    return loadFoodDays(db, userId, addDays(date, -7), addDays(date, -1));
+  }, [date]);
+  return useOptionalResource(load, enabled, "Your food log could not be loaded.");
+}
+
+/** An activity left recording on this device (it lives in the browser, not the database); null when none. */
+export function useUnfinishedRecording(enabled: boolean): { sport: string; startedAt: number } | null {
+  const [found, setFound] = useState<{ sport: string; startedAt: number } | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let active = true;
+    void (async () => {
+      try {
+        const [{ userId }, { recordingStore }] = await Promise.all([getSession(), import("@/lib/activity/local-store")]);
+        const store = await recordingStore();
+        const unfinished = (await store.listRecordings(userId)).find((recording) => recording.state === "active");
+        if (active) setFound(unfinished ? { sport: unfinished.sport, startedAt: unfinished.startedAt } : null);
+      } catch {
+        // No device storage (private mode, blocked): nothing to resume from here.
+      }
+    })();
+    return () => { active = false; };
+  }, [enabled]);
+  return enabled ? found : null;
 }
 
 export type GoalsData = { goals: GoalView[]; schema: GoalsSchema };
@@ -95,7 +171,7 @@ export function useRefreshOnReturn(refresh: () => void, staleMs = 5 * 60_000) {
 
 export type SaveState = "idle" | "saving" | "saved" | "error" | "unavailable";
 
-type LayoutState = { status: "loading" | "ready"; canSave: boolean; loadError: string };
+type LayoutState = { status: "loading" | "ready"; canSave: boolean; loadError: string; fresh: WidgetId[] };
 
 /**
  * The user's widget arrangement: loaded once, changed through the layout reducer, and saved a
@@ -103,7 +179,7 @@ type LayoutState = { status: "loading" | "ready"; canSave: boolean; loadError: s
  * this visit and the panel says so.
  */
 export function useDashboardLayout() {
-  const [state, setState] = useState<LayoutState>({ status: "loading", canSave: true, loadError: "" });
+  const [state, setState] = useState<LayoutState>({ status: "loading", canSave: true, loadError: "", fresh: [] });
   const [items, dispatch] = useReducer(layoutReducer, [] as LayoutItem[]);
   const [save, setSave] = useState<SaveState>("idle");
   /** What the database has, the newest arrangement wanted, and whether a save is running. */
@@ -122,13 +198,13 @@ export function useDashboardLayout() {
         saved.current = result.items;
         canSave.current = result.canSave;
         dispatch({ type: "replace", items: result.items });
-        setState({ status: "ready", canSave: result.canSave, loadError: "" });
+        setState({ status: "ready", canSave: result.canSave, loadError: "", fresh: result.canSave ? result.fresh : [] });
       } catch (error) {
         if (!active) return;
         // Home still shows, in the default arrangement, with the reason in the panel.
         canSave.current = false;
         dispatch({ type: "reset" });
-        setState({ status: "ready", canSave: false, loadError: messageFor(error, "Your Home layout could not be loaded.") });
+        setState({ status: "ready", canSave: false, loadError: messageFor(error, "Your Home layout could not be loaded."), fresh: [] });
       }
     })();
     return () => { active = false; };
@@ -174,5 +250,20 @@ export function useDashboardLayout() {
   useEffect(() => () => { void flush(); }, [flush]);
 
   const act = useCallback((action: LayoutAction) => dispatch(action), []);
-  return { status: state.status, items, canSave: state.canSave, loadError: state.loadError, save, dispatch: act, retrySave: () => void flush() };
+
+  /**
+   * Answers the new-widgets hint once: "add" shows them (the layout then saves as usual); "dismiss" saves the
+   * layout as it is, which records that these widgets were offered, so the hint does not come back.
+   */
+  const fresh = state.fresh;
+  const answerFresh = useCallback((answer: "add" | "dismiss") => {
+    if (answer === "add" && fresh.length) dispatch({ type: "adopt", ids: fresh });
+    setState((current) => ({ ...current, fresh: [] }));
+    if (answer === "dismiss") {
+      saved.current = null;
+      void flush();
+    }
+  }, [flush, fresh]);
+
+  return { status: state.status, items, canSave: state.canSave, loadError: state.loadError, fresh: state.fresh, answerFresh, save, dispatch: act, retrySave: () => void flush() };
 }

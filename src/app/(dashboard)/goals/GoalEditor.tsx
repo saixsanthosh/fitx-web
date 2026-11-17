@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CalendarCheck, Droplets, Dumbbell, Flame, ListChecks, PenLine, Scale, Utensils } from "lucide-react";
+import { CalendarCheck, Droplets, Dumbbell, Flame, Footprints, ListChecks, PenLine, Scale, Timer, Utensils } from "lucide-react";
 import { Sheet } from "@/components/tasks/Sheet";
 import { getSession, messageFor } from "@/components/tasks/session";
 import { createGoal, updateGoal, type GoalsSchema } from "@/lib/data/goals";
@@ -13,8 +13,12 @@ import {
 import styles from "./Goals.module.css";
 
 const TEMPLATE_ICONS: Record<GoalTemplateKey, typeof Dumbbell> = {
-  workouts_week: Dumbbell, protein_day: Utensils, calories_day: Flame, water_day: Droplets, weight: Scale, checklist: ListChecks, custom: PenLine,
+  workouts_week: Dumbbell, distance_week: Footprints, active_week: Timer, protein_day: Utensils, calories_day: Flame, water_day: Droplets,
+  weight: Scale, checklist: ListChecks, custom: PenLine,
 };
+
+/** A placeholder per kind of target: an example of the format, not a recommendation. */
+const PLACEHOLDERS: Partial<Record<GoalDraft["metric"], string>> = { water_ml: "3000", activity_distance_km: "15", active_minutes: "150" };
 
 /** Create a goal from a template, or edit one. Prefilled from the user's own numbers where FITX has them. */
 export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClose, onSaved }: {
@@ -140,7 +144,7 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
             <div className={styles.fieldRow}>
               <label className={styles.field}>
                 <span>{draft.direction === "limit" ? "Limit" : "Target"} {draft.metric !== "manual" && <em>{draft.metric === "water_ml" ? "ml" : metric?.unit}</em>}</span>
-                <input className="fitx-field" inputMode="decimal" value={draft.target} onChange={(event) => change({ target: event.target.value })} placeholder={draft.metric === "water_ml" ? "3000" : "10"} />
+                <input className="fitx-field" inputMode="decimal" value={draft.target} onChange={(event) => change({ target: event.target.value })} placeholder={PLACEHOLDERS[draft.metric] ?? "10"} />
                 {draft.metric === "water_ml" && Number(draft.target) > 0 && <small>{(Number(draft.target) / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} litres</small>}
               </label>
               {draft.metric === "manual" ? (
@@ -198,6 +202,8 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
             <textarea className="fitx-field" maxLength={1000} value={draft.notes} onChange={(event) => change({ notes: event.target.value })} />
           </label>
           {draft.template === "checklist" && <p className={styles.hint}><CalendarCheck size={14} aria-hidden="true" />Link To-Dos to this goal from the To-Do editor (“Counts toward”). Each one you finish moves it forward.</p>}
+          {draft.metric === "activity_distance_km" && <p className={styles.hint}><Footprints size={14} aria-hidden="true" />Counts the distance of the walks, runs and rides you record in Activity, by the day each one started.</p>}
+          {draft.metric === "active_minutes" && <p className={styles.hint}><Timer size={14} aria-hidden="true" />Counts the moving time of your recorded activities plus the training time of finished workouts (pauses left out).</p>}
         </form>
       )}
     </Sheet>

@@ -1,11 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CLIENT_METRIC_UNITS,
+  clientGoalValue,
   dailyGoalsMet,
   draftFromGoal,
   evaluateGoal,
   formatGoalValue,
   goalDraft,
+  goalWindow,
   parseGoalRow,
   parseProgressAmount,
   periodLabel,
@@ -26,7 +29,7 @@ function goal(overrides: Partial<GoalView>): GoalView {
     id: "g1", title: "Goal", category: "personal", metric: "manual", period: "long_term", direction: "increase",
     targetValue: 10, baselineValue: null, unit: "", startsOn: "2026-11-01", dueOn: null, status: "active", notes: null,
     createdAt: "2026-11-01T00:00:00Z", updatedAt: null, completedAt: null, periodStart: null, periodEnd: null,
-    currentValue: 0, valueAsOf: null, startValue: null, linkedTodos: 0, linkedTodosDone: 0, ...overrides,
+    currentValue: 0, valueAsOf: null, startValue: null, linkedTodos: 0, linkedTodosDone: 0, missingEntries: null, ...overrides,
   };
 }
 
@@ -209,4 +212,53 @@ test("progress amounts accept a typographic minus and thousands separators", () 
   assert.equal(parseProgressAmount("12,345.5"), 12345.5);
   assert.equal(parseProgressAmount("2,5"), 2.5, "a decimal comma");
   for (const bad of ["", "0", "-0", "abc", "1-2", "--1", "1,2,3", "."]) assert.equal(parseProgressAmount(bad), null, JSON.stringify(bad));
+});
+
+test("distance and active-minute goals are stored as manual goals with a reserved unit and read back as themselves", () => {
+  const distance = goalDraft("distance_week", context);
+  assert.deepEqual([distance.metric, distance.period, distance.target, distance.title], ["activity_distance_km", "weekly", "", "Cover … km a week"], "no target is invented");
+  const saved = validateGoalDraft({ ...distance, target: "20", title: templateTitle({ ...distance, target: "20" }) });
+  assert.ok(saved.ok);
+  if (saved.ok) {
+    assert.deepEqual([saved.value.metric, saved.value.unit, saved.value.period, saved.value.baseline_value, saved.value.title], ["manual", "km (activities)", "weekly", null, "Cover 20 km a week"]);
+    const row = parseGoalRow({ id: "d", title: saved.value.title, category: "fitness", metric: saved.value.metric, period: "weekly", direction: "increase", target_value: 20, unit: saved.value.unit, current_value: 3, start_value: 3, starts_on: today, status: "active", created_at: "2026-11-18T00:00:00Z" });
+    assert.deepEqual([row.metric, row.unit, row.currentValue, row.startValue], ["activity_distance_km", "km", null, null], "the stored manual total is not its progress");
+    const again = validateGoalDraft(draftFromGoal(row));
+    assert.equal(again.ok && again.value.unit, CLIENT_METRIC_UNITS.activity_distance_km, "an edit keeps it a distance goal");
+  }
+  const active = goalDraft("active_week", context);
+  assert.equal(templateTitle({ ...active, target: "150" }), "Be active for 150 minutes a week");
+  assert.equal(templateTitle({ ...active, target: "30", period: "daily" }), "Be active for 30 minutes a day");
+  assert.deepEqual(validateGoalDraft({ ...goalDraft("custom", context), title: "Swim", target: "5", unit: "KM (activities) " }), { ok: false, error: "FITX keeps that unit for its own goals. Choose another unit, or the Distance or Active minutes goal." });
+  assert.equal(formatGoalValue(12.345, "activity_distance_km"), "12.3 km");
+  assert.equal(formatGoalValue(95.4, "active_minutes"), "95 min");
+  assert.equal(progressSummary(goal({ metric: "activity_distance_km", currentValue: 7.25, targetValue: 20, unit: "km" })), "7.3 of 20 km");
+});
+
+test("a goal's window matches the database's: today, this Monday to Sunday, or start to due date or today", () => {
+  assert.deepEqual(goalWindow(goal({ period: "daily" }), today), { from: today, to: today });
+  assert.deepEqual(goalWindow(goal({ period: "weekly" }), today), { from: "2026-11-16", to: "2026-11-22" });
+  assert.deepEqual(goalWindow(goal({ period: "long_term", startsOn: "2026-11-01", dueOn: "2026-11-10" }), today), { from: "2026-11-01", to: "2026-11-10" });
+  assert.deepEqual(goalWindow(goal({ period: "long_term", startsOn: "2026-11-01", dueOn: null }), today), { from: "2026-11-01", to: today });
+  assert.equal(goalWindow(goal({ period: "long_term", startsOn: "2026-12-01" }), today), null, "not started yet");
+  assert.deepEqual(goalWindow(goal({ period: "weekly", periodStart: "2026-11-09", periodEnd: "2026-11-15" }), today), { from: "2026-11-09", to: "2026-11-15" }, "the database's own period wins");
+});
+
+test("distance and active minutes are measured from activities and finished workouts in the window, unknown without activities", () => {
+  const localNoon = (day: string) => {
+    const [y, m, d] = day.split("-").map(Number);
+    return new Date(y, m - 1, d, 12).toISOString();
+  };
+  const activities = [
+    { startedAt: localNoon("2026-11-16"), distanceM: 5234, movingSeconds: 1800 },
+    { startedAt: localNoon("2026-11-18"), distanceM: 2000, movingSeconds: 660 },
+    { startedAt: localNoon("2026-11-12"), distanceM: 9000, movingSeconds: 3000 },
+  ];
+  const sessions = [{ startedAt: localNoon("2026-11-17"), durationSeconds: 2700 }, { startedAt: localNoon("2026-11-10"), durationSeconds: 3600 }];
+  const week = { from: "2026-11-16", to: "2026-11-22" };
+  assert.equal(clientGoalValue("activity_distance_km", week, activities, null), 7.23);
+  assert.equal(clientGoalValue("active_minutes", week, activities, sessions), 86, "30 + 11 minutes moving + 45 minutes of training");
+  assert.equal(clientGoalValue("activity_distance_km", week, null, null), null);
+  assert.equal(clientGoalValue("active_minutes", week, activities, null), null, "without the workouts the minutes would be short, so they are unknown");
+  assert.equal(clientGoalValue("activity_distance_km", week, [], null), 0, "read and empty: a real 0");
 });

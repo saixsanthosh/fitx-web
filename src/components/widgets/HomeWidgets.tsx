@@ -3,16 +3,18 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { ArrowDownRight, ArrowUpRight, CalendarDays, Check, CircleCheck, Droplets, Dumbbell, ListChecks, Minus, PieChart, Plus, Scale, Target, Utensils } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, CalendarDays, Check, CircleCheck, Droplets, ListChecks, Minus, PieChart, Plus, Scale, ScanBarcode, Target, Utensils } from "lucide-react";
 import { ProgressRings } from "@/components/app/ProgressRing";
+import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { TodoList } from "@/components/tasks/TodoList";
-import { clockTime } from "@/components/tasks/format";
 import { getSession, messageFor } from "@/components/tasks/session";
-import { logWater, logWeight, type SummaryResult } from "@/lib/data/today";
+import { logWater, saveWeighIn, type SummaryResult } from "@/lib/data/today";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import { appliesOn, dailyGoalsMet, evaluateView, formatGoalValue, progressSummary, remainingLabel, sortGoals } from "@/lib/domain/goals";
+import { missingNote, type MacroKey, type MealTotals } from "@/lib/domain/meal-totals";
 import { todayTargets, weekStrip, weightView, type DailyTarget } from "@/lib/domain/today";
-import { workoutStartHref } from "@/lib/training/start-link";
+import { notifyUserContextChanged } from "@/lib/domain/user-context";
+import { WEIGHT_RANGE_KG, weightRangeText, weightText, weightToKg, weightUnitName, weightUnitOf } from "@/lib/domain/weight-display";
 import type { GoalsData, Resource } from "./useHomeData";
 import { WidgetCard, WidgetError, WidgetNote, WidgetSkeleton, WidgetStale } from "./WidgetCard";
 import styles from "./Widgets.module.css";
@@ -49,7 +51,7 @@ export function TodayWidget({ summary, goals }: { summary: Resource<SummaryResul
   return (
     <WidgetCard title="Today" icon={<PieChart size={16} />} href="/nutrition" hrefLabel="Open nutrition">
       <SummaryGate summary={summary} label="Loading today's numbers">
-        {({ summary: today }) => {
+        {({ summary: today, food }) => {
           const targets = todayTargets(today, goals.data?.goals);
           const met = goals.data ? dailyGoalsMet(goals.data.goals, today.localDate) : null;
           const calories = targets.calories;
@@ -82,11 +84,21 @@ export function TodayWidget({ summary, goals }: { summary: Resource<SummaryResul
                   <p className={styles.met}><CircleCheck size={15} aria-hidden="true" />{met.met} of {met.total} daily {met.total === 1 ? "goal" : "goals"} done</p>
                 )}
               </div>
+              {calories.target && calories.value <= calories.target ? (
+                <p className={styles.left}>
+                  <strong>{kcal(calories.target - calories.value)}</strong> kcal left
+                  <span>Your {calories.source === "estimate" ? "estimated target" : calories.source === "goal" ? (calories.direction === "limit" ? "limit" : "goal") : "target"} minus food logged. Exercise isn&apos;t added back.</span>
+                </p>
+              ) : null}
+              <FoodNotes food={food} keys={["calories", "protein"]} />
               {!calories.target && !protein.target ? (
                 <WidgetNote href="/profile" action="Add them in Profile">Targets need your age, height and weight.</WidgetNote>
               ) : estimated ? (
                 <WidgetNote href="/nutrition" action="Set your own in Nutrition">Estimates use your profile and latest weigh-in.</WidgetNote>
               ) : null}
+              <div className={styles.todayActions}>
+                <Link href="/nutrition?scan=1" className={styles.secondaryAction}><ScanBarcode size={15} aria-hidden="true" />Scan a barcode</Link>
+              </div>
             </div>
           );
         }}
@@ -109,6 +121,23 @@ function TodayRow({ name, color, target, format, unit, over = false }: { name: s
       </div>
       {target.target ? <span className={styles.legendPercent}>{target.percent}%</span> : null}
     </div>
+  );
+}
+
+/**
+ * What today's totals leave out or estimate (contract C11): foods without a value are not counted as 0, and
+ * estimated entries are named, the way the Nutrition log says it.
+ */
+function FoodNotes({ food, keys }: { food: MealTotals | null; keys: readonly MacroKey[] }) {
+  if (!food || !food.entries) return null;
+  const missing = keys.map((key) => missingNote(food[key], key)).filter(Boolean);
+  if (!missing.length && !food.estimated) return null;
+  return (
+    <p className={styles.foodNote}>
+      {missing.length ? `${missing.join("; ")}, so ${missing.length === 1 && keys.length > 1 ? "that total leaves it out" : "the totals leave them out"}.` : null}
+      {missing.length && food.estimated ? " " : null}
+      {food.estimated ? `Includes ${food.estimated} estimated ${food.estimated === 1 ? "item" : "items"} (a typical recipe or an average portion).` : null}
+    </p>
   );
 }
 
@@ -149,6 +178,7 @@ export function GoalsWidget({ goals, date }: { goals: Resource<GoalsData>; date:
                       <div className="fitx-progress-fill" style={{ width: `${evaluation.percent}%`, background: over ? "var(--fitx-warning)" : evaluation.achieved ? "var(--fitx-success)" : undefined }} />
                     </div>
                     <p className={styles.goalMeta}><span>{progressSummary(goal)}</span><span className={over ? styles.overText : undefined}>{remainingLabel(goal, evaluation)}</span></p>
+                    {goal.missingEntries ? <p className={styles.goalMissing}>{goal.missingEntries} {goal.missingEntries === 1 ? "food has" : "foods have"} no {goal.metric === "protein_g" ? "protein" : "calorie"} value and {goal.missingEntries === 1 ? "isn't" : "aren't"} counted</p> : null}
                   </li>
                 );
               })}
@@ -162,6 +192,9 @@ export function GoalsWidget({ goals, date }: { goals: Resource<GoalsData>; date:
 }
 
 export function WeightWidget({ summary, goals, date, onLogged }: { summary: Resource<SummaryResult>; goals: Resource<GoalsData>; date: string; onLogged: () => void }) {
+  // Weigh-ins are saved for the browser's today (logWeighIn), which is the day Home shows. Shown and typed in the
+  // member's unit; stored in kilograms.
+  const unit = weightUnitOf(useOptionalUserContext()?.data?.preferences.weight_unit);
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -169,16 +202,19 @@ export function WeightWidget({ summary, goals, date, onLogged }: { summary: Reso
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    const kg = Number(value.replace(",", "."));
-    if (!Number.isFinite(kg) || kg < 30 || kg > 500) { setError("Enter a weight between 30 and 500 kg."); return; }
+    const typed = Number(value.replace(",", "."));
+    const kg = Number.isFinite(typed) ? weightToKg(typed, unit) : Number.NaN;
+    if (!Number.isFinite(kg) || kg < WEIGHT_RANGE_KG.min || kg > WEIGHT_RANGE_KG.max) { setError(`Enter a weight ${weightRangeText(unit)}.`); return; }
     setSaving(true);
     setError("");
     try {
       const { db, userId } = await getSession();
-      await logWeight(db, userId, date, kg);
+      const synced = await saveWeighIn(db, userId, kg);
       setOpen(false);
       setValue("");
-      toast.success("Weigh-in saved.");
+      toast.success(synced ? "Weigh-in saved." : "Weigh-in saved. Your profile weight will update next time.");
+      // Targets, Nutrition and the header all read the newest weight.
+      notifyUserContextChanged();
       onLogged();
     } catch (failure) {
       setError(messageFor(failure, "That weigh-in could not be saved."));
@@ -197,11 +233,11 @@ export function WeightWidget({ summary, goals, date, onLogged }: { summary: Reso
             <div className={styles.weight}>
               {view.current !== null ? (
                 <>
-                  <p className={styles.bigValue}><strong>{view.current.toFixed(1)}</strong> kg</p>
+                  <p className={styles.bigValue}><strong>{weightText(view.current, unit)}</strong> {unit}</p>
                   <p className={styles.subtle}>
                     {view.date === date ? "Logged today" : view.date ? `Logged ${shortDate(view.date)}` : "Latest weigh-in"}
                     {view.change !== null && (
-                      <span className={styles.change}><ChangeIcon size={14} aria-hidden="true" />{view.change === 0 ? "No change" : `${Math.abs(view.change).toFixed(1)} kg ${view.change < 0 ? "down" : "up"}`}{view.changeSince ? ` since ${shortDate(view.changeSince)}` : ""}</span>
+                      <span className={styles.change}><ChangeIcon size={14} aria-hidden="true" />{view.change === 0 ? "No change" : `${weightText(Math.abs(view.change), unit)} ${unit} ${view.change < 0 ? "down" : "up"}`}{view.changeSince ? ` since ${shortDate(view.changeSince)}` : ""}</span>
                     )}
                   </p>
                 </>
@@ -210,7 +246,7 @@ export function WeightWidget({ summary, goals, date, onLogged }: { summary: Reso
               )}
               {view.target !== null && view.current !== null && (
                 <div className={styles.weightTarget}>
-                  <p><span>Target {view.target.toFixed(1)} kg{view.targetSource === "profile" ? " (from your profile)" : ""}</span><strong>{view.toGo === 0 ? "Reached" : `${view.toGo?.toFixed(1)} kg to go`}</strong></p>
+                  <p><span>Target {weightText(view.target, unit)} {unit}{view.targetSource === "profile" ? " (from your profile)" : ""}</span><strong>{view.toGo === 0 ? "Reached" : view.toGo === null ? "" : `${weightText(view.toGo, unit)} ${unit} to go`}</strong></p>
                   {view.percent !== null && (
                     <div className="fitx-progress-track h-1.5" role="progressbar" aria-label="Progress to your target weight" aria-valuemin={0} aria-valuemax={100} aria-valuenow={view.percent}>
                       <div className="fitx-progress-fill" style={{ width: `${view.percent}%` }} />
@@ -221,8 +257,8 @@ export function WeightWidget({ summary, goals, date, onLogged }: { summary: Reso
               {view.target === null && <WidgetNote href="/goals?tab=goals&new=weight" action="Set a weight goal">No target weight yet.</WidgetNote>}
               {open ? (
                 <form className={styles.inlineForm} onSubmit={(event) => void save(event)}>
-                  <label className="sr-only" htmlFor="home-weight">Weight in kilograms</label>
-                  <input id="home-weight" className="fitx-field" inputMode="decimal" autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder={view.current !== null ? view.current.toFixed(1) : "kg"} />
+                  <label className="sr-only" htmlFor="home-weight">Weight in {weightUnitName(unit)}</label>
+                  <input id="home-weight" className="fitx-field" inputMode="decimal" autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder={view.current !== null ? weightText(view.current, unit) : unit} />
                   <button type="submit" className="fitx-button" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
                   <button type="button" className="fitx-button fitx-button-quiet" onClick={() => { setOpen(false); setError(""); }}>Cancel</button>
                   {error && <p role="alert" className={styles.formError}>{error}</p>}
@@ -280,43 +316,6 @@ export function WaterWidget({ summary, goals, date, onLogged }: { summary: Resou
   );
 }
 
-export function WorkoutWidget({ summary }: { summary: Resource<SummaryResult> }) {
-  return (
-    <WidgetCard title="Today's workout" icon={<Dumbbell size={16} />} href="/workouts" hrefLabel="Open workouts">
-      <SummaryGate summary={summary} label="Loading today's workout">
-        {({ summary: today }) => {
-          const planned = today.plannedWorkouts;
-          return (
-            <div className={styles.workout}>
-              {today.workouts.today > 0 && (
-                <p className={styles.success}><CircleCheck size={16} aria-hidden="true" />{today.workouts.today === 1 ? "1 workout" : `${today.workouts.today} workouts`} finished today</p>
-              )}
-              {planned.length ? (
-                <ul className={styles.plannedList}>
-                  {planned.map((item) => (
-                    <li key={item.id}>
-                      <div>
-                        <p className={styles.plannedTitle}>{item.title}</p>
-                        <p className={styles.subtle}>{item.status === "completed" ? "Done" : clockTime(item.startsAt) ?? "Any time today"}</p>
-                      </div>
-                      {item.status !== "completed" && item.workoutPlanId && <Link href={workoutStartHref(item.workoutPlanId, item.id)} className={styles.secondaryAction}>Open</Link>}
-                    </li>
-                  ))}
-                </ul>
-              ) : today.workouts.today === 0 ? (
-                <div className={styles.nothing}>
-                  <p className={styles.subtle}>Nothing planned for today.</p>
-                  <Link href="/workouts" className={styles.secondaryAction}><Dumbbell size={15} aria-hidden="true" />Plan a workout</Link>
-                </div>
-              ) : null}
-            </div>
-          );
-        }}
-      </SummaryGate>
-    </WidgetCard>
-  );
-}
-
 export function WeekWidget({ summary, goals }: { summary: Resource<SummaryResult>; goals: Resource<GoalsData> }) {
   return (
     <WidgetCard title="This week" icon={<CalendarDays size={16} />} href="/goals?tab=week" hrefLabel="Open your week">
@@ -351,7 +350,7 @@ export function MacrosWidget({ summary, goals }: { summary: Resource<SummaryResu
   return (
     <WidgetCard title="Macros" icon={<Utensils size={16} />} href="/nutrition" hrefLabel="Open nutrition">
       <SummaryGate summary={summary} label="Loading today's macros">
-        {({ summary: today }) => {
+        {({ summary: today, food }) => {
           const targets = todayTargets(today, goals.data?.goals);
           const rows: Array<[string, DailyTarget, string]> = [["Protein", targets.protein, "var(--fitx-gold)"], ["Carbs", targets.carbs, "var(--fitx-info)"], ["Fat", targets.fat, "var(--fitx-primary)"]];
           return (
@@ -364,6 +363,7 @@ export function MacrosWidget({ summary, goals }: { summary: Resource<SummaryResu
                   </div>
                 </div>
               ))}
+              <FoodNotes food={food} keys={["protein", "carbs", "fat"]} />
               {!targets.protein.target && !targets.carbs.target && !targets.fat.target && (
                 <WidgetNote href="/nutrition" action="Set targets in Nutrition">No targets yet. Set your own, or add your age, height and weight in Profile for an estimate.</WidgetNote>
               )}
