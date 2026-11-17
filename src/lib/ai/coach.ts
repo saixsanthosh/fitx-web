@@ -430,7 +430,11 @@ export async function runSwap(deps: CoachDeps, input: { actionId: string; note: 
   if (store.needsNewConsent(consent, context.facts.adult)) throw new CoachError("consent_required", askAgain(context.facts));
   if (!consent.shareData || !context.facts.adult) throw new CoachError("plans_unavailable", "Swaps use your FITX data. Turn on “Use my FITX data” in the coach's settings.");
   const noteSafety = input.note ? screenMessage(input.note, { floor: context.facts.calorieFloor }) : null;
-  if (noteSafety?.kind === "stop") throw new CoachError("refused", noteSafety.message);
+  if (noteSafety?.kind === "stop") {
+    // The eating-disorder note promises 30 days without meal plans or swaps; a swap note starts them as a chat message does.
+    if (noteSafety.topic === "eating_disorder") await store.recordSafetyNote(deps.db, deps.userId, "eating_disorder").catch(() => undefined);
+    throw new CoachError("refused", noteSafety.message);
+  }
   const [careMode, threadCautions] = await Promise.all([
     store.hasRecentSafetyNote(deps.db, deps.userId, "eating_disorder", CARE_DAYS),
     store.recentCautions(deps.db, deps.userId, original.thread_id),

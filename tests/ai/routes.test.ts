@@ -597,6 +597,21 @@ describe("meal plans, Add to My Food Plan and swaps", () => {
     assert.equal(providers.calls.length, 0);
   });
 
+  test("an eating-disorder note typed into a swap request starts the same 30 days", async () => {
+    const plan = planOf(await makePlan())!;
+    const rice = plan.meals[1].items.find((item) => item.name === "Rice")!;
+    providers.calls.length = 0;
+    const refused = await swap.POST(request("/api/coach/swap", { body: { actionId: rice.actionId, note: "I make myself throw up after meals" } }));
+    assert.equal(refused.status, 422);
+    assert.match((await errorOf(refused)).message, /For the next 30 days FITX Coach won't make meal plans or swaps/);
+    assert.equal(providers.calls.length, 0, "the note never reached a model");
+    assert.deepEqual(db.rows("ai_coach_safety_notes").map((row) => row.topic), ["eating_disorder"]);
+    const asked = await chat.POST(request("/api/coach/chat", { body: { message: "Plan my meals", mode: "meal_plan" } }));
+    assert.equal(asked.status, 409, "as the note says");
+    assert.match((await errorOf(asked)).message, /30 days/);
+    assert.equal((await swap.POST(request("/api/coach/swap", { body: { actionId: rice.actionId, note: null } }))).status, 409);
+  });
+
   test("deleting the conversation with the eating-disorder note doesn't end the 30 days; “Delete my coach data” does", async () => {
     seedMember();
     consentTo();
