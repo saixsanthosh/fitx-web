@@ -7,7 +7,9 @@ anything without your OK for that file.
 
 - **What is pending:** the 37 files from `20261115100000` to `20261118200000` in `supabase/migrations` on
   the branch `claude/train`. That folder is the source of truth. Production already has the 14 files from
-  September 2026 and none of these.
+  September 2026 and none of these, plus three changes that were applied to it by hand and have no file in
+  that folder (section 1.8). Four of the 37 files meet what those three made; they are written for it, and
+  their summaries say what they do on production.
 - **Older runbooks:** `docs/runbooks/phase1-database.md` covered the first five files for release 2. This
   runbook includes them, so use this one. `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
 
@@ -34,17 +36,21 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only these 37 files, only from `claude/train`. Never a copy from another branch or worktree, and never
-  the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from `claude/train`).
+- Only these 37 files, only from `claude/train`. Never a copy from another branch or worktree, never
+  the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from `claude/train`), and
+  never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
+  production already has (section 1.8).
 - Never run a September file again. `20260924162506` would put back its old profile rules and functions,
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
 - Pick a quiet time. Do all 37 in one sitting if you can, then deploy the new app (section 6.4) the same
   day. If you need two sittings, stop after #11 and do #12 to #37 on the day you deploy: #12 changes muscle
-  names that the live app's automatic workout builder still uses.
+  names that the live app's automatic workout builder still uses. The five food parts and #37 may also wait
+  until after the deploy (section 2.1).
 - The live app keeps working throughout. Only two files change something it uses: #12 (above) and #9 (goal
-  totals, see #9). The new app checks for each file and works without the ones not applied yet.
+  totals, see #9). On production #2 also adds range rules to fields the live app already saves (section 1.8);
+  the live app keeps within them. The new app checks for each file and works without the ones not applied yet.
 
 ### 0.2 The six large files: SQL editor
 
@@ -85,18 +91,20 @@ Do this on the day, before #1.
 ### 1.2 What is already applied
 
 ```sql
--- Start 1: the migration history. Expect: 14 rows, from 20260924162506 initial_fitx_schema to 20260930180717 free_exercise_db_part_09
+-- Start 1: the migration history. Expect: 17 rows, from 20260924162506 initial_fitx_schema to 20261116093902 fitx_admin_control_plane
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
 Expected rows: `20260924162506`, `20260924164105`, `20260924170604`, `20260924171527`, `20260924174525`, then
-the nine `free_exercise_db_part_01` to `_09` rows from `20260930180637` to `20260930180717`. If there are
-other rows, or the numbers differ from the file names, stop and compare them with section 2 first.
+the nine `free_exercise_db_part_01` to `_09` rows from `20260930180637` to `20260930180717`, then the three
+changes applied by hand (section 1.8): `20261002172610 fitx_experience_2_0`, `20261002172706
+fitx_share_access_and_index` and `20261116093902 fitx_admin_control_plane`. If there are other rows, or the
+numbers differ from the file names, stop and compare them with section 2 first.
 
-### 1.3 Nothing from these files is in the database yet
+### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the 37 pending files that are already there. Expect: no rows
+-- Start 2: changes from the 37 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
 select m.file, m.object
 from (values
   ('20261115100000', 'column', 'workout_sessions.active_duration_seconds'),
@@ -139,10 +147,10 @@ end
 order by m.file;
 ```
 
-Each row means that change is already in the database without being in the history, for example pasted
-into the SQL editor once. Stop and tell the session. One known case is fine: if the only row is
-`20261118180000 fitx_admin_members`, the old Admin draft was applied by hand earlier. `#29` is written for
-that case, so go on.
+Each row means that change is already in the database without its file being in the history. The two
+expected rows come from the changes applied by hand (section 1.8): experience 2.0 added
+`workout_sets.duration_seconds` (with the other fields #2 adds), and the old Admin draft added
+`fitx_admin_members`. #2 and #29 are written for that, so go on. Any other row: stop and tell the session.
 
 ### 1.4 What the Admin files need (Phase 10 checks)
 
@@ -186,7 +194,8 @@ where a.name in ('pg_cron', 'pg_trgm') order by a.name;
 select current_setting('search_path') as search_path;
 ```
 
-If `extensions` is missing, tell the session before #17: its index needs it.
+If `extensions` is missing, tell the session before #17: its index needs it. (Production shows
+`"\$user", public, extensions`, with a backslash; that is fine.)
 
 ### 1.6 Table sizes
 
@@ -210,6 +219,90 @@ where table_schema = 'supabase_migrations' and table_name = 'schema_migrations' 
 The "Record" queries for the large files write `version` and `name` only. If another column is not
 nullable, tell the session before #12.
 
+### 1.8 Three changes production has that are not in the files
+
+Production's history (Start 1) has three rows that no file in `supabase/migrations` matches. They were
+applied by hand, outside this repository. Exact copies, checked against the history, are in
+`tests/integration/fixtures/production-drift` for the tests; never apply them.
+
+| History row | What it made |
+|---|---|
+| `20261002172610 fitx_experience_2_0` | Five tables: `exercise_favorites`, `food_favorites`, `outdoor_activities`, `activity_shares` and `user_release_reads`. The function `get_activity_share(text)`. Fields on existing tables: five on `exercise_library`, four on `custom_foods` (`barcode` among them), `paused_at` and two more on `workout_sessions`, target weight, time and distance on planned and live exercises, time and distance on sets. Three checks on those workout fields that were never run against the rows already there ("NOT VALID"), and two barcode rules. |
+| `20261002172706 fitx_share_access_and_index` | Only signed-out visitors may call `get_activity_share`; one index. |
+| `20261116093902 fitx_admin_control_plane` | The old Admin draft ("Prepared for review only"): the Admin team list, the Admin audit log and three Admin functions. |
+
+Four of the 37 files meet what these made, and are written for it:
+
+- #1 finds `paused_at` and adds the other two pause fields.
+- #2 finds all five of its fields, in which the live app already saves targets and set times. It adds its five
+  range checks and runs experience 2.0's three checks against the saved rows. Run its Before query first.
+- #18 finds `custom_foods.barcode` and replaces its two barcode rules with its own.
+- #29 keeps the draft's two tables and drops the draft's link from the audit log to accounts. #30 replaces
+  the draft's role rule and functions.
+
+Every other file does exactly what it does on a new project. `tests/integration/migrations.test.mjs` applies
+all 37 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
+new project apart from what stays (below). (Production also has an event trigger, `ensure_rls`, that switches
+row level security on for each new public table, from before the first migration. Every file switches it on
+itself, so the trigger changes nothing here.)
+
+```sql
+-- Start 9: what the three changes made, before #1. Expect: 7, 20, 4, 2, 1, 3, 1
+select
+  (select count(*) from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' and relname in
+     ('exercise_favorites', 'food_favorites', 'outdoor_activities', 'activity_shares', 'user_release_reads',
+      'fitx_admin_members', 'fitx_admin_audit_logs')) as tables,
+  (select count(*) from information_schema.columns where table_schema = 'public' and (table_name, column_name) in (
+     ('exercise_library', 'aliases'), ('exercise_library', 'tags'), ('exercise_library', 'form_cues'),
+     ('exercise_library', 'common_mistakes'), ('exercise_library', 'breathing'),
+     ('custom_foods', 'barcode'), ('custom_foods', 'additional_nutrients'), ('custom_foods', 'ingredients'),
+     ('custom_foods', 'allergens'), ('workout_sessions', 'paused_at'), ('workout_sessions', 'paused_duration_seconds'),
+     ('workout_sessions', 'rest_timer_ends_at'), ('workout_plan_exercises', 'target_weight_kg'),
+     ('workout_plan_exercises', 'target_duration_seconds'), ('workout_plan_exercises', 'target_distance_meters'),
+     ('workout_session_exercises', 'target_weight_kg'), ('workout_session_exercises', 'target_duration_seconds'),
+     ('workout_session_exercises', 'target_distance_meters'), ('workout_sets', 'duration_seconds'),
+     ('workout_sets', 'distance_meters'))) as fields,
+  (select count(*) from pg_constraint where conname in ('workout_plan_exercises_targets_nonnegative',
+     'workout_session_exercises_targets_nonnegative', 'workout_sets_time_distance_nonnegative') and not convalidated)
+  + (select count(*) from pg_constraint where conname = 'custom_foods_barcode_format_check') as rules,
+  (select count(*) from pg_class where relnamespace = 'public'::regnamespace
+     and relname in ('custom_foods_user_barcode_unique', 'exercise_favorites_exercise_idx')) as indexes,
+  (select count(*) from pg_proc where oid = to_regprocedure('public.get_activity_share(text)')) as share_function,
+  (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in
+     ('fitx_admin_overview_metrics', 'fitx_admin_set_member', 'fitx_admin_set_exercise_active')) as admin_functions,
+  (select count(*) from pg_constraint where conrelid = to_regclass('public.fitx_admin_audit_logs')
+     and contype = 'f') as audit_log_links_to_accounts;
+```
+
+```sql
+-- Start 10: rows in what they made. Expect: 0, 0, 0, 0 (as on 2026-11-17)
+select
+  (select count(*) from public.exercise_favorites) + (select count(*) from public.food_favorites)
+    + (select count(*) from public.outdoor_activities) + (select count(*) from public.activity_shares)
+    + (select count(*) from public.user_release_reads) as rows_in_the_five_tables,
+  (select count(*) from public.custom_foods where barcode is not null) as custom_foods_with_a_barcode,
+  (select count(*) from public.fitx_admin_members) as admin_team_members,
+  (select count(*) from public.fitx_admin_audit_logs) as admin_audit_rows;
+```
+
+If Start 9 shows anything else, stop and tell the session: production has changed since the tests' copy was
+made. If Start 10 is not all 0, tell the session; the files still apply, but it changes the decision below.
+
+**What stays, for you to decide.** After all 37 files, production still has experience 2.0's five tables,
+`get_activity_share(text)`, five extra fields on exercises, three on custom foods, five on the workout tables
+(distances, a paused total and a rest timer) and its three workout checks. Nothing in FITX uses any of it. Two
+things to weigh:
+
+- Signed-out visitors can call `get_activity_share`. It returns whatever route a share row holds to anyone with
+  its token. FITX's own sharing makes the share picture on the phone and keeps no share links.
+- Signed-in members could write their own rows into the five tables through the API. "Download my data" leaves
+  those tables out, and the 90-day clean-up of GPS points does not cover `outdoor_activities`.
+
+The choices: keep it as it is (nothing changes; Final 3 lists `get_activity_share`); lock it down (signed-out
+visitors lose the function, the API roles lose the five tables); or remove it (a migration that stops if any of
+the five tables has rows, then drops the function, the tables and the extra fields). For the second or third, the
+session writes a new migration after #37, tests it on the copy, and applies it with your OK.
+
 ## 2. Apply order
 
 Apply in this order, which is the order of the file numbers. After every file, the session runs the
@@ -219,8 +312,8 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 
 | # | File | What it does | Additive · re-runnable | Needs | Unlocks | Special handling |
 |---|---|---|---|---|---|---|
-| 1 | `20261115100000_fitx_workout_session_pause_timing` | Adds pause and resume times to workout sessions. | Additive · yes | September files | Pause and resume that survive a reload | |
-| 2 | `20261115110000_fitx_workout_prescription_targets` | Adds weight and time targets to planned and live exercises, and seconds to sets. | Additive · yes | | Weight targets, timed holds | |
+| 1 | `20261115100000_fitx_workout_session_pause_timing` | Adds pause and resume times to workout sessions. | Additive · yes | September files | Pause and resume that survive a reload | On production `paused_at` is there already (1.8). |
+| 2 | `20261115110000_fitx_workout_prescription_targets` | Adds weight and time targets to planned and live exercises, and seconds to sets. | Additive · yes | | Weight targets, timed holds | Before query first. On production the fields are there already and it adds their checks (1.8). |
 | 3 | `20261117090000_fitx_profiles_intro_flag` | Adds "intro film started" to profiles; marks every existing account as having seen it. | Additive, fills every profile once · yes | | Intro film once per new account | Before #4. Updates every profile row. |
 | 4 | `20261117100000_fitx_profiles_column_privileges` | Members read their own profile and edit only 13 fields; signed-out visitors lose access. | Takes privileges away · yes | #3 (adds its column itself if missing) | Plan, XP and streaks can't be changed from the browser | Apply #7 in the same sitting. Undo SQL in section 5. |
 | 5 | `20261117110000_fitx_food_search_quota` | Limits food searches per account: 30 a minute, 500 a day. | Additive · yes | | Food search limit | |
@@ -236,9 +329,9 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 15 | `20261118130040_fitx_training_programmes_seed` | Publishes 7 programmes with 28 days. | Reference data · yes | #14 | Programme library | |
 | 16 | `20261118130050_fitx_workout_rpcs` | Save, start and finish a workout in one step; one open workout per member. | Additive, closes duplicate open workouts · yes | #2, #8, #14 | Reliable save, start and finish | |
 | 17 | `20261118140000_fitx_food_catalog` | Turns on pg_trgm; food catalogue and portion tables. | Additive · yes | `extensions` on the search path (Start 6) | Food catalogue | |
-| 18 | `20261118140001_fitx_nutrition_user_data` | Barcode and photo custom foods, saved meals and routines, own targets. | Additive · yes | | My foods v2, routines, targets | |
-| 19 | `20261118140002_fitx_search_foods` | Database food search with a typo fallback. | Additive · yes | #17, #18 | Ranked food search | Coming before the food parts is fine (section 3). Apply #20 to #24 in the same sitting. |
-| 20 | `20261118140010_fitx_food_catalog_seed_part_01` | Adds 595 foods with 627 portions. | Reference data, adds only missing foods · yes | #17 | The catalogue's foods | SQL editor (0.2). |
+| 18 | `20261118140001_fitx_nutrition_user_data` | Barcode and photo custom foods, saved meals and routines, own targets. | Additive; on production replaces two older barcode rules · yes | | My foods v2, routines, targets | On production `barcode` is there already (1.8). |
+| 19 | `20261118140002_fitx_search_foods` | Database food search with a typo fallback. | Additive · yes | #17, #18 | Ranked food search | Coming before the food parts is fine (section 3). |
+| 20 | `20261118140010_fitx_food_catalog_seed_part_01` | Adds 595 foods with 627 portions. | Reference data, adds only missing foods · yes | #17 | The catalogue's foods | SQL editor (0.2). #20 to #24 may wait (2.1). |
 | 21 | `20261118140011_fitx_food_catalog_seed_part_02` | Adds 417 foods with 1,185 portions. | Same · yes | #17 | | SQL editor. |
 | 22 | `20261118140012_fitx_food_catalog_seed_part_03` | Adds 425 foods with 1,172 portions. | Same · yes | #17 | | SQL editor. |
 | 23 | `20261118140013_fitx_food_catalog_seed_part_04` | Adds 435 foods with 1,116 portions. | Same · yes | #17 | | SQL editor. |
@@ -247,7 +340,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 26 | `20261118160000_fitx_activity_tracking` | GPS activities and their points, daily limits, the prune function. | Additive · yes | | Activity tracking | |
 | 27 | `20261118160001_fitx_activity_retention_schedule` | Daily job that deletes detailed GPS points older than 90 days. | Scheduled deletion · yes | #26; pg_cron listed in Start 5 | Keeps the 90-day promise in the app | Switch pg_cron on in the Dashboard first. |
 | 28 | `20261118170008_fitx_workout_sets_rep_source` | Labels a set's reps as typed or counted by the camera. | Additive · yes | | Camera form coach label | |
-| 29 | `20261118180000_fitx_admin_control_plane` | Admin team list, audit log, first Admin functions. | Additive · yes | Start 3: `rolbypassrls` = `t` | Admin sign-in | First super-admin after #35 and the Admin deploy (section 6.5). |
+| 29 | `20261118180000_fitx_admin_control_plane` | Admin team list, audit log, first Admin functions. | Additive; on production drops the old draft's link to accounts · yes | Start 3: `rolbypassrls` = `t` | Admin sign-in | On production the draft's tables are there already (1.8). First super-admin after #35 and the Admin deploy (section 6.5). |
 | 30 | `20261118180001_fitx_admin_roles` | Five Admin roles and one permission check. | Widens a rule, replaces 2 functions · yes | #29 | Roles, access by email | |
 | 31 | `20261118180002_fitx_admin_audit_log` | The audit log becomes permanent and append-only. | Takes privileges away, permanent · yes | #29 | Audit screen, People actions | Cannot be undone, by design. |
 | 32 | `20261118180003_fitx_admin_metrics` | Exact metrics and daily trends (counts only). | Additive · yes | #29 | Admin Overview and Reports | |
@@ -255,7 +348,24 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 34 | `20261118180005_fitx_support` | Help requests and replies, with limits; support queue. | Additive · yes | #29, #30 | /help form, support queue | |
 | 35 | `20261118180006_fitx_announcements` | Announcements and dismissals. | Additive · yes | #29, #30 | Announcement banner | |
 | 36 | `20261118190000_fitx_billing_razorpay` | Billing tables and functions; seeds no plan. | Additive · yes | | Premium subscriptions, later | Best after #29 to #35: Admin's billing page uses their roles (the database does not need them). Nothing is sold until Razorpay is set up. |
-| 37 | `20261118200000_fitx_food_catalog_rajma_keywords` | Search words "rajma" and "rajmah" for the six kidney-bean foods. | Changes 6 catalogue rows · yes | #17; its foods come from #20 | "rajma" in food search | After #24. |
+| 37 | `20261118200000_fitx_food_catalog_rajma_keywords` | Search words "rajma" and "rajmah" for the six kidney-bean foods. | Changes 6 catalogue rows · yes | #17; its foods come from #20 | "rajma" in food search | After #24, also when the food parts wait (2.1). |
+
+### 2.1 Allowed: the food parts last
+
+The five food parts (#20 to #24) and #37 may instead come after #36, even after the new app is deployed
+(section 6.4), for example on another day. The order is then #1 to #19, #25 to #36, then #20 to #24 and #37.
+
+- Nothing else needs them. The only later file that reads the catalogue's rows is #37, which adds search
+  words to six foods from #20, so it moves with them and stays after #24. Applied before them, it would change
+  nothing, and nothing would run it again.
+- Meanwhile the new app's food search answers from its built-in food list and members' own foods, and
+  members log food as usual. The food parts add catalogue rows only and never touch members' data.
+- Their Checks, the Smoke after #24 and section 6.3 stay as written; History 1 gives every file its own
+  number whatever order they ran in. Section 6 then follows #37, except the deploy (6.4), which may come
+  before #20.
+
+`tests/integration/migrations.test.mjs` applies them last on a copy of production's database, searches as a
+member in between, and checks that the result is exactly the same as with every file in order.
 
 ## 3. Each file: summary and check
 
@@ -266,7 +376,8 @@ moment after members used the app can show slightly different counts; the sessio
 
 Workout sessions get three new fields: active time so far, when the current stretch started, and when the
 session was paused. Existing sessions start at 0 seconds. Members: a paused workout keeps its time after a
-reload.
+reload. On production "when the session was paused" (`paused_at`) is already there from experience 2.0
+(section 1.8), empty and of the same type, so #1 adds the other two and keeps it.
 
 ```sql
 -- Check 20261115100000: expect 3
@@ -281,8 +392,26 @@ Planned and live workout exercises get an optional target weight (kg) and target
 logged set gets an optional time. Each has a range check. Existing rows stay empty. Members: weight targets
 and timed holds such as a plank.
 
+On production all five fields are already there from experience 2.0 (section 1.8), with the same types, and
+the live app already saves targets and set times in them. There #2 adds only the five range checks, and it runs
+experience 2.0's three checks on the same fields against the saved rows, which they were never checked against.
+A saved value outside a range would stop #2, so run the Before query first.
+
 ```sql
--- Check 20261115110000: expect 5, 5
+-- Before 20261115110000: saved values its range checks would refuse. Expect: 0, 0, 0
+select
+  (select count(*) from public.workout_plan_exercises
+    where target_weight_kg not between 0 and 2000 or target_duration_seconds not between 1 and 7200) as planned_exercises,
+  (select count(*) from public.workout_session_exercises
+    where target_weight_kg not between 0 and 2000 or target_duration_seconds not between 1 and 7200) as live_exercises,
+  (select count(*) from public.workout_sets where duration_seconds not between 1 and 86400) as sets;
+```
+
+If a count is not 0, tell the session: it lists those rows (read-only), and the value is corrected with your OK
+before #2. (Where the fields do not exist yet, this query reports a missing column: there is nothing to check.)
+
+```sql
+-- Check 20261115110000: expect 5, 5, 0
 select
   (select count(*) from information_schema.columns where table_schema = 'public' and (table_name, column_name) in (
      ('workout_plan_exercises', 'target_weight_kg'), ('workout_plan_exercises', 'target_duration_seconds'),
@@ -291,7 +420,9 @@ select
   (select count(*) from pg_constraint where conname in (
      'workout_plan_exercises_target_weight_kg_check', 'workout_plan_exercises_target_duration_seconds_check',
      'workout_session_exercises_target_weight_kg_check', 'workout_session_exercises_target_duration_seconds_check',
-     'workout_sets_duration_seconds_check')) as target_checks;
+     'workout_sets_duration_seconds_check')) as target_checks,
+  (select count(*) from pg_constraint where conrelid in ('public.workout_plan_exercises'::regclass,
+     'public.workout_session_exercises'::regclass, 'public.workout_sets'::regclass) and not convalidated) as rules_never_checked;
 ```
 
 ### #3 `20261117090000_fitx_profiles_intro_flag`
@@ -653,10 +784,16 @@ select (select extnamespace::regnamespace::text from pg_extension where extname 
 
 Custom foods get a barcode, a photo, where they came from (typed, scanned or added by the AI coach), how the
 values were obtained, a source and an archive date. Adds saved meals, daily routines and members' own daily
-targets (owner only). Logged meals and custom foods keep their "updated" time from now on.
+targets (owner only). Logged meals and custom foods keep their "updated" time from now on. A barcode is 8 to 14
+digits, and a member has one active food per barcode: archiving a food frees its barcode.
+
+On production custom foods already have a barcode field from experience 2.0 (section 1.8), with two rules of
+its own: 8, 12, 13 or 14 digits, and one food per barcode per member, archived foods included. #18 keeps the
+field and replaces both rules with its own. Every barcode the older rules allowed passes the new ones, and no
+custom food had a barcode on 2026-11-17, so nothing changes for members.
 
 ```sql
--- Check 20261118140001: expect 8, 3, custom_foods_touch_updated_at,meals_touch_updated_at, f
+-- Check 20261118140001: expect 8, 3, custom_foods_touch_updated_at,meals_touch_updated_at, f, CHECK (((barcode IS NULL) OR (barcode ~ '^[0-9]{8,14}$'::text))), custom_foods_user_barcode_idx
 select
   (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'custom_foods' and column_name in
      ('barcode', 'origin', 'value_basis', 'image_path', 'image_url', 'image_attribution', 'source_ref', 'archived_at')) as new_columns,
@@ -664,7 +801,13 @@ select
      to_regclass('public.nutrition_targets')) and relrowsecurity) as tables_with_row_security,
   (select string_agg(tgname, ',' order by tgname) from pg_trigger
     where tgrelid in ('public.custom_foods'::regclass, 'public.meals'::regclass) and not tgisinternal) as updated_time_triggers,
-  has_table_privilege('anon', 'public.meal_templates', 'SELECT') as visitors_read;
+  has_table_privilege('anon', 'public.meal_templates', 'SELECT') as visitors_read,
+  (select string_agg(pg_get_constraintdef(c.oid), '; ' order by c.conname) from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey) and a.attname = 'barcode'
+    where c.conrelid = 'public.custom_foods'::regclass and c.contype = 'c') as barcode_rules,
+  (select string_agg(i.relname, ',' order by i.relname) from pg_index x join pg_class i on i.oid = x.indexrelid
+    join pg_attribute a on a.attrelid = x.indrelid and a.attnum = any (x.indkey::int2[]) and a.attname = 'barcode'
+    where x.indrelid = 'public.custom_foods'::regclass and x.indisunique) as barcode_indexes;
 ```
 
 ### #19 `20261118140002_fitx_search_foods`
@@ -672,7 +815,8 @@ select
 Adds the database food search. It returns catalogue foods and the member's own foods that contain every typed
 word, how often the member logged each one in the last 60 days, and close spellings when nothing matches. It
 runs with the member's own rights. Its number puts it before the five food parts, and that is fine: until the
-parts are in, the app fills in from its built-in food list. Apply #20 to #24 in the same sitting.
+parts are in, the app fills in from its built-in food list. #20 to #24 can follow in the same sitting or later
+(section 2.1).
 
 ```sql
 -- Check 20261118140002: expect f, search_path=pg_catalog, public, extensions, t, f
@@ -686,8 +830,8 @@ from pg_proc p where p.oid = to_regprocedure('public.search_foods(text,text[],in
 
 Together they add 2,302 foods from USDA FoodData Central (public domain) with 4,929 household portions:
 595, 417, 425, 435 and 430 foods per part. Each part adds only the foods that are not there yet, with their
-portions. A second run changes nothing and never undoes a later correction. Apply each through the SQL
-editor (section 0.2), then record it:
+portions. A second run changes nothing and never undoes a later correction. They may wait until after #36 and
+the deploy, with #37 after them (section 2.1). Apply each through the SQL editor (section 0.2), then record it:
 
 ```sql
 -- Record 20261118140010 (writes, after the SQL editor run)
@@ -820,8 +964,13 @@ Admin functions: overview counts, add or change a team member, show or hide an e
 secret key can run them. It adds nobody to the team; the first super-admin is a separate step afterwards
 (section 6.5). Needs Start 3 to show `rolbypassrls` = `t`.
 
+On production the old Admin draft (section 1.8) already made both tables, with no rows (Start 10). #29 keeps
+them and drops the draft's link from the audit log to accounts, which would have cleared an account's ID from
+the log when the account was deleted. Dropping that link locks the accounts table for a moment, so a sign-in
+may wait a second. #30 then replaces the draft's role rule and its two functions.
+
 ```sql
--- Check 20261118180000: expect t, t, t, f, 3, t, 0 (or the members the old draft had)
+-- Check 20261118180000: expect t, t, t, f, 3, t, 0 (or the members the old draft had), 0
 select (select relforcerowsecurity from pg_class where oid = to_regclass('public.fitx_admin_members')) as team_row_security_forced,
   (select relforcerowsecurity from pg_class where oid = to_regclass('public.fitx_admin_audit_logs')) as audit_row_security_forced,
   has_table_privilege('service_role', 'public.fitx_admin_members', 'SELECT') as server_reads_team,
@@ -830,7 +979,8 @@ select (select relforcerowsecurity from pg_class where oid = to_regclass('public
      ('fitx_admin_overview_metrics', 'fitx_admin_set_member', 'fitx_admin_set_exercise_active')) as admin_functions,
   (select r.rolbypassrls from pg_roles r join pg_proc p on p.proowner = r.oid
     where p.oid = 'public.fitx_admin_overview_metrics()'::regprocedure) as owner_bypasses_row_security,
-  (select count(*) from public.fitx_admin_members) as team_members;
+  (select count(*) from public.fitx_admin_members) as team_members,
+  (select count(*) from pg_constraint where conrelid = 'public.fitx_admin_audit_logs'::regclass and contype = 'f') as links_to_accounts;
 ```
 
 ### #30 `20261118180001_fitx_admin_roles`
@@ -1004,6 +1154,7 @@ Causes the session can recognise:
 | `could not create unique index "workout_sessions_one_in_progress"` | #16 | A member opened a second workout during the run. Run the file again. |
 | `extension "pg_cron" is not available`, `permission denied to create extension`, `schema "cron" does not exist` | #27 | pg_cron is not on. Switch it on in the Dashboard (section 3, #27), then run the file again. |
 | `violates check constraint` | #7, #8, #9 | Existing rows break a rebuilt rule. These files run as one transaction, so nothing stayed. Tell the session; it finds the rows with a read-only query. |
+| `check constraint "…" of relation "…" is violated by some row` | #2 | A saved target or set time is outside its range (Before 20261115110000). Tell the session; it finds the rows with that query. Once they are corrected, run #2 again, which is safe over any part that stayed. |
 | any other `permission denied` | any | The connector is not acting as `postgres` (Start 3), or is read-only. Stop and fix the connector first. |
 | The SQL editor stops or times out | #12, #20 to #24 | The file ran as one unit, so nothing stayed. Run it again. If it keeps failing, run it yourself in Terminal, in the repository folder, with the connection string from section 1.1: `psql "<the connection string>" -1 -v ON_ERROR_STOP=1 -f supabase/migrations/<file>`. Then tell the session. |
 
@@ -1015,7 +1166,8 @@ differences have a reason (for example, a member signed up during the run).
 Undo only when something is broken, and only after talking to the session. Undo the most recent files
 first: never undo a file while a later file that needs it is still in place (the "Needs" column in section
 2). After an undo, remove that file's row from the history, so the record matches the database:
-`delete from supabase_migrations.schema_migrations where name = '<the file name without number>';`
+`delete from supabase_migrations.schema_migrations where name = '<the file name without number>' and version not in ('20261002172610', '20261002172706', '20261116093902');`
+(the old Admin draft's row has the same name as #29 and stays, with the other two of section 1.8).
 
 Keep the history rows of #15 and #20 to #24: their undo only hides rows, and running those files again does not
 show them. To show them again: for #15,
@@ -1040,7 +1192,7 @@ feature off in the app is usually better than an undo.
 | 25 | Better: set `AI_COACH_ENABLED=false` (section 7). SQL below drops all coach conversations, consents and the safety notes that keep the 30-day pause. |
 | 20 to 24 | SQL below hides the whole catalogue (search falls back to the built-in list); setting it back to `true` shows it again. Meals already logged keep their own copies. |
 | 19 | SQL below. The app falls back to its built-in food list. |
-| 18 | Undo #19 first. SQL below. Drops saved meals, routines, own targets, and custom foods' barcodes, photos and origin. |
+| 18 | Undo #19 first. SQL below. Drops saved meals, routines, own targets, and custom foods' photos and origin. On production the barcode field came with experience 2.0 (1.8), so it stays, with #18's barcode check. |
 | 17 | Undo #19 to #24 and #37 first. SQL below. `pg_trgm` stays on (harmless). |
 | 16 | SQL below. Workouts it closed as abandoned stay closed. |
 | 15 | SQL below unpublishes the programmes. Members already enrolled keep theirs. |
@@ -1056,8 +1208,8 @@ feature off in the app is usually better than an undo.
 | 5 | SQL below. Searches become unlimited again. |
 | 4 | SQL below: brings back the old profile policy and member rights. Signed-out visitors stay without access, and the safer sign-up function stays. |
 | 3 | SQL below. The app then treats every account as having seen the film. |
-| 2 | Undo #16 first. SQL below. Drops weight and time targets and set times. |
-| 1 | SQL below. Drops saved pause times. |
+| 2 | SQL below. On production the five fields came with experience 2.0 (1.8) and hold the live app's targets and set times, so it drops only #2's five range checks. |
+| 1 | SQL below. Drops the saved active time and stretch start. On production `paused_at` came with experience 2.0 (1.8), so it stays. |
 
 ```sql
 -- Undo 20261118200000 (writes)
@@ -1148,12 +1300,12 @@ drop function if exists public.search_foods(text, text[], integer);
 ```
 
 ```sql
--- Undo 20261118140001 (writes; undo 20261118140002 first)
+-- Undo 20261118140001 (writes; undo 20261118140002 first). Production: barcode stays (section 1.8)
 begin;
 drop table if exists public.meal_template_items, public.meal_templates, public.nutrition_targets;
 drop trigger if exists custom_foods_touch_updated_at on public.custom_foods;
 drop trigger if exists meals_touch_updated_at on public.meals;
-alter table public.custom_foods drop column if exists barcode, drop column if exists origin, drop column if exists value_basis,
+alter table public.custom_foods drop column if exists origin, drop column if exists value_basis,
   drop column if exists image_path, drop column if exists image_url, drop column if exists image_attribution,
   drop column if exists source_ref, drop column if exists archived_at;
 commit;
@@ -1275,18 +1427,19 @@ alter table public.profiles drop column if exists intro_completed_at;
 ```
 
 ```sql
--- Undo 20261115110000 (writes; undo 20261118130050 first)
+-- Undo 20261115110000 (writes). Production: the fields and the live app's values stay (section 1.8)
 begin;
-alter table public.workout_plan_exercises drop column if exists target_weight_kg, drop column if exists target_duration_seconds;
-alter table public.workout_session_exercises drop column if exists target_weight_kg, drop column if exists target_duration_seconds;
-alter table public.workout_sets drop column if exists duration_seconds;
+alter table public.workout_plan_exercises drop constraint if exists workout_plan_exercises_target_weight_kg_check,
+  drop constraint if exists workout_plan_exercises_target_duration_seconds_check;
+alter table public.workout_session_exercises drop constraint if exists workout_session_exercises_target_weight_kg_check,
+  drop constraint if exists workout_session_exercises_target_duration_seconds_check;
+alter table public.workout_sets drop constraint if exists workout_sets_duration_seconds_check;
 commit;
 ```
 
 ```sql
--- Undo 20261115100000 (writes)
-alter table public.workout_sessions drop column if exists active_duration_seconds, drop column if exists resumed_at,
-  drop column if exists paused_at;
+-- Undo 20261115100000 (writes). Production: paused_at stays (section 1.8)
+alter table public.workout_sessions drop column if exists active_duration_seconds, drop column if exists resumed_at;
 ```
 
 ## 6. After the last file
@@ -1306,12 +1459,15 @@ order by 1;
 ```
 
 ```sql
--- Final 3: functions that run as their owner but have no fixed search path, or that signed-out visitors can call. Expect: no rows
+-- Final 3: functions that run as their owner but have no fixed search path, or that signed-out visitors can call. Expect: one row, get_activity_share, t
 select p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') as visitors_can_call
 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
   and (has_function_privilege('anon', p.oid, 'EXECUTE')
        or not exists (select 1 from unnest(coalesce(p.proconfig, '{}'::text[])) as s (setting) where s.setting like 'search_path=%'));
 ```
+
+`get_activity_share` is experience 2.0's, not from these files: it stays until you decide (section 1.8). Any
+other row: tell the session.
 
 Then run Start 2 again: now it lists all 28 rows.
 
@@ -1326,14 +1482,17 @@ Already done after #24. If it did not show Idli first, tell the session before t
 ### 6.3 Make the migration history match the files
 
 The connector records each file under the time it ran, not under the file's number. The September files in
-the repository already carry the numbers production recorded, so the history and the folder match today.
-To keep it that way, give each new row its file's number once, after the last file. It writes to the
-history table only.
+the repository already carry the numbers production recorded. The three changes of section 1.8 have their own
+numbers and no file; the queries below leave their rows alone. One of them, the old Admin draft, has the same
+name as #29, `fitx_admin_control_plane`, which is why they leave those three out. Give each new row its file's
+number once, after the last file. It writes to the history table only.
 
 ```sql
 -- History 0: files recorded twice. Expect: no rows
 select name, string_agg(version, ', ' order by version) as versions
-from supabase_migrations.schema_migrations group by name having count(*) > 1;
+from supabase_migrations.schema_migrations
+where version not in ('20261002172610', '20261002172706', '20261116093902')
+group by name having count(*) > 1;
 ```
 
 If it lists a file, tell the session before History 1: it removes that file's newer row (writes one row), then runs
@@ -1365,21 +1524,26 @@ from (values
   ('20261118200000', 'fitx_food_catalog_rajma_keywords')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
+  and h.version not in ('20261002172610', '20261002172706', '20261116093902')
   and not exists (select 1 from supabase_migrations.schema_migrations x where x.version = f.version);
 ```
 
 ```sql
--- History 2: expect 51 rows: the 14 September ones, then the 37 files of section 2 with the same numbers and names
+-- History 2: expect 54 rows: the 14 September ones, the three of section 1.8, then the 37 files of section 2 with the same numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
-If the Supabase CLI is ever used with this project, this keeps `supabase db push` from trying to run these
-files again. (`supabase migration repair --status applied <number>` does the same job, one file at a time.)
+If a row still has a time instead of its file's number, or a file is missing, tell the session: it compares
+the history with section 2 and fixes the rows one at a time, with your OK.
+
+This runbook does not use the Supabase CLI. Before anyone does, settle section 1.8: `supabase db push` would
+stop at the three versions there that have no file in `supabase/migrations`, and, before History 1, at #1 and
+#2, whose numbers are older than `20261116093902`. That is from the CLI's documentation, not tried here.
 
 ### 6.4 Deploy the new app
 
 Set the variables in section 7 first. Then ship the new app (the `claude/train` code) to production as
-planned. Both Vercel projects build from the same repository: the FITX site (`fitnessx`) and Admin
+planned. If the food parts wait (section 2.1), deploy after #36 and apply #20 to #24 and #37 afterwards. Both Vercel projects build from the same repository: the FITX site (`fitnessx`) and Admin
 (`admin`). If Admin's build is skipped because of its path filter, redeploy it as in `admin/README.md`,
 step 5.
 
