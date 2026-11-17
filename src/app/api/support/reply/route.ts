@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   const checked = validateSupportReply(await readSupportJson(request));
   if (!checked.ok) return NextResponse.json({ error: "invalid", message: checked.error }, { status: 400, headers: noStore });
 
-  const { error } = await supabase.rpc("fitx_reply_support_request", { p_request_id: checked.value.requestId, p_body: checked.value.body });
+  const { data, error } = await supabase.rpc("fitx_reply_support_request", { p_request_id: checked.value.requestId, p_body: checked.value.body });
   if (error) {
     if (isMissingFunctionError(error)) return NextResponse.json({ error: "unavailable" }, { status: 503, headers: noStore });
     if (error.code === "PT429") return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: noStore });
@@ -29,5 +29,8 @@ export async function POST(request: NextRequest) {
     console.warn("FITX support reply failed", error.code);
     return NextResponse.json({ error: "failed" }, { status: 500, headers: noStore });
   }
-  return NextResponse.json({ ok: true }, { status: 201, headers: noStore });
+  // The saved reply (the function returns its id; it stores the text as checked here), so the Help page can show
+  // it at once instead of waiting for its refresh.
+  const reply = typeof data === "string" ? { id: data, body: checked.value.body, createdAt: new Date().toISOString() } : null;
+  return NextResponse.json({ ok: true, reply }, { status: 201, headers: noStore });
 }

@@ -3,7 +3,10 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle } from "lucide-react";
-import { SUPPORT_CATEGORY_LABELS, SUPPORT_ERROR_MESSAGES, SUPPORT_LIMITS, SUPPORT_STATUS_LABELS, type SupportCategory } from "@/components/support/support-rules";
+import {
+  SUPPORT_CATEGORY_LABELS, SUPPORT_ERROR_MESSAGES, SUPPORT_LIMITS, SUPPORT_STATUS_LABELS, sentReply, withSentReplies, type SupportCategory,
+  type SupportMessageView,
+} from "@/components/support/support-rules";
 
 export type SupportThreadView = {
   id: string;
@@ -12,7 +15,7 @@ export type SupportThreadView = {
   body: string;
   status: string;
   createdAt: string;
-  messages: Array<{ id: string; fromTeam: boolean; body: string; createdAt: string }>;
+  messages: SupportMessageView[];
 };
 
 // Times are shown in India Standard Time with the zone label, the same as the FITX team sees them in
@@ -33,7 +36,7 @@ function When({ value }: { value: string }) {
   return <time dateTime={value} suppressHydrationWarning>{Number.isNaN(date.valueOf()) ? "" : dateTime.format(date)}</time>;
 }
 
-function ReplyForm({ requestId }: { requestId: string }) {
+function ReplyForm({ requestId, onSent }: { requestId: string; onSent: (reply: SupportMessageView) => void }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,12 +50,16 @@ function ReplyForm({ requestId }: { requestId: string }) {
     setError(null);
     try {
       const response = await fetch("/api/support/reply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId, body }) });
-      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string; reply?: unknown };
       if (!response.ok) {
         setError(result.message ?? SUPPORT_ERROR_MESSAGES[result.error ?? "failed"] ?? SUPPORT_ERROR_MESSAGES.failed);
         return;
       }
       form.reset();
+      // Shown at once from the answer: the refresh below brings the page's own copy, but it can stall (React
+      // sometimes leaves a router.refresh() uncommitted), and the person must see that the reply went.
+      const reply = sentReply(result.reply);
+      if (reply) onSent(reply);
       router.refresh();
     } catch {
       setError(SUPPORT_ERROR_MESSAGES.failed);
@@ -80,6 +87,9 @@ function ReplyForm({ requestId }: { requestId: string }) {
 function Thread({ thread, canReply }: { thread: SupportThreadView; canReply: boolean }) {
   // Only the first render reads the status, so a refresh after sending a reply never closes it.
   const [open, setOpen] = useState(thread.status === "waiting_on_user");
+  // Replies sent from here, until the page's own copy of the thread has them.
+  const [sent, setSent] = useState<SupportMessageView[]>([]);
+  const { status, messages } = withSentReplies(thread, sent);
   return (
     <details className="fitx-panel p-4" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
@@ -87,21 +97,21 @@ function Thread({ thread, canReply }: { thread: SupportThreadView; canReply: boo
           <span className="block truncate text-sm font-semibold text-fitx-text">{thread.subject}</span>
           <span className="block text-xs text-fitx-text-secondary">{SUPPORT_CATEGORY_LABELS[thread.category]} · <When value={thread.createdAt} /></span>
         </span>
-        <span className="rounded-full border border-fitx-border px-2.5 py-1 text-xs font-medium text-fitx-text-secondary">{SUPPORT_STATUS_LABELS[thread.status] ?? thread.status}</span>
+        <span className="rounded-full border border-fitx-border px-2.5 py-1 text-xs font-medium text-fitx-text-secondary">{SUPPORT_STATUS_LABELS[status] ?? status}</span>
       </summary>
       <ol className="mt-4 space-y-3 border-t border-fitx-divider pt-4">
         <li>
           <p className="text-xs font-semibold text-fitx-text-secondary">You · <When value={thread.createdAt} /></p>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fitx-text">{thread.body}</p>
         </li>
-        {thread.messages.map((message) => (
+        {messages.map((message) => (
           <li key={message.id} className={message.fromTeam ? "rounded-lg border border-fitx-border bg-fitx-surface-variant p-3" : ""}>
             <p className="text-xs font-semibold text-fitx-text-secondary">{message.fromTeam ? "FITX team" : "You"} · <When value={message.createdAt} /></p>
             <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fitx-text">{message.body}</p>
           </li>
         ))}
       </ol>
-      {canReply && thread.status !== "closed" && <ReplyForm requestId={thread.id} />}
+      {canReply && status !== "closed" && <ReplyForm requestId={thread.id} onSent={(reply) => setSent((list) => [...list, reply])} />}
     </details>
   );
 }

@@ -73,6 +73,33 @@ export function validateSupportReply(input: unknown): { ok: true; value: { reque
   return { ok: true, value: { requestId, body } };
 }
 
+/** One message in a Help thread, as the Help page shows it. */
+export type SupportMessageView = { id: string; fromTeam: boolean; body: string; createdAt: string };
+
+/** The reply POST /api/support/reply saved, from its answer's `reply` field, or null when the answer has none. */
+export function sentReply(value: unknown): SupportMessageView | null {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const { id, body, createdAt } = record;
+  if (typeof id !== "string" || !UUID.test(id) || typeof body !== "string" || !body || typeof createdAt !== "string") return null;
+  return { id, fromTeam: false, body, createdAt };
+}
+
+/**
+ * A thread with the person's replies sent from this page that the page's own copy does not hold yet (the
+ * refresh that brings them can be slow, or stall), and the status they gave it: as in
+ * fitx_reply_support_request, a reply moves a request that waited for the person, or was resolved, back to
+ * open. Once the page's copy has a reply (the same id), that copy is shown instead.
+ */
+export function withSentReplies(thread: { status: string; messages: SupportMessageView[] }, sent: readonly SupportMessageView[]) {
+  const known = new Set(thread.messages.map((message) => message.id));
+  const unsynced = sent.filter((message) => !known.has(message.id));
+  if (!unsynced.length) return { status: thread.status, messages: thread.messages };
+  return {
+    status: thread.status === "waiting_on_user" || thread.status === "resolved" ? "open" : thread.status,
+    messages: [...thread.messages, ...unsynced],
+  };
+}
+
 /** Error codes the support routes return, in the words the Help page shows. */
 export const SUPPORT_ERROR_MESSAGES: Record<string, string> = {
   rate_limited: "You have sent several messages recently. Please wait a little before sending another.",
