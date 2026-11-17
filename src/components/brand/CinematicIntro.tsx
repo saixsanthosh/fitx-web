@@ -7,6 +7,7 @@ import { FitxIntroVideo } from "./FitxIntroVideo";
 import { BrandEndCard, DebugBackdrop, FilmGraphics } from "./IntroFilmOverlay";
 import { clampStage, type FilmFreeze } from "./introOverlayTiming";
 import { accountFilmClaimedElsewhere } from "./accountFilm";
+import { focusAfterFilm } from "./introFocus";
 import { INTRO_PENDING_EVENT, VISITOR_FILM_SEEN_KEY } from "./introKeys";
 import styles from "./CinematicIntro.module.css";
 
@@ -164,14 +165,15 @@ export function CinematicIntro() {
     if (!activeRef.current) return;
     activeRef.current = false;
     releasePage();
-    // Hand focus back to where it was (e.g. the Replay button); never leave it on the hidden Skip.
+    // Hand focus back to where it was (e.g. the Replay button); never leave it on the hidden Skip: from there a
+    // keyboard user carries on from the top of the page (introFocus.ts).
     const section = sectionRef.current;
     const previous = returnFocus.current;
     returnFocus.current = null;
     if (previous && previous.isConnected && !section?.contains(previous)) {
       previous.focus({ preventScroll: true });
     } else if (section && document.activeElement instanceof HTMLElement && section.contains(document.activeElement)) {
-      document.activeElement.blur();
+      focusAfterFilm(document.activeElement);
     }
     setPlayback("idle");
     setLeaving(true);

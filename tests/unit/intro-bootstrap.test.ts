@@ -13,7 +13,7 @@ type Run = {
   /** What localStorage and sessionStorage hold now. */
   local: Map<string, string>;
   session: Map<string, string>;
-  /** What the script listens for on `document` (Skip clicks, Escape, Tab, the page being shown). */
+  /** What the script listens for on `document` (Skip clicks, Escape, Tab, focus, the page being shown). */
   listeners: Map<string, Listener[]>;
   /** The listeners among those registered for the capture phase. */
   capture: Set<Listener>;
@@ -146,8 +146,20 @@ function run({
 const dispatch = ({ listeners }: Run, type: string, event: unknown) => {
   for (const listener of listeners.get(type) ?? []) listener(event);
 };
-/** A click on the overlay's Skip button (`data-fitx-skip`), as the script sees it. */
+/**
+ * The event as far as React lets it go while it holds events for a part of the page it has not hydrated yet (the
+ * overlay's chunk still loading): React listens on the document too and stops the event there, in the capture
+ * phase. Only capture listeners on the document registered before React's, as the head script's are, still run.
+ */
+const dispatchUntilReactStopsIt = ({ listeners, capture }: Run, type: string, event: unknown) => {
+  for (const listener of listeners.get(type) ?? []) if (capture.has(listener)) listener(event);
+};
+/** A click on the overlay's Skip button (`data-fitx-skip`), as the script sees it; Enter or Space on it clicks it too. */
 const skipClick = { target: { closest: (selector: string) => (selector === "[data-fitx-skip]" ? {} : null) } };
+/** Focus arriving on an element (focusin): one on the page behind the overlay, or the overlay's own Skip. */
+const focusOn = (where: "page" | "overlay") => ({
+  target: { closest: (selector: string) => (where === "overlay" && (selector === "[data-fitx-intro-overlay]" || selector === "[data-fitx-skip]") ? {} : null) },
+});
 
 /** The claim the head script stored when it opened the account's film: when it did (ms), unique to the page. */
 const claimOf = (page: Run) => {
@@ -274,6 +286,30 @@ test("Skip and Escape give the page back before React hydrates, the visitor's fi
   assert.equal(failed.session.has(VISITOR_FILM_SEEN_KEY), false);
 });
 
+test("Skip and Escape still give the page back while React holds events for an overlay it has not hydrated yet", () => {
+  // React attached to the page, the overlay's chunk still loading (a slow or lost request): React stops a click on
+  // Skip (or Enter / Space on it) and Escape in the capture phase. Otherwise the film would start once the chunk arrives.
+  const pages = [{ path: "/" }, { path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" }, { path: "/", search: "?intro=play" }];
+  for (const [type, event] of [["keydown", { key: "Escape" }], ["click", skipClick]] as const) {
+    for (const options of pages) {
+      const label = `${options.path}${options.search ?? ""} ${type}`;
+      const page = run(options);
+      dispatchUntilReactStopsIt(page, type, type === "keydown" ? { key: "Enter" } : { target: { closest: () => null } });
+      assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${label}: another key or click keeps it`);
+      dispatchUntilReactStopsIt(page, type, event);
+      assert.equal(page.attrs.get("data-fitx-intro"), undefined, label);
+      assert.equal(page.session.get(VISITOR_FILM_SEEN_KEY), options.path === "/" && !options.search ? "1" : undefined, label);
+    }
+  }
+  // Each of the script's click, key and focus listeners runs in the capture phase, once.
+  const page = run({ path: "/" });
+  for (const type of ["click", "keydown", "focusin"]) {
+    const listeners = page.listeners.get(type) ?? [];
+    assert.equal(listeners.length, 1, type);
+    assert.ok(listeners.every((listener) => page.capture.has(listener)), `${type}: capture phase`);
+  }
+});
+
 /** A key press as the script sees it; `prevented` says whether the script cancelled what the browser does with it. */
 const key = (name: string, shiftKey = false) => {
   const event = { key: name, shiftKey, prevented: false, preventDefault: () => { event.prevented = true; } };
@@ -300,11 +336,9 @@ test("Tab and Shift+Tab stay on Skip while the film waits for the app, and only 
     assert.equal(page.focused.length, 4, `${gate}: each press puts focus on Skip`);
     assert.ok(page.focused.every((call) => call.preventScroll), `${gate}: without scrolling the page behind`);
     assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${gate}: Tab alone never skips the film`);
-    // Caught in the capture phase, before anything on the page can stop it; other keys are left alone.
-    const early = (page.listeners.get("keydown") ?? []).filter((listener) => page.capture.has(listener));
-    assert.equal(early.length, 1, gate);
+    // Caught in the capture phase, before anything on the page (or React) can stop it; other keys are left alone.
     const tab = key("Tab");
-    early[0](tab);
+    dispatchUntilReactStopsIt(page, "keydown", tab);
     assert.equal(tab.prevented, true, gate);
     const enter = key("Enter");
     dispatch(page, "keydown", enter);
@@ -318,6 +352,7 @@ test("Tab and Shift+Tab stay on Skip while the film waits for the app, and only 
       dispatch(page, "keydown", tab);
       assert.equal(tab.prevented, false, `${label}: ${shiftKey ? "Shift+Tab" : "Tab"} works as usual`);
     }
+    dispatch(page, "focusin", focusOn("page"));
     assert.deepEqual(page.focused, [], `${label}: focus is left alone`);
   };
   // No film: another page, the same tab again, reduced motion, a returning device's loader, a tab nobody has shown yet.
@@ -353,6 +388,32 @@ test("Tab and Shift+Tab stay on Skip while the film waits for the app, and only 
   const bare = run({ path: "/", skipButton: false });
   assert.equal(bare.attrs.get("data-fitx-intro"), "pending");
   untouched(bare, "no Skip button");
+});
+
+test("focus that reaches the page behind the waiting film without a Tab press goes back to Skip", () => {
+  // Tab from the browser's toolbar into the page, or a screen reader moving focus, sends the page no Tab key press;
+  // Enter on a hidden link would follow it. The film's own Skip keeps focus, and so does a focus with no element.
+  const shownLater = run({ path: "/", hidden: true });
+  shownLater.show();
+  const pending = {
+    visitor: run({ path: "/" }),
+    account: run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" }),
+    replay: run({ path: "/", search: "?intro=play" }),
+    "visitor, a background tab once shown": shownLater,
+  };
+  for (const [gate, page] of Object.entries(pending)) {
+    assert.equal(page.attrs.get("data-fitx-intro"), "pending", gate);
+    dispatch(page, "focusin", focusOn("overlay"));
+    dispatch(page, "focusin", { target: null });
+    dispatch(page, "focusin", { target: {} });
+    assert.deepEqual(page.focused, [], `${gate}: focus on Skip itself stays`);
+    dispatch(page, "focusin", focusOn("page"));
+    // Before React can stop it, also on a part of the page React has not hydrated yet.
+    dispatchUntilReactStopsIt(page, "focusin", focusOn("page"));
+    assert.deepEqual(page.focused, [{ preventScroll: true }, { preventScroll: true }], `${gate}: sent to Skip, without scrolling`);
+    assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${gate}: it never skips the film`);
+  }
+  // In every other state focus is left alone: see "Tab and Shift+Tab stay on Skip while the film waits for the app".
 });
 
 test("a signed-in visitor never gets the visitor's film on the home page", () => {

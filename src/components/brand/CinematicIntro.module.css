@@ -181,5 +181,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .intro { transition-duration: 1ms; }
+  /* globals.css gives every element a .01 ms transition-duration here. .intro transitions visibility, and so
+     does every child left at the default transition-property (all), so in the frame Replay moves focus to
+     Skip, Skip is still visibility: hidden and focus() on it does nothing. Only opacity transitions here:
+     the overlay and its controls show and hide at once. */
+  .intro,
+  .intro * { transition-property: opacity; }
   .staticBrand { animation-duration: 1ms; }
 }

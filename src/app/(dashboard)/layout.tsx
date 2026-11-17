@@ -14,6 +14,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <UserContextProvider>
       <div className="flex min-h-dvh bg-background">
+        {/* Idle unless the head script marked the film pending (once per account) or Replay is pressed. A fixed
+            overlay, first in the page so that once it is gone Tab carries on from the top of the page (Skip to
+            content), not from after the last control. */}
+        <CinematicIntro />
         <Sidebar />
         <div className="min-w-0 flex-1">
           <WorkspaceHeader />
@@ -24,8 +28,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
         <BottomNav />
         <SessionKeeper />
-        {/* Idle unless the head script marked the film pending (once per account) or Replay is pressed. */}
-        <CinematicIntro />
         <IntroCompletionReporter />
       </div>
     </UserContextProvider>
