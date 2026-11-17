@@ -76,7 +76,9 @@ async function sessionUserId() {
 async function forgetDeviceRecordings(userId: string) {
   try {
     await Promise.race([
-      recordingStore().then((store) => store.deleteAll(userId)),
+      // The account's rows, and log entries a crash left without a row (what clearDeviceActivityData does, without
+      // loading the GPS engine that module brings along).
+      recordingStore().then(async (store) => { await store.deleteAll(userId); await store.deleteOrphanEntries(); }),
       new Promise<void>((resolve) => setTimeout(resolve, 3000)),
     ]);
   } catch {
