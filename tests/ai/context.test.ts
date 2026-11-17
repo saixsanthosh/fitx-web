@@ -1,7 +1,7 @@
 import "./support/hooks.mjs";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 const { buildCoachContext, localDate } = await import("@/lib/ai/context");
 const { chatSystemPrompt, mealPlanSystemPrompt, memberTurn } = await import("@/lib/ai/prompts");
@@ -257,6 +257,132 @@ describe("privacy page", () => {
     const hub = readFileSync(new URL("../../src/components/activity/ActivityHome.tsx", import.meta.url), "utf8");
     assert.match(hub, /\bLocation is used while the Record screen is open\b/);
     assert.doesNotMatch(hub, /\bonly while you record\b/);
+  });
+
+  test("the AI coach section names every part of the summary “Use my FITX data” sends, not just examples", () => {
+    const base = sources();
+    const preferences = { ...(base.preferences as Record<string, unknown>), limitations: ["knee"], cuisines: ["south_indian"], food_dislikes: ["Bitter gourd"], food_rules: ["low_carb"] };
+    const context = buildCoachContext({ ...base, preferences } as never, NOW);
+    const coach = section("AI coach");
+    // Each field the summary sends and the words that name it on the page. A new field fails here until the page names it.
+    const named: Record<string, RegExp | null> = {
+      v: null, today: null,
+      "member.age": /\bage\b/, "member.sex": /\bsex\b/, "member.height_cm": /\bheight\b/, "member.weight_kg": /(?<!target )\bweight\b/,
+      "member.target_weight_kg": /\btarget weight\b/, "member.experience": /\byour experience\b/,
+      goal: /\bgoal\b/, activity_level: /\bactivity level\b/,
+      "training_setup.location": /\bwhere you train\b/, "training_setup.equipment": /\byour equipment\b/, "training_setup.level": /\blevel, days a week\b/,
+      "training_setup.days_per_week": /\bdays a week\b/, "training_setup.minutes_per_session": /\bsession length\b/, "training_setup.split": /\bsplit\b/,
+      "training_setup.limitations": /\binjuries or limitations\b/,
+      "food_preferences.diet": /\byour diet and food rules\b/, "food_preferences.allergies": /\ballergies\b/, "food_preferences.meals_per_day": /\bmeals a day\b/,
+      "food_preferences.budget": /\bfood budget\b/, "food_preferences.cuisines": /\bcuisines\b/, "food_preferences.dislikes": /\bfoods you avoid\b/,
+      "food_preferences.prefers_low_carb": /\bfood rules\b/,
+      daily_targets: /\byour daily targets\b/, nutrition: /\bthe last 7 days of food you logged\b/, my_custom_foods: /\bnames of foods you saved\b/,
+      weight_trend: /\brecent weight change\b/, training_last_28_days: /\b4 weeks of workouts\b/, personal_records: /\bpersonal records\b/,
+      active_goals: /\bactive goals and their progress\b/,
+      "next_7_days.planned_workouts": /\bhow many workouts\b/, "next_7_days.other_events": /\bother planner items you have in the next 7 days\b/,
+    };
+    const nested = ["member", "training_setup", "food_preferences", "next_7_days"];
+    const fields = Object.entries(context.summary).flatMap(([key, value]) => (nested.includes(key) && value && typeof value === "object" ? Object.keys(value).map((inner) => `${key}.${inner}`) : [key]));
+    for (const field of fields) {
+      assert.ok(field in named, `decide how the privacy page names ${field}`);
+      const phrase = named[field];
+      if (phrase) assert.match(coach, phrase, `the AI coach section names ${field}`);
+    }
+    assert.doesNotMatch(coach, /\bsuch as your age\b/, "the list is complete");
+  });
+
+  test("the AI coach section says which requests Gemini gets, as the router picks them", async () => {
+    const { candidatesFor } = await import("@/lib/ai/registry");
+    const { readAiConfig } = await import("@/lib/ai/config");
+    const config = readAiConfig({ GEMINI_API_KEY: "gemini-test", GROQ_API_KEY: "groq-test", OPENROUTER_API_KEY: "openrouter-test" });
+    const providers = (task: "chat" | "meal_plan" | "workout_plan" | "swap", personalData: boolean) => new Set(candidatesFor(task, config, { personalData }).map((candidate) => candidate.provider));
+    assert.ok(providers("chat", false).has("gemini"), "a request without the summary may go to Gemini");
+    for (const task of ["chat", "meal_plan", "workout_plan", "swap"] as const) {
+      assert.ok(!providers(task, true).has("gemini"), `${task} with member data skips Gemini`);
+      assert.ok(providers(task, true).has("groq") && providers(task, true).has("openrouter"), `${task} with member data goes to Groq or OpenRouter`);
+    }
+    // AI_GEMINI_WITH_MEMBER_DATA would change that: if the owner sets it, the page must say Gemini may get the summary too.
+    assert.equal(config.geminiWithMemberData, false);
+    const coach = section("AI coach");
+    assert.match(coach, /Google’s Gemini API only gets requests that carry no summary of your FITX data/);
+    assert.match(coach, /\bChats with your summary, meal and workout plans and food swaps go to Groq or OpenRouter\b/);
+    assert.match(coach, /\bpeople at Google may read them\b/);
+  });
+
+  test("the AI coach section says sharing starts off, what the safety notes pause and when consent is asked again", async () => {
+    const { CARE_DAYS } = await import("@/lib/ai/safety");
+    const { needsNewConsent } = await import("@/lib/ai/store");
+    const migration = readFileSync(new URL("../../supabase/migrations/20261118150000_fitx_ai_coach.sql", import.meta.url), "utf8");
+    assert.match(migration, /share_personal_data boolean not null default false/);
+    assert.equal(CARE_DAYS, 30);
+    assert.equal(needsNewConsent({ shareData: true } as never, true), true, "an adult consent with sharing on is asked again once the profile says under 18");
+    assert.equal(needsNewConsent({ shareData: false } as never, true), false);
+    const coach = section("AI coach");
+    assert.match(coach, /“Use my FITX data” stays off until you choose it\./);
+    assert.match(coach, /\bafter an eating-disorder support note the coach makes no meal plans or swaps and gives no calorie targets for 30 days\b/);
+    assert.match(coach, /\bpregnancy stops plans and swaps in that conversation, and a medical condition stops its meal plans and swaps\b/);
+    assert.match(coach, /“Delete my coach data” removes these notes too\./);
+    assert.match(coach, /\bthe coach asks for your consent again\b/);
+    assert.match(coach, /\bby name, not by full recipe\b/);
+  });
+
+  test("the profile section says what each detail is used for, as the code uses it", () => {
+    const source = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
+    const profile = section("Information you choose to save");
+    assert.match(profile, /\bFITX uses your age, sex, height, weight, goal and activity level to calculate your daily targets\b/);
+    // Auto workouts: equipment for the place, level, session length and the split's programme; nothing about injuries.
+    assert.doesNotMatch(source("lib/training/generator.ts"), /limitation|injur/i, "if auto workouts start avoiding injuries, update the privacy page and this test");
+    const workouts = source("app/(dashboard)/workouts/page.tsx");
+    assert.match(workouts, /splitProgrammeId\(preferences\.workout_split/);
+    assert.match(workouts, /sessionMinutes: preferences\.session_duration_minutes/);
+    assert.match(profile, /\bAuto workouts use where you train, your equipment, your experience, session length and split\b/);
+    assert.match(profile, /\bAuto workouts do not avoid the injuries you enter yet\b/);
+    // Training days set Home's weekly goal; the diet ticks Nutrition's diet filter to begin with.
+    assert.match(source("lib/data/today.ts"), /select\("workouts_per_week,/);
+    assert.match(profile, /\byour training days set your weekly goal on Home\b/);
+    assert.match(source("app/(dashboard)/nutrition/page.tsx"), /setDietFilter\(dietFilterFor\(prefs\?\.dietary_preferences\)\)/);
+    assert.match(profile, /\bYour diet type sets which foods Nutrition’s food search hides at first\b/);
+  });
+
+  test("the page says what Profile can remove, and that weigh-ins can only be added", async () => {
+    const { SEX_OPTIONS } = await import("@/lib/domain/profile-options");
+    assert.ok(SEX_OPTIONS.some((option) => option.label === "Prefer not to say"));
+    const profile = section("Information you choose to save");
+    assert.match(profile, /\bset sex to “Prefer not to say”/);
+    // No screen changes or removes a weigh-in: Progress, Profile, onboarding and Home only add them.
+    const root = new URL("../../src/", import.meta.url);
+    const files = readdirSync(root, { recursive: true }).map(String).filter((file) => /\.tsx?$/.test(file));
+    for (const file of files) {
+      assert.doesNotMatch(readFileSync(new URL(file, root), "utf8"), /from\("body_metrics"\)\s*\.(update|delete|upsert)\(/, `${file} changes weigh-ins: update the privacy page`);
+    }
+    assert.match(profile, /\bit stays in your weigh-in history until you delete your account\b/);
+    assert.match(section("Your data: download, correction and deletion"), /\bWeigh-ins and body measurements can’t be edited or removed yet\b/);
+  });
+
+  test("the download and deletion bullets match the export, the setup screen and the admin log", () => {
+    const source = (file: string) => readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
+    const data = section("Your data: download, correction and deletion");
+    assert.match(source("src/lib/account/export.ts"), /profile_from_sign_in: plainObject\(user\.user_metadata\)/);
+    assert.match(data, /\bthe details your sign-in provider shared with FITX\b/);
+    assert.match(source("src/app/(auth)/onboarding/OnboardingFlow.tsx"), /<DeleteAccount variant="link" returnTo="\/onboarding" \/>/);
+    assert.match(source("src/components/account/DeleteAccount.tsx"), /linkLabel = "Delete this account instead"/);
+    assert.match(data, /“Delete this account instead” on the setup screen does the same\./);
+    // Audit rows keep the actor's ID after the account is deleted: no foreign key, and nothing may change them.
+    const audit = source("supabase/migrations/20261118180002_fitx_admin_audit_log.sql");
+    assert.match(audit, /alter table public\.fitx_admin_audit_logs drop constraint %I/);
+    assert.match(audit, /The FITX Admin audit log is append-only/);
+    assert.match(data, /\binternal admin log keeps your account ID, but not your email or any health data\b/);
+  });
+
+  test("the activity section's share-image cut and sign-out clean-up match the code", async () => {
+    const { PRIVACY_RADIUS_M } = await import("@/lib/activity/privacy");
+    assert.equal(PRIVACY_RADIUS_M, 200);
+    const activity = section("Activity tracking and location");
+    assert.match(activity, /\bShare images leave out at least 200 m around your start and finish\b/);
+    const logout = readFileSync(new URL("../../src/components/app/LogoutButton.tsx", import.meta.url), "utf8");
+    assert.match(logout, /prepareDeviceActivityForSignOut\(/);
+    assert.match(logout, /await activity\?\.clear\(\)/);
+    assert.match(activity, /\bWhen you log out, FITX first uploads what it can and then removes your recordings from that device\b/);
   });
 
   test("the page names the outside food databases that food search and the coach's food checks call", () => {
