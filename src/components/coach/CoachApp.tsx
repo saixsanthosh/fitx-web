@@ -259,7 +259,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
         if (!share) { setMode("chat"); newConversation(); }
         setAnnouncement(share
           ? "The coach can now use your FITX data."
-          : "Questions only: the coach now gets your questions and the lowest daily calories it may suggest, not your logs or profile. Your next message starts a new conversation.");
+          : "Questions only: the coach no longer gets your logs or profile, only your questions and what its safety rules need, such as the lowest daily calories it may suggest. Your next message starts a new conversation.");
       }}
       onDeleted={() => {
         setSettingsOpen(false);
