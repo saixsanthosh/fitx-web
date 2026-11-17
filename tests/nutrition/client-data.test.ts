@@ -15,9 +15,9 @@ const idliEntry: MealEntry = {
 };
 
 test("per-100 g values come from the snapshot, or from older entries' totals and grams", () => {
-  assert.deepEqual(entryPer100g(idliEntry), { calories: 128, protein: 6.36, carbs: 24.98, fat: 0.35 });
+  assert.deepEqual(entryPer100g(idliEntry), { calories: 128, protein: 6.36, carbs: 24.98, fat: 0.35, missing: [] });
   const older = { ...idliEntry, nutrition_snapshot: {}, quantity_grams: 200, calories: 300, protein: 10, carbs: 40, fat: 8 };
-  assert.deepEqual(entryPer100g(older), { calories: 150, protein: 5, carbs: 20, fat: 4 });
+  assert.deepEqual(entryPer100g(older), { calories: 150, protein: 5, carbs: 20, fat: 4, missing: [] });
   assert.equal(entryPer100g({ ...older, quantity_grams: null }), null);
   assert.equal(entryBasis(idliEntry), "recipe_calculated");
   assert.equal(entryBasis({ ...idliEntry, source: "Open Food Facts", nutrition_snapshot: {} }), "label");
@@ -41,7 +41,8 @@ test("saved items become new entries for the chosen day and meal", () => {
   const [row] = rowsFromItems("u1", "2026-11-18", [item], null);
   assert.deepEqual({ user: row.user_id, date: row.date, meal: row.meal, grams: row.quantity_grams, servings: row.servings, kcal: row.calories }, { user: "u1", date: "2026-11-18", meal: "Breakfast", grams: 114, servings: 1.14, kcal: 145.9 });
   assert.equal(rowsFromItems("u1", "2026-11-18", [item], "Dinner")[0].meal, "Dinner");
-  assert.equal(rowsFromItems("u1", "2026-11-18", [{ ...idliEntry, meal: "Brunch" }], null)[0].meal, "Snack", "unknown slots land in Snack");
+  assert.equal(rowsFromItems("u1", "2026-11-18", [{ ...item, meal_slot: "Snack" }], null)[0].meal, "Snack");
+  assert.equal(rowsFromItems("u1", "2026-11-18", [{ ...idliEntry, meal: "Pre-workout" }], null)[0].meal, "Pre-workout", "a logged entry keeps its own meal section");
 });
 
 test("target checks: a range, and a warning when macros don't add up", () => {
@@ -119,9 +120,9 @@ test("Recent keeps a food's diet label from when it was logged", async () => {
 
 test("a missing table turns a feature off; a failed request does not", async () => {
   const missing = recordingSupabase({ custom_foods: { error: { code: "42703" } }, meal_templates: { error: { code: "PGRST205" } }, nutrition_targets: { error: null } });
-  assert.deepEqual(await detectCapabilities(missing.client), { customFoodsV2: false, templates: false, targets: true });
+  assert.deepEqual(await detectCapabilities(missing.client), { customFoodsV2: false, templates: false, targets: true, customExtra: false });
   const flaky = recordingSupabase({ custom_foods: { error: { code: "PGRST000" } }, meal_templates: { error: { code: "57014" } }, nutrition_targets: { error: { code: "503" } } });
-  assert.deepEqual(await detectCapabilities(flaky.client), { customFoodsV2: true, templates: true, targets: true });
+  assert.deepEqual(await detectCapabilities(flaky.client), { customFoodsV2: true, templates: true, targets: true, customExtra: false });
 });
 
 test("deleting a food deletes the row and then its photo; removing a photo clears it first", async () => {

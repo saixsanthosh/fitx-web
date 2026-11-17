@@ -6,6 +6,7 @@
 import { clearMatch, inferFoodState, matchFoods, singular } from "@/lib/domain/food-query";
 import type { FoodPortion } from "@/lib/domain/food-query";
 import { dietTypeOf, stapleDietType, strongerDiet } from "@/lib/food/diet";
+import { recipeValues, type RecipeDef } from "@/lib/food/recipe";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
 import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
 
@@ -40,16 +41,70 @@ function usdaFood(fields: Pick<FoodResult, "id" | "name" | "calories" | "protein
 
 interface StapleJson {
   foods: Array<{ id: string; name: string; dataType: string; state: string | null; aliases: string[]; calories: number; protein: number; carbs: number; fat: number; portions: unknown[] }>;
+  /** Everyday names for foods already listed, by FDC id (see fitx-staples.json). Keys that are not objects are notes. */
+  names?: Record<string, unknown>;
+  /** FITX recipe estimates (src/lib/food/recipe.ts). */
+  recipes?: unknown[];
 }
 type FoundationJson = Array<{ id: string; name: string; calories: number; protein: number; carbs: number; fat: number }>;
 
+export const RECIPE_SOURCE = "FITX recipe estimate";
+
+/** Aliases and keywords an overlay adds to a food, from fitx-staples.json `names`. */
+export function overlayFor(names: StapleJson["names"], id: string): { aliases: string[]; keywords: string[] } {
+  const entry = names?.[id];
+  const object = (entry && typeof entry === "object" ? entry : {}) as { aliases?: unknown; keywords?: unknown };
+  const list = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+  return { aliases: list(object.aliases), keywords: list(object.keywords) };
+}
+
+function recipeFood(recipe: RecipeDef): RankableFood {
+  const values = recipeValues(recipe);
+  return {
+    id: recipe.id,
+    kind: "catalog",
+    name: recipe.name,
+    brand: null,
+    image: null,
+    imageCredit: null,
+    sourceUrl: null,
+    calories: values.calories,
+    protein: values.protein,
+    carbs: values.carbs,
+    fat: values.fat,
+    missing: [],
+    fiber: null,
+    sugar: null,
+    sodiumMg: null,
+    source: RECIPE_SOURCE,
+    dataType: null,
+    valueBasis: "estimated",
+    basis: "FITX recipe estimate · calculated from USDA ingredients",
+    state: recipe.state,
+    dietType: recipe.diet,
+    portions: [values.portion],
+    barcode: null,
+    origin: null,
+    recentCount: 0,
+    suggestion: false,
+    recipeNote: `${values.summary}. ${recipe.note}`,
+    aliases: recipe.aliases,
+  };
+}
+
 /**
  * The built-in list from src/data/fitx-staples.json and src/data/usda-foundation-foods.json: the curated staples
- * first, so they win ties ("rice" means cooked rice), then the Foundation foods they do not repeat. Diet labels
- * follow the catalogue's rules (src/lib/food/diet.ts), so a food is labelled the same in both.
+ * first, so they win ties ("rice" means cooked rice), then the Foundation foods they do not repeat, then the FITX
+ * recipe estimates. Diet labels follow the catalogue's rules (src/lib/food/diet.ts), so a food is labelled the same
+ * in both. The `names` overlay gives foods everyday Indian names (aloo, gobi, curd) without changing a value.
  */
 export function localFoodsFrom(staplesJson: StapleJson, foundationJson: FoundationJson) {
-  const staples: RankableFood[] = staplesJson.foods.map((food) => usdaFood({
+  const named = (food: RankableFood): RankableFood => {
+    const extra = overlayFor(staplesJson.names, food.id);
+    if (!extra.aliases.length && !extra.keywords.length) return food;
+    return { ...food, aliases: [...new Set([...(food.aliases ?? []), ...extra.aliases])], keywords: [...new Set([...(food.keywords ?? []), ...extra.keywords])] };
+  };
+  const staples: RankableFood[] = staplesJson.foods.map((food) => named(usdaFood({
     id: food.id,
     name: food.name,
     calories: food.calories,
@@ -61,12 +116,13 @@ export function localFoodsFrom(staplesJson: StapleJson, foundationJson: Foundati
     portions: food.portions as FoodPortion[],
     aliases: food.aliases,
     dietType: stapleDietType(food.id, food.name, food.aliases),
-  }));
+  })));
   const stapleIds = new Set(staples.map((food) => food.id));
   const foundation = foundationJson
     .filter((food) => !stapleIds.has(food.id))
-    .map((food) => usdaFood({ ...food, dataType: "Foundation", state: inferFoodState(food.name), portions: [], dietType: dietTypeOf(food.name, [], null) }));
-  return { staples, all: [...staples, ...foundation] };
+    .map((food) => named(usdaFood({ ...food, dataType: "Foundation", state: inferFoodState(food.name), portions: [], dietType: dietTypeOf(food.name, [], null) })));
+  const recipes = ((staplesJson.recipes ?? []) as RecipeDef[]).map(recipeFood);
+  return { staples, all: [...staples, ...foundation, ...recipes] };
 }
 
 /**

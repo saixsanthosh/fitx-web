@@ -5,15 +5,21 @@ import { X } from "lucide-react";
 import styles from "./FoodUi.module.css";
 
 /** Asks for a name, for saving a meal or a day's routine. */
-export function NameDialog({ title, description, initial, busy, onCancel, onSave }: {
+export function NameDialog({ title, description, initial, busy, label = "Name", maxLength = 80, validate, onCancel, onSave }: {
   title: string;
   description: string;
   initial: string;
   busy: boolean;
+  /** The field's label ("Name" by default). */
+  label?: string;
+  maxLength?: number;
+  /** A reason the typed name cannot be used, shown under the field, or null. */
+  validate?: (name: string) => string | null;
   onCancel: () => void;
   onSave: (name: string) => void;
 }) {
   const [name, setName] = useState(initial);
+  const [problem, setProblem] = useState("");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     input.current?.select();
@@ -31,8 +37,14 @@ export function NameDialog({ title, description, initial, busy, onCancel, onSave
           </div>
           <button type="button" onClick={onCancel} aria-label="Close" className={styles.iconButton}><X size={16}/></button>
         </div>
-        <form className={styles.form} onSubmit={(event) => { event.preventDefault(); if (name.trim()) onSave(name.trim()); }}>
-          <label className={styles.wide}>Name<input ref={input} className="fitx-field" required maxLength={80} value={name} onChange={(event) => setName(event.target.value)}/></label>
+        <form className={styles.form} onSubmit={(event) => {
+          event.preventDefault();
+          const reason = validate?.(name) ?? null;
+          if (reason) { setProblem(reason); return; }
+          if (name.trim()) onSave(name.trim());
+        }}>
+          <label className={styles.wide}>{label}<input ref={input} className="fitx-field" required maxLength={maxLength} value={name} onChange={(event) => { setName(event.target.value); setProblem(""); }}/></label>
+          {problem && <p role="alert" className={`${styles.warning} ${styles.wide}`}>{problem}</p>}
           <div className={`${styles.dialogActions} ${styles.wide}`}>
             <button type="button" onClick={onCancel} className="fitx-button fitx-button-secondary">Cancel</button>
             <button type="submit" disabled={busy || !name.trim()} className="fitx-button">{busy ? "Saving…" : "Save"}</button>

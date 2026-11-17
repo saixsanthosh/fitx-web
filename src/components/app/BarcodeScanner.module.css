@@ -1,0 +1,12 @@
+/* The aiming frame over the camera preview. Colours come only from --fitx-* theme tokens. */
+.frame { position: absolute; inset: 0; pointer-events: none; }
+/* The dimmed mask is four bars around the clear window, so the barcode area stays bright. */
+.window { position: absolute; left: 14%; right: 14%; top: 31%; bottom: 31%; box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--fitx-scrim) 52%, transparent); border-radius: .5rem; }
+.corner { position: absolute; width: 1.6rem; height: 1.6rem; border: 3px solid var(--fitx-on-strong); }
+.tl { left: -2px; top: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: .5rem; }
+.tr { right: -2px; top: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: .5rem; }
+.bl { left: -2px; bottom: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: .5rem; }
+.br { right: -2px; bottom: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: .5rem; }
+.line { position: absolute; left: 6%; right: 6%; top: 50%; height: 2px; background: var(--fitx-primary); opacity: .85; animation: scan 2.2s ease-in-out infinite alternate; }
+@keyframes scan { from { top: 12%; } to { top: 88%; } }
+@media (prefers-reduced-motion: reduce) { .line { animation: none; top: 50%; } }

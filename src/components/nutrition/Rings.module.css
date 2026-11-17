@@ -1,0 +1,15 @@
+/* Rings for the nutrition screens. Colours come only from --fitx-* theme tokens. */
+.ring { position: relative; display: grid; width: 7.5rem; aspect-ratio: 1; flex: 0 0 auto; place-items: center; }
+.ringLg { width: var(--ring-size, clamp(8.5rem,17vw,10.5rem)); }
+.ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.track,.arc { fill: none; stroke-width: 11; }
+.track { stroke: var(--fitx-track); }
+.arc { stroke-linecap: butt; animation: ring-grow .9s cubic-bezier(.22,.8,.26,1) both; }
+.carbs { stroke: var(--fitx-info); }
+.protein { stroke: var(--fitx-gold); }
+.fat { stroke: var(--fitx-primary); }
+.energy { stroke: var(--fitx-success); }
+.over { stroke: var(--fitx-warning); }
+.center { position: relative; display: grid; justify-items: center; align-content: center; gap: .1rem; text-align: center; }
+@keyframes ring-grow { from { stroke-dasharray: 0 100; } }
+@media (prefers-reduced-motion: reduce) { .arc { animation: none; } }

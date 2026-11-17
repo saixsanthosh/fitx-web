@@ -1,5 +1,6 @@
 /** Shapes shared by the food search route and the nutrition page. No runtime code. */
 import type { FoodPortion, FoodState } from "@/lib/domain/food-query";
+import type { MacroKey } from "@/lib/domain/nutrition";
 
 /**
  * How a food's values were obtained, shown as a badge so estimates are never mistaken for measurements:
@@ -50,6 +51,18 @@ export interface FoodResult {
   portions: FoodPortion[];
   barcode: string | null;
   origin: CustomFoodOrigin | null;
+  /** Saturated fat in g per 100 g; null or absent when the source does not give it. */
+  saturatedFat?: number | null;
+  /** Protein, carbs or fat the source leaves blank. Their numbers above are 0 only so sums work: show them as unknown and log them as NULL. */
+  missing?: MacroKey[];
+  /** The sodium figure was worked out from the label's salt (salt / 2.5). */
+  sodiumFromSalt?: boolean;
+  /** The serving as the label words it ("6 biscuits (27 g)", "250 ml"), shown as a fact under the name. */
+  servingLabel?: string | null;
+  /** For a FITX recipe estimate: the ingredients and what the estimate assumes. */
+  recipeNote?: string | null;
+  /** Why the label serving cannot be used directly (a serving given only in ml). */
+  servingNote?: string | null;
   /** Times the user logged this food in the last 60 days, when the catalogue search knows it. */
   recentCount: number;
   /** A close spelling offered because nothing matched every word; never selected automatically. */

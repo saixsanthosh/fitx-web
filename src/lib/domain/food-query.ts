@@ -42,6 +42,10 @@ export interface FoodPortion {
   countDefault?: boolean;
   /** false for the user's own serving or a package label. USDA household weights are averages, so they are estimates. */
   estimate?: boolean;
+  /** The sourced measure this weight was worked out from (a volume converted through the food's USDA cup weight). */
+  derivedFrom?: { label: string; grams: number };
+  /** A household vessel (katori, bowl, glass): its volume and whether the member set it. The weight is an estimate. */
+  vessel?: { ml: number; custom: boolean };
 }
 
 export type PortionResolution =
@@ -550,4 +554,104 @@ function round1(value: number): number {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+// ─── Millilitres and household measures ─────────────────────────────────────────────────────────────
+
+/** What unit a typed or chosen amount is in, for stepping it: a mass or volume moves in tens, a count in halves. */
+export type StepKind = "mass" | "count";
+
+/**
+ * The amount after one tap on the + or - button next to the amount field. Grams and millilitres move by 10 (never
+ * below 1); pieces, servings and household measures by 0.5 (never below 0.25). A typed value that is not a number
+ * starts from one step.
+ */
+export function stepAmount(current: number, direction: 1 | -1, kind: StepKind): number {
+  const step = kind === "mass" ? 10 : 0.5;
+  const floor = kind === "mass" ? 1 : 0.25;
+  const base = Number.isFinite(current) && current > 0 ? current : 0;
+  const next = round2(base + direction * step);
+  return Math.max(next, floor);
+}
+
+/** Whether a unit is counted in tens (grams, millilitres) or in halves (everything else) when stepping. */
+export function stepKindOf(unit: FoodUnit | null): StepKind {
+  return unit === null || isMassUnit(unit) || unit === "ml" || unit === "l" || unit === "floz" ? "mass" : "count";
+}
+
+/** The volume measures a food could be asked for, in order of use. */
+const DERIVED_VOLUMES: ReadonlyArray<{ unit: VolumeUnit; label: string }> = [
+  { unit: "ml", label: "1 ml" },
+  { unit: "tsp", label: "1 teaspoon" },
+  { unit: "tbsp", label: "1 tablespoon" },
+  { unit: "cup", label: "1 cup" },
+];
+
+/** Grams per millilitre from the food's own USDA volume measure (US cup or spoon), or null when it has none. */
+export function densityFromPortions(portions: readonly FoodPortion[]): { gramsPerMl: number; from: FoodPortion } | null {
+  const volume = portions.find((portion) => isVolumeUnit(portion.unit) && portion.grams > 0);
+  if (!volume || !isVolumeUnit(volume.unit)) return null;
+  return { gramsPerMl: volume.grams / VOLUME_ML[volume.unit as VolumeUnit], from: volume };
+}
+
+/**
+ * Millilitres, teaspoons, tablespoons and cups for a food that USDA gives at least one volume measure for, each
+ * weighed through that measure and marked as a portion estimate with the measure it came from. A food with no
+ * volume measure gets none: FITX never assumes that 1 ml weighs 1 g.
+ */
+export function volumeOptions(portions: readonly FoodPortion[]): FoodPortion[] {
+  const density = densityFromPortions(portions);
+  if (!density) return [];
+  const have = new Set(portions.map((portion) => portion.unit));
+  return DERIVED_VOLUMES.filter(({ unit }) => !have.has(unit)).map(({ unit, label }) => ({
+    label,
+    unit,
+    grams: Math.round(density.gramsPerMl * VOLUME_ML[unit] * 10000) / 10000,
+    estimate: true,
+    derivedFrom: { label: density.from.label, grams: density.from.grams },
+  }));
+}
+
+export type Vessel = "katori" | "bowl" | "glass";
+export type HouseholdMl = Partial<Record<Vessel, number>>;
+
+/**
+ * Working volumes for the household vessels, used until the member sets their own. These are FITX assumptions, not a
+ * sourced standard: katori and bowl sizes differ from home to home. They are shown as estimates and documented in
+ * src/data/DATA_SOURCES.md. The weight of a vessel comes from the food's own sourced volume measure, never from a
+ * made-up weight per food.
+ */
+export const DEFAULT_HOUSEHOLD_ML: Readonly<Record<Vessel, number>> = { katori: 150, bowl: 250, glass: 200 };
+/** The volume a member may set for a vessel. */
+export const HOUSEHOLD_ML_RANGE = { min: 30, max: 1500 } as const;
+
+const LIQUID_NAME = /\b(milk|juice|lassi|buttermilk|chaas|water|tea|coffee|drink|soup|smoothie|shake|broth|rasam|kadha)\b/i;
+
+/** Katori and bowl for any food with a volume measure; a glass only for drinks. */
+export function householdOptions(portions: readonly FoodPortion[], foodName: string, household: HouseholdMl = {}): FoodPortion[] {
+  const density = densityFromPortions(portions);
+  if (!density) return [];
+  const vessels: Vessel[] = LIQUID_NAME.test(foodName) ? ["katori", "bowl", "glass"] : ["katori", "bowl"];
+  return vessels.map((vessel) => {
+    const custom = typeof household[vessel] === "number" && Number.isFinite(household[vessel]) && (household[vessel] as number) >= HOUSEHOLD_ML_RANGE.min && (household[vessel] as number) <= HOUSEHOLD_ML_RANGE.max;
+    const ml = custom ? (household[vessel] as number) : DEFAULT_HOUSEHOLD_ML[vessel];
+    return {
+      label: `1 ${vessel} (${formatAmount(ml)} ml${custom ? ", your size" : ""})`,
+      unit: vessel,
+      grams: round1(density.gramsPerMl * ml),
+      estimate: true,
+      derivedFrom: { label: density.from.label, grams: density.from.grams },
+      vessel: { ml, custom },
+    };
+  });
+}
+
+/** Every measure a food can be logged in beyond its own portions: volume units, then household vessels. */
+export function extraPortions(portions: readonly FoodPortion[], foodName: string, household: HouseholdMl = {}): FoodPortion[] {
+  return [...volumeOptions(portions), ...householdOptions(portions, foodName, household)];
+}
+
+/** Why a food has no ml, cup or katori option, in one line, or null when it has some. */
+export function noVolumeReason(portions: readonly FoodPortion[]): string | null {
+  return densityFromPortions(portions) ? null : "This food has no volume measure from its source, so ml, cups and katori are not offered. Use grams or a piece.";
 }

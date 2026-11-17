@@ -15,7 +15,8 @@ const seed: SeedRow[] = parts.flatMap((name) => {
 test("the catalogue seed holds every built-in food, so applying it loses no food search finds today", () => {
   const ids = new Set(seed.map((row) => row.id));
   const local = localFoodsFrom(read("fitx-staples.json"), read("usda-foundation-foods.json"));
-  assert.deepEqual(local.all.filter((food) => !ids.has(food.id)).map((food) => `${food.id} ${food.name}`), []);
+  // FITX recipe estimates are built from these foods and are not catalogue rows.
+  assert.deepEqual(local.all.filter((food) => !ids.has(food.id) && !food.id.startsWith("fitx-recipe-")).map((food) => `${food.id} ${food.name}`), []);
 });
 
 test("seed parts are numbered in order, list each food once, and give a bare count no container", () => {

@@ -7,7 +7,7 @@
  */
 import { gramsInLabel, inferFoodState } from "@/lib/domain/food-query";
 import type { FoodPortion } from "@/lib/domain/food-query";
-import { per100gFromOpenFoodFacts } from "@/lib/domain/nutrition";
+import { extrasFromOpenFoodFacts, per100gFromOpenFoodFacts } from "@/lib/domain/nutrition";
 import type { FoodResult, SourceState } from "@/lib/food/types";
 import { OPEN_FOOD_FACTS_IMAGE_CREDIT, VALUE_BASIS } from "@/lib/food/value-basis";
 
@@ -64,13 +64,21 @@ export function fromOpenFoodFacts(item: unknown): FoodResult | null {
   const portions: FoodPortion[] = [];
   const servingLabel = text(product.serving_size);
   const servingGrams = positive(product.serving_quantity) ?? gramsInLabel(servingLabel);
-  if (servingGrams && servingGrams <= 2000 && (!servingLabel || !/\bml\b/i.test(servingLabel) || gramsInLabel(servingLabel))) {
+  const servingMl = servingLabel && /\bml\b/i.test(servingLabel) && !gramsInLabel(servingLabel);
+  let servingNote: string | null = null;
+  if (servingGrams && servingGrams <= 2000 && !servingMl) {
+    // Not a countDefault: "2 biscuits" is not 2 servings of 6. The page opens a scanned product on this serving itself.
     portions.push({ label: `1 serving (${servingLabel ?? `${servingGrams} g`})`, unit: "serving", grams: round1(servingGrams), estimate: false });
+  } else if (servingLabel && servingMl) {
+    // A serving in millilitres has no weight on the label. FITX does not assume 1 ml = 1 g.
+    servingNote = `The label's serving is ${servingLabel}, but it gives no weight, so log it in grams.`;
   }
   const packGrams = String(product.product_quantity_unit ?? "g").toLowerCase() === "g" ? positive(product.product_quantity) : null;
   if (packGrams && packGrams <= 5000 && packGrams !== servingGrams) {
     portions.push({ label: `1 pack (${text(product.quantity) ?? `${packGrams} g`})`, unit: "piece", grams: round1(packGrams), estimate: false });
   }
+  const extras = extrasFromOpenFoodFacts(product.nutriments);
+  const { missing, ...macros } = values;
   const image = text(product.image_front_small_url);
   return {
     id: code,
@@ -80,10 +88,15 @@ export function fromOpenFoodFacts(item: unknown): FoodResult | null {
     image: image && /^https:\/\/(images|static)\.openfoodfacts\.org\//.test(image) ? image : null,
     imageCredit: image ? OPEN_FOOD_FACTS_IMAGE_CREDIT : null,
     sourceUrl: `${OPEN_FOOD_FACTS}/product/${encodeURIComponent(code)}`,
-    ...values,
-    fiber: null,
-    sugar: null,
-    sodiumMg: null,
+    ...macros,
+    missing,
+    fiber: extras.fiber,
+    sugar: extras.sugar,
+    saturatedFat: extras.saturatedFat,
+    sodiumMg: extras.sodiumMg,
+    sodiumFromSalt: extras.sodiumFromSalt,
+    servingLabel: servingGrams && !servingMl ? servingLabel ?? `${servingGrams} g` : servingLabel,
+    servingNote,
     source: "Open Food Facts",
     dataType: null,
     valueBasis: "label",

@@ -69,6 +69,9 @@ export function fromUsda(item: unknown): RankableFood | null {
     portions.push({ label: `1 serving (${household ? `${household}, ` : ""}${food.servingSize} g)`, unit: "serving", grams: Number(food.servingSize), estimate: false });
   }
   const valueBasis = basisForDataType(dataType);
+  // A nutrient USDA does not list is unknown, not 0 g: it is named in `missing` and logged as NULL.
+  const macros = { protein: value("203"), carbs: value("205"), fat: value("204") };
+  const missing = (["protein", "carbs", "fat"] as const).filter((key) => macros[key] === null);
   return {
     id: String(food.fdcId),
     kind: "catalog",
@@ -78,10 +81,12 @@ export function fromUsda(item: unknown): RankableFood | null {
     imageCredit: null,
     sourceUrl: `https://fdc.nal.usda.gov/food-details/${food.fdcId}/nutrients`,
     calories: Math.round(calories),
-    protein: round1(value("203") ?? 0),
-    carbs: round1(value("205") ?? 0),
-    fat: round1(value("204") ?? 0),
+    protein: round1(macros.protein ?? 0),
+    carbs: round1(macros.carbs ?? 0),
+    fat: round1(macros.fat ?? 0),
+    missing,
     fiber: value("291"),
+    saturatedFat: value("606"),
     sugar: value("269"),
     sodiumMg: value("307"),
     source: USDA_SOURCE,

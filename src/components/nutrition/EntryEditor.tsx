@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { describePortion, formatAmount } from "@/lib/domain/food-query";
 import type { FoodPortion } from "@/lib/domain/food-query";
 import { scaleMacros } from "@/lib/domain/nutrition";
-import { entryPer100g, MEAL_SLOTS, type MealEntry, type MealSnapshot } from "@/lib/food/client-data";
+import { entryPer100g, type MealEntry, type MealSnapshot } from "@/lib/food/client-data";
 import styles from "./FoodUi.module.css";
 
 export interface EntryChange {
@@ -17,7 +17,7 @@ export interface EntryChange {
 }
 
 /** Edits a logged entry: amount (grams or the portion it was logged with), meal and date. */
-export function EntryEditor({ entry, busy, onCancel, onSave }: { entry: MealEntry; busy: boolean; onCancel: () => void; onSave: (change: EntryChange) => void }) {
+export function EntryEditor({ entry, busy, sections, onCancel, onSave }: { entry: MealEntry; busy: boolean; sections: readonly string[]; onCancel: () => void; onSave: (change: EntryChange) => void }) {
   const logged = entry.nutrition_snapshot?.portion;
   const portion: FoodPortion | null = logged?.label && logged.unit && Number(logged.grams_each) > 0
     ? { label: logged.label, unit: logged.unit, grams: Number(logged.grams_each), estimate: logged.estimate !== false }
@@ -82,10 +82,10 @@ export function EntryEditor({ entry, busy, onCancel, onSave }: { entry: MealEntr
             <option value="g">grams (g)</option>
             {portion && <option value="portion">{portion.label} · {formatAmount(portion.grams)} g</option>}
           </select></label>
-          <label>Meal<select className="fitx-field" value={meal} onChange={(event) => setMeal(event.target.value)}>{MEAL_SLOTS.map((slot) => <option key={slot}>{slot}</option>)}</select></label>
+          <label>Meal<select className="fitx-field" value={meal} onChange={(event) => setMeal(event.target.value)}>{(sections.includes(entry.meal) ? sections : [...sections, entry.meal]).map((slot) => <option key={slot}>{slot}</option>)}</select></label>
           <label>Date<input className="fitx-field" type="date" value={date} onChange={(event) => setDate(event.target.value)}/></label>
           <p className={`${styles.hint} ${styles.wide}`}>
-            {macros ? `= ${formatAmount(grams)} g · ${Math.round(macros.calories)} kcal · P ${macros.protein} g · C ${macros.carbs} g · F ${macros.fat} g` : per100 ? "Enter an amount." : "Only the meal and date of this older entry can change."}
+            {macros ? `= ${formatAmount(grams)} g · ${Math.round(macros.calories)} kcal · ${(["protein", "carbs", "fat"] as const).map((key) => `${key[0].toUpperCase()} ${per100?.missing.includes(key) ? "unknown" : `${macros[key]} g`}`).join(" · ")}` : per100 ? "Enter an amount." : "Only the meal and date of this older entry can change."}
           </p>
           {problem && <p role="alert" className={`${styles.warning} ${styles.wide}`}>{problem}</p>}
           <div className={`${styles.dialogActions} ${styles.wide}`}>

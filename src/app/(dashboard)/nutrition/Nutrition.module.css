@@ -15,12 +15,13 @@
 .eyebrow { color: var(--fitx-success); font-size: .62rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
 .sourceNote,.targetHint { color: var(--fitx-text-disabled); font-size: .68rem; }
 .overviewBody { display: grid; grid-template-columns: minmax(10rem,.55fr) minmax(0,1.45fr); align-items: center; gap: clamp(1.2rem,4vw,3.5rem); }
-.calorieColumn { display: grid; justify-items: center; gap: .6rem; }
-.calorieRing { --ring-fill: var(--nutrition-fill); display: grid; width: clamp(8.5rem,17vw,10.5rem); aspect-ratio: 1; place-items: center; border-radius: 50%; background: conic-gradient(var(--ring-fill) var(--ring-percent, 0%), var(--nutrition-track) 0); padding: .58rem; }
-.calorieRing.isOver { --ring-fill: var(--nutrition-over); }
-.calorieRing > div { display: grid; width: 100%; height: 100%; align-content: center; justify-items: center; gap: .15rem; border-radius: inherit; background: var(--fitx-card-bg); }
-.calorieRing strong { color: var(--fitx-text); font-size: clamp(1.6rem,3vw,2.3rem); font-variant-numeric: tabular-nums; letter-spacing: -.055em; line-height: 1; }
-.calorieRing span { color: var(--fitx-text-secondary); font-size: .68rem; }
+.calorieColumn { --ring-size: clamp(8.5rem,17vw,10.5rem); display: grid; justify-items: center; gap: .6rem; }
+.ringNumber { color: var(--fitx-text); font-size: clamp(1.6rem,3vw,2.3rem); font-variant-numeric: tabular-nums; letter-spacing: -.055em; line-height: 1; }
+.ringSmall { color: var(--fitx-text-secondary); font-size: .68rem; }
+.remaining { color: var(--fitx-text); font-size: .85rem; }
+.remaining strong { font-variant-numeric: tabular-nums; font-weight: 700; }
+.remaining.overNote { color: var(--fitx-warning); }
+.macroUnknown { display: block; margin-top: .4rem; color: var(--fitx-text-disabled); font-size: .62rem; line-height: 1.35; }
 .calorieNotes { display: grid; align-content: center; gap: .2rem; justify-items: center; text-align: center; }
 .overNote { color: var(--fitx-warning); font-size: .72rem; font-weight: 650; }
 .targetHint { text-align: center; }
@@ -33,7 +34,8 @@
 .macroGoal { display: block; min-height: 1.1rem; margin-top: .15rem; color: var(--fitx-text-disabled); font-size: .68rem; }
 .macroOver { color: var(--fitx-warning); font-weight: 650; }
 .macroTrack { height: 3px; margin-top: .7rem; overflow: hidden; border-radius: 2px; background: var(--nutrition-track); }
-.macroTrack > span { display: block; height: 100%; border-radius: inherit; background: var(--nutrition-fill); transition: width .35s ease; }
+.macroTrack > span { display: block; height: 100%; border-radius: inherit; background: var(--nutrition-fill); transform-origin: left; transition: width .35s ease; animation: macro-fill .8s cubic-bezier(.22,.8,.26,1) both; }
+@keyframes macro-fill { from { transform: scaleX(0); } }
 .macroTrack.isOver > span { background: var(--nutrition-over); }
 .tabs { display: flex; max-width: 100%; gap: clamp(.8rem,2vw,1.4rem); overflow-x: auto; border-bottom: 1px solid var(--fitx-border); scrollbar-width: thin; }
 .tabs button { flex: 0 0 auto; min-height: 2.9rem; }
@@ -68,9 +70,9 @@
   .overviewBody { grid-template-columns: minmax(0,1fr); gap: 1rem; }
   .calorieColumn { grid-template-columns: auto 1fr; justify-items: start; gap: .8rem; }
   .calorieNotes { justify-items: start; text-align: left; }
-  .calorieRing { width: 6.7rem; padding: .42rem; }
-  .calorieRing strong { font-size: 1.3rem; }
-  .calorieRing span { font-size: .57rem; }
+  .calorieColumn { --ring-size: 6.7rem; }
+  .ringNumber { font-size: 1.3rem; }
+  .ringSmall { font-size: .57rem; }
   .targetHint { align-self: center; text-align: left; }
   .macroGrid { gap: .25rem; }
   .macro { padding-left: .55rem; }
@@ -82,4 +84,4 @@
   .nutritionAside { grid-column: auto; }
   .foodResults { max-height: 24rem; }
 }
-@media(prefers-reduced-motion: reduce) { .macroTrack > span,.suggestion { transition: none; } }
+@media(prefers-reduced-motion: reduce) { .macroTrack > span,.suggestion { transition: none; animation: none; } }

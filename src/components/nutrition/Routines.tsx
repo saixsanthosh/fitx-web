@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { CalendarDays, Trash2, Utensils } from "lucide-react";
-import { MEAL_SLOTS, type MealSlot, type MealTemplate } from "@/lib/food/client-data";
+import { type MealTemplate } from "@/lib/food/client-data";
 import styles from "./FoodUi.module.css";
 
 interface RoutinesProps {
@@ -11,13 +11,15 @@ interface RoutinesProps {
   loading: boolean;
   busy: boolean;
   dateLabel: string;
-  onApply: (template: MealTemplate, slot: MealSlot | null) => void;
+  /** The meal sections a saved meal can be added to: the four standard ones, then the member's own. */
+  sections: readonly string[];
+  onApply: (template: MealTemplate, slot: string | null) => void;
   onDelete: (template: MealTemplate) => void;
 }
 
 /** Saved meals and daily routines, applied to the day shown at the top of the page. */
-export function Routines({ templates, ready, loading, busy, dateLabel, onApply, onDelete }: RoutinesProps) {
-  const [slots, setSlots] = useState<Record<string, MealSlot>>({});
+export function Routines({ templates, ready, loading, busy, dateLabel, sections, onApply, onDelete }: RoutinesProps) {
+  const [slots, setSlots] = useState<Record<string, string>>({});
   if (!ready) {
     return (
       <section className="fitx-panel p-4 sm:p-5">
@@ -43,8 +45,8 @@ export function Routines({ templates, ready, loading, busy, dateLabel, onApply, 
                   <p className={styles.rowMeta}>{template.items.length} {template.items.length === 1 ? "food" : "foods"} · {kcal} kcal{template.kind === "meal" && template.meal_slot ? ` · saved from ${template.meal_slot}` : ""}</p>
                 </div>
                 {template.kind === "meal" && (
-                  <select className="fitx-field w-auto" value={slot} aria-label={`Meal to add ${template.name} to`} onChange={(event) => setSlots((old) => ({ ...old, [template.id]: event.target.value as MealSlot }))}>
-                    {MEAL_SLOTS.map((name) => <option key={name}>{name}</option>)}
+                  <select className="fitx-field w-auto" value={slot} aria-label={`Meal to add ${template.name} to`} onChange={(event) => setSlots((old) => ({ ...old, [template.id]: event.target.value }))}>
+                    {sections.map((name) => <option key={name}>{name}</option>)}
                   </select>
                 )}
                 <button type="button" disabled={busy || template.items.length === 0} onClick={() => onApply(template, template.kind === "meal" ? slot : null)} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs">Add to {dateLabel}</button>

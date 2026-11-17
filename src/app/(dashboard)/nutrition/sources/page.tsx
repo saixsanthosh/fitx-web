@@ -65,6 +65,21 @@ export default function NutritionSourcesPage() {
         </p>
       </section>
 
+      <section className="fitx-panel space-y-3 p-5" aria-labelledby="sources-estimates">
+        <h2 id="sources-estimates" className="text-base font-semibold text-fitx-text">FITX estimates</h2>
+        <p className="text-sm text-fitx-text-secondary">
+          Some everyday dishes (curd rice, rajma rice, chole, dal tadka, khichdi, raita, lassi, aloo paratha) are not in USDA FoodData Central.
+          FITX works their values out from USDA values for the ingredients, using the amounts shown on each dish, and labels them
+          “FITX recipe estimate”. A dish made with other proportions will differ. FITX does not guess foods it has no source for, such as
+          plain paneer or bhindi; it says so and lets you add a packaged product or your own food.
+        </p>
+        <p className="text-sm text-fitx-text-secondary">
+          Millilitres, cups and spoons are worked out from the food&apos;s own USDA cup or spoon weight, and never assume that 1 ml weighs 1 g.
+          A katori, bowl or glass has no standard size, so FITX starts from a working size (katori 150 ml, bowl 250 ml, glass 200 ml),
+          marks the result a portion estimate, and uses the size you set under “Set my katori and bowl sizes” instead.
+        </p>
+      </section>
+
       <section className="fitx-panel space-y-3 p-5" aria-labelledby="sources-yours">
         <h2 id="sources-yours" className="text-base font-semibold text-fitx-text">Your foods and the AI coach</h2>
         <p className="text-sm text-fitx-text-secondary">

@@ -5,13 +5,16 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FoodPortion } from "@/lib/domain/food-query";
-import { scaleMacros } from "@/lib/domain/nutrition";
+import { DEFAULT_MEALS, mealSections, SECTION_DAYS } from "@/lib/domain/meal-time";
+import { MACRO_KEYS, scaleMacros, type MacroKey } from "@/lib/domain/nutrition";
+import { localDateKey } from "@/lib/domain/dates";
+import { parseExtraNutrients } from "@/lib/food/custom-nutrients";
 import { FOOD_PHOTO_BUCKET } from "@/lib/food/food-photos";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
 import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
 
 export const CUSTOM_SOURCE = "FITX custom food";
-export const MEAL_SLOTS = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
+export const MEAL_SLOTS = DEFAULT_MEALS;
 export type MealSlot = (typeof MEAL_SLOTS)[number];
 
 /** Which nutrition v2 tables and columns exist yet. */
@@ -19,6 +22,11 @@ export interface NutritionCapabilities {
   customFoodsV2: boolean;
   templates: boolean;
   targets: boolean;
+  /**
+   * Fibre, sugar, saturated fat and sodium on a custom food. Always false for now: the column for them exists only on
+   * production, and the migration tests keep the app from naming it until the owner settles it (runbook 1.8).
+   */
+  customExtra: boolean;
 }
 
 /** Codes PostgREST and Postgres use for a table or column that does not exist yet. */
@@ -38,7 +46,7 @@ export async function detectCapabilities(supabase: SupabaseClient): Promise<Nutr
     supabase.from("nutrition_targets").select("user_id").limit(1),
   ]);
   const present = (result: { error: unknown }) => !result.error || !isMissingSchema(result.error);
-  return { customFoodsV2: present(custom), templates: present(templates), targets: present(targets) };
+  return { customFoodsV2: present(custom), templates: present(templates), targets: present(targets), customExtra: false };
 }
 
 /** A logged entry (public.meals). Totals are for the logged amount. */
@@ -51,9 +59,10 @@ export interface MealEntry {
   barcode: string | null;
   servings: number;
   calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
+  /** null: the source did not give the value (never 0). */
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
   quantity_grams: number | null;
   source: string;
   provider_id: string | null;
@@ -62,7 +71,14 @@ export interface MealEntry {
 }
 
 export interface MealSnapshot {
-  per_100g?: { calories?: number; protein?: number; carbs?: number; fat?: number };
+  /** Per 100 g. null means the source does not list the value; a missing key means an older entry that never recorded it. */
+  per_100g?: {
+    calories?: number; protein?: number | null; carbs?: number | null; fat?: number | null;
+    fiber?: number | null; sugar?: number | null; saturated_fat?: number | null; sodium_mg?: number | null;
+  };
+  /** Protein, carbs or fat the source did not give: stored as NULL in the entry, and left out of totals. */
+  missing?: MacroKey[];
+  sodium_from_salt?: boolean;
   source?: string;
   data_type?: string;
   basis?: string;
@@ -75,25 +91,120 @@ export interface MealSnapshot {
 
 export const MEAL_COLUMNS = "id,date,meal,food_name,brand,barcode,servings,calories,protein,carbs,fat,quantity_grams,source,provider_id,serving_size,nutrition_snapshot";
 
-/** Per-100 g values of a logged entry: from its snapshot, else worked out from its totals and grams. */
-export function entryPer100g(entry: MealEntry): { calories: number; protein: number; carbs: number; fat: number } | null {
+/** Protein, carbs or fat a logged entry does not have: the snapshot's list, or any column that is NULL. */
+export function entryMissing(entry: Pick<MealEntry, "protein" | "carbs" | "fat" | "nutrition_snapshot">): MacroKey[] {
+  const listed = new Set<string>(Array.isArray(entry.nutrition_snapshot?.missing) ? entry.nutrition_snapshot?.missing : []);
+  return MACRO_KEYS.filter((key) => entry[key] === null || entry[key] === undefined || listed.has(key));
+}
+
+/**
+ * Per-100 g values of a logged entry: from its snapshot, else worked out from its totals and grams. Values the
+ * entry does not have are listed in `missing` (and are 0 here only so the arithmetic works).
+ */
+export function entryPer100g(entry: MealEntry): { calories: number; protein: number; carbs: number; fat: number; missing: MacroKey[] } | null {
+  const missing = entryMissing(entry);
   const snapshot = entry.nutrition_snapshot?.per_100g;
   if (snapshot && Number.isFinite(Number(snapshot.calories))) {
-    return { calories: Number(snapshot.calories) || 0, protein: Number(snapshot.protein) || 0, carbs: Number(snapshot.carbs) || 0, fat: Number(snapshot.fat) || 0 };
+    const value = (key: MacroKey) => (missing.includes(key) ? 0 : Number(snapshot[key]) || 0);
+    return { calories: Number(snapshot.calories) || 0, protein: value("protein"), carbs: value("carbs"), fat: value("fat"), missing };
   }
   const grams = Number(entry.quantity_grams);
   if (!(grams > 0)) return null;
   const factor = 100 / grams;
-  return { calories: Number(entry.calories) * factor, protein: Number(entry.protein) * factor, carbs: Number(entry.carbs) * factor, fat: Number(entry.fat) * factor };
+  const value = (key: MacroKey) => (missing.includes(key) ? 0 : Number(entry[key]) * factor);
+  return { calories: Number(entry.calories) * factor, protein: value("protein"), carbs: value("carbs"), fat: value("fat"), missing };
+}
+
+/**
+ * The columns and snapshot to write for `grams` of a food. Protein, carbs or fat the source does not list are NULL in
+ * the entry and listed in snapshot.missing, never 0. Fibre, sugar, saturated fat and sodium go into the snapshot
+ * (per 100 g, null where the source is silent), so the entry keeps everything the product had.
+ */
+export function buildMealValues(food: FoodResult, grams: number): {
+  calories: number; protein: number | null; carbs: number | null; fat: number | null;
+  snapshot: Pick<MealSnapshot, "per_100g" | "missing" | "sodium_from_salt">;
+} {
+  const scaled = scaleMacros(food, grams);
+  const missing = MACRO_KEYS.filter((key) => food.missing?.includes(key));
+  const known = (key: MacroKey, value: number) => (missing.includes(key) ? null : value);
+  return {
+    calories: scaled.calories,
+    protein: known("protein", scaled.protein),
+    carbs: known("carbs", scaled.carbs),
+    fat: known("fat", scaled.fat),
+    snapshot: {
+      per_100g: {
+        calories: food.calories,
+        protein: known("protein", food.protein), carbs: known("carbs", food.carbs), fat: known("fat", food.fat),
+        fiber: food.fiber ?? null, sugar: food.sugar ?? null, saturated_fat: food.saturatedFat ?? null, sodium_mg: food.sodiumMg ?? null,
+      },
+      ...(missing.length ? { missing } : {}),
+      ...(food.sodiumFromSalt ? { sodium_from_salt: true } : {}),
+    },
+  };
 }
 
 /** The value basis a logged entry was saved with (older entries only kept the source and data type). */
-export function entryBasis(entry: MealEntry): ValueBasis {
+export function entryBasis(entry: Pick<MealEntry, "nutrition_snapshot" | "source">): ValueBasis {
   const snapshot = entry.nutrition_snapshot;
   if (snapshot?.value_basis) return snapshot.value_basis;
   if (entry.source === CUSTOM_SOURCE) return "user_entered";
   if (entry.source === "Open Food Facts") return "label";
   return basisForDataType(snapshot?.data_type);
+}
+
+/** A logged entry as a food that can be logged again, rebuilt from its snapshot; null when it has no per-100 g values. */
+export function foodFromEntry(entry: MealEntry): FoodResult | null {
+  const values = entryPer100g(entry);
+  if (!values) return null;
+  const snapshot = entry.nutrition_snapshot;
+  const valueBasis = entryBasis(entry);
+  const portion = snapshot?.portion;
+  const portions: FoodPortion[] = portion?.label && portion.unit && Number(portion.grams_each) > 0
+    ? [{ label: portion.label, unit: portion.unit, grams: Number(portion.grams_each), estimate: portion.estimate !== false, countDefault: portion.unit === "piece" || portion.unit === "serving" }]
+    : [];
+  const stored = snapshot?.per_100g;
+  const optional = (value: number | null | undefined) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : round1(Number(value)));
+  return {
+    id: entry.provider_id ?? `recent:${entry.id}`,
+    kind: entry.source === CUSTOM_SOURCE ? "custom" : entry.source === "Open Food Facts" ? "packaged" : "catalog",
+    name: entry.food_name,
+    brand: entry.brand,
+    image: null,
+    imageCredit: null,
+    sourceUrl: null,
+    calories: round1(values.calories),
+    protein: round1(values.protein),
+    carbs: round1(values.carbs),
+    fat: round1(values.fat),
+    missing: values.missing,
+    fiber: optional(stored?.fiber),
+    sugar: optional(stored?.sugar),
+    saturatedFat: optional(stored?.saturated_fat),
+    sodiumMg: optional(stored?.sodium_mg),
+    sodiumFromSalt: snapshot?.sodium_from_salt === true,
+    source: entry.source,
+    dataType: snapshot?.data_type ?? null,
+    valueBasis,
+    basis: snapshot?.basis ?? basisInfo(valueBasis).label,
+    state: null,
+    dietType: DIET_TYPES.has(String(snapshot?.diet_type)) ? (snapshot?.diet_type as DietType) : null,
+    portions,
+    barcode: entry.barcode,
+    origin: null,
+    recentCount: 0,
+    suggestion: false,
+  };
+}
+
+/** Whether an entry's values or its grams are an estimate (a typical recipe, an AI suggestion, an average portion weight). */
+export function isEstimateSnapshot(entry: Pick<MealEntry, "nutrition_snapshot" | "source">): boolean {
+  return Boolean(entry.nutrition_snapshot?.portion?.estimate) || basisInfo(entryBasis(entry)).estimate;
+}
+
+/** Whether two meal section names are the same section (no regard to case or surrounding space). */
+export function sameMeal(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 /** Recently logged foods, newest first and each once, rebuilt from their snapshots so they can be logged again. */
@@ -106,43 +217,70 @@ export async function loadRecentFoods(supabase: SupabaseClient, userId: string, 
     const key = `${entry.source}:${entry.provider_id ?? entry.food_name.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const values = entryPer100g(entry);
-    if (!values) continue;
-    const valueBasis = entryBasis(entry);
-    const portion = entry.nutrition_snapshot?.portion;
-    const portions: FoodPortion[] = portion?.label && portion.unit && Number(portion.grams_each) > 0
-      ? [{ label: portion.label, unit: portion.unit, grams: Number(portion.grams_each), estimate: portion.estimate !== false, countDefault: portion.unit === "piece" || portion.unit === "serving" }]
-      : [];
-    foods.push({
-      id: entry.provider_id ?? `recent:${entry.id}`,
-      kind: entry.source === CUSTOM_SOURCE ? "custom" : entry.source === "Open Food Facts" ? "packaged" : "catalog",
-      name: entry.food_name,
-      brand: entry.brand,
-      image: null,
-      imageCredit: null,
-      sourceUrl: null,
-      calories: round1(values.calories),
-      protein: round1(values.protein),
-      carbs: round1(values.carbs),
-      fat: round1(values.fat),
-      fiber: null,
-      sugar: null,
-      sodiumMg: null,
-      source: entry.source,
-      dataType: entry.nutrition_snapshot?.data_type ?? null,
-      valueBasis,
-      basis: entry.nutrition_snapshot?.basis ?? basisInfo(valueBasis).label,
-      state: null,
-      dietType: DIET_TYPES.has(String(entry.nutrition_snapshot?.diet_type)) ? (entry.nutrition_snapshot?.diet_type as DietType) : null,
-      portions,
-      barcode: entry.barcode,
-      origin: null,
-      recentCount: 0,
-      suggestion: false,
-    });
+    const food = foodFromEntry(entry);
+    if (!food) continue;
+    foods.push(food);
     if (foods.length >= limit) break;
   }
   return foods;
+}
+
+/** A food the member logs often, with the amount they usually log. */
+export interface FrequentFood {
+  key: string;
+  name: string;
+  brand: string | null;
+  /** Times it was logged in the window. */
+  count: number;
+  /** The entry that carries the usual amount, so one tap can log a copy of it. */
+  entry: MealEntry;
+  /** "150 g" or "2 x 1 item (76 g)". */
+  amountText: string;
+}
+
+/**
+ * The foods logged at least `minCount` times in `entries` (the member's own last 30 days), most often first, each
+ * with its most common amount. Entries should be newest first so ties go to the newest. Pure, so it can be tested.
+ */
+export function frequentFromEntries(entries: readonly MealEntry[], minCount = 2, limit = 8): FrequentFood[] {
+  const groups = new Map<string, MealEntry[]>();
+  for (const entry of entries) {
+    const key = `${entry.source}:${entry.provider_id ?? entry.food_name.trim().toLowerCase()}`;
+    const list = groups.get(key);
+    if (list) list.push(entry); else groups.set(key, [entry]);
+  }
+  const out: FrequentFood[] = [];
+  for (const [key, list] of groups) {
+    if (list.length < minCount) continue;
+    const tally = new Map<string, { entries: MealEntry[] }>();
+    for (const entry of list) {
+      const grams = Number(entry.quantity_grams) > 0 ? round1(Number(entry.quantity_grams)) : 0;
+      if (!(grams > 0)) continue;
+      const bucket = tally.get(String(grams));
+      if (bucket) bucket.entries.push(entry); else tally.set(String(grams), { entries: [entry] });
+    }
+    // The most common grams; on a tie the amount used most recently (the first one met, as entries are newest first).
+    let best: MealEntry | null = null;
+    let bestCount = 0;
+    for (const { entries: same } of tally.values()) if (same.length > bestCount) { best = same[0]; bestCount = same.length; }
+    if (!best) continue;
+    const grams = round1(Number(best.quantity_grams));
+    out.push({ key, name: best.food_name, brand: best.brand, count: list.length, entry: best, amountText: best.nutrition_snapshot?.portion && best.serving_size ? best.serving_size : `${grams} g` });
+  }
+  return out.sort((a, b) => b.count - a.count).slice(0, limit);
+}
+
+/** The member's meals of the last 30 days, newest first: what Frequent foods and the meal sections are built from. */
+export async function loadRecentMeals(supabase: SupabaseClient, userId: string, today: Date, days = SECTION_DAYS) {
+  const since = localDateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - days));
+  const { data, error } = await supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", userId).gte("date", since)
+    .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(600);
+  return error ? [] : ((data ?? []) as MealEntry[]);
+}
+
+/** Meal sections to offer: the four standard ones plus every other name used in `entries`. */
+export function sectionsFromEntries(entries: ReadonlyArray<Pick<MealEntry, "meal">>, extra: readonly string[] = []): string[] {
+  return mealSections(entries.map((entry) => entry.meal), extra);
 }
 
 const DIET_TYPES = new Set(["vegan", "veg", "egg", "non_veg"]);
@@ -179,6 +317,8 @@ export interface CustomFoodRow {
   image_attribution?: string | null;
   source_ref?: string | null;
   archived_at?: string | null;
+  /** Fibre, sugar, saturated fat and sodium per 100 g, when the database keeps them (see NutritionCapabilities.customExtra). */
+  extra?: unknown;
 }
 
 const CUSTOM_V1 = "id,name,brand,serving_size,serving_grams,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g";
@@ -290,6 +430,7 @@ export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = n
   const label = row.serving_size && !/^\d+(\.\d+)?\s*g$/i.test(row.serving_size) ? `1 serving (${row.serving_size}, ${round1(serving)} g)` : `1 serving (${round1(serving)} g)`;
   const origin = row.origin ?? "user";
   const valueBasis = customValueBasis(origin, row.value_basis);
+  const extra = parseExtraNutrients(row.extra);
   return {
     id: row.id,
     kind: "custom",
@@ -302,9 +443,11 @@ export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = n
     protein: Number(row.protein_per_100g),
     carbs: Number(row.carbs_per_100g),
     fat: Number(row.fat_per_100g),
-    fiber: null,
-    sugar: null,
-    sodiumMg: null,
+    missing: [],
+    fiber: extra.fiber,
+    sugar: extra.sugar,
+    saturatedFat: extra.saturatedFat,
+    sodiumMg: extra.sodiumMg,
     source: CUSTOM_SOURCE,
     dataType: null,
     valueBasis,
@@ -369,8 +512,8 @@ function slotOf(value: string): MealSlot {
 }
 
 /** Saves entries as a meal (one slot) or a day routine (every slot). */
-export async function saveTemplate(supabase: SupabaseClient, userId: string, name: string, kind: "meal" | "day", entries: MealEntry[], slot: MealSlot | null) {
-  const created = await supabase.from("meal_templates").insert({ user_id: userId, name: name.trim(), kind, meal_slot: kind === "meal" ? slot : null }).select("id").single();
+export async function saveTemplate(supabase: SupabaseClient, userId: string, name: string, kind: "meal" | "day", entries: MealEntry[], slot: string | null) {
+  const created = await supabase.from("meal_templates").insert({ user_id: userId, name: name.trim(), kind, meal_slot: kind === "meal" && slot ? slotOf(slot) : null }).select("id").single();
   if (created.error || !created.data) return { error: created.error ?? new Error("not saved") };
   const items = entries.map((entry, index) => ({
     template_id: created.data.id,
@@ -382,11 +525,13 @@ export async function saveTemplate(supabase: SupabaseClient, userId: string, nam
     provider_id: entry.provider_id,
     serving_size: entry.serving_size,
     quantity_grams: entry.quantity_grams,
+    // The template columns cannot hold NULL, so an unknown value is stored as 0 and stays listed in the snapshot's
+    // `missing`, which rowsFromItems reads to put NULL back.
     calories: Number(entry.calories) || 0,
     protein: Number(entry.protein) || 0,
     carbs: Number(entry.carbs) || 0,
     fat: Number(entry.fat) || 0,
-    nutrition_snapshot: entry.nutrition_snapshot ?? {},
+    nutrition_snapshot: { ...(entry.nutrition_snapshot ?? {}), ...(entryMissing(entry).length ? { missing: entryMissing(entry) } : {}) },
     sort_order: index,
   }));
   const inserted = await supabase.from("meal_template_items").insert(items);
@@ -401,45 +546,58 @@ export async function deleteTemplate(supabase: SupabaseClient, userId: string, i
   return supabase.from("meal_templates").delete().eq("id", id).eq("user_id", userId);
 }
 
-/** New meals rows for a date from saved items; a saved meal can go into another slot. One insert, so all or nothing. */
-export function rowsFromItems(userId: string, date: string, items: Array<MealTemplateItem | MealEntry>, slot: MealSlot | null) {
-  return items.map((item) => ({
-    user_id: userId,
-    date,
-    meal: slot ?? slotOf("meal_slot" in item ? item.meal_slot : item.meal),
-    food_name: item.food_name,
-    brand: item.brand,
-    barcode: "barcode" in item ? item.barcode : null,
-    source: item.source,
-    provider_id: item.provider_id,
-    serving_size: item.serving_size,
-    servings: Number(item.quantity_grams) > 0 ? Number(item.quantity_grams) / 100 : 1,
-    quantity_grams: item.quantity_grams,
-    calories: Number(item.calories) || 0,
-    protein: Number(item.protein) || 0,
-    carbs: Number(item.carbs) || 0,
-    fat: Number(item.fat) || 0,
-    nutrition_snapshot: item.nutrition_snapshot ?? {},
-  }));
+/**
+ * New meals rows for a date from saved items; a saved meal can go into another slot. One insert, so all or nothing.
+ * A logged entry keeps its own meal section (a member's "Pre-workout" stays one); a saved meal's slot is one of the
+ * four standard ones. Unknown protein, carbs or fat stay NULL.
+ */
+export function rowsFromItems(userId: string, date: string, items: Array<MealTemplateItem | MealEntry>, slot: string | null) {
+  return items.map((item) => {
+    const missing = entryMissing({ protein: item.protein, carbs: item.carbs, fat: item.fat, nutrition_snapshot: item.nutrition_snapshot });
+    const macro = (key: MacroKey) => (missing.includes(key) ? null : Number(item[key]) || 0);
+    return {
+      user_id: userId,
+      date,
+      meal: slot ?? ("meal_slot" in item ? slotOf(item.meal_slot) : item.meal.trim() || "Snack"),
+      food_name: item.food_name,
+      brand: item.brand,
+      barcode: "barcode" in item ? item.barcode : null,
+      source: item.source,
+      provider_id: item.provider_id,
+      serving_size: item.serving_size,
+      servings: Number(item.quantity_grams) > 0 ? Number(item.quantity_grams) / 100 : 1,
+      quantity_grams: item.quantity_grams,
+      calories: Number(item.calories) || 0,
+      protein: macro("protein"),
+      carbs: macro("carbs"),
+      fat: macro("fat"),
+      nutrition_snapshot: item.nutrition_snapshot ?? {},
+    };
+  });
 }
 
 export async function insertEntries(supabase: SupabaseClient, rows: ReturnType<typeof rowsFromItems>) {
-  if (!rows.length) return { error: null };
-  return supabase.from("meals").insert(rows);
+  if (!rows.length) return { error: null, data: [] as Array<{ id: string }> };
+  return supabase.from("meals").insert(rows).select("id");
 }
 
-/** Changes a logged entry's amount (recomputing its totals from per-100 g values), meal or date. */
+/** Changes a logged entry's amount (recomputing its totals from per-100 g values), meal or date. Unknown values stay NULL. */
 export function entryUpdate(entry: MealEntry, change: { grams: number; servingSize: string; portion: MealSnapshot["portion"] | null; meal: string; date: string }) {
   const per100 = entryPer100g(entry);
   const totals = per100 ? scaleMacros(per100, change.grams) : null;
   const snapshot: MealSnapshot = { ...(entry.nutrition_snapshot ?? {}) };
-  if (per100 && !snapshot.per_100g) snapshot.per_100g = { calories: round1(per100.calories), protein: round1(per100.protein), carbs: round1(per100.carbs), fat: round1(per100.fat) };
+  if (per100 && !snapshot.per_100g) {
+    const known = (key: MacroKey) => (per100.missing.includes(key) ? null : round1(per100[key]));
+    snapshot.per_100g = { calories: round1(per100.calories), protein: known("protein"), carbs: known("carbs"), fat: known("fat") };
+  }
+  if (per100 && per100.missing.length) snapshot.missing = per100.missing;
   if (change.portion) snapshot.portion = change.portion;
   else delete snapshot.portion;
+  const total = (key: MacroKey) => (per100?.missing.includes(key) ? null : totals?.[key] ?? null);
   return {
     meal: change.meal,
     date: change.date,
-    ...(totals ? { calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat, quantity_grams: change.grams, servings: change.grams / 100 } : {}),
+    ...(totals ? { calories: totals.calories, protein: total("protein"), carbs: total("carbs"), fat: total("fat"), quantity_grams: change.grams, servings: change.grams / 100 } : {}),
     serving_size: change.servingSize,
     nutrition_snapshot: snapshot,
     updated_at: new Date().toISOString(),
