@@ -75,6 +75,10 @@ const LIVE_LOOKUP_MIN_MS = 12_000;
 
 /** The account agreed to "Use my FITX data" as an adult and its profile now says under 18. */
 const AGE_CHANGED = "Your profile now says you're under 18, so the coach needs your OK again before it answers. It will answer general questions only.";
+/** The account agreed to "Use my FITX data" and the age has since been removed from its profile. */
+const AGE_MISSING = "Your profile no longer has your age, so the coach needs your OK again before it answers. Until you add your age in Profile, it answers general questions only.";
+/** Why the coach is asking for consent again, when needsNewConsent says it must. */
+const askAgain = (facts: Pick<MemberFacts, "minor">) => (facts.minor ? AGE_CHANGED : AGE_MISSING);
 
 /** Kind, fixed wording for plans FITX won't make, and why. */
 const NO_PLAN = {
@@ -110,9 +114,10 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
 
   const basics = await loadContextSources(deps.db, deps.userId, now, { full: false });
   const basicFacts = buildCoachContext(basics, now).facts;
-  if (store.needsNewConsent(consent, basicFacts.minor)) throw new CoachError("consent_required", AGE_CHANGED);
+  if (store.needsNewConsent(consent, basicFacts.adult)) throw new CoachError("consent_required", askAgain(basicFacts));
   const safety = screenMessage(input.message, { floor: basicFacts.calorieFloor });
-  const sharesData = consent.shareData && !basicFacts.minor;
+  // Only an account whose profile says 18 or over shares its data, whatever the consent says.
+  const sharesData = consent.shareData && basicFacts.adult;
   const plansAllowed = sharesData;
 
   // What earlier messages said still counts: an eating-disorder note pauses meal plans for 30 days
@@ -131,7 +136,9 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
       "plans_unavailable",
       basicFacts.minor
         ? "Meal and workout plans aren't available for members under 18. You can still ask the coach general questions."
-        : "Meal and workout plans use your FITX data. Turn on “Use my FITX data” in the coach's settings to get them.",
+        : !basicFacts.adult
+          ? "Meal and workout plans use your FITX data, which the coach uses only once your profile has your age. Add your age in Profile, then turn on “Use my FITX data” in the coach's settings."
+          : "Meal and workout plans use your FITX data. Turn on “Use my FITX data” in the coach's settings to get them.",
     );
   }
   if (task !== "chat" && safety.kind === "ok") {
@@ -410,8 +417,8 @@ export async function runSwap(deps: CoachDeps, input: { actionId: string; note: 
   if (!original || original.kind !== "food" || !item || typeof item.calories !== "number") throw new CoachError("not_found", "That food is no longer in your plan.");
 
   const context = buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: consent.shareData }), now);
-  if (store.needsNewConsent(consent, context.facts.minor)) throw new CoachError("consent_required", AGE_CHANGED);
-  if (!consent.shareData || context.facts.minor) throw new CoachError("plans_unavailable", "Swaps use your FITX data. Turn on “Use my FITX data” in the coach's settings.");
+  if (store.needsNewConsent(consent, context.facts.adult)) throw new CoachError("consent_required", askAgain(context.facts));
+  if (!consent.shareData || !context.facts.adult) throw new CoachError("plans_unavailable", "Swaps use your FITX data. Turn on “Use my FITX data” in the coach's settings.");
   const noteSafety = input.note ? screenMessage(input.note, { floor: context.facts.calorieFloor }) : null;
   if (noteSafety?.kind === "stop") throw new CoachError("refused", noteSafety.message);
   const [careMode, threadCautions] = await Promise.all([

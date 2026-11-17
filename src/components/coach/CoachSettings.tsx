@@ -11,6 +11,7 @@ export function CoachSettings({
   onClose,
   shareData,
   minor,
+  ageMissing,
   providers,
   onShareChange,
   onDeleted,
@@ -19,12 +20,17 @@ export function CoachSettings({
   onClose: () => void;
   shareData: boolean;
   minor: boolean;
+  /** No age in the profile: sharing waits for one. */
+  ageMissing: boolean;
   providers: ProviderNotice[];
   onShareChange: (shareData: boolean) => void;
   onDeleted: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [saving, setSaving] = useState(false);
+  // Only accounts whose profile says 18 or over can share their data.
+  const mayShare = !minor && !ageMissing;
+  const on = shareData && mayShare;
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
 
@@ -84,22 +90,24 @@ export function CoachSettings({
               <p className="mt-1 text-sm leading-6 text-fitx-text-secondary">
                 {minor
                   ? "Off for under-18 accounts: the coach answers general questions only."
-                  : shareData
-                    ? "On: the coach reads a short summary of your profile, logs and goals. Never your name, email, photos or account ID."
-                    : "Off: the coach answers general questions only, and meal and workout plans are off."}
+                  : ageMissing
+                    ? "Off until you add your age in Profile: FITX shares your data with the coach only for accounts of people 18 or over."
+                    : shareData
+                      ? "On: the coach reads a short summary of your profile, logs and goals. Never your name, email, photos or account ID."
+                      : "Off: the coach answers general questions only, and meal and workout plans are off."}
               </p>
             </div>
             <button
               type="button"
               role="switch"
-              aria-checked={shareData && !minor}
+              aria-checked={on}
               aria-labelledby="coach-share-title"
-              disabled={minor || saving}
+              disabled={!mayShare || saving}
               onClick={toggleSharing}
               className="relative mt-0.5 inline-flex h-11 w-14 shrink-0 items-center justify-center disabled:opacity-50"
             >
-              <span aria-hidden="true" className={`block h-7 w-12 rounded-full transition-colors ${shareData && !minor ? "bg-fitx-primary" : "bg-fitx-track"}`} />
-              <span aria-hidden="true" className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-fitx-surface shadow transition-all ${shareData && !minor ? "left-[30px]" : "left-[8px]"}`} />
+              <span aria-hidden="true" className={`block h-7 w-12 rounded-full transition-colors ${on ? "bg-fitx-primary" : "bg-fitx-track"}`} />
+              <span aria-hidden="true" className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-fitx-surface shadow transition-all ${on ? "left-[30px]" : "left-[8px]"}`} />
             </button>
           </div>
         </section>

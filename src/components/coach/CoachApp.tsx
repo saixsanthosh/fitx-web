@@ -46,7 +46,9 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   // Reset times are in the viewer's time zone, which the server can't know: they appear after hydration.
   const hydrated = useHydrated();
 
-  const plansAllowed = shareData && !status.minor;
+  // Only accounts whose profile says 18 or over share their data (the server checks this too).
+  const mayShare = !status.minor && !status.ageMissing;
+  const plansAllowed = shareData && mayShare;
   const busy = pending !== null;
 
   const scrollToEnd = useCallback(() => {
@@ -248,6 +250,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
       onClose={() => setSettingsOpen(false)}
       shareData={shareData}
       minor={status.minor}
+      ageMissing={status.ageMissing}
       providers={status.providers}
       onShareChange={(share) => {
         setShareData(share);
@@ -292,6 +295,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
         providers={status.providers}
         sharedSummary={status.sharedSummary}
         minor={status.minor}
+        ageMissing={status.ageMissing}
         memberDataAvailable={status.memberDataAvailable}
         onDone={(share) => {
           setShareData(share);
@@ -311,7 +315,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   const quotaHint = activeQuota ? quotaText(activeQuota, mode === "chat" ? "messages" : "plans", hydrated ? formatResetTime(activeQuota.resetsAt) : null) : null;
   const suggestions = status.minor
     ? ["What should I eat before sports practice?", "How can I get stronger safely?", "How much sleep do I need?"]
-    : shareData
+    : plansAllowed
       ? ["How did my eating look this week?", "Am I getting enough protein for my goal?", "What should I focus on in training this week?"]
       : ["How much protein do I need a day?", "How do I eat well on a tight budget?", "What's a good beginner training split?"];
 
@@ -324,7 +328,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
       <div className="min-w-0">
         <div className="mb-4 flex items-center justify-between gap-3">
           <p className="text-sm text-fitx-text-secondary">
-            {shareData && !status.minor ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
+            {plansAllowed ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
           </p>
           <div className="flex items-center gap-1">
             <button type="button" onClick={() => setHistoryOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text lg:hidden">
@@ -403,7 +407,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
             budget={budget}
             onBudget={setBudget}
             plansAllowed={plansAllowed}
-            plansNote={status.minor ? "Plans aren't available for under-18 accounts." : !shareData ? "Plans need “Use my FITX data”, in Coach settings." : null}
+            plansNote={status.minor ? "Plans aren't available for under-18 accounts." : status.ageMissing ? "Plans need your age in Profile and “Use my FITX data”." : !shareData ? "Plans need “Use my FITX data”, in Coach settings." : null}
             busy={busy}
             onSend={() => void send()}
             onStop={() => stopper.current?.abort()}

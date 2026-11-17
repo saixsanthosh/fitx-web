@@ -7,7 +7,8 @@ import { getConsent, saveConsent, updateDataSharing, withdrawConsent } from "@/l
 /**
  * POST { shareData: boolean }: agree to the coach, or change "Use my FITX data" later.
  * DELETE: withdraw consent (conversations stay until the member deletes them).
- * Members under 18 never share their data with the coach, whatever the request says.
+ * Only accounts whose profile says 18 or over share their data with the coach, whatever the request says:
+ * under-18 accounts and accounts without an age in their profile get "Questions only".
  */
 export async function POST(request: NextRequest) {
   const access = await coachGate(request, { mutating: true });
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
   if (!body || typeof body.shareData !== "boolean") return gate.finish(errorResponse(new CoachError("invalid", "Choose whether the coach may use your FITX data.")));
   try {
     const { facts } = buildCoachContext(await loadContextSources(gate.db, gate.userId, new Date(), { full: false }));
-    const shareData = body.shareData && !facts.minor;
+    const shareData = body.shareData && facts.adult;
     const existing = await getConsent(gate.db, gate.userId);
     if (existing) await updateDataSharing(gate.db, gate.userId, shareData);
     else await saveConsent(gate.db, gate.userId, shareData);

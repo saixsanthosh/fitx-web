@@ -97,6 +97,14 @@ describe("coach context", () => {
     assert.ok(text.length < 6000, `${text.length} characters`);
   });
 
+  test("only a profile age of 18 or over counts as an adult's; without an age the account is not taken for one", () => {
+    assert.deepEqual(["minor", "adult"].map((key) => buildCoachContext(sources() as never, NOW).facts[key as "minor" | "adult"]), [false, true]);
+    const noAge = buildCoachContext(sources({ profile: { age: null, gender: "female", height: 160, weight: 50 } }) as never, NOW);
+    assert.deepEqual([noAge.facts.age, noAge.facts.minor, noAge.facts.adult], [null, false, false]);
+    const teen = buildCoachContext(sources({ profile: { age: 17, gender: "female", height: 160, weight: 50 } }) as never, NOW);
+    assert.deepEqual([teen.facts.minor, teen.facts.adult], [true, false]);
+  });
+
   test("members under 18 get no targets and their data is not put in the prompt", () => {
     const minor = buildCoachContext(sources({ profile: { age: 16, gender: "female", height: 160, weight: 50 } }) as never, NOW);
     assert.equal(minor.facts.minor, true);
@@ -335,8 +343,10 @@ describe("privacy page", () => {
     const migration = readFileSync(new URL("../../supabase/migrations/20261118150000_fitx_ai_coach.sql", import.meta.url), "utf8");
     assert.match(migration, /share_personal_data boolean not null default false/);
     assert.equal(CARE_DAYS, 30);
-    assert.equal(needsNewConsent({ shareData: true } as never, true), true, "an adult consent with sharing on is asked again once the profile says under 18");
-    assert.equal(needsNewConsent({ shareData: false } as never, true), false);
+    // needsNewConsent(consent, adult): a consent with sharing on is asked again once the profile no longer says 18 or over.
+    assert.equal(needsNewConsent({ shareData: true } as never, false), true, "an adult consent with sharing on is asked again once the profile says under 18 or loses its age");
+    assert.equal(needsNewConsent({ shareData: true } as never, true), false);
+    assert.equal(needsNewConsent({ shareData: false } as never, false), false);
     const coach = section("AI coach");
     assert.match(coach, /“Use my FITX data” stays off until you choose it\./);
     assert.match(coach, /\bafter an eating-disorder support note the coach makes no meal plans or swaps and gives no calorie targets for 30 days\b/);
@@ -344,6 +354,18 @@ describe("privacy page", () => {
     assert.match(coach, /“Delete my coach data” removes these notes too\./);
     assert.match(coach, /\bthe coach asks for your consent again\b/);
     assert.match(coach, /\bby name, not by full recipe\b/);
+  });
+
+  test("the page says only a profile age of 18 or over turns on data sharing, as the server checks it", () => {
+    const read = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
+    assert.match(read("app/api/coach/consent/route.ts"), /const shareData = body\.shareData && facts\.adult;/);
+    assert.match(read("lib/ai/coach.ts"), /const sharesData = consent\.shareData && basicFacts\.adult;/);
+    assert.match(read("lib/ai/coach.ts"), /if \(!consent\.shareData \|\| !context\.facts\.adult\) throw/, "swaps too");
+    const coach = section("AI coach");
+    assert.match(coach, /\bOnly accounts whose profile says 18 or over can turn “Use my FITX data” on: accounts of people under 18, and accounts without an age in their profile, never send the summary\./);
+    assert.match(coach, /\bage changes to under 18 or is removed, the coach asks for your consent again\b/);
+    const profile = section("Information you choose to save");
+    assert.match(profile, /\bWithout an age, FITX can’t calculate your daily targets and the AI coach answers general questions only\./);
   });
 
   test("the profile section says what each detail is used for, as the code uses it", () => {

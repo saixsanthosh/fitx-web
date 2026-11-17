@@ -20,6 +20,8 @@ export type CoachStatus = {
   providers: ProviderNotice[];
   consent: { shareData: boolean; consentedAt: string } | null;
   minor: boolean;
+  /** The profile has no age: "Use my FITX data" waits until the member adds one (data is shared only from 18). */
+  ageMissing: boolean;
   /** What "Use my FITX data" shares, in the member's own terms, for the consent screen. */
   sharedSummary: string[];
   /**
@@ -75,6 +77,7 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     providers: providerNotices(config),
     consent: null,
     minor: false,
+    ageMissing: false,
     sharedSummary: [],
     memberDataAvailable: canSendMemberData(config),
     quotas: [],
@@ -87,16 +90,17 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
   const context = buildCoachContext(sources, now);
   const { facts } = context;
   const sharedSummary = sharedSummaryLines(context);
+  const age = { minor: facts.minor, ageMissing: facts.age === null };
 
   try {
     const consent = await store.getConsent(db, userId);
-    // Agreeing to "Use my FITX data" as an adult does not carry over once the profile says under 18: the
-    // member sees the under-18 consent screen again, and agreeing there starts the history afresh.
-    if (!consent || store.needsNewConsent(consent, facts.minor)) return { ...base, state: "consent", minor: facts.minor, sharedSummary };
+    // Agreeing to "Use my FITX data" does not carry over once the profile says under 18 or loses its age: the
+    // member sees the consent screen again, and agreeing there starts the history afresh.
+    if (!consent || store.needsNewConsent(consent, facts.adult)) return { ...base, state: "consent", ...age, sharedSummary };
     const [quotas, threads] = await Promise.all([store.quotaStatus(db), store.listThreads(db, userId)]);
-    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, minor: facts.minor, sharedSummary, quotas, threads };
+    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads };
   } catch (error) {
-    if (error instanceof store.CoachStoreError && error.code === "not_available") return { ...base, state: "not_available", minor: facts.minor };
+    if (error instanceof store.CoachStoreError && error.code === "not_available") return { ...base, state: "not_available", ...age };
     throw error;
   }
 }
@@ -106,13 +110,13 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
  * so the page still offers Coach settings: sharing and "Delete my coach data". Nothing here needs an AI
  * service. Any failure (the coach tables not there yet) just means there is nothing to show.
  */
-async function storedCoachData(db: store.Db, userId: string, now: Date): Promise<Pick<CoachStatus, "consent" | "threads" | "minor">> {
+async function storedCoachData(db: store.Db, userId: string, now: Date): Promise<Pick<CoachStatus, "consent" | "threads" | "minor" | "ageMissing">> {
   try {
     const [consent, threads] = await Promise.all([store.getConsent(db, userId), store.listThreads(db, userId)]);
-    if (!consent && !threads.length) return { consent: null, threads: [], minor: false };
+    if (!consent && !threads.length) return { consent: null, threads: [], minor: false, ageMissing: false };
     const { facts } = buildCoachContext(await loadContextSources(db, userId, now, { full: false }), now);
-    return { consent: consent ? { shareData: consent.shareData && !facts.minor, consentedAt: consent.consentedAt } : null, threads, minor: facts.minor };
+    return { consent: consent ? { shareData: consent.shareData && facts.adult, consentedAt: consent.consentedAt } : null, threads, minor: facts.minor, ageMissing: facts.age === null };
   } catch {
-    return { consent: null, threads: [], minor: false };
+    return { consent: null, threads: [], minor: false, ageMissing: false };
   }
 }

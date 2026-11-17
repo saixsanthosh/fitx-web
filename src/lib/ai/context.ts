@@ -33,7 +33,13 @@ export type ContextSources = {
 /** Facts the server uses for its own checks. Never sent to a model as such. */
 export type MemberFacts = {
   age: number | null;
+  /** The profile's age is under 18. */
   minor: boolean;
+  /**
+   * The profile's age is 18 or over. Only then is the member's FITX data shared with the coach: an account
+   * without an age (it can be removed in Profile) is never taken to be an adult's.
+   */
+  adult: boolean;
   sex: "male" | "female" | null;
   today: string;
   timeZone: string;
@@ -150,6 +156,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
 
   const age = integer(profile.age, 13, 100);
   const minor = age !== null && age < 18;
+  const adult = age !== null && age >= 18;
   const sex = profile.gender === "male" || profile.gender === "female" ? profile.gender : null;
   const latestWeighIn = sources.weighIns.find((entry) => positive(entry.weight) !== null);
   const weight = positive(latestWeighIn?.weight) ?? positive(profile.weight);
@@ -176,6 +183,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const facts: MemberFacts = {
     age,
     minor,
+    adult,
     sex,
     today,
     timeZone,

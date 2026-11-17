@@ -46,13 +46,14 @@ export async function getConsent(db: Db, userId: string): Promise<Consent | null
 }
 
 /**
- * True when the member agreed with "Use my FITX data" on and the profile now says they are under 18 (an
- * age corrected in Profile). That consent no longer applies: under-18 accounts share no data, and their
- * earlier messages may hold replies written from it, so the coach asks again before sending anything.
- * Agreeing again saves the consent anew, and its updated_at becomes the history cut-off.
+ * True when the member agreed with "Use my FITX data" on and the profile no longer says they are 18 or over
+ * (`adult`): an age corrected to under 18, or removed, in Profile. That consent no longer applies: only
+ * accounts whose profile says 18 or over share their data, and earlier messages may hold replies written
+ * from it, so the coach asks again before sending anything. Agreeing again saves the consent anew, and its
+ * updated_at becomes the history cut-off.
  */
-export function needsNewConsent(consent: Consent, minor: boolean) {
-  return consent.shareData && minor;
+export function needsNewConsent(consent: Consent, adult: boolean) {
+  return consent.shareData && !adult;
 }
 
 export async function saveConsent(db: Db, userId: string, shareData: boolean) {

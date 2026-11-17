@@ -85,6 +85,7 @@ const statusOf = async (user = MEMBER) =>
     sharedSummary: string[];
     memberDataAvailable: boolean;
     minor: boolean;
+    ageMissing: boolean;
   };
 
 /** Groq answers every structured request with `value`; food lookups find nothing. */
@@ -306,6 +307,45 @@ describe("POST /api/coach/chat: answers", () => {
     const sent = JSON.stringify(providers.calls.at(-1)?.body);
     assert.ok(sent.includes("How can I recover better?") && sent.includes("under 18"));
     assert.ok(!sent.includes("250 kcal so far") && !sent.includes("How am I doing today?"), "nothing from before the age change");
+  });
+
+  test("an account whose age is removed in Profile shares nothing and gets no plans until it adds one", async () => {
+    seedMember();
+    consentTo();
+    route = (url) => (providerOf(url) === "groq" ? openAiStream(["You logged 250 kcal so far."]) : { status: 500 });
+    const first = await events(await chat.POST(request("/api/coach/chat", { body: { message: "How am I doing today?" } })));
+    const threadId = threadOf(first);
+    providers.calls.length = 0;
+
+    db.rows("profiles")[0].age = null; // "or leave it empty" in Profile
+    const view = await statusOf();
+    assert.equal(view.state, "consent", "asked again, like an age corrected to under 18");
+    assert.deepEqual([view.minor, view.ageMissing], [false, true]);
+    const blocked = await chat.POST(request("/api/coach/chat", { body: { threadId, message: "And tomorrow?" } }));
+    assert.equal(blocked.status, 409);
+    const error = await errorOf(blocked);
+    assert.equal(error.code, "consent_required");
+    assert.match(error.message, /no longer has your age/);
+    assert.equal(providers.calls.length, 0, "nothing was sent");
+
+    // Whatever the request asks, the consent route stores "Questions only".
+    assert.equal((await consent.POST(request("/api/coach/consent", { body: { shareData: true } }))).status, 200);
+    assert.equal(db.rows("ai_coach_consents")[0].share_personal_data, false);
+    const ready = await statusOf();
+    assert.deepEqual([ready.state, ready.consent?.shareData, ready.ageMissing], ["ready", false, true]);
+    const plan = await chat.POST(request("/api/coach/chat", { body: { message: "Plan my meals", mode: "meal_plan" } }));
+    assert.equal(plan.status, 409);
+    assert.match((await errorOf(plan)).message, /Add your age in Profile/);
+    route = (url) => (providerOf(url) === "groq" ? openAiStream(["Sleep and regular meals help."]) : { status: 500 });
+    await events(await chat.POST(request("/api/coach/chat", { body: { threadId, message: "How can I recover better?" } })));
+    const sent = JSON.stringify(providers.calls.at(-1)?.body);
+    assert.ok(sent.includes("How can I recover better?") && sent.includes("chose not to share"));
+    assert.ok(!sent.includes("Upma") && !sent.includes("weight_kg") && !sent.includes("250 kcal so far"), "no summary, and nothing from before");
+
+    // With an adult age again, the member can turn sharing back on.
+    db.rows("profiles")[0].age = 29;
+    assert.equal((await consent.POST(request("/api/coach/consent", { body: { shareData: true } }))).status, 200);
+    assert.equal(db.rows("ai_coach_consents")[0].share_personal_data, true);
   });
 
   test("at capacity: an honest error, the request does not count and no half conversation is kept", async () => {

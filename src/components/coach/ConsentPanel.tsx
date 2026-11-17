@@ -16,12 +16,15 @@ export function ConsentPanel({
   providers,
   sharedSummary,
   minor,
+  ageMissing,
   memberDataAvailable,
   onDone,
 }: {
   providers: ProviderNotice[];
   sharedSummary: string[];
   minor: boolean;
+  /** No age in the profile: "Use my FITX data" waits for one (the server refuses it too). */
+  ageMissing: boolean;
   memberDataAvailable: boolean;
   onDone: (shareData: boolean) => void;
 }) {
@@ -56,8 +59,8 @@ export function ConsentPanel({
           <ul className="mt-5 grid gap-3 sm:grid-cols-3">
             {[
               { icon: MessageCircle, title: "Ask anything", text: "Training, food and recovery questions" },
-              { icon: Utensils, title: "Meal plans", text: minor ? "Not available under 18" : "Planned around your diet, allergies and budget. Check labels too" },
-              { icon: Dumbbell, title: "Workouts", text: minor ? "Not available under 18" : "Only exercises you can do with your kit" },
+              { icon: Utensils, title: "Meal plans", text: minor ? "Not available under 18" : ageMissing ? "Need your age in Profile first" : "Planned around your diet, allergies and budget. Check labels too" },
+              { icon: Dumbbell, title: "Workouts", text: minor ? "Not available under 18" : ageMissing ? "Need your age in Profile first" : "Only exercises you can do with your kit" },
             ].map(({ icon: Icon, title, text }) => (
               <li key={title} className="rounded-lg border border-fitx-border bg-fitx-surface-variant/60 p-3">
                 <Icon size={18} aria-hidden="true" className="text-fitx-primary" />
@@ -81,12 +84,14 @@ export function ConsentPanel({
                 <Choice
                   checked={shareData === true}
                   onSelect={() => setShareData(true)}
-                  disabled={!memberDataAvailable}
+                  disabled={!memberDataAvailable || ageMissing}
                   title="Use my FITX data"
                   text={
-                    memberDataAvailable
-                      ? "Personal answers, meal plans and workouts based on your real logs."
-                      : "Not switched on yet: FITX sends your data only to AI services that don't let people read it, and none is connected yet."
+                    ageMissing
+                      ? "Add your age in Profile first: FITX shares your data with the coach only for accounts of people 18 or over."
+                      : memberDataAvailable
+                        ? "Personal answers, meal plans and workouts based on your real logs."
+                        : "Not switched on yet: FITX sends your data only to AI services that don't let people read it, and none is connected yet."
                   }
                 />
                 <Choice
@@ -99,7 +104,7 @@ export function ConsentPanel({
             </fieldset>
           )}
 
-          {!minor && memberDataAvailable && shareData !== false && sharedSummary.length > 0 && (
+          {!minor && !ageMissing && memberDataAvailable && shareData !== false && sharedSummary.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-fitx-text">What “Use my FITX data” lets the coach read, as a short summary</h3>
               <ul className="mt-2 space-y-1.5 text-sm leading-6 text-fitx-text-secondary">
