@@ -208,6 +208,11 @@ describe("saved exercises: the account when exercise_favorites exists, else this
     const saved = await loadSavedExercises(table.client(), USER);
     assert.deepEqual([saved.store, saved.ids, saved.moved, saved.error], ["account", ["goblet_squat"], 0, null]);
     assert.deepEqual(readExerciseFavorites(USER), ["goblet_squat"]);
+    // Un-saving it then removes the waiting device copy too, so it does not come back.
+    table.failWrite = null;
+    assert.equal((await setExerciseSaved(table.client(), USER, "account", "goblet_squat", false)).error, null);
+    assert.deepEqual(readExerciseFavorites(USER), []);
+    assert.deepEqual((await loadSavedExercises(table.client(), USER)).ids, []);
   });
 
   test("a read error falls back to this device's list and says so", async () => {

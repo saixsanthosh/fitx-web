@@ -221,5 +221,11 @@ export async function setExerciseSaved(db: Db | null, userId: string, store: Sav
     return { error: result.error ?? null };
   }
   const result = await db.from(TABLE).delete().eq("user_id", userId).in("exercise_id", idsReadingAs(id));
+  if (!result.error) {
+    // A copy still waiting on this device (its move failed earlier) must not come back on the next load.
+    const reading = new Set(idsReadingAs(id));
+    const device = readExerciseFavorites(userId);
+    if (device.some((item) => reading.has(item))) writeList(userId, "favorites", device.filter((item) => !reading.has(item)));
+  }
   return { error: result.error ?? null };
 }

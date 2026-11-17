@@ -397,7 +397,11 @@ export default function ExerciseLibraryPage() {
               spelling={spelling}
               onSpelling={(text) => update({ q: text })}
               options={relax.map((item) => ({ id: item.facet, label: relaxLabel(item.facet, view), count: item.count }))}
-              onRelax={(facet) => navigate(relaxState(facet as QueryFacet, state))}
+              onRelax={(facet) => {
+                const next = relaxState(facet as QueryFacet, state);
+                // Leaving home keeps the equipment the count was made with, rather than switching to the Gym list.
+                navigate(facet === "environment" && haveKeys ? { ...next, have: [...haveKeys] } : next);
+              }}
               clearLabel="Clear search and filters"
               onClear={() => navigate({ ...withoutFilters(state), q: "" })}
             />
