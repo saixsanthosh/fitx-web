@@ -10,6 +10,7 @@ import {
   reorderTodos,
   sortTodos,
   startsAtFor,
+  timedItemDay,
   timeOf,
   todoProgress,
   validateTodoDraft,
@@ -113,4 +114,12 @@ test("an edit form round-trips an item", () => {
   assert.deepEqual([draft.kind, draft.time, draft.workoutPlanId, draft.goalId, draft.description], ["workout", "07:30", "p", "g", "Heavy"]);
   const value = validateTodoDraft(draft);
   assert.equal(value.ok && value.value.starts_at, existing.startsAt);
+});
+
+test("a timed item's day is its local_date, else its start's day; an untimed item has none", () => {
+  const dayOf = (iso: string) => `browser:${iso.slice(0, 10)}`;
+  assert.equal(timedItemDay({ starts_at: "2026-11-17T23:30:00.000Z", local_date: "2026-11-18" }, dayOf), "2026-11-18");
+  assert.equal(timedItemDay({ starts_at: "2026-11-17T23:30:00.000Z" }, dayOf), "browser:2026-11-17", "a database without local_date");
+  assert.equal(timedItemDay({ starts_at: "2026-11-17T23:30:00.000Z", local_date: "not a day" }, dayOf), "browser:2026-11-17");
+  assert.equal(timedItemDay({ starts_at: null, local_date: "2026-11-18" }, dayOf), null, "an untimed To-Do is never a plan's own event");
 });

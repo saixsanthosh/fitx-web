@@ -55,8 +55,8 @@ export async function createPlanRecord(supabase: Db, userId: string, plan: NewPl
   return { planId, error: null, includedTargets: saved.includedOptional };
 }
 
-/** `planner_events.local_date` (see workouts/_lib/workout-columns.ts), sent when the database has it. */
-const PLANNER_DAY_COLUMNS = ["local_date"] as const;
+/** `planner_events.local_date` (see workouts/_lib/workout-columns.ts), sent and read when the database has it. */
+export const PLANNER_DAY_COLUMNS = ["local_date"] as const;
 
 /**
  * A one-hour planner event for a dated plan, at `time` on `date` (the browser's YYYY-MM-DD). It is listed

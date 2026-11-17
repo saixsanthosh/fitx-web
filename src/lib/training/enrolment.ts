@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isMissingRelationshipError, isMissingTableError } from "@/lib/domain/schema-fallback";
+import { columnList, isMissingRelationshipError, isMissingTableError, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { timedItemDay } from "@/lib/domain/todo";
 import type { CatalogExercise } from "./catalog";
 import { generateDay, type GeneratedExercise } from "./generator";
 import { scheduleDays, type Programme } from "./programmes";
-import { createPlanRecord, schedulePlannerEvent, type PlanExerciseInput } from "./plans";
+import { createPlanRecord, PLANNER_DAY_COLUMNS, schedulePlannerEvent, type PlanExerciseInput } from "./plans";
 import type { Level, TrainingContext } from "./taxonomy";
 
 type Db = SupabaseClient;
@@ -165,7 +166,8 @@ export async function enrolInProgramme(supabase: Db, input: { userId: string; pr
 }
 
 type DatedPlan = { id: string; planned_for: string | null };
-type LinkedItem = { id: string; workout_plan_id: string | null; starts_at: string | null };
+/** `local_date` is read when the database has it (Planner v2). */
+type LinkedItem = { id: string; workout_plan_id: string | null; starts_at: string | null; local_date?: string | null };
 
 /** The programme days a member leaving it drops: those not started (no finished or running session). */
 export function programmeDaysToRemove<T extends DatedPlan>(days: readonly T[], startedPlanIds: ReadonlySet<string>): T[] {
@@ -175,13 +177,14 @@ export function programmeDaysToRemove<T extends DatedPlan>(days: readonly T[], s
 /**
  * The planner items FITX scheduled for these programme days: each day's timed workout item on its own
  * date (the rule plan saves use, see plannerEventsForPlan). To-Do items a member linked to a day, untimed
- * or on another day, are theirs and are not among them.
+ * or on another day, are theirs and are not among them. An item's day is its local_date, the day it was
+ * scheduled on, so a phone that has since changed time zone still finds the right items.
  */
 export function ownProgrammeItems(items: readonly LinkedItem[], days: readonly DatedPlan[]): string[] {
   const dateOf = new Map(days.map((day) => [day.id, day.planned_for]));
   return items.filter((item) => {
     const date = item.workout_plan_id ? dateOf.get(item.workout_plan_id) : undefined;
-    return Boolean(date && item.starts_at && localKey(new Date(item.starts_at)) === date);
+    return Boolean(date && timedItemDay(item, (iso) => localKey(new Date(iso))) === date);
   }).map((item) => item.id);
 }
 
@@ -201,9 +204,12 @@ export async function leaveProgramme(supabase: Db, input: { userId: string; enro
     const removable = programmeDaysToRemove(days, new Set(((started.data ?? []) as Array<{ plan_id: string | null }>).flatMap((row) => (row.plan_id ? [row.plan_id] : []))));
     const ids = removable.map((day) => day.id);
     if (ids.length) {
-      const linked = await supabase.from("planner_events").select("id,workout_plan_id,starts_at").eq("user_id", input.userId).eq("event_type", "workout").eq("status", "scheduled").in("workout_plan_id", ids);
-      if (linked.error) return { error: linked.error };
-      const own = ownProgrammeItems((linked.data ?? []) as LinkedItem[], removable);
+      // local_date arrives with the planner migration (20261118120000); before it, days come from the start times.
+      const linked = await withOptionalColumns(PLANNER_DAY_COLUMNS, (include) =>
+        supabase.from("planner_events").select(columnList(["id", "workout_plan_id", "starts_at"], PLANNER_DAY_COLUMNS, include))
+          .eq("user_id", input.userId).eq("event_type", "workout").eq("status", "scheduled").in("workout_plan_id", ids));
+      if (linked.result.error) return { error: linked.result.error };
+      const own = ownProgrammeItems((linked.result.data ?? []) as unknown as LinkedItem[], removable);
       if (own.length) {
         const cancelled = await supabase.from("planner_events").update({ status: "cancelled" }).eq("user_id", input.userId).eq("status", "scheduled").in("id", own);
         if (cancelled.error) return { error: cancelled.error };

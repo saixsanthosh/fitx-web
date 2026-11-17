@@ -14,6 +14,7 @@ import { programmeById } from "@/data/programmes";
 import { createClient } from "@/lib/supabase/client";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { columnList, hasValuesIn, isMissingColumnError, isMissingFunctionError, isMissingRelationshipError, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { timedItemDay } from "@/lib/domain/todo";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { equipmentFor, loadCatalog, loadEquipmentProfiles, loadProgrammes, saveEquipmentProfile, type EquipmentProfiles } from "@/lib/training/data";
 import { addDaysToKey, enrolInProgramme, leaveProgramme, loadActiveEnrolment, loadEnrolmentPlans, nextScheduleStart, scheduleProgrammeDays, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
@@ -700,14 +701,16 @@ export default function WorkoutsPage() {
   async function afterSave(supabase: SupabaseBrowserClient, planId: string, droppedTargets: boolean, thenStart: boolean, previousPlannedFor: string | null) {
     // Completed and cancelled events are kept as history; only the plan's own upcoming event follows the
     // plan. To-Do workouts linked to the plan keep their own day (see plannerEventsForPlan).
-    const existingEvents = await supabase.from("planner_events").select("id,status,starts_at").eq("workout_plan_id", planId).eq("user_id", userId).eq("event_type", "workout").neq("status", "cancelled");
+    // An event's day is its local_date (planner migration), so a phone in another time zone still finds the plan's own event.
+    const existingEvents = await withOptionalColumns(PLANNER_DAY_COLUMNS, (include) =>
+      supabase.from("planner_events").select(columnList(["id", "status", "starts_at"], PLANNER_DAY_COLUMNS, include)).eq("workout_plan_id", planId).eq("user_id", userId).eq("event_type", "workout").neq("status", "cancelled"));
     let scheduleWarning = "";
-    if (existingEvents.error) {
+    if (existingEvents.result.error) {
       scheduleWarning = "Workout saved, but the planner link could not be checked. Review your planner before scheduling it again.";
     } else {
       // Untimed To-Do items (no starts_at) arrive with the planner migration.
-      const linkedEvents = ((existingEvents.data || []) as Array<{ id: string; status: string; starts_at: string | null }>)
-        .map((event) => ({ id: event.id, status: event.status, dateKey: event.starts_at ? localDateKey(new Date(event.starts_at)) : null }));
+      const linkedEvents = ((existingEvents.result.data || []) as unknown as Array<{ id: string; status: string; starts_at: string | null; local_date?: string | null }>)
+        .map((event) => ({ id: event.id, status: event.status, dateKey: timedItemDay(event, (iso) => localDateKey(new Date(iso))) }));
       const planEvents = plannerEventsForPlan(linkedEvents, previousPlannedFor);
       const ownScheduled = planEvents.filter((event) => event.status === "scheduled").map((event) => event.id);
       const change = plannerScheduleChange(planEvents, plannedFor);

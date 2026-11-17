@@ -33,34 +33,63 @@ test("only days nobody started are dropped, and only the items FITX scheduled fo
   assert.deepEqual(ownProgrammeItems(items, days), ["wed-own", "sun-own"]);
 });
 
+test("an item's day is the day it was scheduled on, wherever the phone is when the member leaves", () => {
+  // Scheduled from India: Wednesday's own item at 05:00 IST (23:30 UTC on Tuesday), and a To-Do the member
+  // linked to that day for Thursday 04:30 IST (23:00 UTC on Wednesday). In London the starts fall a day earlier.
+  const days = [{ id: "wed", planned_for: "2026-11-18" }];
+  const items = [
+    { id: "fitx-own-0500-ist", workout_plan_id: "wed", starts_at: "2026-11-17T23:30:00.000Z", local_date: "2026-11-18" },
+    { id: "todo-thu-0430-ist", workout_plan_id: "wed", starts_at: "2026-11-18T23:00:00.000Z", local_date: "2026-11-19" },
+  ];
+  const zone = process.env.TZ;
+  try {
+    for (const tz of ["Europe/London", "Asia/Kolkata", "America/Los_Angeles"]) {
+      process.env.TZ = tz;
+      assert.deepEqual(ownProgrammeItems(items, days), ["fitx-own-0500-ist"], `with the phone in ${tz}`);
+    }
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
+});
+
 // ---------------------------------------------------------------- leaving, against a small in-memory database
 
 type Row = Record<string, unknown>;
 
-/** Just the query shapes leaveProgramme uses, with the schema's "on delete set null" plan links. */
+/**
+ * Just the query shapes leaveProgramme uses, with the schema's "on delete set null" plan links.
+ * `missingColumns`: columns this database does not have yet; selecting one fails as Postgres does (42703).
+ */
 class MiniDb {
   tables: Record<string, Row[]>;
-  constructor(tables: Record<string, Row[]>) { this.tables = tables; }
+  missingColumns: string[];
+  constructor(tables: Record<string, Row[]>, missingColumns: string[] = []) { this.tables = tables; this.missingColumns = missingColumns; }
   from(table: string) { return new MiniQuery(this, table); }
 }
 
-class MiniQuery implements PromiseLike<{ data: Row[] | null; error: null }> {
+type MiniResult = { data: Row[] | null; error: { code: string; message: string } | null };
+
+class MiniQuery implements PromiseLike<MiniResult> {
   private op: "select" | "update" | "delete" = "select";
   private payload: Row = {};
   private filters: Array<(row: Row) => boolean> = [];
+  private columns: string[] = [];
   private db: MiniDb;
   private table: string;
   constructor(db: MiniDb, table: string) { this.db = db; this.table = table; }
-  select() { return this; }
+  select(columns = "*") { this.columns = columns.split(",").map((column) => column.trim()); return this; }
   update(payload: Row) { this.op = "update"; this.payload = payload; return this; }
   delete() { this.op = "delete"; return this; }
   eq(column: string, value: unknown) { this.filters.push((row) => row[column] === value); return this; }
   gte(column: string, value: string) { this.filters.push((row) => typeof row[column] === "string" && (row[column] as string) >= value); return this; }
   in(column: string, values: unknown[]) { this.filters.push((row) => values.includes(row[column])); return this; }
-  then<A, B = never>(resolve?: ((value: { data: Row[] | null; error: null }) => A | PromiseLike<A>) | null, reject?: ((reason: unknown) => B | PromiseLike<B>) | null) {
+  then<A, B = never>(resolve?: ((value: MiniResult) => A | PromiseLike<A>) | null, reject?: ((reason: unknown) => B | PromiseLike<B>) | null) {
     return Promise.resolve().then(() => this.run()).then(resolve, reject);
   }
-  private run() {
+  private run(): MiniResult {
+    const missing = this.op === "select" ? this.columns.find((column) => this.db.missingColumns.includes(column)) : undefined;
+    if (missing) return { data: null, error: { code: "42703", message: `column ${this.table}.${missing} does not exist` } };
     const rows = this.db.tables[this.table];
     const matched = rows.filter((row) => this.filters.every((keep) => keep(row)));
     if (this.op === "update") matched.forEach((row) => Object.assign(row, this.payload));
@@ -72,7 +101,7 @@ class MiniQuery implements PromiseLike<{ data: Row[] | null; error: null }> {
         for (const session of this.db.tables.workout_sessions) if (gone.has(session.plan_id)) session.plan_id = null;
       }
     }
-    return { data: this.op === "select" ? matched.map((row) => ({ ...row })) : null, error: null as null };
+    return { data: this.op === "select" ? matched.map((row) => ({ ...row })) : null, error: null };
   }
 }
 
@@ -111,4 +140,32 @@ test("leaving a programme removes the days not started from today on, cancels on
     "mine-own": "scheduled · mine",
   }, "To-Dos linked to removed days stay in the planner, unlinked");
   assert.equal(db.tables.programme_enrolments[0].status, "left");
+});
+
+test("leaving reads each item's day, and still works on a database without local_date", async () => {
+  const me = "member-1";
+  const tables = (withDay: boolean) => ({
+    workout_plans: [{ id: "wed", user_id: me, programme_enrolment_id: "enrolment-1", planned_for: "2026-11-18" }],
+    workout_sessions: [],
+    planner_events: [
+      // FITX's own item for Wednesday, scheduled at 05:00 from India, and the member's Thursday To-Do linked to that day.
+      { id: "fitx-own", user_id: me, event_type: "workout", workout_plan_id: "wed", status: "scheduled", starts_at: withDay ? "2026-11-17T23:30:00.000Z" : at("2026-11-18", 5), ...(withDay ? { local_date: "2026-11-18" } : {}) },
+      { id: "todo-thu", user_id: me, event_type: "workout", workout_plan_id: "wed", status: "scheduled", starts_at: withDay ? "2026-11-18T23:00:00.000Z" : at("2026-11-19", 4), ...(withDay ? { local_date: "2026-11-19" } : {}) },
+    ],
+    programme_enrolments: [{ id: "enrolment-1", user_id: me, status: "active" }],
+  });
+  const statuses = (db: MiniDb) => Object.fromEntries(db.tables.planner_events.map((row) => [row.id, row.status]));
+  const zone = process.env.TZ;
+  try {
+    process.env.TZ = "Europe/London";
+    const current = new MiniDb(tables(true));
+    assert.equal((await leaveProgramme(current as unknown as SupabaseClient, { userId: me, enrolmentId: "enrolment-1", todayKey: TODAY })).error, null);
+    assert.deepEqual(statuses(current), { "fitx-own": "cancelled", "todo-thu": "scheduled" }, "the phone is in London now; the days come from local_date");
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
+  const older = new MiniDb(tables(false), ["local_date"]);
+  assert.equal((await leaveProgramme(older as unknown as SupabaseClient, { userId: me, enrolmentId: "enrolment-1", todayKey: TODAY })).error, null);
+  assert.deepEqual(statuses(older), { "fitx-own": "cancelled", "todo-thu": "scheduled" }, "before the planner migration: the start time's day in this browser");
 });

@@ -62,6 +62,16 @@ export function parseTodoRow(raw: Record<string, unknown>, dayOf: (iso: string) 
   };
 }
 
+/**
+ * The calendar day of a timed planner item, or null for an untimed one: its local_date (the day it was
+ * scheduled on, which stays put when the phone changes time zone), else, on a database without that
+ * column, the day its start falls on in this browser (`dayOf`).
+ */
+export function timedItemDay(item: { starts_at: string | null; local_date?: unknown }, dayOf: (iso: string) => string): string | null {
+  if (!item.starts_at) return null;
+  return isDateKey(item.local_date) ? item.local_date : dayOf(item.starts_at);
+}
+
 /** The user's order; ties (older rows all at 0) fall back to start time, untimed first, then creation. */
 export function sortTodos<T extends Pick<TodoItem, "sortOrder" | "startsAt" | "createdAt" | "id">>(items: readonly T[]): T[] {
   return [...items].sort((a, b) =>

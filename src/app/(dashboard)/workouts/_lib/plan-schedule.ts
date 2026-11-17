@@ -11,8 +11,9 @@
  */
 
 /**
- * A planner event linked to the plan, with its start as a local date key (YYYY-MM-DD); null for an
- * untimed To-Do item.
+ * A planner event linked to the plan, with its calendar day as a date key (YYYY-MM-DD): its local_date,
+ * else its start's day in this browser (timedItemDay in src/lib/domain/todo.ts); null for an untimed
+ * To-Do item.
  */
 export type LinkedPlannerEvent = { status: string; dateKey: string | null };
 
