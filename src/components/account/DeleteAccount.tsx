@@ -208,7 +208,9 @@ export function DeleteAccount({
         ? "Your uploaded images were removed, but the account itself couldn’t be deleted. Please try again in a moment."
         : code === "billing_not_stopped"
           ? "Your FITX Premium renewals couldn’t be stopped with Razorpay, so nothing was deleted. Please try again in a moment."
-          : "Nothing was deleted. Please try again in a moment.");
+          : code === "admin_access"
+            ? "This account has FITX Admin access, so nothing was deleted. Ask a super-admin to switch your Admin access off in FITX Admin, then try again."
+            : "Nothing was deleted. Please try again in a moment.");
   }
 
   const unavailable = status !== null && !status.available;

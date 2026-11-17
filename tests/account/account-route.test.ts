@@ -111,6 +111,42 @@ describe("deleting the account", () => {
     assert.deepEqual(fake.deletedUsers, [ME.id]);
   });
 
+  test("keeps an account with active FITX Admin access, before anything is removed", async () => {
+    // Its membership would cascade away with the login, past Admin's last-super-admin rule.
+    fake.files.set(`fitx-user-media/${ME.id}`, [{ name: "avatar-1.jpg", id: "f1" }]);
+    fake.adminMembers.set(ME.id, { is_active: true });
+    const response = await route.DELETE(request("DELETE", { signedInSecondsAgo: 30, body: { confirm: "DELETE", expectedUserId: ME.id } }));
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, "admin_access");
+    assert.deepEqual(fake.removed, []);
+    assert.deepEqual(fake.deletedUsers, []);
+    assert.equal(fake.users.has(ME.id), true);
+    // The check uses the server key, like Admin's own membership reads.
+    assert.ok(fake.calls.some((call) => call.path === "/rest/v1/fitx_admin_members" && call.auth === fake.secretKey));
+  });
+
+  test("keeps the account when its Admin access can't be checked", async () => {
+    fake.adminMembersState = "error";
+    const response = await route.DELETE(request("DELETE", { signedInSecondsAgo: 30, body: { confirm: "DELETE", expectedUserId: ME.id } }));
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, "admin_check_failed");
+    assert.deepEqual(fake.deletedUsers, []);
+  });
+
+  test("deletes an account whose Admin access is switched off, or before the Admin tables exist", async () => {
+    fake.adminMembers.set(ME.id, { is_active: false });
+    const inactive = await route.DELETE(request("DELETE", { signedInSecondsAgo: 30, body: { confirm: "DELETE", expectedUserId: ME.id } }));
+    assert.equal(inactive.status, 200);
+    assert.deepEqual(fake.deletedUsers, [ME.id]);
+
+    fake.reset();
+    fake.addUser(ME.id, ME.email);
+    fake.adminMembersState = "missing";
+    const before = await route.DELETE(request("DELETE", { signedInSecondsAgo: 30, body: { confirm: "DELETE", expectedUserId: ME.id } }));
+    assert.equal(before.status, 200);
+    assert.deepEqual(fake.deletedUsers, [ME.id]);
+  });
+
   test("asks for a fresh sign-in when the last one is too old", async () => {
     const response = await route.DELETE(request("DELETE", { signedInSecondsAgo: (RECENT_SIGN_IN_MINUTES + 1) * 60, body: { confirm: "DELETE", expectedUserId: ME.id } }));
     assert.equal(response.status, 403);
@@ -202,6 +238,14 @@ describe("deleting an account with billing switched on", () => {
     assert.equal((await response.json()).error, "billing_not_stopped");
     assert.deepEqual(fake.removed, []);
     assert.deepEqual(fake.deletedUsers, []);
+  });
+
+  test("an account with active FITX Admin access keeps its subscription too", async () => {
+    fake.adminMembers.set(ME.id, { is_active: true });
+    const response = await route.DELETE(request("DELETE", { signedInSecondsAgo: 30, body: { confirm: "DELETE", expectedUserId: ME.id } }));
+    assert.equal(response.status, 409);
+    assert.equal(razorpay.calls.length, 0, "Razorpay is not asked to cancel anything");
+    assert.equal(fake.billingEvents.length, 0);
   });
 
   test("an account without a live subscription is deleted without calling Razorpay", async () => {

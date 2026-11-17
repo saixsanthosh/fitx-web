@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { accountDeletionConfigured, createAdminClient, removeUserFiles } from "@/lib/account/admin";
 import {
@@ -14,6 +15,7 @@ import { isSameOriginRequest } from "@/lib/auth/same-origin";
 import { cancelForUser } from "@/lib/billing/cancel";
 import { readBillingConfig } from "@/lib/billing/config";
 import { createBillingDeps } from "@/lib/billing/deps";
+import { isMissingTableError } from "@/lib/supabase/errors";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 
 /**
@@ -23,7 +25,8 @@ import { createRouteSupabase } from "@/lib/supabase/route-client";
  *        cascade from auth.users; billing records stay, without the link to the person, as the money
  *        trail). Body: { "confirm": "DELETE", "expectedUserId": "<the id GET returned>" }; a different
  *        signed-in account (switched in another tab, or a different Google account at re-sign-in) is
- *        refused with 409 before anything is removed.
+ *        refused with 409 before anything is removed, and so is an account with active FITX Admin access
+ *        (409 admin_access: it is switched off in Admin first).
  * The account deleted is always the session's own; the request can only refuse, never name another one.
  * When Supabase Auth can't be reached, both answer 503 rather than "signed out".
  */
@@ -90,6 +93,12 @@ export async function DELETE(request: NextRequest) {
     return route.applyTo(json({ error: "reauth_required", windowMinutes: RECENT_SIGN_IN_MINUTES }, 403));
   }
 
+  // Deleting the login would also delete its FITX Admin membership (it cascades), past Admin's rule that the
+  // last active super-admin can't be removed. Admin access is switched off in Admin first; nothing is touched.
+  const adminAccess = await hasActiveAdminAccess(admin, user.id);
+  if (adminAccess === null) return route.applyTo(json({ error: "admin_check_failed" }, 503));
+  if (adminAccess) return route.applyTo(json({ error: "admin_access" }, 409));
+
   // Razorpay would keep charging a deleted account, so renewals stop first; if they can't be stopped,
   // nothing is deleted and the member can try again.
   const billing = await stopBilling(user.id);
@@ -118,6 +127,17 @@ export async function DELETE(request: NextRequest) {
   response.cookies.set(AUTH_HINT_COOKIE, "", hintCookieOptions(route.secure, { maxAge: 0 }));
   response.cookies.set(ONBOARDED_COOKIE, "", hintCookieOptions(route.secure, { httpOnly: true, maxAge: 0 }));
   return response;
+}
+
+/** Whether the account has an active FITX Admin membership; false before the Admin tables exist, null when it can't be read. */
+async function hasActiveAdminAccess(admin: SupabaseClient, userId: string): Promise<boolean | null> {
+  const { data, error } = await admin.from("fitx_admin_members").select("is_active").eq("user_id", userId).maybeSingle();
+  if (error) {
+    if (isMissingTableError(error)) return false;
+    console.warn("[fitx-account] Admin access could not be checked; the account was kept", codeOf(error));
+    return null;
+  }
+  return (data as { is_active?: unknown } | null)?.is_active === true;
 }
 
 /** Cancels the account's live Razorpay subscription when billing is configured (nothing to do otherwise). */
