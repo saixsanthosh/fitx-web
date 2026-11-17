@@ -1,0 +1,17 @@
+/* Sparkline and BarSeries. Tokens only. The draw animation runs only when motion is allowed. */
+.line { fill: none; stroke: var(--fitx-primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.dot { fill: none; stroke: var(--fitx-primary); stroke-width: 7; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.area { fill: color-mix(in srgb, var(--fitx-primary) 12%, transparent); stroke: none; }
+.baseline { stroke: var(--fitx-divider); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.bar { fill: var(--fitx-primary); }
+.bar[data-muted="true"] { fill: color-mix(in srgb, var(--fitx-text-secondary) 45%, var(--fitx-track)); }
+.unknown { fill: none; stroke: var(--fitx-text-disabled); stroke-width: 1.5; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .line[data-draw="true"] { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 700ms ease-out forwards; }
+  .area, .dot { animation: fade 500ms ease-out 200ms backwards; }
+  .bar { transform-box: fill-box; transform-origin: bottom; animation: grow 450ms ease-out backwards; }
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes grow { from { transform: scaleY(0); } }

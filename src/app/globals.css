@@ -21,6 +21,8 @@
  * Inverse   --fitx-inverse-* and --fitx-on-inverse*: intentionally dark bands (footer, photo heroes) in
  *           every theme. Put class "fitx-inverse" on a band and every token inside it switches to the
  *           band palette, so the usual components and utilities keep working inside it.
+ * Anatomy   --fitx-anatomy-base/-muscle/-secondary: the body map (plain body, resting muscle, assisting muscle); the
+ *           highlight is --fitx-primary. --fitx-tile-scrim: the dark wash over photo tiles (mix it with alpha).
  * Scrim     --fitx-scrim: the near-black behind photo shades and modal backdrops; mix it with alpha.
  *
  * The dark block and the system-dark block must stay identical; the contrast script fails if they drift.
@@ -57,6 +59,10 @@
   --fitx-divider: rgba(25, 28, 25, 0.09);
   --fitx-hover: rgba(25, 28, 25, 0.05);
   --fitx-track: #e4e6e0;
+  --fitx-anatomy-base: #e4e6e0;
+  --fitx-anatomy-muscle: #c2c4be;
+  --fitx-anatomy-secondary: #c98f7f;
+  --fitx-tile-scrim: #0b0f0c;
   --fitx-strong-bg: #1c201d;
   --fitx-strong-hover: #303530;
   --fitx-strong-border: #1c201d;
@@ -111,6 +117,10 @@
   --fitx-divider: rgba(243, 243, 239, 0.1);
   --fitx-hover: rgba(243, 243, 239, 0.07);
   --fitx-track: #343a35;
+  --fitx-anatomy-base: #343a35;
+  --fitx-anatomy-muscle: #4d534e;
+  --fitx-anatomy-secondary: #966456;
+  --fitx-tile-scrim: #050808;
   --fitx-strong-bg: #131314;
   --fitx-strong-hover: #202322;
   --fitx-strong-border: #8e918f;
@@ -150,6 +160,10 @@
     --fitx-divider: rgba(243, 243, 239, 0.1);
     --fitx-hover: rgba(243, 243, 239, 0.07);
     --fitx-track: #343a35;
+    --fitx-anatomy-base: #343a35;
+    --fitx-anatomy-muscle: #4d534e;
+    --fitx-anatomy-secondary: #966456;
+    --fitx-tile-scrim: #050808;
     --fitx-strong-bg: #131314;
     --fitx-strong-hover: #202322;
     --fitx-strong-border: #8e918f;
@@ -189,6 +203,10 @@
   --fitx-divider: var(--fitx-inverse-divider);
   --fitx-hover: var(--fitx-inverse-hover);
   --fitx-track: var(--fitx-inverse-track);
+  --fitx-anatomy-base: #343a35;
+  --fitx-anatomy-muscle: #4d534e;
+  --fitx-anatomy-secondary: #966456;
+  --fitx-tile-scrim: #050808;
   color: var(--fitx-text);
 }
 

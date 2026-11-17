@@ -5,10 +5,10 @@
 
 .root {
   /* Body base and gaps, idle muscle, and the highlight colours. */
-  --bm-base: var(--fitx-track);
-  --bm-muscle: color-mix(in oklab, var(--fitx-text) 15%, var(--fitx-track));
+  --bm-base: var(--fitx-anatomy-base);
+  --bm-muscle: var(--fitx-anatomy-muscle);
   --bm-accent: var(--fitx-primary);
-  --bm-secondary: color-mix(in oklab, var(--fitx-primary) 46%, var(--bm-muscle));
+  --bm-secondary: var(--fitx-anatomy-secondary);
   --bm-hover: color-mix(in oklab, var(--fitx-primary) 26%, var(--bm-muscle));
   --bm-ring: var(--fitx-text);
   /* Gap between plates, in drawing units (the figure is 188 units wide). */

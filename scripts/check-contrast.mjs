@@ -82,6 +82,15 @@ export const PAIRS = (() => {
   add("--fitx-info", "--fitx-track", "ui", "Water progress fill against its track");
   add("--fitx-primary", "--fitx-surface-variant", "ui", "Chart bars against their column");
 
+  // Body map: a highlighted muscle must stand out from a resting one, and the figure from the card it sits on.
+  add("--fitx-primary", "--fitx-anatomy-muscle", "info", "Highlighted muscle against a resting muscle (about 2.7:1; hue and the text label carry the meaning too)");
+  add("--fitx-primary", "--fitx-anatomy-base", "ui", "Highlighted muscle against the plain body");
+  add("--fitx-anatomy-muscle", "--fitx-anatomy-base", "info", "Resting muscle against the plain body");
+  add("--fitx-anatomy-secondary", "--fitx-anatomy-muscle", "info", "Assisting muscle against a resting muscle");
+  add("--fitx-anatomy-base", "--fitx-card-bg", "info", "Body figure against its card");
+  // Photo tiles: label text over the tile wash, worst case a white photo pixel under the 72% scrim.
+  add("--fitx-on-inverse", ["#ffffff", ["--fitx-tile-scrim", 0.72]], "text", "Focus tile label over a bright photo", "theme");
+
   // Mobile navigation: a translucent bar over the page.
   add("--fitx-text-disabled", ["--fitx-bg", "--fitx-nav-bg"], "text", "Inactive bottom-bar labels", "theme");
   add("--fitx-primary-text", ["--fitx-bg", "--fitx-nav-bg"], "text", "Active bottom-bar label", "theme");
