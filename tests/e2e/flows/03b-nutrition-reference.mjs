@@ -71,7 +71,10 @@ export const flow = {
     await t.step("History shows the day logged and averages over logged days", async () => {
       await page.getByRole("button", { name: "History", exact: true }).click();
       await page.getByRole("heading", { name: "History", exact: true }).waitFor({ timeout: 15000 });
-      const text = await textOf(page.locator("section[aria-labelledby='history-title']"));
+      // The heading and range show while the history loads; wait for the loaded figures.
+      const section = page.locator("section[aria-labelledby='history-title']");
+      await section.getByText(/Days logged/).first().waitFor({ timeout: 20000 });
+      const text = await textOf(section);
       t.note("history", text.slice(0, 500));
       t.expect(/Days logged\s*1\s*of 7/.test(text), "one logged day of seven should show", text);
       await page.getByRole("button", { name: "30 days" }).click();
