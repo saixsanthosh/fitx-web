@@ -13,12 +13,12 @@ export const ONBOARDED_COOKIE = "fitx_onboarded";
 /**
  * The account's one-time intro film on this device: "play" until it starts, then "seen". The server
  * takes it from the account (profiles.intro_completed_at) at sign-in, and the proxy once per device and
- * account for devices that were already signed in (INTRO_CHECKED_COOKIE).
+ * account, on a full page load, for devices that were already signed in (INTRO_CHECKED_COOKIE).
  */
 export const INTRO_COOKIE = "fitx_intro";
 /**
  * The id of the user whose film state this device last took from the account, so the proxy reads it once
- * per device and account, and again for a second account on the same device. httpOnly.
+ * per device and account (again only for a second account on the same device), never more. httpOnly.
  */
 export const INTRO_CHECKED_COOKIE = "fitx_intro_checked";
 
@@ -26,7 +26,8 @@ export const INTRO_CHECKED_COOKIE = "fitx_intro_checked";
 export const LONG_MAX_AGE = 400 * 24 * 60 * 60;
 /**
  * A pending "play" expires after a day, so a sign-in the user walked away from doesn't replay the film weeks
- * later on a stale cookie: the proxy then asks the account again (src/proxy.ts).
+ * later on a stale cookie. A device left without the cookie then (also one with reduced motion, which never
+ * plays it) is told "seen" by the proxy, without asking the account again (src/proxy.ts).
  */
 export const INTRO_PLAY_MAX_AGE = 24 * 60 * 60;
 

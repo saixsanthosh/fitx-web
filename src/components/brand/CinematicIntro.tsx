@@ -6,6 +6,8 @@ import { FILM_DURATION, STAGE, STAGE_START, stageAt } from "./intro/timeline";
 import { FitxIntroVideo } from "./FitxIntroVideo";
 import { BrandEndCard, DebugBackdrop, FilmGraphics } from "./IntroFilmOverlay";
 import { clampStage, type FilmFreeze } from "./introOverlayTiming";
+import { accountFilmClaimedElsewhere } from "./accountFilm";
+import { INTRO_PENDING_EVENT, VISITOR_FILM_SEEN_KEY } from "./introKeys";
 import styles from "./CinematicIntro.module.css";
 
 type Playback = "idle" | "loading" | "three" | "static";
@@ -114,7 +116,8 @@ function readDebugConfig(): DebugConfig | null {
 
 /**
  * The branded welcome film, layered over the page. It plays when the head script marked it pending
- * (every signed-out visit to the home page, once per account on an app page, or `?intro=…`) and on Replay.
+ * (a signed-out visit to the home page, once per tab; once per account on an app page; or `?intro=…`),
+ * also when a tab that loaded hidden is first shown, and on Replay.
  */
 export function CinematicIntro() {
   const [playback, setPlayback] = useState<Playback>("idle");
@@ -213,8 +216,21 @@ export function CinematicIntro() {
   const begin = useCallback((force: boolean) => {
     if (activeRef.current) return;
     if (!force && document.documentElement.dataset.fitxIntro !== "pending") return;
+    // The account's film opened in several tabs at the same moment: only the tab that claimed it last plays it.
+    if (!force && accountFilmClaimedElsewhere()) {
+      document.documentElement.removeAttribute("data-fitx-intro");
+      return;
+    }
 
     activeRef.current = true;
+    // The signed-out visitor's film plays once per tab, as on the old site (see introBootstrap.ts).
+    if (document.documentElement.dataset.fitxIntroGate === "visitor") {
+      try {
+        window.sessionStorage.setItem(VISITOR_FILM_SEEN_KEY, "1");
+      } catch {
+        // Storage blocked: the visitor's film plays on each full load of the home page instead.
+      }
+    }
     fallbackStarted.current = false;
     filmPlayingRef.current = false;
     document.documentElement.dataset.fitxIntro = "active";
@@ -346,18 +362,28 @@ export function CinematicIntro() {
     const onThemeChange = () => setTheme(readTheme());
     const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
 
+    // A tab that loaded hidden gets its film marked pending only when it is first shown (introBootstrap.ts).
+    // Usually that comes before the first frame below, which then starts it; if the frame already ran, the
+    // announcement starts it.
+    let firstFrameRan = false;
+    const onPending = () => {
+      if (firstFrameRan) begin(false);
+    };
     const initialFrame = window.requestAnimationFrame(() => {
+      firstFrameRan = true;
       const config = readDebugConfig();
       debugActive.current = config !== null;
       if (config) setDebug(config);
       begin(config !== null);
     });
+    window.addEventListener(INTRO_PENDING_EVENT, onPending);
     window.addEventListener(REPLAY_EVENT, onReplay);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("fitx-theme-change", onThemeChange);
     colorScheme.addEventListener("change", onThemeChange);
 
     return () => {
+      window.removeEventListener(INTRO_PENDING_EVENT, onPending);
       window.removeEventListener(REPLAY_EVENT, onReplay);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("fitx-theme-change", onThemeChange);

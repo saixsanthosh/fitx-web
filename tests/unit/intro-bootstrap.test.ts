@@ -2,25 +2,57 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { INTRO_BOOTSTRAP_SCRIPT } from "@/components/brand/introBootstrap";
+import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT, VISITOR_FILM_SEEN_KEY } from "@/components/brand/introKeys";
 
 type Listener = (event: unknown) => void;
 type Run = {
   attrs: Map<string, string>;
   cookieWrites: string[];
-  /** localStorage / sessionStorage writes, as "<storage>.<key>". */
+  /** localStorage / sessionStorage writes and removals, as "<storage>.<key>". */
   storageWrites: string[];
-  /** What the script listens for on `document` (Skip clicks, Escape). */
+  /** What localStorage and sessionStorage hold now. */
+  local: Map<string, string>;
+  session: Map<string, string>;
+  /** What the script listens for on `document` (Skip clicks, Escape, the page being shown). */
   listeners: Map<string, Listener[]>;
   window: Record<string, unknown>;
   preloads: string[];
+  /** Timers the script started, in order; call `fn` to let one run out. */
+  timers: Array<{ ms: number; fn: () => void }>;
+  /** Events the script dispatched on `window`. */
+  events: string[];
+  /** What document.cookie reads from now on (another tab, or a response, changed the cookie jar). */
+  setCookie: (value: string) => void;
+  /** The page is shown (a background tab is switched to, a prerendered page is opened). */
+  show: () => void;
+  /** The page is hidden (the user switches to another tab). */
+  hide: () => void;
 };
 
-function run({ path = "/", search = "", cookie = "", reduce = false, theme = null as string | null } = {}): Run {
+const NOW = 1_800_000_000_000;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+
+function run({
+  path = "/",
+  search = "",
+  cookie = "",
+  reduce = false,
+  theme = null as string | null,
+  hidden = false,
+  prerendering = false,
+  local = {} as Record<string, string>,
+  session = {} as Record<string, string>,
+  now = NOW,
+} = {}): Run {
   const attrs = new Map<string, string>();
   const cookieWrites: string[] = [];
   const storageWrites: string[] = [];
   const listeners = new Map<string, Listener[]>();
   const preloads: string[] = [];
+  const timers: Run["timers"] = [];
+  const events: string[] = [];
+  let jar = cookie;
   const root = {
     setAttribute: (name: string, value: string) => void attrs.set(name, value),
     removeAttribute: (name: string) => void attrs.delete(name),
@@ -28,26 +60,72 @@ function run({ path = "/", search = "", cookie = "", reduce = false, theme = nul
   };
   const document = {
     documentElement: root,
-    get cookie() { return cookie; },
+    visibilityState: hidden ? "hidden" : "visible",
+    prerendering,
+    get cookie() { return jar; },
     set cookie(value: string) { cookieWrites.push(value); },
     createElement: () => ({ setAttribute() {}, set href(value: string) { preloads.push(value); } }),
     head: { appendChild() {} },
     addEventListener: (type: string, listener: Listener) => void listeners.set(type, [...(listeners.get(type) ?? []), listener]),
+    removeEventListener: (type: string, listener: Listener) => void listeners.set(type, (listeners.get(type) ?? []).filter((entry) => entry !== listener)),
   };
-  const storage = (name: string) => ({
-    getItem: (key: string) => (name === "localStorage" && key === "fitx-theme" ? theme : null),
-    setItem: (key: string) => void storageWrites.push(`${name}.${key}`),
-    removeItem: (key: string) => void storageWrites.push(`${name}.${key}`),
+  const stores = { localStorage: new Map(Object.entries(local)), sessionStorage: new Map(Object.entries(session)) };
+  const storage = (name: keyof typeof stores) => ({
+    getItem: (key: string) => (name === "localStorage" && key === "fitx-theme" ? theme : stores[name].get(key) ?? null),
+    setItem: (key: string, value: string) => {
+      stores[name].set(key, String(value));
+      storageWrites.push(`${name}.${key}`);
+    },
+    removeItem: (key: string) => {
+      stores[name].delete(key);
+      storageWrites.push(`${name}.${key}`);
+    },
   });
   const window: Record<string, unknown> = {
     localStorage: storage("localStorage"),
     sessionStorage: storage("sessionStorage"),
     matchMedia: (query: string) => ({ matches: query.includes("reduced-motion") ? reduce : false }),
     location: { pathname: path, search, protocol: "https:" },
-    setTimeout: () => 0,
+    setTimeout: (fn: () => void, ms: number) => timers.push({ ms, fn }),
+    dispatchEvent: (event: { type: string }) => Boolean(events.push(event.type)),
   };
-  vm.runInNewContext(INTRO_BOOTSTRAP_SCRIPT, { window, document, Date });
-  return { attrs, cookieWrites, storageWrites, listeners, window, preloads };
+  class Event {
+    type: string;
+    constructor(type: string) {
+      this.type = type;
+    }
+  }
+  vm.runInNewContext(INTRO_BOOTSTRAP_SCRIPT, { window, document, Date: { now: () => now }, Event });
+  const fire = (type: string) => {
+    for (const listener of [...(listeners.get(type) ?? [])]) listener({});
+  };
+  return {
+    attrs,
+    cookieWrites,
+    storageWrites,
+    local: stores.localStorage,
+    session: stores.sessionStorage,
+    listeners,
+    window,
+    preloads,
+    timers,
+    events,
+    setCookie: (value) => {
+      jar = value;
+    },
+    show: () => {
+      document.visibilityState = "visible";
+      if (document.prerendering) {
+        document.prerendering = false;
+        fire("prerenderingchange");
+      }
+      fire("visibilitychange");
+    },
+    hide: () => {
+      document.visibilityState = "hidden";
+      fire("visibilitychange");
+    },
+  };
 }
 
 const dispatch = ({ listeners }: Run, type: string, event: unknown) => {
@@ -56,13 +134,28 @@ const dispatch = ({ listeners }: Run, type: string, event: unknown) => {
 /** A click on the overlay's Skip button (`data-fitx-skip`), as the script sees it. */
 const skipClick = { target: { closest: (selector: string) => (selector === "[data-fitx-skip]" ? {} : null) } };
 
+/** The claim the head script stored when it opened the account's film: when it did (ms), unique to the page. */
+const claimOf = (page: Run) => {
+  const claim = page.local.get(ACCOUNT_FILM_STARTED_KEY);
+  assert.ok(claim, "a claim is stored");
+  assert.ok(Number(claim) >= NOW && Number(claim) < NOW + 1, `claimed now (${claim})`);
+  assert.equal(page.window.__fitxAccountFilm, claim, "and left on the page for CinematicIntro");
+  return claim;
+};
+
 test("plays the account's one-time film on the first app page and consumes the cookie at once", () => {
-  const { attrs, cookieWrites, preloads } = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" });
+  const page = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" });
+  const { attrs, cookieWrites, preloads, events, timers } = page;
   assert.equal(attrs.get("data-fitx-intro"), "pending");
   assert.equal(attrs.get("data-fitx-intro-gate"), "account");
   assert.equal(attrs.get("data-fitx-auth"), "1");
   assert.match(cookieWrites[0] ?? "", /^fitx_intro=seen; Path=\/; Max-Age=34560000; SameSite=Lax; Secure$/);
   assert.deepEqual(preloads, ["/brand/intro/fitx-intro-light-landscape.webp"]);
+  assert.deepEqual(events, [INTRO_PENDING_EVENT]);
+  assert.deepEqual(timers.map((timer) => timer.ms), [8000], "gives the page back if the app never starts it");
+  claimOf(page);
+  // Two pages opening it at the same moment leave different claims.
+  assert.notEqual(claimOf(run({ path: "/workouts", cookie: "fitx_auth=1; fitx_intro=play" })), claimOf(page));
 });
 
 test("plays it on the first page of any app section, the newer ones included", () => {
@@ -117,22 +210,31 @@ test("returning devices get the short brand loader instead", () => {
   assert.equal(typeof window.__fitxReleaseLoader, "function");
 });
 
-// Until 2026-11-17 a signed-out home page played no film; the owner asked for it on every visit again.
-test("signed-out visitors get the film on every full load of the home page, and it records nothing", () => {
+// Until 2026-11-17 a signed-out home page played no film; the owner asked for it on every visit again, as the old
+// site played it: once per tab (its sessionStorage "fitx-cinematic-seen").
+test("signed-out visitors get the film on the home page once per tab, as the old site did, and it records nothing", () => {
   // A first visit, a device that was signed in before (seen), and one whose account film is still pending (play).
   for (const cookie of ["", "fitx_intro=seen", "fitx_intro=play"]) {
-    // Visits in a row: each starts from the same cookies, because none is written (checked below).
-    for (const [visit, search] of [[1, ""], [2, ""], [3, "?utm_source=newsletter"]] as const) {
-      const label = `${cookie || "no cookies"}, visit ${visit}${search}`;
-      const { attrs, cookieWrites, storageWrites, preloads } = run({ path: "/", search, cookie });
-      assert.equal(attrs.get("data-fitx-intro"), "pending", label);
-      assert.equal(attrs.get("data-fitx-intro-gate"), "visitor", label);
-      assert.equal(attrs.get("data-fitx-loader"), undefined, `${label}: the film, not the loader`);
-      assert.equal(attrs.get("data-fitx-auth"), undefined, label);
-      // Nothing is written, so the next visit plays it again and a pending account film is left alone.
-      assert.deepEqual(cookieWrites, [], label);
-      assert.deepEqual(storageWrites, [], label);
-      assert.deepEqual(preloads, ["/brand/intro/fitx-intro-light-landscape.webp"], label);
+    for (const search of ["", "?utm_source=newsletter"]) {
+      const label = `${cookie || "no cookies"}${search}`;
+      // A new tab or window: nothing in its sessionStorage yet.
+      const first = run({ path: "/", search, cookie });
+      assert.equal(first.attrs.get("data-fitx-intro"), "pending", label);
+      assert.equal(first.attrs.get("data-fitx-intro-gate"), "visitor", label);
+      assert.equal(first.attrs.get("data-fitx-loader"), undefined, `${label}: the film, not the loader`);
+      assert.equal(first.attrs.get("data-fitx-auth"), undefined, label);
+      assert.deepEqual(first.preloads, ["/brand/intro/fitx-intro-light-landscape.webp"], label);
+      // No cookie, so a pending account film is left alone; the tab is remembered by CinematicIntro once the film starts.
+      assert.deepEqual(first.cookieWrites, [], label);
+      assert.deepEqual(first.storageWrites, [], label);
+      // The same tab again (a reload, or another full load of "/") after the film started there: no film.
+      const again = run({ path: "/", search, cookie, session: { [VISITOR_FILM_SEEN_KEY]: "1" } });
+      assert.equal(again.attrs.get("data-fitx-intro"), undefined, `${label}, same tab`);
+      assert.equal(again.attrs.get("data-fitx-intro-gate"), undefined, `${label}, same tab`);
+      assert.deepEqual(again.cookieWrites, [], `${label}, same tab`);
+      assert.deepEqual(again.storageWrites, [], `${label}, same tab`);
+      // As on any cold load, a device that was signed in before gets the short loader there.
+      assert.equal(again.attrs.get("data-fitx-loader"), cookie === "fitx_intro=seen" ? "on" : undefined, `${label}, same tab`);
     }
   }
 });
@@ -146,8 +248,15 @@ test("Skip and Escape give the page back before React hydrates, the visitor's fi
       assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${options.path}: another key or click keeps it`);
       dispatch(page, type, event);
       assert.equal(page.attrs.get("data-fitx-intro"), undefined, `${options.path} ${type}`);
+      // Skipping the visitor's film counts as having seen it in this tab, as on the old site.
+      assert.equal(page.session.get(VISITOR_FILM_SEEN_KEY), options.path === "/" ? "1" : undefined, `${options.path} ${type}`);
     }
   }
+  // When the app never starts the film, the page is given back after 8 s, and the next load of the tab tries again.
+  const failed = run({ path: "/" });
+  failed.timers[0].fn();
+  assert.equal(failed.attrs.get("data-fitx-intro"), undefined);
+  assert.equal(failed.session.has(VISITOR_FILM_SEEN_KEY), false);
 });
 
 test("a signed-in visitor never gets the visitor's film on the home page", () => {
@@ -178,12 +287,15 @@ test("no other public page plays a film, signed out or not", () => {
 test("reduced motion gets neither the film nor the loader, on the home page either", () => {
   for (const [path, search] of [["/dashboard", ""], ["/", ""], ["/", "?intro=play"], ["/dashboard", "?intro=live"]]) {
     for (const cookie of ["", "fitx_intro=play", "fitx_intro=seen", "fitx_auth=1; fitx_intro=play"]) {
-      const label = `${path}${search} ${cookie}`;
-      const { attrs, cookieWrites } = run({ path, search, cookie, reduce: true });
-      assert.equal(attrs.get("data-fitx-intro"), undefined, label);
-      assert.equal(attrs.get("data-fitx-intro-gate"), undefined, label);
-      assert.equal(attrs.get("data-fitx-loader"), undefined, label);
-      assert.deepEqual(cookieWrites, [], `${label}: a pending account film waits`);
+      for (const hidden of [false, true]) {
+        const label = `${path}${search} ${cookie}${hidden ? " (hidden)" : ""}`;
+        const page = run({ path, search, cookie, reduce: true, hidden });
+        page.show();
+        assert.equal(page.attrs.get("data-fitx-intro"), undefined, label);
+        assert.equal(page.attrs.get("data-fitx-intro-gate"), undefined, label);
+        assert.equal(page.attrs.get("data-fitx-loader"), undefined, label);
+        assert.deepEqual(page.cookieWrites, [], `${label}: a pending account film waits`);
+      }
     }
   }
 });
@@ -193,6 +305,112 @@ test("?intro= still plays the film on request without touching the cookie", () =
   assert.equal(attrs.get("data-fitx-intro"), "pending");
   assert.equal(attrs.get("data-fitx-intro-gate"), "replay");
   assert.equal(cookieWrites.length, 0);
+});
+
+test("a tab that loads hidden (in the background, or prerendered) waits until it is first shown", () => {
+  // Nothing may be used up or recorded for a page nobody has looked at: the app's frame loop doesn't run in a
+  // hidden tab, so a film marked now would be over (given back after 8 s) before anyone switched to it.
+  const cases = [
+    ["account", { path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" }],
+    ["visitor", { path: "/" }],
+    ["replay", { path: "/workouts", search: "?intro=video", cookie: "fitx_auth=1; fitx_intro=seen" }],
+  ] as const;
+  for (const [gate, options] of cases) {
+    for (const how of ["in the background", "prerendered"] as const) {
+      const label = `${gate}, ${how}`;
+      const page = run({ ...options, hidden: how === "in the background", prerendering: how === "prerendered" });
+      dispatch(page, "visibilitychange", {});
+      assert.equal(page.attrs.get("data-fitx-intro"), undefined, label);
+      assert.equal(page.attrs.get("data-fitx-intro-gate"), undefined, label);
+      assert.equal(page.attrs.get("data-fitx-loader"), undefined, `${label}: no loader either`);
+      assert.deepEqual(page.cookieWrites, [], `${label}: the account's "play" is still there`);
+      assert.deepEqual(page.storageWrites, [], label);
+      assert.deepEqual(page.preloads, [], label);
+      assert.equal(page.timers.length, 0, `${label}: no 8 s release running while nobody looks`);
+      assert.deepEqual(page.events, [], label);
+
+      page.show();
+      assert.equal(page.attrs.get("data-fitx-intro"), "pending", label);
+      assert.equal(page.attrs.get("data-fitx-intro-gate"), gate, label);
+      assert.deepEqual(page.events, [INTRO_PENDING_EVENT], `${label}: the app, already running, is told`);
+      assert.deepEqual(page.preloads, ["/brand/intro/fitx-intro-light-landscape.webp"], label);
+      assert.deepEqual(page.timers.map((timer) => timer.ms), [8000], label);
+      assert.equal(page.cookieWrites.length, gate === "account" ? 1 : 0, label);
+      // Hidden and shown again later: it happens once.
+      page.hide();
+      page.show();
+      assert.deepEqual(page.events, [INTRO_PENDING_EVENT], label);
+      assert.equal(page.cookieWrites.length, gate === "account" ? 1 : 0, label);
+    }
+  }
+});
+
+test("a hidden tab shown after another tab used the account's film shows nothing", () => {
+  const page = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", hidden: true });
+  page.setCookie("fitx_auth=1; fitx_intro=seen");
+  page.show();
+  assert.equal(page.attrs.get("data-fitx-intro"), undefined);
+  assert.equal(page.attrs.get("data-fitx-intro-gate"), undefined);
+  assert.equal(page.attrs.get("data-fitx-loader"), undefined, "the page loaded long ago: no loader");
+  assert.deepEqual(page.cookieWrites, []);
+  assert.deepEqual(page.events, []);
+});
+
+test("a page hidden before the app starts its film keeps it until shown again, then gives it 8 s", () => {
+  const page = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play" });
+  assert.equal(page.attrs.get("data-fitx-intro"), "pending");
+  page.hide();
+  page.timers[0].fn();
+  assert.equal(page.attrs.get("data-fitx-intro"), "pending", "8 s in a background tab don't give it up");
+  page.show();
+  assert.deepEqual(page.timers.map((timer) => timer.ms), [8000, 8000], "counted again from when it is shown");
+  page.timers[1].fn();
+  assert.equal(page.attrs.get("data-fitx-intro"), undefined, "the app never started it: the page is given back");
+});
+
+test("a play that turns up again within a day of this device starting the account's film is used up, not played twice", () => {
+  // Tabs restored together each asked the server before any answer came back, so each answer says "play":
+  // one that arrives after another tab started the film puts the cookie back.
+  for (const ago of [MINUTE, 5 * HOUR, 24 * HOUR]) {
+    const label = `${ago / MINUTE} minutes after`;
+    const again = run({ path: "/workouts", cookie: "fitx_auth=1; fitx_intro=play", local: { [ACCOUNT_FILM_STARTED_KEY]: String(NOW - ago) } });
+    assert.equal(again.attrs.get("data-fitx-intro"), undefined, label);
+    assert.equal(again.attrs.get("data-fitx-intro-gate"), undefined, `${label}: nothing for IntroCompletionReporter to record`);
+    assert.match(again.cookieWrites[0] ?? "", /^fitx_intro=seen;/, `${label}: the copy is used up`);
+    assert.equal(again.attrs.get("data-fitx-loader"), "on", `${label}: a returning device's loader instead`);
+    assert.deepEqual(again.events, [], label);
+    assert.equal(again.local.get(ACCOUNT_FILM_STARTED_KEY), String(NOW - ago), label);
+  }
+  // A tab that loaded hidden finds the copy when it is shown.
+  const hidden = run({ path: "/nutrition", cookie: "fitx_auth=1; fitx_intro=play", hidden: true, local: { [ACCOUNT_FILM_STARTED_KEY]: String(NOW - MINUTE) } });
+  hidden.show();
+  assert.equal(hidden.attrs.get("data-fitx-intro"), undefined);
+  assert.match(hidden.cookieWrites[0] ?? "", /^fitx_intro=seen;/);
+  // After that a "play" can only be a new one (a copy lives a day): it plays.
+  const later = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: { [ACCOUNT_FILM_STARTED_KEY]: String(NOW - 26 * HOUR) } });
+  assert.equal(later.attrs.get("data-fitx-intro-gate"), "account");
+  claimOf(later);
+  // The visitor's film and replays claim nothing.
+  for (const options of [{ path: "/" }, { path: "/dashboard", search: "?intro=play", cookie: "fitx_auth=1; fitx_intro=seen" }]) {
+    const other = run(options);
+    assert.equal(other.attrs.get("data-fitx-intro"), "pending");
+    assert.equal(other.local.has(ACCOUNT_FILM_STARTED_KEY), false);
+    assert.equal(other.window.__fitxAccountFilm, undefined);
+  }
+});
+
+test("signing out forgets that, so the next account on the device gets its own film", () => {
+  const remembered = { [ACCOUNT_FILM_STARTED_KEY]: String(NOW - MINUTE) };
+  // Log out lands on /signin?signed_out=1 without the fitx_auth hint; so does every signed-out page.
+  const signedOut = run({ path: "/signin", search: "?signed_out=1", local: remembered });
+  assert.equal(signedOut.local.has(ACCOUNT_FILM_STARTED_KEY), false);
+  const next = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: Object.fromEntries(signedOut.local) });
+  assert.equal(next.attrs.get("data-fitx-intro-gate"), "account", "the next account's film plays");
+  // Signed-in pages keep it, and a signed-out device without it writes nothing.
+  const signedIn = run({ path: "/pricing", cookie: "fitx_auth=1; fitx_intro=seen", local: remembered });
+  assert.equal(signedIn.local.get(ACCOUNT_FILM_STARTED_KEY), String(NOW - MINUTE));
+  assert.deepEqual(signedIn.storageWrites, []);
+  assert.deepEqual(run({ path: "/pricing" }).storageWrites, []);
 });
 
 test("applies the saved theme before first paint", () => {

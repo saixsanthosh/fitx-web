@@ -28,6 +28,8 @@ export class FakeSupabase {
   codes = new Map<string, { userId: string; verifier: string }>();
   calls: Array<{ method: string; path: string; body?: unknown }> = [];
   profileError: null | { status: number; code: string; message: string } = null;
+  /** Holds each profile read this long before answering (a database that stalls); the client may give up first. */
+  profileDelayMs = 0;
   introColumnMissing = false;
   patches: Array<{ query: string; body: unknown }> = [];
 
@@ -46,6 +48,7 @@ export class FakeSupabase {
     this.calls = [];
     this.patches = [];
     this.profileError = null;
+    this.profileDelayMs = 0;
     this.introColumnMissing = false;
   }
 
@@ -125,6 +128,17 @@ export class FakeSupabase {
         const profile = this.profiles.get(id);
         if (profile && profile.intro_completed_at == null) profile.intro_completed_at = (body as Profile).intro_completed_at ?? null;
         return send(204);
+      }
+      if (this.profileDelayMs > 0) {
+        const delay = this.profileDelayMs;
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delay);
+          res.once("close", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+        if (res.destroyed || res.writableEnded) return;
       }
       if (this.profileError) return send(this.profileError.status, { code: this.profileError.code, message: this.profileError.message });
       const select = url.searchParams.get("select") ?? "*";

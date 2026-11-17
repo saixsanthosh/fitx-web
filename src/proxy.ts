@@ -25,6 +25,8 @@ const AUTH_ENTRY = new Set(["/signin", "/signup", "/forgot-password"]);
 /** Parameters Supabase Auth appends when it sends a browser back after sign-in or an e-mail link. */
 const AUTH_PARAMS = ["code", "error", "error_code", "error_description"] as const;
 const SESSION_CHECK_TIMEOUT_MS = 3000;
+/** The profile read waits at most this long, and is never retried here (see readProfile). */
+const PROFILE_READ_TIMEOUT_MS = 1500;
 const AUTH_CODE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const isPrivate = (pathname: string) => PRIVATE_ROOTS.some((root) => pathname === root || pathname.startsWith(`${root}/`));
@@ -44,7 +46,8 @@ const noStore = <T extends NextResponse>(response: T) => {
  *     to sign in from private pages; unfinished accounts go to onboarding from every page except
  *     onboarding and Help;
  *  5. a device that was already signed in takes the account's one-time intro film from the account,
- *     once per device and account (readProfile), so it plays on the next full load of an app page.
+ *     once per device and account, on a full page load (readProfile), so it plays on the next full load
+ *     of an app page.
  * Checks are optimistic (data stays protected by row-level security); a Supabase outage never
  * signs anyone out here.
  */
@@ -159,18 +162,33 @@ export async function proxy(request: NextRequest) {
 type ProfileRow = { onboarded?: boolean | null; intro_completed_at?: string | null } | null;
 
 /**
+ * A full load of a page (its HTML), whose head script can play the film at once. The app's own fetches of
+ * a page (client-side navigation, prefetch) say `Sec-Fetch-Dest: empty`; Next strips only its own Flight
+ * headers before the proxy. A browser that sends no Fetch Metadata counts as a full load.
+ */
+function isPageLoad(request: NextRequest) {
+  const destination = request.headers.get("sec-fetch-dest");
+  return destination === null || destination === "document";
+}
+
+/**
  * What the proxy needs from the profile, answered by cookies where they can and otherwise by one profile
  * query at most:
  *  - onboarding: true/false from the onboarded cookie or the profile; null when the profile can't be read
  *    right now;
- *  - the account's one-time intro film on this device. Unless the device was already checked for this
- *    user and still holds the film's state (fitx_intro_checked, fitx_intro), it sets fitx_intro=play for
- *    a day (as at sign-in) when the account has not seen the film (intro_completed_at null), else seen
- *    (also while the column doesn't exist yet), and marks the device checked for this user. So a device
- *    that was already signed in plays the film on its next full load of an app page, a second account
- *    on the device is checked for itself, and a "play" that expired unwatched is checked again. A failed
- *    read changes no cookie and a later request retries. Never a loop: the completion route sets
- *    intro_completed_at as soon as the film starts, so every later check says seen.
+ *  - the account's one-time intro film on this device, taken from the account once per device and account
+ *    (fitx_intro_checked holds the user it was taken for), on a full page load: fitx_intro=play for a day
+ *    (as at sign-in) when the account has not seen the film (intro_completed_at null), else seen (also
+ *    while the column doesn't exist yet). So a device that was already signed in plays the film on its
+ *    next full load of an app page, and a second account on the device is checked for itself. A device
+ *    checked for this user is never asked about again: if it no longer holds fitx_intro (a "play" left
+ *    unused for a day, as with reduced motion, or a cookie the browser dropped), it is told seen without a
+ *    query, as before the check existed. A failed read sets nothing from it, and a later page load tries
+ *    again. Never a loop: the completion route sets intro_completed_at as soon as the film starts, so every
+ *    later check says seen.
+ * The read is bounded like the Auth check, and not retried: an outage of the database API must not hold
+ * every page (postgrest-js would otherwise retry a GET three times, for 7 seconds), and the next page asks
+ * again anyway.
  */
 async function readProfile(
   request: NextRequest,
@@ -180,14 +198,22 @@ async function readProfile(
   secure: boolean,
 ): Promise<boolean | null> {
   const knownOnboarded = request.cookies.get(ONBOARDED_COOKIE)?.value === userId;
-  const introChecked = request.cookies.get(INTRO_CHECKED_COOKIE)?.value === userId && request.cookies.has(INTRO_COOKIE);
-  if (knownOnboarded && introChecked) return true;
-  const columns = [knownOnboarded ? "" : "onboarded", introChecked ? "" : "intro_completed_at"].filter(Boolean).join(", ");
-  const { data, error } = await supabase.from("profiles").select(columns).eq("id", userId).maybeSingle();
-  const introMissing = !introChecked && error !== null && isMissingColumnError(error);
+  const checked = request.cookies.get(INTRO_CHECKED_COOKIE)?.value === userId;
+  if (checked && !request.cookies.has(INTRO_COOKIE)) hints.push([INTRO_COOKIE, "seen", introCookieOptions(secure, "seen")]);
+  const askIntro = !checked && isPageLoad(request);
+  if (knownOnboarded && !askIntro) return true;
+  const columns = [knownOnboarded ? "" : "onboarded", askIntro ? "intro_completed_at" : ""].filter(Boolean).join(", ");
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(columns)
+    .eq("id", userId)
+    .abortSignal(AbortSignal.timeout(PROFILE_READ_TIMEOUT_MS))
+    .retry(false)
+    .maybeSingle();
+  const introMissing = askIntro && error !== null && isMissingColumnError(error);
   if (error && !introMissing) return knownOnboarded ? true : null;
   const row = error ? null : (data as ProfileRow);
-  if (!introChecked) {
+  if (askIntro) {
     const intro = introMissing || row?.intro_completed_at ? "seen" : "play";
     hints.push([INTRO_COOKIE, intro, introCookieOptions(secure, intro)]);
     hints.push([INTRO_CHECKED_COOKIE, userId, hintCookieOptions(secure, { httpOnly: true })]);

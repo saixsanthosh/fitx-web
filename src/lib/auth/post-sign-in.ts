@@ -59,7 +59,7 @@ export async function resolvePostSignIn({
 /**
  * Sets the hint cookies that go with a fresh session. The film's state was just taken from the account,
  * so the device is marked as checked for this user and the proxy doesn't read it again; when the profile
- * could not be read (onboarded null), the mark is cleared and the proxy reads it on the next request.
+ * could not be read (onboarded null), the mark is cleared and the proxy reads it on the next page load.
  */
 export function applySignInCookies(
   response: NextResponse,

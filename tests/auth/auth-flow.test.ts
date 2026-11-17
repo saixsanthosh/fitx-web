@@ -256,12 +256,83 @@ describe("proxy: the account's one-time film on a device that is already signed 
     assert.deepEqual(profileSelects(), ["onboarded,intro_completed_at"], "never a second profile query");
   });
 
-  test("a play that expired unwatched is checked again on the next request", async () => {
-    // fitx_intro=play lasts a day; the check stays, but the device no longer knows the film's state.
+  test("a device checked for this account that lost the film's cookie is told seen, without asking the account again", async () => {
+    // A "play" left unused for a day (fitx_intro lasts that long), or a cookie the browser dropped (WebKit keeps
+    // one written by script for 7 days): the account was asked once for this device, and never is again.
     const cookies = { ...sessionCookies(RESET.id), fitx_auth: "1", fitx_onboarded: RESET.id, fitx_intro_checked: RESET.id };
-    const response = await proxy(request("/dashboard", { cookies }));
-    assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;/);
-    assert.equal(restCalls().length, 1);
+    for (const path of ["/dashboard", "/workouts", "/"]) {
+      const response = await proxy(request(path, { cookies }));
+      const seen = cookieNamed(response, "fitx_intro") ?? "";
+      assert.match(seen, /^fitx_intro=seen;/, path);
+      assert.match(seen, /Max-Age=34560000/i, path);
+      assert.equal(cookieNamed(response, "fitx_intro_checked"), undefined, path);
+    }
+    assert.equal(restCalls().length, 0);
+  });
+
+  test("a device that never plays the film (reduced motion) is asked about once, then settles", async () => {
+    // The head script never uses a "play" with prefers-reduced-motion, so the account stays unseen. Day by day:
+    let device: Record<string, string> = resetDevice();
+    const apply = (response: Response) => {
+      for (const line of filmCookies(response)) {
+        const [pair] = line.split(";");
+        const [name, value] = pair.split("=");
+        if (/Max-Age=0/i.test(line)) delete device[name];
+        else device[name] = value;
+      }
+    };
+    const queries: number[] = [];
+    for (let day = 1; day <= 4; day += 1) {
+      fake.reset();
+      for (const path of ["/dashboard", "/workouts", "/nutrition"]) apply(await proxy(request(path, { cookies: device })));
+      queries.push(restCalls().length);
+      // A night later, a "play" has expired (Max-Age=86400); "seen" lasts.
+      if (device.fitx_intro === "play") device = Object.fromEntries(Object.entries(device).filter(([name]) => name !== "fitx_intro"));
+    }
+    assert.deepEqual(queries, [1, 0, 0, 0], "one profile query in all");
+    assert.equal(device.fitx_intro, "seen");
+    assert.equal(fake.profiles.get(RESET.id)?.intro_completed_at, null, "still unseen on the account, so its other devices play it");
+  });
+
+  test("the app's own fetches of a page never take the film from the account; the next full page load does", async () => {
+    // A client-side navigation or a prefetch runs no head script, so a "play" set on it would wait unused.
+    const fetched = { "sec-fetch-dest": "empty", "sec-fetch-mode": "cors" };
+    for (const path of ["/dashboard", "/workouts", "/"]) {
+      const response = await proxy(request(path, { cookies: resetDevice(), headers: fetched }));
+      assert.deepEqual(filmCookies(response), [], path);
+    }
+    assert.equal(restCalls().length, 0, "onboarding is cached, so no profile query at all");
+    // An account still in setup is still read, for onboarding alone.
+    const unfinished = await proxy(request("/dashboard", { cookies: { ...sessionCookies(NEWCOMER.id), fitx_auth: "1" }, headers: fetched }));
+    assert.equal(location(unfinished), "/onboarding");
+    assert.deepEqual(profileSelects(), ["onboarded"]);
+    // The next full load of a page (or one from a browser without Fetch Metadata, as above in this file) takes it.
+    const page = await proxy(request("/dashboard", { cookies: resetDevice(), headers: { "sec-fetch-dest": "document", "sec-fetch-mode": "navigate" } }));
+    assert.match(cookieNamed(page, "fitx_intro") ?? "", /^fitx_intro=play;/);
+    assert.match(cookieNamed(page, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};`));
+  });
+
+  test("an unreachable or stalled profile read fails fast, without retries, and changes nothing", async () => {
+    // PostgREST answers 503 while its schema cache reloads; postgrest-js would retry a GET three times (1 s, 2 s, 4 s).
+    fake.profileError = { status: 503, code: "PGRST002", message: "Could not query the database for the schema cache. Retrying." };
+    let started = Date.now();
+    const unavailable = await proxy(request("/dashboard", { cookies: resetDevice() }));
+    assert.ok(Date.now() - started < 1000, `held the page ${Date.now() - started} ms`);
+    assert.equal(restCalls().length, 1, "one attempt");
+    assert.equal(location(unavailable), null, "never bounced");
+    assert.deepEqual(setCookies(unavailable), []);
+    // A read that hangs is given up after 1.5 s, like the Auth check after 3 s.
+    fake.reset();
+    fake.profileDelayMs = 4000;
+    started = Date.now();
+    const stalled = await proxy(request("/dashboard", { cookies: resetDevice() }));
+    const held = Date.now() - started;
+    assert.ok(held >= 1400 && held < 2500, `held the page ${held} ms`);
+    assert.equal(location(stalled), null);
+    assert.deepEqual(setCookies(stalled), []);
+    // Once the database answers, the next page load takes the film's state.
+    fake.reset();
+    assert.match(cookieNamed(await proxy(request("/dashboard", { cookies: resetDevice() })), "fitx_intro") ?? "", /^fitx_intro=play;/);
   });
 
   test("a failed profile read changes no cookie, and a later request tries again", async () => {

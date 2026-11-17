@@ -68,7 +68,7 @@ export default function HomePage() {
 
   return (
     <>
-    {/* Plays on every signed-out visit (and with ?intro=…), records nothing; see introBootstrap.ts. */}
+    {/* Plays once per tab for signed-out visitors (and with ?intro=…), records nothing; see introBootstrap.ts. */}
     <CinematicIntro />
     <main id="main-content" className={styles.page}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema).replace(/</g, "\\u003c") }} />
