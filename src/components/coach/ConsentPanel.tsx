@@ -75,7 +75,7 @@ export function ConsentPanel({
           {minor ? (
             <div className="rounded-lg border border-fitx-border bg-fitx-surface p-4 text-sm leading-6 text-fitx-text-secondary">
               <p className="font-semibold text-fitx-text">You&apos;re under 18</p>
-              <p className="mt-1">The coach answers general questions only. It gets your questions with the recent messages of that conversation, that you’re under 18 and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile. Please ask a parent or guardian before you use it. Meal and workout plans aren’t available for under-18 accounts.</p>
+              <p className="mt-1">The coach answers general questions only. It gets your questions with the recent messages of that conversation, that you’re under 18 and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile. For 30 days after FITX shows its eating-disorder support note, it’s also told that you recently shared something that can be a sign of an eating disorder. Please ask a parent or guardian before you use it. Meal and workout plans aren’t available for under-18 accounts.</p>
             </div>
           ) : (
             <fieldset>
@@ -98,7 +98,7 @@ export function ConsentPanel({
                   checked={shareData === false}
                   onSelect={() => setShareData(false)}
                   title="Questions only"
-                  text="General answers, and plans are off. The coach gets your questions with the recent messages of that conversation, and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile."
+                  text="General answers, and plans are off. The coach gets your questions with the recent messages of that conversation, and the lowest daily calories it may suggest (FITX sets this from your sex), but not your logs or the rest of your profile. For 30 days after FITX shows its eating-disorder support note, it’s also told that you recently shared something that can be a sign of an eating disorder."
                 />
               </div>
             </fieldset>

@@ -575,6 +575,28 @@ describe("meal plans, Add to My Food Plan and swaps", () => {
     assert.equal(db.usage.filter((event) => event.kind === "plan" && !event.released).length, 1, "only the first plan counted");
   });
 
+  test("for 30 days after the note, a “Questions only” chat carries the care rule and never goes to Gemini", async () => {
+    seedMember();
+    consentTo(MEMBER, false);
+    await events(await chat.POST(request("/api/coach/chat", { body: { message: "I make myself throw up after meals" } })));
+    // Groq is down and Gemini would answer next, if it were asked at all.
+    route = (url) => (providerOf(url) === "gemini" ? geminiStream(["From Gemini."]) : providerOf(url) === "openrouter" ? openAiStream(["Gentle answer."]) : { status: 500 });
+    const stream = await events(await chat.POST(request("/api/coach/chat", { body: { message: "What helps me sleep better?" } })));
+    assert.equal(messageOf(stream)?.message.content, "Gentle answer.");
+    assert.ok(providers.calls.length > 0 && providers.calls.every((call) => providerOf(call.url) !== "gemini"), "Gemini got nothing");
+    const system = systemOf(providers.calls.at(-1));
+    assert.match(system, /can be a sign of an eating disorder/, "the care rule goes, as the privacy page says");
+    assert.match(system, /chose not to share/, "and no summary");
+
+    // With only Gemini connected, the coach says why it can't answer instead of sending the note there.
+    setKeys({ GEMINI_API_KEY: "test-gemini" });
+    providers.calls.length = 0;
+    const blocked = await chat.POST(request("/api/coach/chat", { body: { message: "And what about stretching?" } }));
+    assert.equal(blocked.status, 409);
+    assert.match((await errorOf(blocked)).message, /For 30 days after FITX's note about eating, FITX sends your questions only to AI services that don't let people read them/);
+    assert.equal(providers.calls.length, 0);
+  });
+
   test("deleting the conversation with the eating-disorder note doesn't end the 30 days; “Delete my coach data” does", async () => {
     seedMember();
     consentTo();

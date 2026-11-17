@@ -42,7 +42,7 @@ const DATA_USE: Record<ProviderId, string> = {
 };
 /** Gemini while the owner keeps member data away from it (the default). */
 const GEMINI_QUESTIONS_ONLY =
-  "Gets only “Questions only” requests, never the summary of your FITX data: on Google's free tier, Google may use prompts and replies to improve its products, and people at Google may read them. FITX sends no name, email or account ID.";
+  "Gets only “Questions only” requests, never the summary of your FITX data or FITX's eating-disorder note: on Google's free tier, Google may use prompts and replies to improve its products, and people at Google may read them. FITX sends no name, email or account ID.";
 
 export function providerNotices(config: AiConfig): ProviderNotice[] {
   return configuredProviders(config).map((id) => ({

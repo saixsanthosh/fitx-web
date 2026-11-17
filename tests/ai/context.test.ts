@@ -265,6 +265,14 @@ describe("privacy page", () => {
     assert.ok(sentences.some((sentence) => /\brecent messages of that conversation\b/.test(sentence) && /\bcoach’s replies\b/.test(sentence)), "the conversation history is named");
     assert.ok(sentences.some((sentence) => /\boff\b/.test(sentence) && /\bmessages from before that are no longer sent\b/.test(sentence)), "and what turning sharing off changes");
     assert.ok(sentences.some((sentence) => /\bunder 18\b/.test(sentence) && /\brecent messages of that conversation\b/.test(sentence)), "under-18 requests carry the conversation too");
+    // For 30 days after the eating-disorder note, every chat prompt says why it leaves out calorie numbers,
+    // with data sharing off and for under-18 accounts too.
+    const note = /can be a sign of an eating disorder/;
+    assert.match(chatSystemPrompt({ context: adult, facts: adult.facts, sharesData: false, careMode: true }), note);
+    assert.match(chatSystemPrompt({ context: teen, facts: teen.facts, sharesData: true, careMode: true }), note);
+    assert.doesNotMatch(notShared, note, "only in those 30 days");
+    assert.ok(sentences.some((sentence) => /\bevery request also tells the AI service that you recently shared something that can be a sign of an eating disorder\b/.test(sentence) && /\b30 days\b/.test(sentence)), "the care note is named for every request");
+    assert.ok(sentences.some((sentence) => /\bunder 18\b/.test(sentence) && /\bcan be a sign of an eating disorder\b/.test(sentence)), "and for under-18 requests");
   });
 
   test("the activity section, the Record screen and the Activity page say location is used while the Record screen is open", () => {
@@ -332,8 +340,12 @@ describe("privacy page", () => {
     // AI_GEMINI_WITH_MEMBER_DATA would change that: if the owner sets it, the page must say Gemini may get the summary too.
     assert.equal(config.geminiWithMemberData, false);
     const coach = section("AI coach");
-    assert.match(coach, /Google’s Gemini API only gets requests that carry no summary of your FITX data/);
-    assert.match(coach, /\bChats with your summary, meal and workout plans and food swaps go to Groq or OpenRouter\b/);
+    assert.match(coach, /Google’s Gemini API only gets requests that carry neither a summary of your FITX data nor that eating-disorder note/);
+    assert.match(coach, /\bChats with your summary or that note, meal and workout plans and food swaps go to Groq or OpenRouter\b/);
+    // The care note is health information too: the chat sends it as member data (tests/ai/routes.test.ts routes one).
+    const turn = readFileSync(new URL("../../src/lib/ai/coach.ts", import.meta.url), "utf8");
+    assert.match(turn, /const personalData = task !== "chat" \|\| sharesData \|\| careMode;/);
+    assert.match(turn, /personalData: state\.sharesData \|\| state\.careMode,/);
     assert.match(coach, /\bpeople at Google may read them\b/);
   });
 
@@ -476,6 +488,7 @@ describe("privacy wording elsewhere", () => {
     assert.doesNotMatch(panel, /never reads your FITX data/);
     assert.equal(panel.match(/lowest daily calories it may suggest \(FITX sets this from your sex\)/g)?.length, 2, "both the under-18 note and “Questions only”");
     assert.equal(panel.match(/\byour questions with the recent messages of that conversation\b/g)?.length, 2, "both say the conversation's recent messages go too");
+    assert.equal(panel.match(/For 30 days after FITX shows its eating-disorder support note, it’s also told that you recently shared something that can be a sign of an eating disorder\./g)?.length, 2, "and both name the care note");
     // Switching sharing off in Coach settings says what is still sent, and starts a new conversation.
     const app = readFileSync(new URL("../../src/components/coach/CoachApp.tsx", import.meta.url), "utf8");
     assert.doesNotMatch(app, /no longer reads your FITX data/);

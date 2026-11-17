@@ -77,8 +77,11 @@ most-logged foods, saved food names, 28-day training, personal records, active g
 workouts and other planner items are planned for the next 7 days. Never a name, email, photo, account
 or row id, private notes or exact times. Members who choose "Questions only", every member under 18, and
 every account without an age in its profile send no summary: only a profile age of 18 or over
-(`facts.adult`) lets "Use my FITX data" on. Every prompt still carries the lowest daily calories the coach may suggest
-(`calorieFloor`, which depends on sex), and an under-18 member's prompt says they are under 18.
+(`facts.adult`) can switch "Use my FITX data" on. Every prompt still carries the lowest daily calories the coach may suggest
+(`calorieFloor`, which depends on sex), and an under-18 member's prompt says they are under 18. For 30 days
+after the eating-disorder note every prompt also carries the care rule (`CARE_RULE` in `prompts.ts`), which says
+the member recently shared something that can be a sign of one: like the summary, it is health information,
+so those requests skip Gemini's free tier (`personalData`) unless the owner sets `AI_GEMINI_WITH_MEMBER_DATA`.
 `sharedSummaryLines` in `status.ts` is the consent screen's list; tests keep it and the privacy page in
 step with the summary.
 

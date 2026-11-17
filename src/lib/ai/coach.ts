@@ -87,6 +87,10 @@ const NO_PLAN = {
   pregnancy: "During pregnancy or while breastfeeding, meal and workout plans should come from your doctor or midwife, so FITX Coach won't make one. You can still ask it general questions.",
 } as const;
 
+/** A care-mode question when every connected AI service may let people read prompts (Gemini's free tier). */
+const NO_PRIVATE_SERVICE_FOR_CARE =
+  "For 30 days after FITX's note about eating, FITX sends your questions only to AI services that don't let people read them, and none is connected right now, so the coach can't answer yet.";
+
 /** Messages that clearly ask for a whole plan go to the checked plan tasks instead of free chat. */
 export function detectTask(text: string): "chat" | "meal_plan" | "workout_plan" {
   const asks = /\b(make|create|give|build|suggest|need|want|write|design|prepare|generate|draft|recommend|can you|could you)\b/i.test(text);
@@ -148,9 +152,11 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
     if (blocked && asked) throw new CoachError("plans_unavailable", blocked);
     if (blocked) task = "chat";
   }
-  const personalData = task !== "chat" || sharesData;
+  // Requests that carry the member's summary, or the care rule that says FITX recently showed its
+  // eating-disorder note (health information too), skip AI services that may let people read prompts.
+  const personalData = task !== "chat" || sharesData || careMode;
   // Check the switch and keys before taking anything from today's limit.
-  if (safety.kind === "ok") planOrThrow(deps.router, task, personalData);
+  if (safety.kind === "ok") planOrThrow(deps.router, task, personalData, careMode && task === "chat");
 
   let ticket = safety.kind === "ok" ? await store.takeQuota(deps.db, task === "chat" ? "chat" : "plan") : null;
   if (ticket && !ticket.allowed && task !== "chat" && !asked) {
@@ -264,7 +270,8 @@ async function chatTurn(state: TurnState, emit: Emit) {
       messages: historyTurns(history),
       maxOutputTokens: 2048,
       temperature: 0.6,
-      personalData: state.sharesData,
+      // The care rule is health information too (see runCoachTurn).
+      personalData: state.sharesData || state.careMode,
     },
     { signal: state.signal, deadlineMs: modelBudget(state), onDelta: (text) => emit({ type: "delta", text }), onReset: () => emit({ type: "reset" }) },
   );
@@ -487,10 +494,15 @@ export async function applyProposal(db: store.Db, userId: string, actionId: stri
   }
 }
 
-function planOrThrow(router: AiRouter, task: AiTask, personalData: boolean) {
+/**
+ * Throws the coach's own error when no AI service may take this request. `forCare`: a chat that carries the
+ * eating-disorder care rule, which gets its own reason ("Questions only" would not help there).
+ */
+function planOrThrow(router: AiRouter, task: AiTask, personalData: boolean, forCare = false) {
   try {
     router.candidates(task, { personalData });
   } catch (error) {
+    if (forCare && error instanceof AiUnavailableError && error.reason === "private") throw new CoachError("plans_unavailable", NO_PRIVATE_SERVICE_FOR_CARE);
     throw toCoachError(error);
   }
 }
