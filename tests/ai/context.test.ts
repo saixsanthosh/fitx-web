@@ -159,6 +159,24 @@ describe("onboarding v2 fields", () => {
   });
 });
 
+describe("injuries and limitations", () => {
+  test("every entry Profile can save reaches the coach whole: all the listed ones and five 60-character notes", async () => {
+    const { joinLimitations, LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH } = await import("@/lib/domain/profile-options");
+    const { sharedSummaryLines } = await import("@/lib/ai/status");
+    assert.equal(MAX_LIMITATION_LENGTH, 60);
+    const notes = Array.from({ length: MAX_CUSTOM_LIMITATIONS }, (_, index) => `Note ${index + 1}: old shoulder dislocation, no overhead pressing`.padEnd(MAX_LIMITATION_LENGTH, ".").slice(0, MAX_LIMITATION_LENGTH));
+    const limitations = joinLimitations(LIMITATION_OPTIONS.map((option) => option.value), notes);
+    assert.equal(limitations.length, LIMITATION_OPTIONS.length + MAX_CUSTOM_LIMITATIONS, "Profile keeps them all");
+    const base = sources();
+    const context = buildCoachContext({ ...base, preferences: { ...(base.preferences as Record<string, unknown>), limitations } } as never, NOW);
+    const sent = String((context.summary.training_setup as Record<string, unknown>).limitations);
+    for (const note of notes) assert.ok(sent.includes(note), `"${note}" is sent whole`);
+    assert.ok(sent.startsWith("knee, lower back, shoulder"));
+    // The consent screen lists what is sent.
+    assert.ok(sharedSummaryLines(context).some((line) => line.startsWith("Injuries or limitations: ") && line.includes(notes[4])));
+  });
+});
+
 describe("equipment from older profiles", () => {
   test("typed words map to exercise-library tags", async () => {
     const { normalizeEquipment } = await import("@/lib/ai/context");

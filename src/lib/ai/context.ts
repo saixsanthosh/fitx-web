@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateNutritionTargets } from "@/lib/domain/nutrition";
+import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH } from "@/lib/domain/profile-options";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { allergyRulesFrom, describeAllergies, describeDiet, dietRulesFrom, type AllergyRule, type DietRule } from "./diet-rules";
 import { calorieFloor } from "./safety";
@@ -352,9 +353,12 @@ export function normalizeEquipment(item: string) {
   return words ? EQUIPMENT_WORDS[words] ?? words.replace(/ /g, "_") : "";
 }
 
-/** Injuries or limits to train around: onboarding v2 keys ("lower_back") and custom entries, or older free text. */
+/**
+ * Injuries or limits to train around: onboarding v2 keys ("lower_back") and custom entries, or older free text.
+ * Every entry Profile can save goes in whole: each listed key plus up to 5 notes of 60 characters.
+ */
 function limitationsText(prefs: Record<string, unknown>): string | null {
-  const items = shortList(prefs.limitations, 10, 40).map(humanize);
+  const items = shortList(prefs.limitations, LIMITATION_OPTIONS.length + MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH).map(humanize);
   if (items.length) return items.join(", ");
   return cleanText(prefs.training_limitations ?? prefs.injuries, 200);
 }
