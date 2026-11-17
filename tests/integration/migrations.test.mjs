@@ -22,11 +22,25 @@
 //     after the second;
 //   * production must end exactly like the fresh database, reference rows included, apart from the leftovers
 //     of production's hand-applied changes (PRODUCTION_LEFTOVERS), which nothing in the app, Admin or the
-//     scripts uses and no pending migration changes;
-//   * on production, the runbook's own queries (Start, Before, Check, Final, Undo, Record and History, read
-//     from the runbook itself) give what it says to expect;
-//   * with the food parts last, every other pending migration applies without them, food search keeps
-//     answering meanwhile, and the end is exactly production's with every file in version order.
+//     scripts uses and no pending migration changes. Columns are compared by name, not by position: in the six
+//     tables experience 2.0 added columns to (exercise_library, custom_foods, workout_sessions, workout_sets,
+//     workout_plan_exercises, workout_session_exercises), production has those before the ones the pending
+//     migrations add. Nothing depends on that order (every insert names its columns, the app selects named
+//     columns); keep it so: nothing may write those tables by position (`insert ... select *`, a row without
+//     column names, `create table ... as table` restored positionally);
+//   * on production, the runbook's own queries, read from the runbook itself, as the session runs them: every
+//     Start, Before, Check, Smoke and Final query, the Records and History 0 and 2, each at the moment the
+//     runbook gives it, must give what its Expect line says, or what RUNBOOK_PINNED holds where that line is
+//     prose or this copy differs for a stated reason (runbookNotRun lists the few this copy cannot run). Start 10
+//     and the Before queries for #1 and #2 must also catch what production may have saved since its copy was
+//     made, and #2 must then stop. With the optional Backup made before #12, section 5 is run at the end: every
+//     Undo block, newest first, each with the history delete it asks for. The history must then hold production's
+//     17 rows and those of the files section 5 keeps; the exercise catalogue, and the fields and rules production
+//     shares with experience 2.0, must be as before #1, #18's barcode check aside, with no workout left paused. The
+//     undo of #18 must stop while a member has one barcode on two foods, until the runbook's fix has run;
+//   * with the food parts last, every other pending migration applies without them, the final checks give the
+//     same results right after #36, food search keeps answering meanwhile, and the end is exactly production's
+//     with every file in version order.
 // The first migration that fails stops the run: later ones may depend on it, so they are not applied
 // and the checks that need the whole schema are skipped with the reason.
 // Skipped when the PostgreSQL server binaries (initdb, pg_ctl, psql) are not on PATH.
@@ -36,6 +50,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { LocalPostgres, MIGRATIONS_DIR, SUPABASE_STUB, available, requiresPgCron } from "../support/local-postgres.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -221,12 +236,14 @@ const PRODUCTION_LEFTOVERS = [
 /** Where the app, Admin and the scripts live (node_modules and build output left out). */
 const APP_SOURCES = ["src", "admin/src", "admin/scripts", "scripts"];
 
-// Everything a migration can change, keyed by object, so two snapshots can be compared.
+// Everything a migration can change, keyed by object, so two snapshots can be compared. Columns are keyed by
+// name, so their order is not compared (see the header). fitx_backup is left out: it holds the runbook's optional
+// copy made before #12 ("Backup 20261118130010"), which the owner makes and no migration does.
 const SNAPSHOT = `
 with
 schemas as (
   select oid, nspname from pg_namespace
-  where nspname not in ('pg_catalog', 'information_schema') and nspname !~ '^pg_(toast|temp_)'
+  where nspname not in ('pg_catalog', 'information_schema', 'fitx_backup') and nspname !~ '^pg_(toast|temp_)'
 ),
 extension_members as (select objid from pg_depend where deptype = 'e'),
 rels as (
@@ -419,18 +436,19 @@ function compareEnds(first, second) {
 const indent = (text) => `    ${text.replaceAll("\n", "\n    ")}`;
 
 /**
- * Applies the migrations in order, each in one transaction, stopping at the first failure; `afterEach` runs
- * after each file that applied. Each file's entry says whether it applied (with the notices it printed), was
- * skipped (needs pg_cron) or failed.
+ * Applies the migrations in order, each in one transaction, stopping at the first failure; `beforeFile` runs
+ * right before each file that is applied, and `afterFile` right after each file that applied. Each file's entry says
+ * whether it applied (with the notices it printed), was skipped (needs pg_cron) or failed.
  * @returns {{ status: Map<string, { first: { ok?: boolean, skipped?: string, error?: string, notices?: string[] }, second?: { ok: boolean, error: string | null, moved: string[], restored: string[] } }>, failure: { name: string, error: string } | null }}
  */
-function applyInOrder(pg, names, cronUsable, afterEach = () => {}) {
+function applyInOrder(pg, names, cronUsable, { beforeFile = () => {}, afterFile = () => {} } = {}) {
   const status = new Map();
   for (const name of names) {
     if (!cronUsable && CRON_MIGRATIONS.includes(name)) {
       status.set(name, { first: { skipped: NO_CRON } });
       continue;
     }
+    beforeFile(name);
     const result = pg.runFile(path.join(MIGRATIONS_DIR, name), { singleTransaction: true });
     if (!result.ok) {
       const failure = { name, error: errorText(result.stderr) };
@@ -438,56 +456,195 @@ function applyInOrder(pg, names, cronUsable, afterEach = () => {}) {
       return { status, failure };
     }
     status.set(name, { first: { ok: true, notices: skippedNotices(result.stderr) } });
-    afterEach(name);
+    afterFile(name);
   }
   return { status, failure: null };
 }
 
-/** The runbook's SQL block whose first line starts "-- <label>", up to its closing fence. */
-function runbookSql(label) {
-  const runbook = readFileSync(RUNBOOK, "utf8");
-  const start = runbook.indexOf(`\`\`\`sql\n-- ${label}`);
-  if (start === -1) throw new Error(`docs/runbooks/platform-database.md has no SQL block that starts "-- ${label}"`);
-  const body = runbook.slice(start + "```sql\n".length);
-  return body.slice(0, body.indexOf("\n```"));
+// The runbook's SQL blocks whose first line is "-- <label>", in order. `key` is how the runbook names a block
+// ("Start 10", "Before 20261115110000", "Check 20261118140010 to 20261118140014", "Before undo 20261118140001"),
+// `id` tells apart blocks that share a key ("Before 20261118120001 (2)"), and `expect` is what its Expect line says
+// (after a note in brackets such as "Expect (as on 2026-11-17): ...").
+const RUNBOOK_BLOCKS = (() => {
+  const seen = {};
+  return [...readFileSync(RUNBOOK, "utf8").matchAll(/^```sql\n-- ([^\n]+)\n([^]*?)^```$/gm)].map(([, label, body]) => {
+    const key = label.match(/^[A-Z][a-z]+(?: [a-z]+)* (?:\d{14}(?: to \d{14})?|\d+)\b/)?.[0] ?? label;
+    seen[key] = (seen[key] ?? 0) + 1;
+    return { key, id: seen[key] === 1 ? key : `${key} (${seen[key]})`, expect: label.match(/\b[Ee]xpect(?: \([^)]*\))?:? (.+)$/)?.[1] ?? null, sql: `-- ${label}\n${body}`.trim() };
+  });
+})();
+
+/** The runbook's SQL block with that id. */
+function blockOf(id) {
+  const block = RUNBOOK_BLOCKS.find((candidate) => candidate.id === id);
+  if (!block) throw new Error(`docs/runbooks/platform-database.md has no SQL block that starts "-- ${id}"`);
+  return block;
 }
 
-/** Runs one of the runbook's read-only queries as the session would; returns its rows as objects. */
-function runbookRows(pg, label) {
-  return pg.json(`select coalesce(jsonb_agg(q), '[]')::text from (\n${runbookSql(label).trim().replace(/;$/, "")}\n) q;`);
+/** The blocks whose result the session compares with an Expect line: the ones that only read, and the Records. */
+const SHOWS_A_RESULT = /^(Start|Before|Before undo|Check|Smoke|Later|Final|Record) |^History [02]$/;
+
+/** A block's statements without its own begin and commit, to run inside a larger transaction. */
+const statementsOf = (id) => blockOf(id).sql.replace(/^(begin|commit);$/gm, "");
+
+/** A block's query as a subquery giving its rows as a json array, in column order. */
+const rowsOf = (id) => `(select coalesce(json_agg(q), '[]') from (\n${blockOf(id).sql.replace(/;\s*$/, "")}\n) q)`;
+
+/** The json values a script printed, one per line (json_agg's own line breaks taken out by the script). */
+const printed = (stdout) => stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+
+/**
+ * Runs one of the runbook's single-statement blocks as the session would (a Record, which writes, through a
+ * data-modifying CTE): `{ rows }`, each row an object in the query's column order, or `{ error }`.
+ */
+function runbookQuery(pg, block) {
+  const result = pg.run(`with q as (\n${block.sql.replace(/;\s*$/, "")}\n)\nselect translate(coalesce(json_agg(q), '[]')::text, chr(10), ' ') from q;`);
+  return result.ok ? { rows: printed(result.stdout).pop() } : { error: errorText(result.stderr) };
+}
+
+/** Whether rows are what an Expect line writes out: one row's values joined by ", " (t and f for booleans), or "no rows". */
+function saysExactly(expect, rows) {
+  if (expect === null || rows.length > 1) return false;
+  if (rows.length === 0) return expect === "no rows";
+  const value = (v) => (v === true ? "t" : v === false ? "f" : v !== null && typeof v === "object" ? JSON.stringify(v) : String(v));
+  const text = Object.values(rows[0]).map(value).join(", ");
+  return [text, `one row, ${text}`, `one row: ${text}`].includes(expect);
 }
 
 /** A history row as Start 1 and History 2 list it, for a migration file's name. */
 const historyRow = (name) => ({ version: name.slice(0, 14), name: name.slice(15, -".sql".length) });
+const PRODUCTION_ROWS = PRODUCTION_HISTORY.map(([version, name]) => ({ version, name }));
+const byVersion = (rows) => [...rows].sort((a, b) => a.version.localeCompare(b.version));
+/** The files section 5 leaves in the history: #8, #9 and #29 to #31 have no undo SQL, and #15's and #20 to #24's undo only hide rows. */
+const KEPT_BY_SECTION_5 = [8, 9, 15, 20, 21, 22, 23, 24, 29, 30, 31];
+/** Start 2's list: each pending file and the object that shows it is in. */
+const START_2_LIST = [...blockOf("Start 2").sql.matchAll(/\('(\d{14})', '[a-z]+', '([^']+)'\)/g)].map(([, file, object]) => ({ file, object }));
+
+// What the runbook's queries give on production's copy where their Expect line does not write the result out (prose,
+// several rows, a choice), or where this copy differs for the reason given. Per block id, one entry per time the query
+// runs, in order: the rows, or a function of (rows, { cron, cronAvailable }) giving what the rows must be. Every other
+// query must give exactly what its Expect line says. The copy has no member rows, so counts of them are 0.
+const RUNBOOK_PINNED = {
+  "Start 1": [PRODUCTION_ROWS, (rows, { cron }) =>
+    // After section 5; #27's undo needs pg_cron, so without it its file keeps its row.
+    byVersion([...PRODUCTION_ROWS, ...[...KEPT_BY_SECTION_5, ...(cron ? [] : [27])].map((number) => historyRow(PENDING[number - 1]))])],
+  "Start 2": [
+    [{ file: "20261115110000", object: "workout_sets.duration_seconds" }, { file: "20261118180000", object: "fitx_admin_members" }],
+    START_2_LIST,
+  ],
+  // The local cluster's postgres is a superuser; production's is not.
+  "Start 3": [[{ applying_role: "postgres", rolsuper: true, rolbypassrls: true, owner_of_existing_tables: "postgres" }]],
+  // pg_cron is listed where it is installed; pg_trgm is listed, and here it is not installed before #17.
+  "Start 5": [(rows, { cronAvailable }) => [
+    ...(cronAvailable ? [rows.find((row) => row.name === "pg_cron")] : []),
+    { ...rows.find((row) => row.name === "pg_trgm"), installed_version: null, installed_in: null },
+  ]],
+  "Start 6": [[{ search_path: '"$user", public, extensions' }]],
+  // Statistics lag behind writes, so the counts (and the order of tables with equal counts) vary from run to run.
+  "Start 7": [(rows) => (rows.length > 0 && rows.length <= 10 && rows.every((row) => typeof row.table_name === "string" && Number.isInteger(row.rows))
+    ? rows : "up to ten public tables, each with its number of rows")],
+  "Start 8": [[
+    { column_name: "version", data_type: "text", is_nullable: "NO" }, { column_name: "statements", data_type: "ARRAY", is_nullable: "YES" },
+    { column_name: "name", data_type: "text", is_nullable: "YES" }, { column_name: "created_by", data_type: "text", is_nullable: "YES" },
+    { column_name: "idempotency_key", data_type: "text", is_nullable: "YES" }, { column_name: "rollback", data_type: "ARRAY", is_nullable: "YES" },
+  ]],
+  "Before 20261115100000": [[]],
+  "Before 20261117090000": [[{ accounts: 0 }]],
+  "Check 20261117090000": [[{ accounts: 0, film_not_started: 0 }]],
+  "Before 20261118110000": [[{ diets_to_fill: 0, food_rules_to_fill: 0 }]],
+  "Check 20261118110000": [[{
+    new_columns: 9, goal_rules: 1, new_goals_allowed: true, repair_runs_as_owner: true, repair_settings: 'search_path=""',
+    members_can_repair: true, visitors_can_repair: false, diets_filled: 0, food_rules_filled: 0,
+  }]],
+  "Before 20261118120000": [[{ planner_items: 0, unknown_time_zones: 0, long_descriptions: 0 }]],
+  "Before 20261118120001": [[{ totals_that_change: 0 }]],
+  "Before 20261118120001 (2)": [[]],
+  "Before 20261118130010": [[{ plan_rows: 0, history_rows: 0, record_rows: 0 }]],
+  "Before 20261118130050": [[{ members: 0, workouts_to_close: 0 }]],
+  "Check 20261118140000": [[{ pg_trgm_schema: "extensions", tables_with_row_security: 2, fuzzy_index: true, visitors_read: false, members_read: true, members_write: false }]],
+  "Check 20261118140010 to 20261118140014": [[595, 627], [1012, 1812], [1437, 2984], [1872, 4100], [2302, 4929]].map(([foods, portions]) => [{ foods, portions }]),
+  "Smoke 20261118140014": [[{ kind: "catalog", id: "2708346", name: "Idli" }]],
+  "Check 20261118180000": [[{
+    team_row_security_forced: true, audit_row_security_forced: true, server_reads_team: true, members_read_audit: false,
+    admin_functions: 3, owner_bypasses_row_security: true, team_members: 0, links_to_accounts: 0,
+  }]],
+  "Check 20261118180001": [[{
+    role_rule: "CHECK ((role = ANY (ARRAY['super_admin'::text, 'admin'::text, 'support_agent'::text, 'content_editor'::text, 'viewer'::text])))",
+    role_rules: 1, set_member_checks_roles: true, functions: 5, members_can_call: false,
+  }]],
+  "Check 20261118180003": [["fitx_admin_daily_trends", "fitx_admin_metrics"].map((proname) => ({ proname, runs_as_owner: true, members_can_call: false, server_can_call: true }))],
+  "Check 20261118180004": [["fitx_admin_revoke_user_sessions", "fitx_admin_search_users"].map((proname) => (
+    { proname, runs_as_owner: true, members_can_call: false, server_can_call: true, owner_can_end_sessions: true }))],
+  "Check 20261118200000": [[
+    ["2644289", "Beans, kidney, dark red, canned, sodium added, sugar added, drained and rinsed"],
+    ["2644290", "Beans, kidney, light red, canned, sodium added, sugar added, drained and rinsed"],
+    ["2707379", "Kidney beans, NFS"], ["2707380", "Kidney beans, from dried, fat added"],
+    ["2707381", "Kidney beans, from dried, no added fat"], ["2707382", "Kidney beans, from canned, fat added"],
+  ].map(([id, name]) => ({ id, name, has_rajma: true }))],
+  "Final 2": [["ai_coach_limits", "ai_coach_usage_events", "billing_provider_events", "billing_reconciliation_runs", "fitx_admin_audit_logs", "fitx_rate_limits"]
+    .map((relname) => ({ relname }))],
+  "History 2": [byVersion([...PRODUCTION_ROWS, ...PENDING.map(historyRow)])],
+};
+
+// Queries the runbook has that production's copy cannot run, and why.
+const runbookNotRun = ({ cron }) => ({
+  "Later 20261118160001": "it reads the clean-up job's runs on the day after #27",
+  ...(cron ? {} : { "Before 20261118160001": NO_CRON, "Check 20261118160001": NO_CRON }),
+});
 
 /**
  * Production's migration history, then what applying the 37 files and the runbook's section 6.3 do to it: the
  * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
- * Record queries, then History 0 to 2. Returns what Start 1 and History 0 and 2 listed, and whether History 1 ran.
+ * Record queries, then History 0 to 2. Start 1 and Start 8 read production's 17 rows first. `ask` runs a runbook
+ * query and keeps its result; returns whether History 1 ran.
  */
-function historyAsTheRunbookLeavesIt(pg) {
+function historyAsTheRunbookLeavesIt(pg, ask) {
   pg.exec(`
 create schema supabase_migrations;
 create table supabase_migrations.schema_migrations (
   version text primary key, statements text[], name text, created_by text, idempotency_key text, rollback text[]);
 insert into supabase_migrations.schema_migrations (version, name) values
   ${PRODUCTION_HISTORY.map(([version, name]) => `('${version}', '${name}')`).join(",\n  ")};`);
-  const start1 = runbookRows(pg, "Start 1:");
+  ask(blockOf("Start 1"), "before #1");
+  ask(blockOf("Start 8"), "before #1");
   const inSqlEditor = (name) => name.startsWith("20261118130010_") || FOOD_PARTS.includes(name);
   PENDING.forEach((name, index) => {
     const { version, name: shortName } = historyRow(name);
     // The apply day's clock, a minute per file from 10:00 UTC: never one of the files' own numbers.
     const appliedAt = `2026111910${String(index).padStart(2, "0")}00`;
-    if (inSqlEditor(name)) pg.exec(runbookSql(`Record ${version} (writes`));
+    if (inSqlEditor(name)) ask(blockOf(`Record ${version}`), `after #${index + 1}`);
     else pg.exec(`insert into supabase_migrations.schema_migrations (version, name) values ('${appliedAt}', '${shortName}');`);
   });
-  const history0 = runbookRows(pg, "History 0:");
-  const history1 = pg.run(runbookSql("History 1 (writes, once)"));
-  return { start1, history0, history1: history1.ok ? "applied" : errorText(history1.stderr), history2: runbookRows(pg, "History 2:") };
+  ask(blockOf("History 0"), "after #37");
+  const history1 = pg.run(blockOf("History 1").sql);
+  ask(blockOf("History 2"), "after History 1");
+  return history1.ok ? "applied" : errorText(history1.stderr);
 }
 
-// The runbook's undo for #19, #18, #2 and #1, in that order, on production, rolled back: what is left of the
-// fields and rules those files and experience 2.0 share.
+// What production may have saved after its copy was made (2026-11-17) and the runbook's queries on the day must catch,
+// rolled back: a workout paused the way experience 2.0 pauses (paused_at and its paused total), with a set of 0
+// seconds, which #2's range check refuses. Start 10 and the Before queries for #1 and #2 run on it, then #2 itself.
+const DAY_OF_MEMBER = "d0000000-0000-4000-8000-0000000000d1";
+const DAY_OF_WORKOUT = "d0000000-0000-4000-8000-0000000000d2";
+function whatTheDayOfQueriesCatch(pg) {
+  const result = pg.run(`
+begin;
+insert into auth.users (id, email) values ('${DAY_OF_MEMBER}', 'day-of@example.test');
+insert into public.workout_sessions (id, user_id, name, started_at, paused_at, paused_duration_seconds)
+  values ('${DAY_OF_WORKOUT}', '${DAY_OF_MEMBER}', 'Paused as experience 2.0 does', now() - interval '40 minutes', now() - interval '10 minutes', 300);
+insert into public.workout_session_exercises (id, user_id, session_id, exercise_name, sort_order)
+  values ('d0000000-0000-4000-8000-0000000000d3', '${DAY_OF_MEMBER}', '${DAY_OF_WORKOUT}', 'Plank', 0);
+insert into public.workout_sets (user_id, session_exercise_id, set_number, duration_seconds)
+  values ('${DAY_OF_MEMBER}', 'd0000000-0000-4000-8000-0000000000d3', 1, 0);
+select translate(json_build_object('Start 10', ${rowsOf("Start 10")}, 'Before 20261115100000', ${rowsOf("Before 20261115100000")},
+  'Before 20261115110000', ${rowsOf("Before 20261115110000")})::text, chr(10), ' ');
+\\i '${path.join(MIGRATIONS_DIR, PENDING[1])}'
+rollback;`);
+  return { rows: printed(result.stdout)[0] ?? null, second: result.ok ? "applied" : errorText(result.stderr) };
+}
+
+// The fields and rules production's experience 2.0 shares with #1, #2 and #18 (with what #18 and #19 add beside
+// them), and the member rows the undo must handle: paused workouts and foods with a barcode.
 const SHARED_WITH_EXPERIENCE_2 = {
   columns: [
     "custom_foods.archived_at", "custom_foods.barcode", "custom_foods.origin", "custom_foods.value_basis",
@@ -497,12 +654,12 @@ const SHARED_WITH_EXPERIENCE_2 = {
     "workout_sets.duration_seconds",
   ],
   rules: [
-    "custom_foods_barcode_check", "workout_plan_exercises_target_duration_seconds_check", "workout_plan_exercises_target_weight_kg_check",
-    "workout_plan_exercises_targets_nonnegative", "workout_session_exercises_target_duration_seconds_check",
-    "workout_session_exercises_target_weight_kg_check", "workout_session_exercises_targets_nonnegative",
-    "workout_sets_duration_seconds_check", "workout_sets_time_distance_nonnegative",
+    "custom_foods_barcode_check", "custom_foods_barcode_format_check", "workout_plan_exercises_target_duration_seconds_check",
+    "workout_plan_exercises_target_weight_kg_check", "workout_plan_exercises_targets_nonnegative",
+    "workout_session_exercises_target_duration_seconds_check", "workout_session_exercises_target_weight_kg_check",
+    "workout_session_exercises_targets_nonnegative", "workout_sets_duration_seconds_check", "workout_sets_time_distance_nonnegative",
   ],
-  relations: ["custom_foods_user_barcode_idx", "meal_template_items", "meal_templates", "nutrition_targets"],
+  relations: ["custom_foods_user_barcode_idx", "custom_foods_user_barcode_unique", "meal_template_items", "meal_templates", "nutrition_targets"],
 };
 const list = (names) => names.map((name) => `'${name}'`).join(", ");
 const SHARED_NOW = `
@@ -513,14 +670,72 @@ select jsonb_build_object(
             where connamespace = 'public'::regnamespace and conname in (${list(SHARED_WITH_EXPERIENCE_2.rules)})),
   'relations', (select coalesce(jsonb_agg(relname order by relname), '[]') from pg_class
                 where relnamespace = 'public'::regnamespace and relname in (${list(SHARED_WITH_EXPERIENCE_2.relations)})),
-  'search_foods', to_regprocedure('public.search_foods(text,text[],integer)') is not null
-)::text`;
-const undo = (version) => runbookSql(`Undo ${version} (writes`).replace(/^(begin|commit);$/gm, "");
-const UNDO_ON_PRODUCTION = `
+  'search_foods', to_regprocedure('public.search_foods(text,text[],integer)') is not null,
+  'paused_workouts', (select count(*) from public.workout_sessions where paused_at is not null),
+  'foods_with_a_barcode', (select count(*) from public.custom_foods where barcode is not null)
+)::text;`;
+
+// A member as the new app leaves them before section 5's undo: a workout paused through #1's fields, and a food with a
+// barcode. The undo must leave no workout paused (applied again, #1 would read it as paused with no time) and keep the
+// barcode.
+const UNDO_MEMBER = "a5000000-0000-4000-8000-0000000000a5";
+const MEMBER_BEFORE_THE_UNDO = `
+insert into auth.users (id, email) values ('${UNDO_MEMBER}', 'undo@example.test');
+insert into public.workout_sessions (user_id, name, active_duration_seconds, paused_at, resumed_at)
+  values ('${UNDO_MEMBER}', 'Paused in the new app', 2701, now(), null);
+insert into public.custom_foods (user_id, name, barcode) values ('${UNDO_MEMBER}', 'Parle-G', '8901063011366');`;
+
+/** Section 5's history step for a file: the delete the runbook gives, with the file's name in its placeholder. */
+const HISTORY_DELETE = readFileSync(RUNBOOK, "utf8").match(/`(delete from supabase_migrations\.schema_migrations where name = '<the file name without number>'[^`]*)`/)?.[1];
+/** Undo blocks that keep their file's history row (section 5): their undo only hides rows. */
+const KEEPS_HISTORY_ROW = ["Undo 20261118130040", "Undo 20261118140010 to 20261118140014"];
+const CRON_VERSIONS = CRON_MIGRATIONS.map((name) => name.slice(0, 14));
+
+/**
+ * Section 5 on production's copy, last, as the owner would run it: every Undo block as the runbook lists them,
+ * newest first, each followed by the history delete it asks for, and each Before undo query where it stands. The
+ * fix before an undo is left out: it runs only when its Before undo query is not 0. Returns each Undo block's outcome.
+ */
+function undoEverything(pg, ask, cronUsable) {
+  const outcomes = [];
+  for (const block of RUNBOOK_BLOCKS) {
+    if (block.key.startsWith("Before undo ")) ask(block, "section 5");
+    if (!block.key.startsWith("Undo ")) continue;
+    const version = block.key.slice("Undo ".length);
+    if (!cronUsable && CRON_VERSIONS.includes(version)) {
+      outcomes.push({ id: block.id, skipped: NO_CRON });
+      continue;
+    }
+    const result = pg.run(block.sql);
+    const outcome = { id: block.id, error: result.ok ? null : errorText(result.stderr), historyError: null };
+    if (result.ok && !KEEPS_HISTORY_ROW.includes(block.key)) {
+      const removed = pg.run(HISTORY_DELETE.replace("<the file name without number>", historyRow(PENDING.find((name) => name.startsWith(version))).name));
+      if (!removed.ok) outcome.historyError = errorText(removed.stderr);
+    }
+    outcomes.push(outcome);
+  }
+  return outcomes;
+}
+
+// A member whose archived food has the barcode of another of their foods, which #18 allows and experience 2.0's rule
+// does not. The undo of #19 and #18 runs on it, with or without the runbook's fix first; rolled back.
+const BARCODE_MEMBER = "b0000000-0000-4000-8000-0000000000b1";
+function undoWithOneBarcodeOnTwoFoods(pg, { fix }) {
+  const result = pg.run(`
 begin;
-${["20261118140002", "20261118140001", "20261115110000", "20261115100000"].map(undo).join("\n")}
-${SHARED_NOW};
-rollback;`;
+insert into auth.users (id, email) values ('${BARCODE_MEMBER}', 'barcodes@example.test');
+insert into public.custom_foods (id, user_id, name, barcode, archived_at) values
+  ('b0000000-0000-4000-8000-0000000000f1', '${BARCODE_MEMBER}', 'Parle-G, the old pack', '8901063011366', now()),
+  ('b0000000-0000-4000-8000-0000000000f2', '${BARCODE_MEMBER}', 'Parle-G', '8901063011366', null);
+select translate(${rowsOf("Before undo 20261118140001")}::text, chr(10), ' ');
+${fix ? `${statementsOf("Fix before undo 20261118140001")}\nselect translate(${rowsOf("Before undo 20261118140001")}::text, chr(10), ' ');` : ""}
+${statementsOf("Undo 20261118140002")}
+${statementsOf("Undo 20261118140001")}
+select json_build_object('barcodes', (select json_agg(barcode order by id) from public.custom_foods where user_id = '${BARCODE_MEMBER}'),
+  'one_food_per_barcode', to_regclass('public.custom_foods_user_barcode_unique') is not null)::text;
+rollback;`);
+  return { printed: printed(result.stdout), error: result.ok ? null : errorText(result.stderr) };
+}
 
 /**
  * Applies every migration that applied the first time again, in order. Each one is judged by what it moves
@@ -645,8 +860,13 @@ function appSourceFiles() {
   return files;
 }
 
-/** Each database's end, right after every migration's first run and before anything else touched it. */
-const ends = { fresh: null, production: null };
+/**
+ * Each database's end, right after every migration's first run and before anything else touched it; and what the
+ * final checks (section 6.1) gave on production then.
+ */
+const ends = { fresh: null, production: null, sixOne: null };
+/** Section 6.1: Final 1 to 3, then Start 2 again. */
+const SIX_ONE = ["Final 1", "Final 2", "Final 3", "Start 2"];
 
 /** An account that signs up after the migrations were applied, before they are applied again. */
 const LATER_MEMBER = "c0000000-0000-4000-8000-000000000001";
@@ -824,34 +1044,80 @@ describe("every pending migration on a copy of production's database", { skip },
   let rowsAsFresh = null;
   /** Production before the first pending migration. */
   let today = null;
-  /** What the runbook's own queries give on production: before #1, right after the files they check, at the end. */
-  const runbook = { today: null, checks: {}, end: null, shared: null, undone: null, history: null };
-  /** The files whose summaries and Checks the runbook gives a production-only part (section 1.8). */
-  const CHECKED = ["20261115100000", "20261115110000", "20261118140001", "20261118180000", "20261118180002"];
+  /** What the runbook's queries and steps give on production's copy (see `before`). */
+  const runbook = {
+    /** Per block id, each time the query ran: when, and its rows or error. */
+    results: new Map(),
+    context: { cron: false, cronAvailable: false },
+    dayOf: null,
+    backup: null,
+    history1: null,
+    /** SHARED_NOW before #1, after the 37 files and their second run, with a member's rows, after section 5. */
+    shared: {},
+    /** The exercise catalogue's rows before #1 and after section 5. */
+    catalogue: {},
+    barcodes: {},
+    undo: [],
+  };
   const notChecked = () => run.failure && `not checked: ${run.failure.name} failed on the first run`;
 
   before(() => {
     pg = new LocalPostgres().start();
     buildProductionToday(pg);
     today = pg.json(SNAPSHOT);
-    runbook.today = Object.fromEntries(["Start 2:", "Start 9:", "Start 10:", "Before 20261115110000:"].map((label) => [label, runbookRows(pg, label)]));
-    run = applyInOrder(pg, PENDING, pg.pgCronUsable(), (name) => {
-      const version = name.slice(0, 14);
-      if (CHECKED.includes(version)) runbook.checks[version] = runbookRows(pg, `Check ${version}:`);
+    const cron = pg.pgCronUsable();
+    /** Runs a runbook query and keeps its result under the block's id, with when it ran. */
+    const ask = (block, at) => {
+      const result = runbookQuery(pg, block);
+      runbook.results.set(block.id, [...(runbook.results.get(block.id) ?? []), { at, ...result }]);
+      return result;
+    };
+    const number = (name) => `#${PENDING.indexOf(name) + 1}`;
+    const catalogue = { "public.exercise_library": Object.keys(today.column).filter((key) => key.startsWith("public.exercise_library.")).map((key) => key.split(".")[2]) };
+    runbook.shared.today = pg.json(SHARED_NOW);
+    runbook.catalogue.today = rowDigests(pg, catalogue);
+    // Section 1 on the day: the Start queries (Start 1 and 8 read the history table, which this copy only gets
+    // with the history steps below), and what they and the Before queries for #1 and #2 catch, rolled back.
+    for (const block of RUNBOOK_BLOCKS) if (/^Start \d+$/.test(block.key) && !["Start 1", "Start 8"].includes(block.key)) ask(block, "before #1");
+    runbook.dayOf = whatTheDayOfQueriesCatch(pg);
+    // Each file with its Before queries first and its Checks and Smoke after; the optional backup copy before #12.
+    run = applyInOrder(pg, PENDING, cron, {
+      beforeFile: (name) => {
+        for (const block of RUNBOOK_BLOCKS) if (block.key === `Before ${name.slice(0, 14)}`) ask(block, `before ${number(name)}`);
+        if (name.startsWith("20261118130010_")) runbook.backup = pg.run(blockOf("Backup 20261118130010").sql);
+      },
+      afterFile: (name) => {
+        const version = name.slice(0, 14);
+        for (const block of RUNBOOK_BLOCKS) {
+          const range = block.key.match(/^Check (\d{14}) to (\d{14})$/);
+          if (block.key === `Check ${version}` || block.key === `Smoke ${version}` || (range && range[1] <= version && version <= range[2])) {
+            ask(block, `after ${number(name)}`);
+          }
+        }
+      },
     });
+    runbook.context = { cron, cronAvailable: pg.json("select to_json(exists (select 1 from pg_available_extensions where name = 'pg_cron'))::text;") };
     if (run.failure) return;
     rls = pg.json(RLS);
     const snapshot = pg.json(SNAPSHOT);
     const columns = stableColumns(snapshot);
     ends.production = { snapshot, columns, rows: rowDigests(pg, columns) };
     if (ends.fresh) rowsAsFresh = rowDigests(pg, ends.fresh.columns);
-    runbook.end = Object.fromEntries(["Start 2:", "Final 3:"].map((label) => [label, runbookRows(pg, label)]));
+    // Section 6.1 after the last file, kept for the food-last run to compare with.
+    ends.sixOne = Object.fromEntries(SIX_ONE.map((id) => [id, ask(blockOf(id), "after #37")]));
     // Second run: every pending migration again, in order. The September migrations and the hand-applied
     // changes are in production's history, so nothing runs them again.
     stillDiffers = applyAgain(pg, run.status, snapshot);
-    runbook.shared = pg.json(`${SHARED_NOW};`);
-    runbook.undone = pg.json(UNDO_ON_PRODUCTION);
-    runbook.history = historyAsTheRunbookLeavesIt(pg);
+    runbook.shared.end = pg.json(SHARED_NOW);
+    runbook.history1 = historyAsTheRunbookLeavesIt(pg, ask);
+    runbook.barcodes = { withoutFix: undoWithOneBarcodeOnTwoFoods(pg, { fix: false }), withFix: undoWithOneBarcodeOnTwoFoods(pg, { fix: true }) };
+    // Section 5, last: a member's paused workout and barcode food, then every undo, then the history and catalogue.
+    pg.exec(MEMBER_BEFORE_THE_UNDO);
+    runbook.shared.member = pg.json(SHARED_NOW);
+    runbook.undo = undoEverything(pg, ask, cron);
+    runbook.shared.undone = pg.json(SHARED_NOW);
+    ask(blockOf("Start 1"), "after section 5");
+    runbook.catalogue.undone = rowDigests(pg, catalogue);
   });
 
   after(() => pg?.stop());
@@ -931,67 +1197,106 @@ describe("every pending migration on a copy of production's database", { skip },
     t.diagnostic(`${Object.keys(before).length} leftover objects compared`);
   });
 
-  test("before #1, the runbook's Start queries and #2's Before query give what it expects on production", () => {
-    assert.deepEqual(runbook.today, {
-      "Start 2:": [
-        { file: "20261115110000", object: "workout_sets.duration_seconds" },
-        { file: "20261118180000", object: "fitx_admin_members" },
-      ],
-      "Start 9:": [{ tables: 7, fields: 20, rules: 4, indexes: 2, share_function: 1, admin_functions: 3, audit_log_links_to_accounts: 1 }],
-      "Start 10:": [{ rows_in_the_five_tables: 0, custom_foods_with_a_barcode: 0, admin_team_members: 0, admin_audit_rows: 0 }],
-      "Before 20261115110000:": [{ planned_exercises: 0, live_exercises: 0, sets: 0 }],
-    });
+  test("each runbook query that shows a result gives what the runbook expects, when the runbook runs it", (t) => {
+    if (run.failure) return t.skip(notChecked());
+    const shown = RUNBOOK_BLOCKS.filter((block) => SHOWS_A_RESULT.test(block.key));
+    const notRun = runbookNotRun(runbook.context);
+    const problems = Object.keys(RUNBOOK_PINNED).filter((id) => !shown.some((block) => block.id === id)).map((id) => `RUNBOOK_PINNED has ${id}, which the runbook no longer has`);
+    let compared = 0;
+    for (const block of shown) {
+      const runs = runbook.results.get(block.id) ?? [];
+      if (notRun[block.id]) {
+        if (runs.length) problems.push(`${block.id} ran here: take it out of runbookNotRun`);
+        else t.diagnostic(`not run here: ${block.id}: ${notRun[block.id]}`);
+        continue;
+      }
+      if (!runs.length) problems.push(`${block.id} never ran: run it when the runbook does, or say in runbookNotRun why it cannot run here`);
+      const pinned = RUNBOOK_PINNED[block.id];
+      if (pinned && pinned.length !== runs.length) problems.push(`${block.id} ran ${runs.length} times; RUNBOOK_PINNED holds ${pinned.length} results for it`);
+      runs.forEach(({ at, rows, error }, index) => {
+        compared += 1;
+        if (error) return problems.push(`${block.id} (${at}) failed:\n${indent(error)}`);
+        const want = typeof pinned?.[index] === "function" ? pinned[index](rows, runbook.context) : pinned?.[index];
+        if (want === undefined && !saysExactly(block.expect, rows)) {
+          problems.push(`${block.id} (${at}) gives ${JSON.stringify(rows)}, but its Expect line says ${JSON.stringify(block.expect)}`);
+        } else if (want !== undefined && !isDeepStrictEqual(rows, want)) {
+          problems.push(`${block.id} (${at}) gives ${JSON.stringify(rows)}; RUNBOOK_PINNED holds ${JSON.stringify(want)}`);
+        } else if (want !== undefined && saysExactly(block.expect, rows)) {
+          problems.push(`${block.id} (${at}): its Expect line already says ${JSON.stringify(block.expect)}; take it out of RUNBOOK_PINNED`);
+        }
+      });
+    }
+    t.diagnostic(`${compared} results of ${shown.length} runbook queries compared`);
+    assert.ok(problems.length === 0, problems.join("\n"));
   });
 
-  test("right after each file that meets a hand-applied change, its Check gives what the runbook expects", (t) => {
-    if (run.failure) return t.skip(notChecked());
-    assert.deepEqual(runbook.checks, {
-      "20261115100000": [{ pause_columns: 3 }],
-      "20261115110000": [{ target_columns: 5, target_checks: 5, rules_never_checked: 0 }],
-      "20261118140001": [{
-        new_columns: 8,
-        tables_with_row_security: 3,
-        updated_time_triggers: "custom_foods_touch_updated_at,meals_touch_updated_at",
-        visitors_read: false,
-        barcode_rules: "CHECK (((barcode IS NULL) OR (barcode ~ '^[0-9]{8,14}$'::text)))",
-        barcode_indexes: "custom_foods_user_barcode_idx",
-      }],
-      "20261118180000": [{
-        team_row_security_forced: true, audit_row_security_forced: true, server_reads_team: true, members_read_audit: false,
-        admin_functions: 3, owner_bypasses_row_security: true, team_members: 0, links_to_accounts: 0,
-      }],
-      "20261118180002": [{
-        server_can_change: false, server_can_delete: false, server_can_add: true,
-        guards: "fitx_admin_audit_logs_append_only_rows,fitx_admin_audit_logs_append_only_truncate", links_to_accounts: 0, log_function: true,
-      }],
-    });
-    assert.equal(runbook.end["Start 2:"].length, 28, "after the last file, Start 2 lists all 28 rows");
-    assert.deepEqual(runbook.end["Final 3:"], [{ proname: "get_activity_share", visitors_can_call: true }], "Final 3 lists only experience 2.0's function");
+  test("on the day, Start 10 and the Before queries for #1 and #2 catch what production may have saved since its copy, and #2 stops", () => {
+    const { rows, second } = runbook.dayOf;
+    assert.deepEqual(rows["Start 10"], [{
+      rows_in_the_five_tables: 0, custom_foods_with_a_barcode: 0, admin_team_members: 0, admin_audit_rows: 0,
+      workouts_with_experience_2_pauses: 1, rows_with_distances: 0, custom_foods_with_extra_fields: 0, exercises_with_extra_fields: 0,
+    }], "Start 10 counts the workout paused the way experience 2.0 pauses");
+    assert.deepEqual(rows["Before 20261115100000"].map(({ id, hours_since_start }) => ({ id, hours_since_start })), [{ id: DAY_OF_WORKOUT, hours_since_start: 0.7 }],
+      "#1's Before query lists the open workout and the hours since it was started");
+    assert.deepEqual(rows["Before 20261115110000"], [{ planned_exercises: 0, live_exercises: 0, sets: 1 }], "#2's Before query counts the set of 0 seconds");
+    assert.match(second, /check constraint "workout_sets_duration_seconds_check" of relation "workout_sets" is violated by some row/, "#2 then stops, as section 4 says");
   });
 
-  test("on production, the runbook's undo for #19, #18, #2 and #1 keeps what experience 2.0 made", (t) => {
+  test("section 5 runs every Undo block, newest first, and gives back the catalogue and what production shares with experience 2.0", (t) => {
     if (run.failure) return t.skip(notChecked());
-    assert.deepEqual(runbook.shared, { ...SHARED_WITH_EXPERIENCE_2, search_foods: true }, "after the 37 files");
-    assert.deepEqual(runbook.undone, {
+    assert.ok(runbook.backup?.ok, `Backup 20261118130010 failed before #12: ${runbook.backup && errorText(runbook.backup.stderr)}`);
+    const problems = [];
+    for (const { id, skipped, error, historyError } of runbook.undo) {
+      if (skipped) t.diagnostic(`not run here: ${id}: ${skipped}`);
+      else if (error) problems.push(`${id} failed:\n${indent(error)}`);
+      else if (historyError) problems.push(`${id}: its history delete failed:\n${indent(historyError)}`);
+    }
+    assert.ok(problems.length === 0, problems.join("\n"));
+    t.diagnostic(`${runbook.undo.filter((outcome) => !outcome.skipped).length} Undo blocks run`);
+    assert.deepEqual(runbook.catalogue.undone, runbook.catalogue.today, "with the Backup, the undo of #12 and #11 gives the exercise catalogue back as it was before #1");
+    const { today, end, member, undone } = runbook.shared;
+    const experience2 = {
       columns: [
         "custom_foods.barcode", "workout_plan_exercises.target_duration_seconds", "workout_plan_exercises.target_weight_kg",
         "workout_session_exercises.target_duration_seconds", "workout_session_exercises.target_weight_kg",
         "workout_sessions.paused_at", "workout_sets.duration_seconds",
       ],
-      rules: ["custom_foods_barcode_check", "workout_plan_exercises_targets_nonnegative", "workout_session_exercises_targets_nonnegative", "workout_sets_time_distance_nonnegative"],
-      relations: [],
+      rules: ["custom_foods_barcode_format_check", "workout_plan_exercises_targets_nonnegative", "workout_session_exercises_targets_nonnegative", "workout_sets_time_distance_nonnegative"],
+      relations: ["custom_foods_user_barcode_unique"],
       search_foods: false,
-    }, "the undo removes what the four files added, and leaves experience 2.0's fields and checks (and #18's barcode check)");
+      paused_workouts: 0,
+      foods_with_a_barcode: 0,
+    };
+    assert.deepEqual(today, experience2, "before #1: experience 2.0's fields, its checks and its two barcode rules");
+    assert.deepEqual(end, {
+      columns: SHARED_WITH_EXPERIENCE_2.columns,
+      rules: SHARED_WITH_EXPERIENCE_2.rules.filter((name) => name !== "custom_foods_barcode_format_check"),
+      relations: SHARED_WITH_EXPERIENCE_2.relations.filter((name) => name !== "custom_foods_user_barcode_unique"),
+      search_foods: true,
+      paused_workouts: 0,
+      foods_with_a_barcode: 0,
+    }, "after the 37 files: #18's barcode rules in place of experience 2.0's");
+    assert.deepEqual(member, { ...end, paused_workouts: 1, foods_with_a_barcode: 1 }, "a member has paused a workout and saved a food with a barcode");
+    assert.deepEqual(undone, { ...experience2, rules: ["custom_foods_barcode_check", ...experience2.rules.slice(1)], foods_with_a_barcode: 1 },
+      "after section 5: what experience 2.0 had, its one food per barcode included, #18's barcode check in place of its own, no workout left paused, the member's barcode kept");
   });
 
-  test("the runbook's history steps give every pending file its own number, next to production's 17 rows", (t) => {
+  test("the undo of #18 stops while a member has one barcode on two foods, and goes through after the runbook's fix", (t) => {
     if (run.failure) return t.skip(notChecked());
-    const production = PRODUCTION_HISTORY.map(([version, name]) => ({ version, name }));
-    assert.deepEqual(runbook.history.start1, production, "Start 1 lists production's 17 rows");
-    assert.deepEqual(runbook.history.history0, [], "History 0 finds no file recorded twice");
-    assert.equal(runbook.history.history1, "applied", "History 1 runs");
-    assert.deepEqual(runbook.history.history2, [...production, ...PENDING.map(historyRow)].sort((a, b) => a.version.localeCompare(b.version)),
-      "History 2 lists the 54 rows");
+    const { withoutFix, withFix } = runbook.barcodes;
+    assert.deepEqual(withoutFix.printed, [[{ barcodes_on_two_foods: 1 }]], "its Before undo query finds the barcode");
+    assert.match(withoutFix.error ?? "", /could not create unique index "custom_foods_user_barcode_unique"/, "without the fix the undo stops, in one transaction");
+    assert.equal(withFix.error, null, "with the fix the undo goes through");
+    assert.deepEqual(withFix.printed, [
+      [{ barcodes_on_two_foods: 1 }],
+      [{ barcodes_on_two_foods: 0 }],
+      { barcodes: [null, "8901063011366"], one_food_per_barcode: true },
+    ], "the fix takes the barcode off the archived food only, and experience 2.0's rule comes back");
+  });
+
+  test("History 1 runs once the files are recorded, next to production's 17 rows", (t) => {
+    if (run.failure) return t.skip(notChecked());
+    assert.equal(runbook.history1, "applied", "History 1 gives every pending file its own number (Start 1, History 0 and 2 are compared above)");
   });
 });
 
@@ -1032,6 +1337,8 @@ rollback;`;
   /** @type {ReturnType<typeof applyInOrder>} */
   let last = { status: new Map(), failure: null };
   let meanwhile = null;
+  /** Section 6.1 right after #36, with the food parts and #37 still to come. */
+  let sixOne = null;
   const words = { beforeRajma: null, afterRajma: null };
   let searches = null;
   let end = null;
@@ -1043,6 +1350,7 @@ rollback;`;
     const cronUsable = pg.pgCronUsable();
     earlier = applyInOrder(pg, EARLIER, cronUsable);
     if (earlier.failure) return;
+    sixOne = Object.fromEntries(SIX_ONE.map((id) => [id, runbookQuery(pg, blockOf(id))]));
     meanwhile = pg.json(MEANWHILE);
     last = applyInOrder(pg, FOOD_PARTS, cronUsable);
     if (last.failure) return;
@@ -1055,7 +1363,7 @@ rollback;`;
     }
     words.afterRajma = rajmaWords();
     // The runbook's own search checks, as a made-up member: after #24 and after #37.
-    searches = { smoke: runbookRows(pg, "Smoke 20261118140014:"), rajma: runbookRows(pg, "Check 20261118200000:") };
+    searches = { smoke: runbookQuery(pg, blockOf("Smoke 20261118140014")).rows, rajma: runbookQuery(pg, blockOf("Check 20261118200000")).rows };
     const snapshot = pg.json(SNAPSHOT);
     end = { snapshot, rows: ends.production ? rowDigests(pg, ends.production.columns) : null };
   });
@@ -1065,6 +1373,12 @@ rollback;`;
   test("every other pending migration applies before the food parts, in order, each in one transaction", (t) => {
     assertAllApplied(t, earlier, EARLIER, "A migration that needs the food parts' rows cannot come before them: keep it after them in the runbook.");
     assertAllApplied(t, last, LAST, "The food parts and 20261118200000 must also apply after every other pending migration.");
+  });
+
+  test("with the food parts waiting, the final checks (section 6.1) give right after #36 what they give after #37 in version order", (t) => {
+    if (earlier.failure) return t.skip(`not checked: ${earlier.failure.name} failed`);
+    if (!ends.sixOne) return t.skip("not checked: production's copy did not finish its first run");
+    assert.deepEqual(sixOne, ends.sixOne, "so 6.1 can come before the deploy, as section 2.1 says");
   });
 
   test("meanwhile food search answers with the member's own foods, and the catalogue reads as not loaded", (t) => {
