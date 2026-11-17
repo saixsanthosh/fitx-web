@@ -4,18 +4,22 @@
  *
  * The stored value is `{ version: 1, items: [{ id, visible }] }`. Reading is forgiving: unknown or
  * repeated ids are dropped, widgets released after the layout was saved are added hidden (so Home
- * never changes unasked), and shown widgets always come before hidden ones.
+ * never changes unasked) and reported as `fresh`, so Home can offer them once, and shown widgets always
+ * come before hidden ones. A retired id is read as the widget that replaced it ("workout", Today's
+ * workout, is now "plan", Today's plan, in the same place).
  *
  * No imports, so `node --test` can load this file directly.
  */
 
 export const WIDGETS = {
+  plan: { title: "Today's plan", description: "What to do today: your workout, a rest day or what to plan" },
   today: { title: "Today", description: "Calories and protein against your targets" },
+  next: { title: "Focus next", description: "What your logs suggest working on next" },
+  muscles: { title: "Muscles this week", description: "The muscles your logged sets worked this week" },
   todo: { title: "To-Do", description: "Today's tasks and workouts" },
   goals: { title: "Goals", description: "Your daily, weekly and long-term goals" },
   weight: { title: "Weight", description: "Latest weigh-in and your target" },
   water: { title: "Water", description: "Today's water, with quick add" },
-  workout: { title: "Today's workout", description: "What's planned and what's done" },
   week: { title: "This week", description: "Workouts this week against your plan" },
   macros: { title: "Macros", description: "Protein, carbs and fat against targets" },
 } as const;
@@ -26,8 +30,15 @@ export type StoredLayout = { version: 1; items: LayoutItem[] };
 
 export const LAYOUT_VERSION = 1;
 export const WIDGET_IDS = Object.keys(WIDGETS) as WidgetId[];
-/** Shown on a new account, in this order: the brief's minimal Home. Everything else starts hidden. */
-export const DEFAULT_VISIBLE: readonly WidgetId[] = ["today", "todo", "goals", "weight"];
+/**
+ * Shown on a new account, in this order: what to do today first, then today's food, what to work on next,
+ * this week's muscles, the To-Do list, goals and weight. Everything else starts hidden.
+ */
+export const DEFAULT_VISIBLE: readonly WidgetId[] = ["plan", "today", "next", "muscles", "todo", "goals", "weight"];
+/** Ids an older FITX stored, and the widget that took each one's place. */
+export const RETIRED_IDS: Readonly<Record<string, WidgetId>> = { workout: "plan" };
+/** Widgets that span the whole Home grid. */
+export const WIDE_WIDGETS: ReadonlySet<WidgetId> = new Set<WidgetId>(["plan"]);
 
 export function isWidgetId(value: unknown): value is WidgetId {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(WIDGETS, value);
@@ -45,26 +56,46 @@ function normalize(items: LayoutItem[]): LayoutItem[] {
   return [...items.filter((item) => item.visible), ...items.filter((item) => !item.visible)];
 }
 
-/** Reads a stored layout (or anything else) into a complete, valid arrangement. */
-export function sanitizeLayout(raw: unknown): LayoutItem[] {
+export type ReadLayout = {
+  items: LayoutItem[];
+  /**
+   * Widgets the stored arrangement did not know about (released after it was saved), added hidden. Empty for
+   * a new account (no stored layout): the default arrangement already includes everything worth showing.
+   * A retired id that was hidden does not count as knowing its replacement, so it is offered too.
+   */
+  fresh: WidgetId[];
+};
+
+/** Reads a stored layout (or anything else) into a complete, valid arrangement and the widgets new to it. */
+export function readLayout(raw: unknown): ReadLayout {
   const list = Array.isArray(raw)
     ? raw
     : raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown }).items)
       ? (raw as { items: unknown[] }).items
       : null;
-  if (!list) return defaultLayout();
+  if (!list) return { items: defaultLayout(), fresh: [] };
   const seen = new Set<WidgetId>();
+  const known = new Set<WidgetId>();
   const items: LayoutItem[] = [];
   for (const entry of list) {
-    const id = entry && typeof entry === "object" ? (entry as { id?: unknown }).id : entry;
+    const storedId = entry && typeof entry === "object" ? (entry as { id?: unknown }).id : entry;
+    const retired = typeof storedId === "string" && Object.prototype.hasOwnProperty.call(RETIRED_IDS, storedId);
+    const id = retired ? RETIRED_IDS[storedId as string] : storedId;
     if (!isWidgetId(id) || seen.has(id)) continue;
-    seen.add(id);
     const visible = entry && typeof entry === "object" ? (entry as { visible?: unknown }).visible !== false : true;
+    seen.add(id);
+    // A hidden retired widget never showed its replacement, so the replacement is still new to this member.
+    if (!retired || visible) known.add(id);
     items.push({ id, visible });
   }
-  if (!items.length) return defaultLayout();
+  if (!items.length) return { items: defaultLayout(), fresh: [] };
   for (const id of WIDGET_IDS) if (!seen.has(id)) items.push({ id, visible: false });
-  return normalize(items);
+  return { items: normalize(items), fresh: WIDGET_IDS.filter((id) => !known.has(id) && !items.some((item) => item.id === id && item.visible)) };
+}
+
+/** Reads a stored layout (or anything else) into a complete, valid arrangement. */
+export function sanitizeLayout(raw: unknown): LayoutItem[] {
+  return readLayout(raw).items;
 }
 
 export function serializeLayout(items: LayoutItem[]): StoredLayout {
@@ -90,6 +121,8 @@ export type LayoutAction =
   | { type: "reorder"; order: WidgetId[] }
   /** Show a hidden widget at the end of Home. */
   | { type: "show"; id: WidgetId }
+  /** Show several hidden widgets at once (accepting new widgets): a wide widget goes first, the rest at the end. */
+  | { type: "adopt"; ids: WidgetId[] }
   /** Hide a shown widget. */
   | { type: "hide"; id: WidgetId }
   | { type: "reset" }
@@ -129,6 +162,14 @@ export function layoutReducer(state: LayoutItem[], action: LayoutAction): Layout
       next = [...shown, { id: item.id, visible: true }, ...hidden.filter((entry) => entry !== item)];
       break;
     }
+    case "adopt": {
+      const wanted = hidden.filter((entry) => action.ids.includes(entry.id));
+      if (!wanted.length) break;
+      const lead = wanted.filter((entry) => WIDE_WIDGETS.has(entry.id)).map((entry) => ({ id: entry.id, visible: true }));
+      const tail = wanted.filter((entry) => !WIDE_WIDGETS.has(entry.id)).map((entry) => ({ id: entry.id, visible: true }));
+      next = [...lead, ...shown, ...tail, ...hidden.filter((entry) => !wanted.includes(entry))];
+      break;
+    }
     case "hide": {
       const item = shown.find((entry) => entry.id === action.id);
       if (!item) break;
@@ -151,4 +192,11 @@ export function describePosition(items: LayoutItem[], id: WidgetId): string {
   const index = shown.indexOf(id);
   const name = WIDGETS[id].title;
   return index < 0 ? `${name} is hidden` : `${name}, position ${index + 1} of ${shown.length}`;
+}
+
+/** "Today's plan, Focus next and Muscles this week", for the new-widgets hint. */
+export function widgetNames(ids: readonly WidgetId[]): string {
+  const names = ids.map((id) => WIDGETS[id].title);
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }

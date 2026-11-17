@@ -1,11 +1,5 @@
 .page { min-width: 0; max-width: 1180px; margin: 0 auto; }
-.tabs { display: inline-flex; max-width: 100%; gap: 4px; overflow-x: auto; border: 1px solid var(--fitx-border); border-radius: 14px; background: var(--fitx-surface-variant); padding: 4px; }
-.tab { display: inline-flex; min-height: 44px; flex: 0 0 auto; align-items: center; gap: 8px; border-radius: 10px; padding: 0 18px; color: var(--fitx-text-secondary); font-size: .9rem; font-weight: 650; transition: background-color .16s ease, color .16s ease, box-shadow .16s ease; }
-.tab svg { color: currentColor; }
-.tab:hover { color: var(--fitx-text); }
-.tab[aria-selected="true"] { background: var(--fitx-card-bg); color: var(--fitx-text); box-shadow: 0 1px 2px color-mix(in srgb, var(--fitx-scrim) 10%, transparent), 0 6px 18px color-mix(in srgb, var(--fitx-scrim) 6%, transparent); }
-.tab[aria-selected="true"] svg { color: var(--fitx-primary); }
-.panel { margin-top: 20px; }
+.panel { margin-top: 8px; }
 .loading { height: 320px; border-radius: 16px; background: var(--fitx-surface); }
 
 /* Today */
@@ -106,7 +100,6 @@
 
 @media (max-width: 420px) {
   .fieldRow { grid-template-columns: minmax(0, 1fr); }
-  .tab { padding: 0 14px; }
   .todoPanel, .dailyPanel, .goalCard { padding: 14px; }
 }
-@media (prefers-reduced-motion: reduce) { .tab, .template, .iconNav { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .template, .iconNav { transition: none; } }

@@ -87,6 +87,8 @@ export function GoalCard({ goal, today, schema, actions }: { goal: GoalView; tod
         {goal.metric === "body_weight_kg" && goal.valueAsOf && ` · latest ${shortDate(goal.valueAsOf)}`}
         {goal.metric === "body_weight_kg" && goal.startValue !== null && ` · started at ${goal.startValue.toFixed(1)} kg`}
         {goal.linkedTodos > 0 && ` · ${goal.linkedTodosDone} of ${goal.linkedTodos} linked To-Dos done`}
+        {goal.missingEntries ? ` · ${goal.missingEntries} ${goal.missingEntries === 1 ? "food has" : "foods have"} no ${goal.metric === "protein_g" ? "protein" : "calorie"} value, so ${goal.missingEntries === 1 ? "it isn't" : "they aren't"} counted` : null}
+        {(goal.metric === "activity_distance_km" || goal.metric === "active_minutes") && goal.currentValue === null && (!goal.startsOn || goal.startsOn <= today) && " · your activities couldn't be read just now"}
       </p>
       {goal.notes && <p className={styles.goalNotes}>{goal.notes}</p>}
 

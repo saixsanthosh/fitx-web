@@ -1,13 +1,16 @@
 /**
  * Home data: today's summary (fitx_today_summary, with a browser-side fallback for databases that
- * do not have it yet) and the user's widget layout (user_preferences.dashboard_layout).
+ * do not have it yet), today's food entries checked for unknown and estimated values (contract C11), and
+ * the user's widget layout (user_preferences.dashboard_layout).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadTargets } from "@/lib/food/client-data";
 import { localDateKey } from "@/lib/domain/dates";
 import { addDays, mondayOf } from "@/lib/domain/day-keys";
-import { sanitizeLayout, serializeLayout, type LayoutItem } from "@/lib/domain/dashboard-layout";
+import { readLayout, serializeLayout, type LayoutItem, type WidgetId } from "@/lib/domain/dashboard-layout";
+import { MEAL_VALUE_COLUMNS, mealTotals, type MealTotals, type MealValueRow } from "@/lib/domain/meal-totals";
 import { parseTodaySummary, summaryFromRows, type TodaySummary } from "@/lib/domain/today";
+import { logWeighIn } from "@/lib/domain/user-context";
 import { DataError, isMissingColumnError, isMissingFunctionError, isMissingSchemaError } from "./missing-schema";
 
 export type Db = SupabaseClient;
@@ -27,21 +30,36 @@ function startOfDay(key: string): string {
   return new Date(year, month - 1, day).toISOString();
 }
 
-export type SummaryResult = { summary: TodaySummary; source: "database" | "browser" };
+export type SummaryResult = {
+  summary: TodaySummary;
+  source: "database" | "browser";
+  /**
+   * Today's food entries checked one by one: how many lack each value (left out of the sums, never read as 0)
+   * and how many are estimates. Null when they could not be read; the sums above still stand.
+   */
+  food: MealTotals | null;
+};
+
+/** Today's entries, read whole so unknown values and estimates can be told apart (a day is a few dozen rows). */
+async function loadDayFood(db: Db, userId: string, localDate: string): Promise<MealTotals | null> {
+  const result = await db.from("meals").select(MEAL_VALUE_COLUMNS).eq("user_id", userId).eq("date", localDate).limit(2000);
+  return result.error ? null : mealTotals((result.data ?? []) as MealValueRow[]);
+}
 
 export async function loadTodaySummary(db: Db, userId: string, localDate: string, timeZone = browserTimeZone()): Promise<SummaryResult> {
   // The targets the user set in Nutrition; null when there are none or the table is not there yet.
-  const [rpc, targets] = await Promise.all([
+  const [rpc, targets, food] = await Promise.all([
     db.rpc("fitx_today_summary", { p_local_date: localDate, p_tz: timeZone }),
     loadTargets(db, userId).catch(() => null),
+    loadDayFood(db, userId, localDate).catch(() => null),
   ]);
   if (!rpc.error) {
     const summary = parseTodaySummary(rpc.data);
-    if (summary) return { summary: { ...summary, targets }, source: "database" };
+    if (summary) return { summary: { ...summary, targets }, source: "database", food };
     throw new DataError("Today's summary came back empty.");
   }
   if (!isMissingFunctionError(rpc.error)) throw new DataError("Today's summary could not be loaded.", rpc.error);
-  return { summary: { ...(await summaryInBrowser(db, userId, localDate, timeZone)), targets }, source: "browser" };
+  return { summary: { ...(await summaryInBrowser(db, userId, localDate, timeZone)), targets }, source: "browser", food };
 }
 
 /** Phase 1 databases: the same numbers from individual queries (no row cap on the day's logs). */
@@ -76,16 +94,21 @@ async function summaryInBrowser(db: Db, userId: string, localDate: string, timeZ
   });
 }
 
-export type LayoutResult = { items: LayoutItem[]; canSave: boolean };
+export type LayoutResult = {
+  items: LayoutItem[];
+  canSave: boolean;
+  /** Widgets released after the stored layout was saved (added hidden): Home offers them once. */
+  fresh: WidgetId[];
+};
 
 /** The saved widget layout, the default when none is saved, and whether this database can store one. */
 export async function loadDashboardLayout(db: Db, userId: string): Promise<LayoutResult> {
   const result = await db.from("user_preferences").select("dashboard_layout").eq("user_id", userId).maybeSingle();
   if (result.error) {
-    if (isMissingColumnError(result.error)) return { items: sanitizeLayout(null), canSave: false };
+    if (isMissingColumnError(result.error)) return { ...readLayout(null), canSave: false };
     throw new DataError("Your Home layout could not be loaded.", result.error);
   }
-  return { items: sanitizeLayout((result.data as { dashboard_layout?: unknown } | null)?.dashboard_layout ?? null), canSave: true };
+  return { ...readLayout((result.data as { dashboard_layout?: unknown } | null)?.dashboard_layout ?? null), canSave: true };
 }
 
 export type SaveLayoutResult = "saved" | "unavailable";
@@ -114,9 +137,14 @@ export async function logWater(db: Db, userId: string, localDate: string, amount
   if (result.error) throw new DataError("That water could not be saved.", result.error);
 }
 
-/** Records a weigh-in for the day (body_metrics), as the Progress page does. */
-export async function logWeight(db: Db, userId: string, localDate: string, kg: number): Promise<void> {
+/**
+ * Records today's weigh-in the way Progress and Profile do (logWeighIn): the body_metrics row, then the profile's
+ * copy of the weight, so targets and every screen use the new weight. Returns false when only the profile copy
+ * could not be updated (the weigh-in itself is saved).
+ */
+export async function saveWeighIn(db: Db, userId: string, kg: number): Promise<boolean> {
   if (!Number.isFinite(kg) || kg < 30 || kg > 500) throw new DataError("Enter a weight between 30 and 500 kg.");
-  const result = await db.from("body_metrics").insert({ user_id: userId, date: localDate, weight: Math.round(kg * 10) / 10 });
+  const result = await logWeighIn(db, userId, Math.round(kg * 10) / 10, "");
   if (result.error) throw new DataError("That weigh-in could not be saved.", result.error);
+  return result.synced;
 }
