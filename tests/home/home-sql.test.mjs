@@ -100,31 +100,36 @@ describe("Phase 3 SQL on a local Postgres", { skip }, () => {
     assert.deepEqual(reopened, { completed_at: null, touched: true }, "reopening clears completed_at; updated_at is maintained");
 
     const moved = pg.json(`
-      update public.planner_events set starts_at = starts_at + interval '1 day' where id = '${ids.call}';
+      update public.planner_events set starts_at = starts_at + interval '1 day', local_date = '2026-11-19' where id = '${ids.call}';
       select json_build_object('day', local_date) from public.planner_events where id = '${ids.call}';`, asA);
-    assert.equal(moved.day, "2026-11-19", "moving the start time moves the day with it");
-    pg.exec(`update public.planner_events set starts_at = starts_at - interval '1 day' where id = '${ids.call}';`, asA);
+    assert.equal(moved.day, "2026-11-19", "moving an item to another day sends that day with the new start");
+    pg.exec(`update public.planner_events set starts_at = starts_at - interval '1 day', local_date = '${TODAY}' where id = '${ids.call}';`, asA);
   });
 
-  test("the day the client sends wins when an untimed item gets a time or a time changes within the day", () => {
-    // B's saved time zone is UTC while B enters times in India (UTC+5:30), the case where the trigger
-    // would otherwise move items: 02:00 in India on the 18th is 20:30 UTC on the 17th.
+  test("the day the client sends wins when an untimed item gets a time or its time changes, across the saved zone's midnight too", () => {
+    // B's saved time zone is UTC while B enters times in India (UTC+5:30), the case where working the day
+    // out again would move items: 02:00 in India on the 18th is 20:30 UTC on the 17th.
     pg.exec(`insert into public.user_preferences (user_id, timezone) values ('${B}', 'UTC') on conflict (user_id) do update set timezone = 'UTC';`);
     const id = pg.json(`
       with t as (insert into public.planner_events (user_id, event_type, title, local_date) values ('${B}', 'task', 'Night feed', '${TODAY}') returning id)
       select to_json(id) from t;`, asB);
     const timed = pg.json(`
+      update public.planner_events set starts_at = '2026-11-18T03:30:00Z', ends_at = '2026-11-18T04:30:00Z', local_date = '${TODAY}' where id = '${id}';
+      select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
+    assert.equal(timed.day, TODAY, "giving an untimed To-Do a time (09:00 in India) keeps its day");
+    // The To-Do editor sends the whole item: the new start with the day unchanged.
+    const retimed = pg.json(`
       update public.planner_events set starts_at = '2026-11-17T20:30:00Z', ends_at = '2026-11-17T21:30:00Z', local_date = '${TODAY}' where id = '${id}';
       select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
-    assert.equal(timed.day, TODAY, "giving an untimed To-Do a time keeps its day");
-    const retimed = pg.json(`
-      update public.planner_events set starts_at = '2026-11-17T21:00:00Z', ends_at = '2026-11-17T22:00:00Z' where id = '${id}';
-      select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
-    assert.equal(retimed.day, TODAY, "a later time the same day keeps it");
+    assert.equal(retimed.day, TODAY, "09:00 moved to 02:00 the same day in India keeps it, though the start is the 17th in the saved zone");
     const moved = pg.json(`
-      update public.planner_events set starts_at = '2026-11-19T20:30:00Z', ends_at = '2026-11-19T21:30:00Z' where id = '${id}';
+      update public.planner_events set starts_at = '2026-11-19T20:30:00Z', ends_at = '2026-11-19T21:30:00Z', local_date = '2026-11-20' where id = '${id}';
       select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
-    assert.equal(moved.day, "2026-11-19", "an older client moving it two days without a day still moves it");
+    assert.equal(moved.day, "2026-11-20", "picking another day moves it to that day");
+    const untouched = pg.json(`
+      update public.planner_events set starts_at = '2026-11-21T20:30:00Z', ends_at = '2026-11-21T21:30:00Z' where id = '${id}';
+      select json_build_object('day', local_date) from public.planner_events where id = '${id}';`, asB);
+    assert.equal(untouched.day, "2026-11-20", "a start written without a day leaves the day alone");
     pg.exec(`delete from public.planner_events where id = '${id}';`, asB);
     pg.exec(`delete from public.user_preferences where user_id = '${B}';`);
   });

@@ -122,7 +122,7 @@ describe("Workouts v2 database functions", { skip }, () => {
 
   test("a plan's item keeps the day picked on the Workouts page when only its time changes, wherever the phone is", () => {
     // A member saved in India plans from London: 1 December at 18:00 London (18:00 UTC), then moves it to 22:00,
-    // which is already 2 December in India. The page writes the new start with the same day, then the day alone.
+    // which is already 2 December in India. The page writes the new start with the same day, in one update.
     const plan = savePlan({ title: "Evening push", planned_for: "2026-12-01" }, [BENCH]);
     const item = pg.json(`with item as (insert into public.planner_events (user_id, event_type, title, workout_plan_id, starts_at, ends_at, local_date)
       values ('${A}', 'workout', 'Evening push', '${plan}', '2026-12-01T18:00:00Z', '2026-12-01T19:00:00Z', '2026-12-01') returning id)
@@ -131,8 +131,9 @@ describe("Workouts v2 database functions", { skip }, () => {
     assert.deepEqual(day(), { day: "2026-12-01", starts: "18:00" });
     pg.exec(`update public.planner_events set title = 'Evening push', starts_at = '2026-12-01T22:00:00Z', ends_at = '2026-12-01T23:00:00Z',
       status = 'scheduled', local_date = '2026-12-01' where id = '${item}' and status = 'scheduled';`, asA);
-    assert.deepEqual(day(), { day: "2026-12-02", starts: "22:00" }, "the planner's trigger works the day out again in the saved zone");
-    pg.exec(`update public.planner_events set local_date = '2026-12-01' where id = '${item}' and status = 'scheduled';`, asA);
-    assert.deepEqual(day(), { day: "2026-12-01", starts: "22:00" }, "the page's second write keeps the day the member picked");
+    assert.deepEqual(day(), { day: "2026-12-01", starts: "22:00" }, "the planner's trigger keeps the day the page sent, though 22:00 London is the 2nd in the saved zone");
+    pg.exec(`update public.planner_events set starts_at = '2026-12-03T18:00:00Z', ends_at = '2026-12-03T19:00:00Z', local_date = '2026-12-03'
+      where id = '${item}' and status = 'scheduled';`, asA);
+    assert.deepEqual(day(), { day: "2026-12-03", starts: "18:00" }, "a new date moves it with the day the page sends");
   });
 });

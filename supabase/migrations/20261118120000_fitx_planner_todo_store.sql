@@ -107,10 +107,12 @@ end $$;
 create index if not exists planner_events_user_day_idx on public.planner_events (user_id, local_date, sort_order);
 create index if not exists planner_events_goal_idx on public.planner_events (goal_id) where goal_id is not null;
 
--- Fills local_date for timed events written without one (older clients), follows the start time when
--- an older client moves a timed event to another day without sending the day, and keeps completed_at
--- in step with status. The day the client sends otherwise wins: giving an untimed To-Do a time, or
--- changing a time within the same day, never moves it. Runs with the writer's rights (RLS applies).
+-- Fills local_date for a timed event written without one (an older client's insert), from its start in
+-- the saved time zone, and keeps completed_at in step with status. Otherwise the day the writer sends
+-- is kept as it is: giving an untimed To-Do a time, or changing its time, never moves it to another day,
+-- even when the start crosses midnight in a saved zone that is not the browser's. Every writer in the
+-- app (the To-Do editor, the Workouts plan save, programme scheduling) sends local_date with the start,
+-- so a day changes only when the member picks another one. Runs with the writer's rights (RLS applies).
 create or replace function public.fitx_planner_events_defaults()
 returns trigger
 language plpgsql
@@ -124,18 +126,6 @@ begin
       from public.user_preferences up
      where up.user_id = new.user_id;
     new.local_date := (new.starts_at at time zone coalesce(tz, 'UTC'))::date;
-  elsif tg_op = 'UPDATE'
-    and new.starts_at is not null
-    and old.starts_at is not null
-    and new.starts_at is distinct from old.starts_at
-    and new.local_date is not distinct from old.local_date then
-    select public.fitx_safe_timezone(up.timezone) into tz
-      from public.user_preferences up
-     where up.user_id = new.user_id;
-    tz := coalesce(tz, 'UTC');
-    if (new.starts_at at time zone tz)::date <> (old.starts_at at time zone tz)::date then
-      new.local_date := (new.starts_at at time zone tz)::date;
-    end if;
   end if;
 
   if new.status <> 'completed' then
