@@ -5,17 +5,22 @@ import { createRouteSupabase } from "@/lib/supabase/route-client";
 import { loadCatalogThumbnails, parseCatalogSearchParams, searchCatalog } from "@/lib/training/catalog-search";
 
 /**
- * GET /api/exercises: one page of the exercise library, for signed-in users.
+ * GET /api/exercises: one page of the exercise library, for signed-in users. The same search and filters as
+ * the library page (src/lib/training/catalog-search.ts).
  *
- * Query (all optional; unknown keys are ignored, bad values dropped, numbers clamped):
- *   q             name search; every word must appear in the name
- *   muscle_group  a taxonomy muscle group     category    a taxonomy category
- *   difficulty    beginner|intermediate|advanced
+ * Query (all optional; unknown keys are ignored, bad values dropped, numbers clamped). Lists are
+ * comma-separated and mean "any of these"; a single value still works:
+ *   q             smart name search: gym terms (bp, ohp, rdl), joined or hyphenated spellings, plurals,
+ *                 muscle words (pecs, lats, abs) and equipment words (db, bb, cable, bodyweight)
+ *   muscle_group  taxonomy muscle groups       primary     body-map regions (the primary muscle)
+ *   focus         focus areas (full_body, chest, back, shoulders, arms, abs, legs, glutes)
+ *   category      taxonomy categories          difficulty  beginner|intermediate|advanced
  *   location      home|gym (the exercise's derived locations)
- *   equipment     one equipment key the exercise uses
- *   doable        comma-separated equipment keys the user has, already expanded; empty = none
+ *   equipment     equipment keys the exercise uses; "none" = needs nothing, "machines" = any machine
+ *   doable        equipment keys the user has, already expanded; only exercises they can do; empty = none
+ *   movement      push|pull|hold (where the catalogue records a movement)     mechanic   compound|isolation
  *   ids           comma-separated exercise ids (at most 100), for saved and recent exercises
- *   sort          name|difficulty             page        1-based    pageSize   default 24, max 48
+ *   sort          name (default)|difficulty|best      page   1-based      pageSize   default 24, max 48
  *
  * Answer: { items, total, page, pageSize, curated }. Items are light CatalogExercise objects (no
  * description or instructions) plus `thumbnail`, the first photo's URL or null. `curated` is false

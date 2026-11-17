@@ -1,31 +1,49 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError, isMissingTableError } from "@/lib/domain/schema-fallback";
+import { BODY_REGIONS, exerciseRegions, isRegionKey, regionsForMuscle, type RegionKey } from "./anatomy";
 import { CATALOG_BASE_COLUMNS, CATALOG_V2_COLUMNS, toCatalogExercise, type CatalogExercise, type CatalogRow } from "./catalog";
-import { isDoableWith } from "./equipment";
+import { missingEquipment } from "./equipment";
+import { FOCUS_AREAS, focusRole, isFullBodyExercise, parseFocusParam, type FocusArea } from "./focus";
 import { EXERCISE_MEDIA_COLUMNS, groupMediaRows, resolveExerciseMedia, type ExerciseMediaRow } from "./media";
+import { matchExercise, parseSearch, relevanceBand, type SearchMatch, type SearchPlan } from "./search-terms";
+import { stapleRank } from "./staples";
 import {
   EQUIPMENT_KEYS,
   EXERCISE_CATEGORIES,
   LEVELS,
   levelRank,
+  MECHANICS,
   MUSCLE_GROUPS,
+  muscleGroupOf,
   TRAINING_CONTEXTS,
   type ExerciseCategory,
   type Level,
+  type Mechanic,
   type MuscleGroup,
   type TrainingContext,
 } from "./taxonomy";
 
 /**
- * Exercise library search: the query parameters of GET /api/exercises, the database queries behind
- * it, and the in-memory version used before the catalogue clean-up migration has run.
+ * Exercise library search, shared by the library page (in memory, over the light catalogue it loads once) and
+ * GET /api/exercises (paged): the filters, the smart name search (./search-terms.ts), the ranking, and the API's
+ * query parameters and database queries.
  *
- * Two database states are handled:
- *  - curated (some active row has catalog_version >= 1): every filter runs in Postgres and pages come
- *    from `range()` with an exact count;
- *  - not curated (the v2 columns are missing, or present but not filled yet): the light legacy rows
- *    are read, estimated with toCatalogExercise, then filtered, sorted and paged here. The response
- *    says `curated: false` so the page can say the filters are approximate.
+ * Filters combine with AND across kinds and OR within a kind ("Chest or Arms", "uses a barbell or a cable"):
+ *  - focus areas (focus.ts): an exercise matches when it trains an area as its main or an assisting muscle;
+ *  - muscles: training-level groups (muscle_group) or body-map regions (the primary muscle);
+ *  - category, difficulty, mechanic, movement (push, pull, hold, from movement_pattern where the catalogue
+ *    records one), equipment it uses ("none" = needs nothing, "machines" = any machine);
+ *  - the training place: at home, exercises whose equipment is home-friendly or that the member can do;
+ *  - what the member has (`owned`): "doable" when every required item is in it (expandOwnedEquipment).
+ * "Best match" ranks by the search score, then focus (main muscle before assisting), training exercises before
+ * stretches, then what the member can do, then FITX staples, then level, compound before isolation, then name.
+ *
+ * The API works in two database states:
+ *  - curated (some active row has catalog_version >= 1): plain filtered lists run in Postgres and pages come
+ *    from `range()` with an exact count; searches, focus, "best match" and "needs nothing" rank in memory over the
+ *    active rows;
+ *  - not curated (the v2 columns are missing, or present but not filled yet): the light legacy rows are read,
+ *    estimated with toCatalogExercise, then filtered, ranked and paged here. The response says `curated: false`.
  *
  * No Next.js imports, so `node --test` can load it.
  */
@@ -39,20 +57,318 @@ export const MAX_IDS = 100;
 /** Keeps the ids (and the PostgREST URL built from them) well inside common 8 KB request-line limits. */
 export const MAX_IDS_LENGTH = 4000;
 
-export type CatalogSort = "name" | "difficulty";
+export type CatalogSort = "name" | "difficulty" | "best";
+
+// ---------------------------------------------------------------- vocabularies of the filters
+
+/** Movement categories, from the catalogue's movement_pattern (Free Exercise DB force values and starter patterns). */
+export const MOVEMENTS = ["push", "pull", "hold"] as const;
+export type Movement = (typeof MOVEMENTS)[number];
+export const MOVEMENT_LABELS: Readonly<Record<Movement, string>> = { push: "Push", pull: "Pull", hold: "Hold" };
+
+/**
+ * The movement_pattern values of each movement. The starter patterns follow the force their Free Exercise DB
+ * twins record (a squat, hip thrust or calf raise pushes; a hinge or curl pulls; a plank holds). Patterns such as
+ * cardio, plyometrics or strongman have no movement, so the filter leaves those exercises out.
+ */
+export const MOVEMENT_PATTERNS: Readonly<Record<Movement, readonly string[]>> = {
+  push: ["push", "horizontal_push", "vertical_push", "squat", "single_leg_squat", "hip_extension", "elbow_extension", "shoulder_abduction", "horizontal_adduction", "plantar_flexion", "locomotion"],
+  pull: ["pull", "horizontal_pull", "vertical_pull", "hinge", "elbow_flexion"],
+  hold: ["static", "anti_extension"],
+};
+
+const PATTERN_MOVEMENT = new Map<string, Movement>(MOVEMENTS.flatMap((movement) => MOVEMENT_PATTERNS[movement].map((pattern) => [pattern, movement] as const)));
+
+/** The movement of a catalogue movement_pattern, or null when the catalogue records none. */
+export function movementOf(pattern: string | null | undefined): Movement | null {
+  return PATTERN_MOVEMENT.get((pattern ?? "").trim().toLowerCase()) ?? null;
+}
+
+/** Equipment filter values beyond the keys: "none" (needs no equipment) and "machines" (any machine). */
+export const NO_EQUIPMENT = "none";
+export const MACHINES = "machines";
+/** The machines umbrella (cable machines stay separate). */
+export const MACHINE_KEYS: readonly string[] = ["machine", "smith_machine", "cardio_machine"];
+export const USES_VALUES: readonly string[] = [NO_EQUIPMENT, MACHINES, ...EQUIPMENT_KEYS];
+
+const MUSCLE_GROUP_SET: ReadonlySet<string> = new Set(MUSCLE_GROUPS);
+
+/**
+ * Muscle filter values, kept: group keys (back, core, hips…), region keys (lats, abdominals…) and older words read
+ * as their region ("upper_back" → middle_back) or group. Unknown words are dropped; order kept, no repeats.
+ */
+export function normaliseMuscleValues(values: Iterable<string>): string[] {
+  const kept: string[] = [];
+  for (const raw of values) {
+    const value = String(raw ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (!value) continue;
+    let known: string[];
+    if (MUSCLE_GROUP_SET.has(value) || isRegionKey(value)) known = [value];
+    else {
+      // An older word: its one region ("upper_back" → middle_back), else its group ("cardio" → full_body).
+      const regions = regionsForMuscle(value);
+      const group = muscleGroupOf(value);
+      known = regions.length === 1 || !group ? regions : [group];
+    }
+    for (const item of known) if (!kept.includes(item)) kept.push(item);
+  }
+  return kept;
+}
+
+/** Known equipment filter values ("bands" → resistance_band is the caller's job); order kept, no repeats. */
+export function normaliseUsesValues(values: Iterable<string>): string[] {
+  const known = new Set(USES_VALUES);
+  return [...new Set([...values].map((value) => String(value ?? "").trim()).filter((value) => known.has(value)))];
+}
+
+/** The equipment keys a uses filter stands for ("machines" → its three keys; "none" stays "none"). */
+export function expandUses(values: readonly string[]): string[] {
+  return [...new Set(values.flatMap((value) => (value === MACHINES ? MACHINE_KEYS : [value])))];
+}
+
+// ---------------------------------------------------------------- the query
+
+/** One library question: a search and filters. Lists are OR within, AND across; empty lists mean "any". */
+export type CatalogQuery = {
+  q: string;
+  focus: readonly FocusArea[];
+  /** Group or region keys (normaliseMuscleValues); "full_body" means the full-body rule. */
+  muscles: readonly string[];
+  categories: readonly ExerciseCategory[];
+  difficulties: readonly Level[];
+  /** Equipment the exercise uses: keys, "none" or "machines". */
+  uses: readonly string[];
+  movements: readonly Movement[];
+  mechanics: readonly Mechanic[];
+  /** "home": home-friendly equipment, or doable with what the member has. "gym" and null: anywhere. */
+  environment: TrainingContext | null;
+  /** Only these exercises (saved ones); null: any. */
+  ids: readonly string[] | null;
+  /** Only exercises the member can do with `owned` (ignored while `owned` is unknown). */
+  doableOnly: boolean;
+  sort: CatalogSort;
+};
+
+export const EMPTY_QUERY: CatalogQuery = {
+  q: "", focus: [], muscles: [], categories: [], difficulties: [], uses: [], movements: [], mechanics: [], environment: null, ids: null,
+  doableOnly: false, sort: "best",
+};
+
+export type QueryContext = {
+  /** Equipment the member has, expanded (expandOwnedEquipment); null when not known. */
+  owned: ReadonlySet<string> | null;
+  /** The member's level: exercises above it come later in "best match". */
+  level?: Level | null;
+};
+
+export type RankedExercise = {
+  exercise: CatalogExercise;
+  /** True when the member has every required item; null when their equipment is not known. */
+  doable: boolean | null;
+  /** Required items the member lacks (empty when doable or unknown). */
+  missing: string[];
+  /** With focus areas chosen: 0 when the exercise trains one as its main muscle, 1 when it only assists; else null. */
+  focusTier: 0 | 1 | null;
+  /** 2 per chosen area trained as the main muscle, 1 per area assisted (focus.ts focusScore). */
+  focusScore: number;
+  /** The search match; null without a search. */
+  match: SearchMatch | null;
+};
+
+/** The facets a query can drop, for "remove this filter" suggestions. */
+export const QUERY_FACETS = ["q", "focus", "muscles", "categories", "difficulties", "uses", "movements", "mechanics", "environment", "ids", "doableOnly"] as const;
+export type QueryFacet = (typeof QUERY_FACETS)[number];
+
+/** The query with one facet cleared. */
+export function withoutFacet(query: CatalogQuery, facet: QueryFacet): CatalogQuery {
+  const cleared: Record<QueryFacet, Partial<CatalogQuery>> = {
+    q: { q: "" }, focus: { focus: [] }, muscles: { muscles: [] }, categories: { categories: [] }, difficulties: { difficulties: [] },
+    uses: { uses: [] }, movements: { movements: [] }, mechanics: { mechanics: [] }, environment: { environment: null }, ids: { ids: null },
+    doableOnly: { doableOnly: false },
+  };
+  return { ...query, ...cleared[facet] };
+}
+
+/** True when the facet narrows the results. */
+export function facetActive(query: CatalogQuery, facet: QueryFacet): boolean {
+  const value = query[facet];
+  if (facet === "q") return Boolean(normalizeQuery(query.q));
+  if (facet === "environment") return query.environment === "home";
+  if (facet === "ids") return query.ids !== null;
+  if (facet === "doableOnly") return query.doableOnly;
+  return Array.isArray(value) && value.length > 0;
+}
+
+function musclesMatch(exercise: CatalogExercise, values: readonly string[], primary: () => readonly RegionKey[]): boolean {
+  return values.some((value) => {
+    if (value === "full_body") return isFullBodyExercise(exercise);
+    if (exercise.muscle_group === value) return true;
+    return isRegionKey(value) && primary().includes(value);
+  });
+}
+
+function usesMatch(required: readonly string[], values: readonly string[]): boolean {
+  return values.some((value) => (value === NO_EQUIPMENT ? required.length === 0 : value === MACHINES ? required.some((key) => MACHINE_KEYS.includes(key)) : required.includes(value)));
+}
+
+type Prepared = {
+  query: CatalogQuery;
+  plan: SearchPlan | null;
+  ids: ReadonlySet<string> | null;
+  focus: readonly FocusArea[];
+};
+
+function prepare(query: CatalogQuery): Prepared {
+  const q = normalizeQuery(query.q);
+  const plan = q ? parseSearch(q) : null;
+  return { query, plan: plan && plan.terms.length ? plan : null, ids: query.ids ? new Set(query.ids) : null, focus: FOCUS_AREAS.filter((area) => query.focus.includes(area)) };
+}
+
+/** Matches one exercise against a prepared query; null when it is filtered out. */
+function evaluate(exercise: CatalogExercise, prepared: Prepared, context: QueryContext): RankedExercise | null {
+  const { query, plan, ids, focus } = prepared;
+  if (ids && !ids.has(exercise.id)) return null;
+  if (query.categories.length && !query.categories.includes(exercise.category)) return null;
+  if (query.difficulties.length && !query.difficulties.includes(exercise.difficulty)) return null;
+  if (query.mechanics.length && !(exercise.mechanic && query.mechanics.includes(exercise.mechanic))) return null;
+  if (query.movements.length) {
+    const movement = movementOf(exercise.movement_pattern);
+    if (!movement || !query.movements.includes(movement)) return null;
+  }
+  if (query.uses.length && !usesMatch(exercise.required_equipment, query.uses)) return null;
+  let primaryRegions: readonly RegionKey[] | null = null;
+  const primary = () => (primaryRegions ??= exerciseRegions(exercise.primary_muscle, exercise.secondary_muscles).primary);
+  if (query.muscles.length && !musclesMatch(exercise, query.muscles, primary)) return null;
+
+  const owned = context.owned;
+  const missing = owned ? missingEquipment(exercise.required_equipment, owned) : [];
+  const doable = owned ? missing.length === 0 : null;
+  if (query.doableOnly && doable === false) return null;
+  if (query.environment === "home" && !exercise.locations.includes("home") && doable !== true) return null;
+
+  let focusTier: 0 | 1 | null = null;
+  let focusScore = 0;
+  if (focus.length) {
+    for (const area of focus) {
+      const role = focusRole(exercise, area);
+      if (role === "primary") { focusScore += 2; focusTier = 0; }
+      else if (role === "secondary") { focusScore += 1; if (focusTier === null) focusTier = 1; }
+    }
+    if (focusTier === null) return null;
+  }
+
+  let match: SearchMatch | null = null;
+  if (plan) {
+    match = matchExercise(exercise, plan, { isFullBody: (item) => isFullBodyExercise(item as CatalogExercise) });
+    if (!match) return null;
+  }
+  return { exercise, doable, missing, focusTier, focusScore, match };
+}
+
+const MECHANIC_ORDER: Record<string, number> = { compound: 0, isolation: 1 };
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, "en");
+
+/**
+ * The "best match" order (see the module comment). Stretches follow every training exercise unless the member
+ * asked for stretching (`stretchesLast` false). Deterministic.
+ */
+export function compareRanked(a: RankedExercise, b: RankedExercise, level?: Level | null, stretchesLast = true): number {
+  const band = (item: RankedExercise) => (item.match ? relevanceBand(item.match.score) : 0);
+  const stretch = (item: RankedExercise) => (stretchesLast && item.exercise.category === "stretching" ? 1 : 0);
+  const doable = (item: RankedExercise) => (item.doable === true ? 0 : item.doable === null ? 1 : 2);
+  const staple = (item: RankedExercise) => stapleRank(item.exercise.id) ?? Number.POSITIVE_INFINITY;
+  const userLevel = level ? levelRank(level) : null;
+  const gap = (item: RankedExercise) => (userLevel === null ? 0 : Math.max(0, levelRank(item.exercise.difficulty) - userLevel));
+  return band(b) - band(a)
+    || (a.focusTier ?? 2) - (b.focusTier ?? 2)
+    || stretch(a) - stretch(b)
+    || doable(a) - doable(b)
+    || b.focusScore - a.focusScore
+    || staple(a) - staple(b)
+    || (b.match?.score ?? 0) - (a.match?.score ?? 0)
+    || gap(a) - gap(b)
+    || (MECHANIC_ORDER[a.exercise.mechanic ?? ""] ?? 2) - (MECHANIC_ORDER[b.exercise.mechanic ?? ""] ?? 2)
+    || byName(a.exercise, b.exercise)
+    || a.exercise.id.localeCompare(b.exercise.id);
+}
+
+/** A sorted copy: by name, or by difficulty (beginner first) and then name. */
+export function sortCatalog<T extends { name: string; difficulty: string }>(exercises: readonly T[], sort: CatalogSort): T[] {
+  return [...exercises].sort(sort === "difficulty" ? (a, b) => levelRank(a.difficulty) - levelRank(b.difficulty) || byName(a, b) : byName);
+}
+
+export type QueryResult = {
+  items: RankedExercise[];
+  /** With focus areas and "best match": the index of the first exercise that only assists them, else null. */
+  assistFrom: number | null;
+  /** How many results the member can do; null when their equipment is not known. */
+  doableCount: number | null;
+};
+
+/** Every exercise of `catalog` that answers the query, in the query's order. */
+export function queryCatalog(catalog: readonly CatalogExercise[], query: CatalogQuery, context: QueryContext): QueryResult {
+  const prepared = prepare(query);
+  const items: RankedExercise[] = [];
+  for (const exercise of catalog) {
+    const ranked = evaluate(exercise, prepared, context);
+    if (ranked) items.push(ranked);
+  }
+  const stretchesLast = !query.categories.includes("stretching");
+  if (query.sort === "best") items.sort((a, b) => compareRanked(a, b, context.level, stretchesLast));
+  else {
+    const order = new Map(sortCatalog(items.map((item) => item.exercise), query.sort).map((exercise, index) => [exercise.id, index]));
+    items.sort((a, b) => (order.get(a.exercise.id) ?? 0) - (order.get(b.exercise.id) ?? 0));
+  }
+  const firstAssist = query.sort === "best" && prepared.focus.length && !prepared.plan ? items.findIndex((item) => item.focusTier === 1) : -1;
+  return {
+    items,
+    assistFrom: firstAssist >= 0 ? firstAssist : null,
+    doableCount: context.owned ? items.filter((item) => item.doable).length : null,
+  };
+}
+
+/** How many exercises answer the query (no sorting). */
+export function countCatalog(catalog: readonly CatalogExercise[], query: CatalogQuery, context: QueryContext): number {
+  const prepared = prepare(query);
+  let count = 0;
+  for (const exercise of catalog) if (evaluate(exercise, prepared, context)) count += 1;
+  return count;
+}
+
+export type RelaxSuggestion = { facet: QueryFacet; count: number };
+
+/**
+ * For an empty result: how many exercises each active facet hides, as "remove this and see N". Only facets that
+ * would show something, most results first.
+ */
+export function relaxSuggestions(catalog: readonly CatalogExercise[], query: CatalogQuery, context: QueryContext): RelaxSuggestion[] {
+  return QUERY_FACETS.filter((facet) => facetActive(query, facet))
+    .map((facet) => ({ facet, count: countCatalog(catalog, withoutFacet(query, facet), context) }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count || QUERY_FACETS.indexOf(a.facet) - QUERY_FACETS.indexOf(b.facet));
+}
+
+// ---------------------------------------------------------------- API parameters
 
 export type CatalogSearchParams = {
-  /** Name search, trimmed and single-spaced; every word must appear in the name. */
+  /** Name search, trimmed and single-spaced (smart search: synonyms, joined words, muscle and equipment words). */
   q: string;
-  muscleGroup: MuscleGroup | null;
-  category: ExerciseCategory | null;
-  difficulty: Level | null;
+  /** Training-level muscle groups (muscle_group). */
+  muscleGroups: MuscleGroup[];
+  /** Body-map regions, as the exercise's primary muscle. With muscleGroups, an exercise may match either. */
+  primary: RegionKey[];
+  /** Focus areas (main or assisting muscle). */
+  focus: FocusArea[];
+  categories: ExerciseCategory[];
+  difficulties: Level[];
   /** "home" or "gym": the exercise's derived locations must include it. */
   location: TrainingContext | null;
-  /** One equipment key the exercise must use. */
-  equipment: string | null;
+  /** Equipment the exercise uses (any of): keys, "none" (needs nothing) or "machines". */
+  equipment: string[];
   /** Equipment the user has (already expanded). null: no filter; []: only exercises that need nothing. */
   doable: string[] | null;
+  movements: Movement[];
+  mechanics: Mechanic[];
   /** Only these exercise ids (saved or recently viewed ones), at most MAX_IDS. null: any exercise. */
   ids: string[] | null;
   sort: CatalogSort;
@@ -62,8 +378,8 @@ export type CatalogSearchParams = {
 };
 
 export const DEFAULT_SEARCH_PARAMS: CatalogSearchParams = {
-  q: "", muscleGroup: null, category: null, difficulty: null, location: null, equipment: null, doable: null, ids: null,
-  sort: "name", page: 1, pageSize: DEFAULT_PAGE_SIZE,
+  q: "", muscleGroups: [], primary: [], focus: [], categories: [], difficulties: [], location: null, equipment: [], doable: null, movements: [],
+  mechanics: [], ids: null, sort: "name", page: 1, pageSize: DEFAULT_PAGE_SIZE,
 };
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,120}$/;
@@ -93,27 +409,36 @@ function listParam(value: string | null, keep: (item: string) => boolean, max: n
   return items;
 }
 
+function listOf<T extends string>(values: readonly T[], value: string | null): T[] {
+  return listParam(value, (item) => (values as readonly string[]).includes(item), values.length) as T[];
+}
+
 /** Collapses whitespace and caps the length, so the same search always gives the same query. */
 export function normalizeQuery(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_QUERY_LENGTH).trim();
 }
 
 /**
- * Reads GET /api/exercises parameters. Unknown keys are ignored, unknown values are dropped and
- * numbers are clamped, so a hand-edited URL never errors.
+ * Reads GET /api/exercises parameters. Unknown keys are ignored, unknown values are dropped and numbers are
+ * clamped, so a hand-edited URL never errors. List parameters are comma-separated; a single value still works.
  */
 export function parseCatalogSearchParams(input: URLSearchParams): CatalogSearchParams {
+  const sort = input.get("sort");
   return {
     q: normalizeQuery(input.get("q")),
-    muscleGroup: oneOf(MUSCLE_GROUPS, input.get("muscle_group")),
-    category: oneOf(EXERCISE_CATEGORIES, input.get("category")),
-    difficulty: oneOf(LEVELS, input.get("difficulty")),
+    muscleGroups: listOf(MUSCLE_GROUPS, input.get("muscle_group")),
+    primary: listOf(BODY_REGIONS, input.get("primary")),
+    focus: parseFocusParam(input.get("focus")),
+    categories: listOf(EXERCISE_CATEGORIES, input.get("category")),
+    difficulties: listOf(LEVELS, input.get("difficulty")),
     location: oneOf(TRAINING_CONTEXTS, input.get("location")),
-    equipment: oneOf(EQUIPMENT_KEYS, input.get("equipment")),
+    equipment: listParam(input.get("equipment"), (key) => USES_VALUES.includes(key), USES_VALUES.length),
     // Present but empty means "I have no equipment"; unknown keys cannot satisfy anything, so they drop out.
     doable: input.has("doable") ? listParam(input.get("doable"), (key) => KNOWN_EQUIPMENT.has(key), KNOWN_EQUIPMENT.size) : null,
+    movements: listOf(MOVEMENTS, input.get("movement")),
+    mechanics: listOf(MECHANICS, input.get("mechanic")),
     ids: input.has("ids") ? listParam(input.get("ids"), (id) => ID_PATTERN.test(id), MAX_IDS, MAX_IDS_LENGTH) : null,
-    sort: input.get("sort") === "difficulty" ? "difficulty" : "name",
+    sort: sort === "difficulty" || sort === "best" ? sort : "name",
     page: clampInt(input.get("page"), 1, 1, MAX_PAGE),
     pageSize: clampInt(input.get("pageSize"), DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE),
   };
@@ -123,27 +448,43 @@ export function parseCatalogSearchParams(input: URLSearchParams): CatalogSearchP
 export function catalogSearchQuery(params: Partial<CatalogSearchParams>): URLSearchParams {
   const query = new URLSearchParams();
   const q = normalizeQuery(params.q);
+  const list = (key: string, values: readonly string[] | undefined) => { if (values?.length) query.set(key, values.join(",")); };
   if (q) query.set("q", q);
-  if (params.muscleGroup) query.set("muscle_group", params.muscleGroup);
-  if (params.category) query.set("category", params.category);
-  if (params.difficulty) query.set("difficulty", params.difficulty);
+  list("muscle_group", params.muscleGroups);
+  list("primary", params.primary);
+  list("focus", params.focus);
+  list("category", params.categories);
+  list("difficulty", params.difficulties);
   if (params.location) query.set("location", params.location);
-  if (params.equipment) query.set("equipment", params.equipment);
+  list("equipment", params.equipment);
   if (params.doable) query.set("doable", [...params.doable].sort().join(","));
+  list("movement", params.movements);
+  list("mechanic", params.mechanics);
   if (params.ids) query.set("ids", params.ids.join(","));
-  if (params.sort === "difficulty") query.set("sort", "difficulty");
+  if (params.sort === "difficulty" || params.sort === "best") query.set("sort", params.sort);
   if (params.page && params.page > 1) query.set("page", String(params.page));
   if (params.pageSize && params.pageSize !== DEFAULT_PAGE_SIZE) query.set("pageSize", String(params.pageSize));
   return query;
 }
 
-// ---------------------------------------------------------------- name search
+/** The library query for API parameters (`doable` doubles as the member's equipment). */
+export function queryFromParams(params: CatalogSearchParams): { query: CatalogQuery; context: QueryContext } {
+  return {
+    query: {
+      q: params.q, focus: params.focus, muscles: [...params.muscleGroups, ...params.primary], categories: params.categories,
+      difficulties: params.difficulties, uses: params.equipment, movements: params.movements, mechanics: params.mechanics,
+      environment: null, ids: params.ids, doableOnly: params.doable !== null, sort: params.sort,
+    },
+    context: { owned: params.doable ? new Set(params.doable) : null },
+  };
+}
+
+// ---------------------------------------------------------------- plain name words (database patterns)
 
 /**
- * The words of a name search, lower-case. Each must appear in the name, in any order, so
- * "press dumbbell" finds "Dumbbell Bench Press" and "push up" finds both "Push-Up" and "Pushups".
- * Punctuation at the edges of a word is dropped ("rowing," -> "rowing"); `*` is removed because
- * PostgREST reads it as a wildcard in like patterns.
+ * The words of a name search, lower-case, for plain database patterns. Punctuation at the edges of a word is
+ * dropped ("rowing," -> "rowing"); `*` is removed because PostgREST reads it as a wildcard in like patterns.
+ * The library itself uses the smart search (search-terms.ts).
  */
 export function searchWords(q: string): string[] {
   // Non-ASCII characters count as letters, so accented words keep their edges.
@@ -163,36 +504,24 @@ export function containsPattern(word: string): string {
   return `%${escapeLike(word)}%`;
 }
 
-// ---------------------------------------------------------------- in-memory search (before the clean-up)
+// ---------------------------------------------------------------- in-memory search
 
-/** A matcher for the same filters the database applies, over estimated or curated exercises. */
+/** A matcher for the API's filters over estimated or curated exercises (smart name search included). */
 export function catalogMatcher(params: CatalogSearchParams): (exercise: CatalogExercise) => boolean {
-  const words = searchWords(params.q);
-  const owned = params.doable ? new Set(params.doable) : null;
-  const ids = params.ids ? new Set(params.ids) : null;
-  return (exercise) => {
-    const name = exercise.name.toLowerCase();
-    if (!words.every((word) => name.includes(word))) return false;
-    if (params.muscleGroup && exercise.muscle_group !== params.muscleGroup) return false;
-    if (params.category && exercise.category !== params.category) return false;
-    if (params.difficulty && exercise.difficulty !== params.difficulty) return false;
-    if (params.location && !exercise.locations.includes(params.location)) return false;
-    if (params.equipment && !exercise.required_equipment.includes(params.equipment)) return false;
-    if (owned && !isDoableWith(exercise.required_equipment, owned)) return false;
-    if (ids && !ids.has(exercise.id)) return false;
-    return true;
-  };
+  const { query, context } = queryFromParams(params);
+  const prepared = prepare(query);
+  return (exercise) => (!params.location || exercise.locations.includes(params.location)) && evaluate(exercise, prepared, context) !== null;
 }
 
 export function filterCatalog(exercises: readonly CatalogExercise[], params: CatalogSearchParams): CatalogExercise[] {
   return exercises.filter(catalogMatcher(params));
 }
 
-const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, "en");
-
-/** A sorted copy: by name, or by difficulty (beginner first) and then name. */
-export function sortCatalog<T extends { name: string; difficulty: string }>(exercises: readonly T[], sort: CatalogSort): T[] {
-  return [...exercises].sort(sort === "difficulty" ? (a, b) => levelRank(a.difficulty) - levelRank(b.difficulty) || byName(a, b) : byName);
+/** The API's in-memory answer: filtered with its parameters, then ranked or sorted. */
+function rankForParams(exercises: readonly CatalogExercise[], params: CatalogSearchParams): CatalogExercise[] {
+  const { query, context } = queryFromParams(params);
+  const located = params.location ? exercises.filter((exercise) => exercise.locations.includes(params.location!)) : exercises;
+  return queryCatalog(located, query, context).items.map((item) => item.exercise);
 }
 
 /** Row offsets for a 1-based page, as `range(from, to)` takes them (inclusive). */
@@ -236,8 +565,8 @@ const TABLE = "exercise_library";
 const CURATED_SELECT = [...CATALOG_BASE_COLUMNS, ...CATALOG_V2_COLUMNS].join(",");
 const LEGACY_SELECT = CATALOG_BASE_COLUMNS.join(",");
 /** Rows per request when reading the whole catalogue (PostgREST's usual max-rows). */
-const LEGACY_BATCH = 1000;
-const LEGACY_MAX_ROWS = 5000;
+const ROW_BATCH = 1000;
+const MAX_ROWS = 5000;
 /** PostgREST: the requested offset is past the last row (HTTP 416). */
 const RANGE_NOT_SATISFIABLE = "PGRST103";
 
@@ -257,28 +586,41 @@ async function probeCurated(db: Db): Promise<{ error: unknown; curated: boolean 
   return { error: null, curated: (result.data ?? []).length > 0 };
 }
 
+/** Filters that read the clean-up's values: rows it has not reached are left out of them instead of matching by accident. */
+function readsCuratedValues(params: CatalogSearchParams): boolean {
+  return Boolean(params.muscleGroups.length || params.primary.length || params.focus.length || params.categories.length || params.location
+    || params.equipment.length || params.doable || params.movements.length || params.mechanics.length);
+}
+
+/** True when the database alone can answer: no search, focus or ranking, and filters it can express. */
+function databaseCanAnswer(params: CatalogSearchParams): boolean {
+  return !params.q && !params.focus.length && params.sort !== "best" && !params.equipment.includes(NO_EQUIPMENT)
+    && !(params.muscleGroups.length && params.primary.length);
+}
+
 /** Every filter in Postgres; pages by name, or by difficulty level then name. */
-async function curatedSearch(db: Db, params: CatalogSearchParams, words: readonly string[]): Promise<CatalogSearchOutcome> {
-  // Rows the clean-up has not reached keep empty v2 values (no equipment, legacy locations); they are
-  // left out of filters that read those values instead of matching by accident.
-  const curatedOnly = Boolean(params.muscleGroup || params.category || params.location || params.equipment || params.doable);
+async function curatedSearch(db: Db, params: CatalogSearchParams): Promise<CatalogSearchOutcome> {
+  const curatedOnly = readsCuratedValues(params);
   const filtered = (columns: string, options?: { count: "exact"; head?: boolean }) => {
     let query = db.from(TABLE).select(columns, options).eq("is_active", true);
-    for (const word of words) query = query.ilike("name", containsPattern(word));
-    if (params.muscleGroup) query = query.eq("muscle_group", params.muscleGroup);
-    if (params.category) query = query.eq("category", params.category);
+    if (params.muscleGroups.length) query = query.in("muscle_group", params.muscleGroups);
+    if (params.primary.length) query = query.in("primary_muscle", params.primary);
+    if (params.categories.length) query = query.in("category", params.categories);
     if (params.location) query = query.contains("locations", [params.location]);
-    if (params.equipment) query = query.contains("required_equipment", [params.equipment]);
+    if (params.equipment.length) query = query.overlaps("required_equipment", expandUses(params.equipment));
     if (params.doable) query = query.containedBy("required_equipment", params.doable);
+    if (params.movements.length) query = query.in("movement_pattern", params.movements.flatMap((movement) => MOVEMENT_PATTERNS[movement]));
+    if (params.mechanics.length) query = query.in("mechanic", params.mechanics);
     if (params.ids) query = query.in("id", params.ids);
     if (curatedOnly) query = query.gte("catalog_version", 1);
     return query;
   };
   const { from, to } = pageRange(params.page, params.pageSize);
   const toExercises = (rows: unknown) => ((rows ?? []) as CatalogRow[]).map(toCatalogExercise);
+  const levels = params.difficulties.length ? LEVELS.filter((level) => params.difficulties.includes(level)) : [...LEVELS];
 
-  if (params.sort === "name" || params.difficulty) {
-    const level = (query: ReturnType<typeof filtered>) => (params.difficulty ? query.eq("difficulty", params.difficulty) : query);
+  if (params.sort === "name" || levels.length === 1) {
+    const level = (query: ReturnType<typeof filtered>) => (!params.difficulties.length ? query : levels.length === 1 ? query.eq("difficulty", levels[0]) : query.in("difficulty", levels));
     const result = await level(filtered(CURATED_SELECT, { count: "exact" })).order("name").range(from, to);
     if (result.error && errorCode(result.error) === RANGE_NOT_SATISFIABLE) {
       const counted = await level(filtered("id", { count: "exact", head: true }));
@@ -290,10 +632,10 @@ async function curatedSearch(db: Db, params: CatalogSearchParams, words: readonl
     return { error: null, exercises, total: result.count ?? from + exercises.length, curated: true };
   }
 
-  const counted = await Promise.all(LEVELS.map((level) => filtered("id", { count: "exact", head: true }).eq("difficulty", level)));
+  const counted = await Promise.all(levels.map((level) => filtered("id", { count: "exact", head: true }).eq("difficulty", level)));
   const countError = counted.find((result) => result.error)?.error;
   if (countError) return failed(countError);
-  const counts = LEVELS.map((level, index) => ({ level, count: counted[index].count ?? 0 }));
+  const counts = levels.map((level, index) => ({ level, count: counted[index].count ?? 0 }));
   const pages = await Promise.all(difficultyWindows(counts, from, to)
     .map((window) => filtered(CURATED_SELECT).eq("difficulty", window.level).order("name").range(window.from, window.to)));
   const pageError = pages.find((result) => result.error)?.error;
@@ -306,23 +648,27 @@ async function curatedSearch(db: Db, params: CatalogSearchParams, words: readonl
   };
 }
 
-/** Before the clean-up: exact filters (name, difficulty, ids) in Postgres, the estimated ones here. */
-async function legacySearch(db: Db, params: CatalogSearchParams, words: readonly string[]): Promise<CatalogSearchOutcome> {
+/**
+ * Searches and rankings in memory: the active rows are read (exact filters on difficulty and ids still run in
+ * Postgres), then filtered, ranked and paged here with the same rules as the library page.
+ */
+async function memorySearch(db: Db, params: CatalogSearchParams, curated: boolean): Promise<CatalogSearchOutcome> {
   const rows: CatalogRow[] = [];
-  for (let from = 0; from < LEGACY_MAX_ROWS; from += LEGACY_BATCH) {
-    let query = db.from(TABLE).select(LEGACY_SELECT).eq("is_active", true);
-    for (const word of words) query = query.ilike("name", containsPattern(word));
-    if (params.difficulty) query = query.eq("difficulty", params.difficulty);
+  for (let from = 0; from < MAX_ROWS; from += ROW_BATCH) {
+    let query = db.from(TABLE).select(curated ? CURATED_SELECT : LEGACY_SELECT).eq("is_active", true);
+    if (params.difficulties.length === 1) query = query.eq("difficulty", params.difficulties[0]);
+    else if (params.difficulties.length) query = query.in("difficulty", params.difficulties);
     if (params.ids) query = query.in("id", params.ids);
-    const result = await query.order("name").range(from, from + LEGACY_BATCH - 1);
+    const result = await query.order("name").range(from, from + ROW_BATCH - 1);
     if (result.error) return failed(result.error);
     const batch = (result.data ?? []) as unknown as CatalogRow[];
     rows.push(...batch);
-    if (batch.length < LEGACY_BATCH) break;
+    if (batch.length < ROW_BATCH) break;
   }
-  const matches = sortCatalog(filterCatalog(rows.map(toCatalogExercise), params), params.sort);
-  const page = paginate(matches, params.page, params.pageSize);
-  return { error: null, exercises: page.items, total: page.total, curated: false };
+  let exercises = rows.map(toCatalogExercise);
+  if (curated && readsCuratedValues(params)) exercises = exercises.filter((exercise) => exercise.curated);
+  const page = paginate(rankForParams(exercises, params), params.page, params.pageSize);
+  return { error: null, exercises: page.items, total: page.total, curated };
 }
 
 /**
@@ -330,12 +676,12 @@ async function legacySearch(db: Db, params: CatalogSearchParams, words: readonly
  * applies: merged duplicates are inactive and never returned).
  */
 export async function searchCatalog(db: Db, params: CatalogSearchParams): Promise<CatalogSearchOutcome> {
-  const words = searchWords(params.q);
-  // The probe and the curated query run together; the curated answer is used only if the probe agrees.
-  const [probe, curated] = await Promise.all([probeCurated(db), curatedSearch(db, params, words)]);
+  const inDatabase = databaseCanAnswer(params);
+  // The probe and the database query run together; the database answer is used only if the probe agrees.
+  const [probe, curated] = await Promise.all([probeCurated(db), inDatabase ? curatedSearch(db, params) : Promise.resolve(null)]);
   if (probe.error && !isMissingColumnError(probe.error, CATALOG_V2_COLUMNS)) return failed(probe.error);
-  if (probe.curated) return curated;
-  return legacySearch(db, params, words);
+  if (probe.curated && curated) return curated;
+  return memorySearch(db, params, probe.curated);
 }
 
 /**
@@ -343,7 +689,7 @@ export async function searchCatalog(db: Db, params: CatalogSearchParams): Promis
  * pinned Free Exercise DB photo. A missing table (media migration not applied) is not an error;
  * any other failure is returned for logging, with the pinned photos still filled in.
  */
-export async function loadCatalogThumbnails(db: Db, exercises: readonly CatalogExercise[], supabaseUrl: string | null | undefined): Promise<{ error: unknown; thumbnails: Map<string, string | null> }> {
+export async function loadCatalogThumbnails(db: Db, exercises: readonly Pick<CatalogExercise, "id" | "name" | "source_ref">[], supabaseUrl: string | null | undefined): Promise<{ error: unknown; thumbnails: Map<string, string | null> }> {
   const thumbnails = new Map<string, string | null>();
   if (!exercises.length) return { error: null, thumbnails };
   const result = await db.from("exercise_media").select(EXERCISE_MEDIA_COLUMNS.join(","))
