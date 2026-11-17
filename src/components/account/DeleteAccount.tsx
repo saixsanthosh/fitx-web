@@ -5,6 +5,7 @@ import { ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { BRAND } from "@/config/brand";
 import { DELETE_CONFIRMATION, DELETE_STARTED_FOR_KEY, RECENT_SIGN_IN_MINUTES, type DeletionStatus } from "@/lib/account/deletion";
 import { recordingStore } from "@/lib/activity/local-store";
+import { signOutWithDeviceActivity } from "@/lib/auth/device-sign-out";
 import { createClient } from "@/lib/supabase/client";
 
 /**
@@ -103,6 +104,8 @@ export function DeleteAccount({
   const [switchedFrom, setSwitchedFrom] = useState<StartedFor | null>(null);
   const [typed, setTyped] = useState("");
   const [error, setError] = useState("");
+  // Signing out for "Sign in again": uploading this device's recordings can take a few seconds.
+  const [leaving, setLeaving] = useState(false);
   const support = BRAND.supportEmail;
 
   // The Settings row checks up front, so it can say when deletion isn't switched on. The link only checks when opened.
@@ -155,15 +158,22 @@ export function DeleteAccount({
   }
 
   function close() {
-    if (step === "deleting" || step === "deleted") return;
+    if (step === "deleting" || step === "deleted" || leaving) return;
     dialog.current?.close();
   }
 
   async function signInAgain() {
+    const supabase = createClient();
+    setLeaving(true);
+    // Signing out here works like Log out: this account's activity recordings on this device are uploaded where
+    // possible and removed, after asking about any that aren't saved to the account yet.
+    const outcome = supabase ? await signOutWithDeviceActivity(supabase, { ask: (question) => window.confirm(question) }) : "signed_out";
+    if (outcome !== "signed_out") {
+      setLeaving(false);
+      return;
+    }
     // Remember who the deletion was for, so a different account after sign-in is caught.
     writeStarted({ id: status?.userId ?? null, email: status?.email ?? null });
-    const supabase = createClient();
-    await supabase?.auth.signOut({ scope: "local" });
     window.location.assign(`/signin?next=${encodeURIComponent(returnTo)}`);
   }
 
@@ -223,7 +233,7 @@ export function DeleteAccount({
     <dialog
       ref={dialog}
       aria-labelledby="delete-account-title"
-      onCancel={(event) => { if (step === "deleting" || step === "deleted") event.preventDefault(); }}
+      onCancel={(event) => { if (step === "deleting" || step === "deleted" || leaving) event.preventDefault(); }}
       className="m-auto w-[min(calc(100vw-2rem),30rem)] rounded-2xl border border-fitx-border bg-fitx-elevated p-0 text-fitx-text shadow-xl backdrop:bg-fitx-scrim/60"
     >
       <div className="p-5 sm:p-6">
@@ -291,10 +301,10 @@ export function DeleteAccount({
             <button type="button" data-autofocus onClick={() => window.location.replace("/")} className="fitx-button">Go to the FITX home page</button>
           ) : (
             <>
-              <button type="button" data-autofocus={step === "switched" || step === "error" || step === "unavailable" ? true : undefined} onClick={close} disabled={step === "deleting"} className="fitx-button fitx-button-secondary">
+              <button type="button" data-autofocus={step === "switched" || step === "error" || step === "unavailable" ? true : undefined} onClick={close} disabled={step === "deleting" || leaving} className="fitx-button fitx-button-secondary">
                 {step === "switched" ? "Close" : "Cancel"}
               </button>
-              {step === "reauth" && <button type="button" data-autofocus onClick={() => void signInAgain()} className="fitx-button">Sign in again</button>}
+              {step === "reauth" && <button type="button" data-autofocus onClick={() => void signInAgain()} disabled={leaving} className="fitx-button">{leaving ? "Signing out…" : "Sign in again"}</button>}
               {(step === "confirm" || step === "deleting") && (
                 <button type="submit" form="delete-account-form" disabled={typed !== DELETE_CONFIRMATION || step === "deleting"} className="fitx-button fitx-button-danger">
                   <Trash2 size={16} aria-hidden="true" />{step === "deleting" ? "Deleting…" : "Delete permanently"}

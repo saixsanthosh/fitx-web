@@ -379,10 +379,20 @@ describe("privacy page", () => {
     assert.equal(PRIVACY_RADIUS_M, 200);
     const activity = section("Activity tracking and location");
     assert.match(activity, /\bShare images leave out at least 200 m around your start and finish\b/);
-    const logout = readFileSync(new URL("../../src/components/app/LogoutButton.tsx", import.meta.url), "utf8");
-    assert.match(logout, /prepareDeviceActivityForSignOut\(/);
-    assert.match(logout, /await within\(ACTIVITY_CLEAR_LIMIT_MS, activity\.clear\(\)\)/, "after signing out, the device copy is removed");
-    assert.match(activity, /\bWhen you log out, FITX first uploads what it can and then removes your recordings from that device\b/);
+    // Both ways of signing out in the app go through device-sign-out.ts (its behaviour: tests/activity/device-sign-out.test.ts).
+    const read = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
+    const signOut = read("lib/auth/device-sign-out.ts");
+    assert.match(signOut, /\(await import\("@\/lib\/activity\/sign-out"\)\)\.prepareDeviceActivityForSignOut/, "uploads first");
+    assert.match(signOut, /return \{ notUploaded: left \?\? kept, clear \};/, "a slow upload step still asks, and still clears");
+    assert.match(signOut, /await within\(ACTIVITY_CLEAR_LIMIT_MS, activity\.clear\(\)\)/, "after signing out, the device copy is removed");
+    assert.match(read("components/app/LogoutButton.tsx"), /signOutWithDeviceActivity\(supabase, \{ scope, ask: \(question\) => window\.confirm\(question\) \}\)/);
+    assert.match(read("components/account/DeleteAccount.tsx"), /signOutWithDeviceActivity\(supabase, \{ ask: \(question\) => window\.confirm\(question\) \}\)/, "and so does “Sign in again” when deleting");
+    // No other sign-out skips that: the only other call is after an account is deleted, once forgetDeviceRecordings has run.
+    const root = new URL("../../src/", import.meta.url);
+    const callers = readdirSync(root, { recursive: true }).map(String).filter((file) => /\.tsx?$/.test(file) && /\.auth\.signOut\(/.test(readFileSync(new URL(file, root), "utf8")));
+    assert.deepEqual(callers.sort(), ["components/account/DeleteAccount.tsx", "lib/auth/device-sign-out.ts"]);
+    assert.match(read("components/account/DeleteAccount.tsx"), /if \(userId\) await forgetDeviceRecordings\(userId\);\s*setStep\("deleted"\);\s*\/\/[^\n]*\n\s*await createClient\(\)\?\.auth\.signOut/);
+    assert.match(activity, /\bWhen you log out, FITX first uploads what it can and then removes your recordings from that device, and asks before deleting any that aren’t saved to your account yet\b/);
   });
 
   test("the page names the outside food databases that food search and the coach's food checks call", () => {
