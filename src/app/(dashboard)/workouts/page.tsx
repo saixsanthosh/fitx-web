@@ -81,11 +81,12 @@ function asLevel(value: string | undefined): Level {
   return (LEVELS as readonly string[]).includes(value ?? "") ? (value as Level) : "beginner";
 }
 
-function programmeNotice(created: number, unfilled: readonly string[], error: unknown) {
+function programmeNotice(created: number, unfilled: readonly string[], error: unknown, skippedDays: readonly string[] = []) {
   if (error && !created) return "The programme days couldn’t be planned. Use “Plan the next 7 days” to try again.";
-  const planned = created ? `Planned ${created} workout${created === 1 ? "" : "s"} for the next 7 days.` : "None of your training days fall in the next 7 days.";
+  const planned = created ? `Planned ${created} workout${created === 1 ? "" : "s"} for the next 7 days.` : skippedDays.length ? "No workouts were planned." : "None of your training days fall in the next 7 days.";
+  const skipped = skippedDays.length ? ` Nothing in the library fits ${[...new Set(skippedDays)].join(", ")} with your equipment, so ${skippedDays.length === 1 ? "that day isn’t" : "those days aren’t"} planned. Add equipment to your list for more options.` : "";
   const gaps = unfilled.length ? ` Nothing in the library fits ${unfilled.join(", ").toLowerCase()} with your equipment, so ${unfilled.length === 1 ? "it was" : "those were"} left out.` : "";
-  return planned + gaps + (error ? " Some days couldn’t be planned; try “Plan the next 7 days” again." : "");
+  return planned + skipped + gaps + (error ? " Some days couldn’t be planned; try “Plan the next 7 days” again." : "");
 }
 
 /** "Last time (12 Nov): 3 sets, best 60 kg × 8", from the member's latest completed session with the exercise. */
@@ -581,7 +582,7 @@ export default function WorkoutsPage() {
     setProgrammeBusy(false);
     setContext(programme.context);
     await load();
-    setNotice(programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error));
+    setNotice(programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays));
     return null;
   }
 
@@ -598,7 +599,7 @@ export default function WorkoutsPage() {
     });
     setProgrammeBusy(false);
     await load();
-    setNotice(scheduled.ran ? programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error) : "Your next 7 days are already planned.");
+    setNotice(scheduled.ran ? programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays) : "Your next 7 days are already planned.");
   }
 
   async function leave() {

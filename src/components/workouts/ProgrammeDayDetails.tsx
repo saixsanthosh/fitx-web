@@ -37,7 +37,7 @@ export function ProgrammeDayDetails({ day, next, busy, onPreview }: {
     case "planned": message = "Planned. You can review it now, or do it early: it counts either way."; break;
     case "missed": message = "Not done. A missed day isn’t held against you, and you can still do it."; break;
     case "projected": message = "Not planned yet. FITX plans each training day about a week ahead, with exercises for your equipment."; break;
-    case "unplanned": message = "No workout was planned for this day."; break;
+    case "unplanned": message = "No workout planned for this day."; break;
     case "paused": message = "Your programme is paused. Resume it to plan this day."; break;
     case "rest": message = `Recovery is part of your plan. ${nextLine}`.trim(); break;
     case "before_start": message = "Before you started this programme."; break;
