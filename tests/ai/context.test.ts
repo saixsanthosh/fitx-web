@@ -327,26 +327,39 @@ describe("privacy page", () => {
     assert.doesNotMatch(coach, /\bsuch as your age\b/, "the list is complete");
   });
 
-  test("the AI coach section says which requests Gemini gets, as the router picks them", async () => {
+  test("the AI coach section says which requests Gemini gets, as the router picks them, with or without the owner's opt-in", async () => {
     const { candidatesFor } = await import("@/lib/ai/registry");
     const { readAiConfig } = await import("@/lib/ai/config");
-    const config = readAiConfig({ GEMINI_API_KEY: "gemini-test", GROQ_API_KEY: "groq-test", OPENROUTER_API_KEY: "openrouter-test" });
-    const providers = (task: "chat" | "meal_plan" | "workout_plan" | "swap", personalData: boolean) => new Set(candidatesFor(task, config, { personalData }).map((candidate) => candidate.provider));
-    assert.ok(providers("chat", false).has("gemini"), "a request without the summary may go to Gemini");
-    for (const task of ["chat", "meal_plan", "workout_plan", "swap"] as const) {
-      assert.ok(!providers(task, true).has("gemini"), `${task} with member data skips Gemini`);
-      assert.ok(providers(task, true).has("groq") && providers(task, true).has("openrouter"), `${task} with member data goes to Groq or OpenRouter`);
-    }
-    // AI_GEMINI_WITH_MEMBER_DATA would change that: if the owner sets it, the page must say Gemini may get the summary too.
+    const { geminiRouting } = await import("@/lib/ai/disclosure");
+    const keys = { GEMINI_API_KEY: "gemini-test", GROQ_API_KEY: "groq-test", OPENROUTER_API_KEY: "openrouter-test" };
+    const tasks = ["chat", "meal_plan", "workout_plan", "swap"] as const;
+    const providers = (config: ReturnType<typeof readAiConfig>, task: (typeof tasks)[number], personalData: boolean) => new Set(candidatesFor(task, config, { personalData }).map((candidate) => candidate.provider));
+
+    // As deployed by default: requests with the summary or the care note (personalData) skip Gemini.
+    const config = readAiConfig(keys);
     assert.equal(config.geminiWithMemberData, false);
+    assert.ok(providers(config, "chat", false).has("gemini"), "a request without the summary may go to Gemini");
+    for (const task of tasks) {
+      assert.ok(!providers(config, task, true).has("gemini"), `${task} with member data skips Gemini`);
+      assert.ok(providers(config, task, true).has("groq") && providers(config, task, true).has("openrouter"), `${task} with member data goes to Groq or OpenRouter`);
+    }
+    assert.match(geminiRouting(config), /^Google’s Gemini API only gets requests that carry neither a summary of your FITX data nor that eating-disorder note/);
+    assert.match(geminiRouting(config), /\bChats with your summary or that note, meal and workout plans and food swaps go to Groq or OpenRouter\.$/);
+
+    // With AI_GEMINI_WITH_MEMBER_DATA, Gemini may get them all, and the page says so.
+    const optedIn = readAiConfig({ ...keys, AI_GEMINI_WITH_MEMBER_DATA: "true" });
+    for (const task of tasks) assert.ok(providers(optedIn, task, true).has("gemini"), `${task} with member data may go to Gemini`);
+    assert.match(geminiRouting(optedIn), /^Google’s Gemini API may get any coach request: chats with your summary or that eating-disorder note, meal and workout plans and food swaps may go to Gemini, Groq or OpenRouter\.$/);
+    assert.doesNotMatch(geminiRouting(optedIn), /\bonly gets\b/);
+
+    // The page renders the sentence for the deployment's own settings, next to Google's terms.
     const coach = section("AI coach");
-    assert.match(coach, /Google’s Gemini API only gets requests that carry neither a summary of your FITX data nor that eating-disorder note/);
-    assert.match(coach, /\bChats with your summary or that note, meal and workout plans and food swaps go to Groq or OpenRouter\b/);
+    assert.match(page, /<p className="mt-3">\{geminiRouting\(readAiConfig\(\)\)\} On its free tier, Google may use prompts and replies to improve its products, and people at Google may read them\./);
+    assert.match(coach, /\bthat eating-disorder note\b|\bthe AI service that you recently shared something that can be a sign of an eating disorder\b/, "the note the sentence refers to is named before it");
     // The care note is health information too: the chat sends it as member data (tests/ai/routes.test.ts routes one).
     const turn = readFileSync(new URL("../../src/lib/ai/coach.ts", import.meta.url), "utf8");
     assert.match(turn, /const personalData = task !== "chat" \|\| sharesData \|\| careMode;/);
     assert.match(turn, /personalData: state\.sharesData \|\| state\.careMode,/);
-    assert.match(coach, /\bpeople at Google may read them\b/);
   });
 
   test("the AI coach section says sharing starts off, what the safety notes pause and when consent is asked again", async () => {
