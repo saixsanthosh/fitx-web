@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { ShellEffects } from "@/components/layout/ShellEffects";
 import { SkipLink } from "@/components/layout/SkipLink";
 import { Logo } from "@/components/ui/Logo";
-import { IMG } from "@/data/images";
+import { AuthVisualImage } from "./AuthVisualImage";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -17,14 +16,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <SkipLink />
       <ShellEffects />
       <section className="auth-visual" aria-label="FITX training">
-        <Image
-          src={IMG.workoutMan}
-          alt="Athlete training in a sunlit gym"
-          fill
-          preload
-          sizes="(max-width: 900px) 100vw, 52vw"
-          className="auth-visual-image"
-        />
+        <AuthVisualImage />
         <div className="auth-visual-shade" aria-hidden="true" />
         <div className="auth-visual-content">
           <Link href="/" aria-label="FITX home"><Logo size={42} /></Link>
