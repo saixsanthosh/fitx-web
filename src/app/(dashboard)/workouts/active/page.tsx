@@ -628,9 +628,10 @@ export default function ActiveWorkoutPage() {
           <p className="mb-4 mt-1 text-xs text-fitx-text-secondary">This session now counts towards your muscle history.</p>
           <SessionMuscles summary={completion.muscles} failed={completion.musclesFailed} />
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Link href={recordHref(session.id)} className="fitx-button min-h-12">View the full record<ArrowRight size={15} aria-hidden="true" /></Link>
           <Link href="/workouts" className="fitx-button fitx-button-secondary min-h-12">Back to workouts</Link>
+          <Link href="/workouts/history" className="inline-flex min-h-11 items-center justify-center gap-2 px-3 text-sm font-medium text-fitx-primary-text hover:underline sm:ml-auto"><History size={15} aria-hidden="true" />Workout history</Link>
         </div>
       </section>
     </div>;
