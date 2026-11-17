@@ -1,327 +1,432 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowDownWideNarrow, ArrowRight, Bookmark, BookmarkCheck, Dumbbell, Filter, House, Search, X } from "lucide-react";
-import { EmptyState } from "@/components/app/EmptyState";
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Bookmark, Dumbbell, Filter, House, PersonStanding, Sparkles } from "lucide-react";
 import { PageHeading } from "@/components/app/PageHeading";
-import { ExerciseThumbnail } from "@/components/exercises/ExerciseMedia";
-import { readExerciseFavorites, readRecentExercises, toggleExerciseFavorite } from "@/lib/domain/exercise-preferences";
-import { createClient } from "@/lib/supabase/client";
+import { ActiveFilters } from "@/components/exercises/discovery/ActiveFilters";
+import { DiscoverySection } from "@/components/exercises/discovery/DiscoverySection";
+import { EquipmentGrid } from "@/components/exercises/discovery/EquipmentGrid";
+import { ExerciseResultCard, mainMuscleLabel } from "@/components/exercises/discovery/ExerciseResultCard";
+import { FilterPanel } from "@/components/exercises/discovery/FilterPanel";
+import { NoResults } from "@/components/exercises/discovery/NoResults";
+import { SearchField } from "@/components/exercises/discovery/SearchField";
+import { FocusTiles } from "@/components/training/FocusTiles";
+import { clearRecentSearches, forgetSearch, readRecentExercises, readRecentSearches, rememberSearch } from "@/lib/domain/exercise-preferences";
+import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
-import { catalogSearchQuery, MAX_IDS } from "@/lib/training/catalog-search";
-import { equipmentFor, loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/data";
-import { equipmentLabel, expandOwnedEquipment } from "@/lib/training/equipment";
-import { storedIdsFor, survivingExerciseIds } from "@/lib/training/exercise-merges";
+import { loadCatalogThumbnails, queryCatalog, relaxSuggestions, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
+import { equipmentFor, saveEquipmentProfile } from "@/lib/training/data";
+import { expandOwnedEquipment, sortEquipmentKeys } from "@/lib/training/equipment";
+import { survivingExerciseIds } from "@/lib/training/exercise-merges";
+import { FOCUS_AREAS, focusCounts } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
-import { CATEGORY_LABELS, EQUIPMENT, EXERCISE_CATEGORIES, LEVELS, MUSCLE_GROUP_LABELS, MUSCLE_GROUPS, type TrainingContext } from "@/lib/training/taxonomy";
-import { capitalize, workPerSet } from "./_lib/format";
-import { activeFilterCount, libraryApiQuery, readLibraryState, withLibraryParam, withoutLibraryFilters, type LibraryParam } from "./_lib/library-state";
+import { buildVocabulary, highlightRanges, suggestSpelling } from "@/lib/training/search-terms";
+import { rankSubstitutes } from "@/lib/training/substitutions";
+import type { TrainingContext } from "@/lib/training/taxonomy";
+import {
+  canonicalLibrarySearch,
+  equipmentListText,
+  filterChips,
+  libraryQuery,
+  muscleWordFilter,
+  panelFilterCount,
+  readLibraryState,
+  relaxLabel,
+  relaxState,
+  withoutChip,
+  withoutFilters,
+  writeLibraryState,
+  type LibrarySort,
+  type LibraryState,
+} from "./_lib/library-state";
+import { replaceSearch, useCatalogue, useLibraryAccount, useSavedExercises, useUrlSearch } from "./_lib/use-library";
 
-type Item = CatalogExercise & { thumbnail: string | null };
-type LibraryPage = { items: Item[]; total: number; page: number; pageSize: number; curated: boolean };
-type Results = LibraryPage & { key: string };
-type Failure = { key: string; message: string; status: number };
-type Account =
-  | { status: "loading" }
-  | { status: "unavailable" }
-  | { status: "signed-out" }
-  | { status: "ready"; profiles: EquipmentProfiles; legacyWords: string[]; failed: boolean };
-
-const SEARCH_DELAY_MS = 250;
-const RECENT_LIMIT = 6;
-const LIBRARY_ERROR = "The exercise library could not be loaded. Check your connection and try again.";
+const PAGE_SIZE = 24;
+const RECENT_SHOWN = 6;
+const SECTIONS_KEY = "fitx:exercise:v1:library-sections";
 const CONTEXT_TITLES: Record<TrainingContext, string> = { home: "Home Workout", gym: "Gym Workout" };
+const SORT_LABELS: Record<LibrarySort, string> = { best: "Best match", name: "Name, A to Z", difficulty: "Easiest first" };
 
-function subscribeToUrl(callback: () => void) { window.addEventListener("popstate", callback); return () => window.removeEventListener("popstate", callback); }
-function currentSearch() { return window.location.search; }
-function useUrlSearch() { return useSyncExternalStore(subscribeToUrl, currentSearch, () => ""); }
+type Sections = { focus: boolean; equipment: boolean };
 
-/** One page from GET /api/exercises; null when the request was cancelled. */
-async function fetchLibraryPage(query: string, page: number, signal?: AbortSignal): Promise<{ body: LibraryPage } | { error: string; status: number } | null> {
-  const params = new URLSearchParams(query);
-  if (page > 1) params.set("page", String(page));
+/** Which panels the member folded away, remembered on this device (a convenience; defaults when unreadable). */
+function readSections(): Sections {
   try {
-    const response = await fetch(`/api/exercises?${params.toString()}`, { signal, headers: { Accept: "application/json" } });
-    const body: unknown = await response.json().catch(() => null);
-    if (!response.ok) {
-      const message = body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : LIBRARY_ERROR;
-      return { error: message, status: response.status };
-    }
-    return { body: body as LibraryPage };
+    const value = JSON.parse(window.localStorage.getItem(SECTIONS_KEY) || "{}") as Partial<Sections>;
+    return { focus: value.focus !== false, equipment: value.equipment !== false };
   } catch {
-    return signal?.aborted ? null : { error: LIBRARY_ERROR, status: 0 };
+    return { focus: true, equipment: true };
   }
 }
 
-/** "Dumbbells, Weight bench and 3 more"; "no equipment" for an empty list. */
-function listText(keys: readonly string[]) {
-  if (!keys.length) return "no equipment (body weight only)";
-  const labels = keys.map(equipmentLabel);
-  return labels.length <= 4 ? labels.join(", ") : `${labels.slice(0, 3).join(", ")} and ${labels.length - 3} more`;
+function writeSections(sections: Sections) {
+  try {
+    window.localStorage.setItem(SECTIONS_KEY, JSON.stringify(sections));
+  } catch {
+    // Browser storage may be unavailable; the panels still open and close.
+  }
 }
 
 export default function ExerciseLibraryPage() {
-  const searchString = useUrlSearch();
-  const state = useMemo(() => readLibraryState(searchString), [searchString]);
-  const [account, setAccount] = useState<Account>({ status: "loading" });
-  const [userId, setUserId] = useState("");
-  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
-  const [recentIds, setRecentIds] = useState<string[]>([]);
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const search = useUrlSearch();
+  const state = useMemo(() => readLibraryState(search), [search]);
+  // Results follow the URL a moment behind typing, so the field never waits for the list.
+  const view = useDeferredValue(state);
+  const { catalogue, retry } = useCatalogue();
+  const { account, reloadProfiles } = useLibraryAccount();
+  const userId = account.status === "ready" ? account.userId : "";
+  const exercises = catalogue.status === "ready" ? catalogue.exercises : null;
+  const knownIds = useMemo(() => (catalogue.status === "ready" ? new Set(catalogue.exercises.map((exercise) => exercise.id)) : catalogue.status === "error" ? null : undefined), [catalogue]);
+  const { saved, savedSet, toggle } = useSavedExercises(userId, knownIds);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [results, setResults] = useState<Results | null>(null);
-  const [failure, setFailure] = useState<Failure | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  const [more, setMore] = useState<{ key: string; loading: boolean; error: string } | null>(null);
-  const [recent, setRecent] = useState<{ key: string; items: Item[] } | null>(null);
-  const loadedOnce = useRef(false);
+  const [sections, setSections] = useState<Sections>({ focus: true, equipment: true });
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [limit, setLimit] = useState({ key: "", count: PAGE_SIZE });
+  const [thumbs, setThumbs] = useState<ReadonlyMap<string, string | null>>(() => new Map());
+  const requestedThumbs = useRef(new Set<string>());
+  const [listNote, setListNote] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  const [savingList, setSavingList] = useState(false);
 
+  // Links from earlier versions (?equipment=, ?location=, a single ?muscle=full_body) are rewritten once.
   useEffect(() => {
-    let active = true;
-    void (async () => {
-      const supabase = createClient();
-      if (!supabase) { setAccount({ status: "unavailable" }); return; }
-      const { data } = await supabase.auth.getUser();
-      if (!active) return;
-      const uid = data.user?.id ?? "";
-      // Saved and recent exercises are keyed by user; they work before the equipment lists arrive.
-      setUserId(uid);
-      // Ids saved before the catalogue clean-up may name a merged duplicate: read as its survivor.
-      setFavoriteIds(survivingExerciseIds(readExerciseFavorites(uid)));
-      setRecentIds(survivingExerciseIds(readRecentExercises(uid)));
-      if (!uid) { setAccount({ status: "signed-out" }); return; }
-      const [lists, preferences] = await Promise.all([
-        loadEquipmentProfiles(supabase, uid),
-        supabase.from("user_preferences").select("equipment").eq("user_id", uid).maybeSingle(),
-      ]);
-      if (!active) return;
-      const words = (preferences.data as { equipment?: string[] | null } | null)?.equipment;
-      setAccount({ status: "ready", profiles: lists.profiles, legacyWords: Array.isArray(words) ? words : [], failed: Boolean(lists.error) });
-    })();
-    return () => { active = false; };
+    const current = window.location.search.slice(1);
+    const canonical = canonicalLibrarySearch(current);
+    if (canonical !== new URLSearchParams(current).toString()) replaceSearch(canonical);
   }, []);
-
-  const list = useMemo(() => (account.status === "ready" ? equipmentFor(account.profiles, state.context, account.legacyWords) : null), [account, state.context]);
-  const owned = useMemo(() => (list ? [...expandOwnedEquipment(list.keys)] : null), [list]);
-  // Without an account there is no list to check against, so the toggle cannot apply.
-  const doableAvailable = account.status === "loading" || account.status === "ready";
-  const doable = state.doable && doableAvailable;
-  const noFavorites = favoritesOnly && favoriteIds.length === 0;
-  const queryKey = noFavorites ? null : libraryApiQuery({ ...state, doable }, owned, favoritesOnly ? favoriteIds.slice(0, MAX_IDS) : null);
-
+  useEffect(() => { void Promise.resolve().then(() => setSections(readSections())); }, []);
   useEffect(() => {
-    if (!queryKey) return;
-    const controller = new AbortController();
-    // The first page loads at once; later changes (typing, filters) wait for a short pause.
-    const timer = window.setTimeout(() => {
-      void fetchLibraryPage(queryKey, 1, controller.signal).then((outcome) => {
-        if (!outcome) return;
-        if ("error" in outcome) { setFailure({ key: queryKey, message: outcome.error, status: outcome.status }); return; }
-        loadedOnce.current = true;
-        setResults({ ...outcome.body, key: queryKey });
-      });
-    }, loadedOnce.current ? SEARCH_DELAY_MS : 0);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [queryKey, attempt]);
-
-  const filterCount = activeFilterCount(state) + Number(favoritesOnly);
-  const showRecent = !state.q.trim() && filterCount === 0 && !doable;
-  const recentKey = showRecent && recentIds.length ? catalogSearchQuery({ ids: recentIds.slice(0, RECENT_LIMIT), pageSize: RECENT_LIMIT }).toString() : null;
-  useEffect(() => {
-    if (!recentKey) return;
-    const controller = new AbortController();
-    void fetchLibraryPage(recentKey, 1, controller.signal).then((outcome) => {
-      if (outcome && "body" in outcome) setRecent({ key: recentKey, items: outcome.body.items });
-    });
-    return () => controller.abort();
-  }, [recentKey]);
-  const recentItems = useMemo(() => {
-    if (!recent || recent.key !== recentKey) return [];
-    const byId = new Map(recent.items.map((item) => [item.id, item]));
-    return recentIds.map((id) => byId.get(id)).filter((item): item is Item => Boolean(item));
-  }, [recent, recentKey, recentIds]);
-
-  const current = results && results.key === queryKey ? results : null;
-  const error = !noFavorites && failure && failure.key === queryKey && !current ? failure : null;
-  // While new results load, the previous ones stay on screen (dimmed) instead of a blank grid.
-  const shown = current ?? (results && results.items.length ? results : null);
-  const updating = !noFavorites && !error && !current;
-  const moreState = more && more.key === queryKey ? more : null;
-
-  function navigate(search: string) {
-    window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }
-  function setParam(key: LibraryParam, value: string | boolean | null) { navigate(withLibraryParam(window.location.search, key, value)); }
-  function clearFilters() { navigate(withoutLibraryFilters(window.location.search)); setFavoritesOnly(false); }
-  function toggleFavorite(id: string) {
     if (!userId) return;
-    // Un-saving removes every stored id that reads as this exercise, a merged duplicate's included.
-    const stored = storedIdsFor(readExerciseFavorites(userId), id);
-    let next: string[] = [];
-    if (stored.length) for (const storedId of stored) next = toggleExerciseFavorite(userId, storedId);
-    else next = toggleExerciseFavorite(userId, id);
-    setFavoriteIds(survivingExerciseIds(next));
-  }
-  function retry() { setFailure(null); setAttempt((value) => value + 1); }
-
-  async function loadMore() {
-    if (!current || !queryKey) return;
-    const key = queryKey;
-    setMore({ key, loading: true, error: "" });
-    const outcome = await fetchLibraryPage(key, current.page + 1);
-    if (!outcome) return;
-    if ("error" in outcome) { setMore({ key, loading: false, error: outcome.error }); return; }
-    setMore(null);
-    setResults((previous) => {
-      if (!previous || previous.key !== key) return previous;
-      const seen = new Set(previous.items.map((item) => item.id));
-      return { ...outcome.body, key, items: [...previous.items, ...outcome.body.items.filter((item) => !seen.has(item.id))] };
+    void Promise.resolve().then(() => {
+      setRecentSearches(readRecentSearches(userId));
+      setRecentIds(survivingExerciseIds(readRecentExercises(userId)));
     });
+  }, [userId]);
+
+  const navigate = useCallback((next: LibraryState) => replaceSearch(writeLibraryState(next)), []);
+  const update = (patch: Partial<LibraryState>) => navigate({ ...state, ...patch });
+  const toggleSection = (key: keyof Sections) => setSections((current) => {
+    const next = { ...current, [key]: !current[key] };
+    writeSections(next);
+    return next;
+  });
+
+  // What the member has: this search's choice, else their saved list for the context (a starting list until saved).
+  const list = account.status === "ready" ? equipmentFor(account.profiles, state.context, account.legacyWords) : null;
+  const haveKeys = state.have ?? list?.keys ?? null;
+  const haveKey = haveKeys ? haveKeys.join(",") : null;
+  const owned = useMemo(() => (haveKey === null ? null : expandOwnedEquipment(haveKey ? haveKey.split(",") : [])), [haveKey]);
+  const level = account.status === "ready" ? account.level : null;
+  const contextName = state.context === "home" ? "Home" : "Gym";
+  const listName = state.have ? "the equipment you chose" : `your ${contextName} list`;
+
+  const savedReady = !view.saved || saved.ready;
+  const query = useMemo(() => libraryQuery(view, saved.ids), [view, saved.ids]);
+  const result = useMemo(() => (exercises && savedReady ? queryCatalog(exercises, query, { owned, level }) : null), [exercises, savedReady, query, owned, level]);
+  const viewKey = writeLibraryState(view);
+  const shownCount = limit.key === viewKey ? limit.count : PAGE_SIZE;
+  const visible = useMemo(() => result?.items.slice(0, shownCount) ?? [], [result, shownCount]);
+  const updating = state !== view;
+
+  // Photos for the cards on screen: FITX's own copies where exercise_media has them, else the pinned photos.
+  useEffect(() => {
+    const supabase = createClient();
+    const wanted = visible.map((item) => item.exercise).filter((exercise) => !requestedThumbs.current.has(exercise.id));
+    if (!supabase || !wanted.length) return;
+    for (const exercise of wanted) requestedThumbs.current.add(exercise.id);
+    void loadCatalogThumbnails(supabase, wanted, SUPABASE_URL).then(({ thumbnails }) => {
+      setThumbs((current) => {
+        const next = new Map(current);
+        for (const [id, url] of thumbnails) next.set(id, url);
+        return next;
+      });
+    });
+  }, [visible]);
+
+  // "Try instead": the best exercise for the same job that the member can do.
+  const alternatives = useMemo(() => {
+    const found = new Map<string, CatalogExercise | null>();
+    if (!exercises || !owned) return found;
+    for (const item of visible) {
+      if (item.doable !== false) continue;
+      const [best] = rankSubstitutes(item.exercise, exercises, { owned, level: level ?? item.exercise.difficulty, doableOnly: true, limit: 1 });
+      found.set(item.exercise.id, best?.exercise ?? null);
+    }
+    return found;
+  }, [exercises, owned, level, visible]);
+
+  const counts = useMemo(() => (exercises ? focusCounts(exercises, owned) : null), [exercises, owned]);
+  const focusDetails = counts
+    ? Object.fromEntries(FOCUS_AREAS.map((area) => [area, counts[area].doable === null ? `${counts[area].total} exercises` : `${counts[area].total} exercises · ${counts[area].doable} you can do`]))
+    : undefined;
+
+  const vocabulary = useMemo(() => (exercises ? buildVocabulary(exercises.map((exercise) => exercise.name)) : null), [exercises]);
+  const empty = Boolean(result && result.items.length === 0);
+  const spelling = useMemo(() => {
+    if (!empty || !exercises || !vocabulary || !view.q.trim()) return null;
+    const corrected = suggestSpelling(view.q, vocabulary);
+    return corrected && queryCatalog(exercises, { ...query, q: corrected }, { owned, level }).items.length ? corrected : null;
+  }, [empty, exercises, vocabulary, view.q, query, owned, level]);
+  const relax = useMemo(() => (empty && exercises ? relaxSuggestions(exercises, query, { owned, level }).slice(0, 4) : []), [empty, exercises, query, owned, level]);
+  const wordFilter = useMemo(() => muscleWordFilter(state), [state]);
+
+  const byId = useMemo(() => new Map((exercises ?? []).map((exercise) => [exercise.id, exercise])), [exercises]);
+  const searching = state.q.trim().length > 0;
+  const chips = filterChips(state);
+  const chipItems = chips.map((chip) => ({ id: `${chip.key}:${chip.value}`, kind: chip.kind, label: chip.label }));
+  const recentlyViewed = recentIds.map((id) => byId.get(id)).filter((exercise): exercise is CatalogExercise => Boolean(exercise)).slice(0, RECENT_SHOWN);
+  const recentMatches = useMemo(() => {
+    if (!result || !view.q.trim() || !recentIds.length) return [];
+    const order = new Map(recentIds.map((id, index) => [id, index]));
+    return result.items.filter((item) => order.has(item.exercise.id)).sort((a, b) => (order.get(a.exercise.id) ?? 0) - (order.get(b.exercise.id) ?? 0)).slice(0, 3);
+  }, [result, view.q, recentIds]);
+
+  const rememberCurrentSearch = useCallback(() => {
+    if (userId && state.q.trim()) setRecentSearches(rememberSearch(userId, state.q));
+  }, [userId, state.q]);
+
+  const setHave = (keys: readonly string[]) => {
+    const sorted = sortEquipmentKeys(keys);
+    const same = list && sorted.join(",") === sortEquipmentKeys(list.keys).join(",");
+    setListNote(null);
+    update({ have: same ? null : sorted });
+  };
+
+  async function saveHaveList() {
+    const supabase = createClient();
+    if (!supabase || account.status !== "ready" || !state.have) return;
+    setSavingList(true);
+    const { error } = await saveEquipmentProfile(supabase, account.userId, state.context, state.have);
+    setSavingList(false);
+    if (error) { setListNote({ tone: "error", text: `Your ${contextName} list could not be saved. Check your connection and try again.` }); return; }
+    await reloadProfiles();
+    navigate({ ...state, have: null });
+    setListNote({ tone: "info", text: `Saved as your ${contextName} list. Workouts uses it too.` });
   }
 
-  const contextName = state.context === "home" ? "Home" : "Gym";
-  const emptyTitle = noFavorites ? "No saved exercises yet" : doable ? `Nothing matches your ${contextName.toLowerCase()} equipment` : "No matching exercises";
-  const emptyDescription = noFavorites
-    ? "Save a movement with the bookmark control to keep it close on this device."
-    : doable
-      ? `Turn off “Doable with my equipment”, clear a filter, or add equipment to your ${contextName} list on the Workouts page.`
-      : "Try a broader search or clear one of the active filters.";
+  const resultsTitle = !result ? (catalogue.status === "error" ? "Exercises unavailable" : "Loading exercises") : `${result.items.length.toLocaleString()} ${result.items.length === 1 ? "exercise" : "exercises"}`;
+  const directCount = result && view.focus.length ? result.items.filter((item) => item.focusTier === 0).length : null;
+
+  const renderCard = (item: RankedExercise) => (
+    <ExerciseResultCard
+      key={item.exercise.id}
+      item={item}
+      thumbnail={thumbs.get(item.exercise.id)}
+      highlight={item.match?.matched.length ? highlightRanges(item.exercise.name, item.match.matched) : undefined}
+      saved={savedSet.has(item.exercise.id)}
+      canSave={Boolean(userId) && saved.ready}
+      onToggleSave={() => void toggle(item.exercise.id)}
+      alternative={alternatives.get(item.exercise.id) ?? null}
+      listName={listName}
+      onOpen={rememberCurrentSearch}
+    />
+  );
 
   return (
-    <div className="space-y-6 sm:space-y-7">
-      <PageHeading title="Exercise library" description="Explore the movements in your FITX training library. Choose where you train, then filter by muscle group, category, equipment and difficulty." actions={<Link href="/workouts" className="fitx-button fitx-button-secondary">Build a workout<ArrowRight size={15} /></Link>} />
-      <p className="-mt-4 text-xs leading-5 text-fitx-text-secondary">Movement guidance and photos are adapted from <a className="text-fitx-primary-text underline underline-offset-2" href={FREE_EXERCISE_DB_SOURCE_URL} target="_blank" rel="noreferrer">Free Exercise DB</a>. The photos are stills, not animated demonstrations.</p>
+    <div className="space-y-5 sm:space-y-6">
+      <PageHeading
+        title="Exercise library"
+        description="Search every FITX exercise, or choose what you want to train and what you have, and the exercises you can do come first."
+        actions={<>
+          <Link href="/exercises/muscles" className="fitx-button fitx-button-secondary min-h-11 px-3.5"><PersonStanding size={16} aria-hidden="true" />Browse by muscle</Link>
+          <Link href="/workouts" className="fitx-button min-h-11 px-3.5">Build a workout<ArrowRight size={15} aria-hidden="true" /></Link>
+        </>}
+      />
 
-      <section aria-label="Where you train" className="fitx-panel space-y-4 p-3 sm:p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div role="group" aria-label="Where you train" className="grid grid-cols-2 gap-1 rounded-lg border border-fitx-border bg-fitx-surface-variant p-1 lg:w-[360px]">
-            {(["home", "gym"] as const).map((value) => (
-              <button key={value} type="button" aria-pressed={state.context === value} onClick={() => setParam("context", value)}
-                className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors ${state.context === value ? "bg-fitx-card text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>
-                {value === "home" ? <House size={16} aria-hidden="true" /> : <Dumbbell size={16} aria-hidden="true" />}{CONTEXT_TITLES[value]}
+      <section aria-label="Search and filters" className="fitx-panel grid gap-3 p-3 sm:p-4">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
+          <SearchField
+            value={state.q}
+            onChange={(value) => update({ q: value })}
+            onSubmit={rememberCurrentSearch}
+            recent={recentSearches}
+            onPickRecent={(term) => { update({ q: term }); if (userId) setRecentSearches(rememberSearch(userId, term)); }}
+            onForgetRecent={(term) => { if (userId) setRecentSearches(forgetSearch(userId, term)); }}
+            onClearRecent={() => { if (userId) setRecentSearches(clearRecentSearches(userId)); }}
+          />
+          <div className="flex gap-2">
+            <button type="button" aria-pressed={state.saved} onClick={() => update({ saved: !state.saved })} disabled={!userId}
+              className={`fitx-button min-h-12 flex-1 px-3.5 lg:flex-none ${state.saved ? "" : "fitx-button-secondary"}`}>
+              <Bookmark size={15} aria-hidden="true" />Saved{saved.ready && <span className="tabular-nums">{saved.ids.length}</span>}
+            </button>
+            <button type="button" aria-expanded={filtersOpen} aria-controls="exercise-filters" onClick={() => setFiltersOpen((open) => !open)}
+              className="fitx-button fitx-button-secondary min-h-12 flex-1 px-3.5 lg:flex-none">
+              <Filter size={15} aria-hidden="true" />Filters
+              {panelFilterCount(state) > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-fitx-primary px-1 text-[10px] text-fitx-on-primary">{panelFilterCount(state)}</span>}
+            </button>
+          </div>
+        </div>
+        {wordFilter && (
+          <p className="m-0 flex flex-wrap items-center gap-x-2 text-sm text-fitx-text-secondary">
+            <Sparkles size={14} aria-hidden="true" className="text-fitx-primary" />
+            <span>“{wordFilter.word}” reads as {wordFilter.label.toLowerCase()}.</span>
+            <button type="button" onClick={() => navigate(wordFilter.next)} className="inline-flex min-h-11 items-center font-semibold text-fitx-primary-text underline underline-offset-4">Filter by {wordFilter.label}</button>
+          </p>
+        )}
+        {filtersOpen && <FilterPanel id="exercise-filters" state={state} onChange={navigate} />}
+        {catalogue.status === "ready" && !catalogue.curated && <p className="m-0 text-xs leading-5 text-fitx-text-secondary">Some filters are approximate until FITX’s exercise catalogue update is applied.</p>}
+        {saved.problem && <p role="alert" className="fitx-alert fitx-alert-danger m-0">{saved.problem}</p>}
+        {saved.moved > 0 && <p role="status" className="m-0 text-xs text-fitx-text-secondary">{saved.moved === 1 ? "1 exercise you saved on this device is" : `${saved.moved} exercises you saved on this device are`} now saved to your account, so they show on every device.</p>}
+      </section>
+
+      <ActiveFilters chips={chipItems} onRemove={(id) => {
+        const chip = chips.find((item) => `${item.key}:${item.value}` === id);
+        if (chip) navigate(withoutChip(state, chip));
+      }} onClearAll={() => navigate(withoutFilters(state))} />
+
+      {!searching && (
+        <DiscoverySection id="focus" title="What do you want to train?" open={sections.focus} onToggle={() => toggleSection("focus")}
+          summary={state.focus.length ? `Showing exercises for ${state.focus.length === 1 ? "this area" : "these areas"} first. Pick more or tap again to remove.` : "Pick one or more areas. Exercises for them come first."}>
+          <FocusTiles value={state.focus} onChange={(focus) => update({ focus })} details={focusDetails} className="max-w-4xl" />
+        </DiscoverySection>
+      )}
+
+      {!searching && (
+        <DiscoverySection id="equipment" title="What do you have?" open={sections.equipment} onToggle={() => toggleSection("equipment")}
+          summary={account.status === "loading" ? "Loading your equipment lists…" : haveKeys ? `${state.have ? "Changed for this search" : list?.saved ? `Your saved ${contextName} list` : `A starting ${contextName} list`}: ${equipmentListText(haveKeys)}.` : "Sign in to check exercises against your equipment."}
+          actions={(
+            <div role="group" aria-label="Where you train" className="grid grid-cols-2 gap-1 rounded-lg border border-fitx-border bg-fitx-surface-variant p-1">
+              {(["home", "gym"] as const).map((value) => (
+                <button key={value} type="button" aria-pressed={state.context === value} onClick={() => { setListNote(null); update({ context: value, have: null }); }}
+                  className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors motion-reduce:transition-none ${state.context === value ? "bg-fitx-card text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>
+                  {value === "home" ? <House size={15} aria-hidden="true" /> : <Dumbbell size={15} aria-hidden="true" />}{value === "home" ? "Home" : "Gym"}
+                </button>
+              ))}
+            </div>
+          )}>
+          <div className="grid gap-4">
+            <EquipmentGrid value={account.status === "ready" ? haveKeys : null} onChange={setHave} context={state.context} disabled={account.status !== "ready"} />
+            <div className="flex flex-col gap-3 border-t border-fitx-divider pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <button type="button" role="switch" aria-checked={state.doable} disabled={!owned} onClick={() => update({ doable: !state.doable })}
+                className="flex min-h-11 items-center gap-3 rounded-lg px-1 text-left text-sm font-medium text-fitx-text disabled:opacity-60">
+                <span aria-hidden="true" className={`relative h-6 w-11 shrink-0 rounded-full transition-colors motion-reduce:transition-none ${state.doable ? "bg-fitx-primary" : "bg-fitx-track"}`}>
+                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-fitx-surface shadow-sm transition-transform motion-reduce:transition-none ${state.doable ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+                </span>
+                Only show what I can do
               </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {state.have && account.status === "ready" && account.profiles.available && (
+                  <button type="button" onClick={() => void saveHaveList()} disabled={savingList} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm">
+                    {savingList ? "Saving…" : `Save as my ${contextName} list`}
+                  </button>
+                )}
+                {state.have && <button type="button" onClick={() => update({ have: null })} className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-fitx-primary-text underline underline-offset-4">{list?.saved ? "Use my saved list" : "Use the starting list"}</button>}
+                {!state.have && account.status === "ready" && account.profiles.available && (
+                  <Link href={`/workouts?equipment=${state.context}`} className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-fitx-primary-text underline underline-offset-4">Edit on Workouts</Link>
+                )}
+              </div>
+            </div>
+            {listNote && <p role={listNote.tone === "error" ? "alert" : "status"} className={`m-0 text-sm ${listNote.tone === "error" ? "text-fitx-danger" : "text-fitx-text-secondary"}`}>{listNote.text}</p>}
+            {account.status === "ready" && account.failed && <p className="m-0 text-xs text-fitx-text-secondary">Your saved lists could not be loaded, so a starting list is used for now.</p>}
+          </div>
+        </DiscoverySection>
+      )}
+
+      {!searching && chips.length === 0 && recentlyViewed.length > 0 && (
+        <section aria-labelledby="recent-viewed" className="space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 id="recent-viewed" className="m-0 text-sm font-semibold">Recently viewed</h2>
+            <span className="text-[11px] text-fitx-text-secondary">On this device</span>
+          </div>
+          <ul className="m-0 flex list-none gap-2 overflow-x-auto p-0 pb-1">
+            {recentlyViewed.map((exercise) => (
+              <li key={exercise.id} className="shrink-0">
+                <Link href={`/exercises/${encodeURIComponent(exercise.id)}`} className="flex min-h-14 w-52 flex-col justify-center rounded-lg border border-fitx-border bg-fitx-surface px-3 py-2 text-xs transition-colors hover:border-fitx-primary/45 motion-reduce:transition-none">
+                  <span className="block truncate font-medium text-fitx-text">{exercise.name}</span>
+                  <span className="mt-0.5 block truncate text-fitx-text-secondary">{mainMuscleLabel(exercise)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {recentMatches.length > 0 && (
+        <section aria-labelledby="recent-matches" className="space-y-2">
+          <h2 id="recent-matches" className="m-0 text-xs font-semibold uppercase tracking-[.12em] text-fitx-text-secondary">Recent</h2>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{recentMatches.map(renderCard)}</div>
+        </section>
+      )}
+
+      <section aria-labelledby="exercise-results" aria-busy={updating || !result} className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-fitx-divider pb-3">
+          <div className="min-w-0">
+            <p className="m-0 text-xs font-semibold uppercase tracking-[.13em] text-fitx-primary-text">{searching ? "Search results" : CONTEXT_TITLES[state.context]}</p>
+            <h2 id="exercise-results" className="m-0 mt-1 text-lg font-semibold tracking-tight">{resultsTitle}</h2>
+            {result && result.items.length > 0 && (
+              <p className="m-0 mt-0.5 text-xs text-fitx-text-secondary">
+                {directCount !== null && `${directCount.toLocaleString()} train it as the main muscle`}
+                {directCount !== null && result.doableCount !== null && " · "}
+                {result.doableCount !== null && `${result.doableCount.toLocaleString()} you can do with ${listName}`}
+              </p>
+            )}
+          </div>
+          <label className="flex items-center gap-2 text-xs font-medium text-fitx-text-secondary">
+            Sort
+            <select className="fitx-field min-h-11 w-auto py-0 text-sm text-fitx-text" value={state.sort} onChange={(event) => update({ sort: event.target.value as LibrarySort })}>
+              {(Object.keys(SORT_LABELS) as LibrarySort[]).map((sort) => <option key={sort} value={sort}>{SORT_LABELS[sort]}</option>)}
+            </select>
+          </label>
+        </div>
+        <p className="sr-only" role="status">{result ? `${result.items.length} ${result.items.length === 1 ? "exercise" : "exercises"} found` : ""}</p>
+
+        {catalogue.status === "error" ? (
+          <div role="alert" className="fitx-alert fitx-alert-danger">
+            The exercise library could not be loaded. Check your connection and try again.
+            <button type="button" className="fitx-alert-action" onClick={retry}>Try again</button>
+          </div>
+        ) : !result ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading exercises">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="fitx-panel flex gap-3 p-3.5">
+                <div className="h-16 w-16 shrink-0 animate-pulse rounded-xl bg-fitx-surface-variant" />
+                <div className="flex-1 space-y-2 pt-1"><div className="h-4 w-3/4 animate-pulse rounded bg-fitx-surface-variant" /><div className="h-3 w-1/2 animate-pulse rounded bg-fitx-surface-variant" /></div>
+              </div>
             ))}
           </div>
-          <button type="button" role="switch" aria-checked={doable} disabled={!doableAvailable} onClick={() => setParam("doable", !state.doable)}
-            className="flex min-h-11 items-center gap-3 rounded-lg px-1 text-left text-sm font-medium disabled:opacity-60">
-            <span aria-hidden="true" className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${doable ? "bg-fitx-primary" : "bg-fitx-track"}`}>
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-fitx-surface shadow-sm transition-transform motion-reduce:transition-none ${doable ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-            </span>
-            Doable with my equipment
-          </button>
-        </div>
-        <EquipmentNote account={account} context={state.context} keys={list?.keys ?? null} saved={list?.saved ?? false} />
+        ) : result.items.length === 0 ? (
+          view.saved && !saved.ids.length ? (
+            <NoResults title="No saved exercises yet" options={[]} onRelax={() => undefined}
+              description={`Save an exercise with its bookmark and it stays here${saved.store === "account" ? " on every device you sign in on" : " on this device"}.`}
+              clearLabel="Show all exercises" onClear={() => update({ saved: false })} />
+          ) : (
+            <NoResults
+              title="No exercises match"
+              description={view.q.trim() ? `Nothing matches “${view.q.trim()}”${chips.length ? " with these filters" : ""}.` : "No exercise matches all of these filters together."}
+              spelling={spelling}
+              onSpelling={(text) => update({ q: text })}
+              options={relax.map((item) => ({ id: item.facet, label: relaxLabel(item.facet, view), count: item.count }))}
+              onRelax={(facet) => navigate(relaxState(facet as QueryFacet, state))}
+              clearLabel="Clear search and filters"
+              onClear={() => navigate({ ...withoutFilters(state), q: "" })}
+            />
+          )
+        ) : (
+          <>
+            <div className={`grid gap-3 transition-opacity motion-reduce:transition-none md:grid-cols-2 xl:grid-cols-3 ${updating ? "opacity-60" : ""}`}>
+              {visible.map((item, index) => (
+                <Fragment key={item.exercise.id}>
+                  {result.assistFrom === index && (
+                    <p className="m-0 border-t border-fitx-divider pt-3 text-xs font-semibold uppercase tracking-[.12em] text-fitx-text-secondary md:col-span-2 xl:col-span-3">Also works {view.focus.length === 1 ? "this area" : "these areas"}, as an assisting muscle</p>
+                  )}
+                  {renderCard(item)}
+                </Fragment>
+              ))}
+            </div>
+            <div className="flex flex-col items-center gap-2 pt-1">
+              <p className="m-0 text-xs text-fitx-text-secondary">Showing {visible.length.toLocaleString()} of {result.items.length.toLocaleString()}</p>
+              {visible.length < result.items.length && (
+                <button type="button" className="fitx-button fitx-button-secondary min-h-11" onClick={() => setLimit({ key: viewKey, count: shownCount + PAGE_SIZE })}>Show more exercises</button>
+              )}
+            </div>
+          </>
+        )}
       </section>
 
-      <section aria-label="Exercise search and filters" className="fitx-panel p-3 sm:p-4">
-        <div className="flex flex-col gap-3 lg:flex-row">
-          <label className="relative min-w-0 flex-1">
-            <Search size={17} aria-hidden="true" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-fitx-text-disabled" />
-            <input className="fitx-field pl-11" type="search" value={state.q} onChange={(event) => setParam("q", event.target.value)} placeholder="Search exercises by name" aria-label="Search exercises by name" list="fitx-exercise-suggestions" />
-            <datalist id="fitx-exercise-suggestions">{state.q.trim() ? (current?.items ?? []).slice(0, 8).map((item) => <option key={item.id} value={item.name} />) : null}</datalist>
-          </label>
-          <div className="flex gap-2">
-            <button type="button" aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly((value) => !value)} className={`fitx-button min-h-12 flex-1 px-3 sm:flex-none ${favoritesOnly ? "" : "fitx-button-secondary"}`}><Bookmark size={15} aria-hidden="true" />Saved <span className="tabular-nums">{favoriteIds.length}</span></button>
-            <button type="button" aria-expanded={filtersOpen} aria-controls="exercise-filter-options" onClick={() => setFiltersOpen((value) => !value)} className="fitx-button fitx-button-secondary min-h-12 px-3"><Filter size={15} aria-hidden="true" />Filters{filterCount > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-fitx-primary px-1 text-[10px] text-fitx-on-primary">{filterCount}</span>}</button>
-          </div>
-        </div>
-
-        {filtersOpen && <div id="exercise-filter-options" className="mt-3 grid gap-3 border-t border-fitx-divider pt-3 sm:grid-cols-2 xl:grid-cols-3">
-          <label className="grid gap-1.5 text-xs font-medium text-fitx-text-secondary">Muscle group<select className="fitx-field min-h-11" value={state.muscle ?? ""} onChange={(event) => setParam("muscle", event.target.value)}><option value="">All muscle groups</option>{MUSCLE_GROUPS.map((value) => <option key={value} value={value}>{MUSCLE_GROUP_LABELS[value]}</option>)}</select></label>
-          <label className="grid gap-1.5 text-xs font-medium text-fitx-text-secondary">Category<select className="fitx-field min-h-11" value={state.category ?? ""} onChange={(event) => setParam("category", event.target.value)}><option value="">All categories</option>{EXERCISE_CATEGORIES.map((value) => <option key={value} value={value}>{CATEGORY_LABELS[value]}</option>)}</select></label>
-          <label className="grid gap-1.5 text-xs font-medium text-fitx-text-secondary">Uses equipment<select className="fitx-field min-h-11" value={state.equipment ?? ""} onChange={(event) => setParam("equipment", event.target.value)}><option value="">Any equipment</option>{EQUIPMENT.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
-          <label className="grid gap-1.5 text-xs font-medium text-fitx-text-secondary">Difficulty<select className="fitx-field min-h-11" value={state.difficulty ?? ""} onChange={(event) => setParam("difficulty", event.target.value)}><option value="">All levels</option>{LEVELS.map((value) => <option key={value} value={value}>{capitalize(value)}</option>)}</select></label>
-          <label className="grid gap-1.5 text-xs font-medium text-fitx-text-secondary">Sort by<select className="fitx-field min-h-11" value={state.sort} onChange={(event) => setParam("sort", event.target.value)}><option value="name">Exercise name</option><option value="difficulty">Difficulty, then name</option></select></label>
-          {filterCount > 0 && <button type="button" onClick={clearFilters} className="inline-flex min-h-10 items-center gap-2 justify-self-start text-sm font-semibold text-fitx-primary-text"><X size={14} aria-hidden="true" />Clear filters</button>}
-        </div>}
-        {current && !current.curated && <p className="mt-3 text-xs leading-5 text-fitx-text-secondary">Some filters are approximate until FITX’s exercise catalogue update is applied.</p>}
-      </section>
-
-      {recentItems.length > 0 && showRecent && <section aria-label="Recently viewed exercises" className="space-y-2"><div className="flex items-baseline justify-between"><h2 className="text-sm font-semibold">Recently viewed</h2><span className="text-[11px] text-fitx-text-secondary">Saved on this device</span></div><div className="flex gap-2 overflow-x-auto pb-1">{recentItems.map((item) => <Link key={item.id} href={`/exercises/${item.id}`} className="min-w-48 rounded-lg border border-fitx-border bg-fitx-surface px-3 py-2.5 text-xs transition-colors hover:border-fitx-primary/45"><span className="block truncate font-medium">{item.name}</span><span className="mt-1 block truncate text-fitx-text-secondary">{MUSCLE_GROUP_LABELS[item.muscle_group]}</span></Link>)}</div></section>}
-
-      <section aria-label="Exercise results" aria-busy={updating} className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2 border-b border-fitx-divider pb-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[.13em] text-fitx-primary-text">{CONTEXT_TITLES[state.context]}{doable ? " · doable with your equipment" : ""}</p>
-            <h2 className="mt-1 text-lg font-semibold tracking-tight">{noFavorites ? "No saved movements" : current ? `${current.total.toLocaleString()} ${current.total === 1 ? "movement" : "movements"}` : error ? "Exercises unavailable" : "Loading exercises"}</h2>
-          </div>
-          <p className="flex items-center gap-1 text-[11px] text-fitx-text-secondary"><ArrowDownWideNarrow size={13} aria-hidden="true" />{state.sort === "name" ? "A–Z" : "Difficulty"}</p>
-        </div>
-        <p className="sr-only" role="status">{current ? `${current.total} ${current.total === 1 ? "movement" : "movements"} found` : ""}</p>
-
-        {error ? <div role="alert" className="fitx-alert fitx-alert-danger">{error.message}{error.status === 401
-          ? <Link className="fitx-alert-action" href="/signin?next=%2Fexercises">Sign in again</Link>
-          : <button type="button" className="fitx-alert-action" onClick={retry}>Try again</button>}</div>
-          : noFavorites || (current && current.items.length === 0)
-            ? <EmptyState title={emptyTitle} description={emptyDescription} action={noFavorites ? undefined : <button type="button" className="fitx-button fitx-button-secondary" onClick={clearFilters}>Clear search and filters</button>} />
-            : shown
-              ? <>
-                <div className={`grid gap-3 transition-opacity motion-reduce:transition-none sm:grid-cols-2 xl:grid-cols-3 ${current ? "" : "opacity-60"}`}>
-                  {shown.items.map((item) => <ExerciseCard key={item.id} item={item} favorite={favoriteIds.includes(item.id)} onToggleFavorite={() => toggleFavorite(item.id)} />)}
-                </div>
-                {current && <div className="flex flex-col items-center gap-2 pt-1">
-                  <p className="text-xs text-fitx-text-secondary">Showing {current.items.length.toLocaleString()} of {current.total.toLocaleString()}</p>
-                  {current.items.length < current.total && <button type="button" className="fitx-button fitx-button-secondary min-h-11" disabled={moreState?.loading} onClick={() => void loadMore()}>{moreState?.loading ? "Loading…" : "Load more movements"}</button>}
-                  {moreState?.error && <p role="alert" className="fitx-alert fitx-alert-danger">{moreState.error}<button type="button" className="fitx-alert-action" onClick={() => void loadMore()}>Try again</button></p>}
-                </div>}
-              </>
-              : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading exercises">{Array.from({ length: 6 }, (_, index) => <div key={index} className="fitx-panel overflow-hidden"><div className="aspect-[4/3] animate-pulse bg-fitx-surface-variant" /><div className="space-y-2 p-4"><div className="h-4 w-2/3 animate-pulse rounded bg-fitx-surface-variant" /><div className="h-3 w-full animate-pulse rounded bg-fitx-surface-variant" /></div></div>)}</div>}
-      </section>
-      <p className="text-center text-[11px] leading-5 text-fitx-text-secondary">Exercise photos and guidance are provided for general fitness education. Match loads to your own training experience and use a range of motion you can control.</p>
+      <p className="text-center text-[11px] leading-5 text-fitx-text-secondary">
+        Exercise photos and guidance are adapted from <a className="text-fitx-primary-text underline underline-offset-2" href={FREE_EXERCISE_DB_SOURCE_URL} target="_blank" rel="noreferrer">Free Exercise DB</a> for general fitness education; the photos are stills, not demonstrations. Match loads to your own experience and use a range of motion you can control.
+      </p>
     </div>
-  );
-}
-
-/** Which equipment list "Doable with my equipment" uses, and where to change it. */
-function EquipmentNote({ account, context, keys, saved }: { account: Account; context: TrainingContext; keys: string[] | null; saved: boolean }) {
-  const name = context === "home" ? "Home" : "Gym";
-  if (account.status === "loading" || !keys) {
-    return <p className="text-xs leading-5 text-fitx-text-secondary">{account.status === "loading" ? `Loading your ${name} equipment list…` : "Sign in to check exercises against your equipment lists."}</p>;
-  }
-  if (account.status !== "ready") return null;
-  const source = account.failed
-    ? `Your saved lists could not be loaded, so this uses a starting ${name} list: ${listText(keys)}.`
-    : saved
-      ? `Uses your saved ${name} list: ${listText(keys)}.`
-      : context === "home"
-        ? `Uses a starting Home list from your profile: ${listText(keys)}. You have not saved your own yet.`
-        : `Uses a starting Gym list: a full commercial gym (${keys.length} items). You have not saved your own yet.`;
-  return (
-    <p className="text-xs leading-5 text-fitx-text-secondary">
-      {source}{" "}
-      {account.profiles.available
-        ? <Link href={`/workouts?equipment=${context}`} className="font-medium text-fitx-primary-text underline underline-offset-2">Edit it on the Workouts page</Link>
-        : "Saving your own list becomes available with the next FITX update."}
-    </p>
-  );
-}
-
-function ExerciseCard({ item, favorite, onToggleFavorite }: { item: Item; favorite: boolean; onToggleFavorite: () => void }) {
-  const equipment = item.required_equipment.length ? item.required_equipment.slice(0, 2).map(equipmentLabel) : ["No equipment"];
-  return (
-    <article className="fitx-panel group min-w-0 overflow-hidden transition-colors hover:border-fitx-primary/35">
-      <Link href={`/exercises/${item.id}`} tabIndex={-1} aria-hidden="true" className="block">
-        <div className="relative aspect-[4/3] overflow-hidden bg-fitx-surface-variant"><ExerciseThumbnail exerciseId={item.id} name={item.name} src={item.thumbnail} /></div>
-      </Link>
-      <div className="p-3.5 sm:p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <Link href={`/exercises/${item.id}`} className="text-sm font-semibold leading-snug tracking-tight hover:text-fitx-primary-text">{item.name}</Link>
-            <p className="mt-1 truncate text-[11px] text-fitx-text-secondary">{MUSCLE_GROUP_LABELS[item.muscle_group]} · {CATEGORY_LABELS[item.category]}</p>
-          </div>
-          <button type="button" aria-label={favorite ? `Remove ${item.name} from saved exercises` : `Save ${item.name}`} aria-pressed={favorite} title={favorite ? "Remove saved exercise" : "Save exercise on this device"} onClick={onToggleFavorite} className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-fitx-border text-fitx-text-secondary transition-colors hover:border-fitx-primary/45 hover:text-fitx-primary">{favorite ? <BookmarkCheck size={17} aria-hidden="true" className="text-fitx-primary" /> : <Bookmark size={17} aria-hidden="true" />}</button>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <span className="rounded-sm bg-fitx-surface-variant px-2 py-1 text-[10px] text-fitx-text-secondary">{capitalize(item.difficulty)}</span>
-          {equipment.map((label) => <span key={label} className="rounded-sm border border-fitx-border px-2 py-1 text-[10px] text-fitx-text-secondary">{label}</span>)}
-        </div>
-        <div className="mt-3 flex items-center justify-between border-t border-fitx-divider pt-2.5 text-[11px] text-fitx-text-secondary">
-          <span>{item.recommended_sets} sets · {workPerSet(item)}</span>
-          <span className="inline-flex items-center gap-1 font-medium text-fitx-primary-text" aria-hidden="true">Details<ArrowRight size={12} /></span>
-        </div>
-      </div>
-    </article>
   );
 }

@@ -27,7 +27,23 @@ import {
   type CatalogSearchParams,
 } from "@/lib/training/catalog-search";
 import { PINNED_PHOTO_BASE } from "@/lib/training/media";
-import { activeFilterCount, libraryApiQuery, readLibraryState, withLibraryParam, withoutLibraryFilters } from "@/app/(dashboard)/exercises/_lib/library-state";
+import {
+  activeFilterCount,
+  canonicalLibrarySearch,
+  DEFAULT_LIBRARY_STATE,
+  filterChips,
+  libraryQuery,
+  muscleWordFilter,
+  panelFilterCount,
+  readLibraryState,
+  relaxLabel,
+  relaxState,
+  withLibraryParam,
+  withoutChip,
+  withoutFilters,
+  withoutLibraryFilters,
+  writeLibraryState,
+} from "@/app/(dashboard)/exercises/_lib/library-state";
 import { makeJwt, SESSION_COOKIE, ssrCookieValue } from "../support/fake-supabase.ts";
 
 const params = (overrides: Partial<CatalogSearchParams> = {}): CatalogSearchParams => ({ ...DEFAULT_SEARCH_PARAMS, ...overrides });
@@ -41,15 +57,24 @@ describe("parseCatalogSearchParams", () => {
     assert.equal(DEFAULT_SEARCH_PARAMS.pageSize, 24);
   });
 
-  test("reads every known parameter", () => {
+  test("reads every known parameter; a single value still works for every list", () => {
     assert.deepEqual(parse("q=bench%20press&muscle_group=chest&category=strength&difficulty=beginner&location=home&equipment=dumbbell&doable=dumbbell,bench&ids=push_up,bench_press&sort=difficulty&page=3&pageSize=12"), {
-      q: "bench press", muscleGroup: "chest", category: "strength", difficulty: "beginner", location: "home", equipment: "dumbbell",
+      ...DEFAULT_SEARCH_PARAMS,
+      q: "bench press", muscleGroups: ["chest"], categories: ["strength"], difficulties: ["beginner"], location: "home", equipment: ["dumbbell"],
       doable: ["dumbbell", "bench"], ids: ["push_up", "bench_press"], sort: "difficulty", page: 3, pageSize: 12,
     });
   });
 
+  test("lists: several values, OR within a kind; focus, regions, movement, mechanic and best match", () => {
+    assert.deepEqual(parse("muscle_group=chest,back,lats&primary=lats,quadriceps,nope&focus=arms,Lower%20body&category=strength,olympic&difficulty=advanced,beginner&equipment=none,machines,barbell,jetpack&movement=pull,hold&mechanic=compound&sort=best"), {
+      ...DEFAULT_SEARCH_PARAMS,
+      muscleGroups: ["chest", "back"], primary: ["lats", "quadriceps"], focus: ["arms", "legs"], categories: ["strength", "olympic"],
+      difficulties: ["advanced", "beginner"], equipment: ["none", "machines", "barbell"], movements: ["pull", "hold"], mechanics: ["compound"], sort: "best",
+    });
+  });
+
   test("ignores unknown keys and drops unknown values", () => {
-    const result = parse("muscle_group=lats&category=yoga&difficulty=expert&location=office&equipment=treadmill&sort=random&movement=push&foo=bar");
+    const result = parse("muscle_group=lats&category=yoga&difficulty=expert&location=office&equipment=treadmill&sort=random&movement=sideways&mechanic=both&focus=elbows&primary=wings&foo=bar");
     assert.deepEqual(result, DEFAULT_SEARCH_PARAMS);
   });
 
@@ -84,8 +109,12 @@ describe("parseCatalogSearchParams", () => {
   });
 
   test("catalogSearchQuery writes what parseCatalogSearchParams reads", () => {
-    const original = params({ q: "row", muscleGroup: "back", category: "strength", difficulty: "advanced", location: "gym", equipment: "barbell", doable: ["bench", "barbell"], ids: ["a", "b"], sort: "difficulty", page: 4, pageSize: 12 });
+    const original = params({
+      q: "row", muscleGroups: ["back", "biceps"], primary: ["lats"], focus: ["back"], categories: ["strength"], difficulties: ["advanced", "intermediate"], location: "gym",
+      equipment: ["barbell", "none"], doable: ["bench", "barbell"], movements: ["pull"], mechanics: ["compound"], ids: ["a", "b"], sort: "difficulty", page: 4, pageSize: 12,
+    });
     assert.deepEqual(parseCatalogSearchParams(catalogSearchQuery(original)), { ...original, doable: ["barbell", "bench"] });
+    assert.equal(catalogSearchQuery(params({ sort: "best" })).toString(), "sort=best");
     assert.equal(catalogSearchQuery(params()).toString(), "");
     assert.equal(catalogSearchQuery(params({ doable: [] })).toString(), "doable=");
   });
@@ -160,9 +189,11 @@ describe("in-memory search over estimated exercises", () => {
     assert.deepEqual([squat.curated, squat.required_equipment, squat.locations], [false, ["barbell"], ["gym"]]);
   });
 
-  test("every word must appear in the name", () => {
+  test("every word must be found in the name, in any order (smart search)", () => {
     assert.deepEqual(names(filterCatalog(exercises, params({ q: "press bench" }))), ["Barbell Bench Press", "Dumbbell Bench Press"]);
     assert.deepEqual(names(filterCatalog(exercises, params({ q: "a_b" }))), ["Row Variation A_B"]);
+    assert.deepEqual(names(filterCatalog(exercises, params({ q: "benchpress" }))), ["Barbell Bench Press", "Dumbbell Bench Press"]);
+    assert.deepEqual(names(filterCatalog(exercises, params({ q: "pushups" }))), ["Push-Up"]);
   });
 
   test("Home context and doable equipment", () => {
@@ -172,9 +203,11 @@ describe("in-memory search over estimated exercises", () => {
   });
 
   test("muscle group, category, equipment, difficulty and ids", () => {
-    assert.deepEqual(names(filterCatalog(exercises, params({ muscleGroup: "back" }))), ["Pullups", "Row Variation A_B", "Row Variation AXB"]);
-    assert.deepEqual(names(filterCatalog(exercises, params({ category: "stretching" }))), ["Hamstring Stretch"]);
-    assert.deepEqual(names(filterCatalog(exercises, params({ equipment: "cable_machine", difficulty: "beginner" }))), ["Row Variation A_B", "Row Variation AXB"]);
+    assert.deepEqual(names(filterCatalog(exercises, params({ muscleGroups: ["back"] }))), ["Pullups", "Row Variation A_B", "Row Variation AXB"]);
+    assert.deepEqual(names(filterCatalog(exercises, params({ muscleGroups: ["back", "chest"], primary: ["hamstrings"] }))).length, 7, "groups and regions: any of them");
+    assert.deepEqual(names(filterCatalog(exercises, params({ categories: ["stretching"] }))), ["Hamstring Stretch"]);
+    assert.deepEqual(names(filterCatalog(exercises, params({ equipment: ["cable_machine"], difficulties: ["beginner"] }))), ["Row Variation A_B", "Row Variation AXB"]);
+    assert.deepEqual(names(filterCatalog(exercises, params({ equipment: ["none"] }))), ["Push-Up", "Pullups", "Hamstring Stretch"]);
     assert.deepEqual(names(filterCatalog(exercises, params({ ids: ["push_up", "missing"] }))), ["Push-Up"]);
   });
 
@@ -209,35 +242,95 @@ describe("difficultyWindows", () => {
 });
 
 describe("library URL state", () => {
-  test("reads the page's own keys", () => {
-    assert.deepEqual(readLibraryState("?q=row&context=home&doable=1&muscle=back&category=strength&equipment=dumbbell&difficulty=advanced&sort=difficulty"), {
-      q: "row", context: "home", doable: true, muscle: "back", category: "strength", equipment: "dumbbell", difficulty: "advanced", sort: "difficulty",
+  test("reads the page's own keys, lists included", () => {
+    assert.deepEqual(readLibraryState("?q=row&context=home&doable=1&focus=chest,arms&muscle=lats,back&uses=dumbbell,none,machines&have=dumbbell,bench&difficulty=advanced,beginner&category=strength&movement=pull&mechanic=compound&saved=1&sort=difficulty"), {
+      q: "row", context: "home", doable: true, focus: ["chest", "arms"], muscles: ["lats", "back"], uses: ["dumbbell", "none", "machines"], have: ["dumbbell", "bench"],
+      difficulties: ["beginner", "advanced"], categories: ["strength"], movements: ["pull"], mechanics: ["compound"], saved: true, sort: "difficulty",
     });
-    assert.deepEqual(readLibraryState(""), { q: "", context: "gym", doable: false, muscle: null, category: null, equipment: null, difficulty: null, sort: "name" });
+    assert.deepEqual(readLibraryState(""), DEFAULT_LIBRARY_STATE);
+    assert.equal(DEFAULT_LIBRARY_STATE.sort, "best");
   });
 
-  test("links from the older page keep working", () => {
+  test("links from earlier versions keep working (single values included)", () => {
     const state = readLibraryState("location=home&muscle=lats&equipment=bands&movement=push");
-    assert.deepEqual([state.context, state.muscle, state.equipment], ["home", "back", "resistance_band"]);
-    assert.equal(readLibraryState("equipment=body%20only").equipment, null);
+    assert.deepEqual([state.context, state.muscles, state.uses, state.movements], ["home", ["lats"], ["resistance_band"], ["push"]]);
+    assert.deepEqual(readLibraryState("muscle=chest").muscles, ["chest"]);
+    assert.deepEqual(readLibraryState("equipment=dumbbell").uses, ["dumbbell"]);
+    assert.deepEqual(readLibraryState("equipment=body%20only").uses, ["none"], "body weight is a filter now");
+    assert.deepEqual(readLibraryState("muscle=upper_back").muscles, ["middle_back"]);
+    assert.deepEqual(readLibraryState("muscle=full_body").focus, ["full_body"], "Full body is the focus area, not a one-exercise group");
+    assert.deepEqual(readLibraryState("muscle=full_body").muscles, []);
     assert.equal(readLibraryState("context=gym&location=home").context, "gym");
+    assert.deepEqual(readLibraryState("focus=Lower%20body,belly").focus, ["abs", "legs"]);
+    assert.equal(canonicalLibrarySearch("location=home&equipment=dumbbell&muscle=back"), "context=home&muscle=back&uses=dumbbell");
+    assert.equal(canonicalLibrarySearch("muscle=full_body"), "focus=full_body");
   });
 
-  test("writes drop defaults and the older keys they replace", () => {
+  test("have=: none means no equipment, unknown items are ignored", () => {
+    assert.deepEqual(readLibraryState("have=none").have, []);
+    assert.deepEqual(readLibraryState("have=").have, []);
+    assert.deepEqual(readLibraryState("have=bodyweight").have, []);
+    assert.deepEqual(readLibraryState("have=bench,dumbbells").have, ["dumbbell", "bench"]);
+    assert.equal(readLibraryState("have=jetpack").have, null);
+    assert.equal(readLibraryState("").have, null);
+    assert.equal(writeLibraryState({ ...DEFAULT_LIBRARY_STATE, have: [] }), "have=none");
+  });
+
+  test("writes drop defaults, keep a fixed order and round-trip", () => {
     assert.equal(withLibraryParam("location=home&q=row", "context", "gym"), "q=row");
     assert.equal(withLibraryParam("", "context", "home"), "context=home");
     assert.equal(withLibraryParam("doable=1", "doable", false), "");
-    assert.equal(withLibraryParam("", "sort", "name"), "");
+    assert.equal(withLibraryParam("", "sort", "best"), "");
+    assert.equal(withLibraryParam("", "sort", "name"), "sort=name");
     assert.equal(withLibraryParam("q=row", "q", "  "), "");
     assert.equal(withoutLibraryFilters("context=home&q=row&doable=1&muscle=back&movement=push&location=home"), "context=home");
-    assert.equal(activeFilterCount(readLibraryState("muscle=back&difficulty=beginner&sort=difficulty&doable=1")), 3);
+    const state = readLibraryState("sort=name&saved=1&mechanic=isolation&movement=hold&category=cardio&difficulty=intermediate&doable=1&have=box&uses=sled&muscle=neck&focus=glutes&context=home&q=x");
+    assert.equal(writeLibraryState(state), "q=x&context=home&focus=glutes&muscle=neck&uses=sled&have=box&doable=1&difficulty=intermediate&category=cardio&movement=hold&mechanic=isolation&saved=1&sort=name");
+    assert.deepEqual(readLibraryState(writeLibraryState(state)), state);
   });
 
-  test("the API query waits for the equipment list when doable is on", () => {
-    const state = readLibraryState("context=home&doable=1&q=%20press%20");
-    assert.equal(libraryApiQuery(state, null), null);
-    assert.equal(libraryApiQuery(state, ["dumbbell", "bench"]), "q=press&location=home&doable=bench%2Cdumbbell");
-    assert.equal(libraryApiQuery(readLibraryState(""), null, ["a", "b"]), "ids=a%2Cb");
+  test("chips: one per filter, each removable on its own; Clear all keeps the search and the context", () => {
+    const state = readLibraryState("q=press&context=home&focus=chest,arms&uses=barbell&have=dumbbell&doable=1&difficulty=beginner&saved=1");
+    const chips = filterChips(state);
+    assert.deepEqual(chips.map((chip) => `${chip.kind}: ${chip.label}`), ["Train: Chest", "Train: Arms", "Uses: Barbell and plates", "You have: Dumbbells", "Show: Only what I can do", "Level: Beginner", "Show: Saved"]);
+    assert.equal(activeFilterCount(state), 7);
+    assert.equal(panelFilterCount(state), 2);
+    for (const chip of chips) {
+      const after = filterChips(withoutChip(state, chip));
+      assert.equal(after.length, chips.length - 1, `${chip.label} removes only itself`);
+    }
+    assert.deepEqual(withoutChip(state, { key: "have", value: "" }).have, null, "removing the equipment chip goes back to the saved list");
+    const cleared = withoutFilters(state);
+    assert.deepEqual([cleared.q, cleared.context, filterChips(cleared).length], ["press", "home", 0]);
+  });
+
+  test("the engine query for a state: home is the environment, Saved limits to the saved ids", () => {
+    const query = libraryQuery(readLibraryState("q=curl&context=home&focus=arms&uses=dumbbell&doable=1&saved=1"), ["biceps_curl"]);
+    assert.deepEqual(query, {
+      q: "curl", focus: ["arms"], muscles: [], categories: [], difficulties: [], uses: ["dumbbell"], movements: [], mechanics: [], environment: "home",
+      ids: ["biceps_curl"], doableOnly: true, sort: "best",
+    });
+    assert.equal(libraryQuery(DEFAULT_LIBRARY_STATE, ["x"]).ids, null);
+  });
+
+  test("a muscle word in the search becomes a filter on request", () => {
+    const pecs = muscleWordFilter(readLibraryState("q=pecs"));
+    assert.deepEqual(pecs && { word: pecs.word, label: pecs.label, q: pecs.next.q, focus: pecs.next.focus }, { word: "pec", label: "Chest", q: "", focus: ["chest"] });
+    const lats = muscleWordFilter(readLibraryState("q=lats%20pulldown"));
+    assert.equal(lats, null, "lat pulldown is an exercise name, not a muscle");
+    const quads = muscleWordFilter(readLibraryState("q=quads%20squat"));
+    assert.deepEqual(quads && { q: quads.next.q, muscles: quads.next.muscles }, { q: "squat", muscles: ["quadriceps"] });
+    assert.equal(muscleWordFilter(readLibraryState("q=pecs&focus=chest")), null, "already filtered");
+    assert.equal(muscleWordFilter(readLibraryState("q=bench")), null);
+  });
+
+  test("relax labels and states name what changes", () => {
+    const state = readLibraryState("q=row&uses=barbell,kettlebell&difficulty=advanced&context=home&doable=1&saved=1");
+    assert.equal(relaxLabel("uses", state), "Remove Barbell and plates and Kettlebell");
+    assert.equal(relaxLabel("difficulties", state), "Remove Advanced");
+    assert.equal(relaxLabel("q", state), "Clear the search");
+    assert.deepEqual(relaxState("uses", state).uses, []);
+    assert.deepEqual([relaxState("environment", state).context, relaxState("ids", state).saved, relaxState("doableOnly", state).doable], ["gym", false, false]);
   });
 });
 
@@ -273,6 +366,7 @@ function matchesFilter(value: unknown, filter: string): boolean {
   if (operator === "ilike") return likeExpression(operand).test(String(value ?? ""));
   if (operator === "cs") return arrayLiteral(operand).every((item) => ((value as string[]) ?? []).includes(item));
   if (operator === "cd") { const allowed = new Set(arrayLiteral(operand)); return ((value as string[]) ?? []).every((item) => allowed.has(item)); }
+  if (operator === "ov") return arrayLiteral(operand).some((item) => ((value as string[]) ?? []).includes(item));
   if (operator === "in") return listLiteral(operand).includes(String(value));
   throw new Error(`stand-in PostgREST: unsupported operator ${operator}`);
 }
@@ -398,30 +492,33 @@ describe("searchCatalog and thumbnails against PostgREST", () => {
     assert.equal(legacyRead.query.has("locations") || legacyRead.query.has("required_equipment"), false);
   });
 
-  test("before the migration: exact filters still run in Postgres, inactive rows never appear", async () => {
+  test("before the migration: the search runs in memory, exact filters in Postgres, inactive rows never appear", async () => {
     fake.use("legacy");
-    const outcome = await searchCatalog(db, params({ q: "bench", pageSize: 1, page: 2 }));
+    const outcome = await searchCatalog(db, params({ q: "bench", difficulties: ["beginner", "intermediate"], pageSize: 1, page: 2 }));
     assert.deepEqual([outcome.total, names(outcome.exercises)], [2, ["Dumbbell Bench Press"]]);
     const legacyRead = fake.libraryRequests().find((request) => request.query.get("select") === LEGACY_SELECT);
-    assert.deepEqual(legacyRead?.query.getAll("name"), ["ilike.%bench%"]);
+    assert.deepEqual(legacyRead?.query.getAll("name"), [], "names are matched by the smart search, not a pattern");
+    assert.deepEqual(legacyRead?.query.getAll("difficulty"), ["in.(beginner,intermediate)"]);
     assert.deepEqual([legacyRead?.query.get("offset"), legacyRead?.query.get("limit")], ["0", "1000"]);
   });
 
   test("columns added but not filled yet: still the estimated search", async () => {
     fake.use("uncurated");
-    const outcome = await searchCatalog(db, params({ muscleGroup: "chest" }));
+    const outcome = await searchCatalog(db, params({ muscleGroups: ["chest"] }));
     assert.equal(outcome.curated, false);
     assert.deepEqual(names(outcome.exercises), ["Barbell Bench Press", "Dumbbell Bench Press", "Push-Up"]);
   });
 
-  test("curated: filters run in Postgres with escaped name patterns", async () => {
+  test("curated: a name search reads the active rows and matches in memory", async () => {
     fake.use("curated");
     const outcome = await searchCatalog(db, params({ q: "a_b" }));
     assert.equal(outcome.curated, true);
     assert.deepEqual(names(outcome.exercises), ["Row Variation A_B"]);
     const read = fake.libraryRequests().find((request) => request.query.get("select")?.includes("catalog_version") && request.query.has("offset"));
-    assert.deepEqual(read?.query.getAll("name"), ["ilike.%a\\_b%"]);
+    assert.deepEqual(read?.query.getAll("name"), []);
+    assert.deepEqual(read?.query.getAll("is_active"), ["eq.true"]);
     assert.equal(read?.query.get("order"), "name.asc");
+    assert.deepEqual(names((await searchCatalog(db, params({ q: "bp" }))).exercises), ["Barbell Bench Press", "Dumbbell Bench Press"], "gym terms work through the API");
   });
 
   test("curated: Home context and doable equipment use the cleaned-up values", async () => {
@@ -436,14 +533,30 @@ describe("searchCatalog and thumbnails against PostgREST", () => {
 
     const none = await searchCatalog(db, params({ doable: [] }));
     assert.deepEqual(names(none.exercises), ["Hamstring Stretch", "Push-Up"]);
-    const equipment = await searchCatalog(db, params({ equipment: "barbell", muscleGroup: "quadriceps", category: "strength", difficulty: "advanced" }));
+    const equipment = await searchCatalog(db, params({ equipment: ["barbell"], muscleGroups: ["quadriceps"], categories: ["strength"], difficulties: ["advanced"] }));
     assert.deepEqual(names(equipment.exercises), ["Barbell Squat"]);
+    const listRead = fake.libraryRequests().filter((request) => request.query.has("offset")).at(-1);
+    assert.deepEqual([listRead?.query.getAll("required_equipment"), listRead?.query.getAll("muscle_group"), listRead?.query.getAll("difficulty")], [["ov.{barbell}"], ["in.(quadriceps)"], ["eq.advanced"]]);
+    const several = await searchCatalog(db, params({ equipment: ["barbell", "cable_machine"], muscleGroups: ["back", "quadriceps"] }));
+    assert.deepEqual(names(several.exercises), ["Barbell Squat", "Row Variation A_B"], "any of the values, within each kind");
+  });
+
+  test("curated: body weight, focus and best match rank in memory", async () => {
+    fake.use("curated");
+    const bodyweight = await searchCatalog(db, params({ equipment: ["none"] }));
+    assert.deepEqual(names(bodyweight.exercises), ["Hamstring Stretch", "Push-Up"]);
+    const chest = await searchCatalog(db, params({ focus: ["chest"], doable: ["dumbbell", "bench"], sort: "best" }));
+    assert.deepEqual(names(chest.exercises), ["Dumbbell Bench Press", "Push-Up"], "only doable ones with doable= (staples first)");
+    const pulls = await searchCatalog(db, params({ movements: ["pull"] }));
+    assert.deepEqual(names(pulls.exercises), ["Pullups", "Row Variation A_B"]);
   });
 
   test("curated: rows the clean-up has not reached still show without filters, marked uncurated", async () => {
     fake.use("curated");
     const outcome = await searchCatalog(db, params({ q: "row variation" }));
-    assert.deepEqual(outcome.exercises.map((exercise) => [exercise.name, exercise.curated]), [["Row Variation AXB", false], ["Row Variation A_B", true]]);
+    assert.deepEqual(outcome.exercises.map((exercise) => [exercise.name, exercise.curated]).sort(), [["Row Variation AXB", false], ["Row Variation A_B", true]].sort());
+    const filtered = await searchCatalog(db, params({ q: "row variation", muscleGroups: ["back"] }));
+    assert.deepEqual(names(filtered.exercises), ["Row Variation A_B"], "but not in filters that read the clean-up's values");
   });
 
   test("curated: sorting by difficulty pages across levels", async () => {
@@ -550,6 +663,14 @@ describe("GET /api/exercises", () => {
     assert.equal(body.items[1].thumbnail, null);
     assert.ok(!("instructions" in body.items[0]) && !("description" in body.items[0]));
     assert.deepEqual(body.items[0].required_equipment, ["barbell", "bench"]);
+  });
+
+  test("the smart search and the new filters work through the route", async () => {
+    const response = await call("?q=bp&equipment=barbell,cable_machine&sort=best");
+    const body = await response.json() as { items: Array<{ name: string }>; total: number };
+    assert.deepEqual([response.status, body.items.map((item) => item.name), body.total], [200, ["Barbell Bench Press"], 1]);
+    const focus = await call("?focus=chest&doable=&sort=best");
+    assert.deepEqual(((await focus.json()) as { items: Array<{ name: string }> }).items.map((item) => item.name), ["Push-Up"], "chest you can do with nothing");
   });
 
   test("bad numbers are clamped instead of failing", async () => {
