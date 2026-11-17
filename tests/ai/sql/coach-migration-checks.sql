@@ -100,6 +100,11 @@ do $$ begin
 exception when insufficient_privilege then null; end $$;
 select pg_temp.check((select allowed from public.ai_coach_take_quota('plan')), 'B''s limit is separate (and no time zone is read)');
 
+-- A request of A's from 3 days ago: it no longer counts against the limit.
+reset role;
+insert into public.ai_coach_usage_events (user_id, kind, created_at) values ('11111111-1111-4111-8111-111111111111', 'chat', now() - interval '3 days');
+set role authenticated;
+
 -- ── delete my data (A) ──
 set request.jwt.claim.sub = '11111111-1111-4111-8111-111111111111';
 select pg_temp.check((select threads_deleted = 1 and consent_withdrawn from public.ai_coach_delete_my_data()), 'delete my coach data');
@@ -108,6 +113,8 @@ select pg_temp.check((select count(*) = 0 from public.ai_coach_safety_notes), 'a
 select pg_temp.check((select count(*) = 1 from public.custom_foods), 'added foods stay');
 select pg_temp.check((select used = 30 from public.ai_coach_quota_status() where quota_kind = 'chat'), 'the 24-hour limit still holds after delete');
 reset role;
+select pg_temp.check((select count(*) = 0 from public.ai_coach_usage_events where user_id = '11111111-1111-4111-8111-111111111111' and created_at < now() - interval '24 hours'), 'usage rows older than 24 hours go with the coach data');
+select pg_temp.check((select count(*) = 1 from public.ai_coach_usage_events where user_id = '22222222-2222-4222-8222-222222222222'), 'another member''s usage rows stay');
 
 -- ── the limit counts the last 24 hours, whatever the member's time zone says ──
 update public.user_preferences set timezone = 'Pacific/Kiritimati' where user_id = '11111111-1111-4111-8111-111111111111';

@@ -447,6 +447,25 @@ describe("privacy page", () => {
     assert.match(data, /\binternal admin log keeps your account ID, but not your email or any health data\b/);
   });
 
+  test("the download bullet doesn't promise everything: it names what the export leaves out", async () => {
+    const { EXPORT_TABLES } = await import("@/lib/account/export");
+    const exported = new Map(EXPORT_TABLES.map((spec) => [spec.table, spec]));
+    const data = section("Your data: download, correction and deletion");
+    assert.doesNotMatch(data, /\beverything FITX stores\b/);
+    // Members' own session can't read these (tests/account/export-schema.test.ts lists them as left out).
+    assert.ok(!exported.has("ai_coach_usage_events") && !exported.has("fitx_rate_limits") && !exported.has("fitx_admin_audit_logs"));
+    assert.match(data, /\bIt leaves out the counters behind the AI coach’s and food search’s daily limits\b/);
+    assert.match(data, /\bFITX’s internal admin log\b/);
+    // Help requests are read with the columns members may see: not the page they came from, the priority or the assignee.
+    const help = exported.get("support_requests")?.columns ?? "";
+    for (const column of ["page_path", "priority", "assigned_to", "author_id"]) assert.doesNotMatch(help, new RegExp(`\\b${column}\\b`), column);
+    assert.match(data, /\bFITX’s own notes on your help requests \(the page you sent one from, its priority and which staff member handled it\)/);
+    // What it does include, named on the page.
+    for (const table of ["ai_coach_safety_notes", "billing_subscriptions", "billing_payments"]) assert.ok(exported.has(table), table);
+    assert.match(data, /\bAI coach conversations, suggestions and safety notes\b/);
+    assert.match(data, /\bsubscriptions and payments\b/);
+  });
+
   test("the activity section's share-image cut and sign-out clean-up match the code", async () => {
     const { PRIVACY_RADIUS_M } = await import("@/lib/activity/privacy");
     assert.equal(PRIVACY_RADIUS_M, 200);

@@ -10,8 +10,8 @@ import { EXPORT_TABLES } from "@/lib/account/export";
 
 /** Per-user tables that are not exported, and why. */
 const LEFT_OUT: Record<string, string> = {
-  ai_coach_usage_events: "request counts for the coach's daily limit, kept 7 days; members cannot read the table",
-  fitx_rate_limits: "food search counters, kept 2 days; members cannot read the table",
+  ai_coach_usage_events: "request times for the coach's 24-hour limit, removed after 7 days by the member's next coach request (after 24 hours by “Delete my coach data”); members cannot read the table",
+  fitx_rate_limits: "food search counters, removed after 2 days by the member's next search; members cannot read the table",
   fitx_admin_members: "FITX Admin staff roles, not member data",
 };
 

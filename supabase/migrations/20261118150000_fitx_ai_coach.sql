@@ -101,8 +101,9 @@ create table if not exists public.ai_coach_limits (
 insert into public.ai_coach_limits (kind, daily_limit) values ('chat', 30), ('plan', 6)
 on conflict (kind) do nothing;
 
--- One row per request taken against the limit. Counts and times only, no content. Rows older than
--- 7 days are removed by ai_coach_take_quota().
+-- One row per request taken against the limit. Counts and times only, no content. ai_coach_take_quota()
+-- removes the member's rows older than 7 days on each request, ai_coach_delete_my_data() those older than
+-- 24 hours, and deleting the account all of them.
 create table if not exists public.ai_coach_usage_events (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -379,11 +380,12 @@ end $$;
 revoke all on function public.ai_coach_apply_action(uuid) from public, anon;
 grant execute on function public.ai_coach_apply_action(uuid) to authenticated;
 
--- "Delete my coach data": every conversation (with its messages and proposals), the safety notes and
--- the consent. Foods and workouts the member already added stay; they are the member's own data now.
--- Usage rows (times and counts only) stay until they expire after 7 days, so the 24-hour limit still holds.
--- Security definer, because members cannot delete safety notes themselves; every statement is limited to
--- the caller's own rows.
+-- "Delete my coach data": every conversation (with its messages and proposals), the safety notes, the
+-- consent, and the usage rows older than 24 hours. Foods and workouts the member already added stay; they
+-- are the member's own data now. Usage rows from the last 24 hours (times only) stay so the limit still
+-- holds; ai_coach_take_quota() removes them once they are 7 days old if the member uses the coach again,
+-- and deleting the account removes them in any case. Security definer, because members can neither delete
+-- safety notes nor touch usage rows themselves; every statement is limited to the caller's own rows.
 create or replace function public.ai_coach_delete_my_data()
 returns table (threads_deleted integer, consent_withdrawn boolean)
 language plpgsql
@@ -401,6 +403,7 @@ begin
   delete from public.ai_coach_threads t where t.user_id = uid;
   get diagnostics thread_count = row_count;
   delete from public.ai_coach_safety_notes n where n.user_id = uid;
+  delete from public.ai_coach_usage_events e where e.user_id = uid and e.created_at < pg_catalog.now() - interval '24 hours';
   delete from public.ai_coach_consents c where c.user_id = uid;
   get diagnostics consent_count = row_count;
   return query select thread_count, consent_count > 0;

@@ -50,6 +50,8 @@ test("the eating-disorder pause outlives its conversation, and only “Delete my
   const remove = code.match(/function public\.ai_coach_delete_my_data\([\s\S]*?end \$\$/)?.[0] ?? "";
   assert.match(remove, /security definer/);
   assert.match(remove, /delete from public\.ai_coach_safety_notes n where n\.user_id = uid;/);
+  // Usage rows that no longer count go too; the last 24 hours stay, so deleting coach data never resets the limit.
+  assert.match(remove, /delete from public\.ai_coach_usage_events e where e\.user_id = uid and e\.created_at < pg_catalog\.now\(\) - interval '24 hours';/);
   for (const statement of remove.match(/delete from [^;]*;/g) ?? []) assert.match(statement, /\.user_id = uid\b/, `${statement} keeps to the caller's rows`);
 });
 
