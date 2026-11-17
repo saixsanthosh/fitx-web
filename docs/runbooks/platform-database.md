@@ -54,7 +54,8 @@ connector reliably. For each of them:
 1. The session copies the file to your clipboard (on this Mac: `pbcopy < supabase/migrations/<file>`). You
    can also open the file in the repository and copy all of it.
 2. Supabase Dashboard → SQL Editor → New query. Paste, then Run. If the editor warns about a "destructive
-   operation", choose to run it anyway: the file updates rows on purpose.
+   operation", choose to run it anyway: #12 updates rows on purpose, and each food part empties and then drops
+   only its own temporary table, `fitx_food_seed`.
 3. Wait for "Success. No rows returned". The editor runs the whole file as one unit: if it fails, nothing
    from it stays.
 4. Tell the session. It records the file in the migration history (the "Record" query in the file's section,
@@ -76,8 +77,9 @@ Do this on the day, before #1.
   pg_dump "<the connection string>" --format=custom --schema=public --file="fitx-before-platform-migrations.dump"
   ```
 
-  The files below change only the `public` schema (plus one storage bucket and one scheduled job), so this
-  copy covers them. Keep it until the new app has run for a few weeks. It holds members' data: keep it private.
+  The files below change only the `public` schema (plus the `pg_trgm` and `pg_cron` extensions, one storage
+  bucket and one scheduled job), so this copy covers the data they change. Keep it until the new app has run for
+  a few weeks. It holds members' data: keep it private.
 - #12 has an extra, optional backup copy of its own (section 3, #12).
 
 ### 1.2 What is already applied
@@ -223,7 +225,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 4 | `20261117100000_fitx_profiles_column_privileges` | Members read their own profile and edit only 13 fields; signed-out visitors lose access. | Takes privileges away · yes | #3 (adds its column itself if missing) | Plan, XP and streaks can't be changed from the browser | Apply #7 in the same sitting. Undo SQL in section 5. |
 | 5 | `20261117110000_fitx_food_search_quota` | Limits food searches per account: 30 a minute, 500 a day. | Additive · yes | | Food search limit | |
 | 6 | `20261118100000_fitx_user_preferences_theme` | Saves the theme choice on the account. | Additive · yes | | Theme follows the account | |
-| 7 | `20261118110000_fitx_profile_v2` | Adds diet, food rules, cuisines, budget, limitations and units; weight gain and loss goals; profile repair. | Additive, fills diet fields · after a success, do not run again | #4 | Profile v2, onboarding v2, coach inputs | Soon after #4. |
+| 7 | `20261118110000_fitx_profile_v2` | Adds diet, food rules, cuisines, budget, limitations and units; weight gain and loss goals; profile repair. | Additive, fills diet fields · after a success, do not run again | | Profile v2, onboarding v2, coach inputs | Soon after #4. |
 | 8 | `20261118120000_fitx_planner_todo_store` | The planner becomes the To-Do store: day, done time, order, goal link; start time optional. | Mostly additive, fills every planner row's day · yes | September files | To-Do list; ticking off the planned workout | Locks the planner for a moment. |
 | 9 | `20261118120001_fitx_goals_v2` | Daily and weekly goals, progress from logs, corrections; resets manual totals to their entries. | Additive, recomputes totals once · yes | #8 | Goals v2 | Deploy the new app soon after. |
 | 10 | `20261118120002_fitx_home_summary` | Saved Home layout; today's numbers in one request. | Additive · yes | #8 | Home dashboard v2 | |
@@ -241,18 +243,18 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 22 | `20261118140012_fitx_food_catalog_seed_part_03` | Adds 425 foods with 1,172 portions. | Same · yes | #17 | | SQL editor. |
 | 23 | `20261118140013_fitx_food_catalog_seed_part_04` | Adds 435 foods with 1,116 portions. | Same · yes | #17 | | SQL editor. |
 | 24 | `20261118140014_fitx_food_catalog_seed_part_05` | Adds 430 foods with 829 portions. | Same · yes | #17 | | SQL editor. |
-| 25 | `20261118150000_fitx_ai_coach` | Coach consent, conversations, proposals, safety notes, 24-hour limits. | Additive · yes | #7 | AI coach | Needs an AI key (section 7). Reloads the API itself. |
+| 25 | `20261118150000_fitx_ai_coach` | Coach consent, conversations, proposals, safety notes, 24-hour limits. | Additive · yes | | AI coach | Needs an AI key (section 7). Reloads the API itself. |
 | 26 | `20261118160000_fitx_activity_tracking` | GPS activities and their points, daily limits, the prune function. | Additive · yes | | Activity tracking | |
-| 27 | `20261118160001_fitx_activity_retention_schedule` | Daily job that deletes detailed GPS points older than 90 days. | Scheduled deletion · yes | #26, pg_cron | Keeps the 90-day promise in the app | Switch pg_cron on in the Dashboard first. |
+| 27 | `20261118160001_fitx_activity_retention_schedule` | Daily job that deletes detailed GPS points older than 90 days. | Scheduled deletion · yes | #26; pg_cron listed in Start 5 | Keeps the 90-day promise in the app | Switch pg_cron on in the Dashboard first. |
 | 28 | `20261118170008_fitx_workout_sets_rep_source` | Labels a set's reps as typed or counted by the camera. | Additive · yes | | Camera form coach label | |
-| 29 | `20261118180000_fitx_admin_control_plane` | Admin team list, audit log, first Admin functions. | Additive · yes | Start 3: `rolbypassrls` = `t` | Admin sign-in | Then the first super-admin (section 6.5). |
+| 29 | `20261118180000_fitx_admin_control_plane` | Admin team list, audit log, first Admin functions. | Additive · yes | Start 3: `rolbypassrls` = `t` | Admin sign-in | First super-admin after #35 and the Admin deploy (section 6.5). |
 | 30 | `20261118180001_fitx_admin_roles` | Five Admin roles and one permission check. | Widens a rule, replaces 2 functions · yes | #29 | Roles, access by email | |
 | 31 | `20261118180002_fitx_admin_audit_log` | The audit log becomes permanent and append-only. | Takes privileges away, permanent · yes | #29 | Audit screen, People actions | Cannot be undone, by design. |
-| 32 | `20261118180003_fitx_admin_metrics` | Exact metrics and daily trends (counts only). | Additive · yes | #29, #30 | Admin Overview and Reports | |
+| 32 | `20261118180003_fitx_admin_metrics` | Exact metrics and daily trends (counts only). | Additive · yes | #29 | Admin Overview and Reports | |
 | 33 | `20261118180004_fitx_admin_people` | People search and "Sign out everywhere". | Additive · yes | #29, #30; Start 4 for "Sign out everywhere" | People screen | |
 | 34 | `20261118180005_fitx_support` | Help requests and replies, with limits; support queue. | Additive · yes | #29, #30 | /help form, support queue | |
 | 35 | `20261118180006_fitx_announcements` | Announcements and dismissals. | Additive · yes | #29, #30 | Announcement banner | |
-| 36 | `20261118190000_fitx_billing_razorpay` | Billing tables and functions; seeds no plan. | Additive · yes | After #29 to #35 (Admin's billing page uses their roles) | Premium subscriptions, later | Nothing is sold until Razorpay is set up. |
+| 36 | `20261118190000_fitx_billing_razorpay` | Billing tables and functions; seeds no plan. | Additive · yes | | Premium subscriptions, later | Best after #29 to #35: Admin's billing page uses their roles (the database does not need them). Nothing is sold until Razorpay is set up. |
 
 ## 3. Each file: summary and check
 
@@ -452,7 +454,7 @@ select count(*) as totals_that_change from public.goals g where g.metric = 'manu
 ```
 
 ```sql
--- Before 20261118120001: goal types in use. Expect: only manual (any other could no longer be edited)
+-- Before 20261118120001: goal types in use. Expect: only manual (a type other than manual, calories_kcal, protein_g, water_ml, workouts_completed, body_weight_kg or tasks_completed could no longer be edited)
 select metric, count(*) as goals from public.goals group by metric order by 2 desc;
 ```
 
@@ -774,7 +776,8 @@ that ended more than 90 days ago. The activity summaries and their simple route 
 tells members that detailed points are kept for 90 days. The deletion is permanent, by design.
 
 First switch pg_cron on: Supabase Dashboard → Integrations → Cron → Enable (on older dashboards: Database →
-Extensions → `pg_cron` → Enable). Then:
+Extensions → `pg_cron` → Enable). (The file also switches pg_cron on itself if it is still off; switching it on
+first lets the Before query confirm it.) Then:
 
 ```sql
 -- Before 20261118160001: pg_cron is on and this role can schedule jobs. Expect: a version number, t
@@ -832,8 +835,10 @@ select (select relforcerowsecurity from pg_class where oid = to_regclass('public
 ### #30 `20261118180001_fitx_admin_roles`
 
 Five Admin roles: super-admin, admin, support agent, content editor and viewer. One permission check that
-every Admin function uses. Adds granting access by email, the team list with emails, and an email lookup for
-the audit and support screens. Server key only.
+every Admin function that changes something uses, apart from the one that records sign-ins and other events
+(#31); the reading functions are server key only, and Admin checks the role before it calls them. Adds granting
+access by email, the team list with emails, and an email lookup for the audit and support screens. Server key
+only.
 
 ```sql
 -- Check 20261118180001: expect the rule listing the five roles, 1, t, 5, f
@@ -993,6 +998,12 @@ first: never undo a file while a later file that needs it is still in place (the
 2). After an undo, remove that file's row from the history, so the record matches the database:
 `delete from supabase_migrations.schema_migrations where name = '<the file name without number>';`
 
+Keep the history rows of #15 and #20 to #24: their undo only hides rows, and running those files again does not
+show them. To show them again: for #15,
+`update public.training_programmes set status = 'published', updated_at = now() where id in ('ppl-3', 'ppl-6', 'upper-lower-4', 'full-body-3', 'bro-split-5', 'home-bodyweight-3', 'home-dumbbell-4');`
+(writes; tested: 7 published again); for #20 to #24, `update public.food_catalog set is_active = true where not is_active;`
+(writes).
+
 Anything a member saved in a dropped table or column is lost. When a file only adds a feature, switching the
 feature off in the app is usually better than an undo.
 
@@ -1009,7 +1020,7 @@ feature off in the app is usually better than an undo.
 | 25 | Better: set `AI_COACH_ENABLED=false` (section 7). SQL below drops all coach conversations, consents and the safety notes that keep the 30-day pause. |
 | 20 to 24 | SQL below hides the whole catalogue (search falls back to the built-in list); setting it back to `true` shows it again. Meals already logged keep their own copies. |
 | 19 | SQL below. The app falls back to its built-in food list. |
-| 18 | SQL below. Drops saved meals, routines, own targets, and custom foods' barcodes, photos and origin. |
+| 18 | Undo #19 first. SQL below. Drops saved meals, routines, own targets, and custom foods' barcodes, photos and origin. |
 | 17 | Undo #19 to #24 first. SQL below. `pg_trgm` stays on (harmless). |
 | 16 | SQL below. Workouts it closed as abandoned stay closed. |
 | 15 | SQL below unpublishes the programmes. Members already enrolled keep theirs. |
@@ -1111,7 +1122,7 @@ drop function if exists public.search_foods(text, text[], integer);
 ```
 
 ```sql
--- Undo 20261118140001 (writes)
+-- Undo 20261118140001 (writes; undo 20261118140002 first)
 begin;
 drop table if exists public.meal_template_items, public.meal_templates, public.nutrition_targets;
 drop trigger if exists custom_foods_touch_updated_at on public.custom_foods;
@@ -1292,6 +1303,15 @@ The connector records each file under the time it ran, not under the file's numb
 the repository already carry the numbers production recorded, so the history and the folder match today.
 To keep it that way, give each new row its file's number once, after the last file. It writes to the
 history table only.
+
+```sql
+-- History 0: files recorded twice. Expect: no rows
+select name, string_agg(version, ', ' order by version) as versions
+from supabase_migrations.schema_migrations group by name having count(*) > 1;
+```
+
+If it lists a file, tell the session before History 1: it removes that file's newer row (writes one row), then runs
+History 1.
 
 ```sql
 -- History 1 (writes, once): give each new history row its file's number
