@@ -18,6 +18,7 @@ alter table public.exercise_notes enable row level security;
 drop policy if exists exercise_notes_owner on public.exercise_notes;
 create policy exercise_notes_owner on public.exercise_notes for all to authenticated
   using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+revoke all on table public.exercise_notes from public, anon;
 grant select, insert, update, delete on public.exercise_notes to authenticated;
 
 -- A note on an exercise that the catalogue clean-up merged into another follows it to the kept exercise, as

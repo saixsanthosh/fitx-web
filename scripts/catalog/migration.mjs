@@ -19,6 +19,7 @@ export const MERGE_REPOINT_TABLES = [
   { table: "workout_session_exercises", migration: "20260924170604_fitx_v1_core_product.sql" },
   { table: "personal_records", migration: "20260924170604_fitx_v1_core_product.sql" },
   { table: "exercise_notes", migration: "20261119100010_fitx_exercise_notes.sql" },
+  { table: "exercise_favorites", migration: "20261119100020_fitx_exercise_favorites.sql" },
 ];
 
 /** The tables this migration re-points: those created before it. */

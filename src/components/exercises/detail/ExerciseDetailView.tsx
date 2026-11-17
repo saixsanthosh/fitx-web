@@ -6,7 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
-import { rememberExercise } from "@/lib/domain/exercise-preferences";
+import { rememberExercise, type SavedStore } from "@/lib/domain/exercise-preferences";
 import { cameraRuleFor } from "@/lib/form-rules/catalog";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import { loadEquipmentState, loadExerciseDetail, type EquipmentState, type ExerciseDetail } from "@/lib/training/exercise-detail";
@@ -20,7 +20,7 @@ import { GuidePanel } from "./GuidePanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { MusclesPanel } from "./MusclesPanel";
 import { ProgressPanel } from "./ProgressPanel";
-import { isExerciseSaved, toggleSavedExercise } from "./saved-exercise";
+import { loadSavedState, setSavedExercise } from "./saved-exercise";
 import { useExerciseHistory } from "./useExerciseHistory";
 
 type Loaded = { id: string; detail: ExerciseDetail } | { id: string; detail: null; error: string };
@@ -59,6 +59,8 @@ export function ExerciseDetailView({ id, initialTab }: { id: string; initialTab:
   const [note, setNote] = useState<NoteLoad | null>(null);
   const [noteAttempt, setNoteAttempt] = useState(0);
   const [saved, setSaved] = useState<boolean | null>(null);
+  const [savedStore, setSavedStore] = useState<SavedStore>("device");
+  const [savedError, setSavedError] = useState("");
   const userContext = useOptionalUserContext();
 
   useEffect(() => {
@@ -81,9 +83,10 @@ export function ExerciseDetailView({ id, initialTab }: { id: string; initialTab:
       setUserId(user?.id ?? null);
       if (!user) return;
       rememberExercise(user.id, exerciseId);
-      setSaved(isExerciseSaved(user.id, exerciseId));
-      const lists = await loadEquipmentState(supabase, user.id);
-      if (active) setEquipment(lists);
+      const [savedState, lists] = await Promise.all([loadSavedState(supabase, user.id, exerciseId).catch(() => null), loadEquipmentState(supabase, user.id)]);
+      if (!active) return;
+      if (savedState) { setSaved(savedState.saved); setSavedStore(savedState.store); }
+      setEquipment(lists);
     })();
     return () => { active = false; };
   }, [id]);
@@ -163,8 +166,19 @@ export function ExerciseDetailView({ id, initialTab }: { id: string; initialTab:
         summary={summary}
         cameraRuleId={cameraRule?.id ?? null}
         saved={userId ? saved ?? false : null}
-        onToggleSaved={() => { if (userId) setSaved(toggleSavedExercise(userId, exercise.id)); }}
+        onToggleSaved={() => {
+          if (!userId || saved === null) return;
+          const next = !saved;
+          setSaved(next);
+          setSavedError("");
+          void setSavedExercise(createClient(), userId, savedStore, exercise.id, next).then(({ error }) => {
+            if (!error) return;
+            setSaved(!next);
+            setSavedError("Your saved exercises could not be updated. Please try again.");
+          });
+        }}
       />
+      {savedError && <p role="alert" className="m-0 text-xs text-fitx-danger">{savedError}</p>}
       <Tabs tabs={tabs} value={tab} onChange={selectTab} label={`${exercise.name}: sections`} />
     </div>
   );

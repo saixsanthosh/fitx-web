@@ -178,6 +178,10 @@ const KNOWN_PRODUCTION_REDECLARATIONS = {
     ],
     reason: "the Admin draft created both tables and both indexes as this file declares them, apart from the audit log's key to accounts, which this file drops",
   },
+  "20261119100020_fitx_exercise_favorites.sql": {
+    notices: [/^relation "exercise_favorites" already exists, skipping$/, /^relation "exercise_favorites_exercise_idx" already exists, skipping$/],
+    reason: "experience 2.0 created the table (20261002172610) and its index (20261002172706) exactly as this file declares them; it adopts them",
+  },
 };
 
 // What experience 2.0 (20261002172610, 20261002172706) leaves on production after every pending migration and a
@@ -185,11 +189,12 @@ const KNOWN_PRODUCTION_REDECLARATIONS = {
 // is the owner's decision (docs/runbooks/platform-database.md, section 1.8). Until a migration settles an entry,
 // production must end with exactly these extras, as the hand-applied changes left them: remove the entry when one
 // does. `names` are what code using an entry would have to name; nothing in the app, Admin or the scripts may.
-const LEFTOVER_TABLES = ["exercise_favorites", "food_favorites", "outdoor_activities", "activity_shares", "user_release_reads"];
+// exercise_favorites was a leftover too until 20261119100020 adopted it, unchanged.
+const LEFTOVER_TABLES = ["food_favorites", "outdoor_activities", "activity_shares", "user_release_reads"];
 const PRODUCTION_LEFTOVERS = [
   {
     what:
-      "the tables exercise_favorites, food_favorites, outdoor_activities, activity_shares and user_release_reads, with their " +
+      "the tables food_favorites, outdoor_activities, activity_shares and user_release_reads, with their " +
       "columns, keys, checks, indexes and owner-only policies: signed-in members can write their own rows, and signed-out " +
       "visitors hold every table privilege, but no policy lets them reach a row",
     keys: new RegExp(
@@ -515,8 +520,11 @@ function saysExactly(expect, rows) {
 const historyRow = (name) => ({ version: name.slice(0, 14), name: name.slice(15, -".sql".length) });
 const PRODUCTION_ROWS = PRODUCTION_HISTORY.map(([version, name]) => ({ version, name }));
 const byVersion = (rows) => [...rows].sort((a, b) => a.version.localeCompare(b.version));
-/** The files section 5 leaves in the history: #8, #9 and #29 to #31 have no undo SQL, and #15's and #20 to #24's undo only hide rows. */
-const KEPT_BY_SECTION_5 = [8, 9, 15, 20, 21, 22, 23, 24, 29, 30, 31];
+/**
+ * The files section 5 leaves in the history: #8, #9, #29 to #31 and #40 (it adopts what production already has) have
+ * no undo SQL, and #15's and #20 to #24's undo only hide rows.
+ */
+const KEPT_BY_SECTION_5 = [8, 9, 15, 20, 21, 22, 23, 24, 29, 30, 31, 40];
 /** Start 2's list: each pending file and the object that shows it is in. */
 const START_2_LIST = [...blockOf("Start 2").sql.matchAll(/\('(\d{14})', '[a-z]+', '([^']+)'\)/g)].map(([, file, object]) => ({ file, object }));
 
@@ -598,6 +606,13 @@ const runbookNotRun = ({ cron }) => ({
  * Record queries, then History 0 to 2. Start 1 and Start 8 read production's 17 rows first. `ask` runs a runbook
  * query and keeps its result; returns whether History 1 ran.
  */
+/** The day after the newest pending file's date (yyyymmdd), the simulated day the connector applies them. */
+const APPLY_DAY = (() => {
+  const newest = PENDING.at(-1).slice(0, 8);
+  const day = new Date(Date.UTC(Number(newest.slice(0, 4)), Number(newest.slice(4, 6)) - 1, Number(newest.slice(6, 8)) + 1));
+  return day.toISOString().slice(0, 10).replaceAll("-", "");
+})();
+
 function historyAsTheRunbookLeavesIt(pg, ask) {
   pg.exec(`
 create schema supabase_migrations;
@@ -610,8 +625,9 @@ insert into supabase_migrations.schema_migrations (version, name) values
   const inSqlEditor = (name) => name.startsWith("20261118130010_") || FOOD_PARTS.includes(name);
   PENDING.forEach((name, index) => {
     const { version, name: shortName } = historyRow(name);
-    // The apply day's clock, a minute per file from 10:00 UTC: never one of the files' own numbers.
-    const appliedAt = `2026111910${String(index).padStart(2, "0")}00`;
+    // The apply day's clock, a minute per file from 10:00 UTC on the day after the newest file: never one of the
+    // files' own numbers.
+    const appliedAt = `${APPLY_DAY}10${String(index).padStart(2, "0")}00`;
     if (inSqlEditor(name)) ask(blockOf(`Record ${version}`), `after #${index + 1}`);
     else pg.exec(`insert into supabase_migrations.schema_migrations (version, name) values ('${appliedAt}', '${shortName}');`);
   });

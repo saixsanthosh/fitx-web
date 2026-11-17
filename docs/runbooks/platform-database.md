@@ -5,10 +5,10 @@ time. It is written for the FITX owner. You do not need to know SQL. "The sessio
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **What is pending:** the 39 files from `20261115100000` to `20261119100010` in `supabase/migrations` on
+- **What is pending:** the 40 files from `20261115100000` to `20261119100020` in `supabase/migrations` on
   the branch `claude/train`. That folder is the source of truth. Production already has the 14 files from
   September 2026 and none of these, plus three changes that were applied to it by hand and have no file in
-  that folder (section 1.8). Four of the 39 files meet what those three made; they are written for it, and
+  that folder (section 1.8). Five of the 40 files meet what those three made; they are written for it, and
   their summaries say what they do on production.
 - **Older runbooks:** `docs/runbooks/phase1-database.md` covered the first five files for release 2. This
   runbook includes them, so use this one. `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
@@ -36,7 +36,7 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only these 39 files, only from `claude/train`. Never a copy from another branch or worktree, never
+- Only these 40 files, only from `claude/train`. Never a copy from another branch or worktree, never
   the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from `claude/train`), and
   never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
   production already has (section 1.8).
@@ -44,8 +44,8 @@ For each file, in the order of section 2:
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Do all 39 in one sitting if you can, then deploy the new app (section 6.4) the same
-  day. If you need two sittings, stop after #11 and do #12 to #39 on the day you deploy: #12 changes muscle
+- Pick a quiet time. Do all 40 in one sitting if you can, then deploy the new app (section 6.4) the same
+  day. If you need two sittings, stop after #11 and do #12 to #40 on the day you deploy: #12 changes muscle
   names that the live app's automatic workout builder still uses. The five food parts and #37 may also wait
   until after the deploy (section 2.1).
 - The live app keeps working throughout. Only three files change something it uses: #1 (it then saves pauses
@@ -108,7 +108,7 @@ numbers differ from the file names, stop and compare them with section 2 first.
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the 39 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
+-- Start 2: changes from the 40 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
 select m.file, m.object
 from (values
   ('20261115100000', 'column', 'workout_sessions.active_duration_seconds'),
@@ -237,7 +237,7 @@ applied by hand, outside this repository. Exact copies, checked against the hist
 | `20261002172706 fitx_share_access_and_index` | Only signed-out visitors may call `get_activity_share`; one index. |
 | `20261116093902 fitx_admin_control_plane` | The old Admin draft ("Prepared for review only"): the Admin team list, the Admin audit log and three Admin functions. |
 
-Four of the 39 files meet what these made, and are written for it:
+Five of the 40 files meet what these made, and are written for it:
 
 - #1 finds `paused_at` and adds the other two pause fields.
 - #2 finds all five of its fields, in which the live app already saves targets and set times. It adds its five
@@ -245,9 +245,11 @@ Four of the 39 files meet what these made, and are written for it:
 - #18 finds `custom_foods.barcode` and replaces its two barcode rules with its own.
 - #29 keeps the draft's two tables and drops the draft's link from the audit log to accounts. #30 replaces
   the draft's role rule and functions.
+- #40 finds `exercise_favorites`, its index, its owner-only policy and its grants exactly as experience 2.0
+  made them, and adopts them unchanged: FITX now keeps saved exercises there.
 
 Every other file does exactly what it does on a new project. `tests/integration/migrations.test.mjs` applies
-all 39 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
+all 40 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
 new project apart from what stays (below) and the order of fields: in the six tables experience 2.0 added fields
 to, production lists its fields before the ones these files add. Nothing in FITX depends on that order. (Production
 also has an event trigger, `ensure_rls`, that switches row level security on for each new public table, from
@@ -307,21 +309,21 @@ something has paused workouts the way experience 2.0 does, and #1 reads those fi
 workout would show the wrong time, or 00:00:00 while paused. If any other count in Start 10 is not 0, tell the
 session; the files still apply, but it changes the decision below.
 
-**What stays, for you to decide.** After all 39 files, production still has experience 2.0's five tables,
+**What stays, for you to decide.** After all 40 files, production still has four of experience 2.0's five tables (#40 adopts the fifth, `exercise_favorites`),
 `get_activity_share(text)`, five extra fields on exercises, three on custom foods, five on the workout tables
 (distances, a paused total and a rest timer) and its three workout checks. Nothing in FITX uses any of it. Two
 things to weigh:
 
 - Signed-out visitors can call `get_activity_share`. It returns whatever route a share row holds to anyone with
   its token. FITX's own sharing makes the share picture on the phone and keeps no share links.
-- Signed-in members could write their own rows into the five tables through the API. "Download my data" leaves
+- Signed-in members could write their own rows into the four tables through the API. "Download my data" leaves
   those tables out, and the 90-day clean-up of GPS points does not cover `outdoor_activities`.
 
 The choices: keep it as it is (nothing changes; Final 3 lists `get_activity_share`); lock it down (signed-out
-visitors lose the function, the API roles lose the five tables); or remove it (a migration that stops if any of
-the five tables has rows or any of the extra fields it drops holds a value, as Start 10 counts them, then drops
+visitors lose the function, the API roles lose the four tables); or remove it (a migration that stops if any of
+the four tables has rows or any of the extra fields it drops holds a value, as Start 10 counts them, then drops
 the function, the tables and the extra fields). For the second or third, the session writes a new migration
-after #37, tests it on the copy, and applies it with your OK.
+after #40, tests it on the copy, and applies it with your OK.
 
 ## 2. Apply order
 
@@ -371,6 +373,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 37 | `20261118200000_fitx_food_catalog_rajma_keywords` | Search words "rajma" and "rajmah" for the six kidney-bean foods. | Changes 6 catalogue rows · yes | #17; its foods come from #20 | "rajma" in food search | After #24, also when the food parts wait (2.1). |
 | 38 | `20261119100000_fitx_activity_sources` | Labels where each activity came from: recorded with FITX, or imported from a GPX, TCX or FIT file (format, the device the file names, import time). | Additive · yes | #26 | Activity imports (/activity/import), source labels | Until it is applied the import page says imports switch on after the update; everything else works. |
 | 39 | `20261119100010_fitx_exercise_notes` | Members' private notes on exercises: one per exercise, up to 500 characters. | Additive · yes | #11 | "Your note" on exercise pages | Until it is applied the exercise page hides the note box. |
+| 40 | `20261119100020_fitx_exercise_favorites` | Adopts experience 2.0's saved-exercises table (owner only) as a file. | Additive · yes | #11 | Saved exercises in the account, on every device and in "Download my data" | On production it changes nothing (1.8). Until it is applied on a new project, saved exercises stay on the device. |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1201,6 +1204,22 @@ select (select relrowsecurity from pg_class where oid = to_regclass('public.exer
   (select count(*) from public.exercise_notes) as notes;
 ```
 
+### #40 `20261119100020_fitx_exercise_favorites`
+
+Production has had `exercise_favorites` since experience 2.0 (section 1.8), with no file here. FITX now keeps each
+member's saved exercises in it, so this file adopts it. On production it finds the table, its index, its owner-only
+policy and its grants exactly as experience 2.0 made them and changes nothing. On a new project it creates them.
+A saved exercise on a duplicate that the catalogue clean-up merged follows it to the kept exercise. Saved exercises
+are part of "Download my data" and are deleted with the account.
+
+```sql
+-- Check 20261119100020: expect t, 1, t, t
+select (select relrowsecurity from pg_class where oid = to_regclass('public.exercise_favorites')) as row_security,
+  (select count(*) from pg_policies where schemaname = 'public' and tablename = 'exercise_favorites') as policies,
+  (select bool_and(has_table_privilege('authenticated', 'public.exercise_favorites', p)) from unnest(array['SELECT', 'INSERT', 'DELETE']) p) as members_save_and_remove,
+  not exists (select 1 from public.exercise_favorites f join public.exercise_library e on e.id = f.exercise_id where e.merged_into is not null) as none_on_merged_exercises;
+```
+
 ## 4. If a migration fails part-way
 
 1. **Stop.** Do not apply the next file. The live app keeps working, and the new app waits for each file.
@@ -1251,6 +1270,7 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
+| 40 | Nothing to undo on production: the table came with experience 2.0 (1.8) and #40 changes nothing there; leave its history row. On a new project only, `drop table if exists public.exercise_favorites;` drops every member's saved exercises, and the app keeps new ones on the device again. |
 | 39 | SQL below. Drops every member's exercise notes; the exercise page hides its note box again. |
 | 38 | SQL below. Deletes imported activities first, so none is shown as a FITX recording afterwards; members can import their files again once it is re-applied. |
 | 37 | SQL below. Removes the two search words; a search for rajma finds nothing again. |
@@ -1637,7 +1657,7 @@ from (values
   ('20261118180004', 'fitx_admin_people'), ('20261118180005', 'fitx_support'),
   ('20261118180006', 'fitx_announcements'), ('20261118190000', 'fitx_billing_razorpay'),
   ('20261118200000', 'fitx_food_catalog_rajma_keywords'), ('20261119100000', 'fitx_activity_sources'),
-  ('20261119100010', 'fitx_exercise_notes')
+  ('20261119100010', 'fitx_exercise_notes'), ('20261119100020', 'fitx_exercise_favorites')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and h.version not in ('20261002172610', '20261002172706', '20261116093902')
@@ -1645,7 +1665,7 @@ where h.name = f.name and h.version <> f.version
 ```
 
 ```sql
--- History 2: expect 56 rows in version order: the 14 September ones, the three of section 1.8 and the 39 files of section 2, with their numbers and names
+-- History 2: expect 57 rows in version order: the 14 September ones, the three of section 1.8 and the 40 files of section 2, with their numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 

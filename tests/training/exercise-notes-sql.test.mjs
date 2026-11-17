@@ -48,11 +48,11 @@ describe("exercise notes", { skip }, () => {
     assert.equal(pg.exec(`delete from public.exercise_notes where user_id = '${A}' returning 1;`, asB), "", "nor deleted");
     assert.deepEqual(notes(asA), [{ user: A, exercise: "bench_press", body: "Seat on 5" }]);
 
-    // Like the other members' tables, only row level security stands between visitors and the rows: no policy
-    // lets them see or add any.
-    assert.equal(pg.exec("select count(*) from public.exercise_notes;", asAnon), "0", "signed-out visitors see no notes");
+    // As on activities, signed-out visitors hold no privilege on the table at all (and no policy names them).
+    const visitorRead = pg.run("select count(*) from public.exercise_notes;", asAnon);
+    assert.ok(!visitorRead.ok && /permission denied/i.test(visitorRead.stderr), `signed-out visitors cannot read notes: ${visitorRead.stderr}`);
     const visitorWrite = write(asAnon, "bench_press", "Visitor", A);
-    assert.ok(!visitorWrite.ok && /row-level security/i.test(visitorWrite.stderr), `signed-out visitors cannot add notes: ${visitorWrite.stderr}`);
+    assert.ok(!visitorWrite.ok && /permission denied/i.test(visitorWrite.stderr), `signed-out visitors cannot add notes: ${visitorWrite.stderr}`);
 
     assert.equal(pg.exec(`delete from public.exercise_notes where exercise_id = 'push_up' returning 1;`, asB), "1");
     assert.deepEqual(notes(asB), []);

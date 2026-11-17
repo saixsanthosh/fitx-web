@@ -17,9 +17,6 @@ const HARNESS_NOISE = [
   { test: (e) => e.kind === "console.error" && e.external, reason: "request to a blocked outside host" },
   { test: (e) => e.kind === "requestfailed" && /ERR_ABORTED/.test(e.failure ?? "") && /[?&]_rsc=/.test(e.url ?? ""), reason: "React Server Component prefetch aborted by a navigation" },
   { test: (e) => e.kind === "requestfailed" && /ERR_ABORTED/.test(e.failure ?? "") && e.type === "media", reason: "intro film video request aborted when the film was skipped" },
-  // exercise_favorites exists on production (experience 2.0) but no repo migration creates it, so the stand-in answers
-  // 404 once per tab and the exercise library keeps saved exercises on the device (checked by flow 13-exercise-discovery).
-  { test: (e) => /\/rest\/v1\/exercise_favorites/.test(`${e.url ?? ""} ${e.source ?? ""} ${e.text ?? ""}`), reason: "exercise_favorites is a production-only table; the library falls back to device storage" },
   // Flows 6 and 10 call the coach and billing APIs on purpose to check that they refuse without keys.
   { test: (e) => /\/api\/(coach|billing)\//.test(`${e.url ?? ""} ${e.source ?? ""}`) && /APIs/.test(e.label ?? ""), reason: "refusal from an API a flow called on purpose (checked by that flow)" },
 ];
