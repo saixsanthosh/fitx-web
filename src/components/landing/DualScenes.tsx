@@ -7,7 +7,7 @@ import { AnimatePresence, m, useTransform, type MotionValue } from "framer-motio
 import { ScrollScene } from "@/components/motion";
 import { LANDING_MEDIA, type LandingMediaId } from "@/data/landing-media";
 import {
-  EXAMPLE_PLAN, POSE_FRAME, bonesPath, cueAt, frameAt, jointsPath, kneeAngle, kneeArcPath, manFrameAt, planDoneAt, poseAt, repsAt, squatDepth,
+  EXAMPLE_PLAN, POSE_FRAME, ramp, bonesPath, cueAt, frameAt, jointsPath, kneeAngle, kneeArcPath, manFrameAt, planDoneAt, poseAt, repsAt, squatDepth,
 } from "./story";
 import styles from "./landing.module.css";
 
@@ -65,9 +65,9 @@ const readPlanDone = (p: number) => planDoneAt(p);
 function PlanPanel({ progress }: { progress: MotionValue<number> }) {
   const reading = useTransform<number, number>(progress, (p) => (manFrameAt(p) === 0 ? 1 : 0));
   const lifting = useTransform<number, number>(progress, (p) => (manFrameAt(p) === 1 ? 1 : 0));
-  const push = useTransform(progress, [0, 1], [1, 1.06]);
-  const cardY = useTransform(progress, [0.02, 0.16], [28, 0], { clamp: true });
-  const cardOpacity = useTransform(progress, [0.02, 0.12], [0, 1], { clamp: true });
+  const push = useTransform<number, number>(progress, (p) => ramp(p, 0, 1, 1, 1.06));
+  const cardY = useTransform<number, number>(progress, (p) => ramp(p, 0.02, 0.16, 28, 0));
+  const cardOpacity = useTransform<number, number>(progress, (p) => ramp(p, 0.02, 0.12, 0, 1));
   const done = useStep(progress, readPlanDone);
   return (
     <article className={styles.panel} aria-labelledby="scene-plan-title">
@@ -117,8 +117,8 @@ function FormPanel({ progress }: { progress: MotionValue<number> }) {
   const angle = useTransform(pose, (value) => `Knee ${kneeAngle(value)}°`);
   const angleX = useTransform(pose, (value) => value.knee[0] + 64);
   const angleY = useTransform(pose, (value) => value.knee[1] + 96);
-  const draw = useTransform(progress, [0, 0.1], [0.001, 1], { clamp: true });
-  const push = useTransform(progress, [0, 1], [1, 1.05]);
+  const draw = useTransform<number, number>(progress, (p) => ramp(p, 0, 0.1, 0.001, 1));
+  const push = useTransform<number, number>(progress, (p) => ramp(p, 0, 1, 1, 1.05));
   const reps = useStep(progress, readReps);
   const cue = useStep(progress, readCue);
 

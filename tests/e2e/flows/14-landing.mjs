@@ -23,6 +23,7 @@ async function sceneState(page) {
       done: scene?.querySelectorAll('[data-done="true"]').length ?? -1,
       reps: scene?.querySelector("[data-scene-reps]")?.textContent ?? null,
       cue: [...(scene?.querySelectorAll("[data-scene-cue]") ?? [])].at(-1)?.textContent ?? null,
+      card: Number(getComputedStyle(scene?.querySelector('[aria-label="Example plan in FITX"]') ?? document.body).opacity),
     };
   });
 }
@@ -60,15 +61,19 @@ export const flow = {
       t.expect(start.reps === "0" && end.reps === "2", "reps count up with the scroll", { start, end });
       t.expect(bottom.cue === "Good depth", "the bottom of the rep says Good depth", bottom);
       t.expect(start.done === 0 && end.done === 4, "plan rows tick off", { start, end });
+      t.expect(bottom.card > 0.99 && end.card > 0.99, "the plan card shows once the scene is under way", { bottom, end });
     });
 
     await t.step("the Home workout features reveal as they scroll in", async () => {
       const list = page.getByRole("heading", { name: "A coach that watches." });
       await list.scrollIntoViewIfNeeded();
       await page.mouse.wheel(0, 300);
-      await page.waitForTimeout(900);
-      const hidden = await page.evaluate(() => [...document.querySelectorAll("[data-fitx-stagger-item]")]
-        .filter((item) => item.getBoundingClientRect().top < window.innerHeight && Number(getComputedStyle(item).opacity) < 0.99).length);
+      // Items reveal one after another (and the last may have only just come into view): allow the stagger to finish.
+      const inViewHidden = () => [...document.querySelectorAll("[data-fitx-stagger-item]")]
+        .filter((item) => item.getBoundingClientRect().bottom < window.innerHeight - 40 && Number(getComputedStyle(item).opacity) < 0.99).length;
+      await page.waitForFunction(() => [...document.querySelectorAll("[data-fitx-stagger-item]")]
+        .every((item) => item.getBoundingClientRect().bottom >= window.innerHeight - 40 || Number(getComputedStyle(item).opacity) >= 0.99), null, { timeout: 4000 }).catch(() => undefined);
+      const hidden = await page.evaluate(inViewHidden);
       t.expect(hidden === 0, `${hidden} feature rows in view are still hidden`);
       t.expect(await page.getByText("never uploaded", { exact: false }).first().isVisible(), "the privacy promise shows");
       await t.checkpoint("home workout features", { fullPage: false });
@@ -114,7 +119,7 @@ export const flow = {
       const still = await sceneState(page);
       t.note("reduced", still);
       t.expect(still.height < still.viewport * 1.6, "no tall scroll section", still);
-      t.expect(still.reps === "2" && still.done === 4 && still.cue === "Good depth", "the final frame shows", still);
+      t.expect(still.reps === "2" && still.done === 4 && still.cue === "Good depth" && still.card > 0.99, "the final frame shows", still);
       const log = await t.rootLog();
       t.expect(!log.some((entry) => entry.name === "data-fitx-loader" && entry.value === "on"), "no brand loader with reduced motion", log);
       await t.checkpoint("reduced motion scenes", { fullPage: false });

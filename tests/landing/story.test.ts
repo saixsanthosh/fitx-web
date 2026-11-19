@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  BONES, EXAMPLE_PLAN, POSE_FRAME, SQUAT_POSES, bonesPath, cueAt, frameAt, jointsPath, kneeAngle, kneeArcPath, manFrameAt, planDoneAt, poseAt, repsAt, squatDepth,
+  BONES, EXAMPLE_PLAN, POSE_FRAME, SQUAT_POSES, bonesPath, cueAt, frameAt, jointsPath, kneeAngle, kneeArcPath, manFrameAt, planDoneAt, poseAt, ramp, repsAt, squatDepth,
 } from "@/components/landing/story";
 
 const shape = (d: string) => d.replace(/-?\d+(\.\d+)?/g, "n");
@@ -78,4 +78,21 @@ test("the plan ticks off row by row and is complete in the final frame", () => {
   }
   assert.equal(manFrameAt(0), 0, "reading his plan first");
   assert.equal(manFrameAt(1), 1, "lifting at the end");
+});
+
+test("ramp clamps outside its range and maps linearly inside", () => {
+  assert.equal(ramp(0, 0.02, 0.12, 0, 1), 0);
+  assert.equal(ramp(1, 0.02, 0.12, 0, 1), 1);
+  assert.ok(Math.abs(ramp(0.07, 0.02, 0.12, 0, 1) - 0.5) < 1e-9);
+  assert.equal(ramp(0.5, 0, 0.7, 1, 0) < 1, true);
+  assert.equal(ramp(Number.NaN, 0, 1, 2, 3), 2);
+});
+
+test("scroll-linked opacity uses function transforms, never ranges framer would hand to a ScrollTimeline", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const dir = new URL("../../src/components/landing/", import.meta.url);
+  for (const file of readdirSync(dir).filter((name) => name.endsWith(".tsx"))) {
+    const source = readFileSync(new URL(file, dir), "utf8");
+    assert.doesNotMatch(source, /useTransform\([^,()]+,\s*\[/, `${file} uses a range-based useTransform`);
+  }
 });

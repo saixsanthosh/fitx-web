@@ -23,6 +23,16 @@ export const BONES: readonly (readonly [Joint, Joint])[] = [
 
 const clamp01 = (n: number) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0);
 
+/**
+ * `from` → `to` as progress runs from `start` to `end`, clamped. Used as a function transform on purpose:
+ * framer-motion 12 hands range-based opacity transforms of a useScroll value to a native ScrollTimeline, which
+ * resolves the wrong range inside the pinned scene (the plan card stayed invisible).
+ */
+export function ramp(progress: number, start: number, end: number, from: number, to: number): number {
+  const t = clamp01((progress - start) / (end - start || 1));
+  return from + (to - from) * t;
+}
+
 /** Reps the scene plays while it crosses the screen: down, up, down, so the last frame is the bottom. */
 export const SCENE_REPS = 1.5;
 

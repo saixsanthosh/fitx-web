@@ -8,6 +8,7 @@ import { m, useScroll, useTransform } from "framer-motion";
 import { useReducedMotionSafe } from "@/components/motion";
 import { LANDING_MEDIA } from "@/data/landing-media";
 import { portionNutrition, type PieceFood } from "./portion";
+import { ramp } from "./story";
 import styles from "./landing.module.css";
 
 const TILE_SIZES = "(max-width: 767px) 100vw, 50vw";
@@ -34,7 +35,7 @@ function useDrift() {
   const ref = useRef<HTMLElement>(null);
   const reduced = useReducedMotionSafe();
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
-  const y = useTransform(scrollYProgress, [0, 1], ["-5%", "5%"]);
+  const y = useTransform<number, string>(scrollYProgress, (p) => `${ramp(p, 0, 1, -5, 5)}%`);
   return { ref, reduced, progress: scrollYProgress, y };
 }
 
@@ -87,7 +88,7 @@ const ROUTE = "M70 470C140 430 150 360 230 352S330 410 390 360 420 250 500 236 6
 
 function ActivityTile() {
   const { ref, reduced, progress, y } = useDrift();
-  const draw = useTransform(progress, [0.15, 0.65], [0.001, 1], { clamp: true });
+  const draw = useTransform<number, number>(progress, (p) => ramp(p, 0.15, 0.65, 0.001, 1));
   const image = LANDING_MEDIA.run;
   return (
     <article ref={ref} className={styles.tile} aria-labelledby="tile-activity-title">

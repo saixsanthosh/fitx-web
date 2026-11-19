@@ -8,6 +8,7 @@ import { m, useScroll, useTransform } from "framer-motion";
 import { useReducedMotionSafe } from "@/components/motion";
 import { IntroReplayControl } from "@/components/brand/IntroReplayControl";
 import { LANDING_MEDIA } from "@/data/landing-media";
+import { ramp } from "./story";
 import styles from "./landing.module.css";
 
 /** Full-bleed opening frame. The photo slowly pushes in and the words lift away as the page scrolls. */
@@ -15,10 +16,11 @@ export function LandingHero() {
   const ref = useRef<HTMLElement>(null);
   const reduced = useReducedMotionSafe();
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
-  const scale = useTransform(scrollYProgress, [0, 1], [1.04, 1.16]);
-  const photoY = useTransform(scrollYProgress, [0, 1], ["0%", "8%"]);
-  const textY = useTransform(scrollYProgress, [0, 1], [0, -90]);
-  const textOpacity = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
+  // Function transforms throughout: framer would move a range-based opacity to a native ScrollTimeline (story.ts ramp).
+  const scale = useTransform<number, number>(scrollYProgress, (p) => ramp(p, 0, 1, 1.04, 1.16));
+  const photoY = useTransform<number, string>(scrollYProgress, (p) => `${ramp(p, 0, 1, 0, 8)}%`);
+  const textY = useTransform<number, number>(scrollYProgress, (p) => ramp(p, 0, 1, 0, -90));
+  const textOpacity = useTransform<number, number>(scrollYProgress, (p) => ramp(p, 0, 0.7, 1, 0));
   const hero = LANDING_MEDIA.hero;
 
   return (
