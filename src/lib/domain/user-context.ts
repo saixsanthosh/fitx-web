@@ -22,8 +22,11 @@ import {
   GOAL_OPTIONS,
   HEIGHT_UNIT_OPTIONS,
   LOCATION_OPTIONS,
+  FOOD_SOURCE_OPTIONS,
   MAX_FOOD_DISLIKES,
+  NUTRITION_FOCUS_OPTIONS,
   SEX_OPTIONS,
+  ageFromBirthDate,
   SPLIT_OPTIONS,
   WEIGHT_UNIT_OPTIONS,
   isOption,
@@ -32,6 +35,7 @@ import {
   normalizeDietType,
   normalizeEquipment,
   normalizeFoodRules,
+  normalizeBirthDate,
   normalizeTags,
   splitAllergies,
   splitLimitations,
@@ -41,15 +45,17 @@ import {
   type DietType,
   type Experience,
   type FoodRule,
+  type FoodSource,
   type Goal,
   type HeightUnit,
+  type NutritionFocus,
   type Option,
   type Sex,
   type TrainingLocation,
   type WeightUnit,
   type WorkoutSplit,
 } from "./profile-options";
-import { omitColumns, withOptionalColumns } from "./schema-fallback";
+import { isMissingColumnError, missingColumnFromError, omitColumns } from "./schema-fallback";
 
 /**
  * Everything FITX knows about the signed-in person, loaded once and shared: the profile row, training
@@ -73,12 +79,41 @@ export const PREFERENCE_COLUMNS_V2 = [
 
 export type PreferenceColumnV2 = (typeof PREFERENCE_COLUMNS_V2)[number];
 
+/** Columns added by migration 20261120100000_fitx_onboarding_v3; the app works without them. */
+export const PROFILE_COLUMNS_V3 = ["date_of_birth"] as const;
+export const PREFERENCE_COLUMNS_V3 = ["food_source", "nutrition_focus"] as const;
+export type PreferenceColumnV3 = (typeof PREFERENCE_COLUMNS_V3)[number];
+export type OptionalPreferenceColumn = PreferenceColumnV2 | PreferenceColumnV3;
+
+/**
+ * Runs a request with tiers of optional columns (oldest migration first; a later tier needs every earlier one).
+ * `run(kept)` builds the request with the first `kept` tiers. When the database reports a column of tier i as
+ * missing, it runs again with the first i tiers; any other error is returned as it is.
+ */
+export async function withColumnTiers<R extends { error: unknown }>(
+  tiers: readonly (readonly string[])[],
+  run: (kept: number) => PromiseLike<R>,
+  start: number = tiers.length,
+): Promise<{ result: R; kept: number }> {
+  let kept = Math.max(0, Math.min(start, tiers.length));
+  for (;;) {
+    const result = await run(kept);
+    if (!result.error || kept === 0 || !isMissingColumnError(result.error, tiers.slice(0, kept).flat())) return { result, kept };
+    const column = missingColumnFromError(result.error)?.column?.toLowerCase();
+    const tier = column ? tiers.findIndex((list) => list.some((name) => name.toLowerCase() === column)) : -1;
+    kept = tier >= 0 && tier < kept ? tier : kept - 1;
+  }
+}
+
 /** Dispatched on window after a save, so the provider (header, targets) reloads. */
 export const USER_CONTEXT_EVENT = "fitx:user-context-changed";
 
 export type ProfileValues = {
   name: string;
+  /** From the birth date when there is one (so it is always current), else as stored. */
   age: number | null;
+  /** YYYY-MM-DD, or null when not given (or before the onboarding v3 migration). */
+  date_of_birth: string | null;
   gender: Sex | null;
   height: number | null;
   weight: number | null;
@@ -104,6 +139,10 @@ export type PreferenceValues = {
   allergies: string[];
   meals_per_day: number;
   daily_water_goal_ml: number;
+  /** Where meals mostly come from; null until answered (or before the onboarding v3 migration). */
+  food_source: FoodSource | null;
+  /** The nutrition goal; null until answered (or before the onboarding v3 migration). */
+  nutrition_focus: NutritionFocus | null;
   food_rules: FoodRule[];
   cuisines: Cuisine[];
   food_dislikes: string[];
@@ -134,8 +173,8 @@ export type UserContextData = {
   /** The latest weigh-in, or the profile weight when nothing has been logged. */
   currentWeightKg: number | null;
   targets: NutritionTargets | null;
-  /** Whether the profile v2 migration is in the database. */
-  schema: { preferencesV2: boolean };
+  /** Whether the profile v2 and onboarding v3 migrations are in the database. */
+  schema: { preferencesV2: boolean; onboardingV3: boolean };
 };
 
 export type LoadPart = "profile" | "preferences" | "weigh_in" | "equipment";
@@ -163,11 +202,14 @@ const pick = <V extends string>(options: readonly Option<V>[], value: unknown, f
 
 const pickOrNull = <V extends string>(options: readonly Option<V>[], value: unknown): V | null => (isOption(options, value) ? value : null);
 
-export function normalizeProfile(row: Row | null | undefined): ProfileValues | null {
+export function normalizeProfile(row: Row | null | undefined, today: Date = new Date()): ProfileValues | null {
   if (!row) return null;
+  const birthDate = normalizeBirthDate(row.date_of_birth);
+  const birthAge = ageFromBirthDate(birthDate, today);
   return {
     name: typeof row.name === "string" ? row.name : "",
-    age: numberOrNull(row.age),
+    age: birthAge ?? numberOrNull(row.age),
+    date_of_birth: birthDate,
     gender: pickOrNull(SEX_OPTIONS, row.gender),
     height: numberOrNull(row.height),
     weight: numberOrNull(row.weight),
@@ -205,6 +247,8 @@ export function normalizePreferences(row: Row | null | undefined): { values: Pre
       allergies: joinKnown(allergies.keys, allergies.custom),
       meals_per_day: between(source.meals_per_day, 1, 8, DEFAULT_MEALS_PER_DAY),
       daily_water_goal_ml: between(source.daily_water_goal_ml, 250, 10000, DEFAULT_WATER_ML),
+      food_source: pickOrNull(FOOD_SOURCE_OPTIONS, source.food_source),
+      nutrition_focus: pickOrNull(NUTRITION_FOCUS_OPTIONS, source.nutrition_focus),
       food_rules: normalizeFoodRules(source.food_rules, source.food_rules === undefined ? legacyDiet : []),
       cuisines: stringList(source.cuisines).filter((value): value is Cuisine => isOption(CUISINE_OPTIONS, value)),
       food_dislikes: normalizeTags(source.food_dislikes, { max: MAX_FOOD_DISLIKES }),
@@ -230,12 +274,15 @@ export function targetsFor(profile: ProfileValues | null, preferences: Preferenc
 }
 
 export async function loadUserContext(supabase: SupabaseClient, user: { id: string; email?: string | null }): Promise<LoadResult> {
-  const [profileResult, preferenceOutcome, weighInResult, equipmentResult] = await Promise.all([
-    supabase.from("profiles").select(PROFILE_COLUMNS.join(",")).eq("id", user.id).maybeSingle(),
-    withOptionalColumns(PREFERENCE_COLUMNS_V2, (includeOptional) =>
+  const preferenceTiers = [PREFERENCE_COLUMNS_V2, PREFERENCE_COLUMNS_V3] as const;
+  const [profileOutcome, preferenceOutcome, weighInResult, equipmentResult] = await Promise.all([
+    withColumnTiers([PROFILE_COLUMNS_V3], (kept) =>
+      supabase.from("profiles").select([...PROFILE_COLUMNS, ...(kept ? PROFILE_COLUMNS_V3 : [])].join(",")).eq("id", user.id).maybeSingle(),
+    ),
+    withColumnTiers(preferenceTiers, (kept) =>
       supabase
         .from("user_preferences")
-        .select((includeOptional ? [...PREFERENCE_COLUMNS, ...PREFERENCE_COLUMNS_V2] : [...PREFERENCE_COLUMNS]).join(","))
+        .select([...PREFERENCE_COLUMNS, ...preferenceTiers.slice(0, kept).flat()].join(","))
         .eq("user_id", user.id)
         .maybeSingle(),
     ),
@@ -250,6 +297,7 @@ export async function loadUserContext(supabase: SupabaseClient, user: { id: stri
       .maybeSingle(),
     loadEquipmentProfiles(supabase, user.id),
   ]);
+  const profileResult = profileOutcome.result;
   if (profileResult.error) return { data: null, error: { part: "profile", cause: profileResult.error } };
   const preferenceResult = preferenceOutcome.result;
   if (preferenceResult.error) return { data: null, error: { part: "preferences", cause: preferenceResult.error } };
@@ -283,7 +331,7 @@ export async function loadUserContext(supabase: SupabaseClient, user: { id: stri
       latestWeighIn,
       currentWeightKg,
       targets: targetsFor(profile, preferences, currentWeightKg),
-      schema: { preferencesV2: preferenceOutcome.includedOptional },
+      schema: { preferencesV2: preferenceOutcome.kept >= 1, onboardingV3: preferenceOutcome.kept >= 2 && profileOutcome.kept >= 1 },
     },
     error: null,
   };
@@ -320,23 +368,25 @@ export async function updateProfileRow(supabase: SupabaseClient, userId: string,
 }
 
 /**
- * Saves preference columns (only those in `patch`). Without the v2 migration the v2 columns are left out
- * and reported in `skipped`, so the screen can say they will save after FITX's next update.
+ * Saves preference columns (only those in `patch`). Columns of a migration that is not in the database yet
+ * (v2 without `v2`, v3 without `v3`, or reported missing) are left out and listed in `skipped`, so the
+ * screen can say they will save after FITX's next update.
  */
 export async function savePreferences(
   supabase: SupabaseClient,
   userId: string,
   patch: Row,
-  { v2 }: { v2: boolean },
-): Promise<{ error: WriteError; skipped: PreferenceColumnV2[] }> {
-  const requested = PREFERENCE_COLUMNS_V2.filter((column) => column in patch);
+  { v2, v3 = false }: { v2: boolean; v3?: boolean },
+): Promise<{ error: WriteError; skipped: OptionalPreferenceColumn[] }> {
+  const tiers = [PREFERENCE_COLUMNS_V2, PREFERENCE_COLUMNS_V3] as const;
   const row = { ...patch, user_id: userId, updated_at: new Date().toISOString() };
-  const outcome = await withOptionalColumns(
-    PREFERENCE_COLUMNS_V2,
-    (includeOptional) => supabase.from("user_preferences").upsert(includeOptional ? row : omitColumns(row, PREFERENCE_COLUMNS_V2), { onConflict: "user_id" }),
-    { includeOptional: v2 },
+  const outcome = await withColumnTiers(
+    tiers,
+    (kept) => supabase.from("user_preferences").upsert(omitColumns(row, tiers.slice(kept).flat()), { onConflict: "user_id" }),
+    !v2 ? 0 : v3 ? 2 : 1,
   );
-  return { error: outcome.result.error as WriteError, skipped: outcome.includedOptional ? [] : requested };
+  const skipped = tiers.slice(outcome.kept).flat().filter((column) => column in patch);
+  return { error: outcome.result.error as WriteError, skipped };
 }
 
 /** Keeps profiles.weight equal to the latest weigh-in, so every screen calculates from the same weight. */

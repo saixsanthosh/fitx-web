@@ -1,8 +1,10 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Check, Plus, X } from "lucide-react";
 import {
+  ageFromBirthDate,
+  birthDateBounds,
   cmToFeetInches,
   feetInchesToCm,
   HEIGHT_UNIT_OPTIONS,
@@ -474,6 +476,39 @@ export function WeightField({
           <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-sm text-fitx-text-secondary">{unit}</span>
         </div>
         {showUnits && <UnitToggle label={`${label} unit`} options={WEIGHT_UNIT_OPTIONS} value={unit} onChange={switchUnit} />}
+      </div>
+      <FieldError id={`${id}-error`} message={error} />
+    </div>
+  );
+}
+
+/**
+ * A date of birth in the browser's date picker, limited to ages 13 to 100 (AGE_RANGE), with the age it gives
+ * beside it. Reports YYYY-MM-DD, or "" while empty.
+ */
+export function BirthDateField({ label = "Date of birth", value, onChange, error, required = true }: { label?: string; value: string; onChange: (value: string) => void; error?: string | null; required?: boolean }) {
+  const id = useId();
+  const bounds = useMemo(() => birthDateBounds(), []);
+  const age = ageFromBirthDate(value);
+  const describedBy = [`${id}-age`, error ? `${id}-error` : null].filter(Boolean).join(" ");
+  return (
+    <div>
+      <label htmlFor={id} className="block text-sm font-medium text-fitx-text">{label}{!required && <span className="font-normal text-fitx-text-secondary"> (optional)</span>}</label>
+      <div className="mt-1.5 flex items-center gap-3">
+        <input
+          id={id}
+          type="date"
+          className={`fitx-field max-w-[15rem] ${invalidBorder}`}
+          value={value}
+          min={bounds.min}
+          max={bounds.max}
+          autoComplete="bday"
+          required={required}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <span id={`${id}-age`} className="text-sm text-fitx-text-secondary" aria-live="polite">{age !== null && age <= 130 ? `${age} years` : ""}</span>
       </div>
       <FieldError id={`${id}-error`} message={error} />
     </div>

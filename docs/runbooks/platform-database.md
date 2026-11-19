@@ -5,10 +5,10 @@ time. It is written for the FITX owner. You do not need to know SQL. "The sessio
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **What is pending:** the 40 files from `20261115100000` to `20261119100020` in `supabase/migrations` on
+- **What is pending:** the 41 files from `20261115100000` to `20261120100000` in `supabase/migrations` on
   the branch `claude/train`. That folder is the source of truth. Production already has the 14 files from
   September 2026 and none of these, plus three changes that were applied to it by hand and have no file in
-  that folder (section 1.8). Five of the 40 files meet what those three made; they are written for it, and
+  that folder (section 1.8). Five of the 41 files meet what those three made; they are written for it, and
   their summaries say what they do on production.
 - **Older runbooks:** `docs/runbooks/phase1-database.md` covered the first five files for release 2. This
   runbook includes them, so use this one. `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
@@ -36,7 +36,7 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only these 40 files, only from `claude/train`. Never a copy from another branch or worktree, never
+- Only these 41 files, only from `claude/train`. Never a copy from another branch or worktree, never
   the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from `claude/train`), and
   never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
   production already has (section 1.8).
@@ -44,8 +44,8 @@ For each file, in the order of section 2:
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Do all 40 in one sitting if you can, then deploy the new app (section 6.4) the same
-  day. If you need two sittings, stop after #11 and do #12 to #40 on the day you deploy: #12 changes muscle
+- Pick a quiet time. Do all 41 in one sitting if you can, then deploy the new app (section 6.4) the same
+  day. If you need two sittings, stop after #11 and do #12 to #41 on the day you deploy: #12 changes muscle
   names that the live app's automatic workout builder still uses. The five food parts and #37 may also wait
   until after the deploy (section 2.1).
 - The live app keeps working throughout. Only three files change something it uses: #1 (it then saves pauses
@@ -108,7 +108,7 @@ numbers differ from the file names, stop and compare them with section 2 first.
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the 40 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
+-- Start 2: changes from the 41 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
 select m.file, m.object
 from (values
   ('20261115100000', 'column', 'workout_sessions.active_duration_seconds'),
@@ -140,7 +140,8 @@ from (values
   ('20261118180006', 'table', 'announcements'),
   ('20261118190000', 'table', 'billing_plans'),
   ('20261119100000', 'column', 'activities.source'),
-  ('20261119100010', 'table', 'exercise_notes')
+  ('20261119100010', 'table', 'exercise_notes'),
+  ('20261120100000', 'column', 'profiles.date_of_birth')
 ) as m (file, kind, object)
 where case m.kind
   when 'table' then to_regclass('public.' || m.object) is not null
@@ -237,7 +238,7 @@ applied by hand, outside this repository. Exact copies, checked against the hist
 | `20261002172706 fitx_share_access_and_index` | Only signed-out visitors may call `get_activity_share`; one index. |
 | `20261116093902 fitx_admin_control_plane` | The old Admin draft ("Prepared for review only"): the Admin team list, the Admin audit log and three Admin functions. |
 
-Five of the 40 files meet what these made, and are written for it:
+Five of the 41 files meet what these made, and are written for it:
 
 - #1 finds `paused_at` and adds the other two pause fields.
 - #2 finds all five of its fields, in which the live app already saves targets and set times. It adds its five
@@ -249,7 +250,7 @@ Five of the 40 files meet what these made, and are written for it:
   made them, and adopts them unchanged: FITX now keeps saved exercises there.
 
 Every other file does exactly what it does on a new project. `tests/integration/migrations.test.mjs` applies
-all 40 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
+all 41 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
 new project apart from what stays (below) and the order of fields: in the six tables experience 2.0 added fields
 to, production lists its fields before the ones these files add. Nothing in FITX depends on that order. (Production
 also has an event trigger, `ensure_rls`, that switches row level security on for each new public table, from
@@ -309,7 +310,7 @@ something has paused workouts the way experience 2.0 does, and #1 reads those fi
 workout would show the wrong time, or 00:00:00 while paused. If any other count in Start 10 is not 0, tell the
 session; the files still apply, but it changes the decision below.
 
-**What stays, for you to decide.** After all 40 files, production still has four of experience 2.0's five tables (#40 adopts the fifth, `exercise_favorites`),
+**What stays, for you to decide.** After all 41 files, production still has four of experience 2.0's five tables (#40 adopts the fifth, `exercise_favorites`),
 `get_activity_share(text)`, five extra fields on exercises, three on custom foods, five on the workout tables
 (distances, a paused total and a rest timer) and its three workout checks. Nothing in FITX uses any of it. Two
 things to weigh:
@@ -323,7 +324,7 @@ The choices: keep it as it is (nothing changes; Final 3 lists `get_activity_shar
 visitors lose the function, the API roles lose the four tables); or remove it (a migration that stops if any of
 the four tables has rows or any of the extra fields it drops holds a value, as Start 10 counts them, then drops
 the function, the tables and the extra fields). For the second or third, the session writes a new migration
-after #40, tests it on the copy, and applies it with your OK.
+after #41, tests it on the copy, and applies it with your OK.
 
 ## 2. Apply order
 
@@ -374,6 +375,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 38 | `20261119100000_fitx_activity_sources` | Labels where each activity came from: recorded with FITX, or imported from a GPX, TCX or FIT file (format, the device the file names, import time). | Additive · yes | #26 | Activity imports (/activity/import), source labels | Until it is applied the import page says imports switch on after the update; everything else works. |
 | 39 | `20261119100010_fitx_exercise_notes` | Members' private notes on exercises: one per exercise, up to 500 characters. | Additive · yes | #11 | "Your note" on exercise pages | Until it is applied the exercise page hides the note box. |
 | 40 | `20261119100020_fitx_exercise_favorites` | Adopts experience 2.0's saved-exercises table (owner only) as a file. | Additive · yes | #11 | Saved exercises in the account, on every device and in "Download my data" | On production it changes nothing (1.8). Until it is applied on a new project, saved exercises stay on the device. |
+| 41 | `20261120100000_fitx_onboarding_v3` | Date of birth (age follows it), the maintain-weight goal, where meals come from and the nutrition goal. | Additive · yes | #4, #7 | The three setup pages: date of birth, Maintain weight, food preference and nutrition goal | Until it is applied setup asks the date of birth but saves only the age, offers Maintain weight greyed out and leaves out food preference and nutrition goal. |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1220,6 +1222,27 @@ select (select relrowsecurity from pg_class where oid = to_regclass('public.exer
   not exists (select 1 from public.exercise_favorites f join public.exercise_library e on e.id = f.exercise_id where e.merged_into is not null) as none_on_merged_exercises;
 ```
 
+### #41 `20261120100000_fitx_onboarding_v3`
+
+The three setup pages after sign-up. Adds the date of birth to profiles: members set it on their own row only, and
+a trigger keeps the profile's age equal to the age it gives each time the profile is saved, so Home, Nutrition and
+the AI coach keep reading the age. Profiles without a birth date keep their age. The goal rule also accepts
+"Maintain weight" (the calorie target stays at maintenance). Two new answers, empty until a member gives them: where
+meals mostly come from (home-cooked, outside food or both) and the nutrition goal (high protein, balanced diet or no
+specific preference). Meals a day, training days a week and the vegan and eggetarian diets exist already. It changes
+no existing row, and a second run changes nothing.
+
+```sql
+-- Check 20261120100000: expect t, t, f, t, 2, t, t
+select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'date_of_birth' and data_type = 'date') as birth_date_field,
+  has_column_privilege('authenticated', 'public.profiles', 'date_of_birth', 'UPDATE') as members_set_their_own,
+  has_column_privilege('anon', 'public.profiles', 'date_of_birth', 'SELECT') as visitors_read_it,
+  exists (select 1 from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname = 'profiles_age_from_birth_date' and tgenabled = 'O') as age_follows_it,
+  (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'user_preferences' and column_name in ('food_source', 'nutrition_focus')) as new_food_answers,
+  (select pg_get_constraintdef(oid) like '%maintain_weight%' from pg_constraint where conrelid = 'public.user_preferences'::regclass and conname = 'user_preferences_primary_goal_check') as maintain_weight_allowed,
+  (select pg_get_constraintdef(oid) like '%eggetarian%' and pg_get_constraintdef(oid) like '%vegan%' from pg_constraint where conrelid = 'public.user_preferences'::regclass and conname = 'user_preferences_diet_type_check') as vegan_and_eggetarian_allowed;
+```
+
 ## 4. If a migration fails part-way
 
 1. **Stop.** Do not apply the next file. The live app keeps working, and the new app waits for each file.
@@ -1270,6 +1293,7 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
+| 41 | SQL below. Drops members' birth dates (their age stays as last saved), food preference and nutrition goal, and turns Maintain weight goals into General fitness, which has the same calorie target. |
 | 40 | Nothing to undo on production: the table came with experience 2.0 (1.8) and #40 changes nothing there; leave its history row. On a new project only, `drop table if exists public.exercise_favorites;` drops every member's saved exercises, and the app keeps new ones on the device again. |
 | 39 | SQL below. Drops every member's exercise notes; the exercise page hides its note box again. |
 | 38 | SQL below. Deletes imported activities first, so none is shown as a FITX recording afterwards; members can import their files again once it is re-applied. |
@@ -1303,6 +1327,21 @@ feature off in the app is usually better than an undo.
 | 3 | SQL below. The app then treats every account as having seen the film. |
 | 2 | SQL below. On production the five fields came with experience 2.0 (1.8) and hold the live app's targets and set times, so it drops only #2's five range checks. |
 | 1 | SQL below. Drops the saved active time and stretch start; open workouts keep their clock in the browser again. On production `paused_at` came with experience 2.0 (1.8), so it stays, but emptied: otherwise #1, applied again later, would show each workout that was paused at the undo as paused with no time. |
+
+```sql
+-- Undo 20261120100000 (writes; turns Maintain weight goals into General fitness)
+begin;
+update public.user_preferences set primary_goal = 'general_fitness' where primary_goal = 'maintain_weight';
+alter table public.user_preferences drop constraint if exists user_preferences_primary_goal_check;
+alter table public.user_preferences add constraint user_preferences_primary_goal_check
+  check (primary_goal in ('muscle_gain', 'weight_gain', 'fat_loss', 'weight_loss', 'general_fitness', 'strength', 'endurance'));
+alter table public.user_preferences drop constraint if exists user_preferences_food_source_check,
+  drop constraint if exists user_preferences_nutrition_focus_check, drop column if exists food_source, drop column if exists nutrition_focus;
+drop trigger if exists profiles_age_from_birth_date on public.profiles;
+drop function if exists public.fitx_profiles_age_from_birth_date();
+alter table public.profiles drop constraint if exists profiles_date_of_birth_check, drop column if exists date_of_birth;
+commit;
+```
 
 ```sql
 -- Undo 20261119100010 (writes)
@@ -1601,7 +1640,7 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 `get_activity_share` is experience 2.0's, not from these files: it stays until you decide (section 1.8). Any
 other row: tell the session.
 
-Then run Start 2 again: now it lists all 28 rows.
+Then run Start 2 again: now it lists all 31 rows.
 
 The six tables in Final 2 are reached only by database functions or the server key, which is why they have
 no policy. Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
@@ -1657,7 +1696,8 @@ from (values
   ('20261118180004', 'fitx_admin_people'), ('20261118180005', 'fitx_support'),
   ('20261118180006', 'fitx_announcements'), ('20261118190000', 'fitx_billing_razorpay'),
   ('20261118200000', 'fitx_food_catalog_rajma_keywords'), ('20261119100000', 'fitx_activity_sources'),
-  ('20261119100010', 'fitx_exercise_notes'), ('20261119100020', 'fitx_exercise_favorites')
+  ('20261119100010', 'fitx_exercise_notes'), ('20261119100020', 'fitx_exercise_favorites'),
+  ('20261120100000', 'fitx_onboarding_v3')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and h.version not in ('20261002172610', '20261002172706', '20261116093902')
@@ -1665,7 +1705,7 @@ where h.name = f.name and h.version <> f.version
 ```
 
 ```sql
--- History 2: expect 57 rows in version order: the 14 September ones, the three of section 1.8 and the 40 files of section 2, with their numbers and names
+-- History 2: expect 58 rows in version order: the 14 September ones, the three of section 1.8 and the 41 files of section 2, with their numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 

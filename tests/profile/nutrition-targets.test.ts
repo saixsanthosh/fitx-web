@@ -25,6 +25,8 @@ describe("daily targets", () => {
     assert.equal(at("fat_loss").adjustment, -409); // -15%
     assert.equal(at("weight_loss").adjustment, -545); // -20%
     assert.equal(at("strength").adjustment, 0);
+    assert.equal(at("maintain_weight").adjustment, 0); // Maintain weight keeps maintenance
+    assert.equal(at("maintain_weight").rule, "maintenance");
     assert.ok(at("weight_gain").calories > at("muscle_gain").calories);
     assert.ok(at("weight_loss").calories < at("fat_loss").calories);
     // A very large maintenance still changes by at most the cap.

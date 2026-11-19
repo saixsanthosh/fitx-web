@@ -209,6 +209,7 @@ const GOAL_RULES: Record<string, { share: number; cap: number; proteinPerKg: num
   general_fitness: { share: 0, cap: 0, proteinPerKg: 1.6 },
   strength: { share: 0, cap: 0, proteinPerKg: 1.8 },
   endurance: { share: 0, cap: 0, proteinPerKg: 1.6 },
+  maintain_weight: { share: 0, cap: 0, proteinPerKg: 1.6 },
 };
 
 /** The lowest daily target FITX suggests for a loss goal without a professional's guidance. */

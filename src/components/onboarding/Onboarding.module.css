@@ -1,0 +1,147 @@
+/*
+ * Setup takes the whole window: the sign-in layout's photo column steps aside while .root is on the page,
+ * and its content box loses its width limit and padding. Without :has() support the page still works
+ * inside that column.
+ */
+:global(.auth-layout):has(.root) {
+  display: block;
+}
+
+:global(.auth-layout):has(.root) > :global(.auth-visual) {
+  display: none;
+}
+
+:global(.auth-content):has(.root) {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+:global(.auth-content):has(.root) > :global(.auth-legal-note) {
+  margin: 0;
+  padding: 0 16px 28px;
+  text-align: center;
+}
+
+.root {
+  --onboarding-header: 64px;
+  min-height: 100svh;
+  background: var(--fitx-bg);
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--onboarding-header);
+  border-bottom: 1px solid var(--fitx-border);
+  background: color-mix(in srgb, var(--fitx-bg) 92%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.stage {
+  position: relative;
+  overflow: hidden;
+  background: var(--fitx-stage);
+  color: var(--fitx-on-stage);
+  isolation: isolate;
+}
+
+/* A fine grid on the stage, like a measuring board. */
+.stage::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--fitx-on-stage) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--fitx-on-stage) 6%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(180deg, transparent, var(--fitx-stage) 30%, var(--fitx-stage) 70%, transparent);
+}
+
+.stepNumber {
+  font-family: var(--font-manrope), sans-serif;
+  font-size: clamp(3.5rem, 9vw, 7.5rem);
+  font-weight: 800;
+  line-height: 0.85;
+  letter-spacing: -0.07em;
+  color: color-mix(in srgb, var(--fitx-on-stage) 14%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.title {
+  font-family: var(--font-manrope), sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+
+.stageBody {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.art {
+  width: 104px;
+  height: 120px;
+  flex-shrink: 0;
+}
+
+.actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  border-top: 1px solid var(--fitx-border);
+  background: color-mix(in srgb, var(--fitx-bg) 94%, transparent);
+  backdrop-filter: blur(14px);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.section + .section {
+  border-top: 1px solid var(--fitx-divider);
+}
+
+@media (min-width: 640px) {
+  .stageBody {
+    align-items: flex-end;
+    gap: 28px;
+  }
+}
+
+@media (min-width: 768px) {
+  .art {
+    width: 190px;
+    height: 200px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+
+  .stage {
+    position: sticky;
+    top: var(--onboarding-header);
+    height: calc(100svh - var(--onboarding-header));
+  }
+
+  .stageBody {
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: space-between;
+    min-height: 0;
+  }
+
+  .art {
+    width: 100%;
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 180px;
+    max-height: 44svh;
+  }
+}

@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { FakeQueryClient } from "../support/fake-query-client.ts";
 import {
   PREFERENCE_COLUMNS_V2,
+  PREFERENCE_COLUMNS_V3,
   changedFields,
   ensureProfileRow,
   loadUserContext,
@@ -74,6 +75,36 @@ describe("loading", () => {
     const selects = fake.calls.filter((call) => call.table === "user_preferences");
     assert.equal(selects.length, 2);
     assert.ok(!selects[1].columns!.includes("diet_type"));
+  });
+
+  test("the birth date sets the age (always current), and the onboarding v3 answers load", async () => {
+    fake.tables.profiles[0].date_of_birth = "1990-01-01";
+    fake.tables.profiles[0].age = 12; // stale or wrong: the birth date wins
+    Object.assign(fake.tables.user_preferences[0], { food_source: "home", nutrition_focus: "balanced", primary_goal: "maintain_weight" });
+    const { data } = await loadUserContext(client(), USER);
+    const expected = new Date().getFullYear() - 1990; // born 1 January, so the birthday has always passed
+    assert.equal(data!.profile!.date_of_birth, "1990-01-01");
+    assert.equal(data!.profile!.age, expected);
+    assert.equal(data!.preferences.food_source, "home");
+    assert.equal(data!.preferences.nutrition_focus, "balanced");
+    assert.equal(data!.preferences.primary_goal, "maintain_weight");
+    assert.equal(data!.targets!.rule, "maintenance");
+    assert.deepEqual(data!.schema, { preferencesV2: true, onboardingV3: true });
+  });
+
+  test("before the onboarding v3 migration it reads the v2 columns without the new ones and says so", async () => {
+    fake.missingColumns.profiles = ["date_of_birth"];
+    fake.missingColumns.user_preferences = [...PREFERENCE_COLUMNS_V3];
+    const { data, error } = await loadUserContext(client(), USER);
+    assert.equal(error, null);
+    assert.deepEqual(data!.schema, { preferencesV2: true, onboardingV3: false });
+    assert.equal(data!.profile!.age, 30, "the stored age without a birth date");
+    assert.equal(data!.profile!.date_of_birth, null);
+    assert.equal(data!.preferences.food_source, null);
+    assert.equal(data!.preferences.height_unit, "ft_in", "the v2 answers still load");
+    const selects = fake.calls.filter((call) => call.table === "user_preferences");
+    assert.equal(selects.length, 2);
+    assert.ok(selects[1].columns!.includes("diet_type") && !selects[1].columns!.includes("food_source"));
   });
 
   test("with no weigh-ins the profile weight is used; with no preferences row, defaults", async () => {
@@ -168,6 +199,22 @@ describe("saving", () => {
     assert.equal(fake.tables.user_preferences[0].primary_goal, "strength");
     const upserts = fake.calls.filter((call) => call.op === "upsert");
     assert.ok(!("cuisines" in (upserts.at(-1)!.payload as object)));
+  });
+
+  test("savePreferences sends v3 columns only with v3, and drops just them when the database lacks them", async () => {
+    const without = await savePreferences(client(), USER.id, { meals_per_day: 4, food_source: "home" }, { v2: true });
+    assert.deepEqual(without.skipped, ["food_source"]);
+    assert.ok(!("food_source" in (fake.calls.filter((call) => call.op === "upsert").at(-1)!.payload as object)));
+
+    const withV3 = await savePreferences(client(), USER.id, { food_source: "both", nutrition_focus: "none", diet_type: "vegan" }, { v2: true, v3: true });
+    assert.deepEqual(withV3.skipped, []);
+    assert.equal(fake.tables.user_preferences[0].food_source, "both");
+
+    fake.missingColumns.user_preferences = [...PREFERENCE_COLUMNS_V3];
+    const missing = await savePreferences(client(), USER.id, { nutrition_focus: "balanced", diet_type: "eggetarian" }, { v2: true, v3: true });
+    assert.equal(missing.error, null);
+    assert.deepEqual(missing.skipped, ["nutrition_focus"]);
+    assert.equal(fake.tables.user_preferences[0].diet_type, "eggetarian", "the v2 answer is not dropped with the v3 one");
   });
 
   test("logWeighIn dates the weigh-in locally and keeps profiles.weight in step", async () => {

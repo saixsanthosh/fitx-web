@@ -131,6 +131,18 @@ const KNOWN_RERUN_PROBLEMS = {
     error: /policy "user_preferences_owner" for table "user_preferences" already exists/,
     reason: "its create policy statements from user_preferences_owner on have no drop policy if exists",
   },
+  "20261117100000_fitx_profiles_column_privileges.sql": {
+    changes: [/^changed column public\.profiles\.date_of_birth: acl /],
+    reason:
+      "run again it takes back every profile update right and grants its 13 fields, so members lose 20261120100000's right to " +
+      "set date_of_birth until that file runs again (it does, later in the order); the app then saves the age without the date",
+  },
+  "20261118110000_fitx_profile_v2.sql": {
+    changes: [/^changed constraint public\.user_preferences\.user_preferences_primary_goal_check: /],
+    reason:
+      "run again it puts back its seven-goal rule, without 20261120100000's maintain_weight (the runbook says not to run it " +
+      "again after a success); 20261120100000, run again after it, restores the eight-goal rule",
+  },
 };
 
 // On a fresh database every migration creates what it declares. A later migration that finds a table,
