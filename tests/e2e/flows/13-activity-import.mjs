@@ -1,10 +1,11 @@
 // Flow 13: Activity imports. Two files a watch or app might export (a Garmin-style GPX that says it is a run, and an
 // Apple Health route GPX that names no sport) are chosen on /activity/import; the person picks the sport for the second,
 // imports both, sees them saved with their source, imports the first again (recognised, not duplicated), finds the
-// source badge on the activity page and in the history, and deletes them again.
+// source badge on the activity page and in the history, filters the history by sport (and opens the run page), and
+// deletes them again.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { signInUi } from "./common.mjs";
+import { signInUi, textOf } from "./common.mjs";
 
 const START = { lat: 12.97634, lng: 77.59287 }; // Cubbon Park, Bengaluru
 
@@ -104,6 +105,22 @@ export const flow = {
       await t.goto("/activity", { label: "history with imports" });
       await page.getByText("Imported · Apple Health Export · GPX").first().waitFor({ timeout: 15000 });
       await t.checkpoint("history with source badges");
+    });
+
+    await t.step("each sport keeps its own history: the run under Runs and on the run page, the walk under Walks", async () => {
+      await page.getByRole("radiogroup", { name: "Show" }).getByText("Runs", { exact: true }).click();
+      await page.getByText("Imported · Garmin Connect · GPX").first().waitFor({ timeout: 15000 });
+      t.expect(!(await page.getByText("Imported · Apple Health Export · GPX").first().isVisible().catch(() => false)), "the walk is not listed under runs");
+      await t.checkpoint("history filtered to runs", { fullPage: true });
+      await page.getByRole("radiogroup", { name: "Show" }).getByText("Walks", { exact: true }).click();
+      await page.getByText("Imported · Apple Health Export · GPX").first().waitFor({ timeout: 15000 });
+      t.expect(!(await page.getByText("Imported · Garmin Connect · GPX").first().isVisible().catch(() => false)), "the run is not listed under walks");
+      await t.goto("/activity/run", { label: "run page with an import" });
+      await page.getByText("Imported · Garmin Connect · GPX").first().waitFor({ timeout: 15000 });
+      const stats = await textOf(page.getByRole("region", { name: "Run statistics" }));
+      t.note("run statistics", stats);
+      t.expect(/Longest run/.test(stats) && /Average pace/.test(stats) && !/Not logged/.test(stats), "the run page shows running figures from the import", stats);
+      await t.checkpoint("run page");
     });
 
     await t.step("delete the imports", async () => {

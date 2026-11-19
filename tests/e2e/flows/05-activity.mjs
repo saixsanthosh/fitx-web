@@ -1,6 +1,6 @@
-// Flow 5: Activity. Location is granted and positions are fed through CDP Emulation.setGeolocationOverride: a short
+// Flow 5: Activity. From the Activity page to the walk's own page and its Start button. Location is granted and positions are fed through CDP Emulation.setGeolocationOverride: a short
 // walk is recorded with a pause, finished and saved; the detail page shows it (map tiles may be missing while outside
-// hosts are blocked); it is renamed, its GPX is exported, a share image is downloaded, and it is deleted.
+// hosts are blocked); it is renamed, found in the feed (not under the runs filter) and on the walk page, its GPX is exported, a share image is downloaded, and it is deleted.
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { signInUi, textOf } from "./common.mjs";
@@ -36,9 +36,29 @@ export const flow = {
     await cdp.send("Emulation.setGeolocationOverride", { ...START, accuracy: 5 });
     let activityId = null;
 
+    await t.step("the Activity page leads to the walk's own page and its start screen", async () => {
+      await t.goto("/activity", { label: "activity home" });
+      await page.getByRole("heading", { name: "Activity", level: 1 }).waitFor({ timeout: 15000 });
+      await t.checkpoint("activity home (empty)", { fullPage: true });
+      await page.getByRole("navigation", { name: "Sports" }).getByRole("link", { name: /Walk/ }).click();
+      await page.waitForURL((url) => url.pathname === "/activity/walk", { timeout: 15000 });
+      await page.getByRole("heading", { name: "Walk", level: 1 }).waitFor({ timeout: 15000 });
+      await page.getByText("No walks yet").waitFor({ timeout: 15000 });
+      await t.checkpoint("walk page (empty)", { fullPage: true });
+      await Promise.all([
+        page.waitForURL((url) => url.pathname === "/activity/record" && url.searchParams.get("sport") === "walk", { timeout: 15000 }),
+        page.getByRole("link", { name: "Start walk" }).first().click(),
+      ]);
+    });
+
     await t.step("the recorder gets a location fix and starts a walk", async () => {
-      await t.goto("/activity/record", { label: "activity recorder" });
       const walkButton = page.getByRole("group", { name: "Activity type" }).getByRole("button", { name: /walk/i });
+      await walkButton.waitFor({ timeout: 15000 });
+      t.expect((await walkButton.getAttribute("aria-pressed")) === "true", "Walk should be chosen by the walk page's Start button");
+      // Switching sport and back works with the keyboard-reachable buttons.
+      const runButton = page.getByRole("group", { name: "Activity type" }).getByRole("button", { name: /run/i });
+      await runButton.click();
+      t.expect((await runButton.getAttribute("aria-pressed")) === "true", "Run should be selected after choosing it");
       await walkButton.click();
       t.expect((await walkButton.getAttribute("aria-pressed")) === "true", "Walk should be selected");
       const allow = page.getByRole("button", { name: "Allow location" });
@@ -59,6 +79,8 @@ export const flow = {
       metres = await walk(cdp, page, metres, 35);
       const live = await textOf(page.getByRole("region", { name: "Live statistics" })).catch(() => "");
       t.note("live statistics before pausing", live);
+      t.expect(/Distance/.test(live) && /Time/.test(live) && /Pace/.test(live) && /Avg pace/.test(live), "a walk shows distance, time and pace while recording", live);
+      t.expect(await page.getByText(/^GPS (good|fair)/).first().isVisible().catch(() => false), "the GPS state is shown in words");
       await t.checkpoint("recording", { fullPage: false, settle: false });
       await page.getByRole("button", { name: "Pause" }).click();
       await page.getByRole("button", { name: "Resume" }).waitFor({ timeout: 10000 });
@@ -105,6 +127,29 @@ export const flow = {
       await page.getByRole("heading", { name: "Cubbon Park evening walk" }).waitFor({ timeout: 10000 });
       const row = await standin.one(`select title from public.activities where id = '${activityId}'`);
       t.expect(row?.title === "Cubbon Park evening walk", "the new name should be saved", row);
+    });
+
+    await t.step("the feed and the walk page list it; the runs filter does not", async () => {
+      await t.goto("/activity", { label: "activity feed" });
+      await page.getByText("Cubbon Park evening walk").first().waitFor({ timeout: 15000 });
+      const week = await textOf(page.locator("section[aria-labelledby=week-title]"));
+      t.note("this week", week);
+      t.expect(/This week/.test(week) && /km/.test(week), "this week's progress is shown", week);
+      await t.checkpoint("activity feed", { fullPage: true });
+      await page.getByRole("radiogroup", { name: "Show" }).getByText("Runs", { exact: true }).click();
+      await page.getByText("No runs yet").waitFor({ timeout: 15000 });
+      t.expect(new URL(page.url()).searchParams.get("sport") === "run", "the filter is kept in the address", page.url());
+      t.expect(!(await page.getByText("Cubbon Park evening walk").isVisible().catch(() => false)), "a walk is not listed under runs");
+      await page.getByRole("radiogroup", { name: "Show" }).getByText("Walks", { exact: true }).click();
+      await page.getByText("Cubbon Park evening walk").first().waitFor({ timeout: 15000 });
+      await t.goto("/activity/walk", { label: "walk page" });
+      await page.getByText("Cubbon Park evening walk").first().waitFor({ timeout: 15000 });
+      const stats = await textOf(page.getByRole("region", { name: "Walk statistics" }));
+      t.note("walk statistics", stats);
+      t.expect(/This week/.test(stats) && /All time/.test(stats) && /Average pace/.test(stats), "the walk page shows walking figures", stats);
+      await t.checkpoint("walk page", { fullPage: true });
+      await t.goto(`/activity/${activityId}`, { label: "activity detail again" });
+      await page.getByRole("heading", { name: "Cubbon Park evening walk" }).waitFor({ timeout: 15000 });
     });
 
     await t.step("export the GPX file", async () => {

@@ -219,6 +219,26 @@ test("history lists newest first, pages by start time, and totals a period", asy
   }
 });
 
+test("history can be limited to one sport (the sport pages), still newest first and paged", async () => {
+  const db = new FakeDb();
+  const ids: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const saved = await saveActivity(db, "u", sampleRecord(`s-${i}`, T0 + i * 86_400_000));
+    assert.equal(saved.status, "ok");
+    if (saved.status === "ok") ids.push(saved.data.id);
+  }
+  // The first and third become walks; the others stay runs.
+  for (const id of [ids[0], ids[2]]) assert.equal((await updateActivity(db, "u", id, { sport: "walk" })).status, "ok");
+  const walks = await listActivities(db, "u", { sport: "walk" });
+  assert.equal(walks.status === "ok" && walks.data.map((a) => `${a.sport}:${a.clientId}`).join(), "walk:s-2,walk:s-0");
+  const runs = await listActivities(db, "u", { sport: "run", limit: 1 });
+  assert.equal(runs.status === "ok" && runs.data.map((a) => a.clientId).join(), "s-3");
+  const older = await listActivities(db, "u", { sport: "run", limit: 1, before: T0 + 3 * 86_400_000 });
+  assert.equal(older.status === "ok" && older.data.map((a) => a.clientId).join(), "s-1");
+  const all = await listActivities(db, "u", { sport: null });
+  assert.equal(all.status === "ok" && all.data.length, 4);
+});
+
 test("detail, chunks, rename and delete only touch the owner's rows", async () => {
   const db = new FakeDb();
   const record = sampleRecord("c-detail");

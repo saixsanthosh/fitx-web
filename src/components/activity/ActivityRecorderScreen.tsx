@@ -3,8 +3,8 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronLeft, CloudOff, Download, Eye, EyeOff, Flag, Info, LocateFixed, Pause, Play, RefreshCw, ShieldCheck, Sun, Trash2, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
+import { Check, ChevronDown, ChevronLeft, CloudOff, Download, Eye, EyeOff, Flag, Info, LocateFixed, Pause, Play, RefreshCw, ShieldCheck, Sun, Trash2, TriangleAlert } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SPORT_LABEL, SPORT_NOUN, usesPace } from "@/lib/activity/config";
 import { formatActivityDate, formatDistance, formatDuration, kmValue, localDateKey, paceValue, speedValue } from "@/lib/activity/format";
@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
 import { FinishedResult } from "./FinishedResult";
 import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, SCREEN_ON_NOTE, SIGNAL_TEXT, WAKE_LOCK_TEXT } from "./messages";
-import { SportIcon } from "./sports";
+import { SPORT_PLURAL, SportIcon, sportHref, SPORT_TONE } from "./sports";
 import { useActivityAccount } from "./useActivityAccount";
 
 const ActivityMap = dynamic(() => import("./ActivityMap"), {
@@ -56,36 +56,66 @@ function useRecorderSnapshot(recorder: ActivityRecorder | null): RecorderSnapsho
   return useSyncExternalStore(subscribe, getSnapshot, () => null);
 }
 
-function SignalPill({ snapshot }: { snapshot: RecorderSnapshot }) {
-  const tone = snapshot.signal === "good" ? "text-fitx-success" : snapshot.signal === "coarse" ? "text-fitx-danger" : snapshot.signal === "none" ? "text-fitx-text-secondary" : "text-fitx-warning";
+const SIGNAL_BARS: Record<RecorderSnapshot["signal"], number> = { none: 0, coarse: 1, weak: 1, fair: 2, good: 3 };
+
+/** GPS state in words, bars and accuracy (never colour alone). */
+function SignalPill({ snapshot, className }: { snapshot: RecorderSnapshot; className?: string }) {
+  const tone = snapshot.signal === "good" ? "bg-fitx-success" : snapshot.signal === "coarse" ? "bg-fitx-danger" : snapshot.signal === "none" ? "bg-fitx-text-disabled" : "bg-fitx-warning";
+  const bars = SIGNAL_BARS[snapshot.signal];
   return (
-    <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-fitx-border bg-fitx-surface px-3 text-xs font-medium text-fitx-text-secondary">
-      <span className={cn("h-2 w-2 rounded-full bg-current", tone)} aria-hidden="true" />
+    <span className={cn("inline-flex min-h-9 items-center gap-2 rounded-full border border-fitx-border bg-fitx-elevated/95 px-3 text-xs font-medium text-fitx-text shadow-sm", className)}>
+      <span className="flex h-3.5 items-end gap-[2px]" aria-hidden="true">
+        {[1, 2, 3].map((bar) => (
+          <span key={bar} className={cn("w-[3px] rounded-full", bar <= bars ? tone : "bg-fitx-border", bar === 1 ? "h-1.5" : bar === 2 ? "h-2.5" : "h-3.5", snapshot.signal === "none" && "motion-safe:animate-pulse")} />
+        ))}
+      </span>
       {SIGNAL_TEXT[snapshot.signal]}
-      {snapshot.accuracyM !== null && snapshot.signal !== "none" && <span className="tabular-nums">± {Math.round(snapshot.accuracyM)} m</span>}
+      {snapshot.accuracyM !== null && snapshot.signal !== "none" && <span className="tabular-nums text-fitx-text-secondary">± {Math.round(snapshot.accuracyM)} m</span>}
     </span>
   );
 }
 
-function Stat({ label, value, unit, large = false, className }: { label: string; value: string; unit?: string; large?: boolean; className?: string }) {
+type Size = "hero" | "large" | "small";
+
+function Stat({ label, value, unit, size = "small", className }: { label: string; value: string; unit?: string; size?: Size; className?: string }) {
   return (
     <div className={cn("min-w-0", className)}>
-      <p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">{label}</p>
-      <p className={cn("mt-1 truncate font-semibold tabular-nums tracking-tight text-fitx-text", large ? "text-[56px] leading-none sm:text-[64px]" : "text-[22px] sm:text-[28px]")}>
+      <p className={cn("font-medium text-fitx-text-secondary", size === "small" ? "text-[11px]" : "text-xs")}>{label}</p>
+      <p className={cn(
+        "mt-1 truncate font-heading font-bold tabular-nums text-fitx-text",
+        size === "hero" ? "text-[72px] leading-[.9] tracking-[-.05em] sm:text-[88px]" : size === "large" ? "text-[36px] leading-none tracking-[-.04em] sm:text-[40px]" : "text-xl leading-tight tracking-[-.02em]",
+      )}>
         {value}
-        {unit && <span className={cn("ml-1 font-medium text-fitx-text-secondary", large ? "text-xl" : "text-sm")}>{unit}</span>}
+        {unit && value !== "–" && <span className={cn("ml-1 font-body font-medium tracking-normal text-fitx-text-secondary", size === "hero" ? "text-xl" : "text-sm")}>{unit}</span>}
       </p>
     </div>
   );
 }
 
-export function ActivityRecorderScreen() {
+/** A round control with its word under it: the big buttons people hit while moving. */
+function RoundButton({ label, icon, onClick, tone = "primary", size = "large", disabled, buttonRef }: {
+  label: string; icon: ReactNode; onClick: () => void; tone?: "primary" | "secondary" | "quiet"; size?: "large" | "medium"; disabled?: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
+}) {
+  return (
+    <button type="button" ref={buttonRef} onClick={onClick} disabled={disabled} className="group flex min-w-16 flex-col items-center gap-2 rounded-2xl text-sm font-semibold text-fitx-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-fitx-primary disabled:opacity-50">
+      <span aria-hidden="true" className={cn(
+        "grid place-items-center rounded-full transition-transform duration-150 motion-safe:group-active:scale-95",
+        size === "large" ? "h-20 w-20" : "h-16 w-16",
+        tone === "primary" ? "bg-fitx-primary text-fitx-on-primary shadow-lg" : tone === "secondary" ? "border border-fitx-border bg-fitx-surface text-fitx-text" : "bg-fitx-surface-variant text-fitx-text-secondary",
+      )}>{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+export function ActivityRecorderScreen({ initialSport = null }: { initialSport?: Sport | null }) {
   const account = useActivityAccount();
   const router = useRouter();
   const [recorder, setRecorder] = useState<ActivityRecorder | null>(null);
   const storeRef = useRef<RecordingStore | null>(null);
   const snapshot = useRecorderSnapshot(recorder);
-  const [sport, setSport] = useState<Sport>("run");
+  const [sport, setSport] = useState<Sport>(initialSport ?? "run");
   const [showMap, setShowMap] = useState(true);
   const [confirm, setConfirm] = useState<"finish" | "discard" | null>(null);
   const [saving, setSaving] = useState(false);
@@ -115,12 +145,14 @@ export function ActivityRecorderScreen() {
 
   useEffect(() => {
     const id = window.setTimeout(() => {
+      // A sport page's Start button names the sport; otherwise the last one used.
       const savedSport = readLocal(SPORT_KEY);
-      if (savedSport === "walk" || savedSport === "run" || savedSport === "ride") setSport(savedSport);
+      if (initialSport) writeLocal(SPORT_KEY, initialSport);
+      else if (savedSport === "walk" || savedSport === "run" || savedSport === "ride") setSport(savedSport);
       if (readLocal(SHOW_MAP_KEY) === "0") setShowMap(false);
     }, 0);
     return () => window.clearTimeout(id);
-  }, []);
+  }, [initialSport]);
 
   const userId = account.status === "ready" ? account.userId : null;
   useEffect(() => {
@@ -339,22 +371,35 @@ export function ActivityRecorderScreen() {
   const needsPermission = !recording && phase !== "finished" && snapshot.permission !== "granted" && snapshot.permission !== "denied" && phase === "idle" && !blocking;
   const wakeText = recording ? WAKE_LOCK_TEXT[snapshot.wakeLock] : null;
   const shortRecording = (stats?.distanceM ?? 0) < 50;
+  const live = (recording || phase === "finished") && stats !== null;
+  // The last whole kilometre, for runs.
+  const lastKm = stats?.splits.filter((split) => split.distanceM >= 990).at(-1) ?? null;
+  const lastKmPace = lastKm ? lastKm.movingSeconds / (lastKm.distanceM / 1000) : null;
+  const backHref = recording ? "/activity" : sportHref(sport);
 
   return (
     <div className="mx-auto max-w-6xl">
       <p className="sr-only" aria-live="polite">{announcement}</p>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Link href="/activity" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label="Back to activity history"><ChevronLeft size={20} aria-hidden="true" /></Link>
-          <h1 className="text-[22px] font-bold tracking-[-.03em] text-fitx-text sm:text-[26px]">
-            {recording ? (phase === "paused" ? "Paused" : `Recording ${SPORT_NOUN[activeSport]}`) : "Record an activity"}
+
+      {/* Top bar: back, what is happening, and the GPS state. */}
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-1">
+          <Link href={backHref} className="-ml-2 grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label={recording ? "Back to activity history" : `Back to ${SPORT_PLURAL[sport].toLowerCase()}`}><ChevronLeft size={22} aria-hidden="true" /></Link>
+          <h1 className="flex min-w-0 items-center gap-2 truncate font-heading text-xl font-bold tracking-[-.03em] text-fitx-text sm:text-2xl">
+            {phase === "recording" && (
+              <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+                <span className="absolute inset-0 rounded-full bg-fitx-danger motion-safe:animate-ping" />
+                <span className="relative h-2.5 w-2.5 rounded-full bg-fitx-danger" />
+              </span>
+            )}
+            {recording ? (phase === "paused" ? "Paused" : `Recording ${SPORT_NOUN[activeSport]}`) : SPORT_LABEL[sport]}
           </h1>
         </div>
-        <SignalPill snapshot={snapshot} />
+        <SignalPill snapshot={snapshot} className="shrink-0" />
       </div>
 
       {snapshot.restorable && !recording && phase !== "finished" && (
-        <section className="fitx-panel mb-4 flex flex-col gap-3 border-fitx-primary/40 p-4 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="restore-title">
+        <section className="mb-4 flex flex-col gap-3 rounded-2xl border border-fitx-primary/40 bg-fitx-card p-4 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="restore-title">
           <div>
             <h2 id="restore-title" className="text-sm font-semibold text-fitx-text">Unfinished {SPORT_NOUN[snapshot.restorable.sport]} on this device</h2>
             <p className="mt-1 text-xs text-fitx-text-secondary">
@@ -391,8 +436,8 @@ export function ActivityRecorderScreen() {
       )}
       {recentGap && <p role="status" className="fitx-alert mb-4 flex gap-3 text-[13px]"><Info size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info" />{gapSentence(recentGap)}</p>}
 
-      {/* Phones: the map leads and the controls sit on a sheet over its lower edge. Large screens: map left, controls right. */}
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-4">
+      {/* Phones: the map leads and the panel sits over its lower edge. Large screens: map left, panel right. */}
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-5">
         <div className="relative">
           {showMap ? (
             <>
@@ -401,15 +446,18 @@ export function ActivityRecorderScreen() {
                 version={stats?.routeVersion ?? 0}
                 current={current}
                 follow
-                className="h-[44dvh] min-h-64 w-full [--fitx-map-inset-bottom:28px] [--fitx-map-inset-top:52px] lg:h-[calc(100dvh-220px)] lg:min-h-[480px] lg:[--fitx-map-inset-bottom:0px]"
+                className={cn(
+                  "w-full [--fitx-map-inset-bottom:28px] [--fitx-map-inset-top:52px] lg:h-[calc(100dvh-200px)] lg:min-h-[520px] lg:[--fitx-map-inset-bottom:0px]",
+                  live ? "h-[42dvh] min-h-60" : "h-[50dvh] min-h-72",
+                )}
                 label={recording ? "Map of your route so far" : "Map of your current position"}
               />
-              <button type="button" onClick={toggleMap} aria-label="Hide map (saves battery)" className="absolute left-2.5 top-2.5 z-[3] inline-flex min-h-11 items-center gap-2 rounded-lg border border-fitx-border bg-fitx-elevated/95 px-3 text-sm font-medium text-fitx-text-secondary shadow-sm hover:text-fitx-text">
+              <button type="button" onClick={toggleMap} aria-label="Hide map (saves battery)" className="absolute left-2.5 top-2.5 z-[3] inline-flex min-h-11 items-center gap-2 rounded-full border border-fitx-border bg-fitx-elevated/95 px-3.5 text-sm font-medium text-fitx-text-secondary shadow-sm hover:text-fitx-text">
                 <EyeOff size={16} aria-hidden="true" />Hide map
               </button>
             </>
           ) : (
-            <div className="mb-4 flex min-h-16 flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-fitx-border bg-fitx-surface px-4 py-3 text-sm text-fitx-text-secondary lg:mb-0 lg:h-[calc(100dvh-220px)] lg:flex-col lg:justify-center lg:text-center">
+            <div className="mb-4 flex min-h-16 flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-fitx-border bg-fitx-surface px-4 py-3 text-sm text-fitx-text-secondary lg:mb-0 lg:h-[calc(100dvh-200px)] lg:flex-col lg:justify-center lg:text-center">
               <p>Map hidden to save battery. Tracking continues.</p>
               <button type="button" onClick={toggleMap} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text"><Eye size={16} aria-hidden="true" />Show map</button>
             </div>
@@ -418,62 +466,83 @@ export function ActivityRecorderScreen() {
 
         <div className={cn("relative z-[4] space-y-4", showMap && "-mt-7 lg:mt-0")}>
           {!recording && phase !== "finished" && (
-            <section className="fitx-panel p-4 shadow-lg sm:p-5 lg:shadow-none" aria-labelledby="sport-title">
-              <h2 id="sport-title" className="text-sm font-semibold text-fitx-text">Activity</h2>
-              <div className="mt-3 grid grid-cols-3 gap-2" role="group" aria-label="Activity type">
-                {SPORTS.map((option) => (
-                  <button key={option} type="button" aria-pressed={sport === option} onClick={() => chooseSport(option)}
-                    className={cn("flex min-h-16 flex-col items-center justify-center gap-1.5 rounded-lg border text-sm font-medium transition-colors", sport === option ? "border-fitx-primary bg-fitx-primary/10 text-fitx-primary-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-text")}>
-                    <SportIcon sport={option} size={20} />
-                    {SPORT_LABEL[option]}
-                  </button>
-                ))}
+            <section className="rounded-t-3xl border border-fitx-border bg-fitx-card p-5 shadow-lg sm:p-6 lg:rounded-3xl lg:shadow-none" aria-labelledby="sport-title">
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-fitx-border lg:hidden" aria-hidden="true" />
+              <h2 id="sport-title" className="text-sm font-semibold text-fitx-text">Choose a sport</h2>
+              <div className="mt-4 grid grid-cols-3 gap-2" role="group" aria-label="Activity type">
+                {SPORTS.map((option) => {
+                  const selected = sport === option;
+                  return (
+                    <button key={option} type="button" aria-pressed={selected} onClick={() => chooseSport(option)} className="group flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fitx-primary">
+                      <span aria-hidden="true" className={cn(
+                        "relative grid h-16 w-16 place-items-center rounded-full border-2 transition-[transform,background-color,border-color] duration-200",
+                        selected ? cn(SPORT_TONE[option].bg, SPORT_TONE[option].border, SPORT_TONE[option].text, "motion-safe:scale-105") : "border-transparent bg-fitx-surface-variant text-fitx-text-secondary group-hover:text-fitx-text",
+                      )}>
+                        <SportIcon sport={option} size={26} />
+                        {selected && <span className={cn("absolute -right-0.5 -top-0.5 grid h-5 w-5 place-items-center rounded-full text-fitx-on-primary", SPORT_TONE[option].fill)}><Check size={12} strokeWidth={3} /></span>}
+                      </span>
+                      <span className={selected ? cn("font-semibold", SPORT_TONE[option].text) : "text-fitx-text-secondary"}>{SPORT_LABEL[option]}</span>
+                    </button>
+                  );
+                })}
               </div>
 
               {needsPermission ? (
-                <div className="mt-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-4">
+                <div className="mt-5 rounded-2xl bg-fitx-surface-variant p-4">
                   <p className="flex items-center gap-2 text-sm font-semibold text-fitx-text"><LocateFixed size={16} aria-hidden="true" className="text-fitx-primary" />Allow location to record</p>
                   <p className="mt-1.5 text-[13px] leading-5 text-fitx-text-secondary">Once you allow it, FITX uses your location while this screen is open, to show the GPS signal and then to record, until you finish or leave. Only the positions from while you record are kept, and your routes are private to your account. {MAP_TILES_NOTE}</p>
-                  <button type="button" onClick={() => recorder?.warmUp()} className="fitx-button mt-3 min-h-11 w-full">Allow location</button>
+                  <button type="button" onClick={() => recorder?.warmUp()} className="fitx-button mt-3 min-h-12 w-full">Allow location</button>
                 </div>
               ) : (
-                <button type="button" disabled={blocking || !recorder || starting || snapshot.elsewhere} onClick={() => void start()} className="fitx-button mt-4 min-h-14 w-full text-base">
+                <button type="button" disabled={blocking || !recorder || starting || snapshot.elsewhere} onClick={() => void start()} className="fitx-button mt-5 min-h-14 w-full rounded-full text-base">
                   <Play size={18} aria-hidden="true" />Start {SPORT_NOUN[sport]}
                 </button>
               )}
               {!needsPermission && !blocking && (snapshot.signal === "none" || snapshot.signal === "weak" || snapshot.signal === "coarse") && (
-                <p className="mt-2 text-xs text-fitx-text-secondary">{snapshot.signal === "none" ? "Waiting for GPS. You can start now; the route begins with the first good position." : "The signal is weak: the route may be less precise until it improves."}</p>
+                <p className="mt-2 text-center text-xs text-fitx-text-secondary">{snapshot.signal === "none" ? "Waiting for GPS. You can start now; the route begins with the first good position." : "Weak signal: the route may be less precise until it improves."}</p>
               )}
-              <p className="mt-4 flex gap-2 text-xs leading-5 text-fitx-text-secondary"><Sun size={15} aria-hidden="true" className="mt-0.5 shrink-0" />{SCREEN_ON_NOTE}</p>
-              {!needsPermission && <p className="mt-2 flex gap-2 text-xs leading-5 text-fitx-text-secondary"><LocateFixed size={15} aria-hidden="true" className="mt-0.5 shrink-0" />{LOCATION_USE_NOTE} {MAP_TILES_NOTE}</p>}
-              {!snapshot.durable && <p className="mt-2 flex gap-2 text-xs leading-5 text-fitx-warning"><CloudOff size={15} aria-hidden="true" className="mt-0.5 shrink-0" />This browser can’t keep a backup on the device. Keep this page open until you finish.</p>}
+              {!snapshot.durable && <p className="mt-3 flex gap-2 text-xs leading-5 text-fitx-warning"><CloudOff size={15} aria-hidden="true" className="mt-0.5 shrink-0" />This browser can’t keep a backup on the device. Keep this page open until you finish.</p>}
+              <details className="group mt-4 border-t border-fitx-divider pt-3">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between text-xs font-medium text-fitx-text-secondary [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center gap-2"><Sun size={15} aria-hidden="true" />Keep the screen on while you record</span>
+                  <ChevronDown size={16} aria-hidden="true" className="transition-transform group-open:rotate-180" />
+                </summary>
+                <p className="mt-1 text-xs leading-5 text-fitx-text-secondary">{SCREEN_ON_NOTE}</p>
+                {!needsPermission && <p className="mt-2 text-xs leading-5 text-fitx-text-secondary">{LOCATION_USE_NOTE} {MAP_TILES_NOTE}</p>}
+              </details>
             </section>
           )}
 
-          {(recording || phase === "finished") && stats && (
-            <section className="fitx-panel p-4 shadow-lg sm:p-5 lg:shadow-none" aria-label="Live statistics">
-              <Stat label="Distance" value={kmValue(stats.distanceM)} unit="km" large />
-              <div className="mt-5 grid grid-cols-2 gap-4">
-                <Stat label="Time" value={formatDuration(stats.activeSeconds)} />
+          {live && stats && (
+            <section className="rounded-t-3xl border border-fitx-border bg-fitx-card p-5 shadow-lg sm:p-6 lg:rounded-3xl lg:shadow-none" aria-label="Live statistics">
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-fitx-border lg:hidden" aria-hidden="true" />
+              <Stat label="Distance" value={kmValue(stats.distanceM)} unit="km" size="hero" />
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-fitx-divider pt-4">
+                <Stat label="Time" value={formatDuration(stats.activeSeconds)} size="large" />
                 {pace
-                  ? <Stat label="Pace" value={stats.stopped ? "–" : paceValue(stats.currentPaceSecondsPerKm)} unit="/km" />
-                  : <Stat label="Speed" value={stats.stopped ? "0.0" : speedValue(stats.currentSpeedMps)} unit="km/h" />}
+                  ? <Stat label="Pace" value={stats.stopped ? "–" : paceValue(stats.currentPaceSecondsPerKm)} unit="/km" size="large" />
+                  : <Stat label="Speed" value={stats.stopped ? "0.0" : speedValue(stats.currentSpeedMps)} unit="km/h" size="large" />}
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-3 border-t border-fitx-divider pt-4">
                 {pace
                   ? <Stat label="Avg pace" value={paceValue(stats.avgPaceSecondsPerKm)} unit="/km" />
                   : <Stat label="Avg speed" value={speedValue(stats.avgSpeedMps)} unit="km/h" />}
                 <Stat label="Moving" value={formatDuration(stats.movingSeconds)} />
+                {activeSport === "run" && <Stat label="Last km" value={paceValue(lastKmPace)} unit="/km" />}
+                {activeSport === "ride" && <Stat label="Top speed" value={speedValue(stats.maxSpeedMps)} unit="km/h" />}
+                {activeSport === "walk" && <Stat label="Energy (est.)" value={snapshot.kcal !== null ? String(snapshot.kcal) : "–"} unit="kcal" />}
                 {/* Climb only when the phone reports a usable altitude; never shown as 0 without one. */}
-                {stats.elevationGainM !== null && <Stat label="Climb (GPS)" value={String(stats.elevationGainM)} unit="m" className="col-span-2" />}
+                {stats.elevationGainM !== null && <Stat label="Climb (GPS)" value={String(stats.elevationGainM)} unit="m" />}
               </div>
               <div className="mt-4 flex flex-wrap gap-2 text-xs text-fitx-text-secondary">
                 {stats.stopped && phase === "recording" && <span className="rounded-full bg-fitx-surface-variant px-2.5 py-1">Stopped · moving time held</span>}
-                {snapshot.kcal !== null && <span className="rounded-full bg-fitx-surface-variant px-2.5 py-1 tabular-nums">≈ {snapshot.kcal} kcal (estimated)</span>}
+                {snapshot.kcal !== null && activeSport !== "walk" && <span className="rounded-full bg-fitx-surface-variant px-2.5 py-1 tabular-nums">≈ {snapshot.kcal} kcal (estimated)</span>}
                 {wakeText && <span className={cn("rounded-full px-2.5 py-1", snapshot.wakeLock === "active" ? "bg-fitx-surface-variant" : "bg-fitx-danger-bg text-fitx-danger")}>{wakeText}</span>}
                 {stats.gaps.length > 0 && <span className="rounded-full bg-fitx-surface-variant px-2.5 py-1">{stats.gaps.length} gap{stats.gaps.length === 1 ? "" : "s"} · {formatDuration(stats.gapSeconds)} not tracked</span>}
               </div>
 
               {confirm === "finish" ? (
-                <div className="mt-5 rounded-lg border border-fitx-border bg-fitx-surface-variant p-4" role="alertdialog" aria-labelledby="finish-question">
+                <div className="mt-5 rounded-2xl border border-fitx-border bg-fitx-surface-variant p-4" role="alertdialog" aria-labelledby="finish-question">
                   <p id="finish-question" className="text-sm font-semibold text-fitx-text">Finish and save this {SPORT_NOUN[activeSport]}?</p>
                   {shortRecording && <p className="mt-1 text-xs text-fitx-text-secondary">Almost no distance was recorded. You can still save it, or discard it.</p>}
                   <div className="mt-3 grid grid-cols-2 gap-2">
@@ -482,7 +551,7 @@ export function ActivityRecorderScreen() {
                   </div>
                 </div>
               ) : confirm === "discard" ? (
-                <div className="mt-5 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-question">
+                <div className="mt-5 rounded-2xl border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-question">
                   <p id="discard-question" className="text-sm font-semibold text-fitx-danger">Discard this {SPORT_NOUN[activeSport]}? It can’t be recovered.</p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
@@ -490,17 +559,15 @@ export function ActivityRecorderScreen() {
                   </div>
                 </div>
               ) : phase === "recording" ? (
-                <div className="mt-5 grid grid-cols-[1fr_auto] gap-2">
-                  <button type="button" onClick={pause} className="fitx-button min-h-14 text-base"><Pause size={18} aria-hidden="true" />Pause</button>
-                  <button type="button" ref={finishTriggerRef} onClick={() => setConfirm("finish")} className="fitx-button fitx-button-secondary min-h-14 px-5"><Flag size={17} aria-hidden="true" />Finish</button>
+                <div className="mt-6 flex items-start justify-center gap-10">
+                  <RoundButton label="Pause" icon={<Pause size={30} aria-hidden="true" />} onClick={pause} />
+                  <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
                 </div>
               ) : phase === "paused" ? (
-                <div className="mt-5 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={resume} className="fitx-button min-h-14 text-base"><Play size={18} aria-hidden="true" />Resume</button>
-                    <button type="button" ref={finishTriggerRef} onClick={() => setConfirm("finish")} className="fitx-button fitx-button-secondary min-h-14"><Flag size={17} aria-hidden="true" />Finish</button>
-                  </div>
-                  <button type="button" ref={discardTriggerRef} onClick={() => setConfirm("discard")} className="fitx-button fitx-button-quiet min-h-11 w-full"><Trash2 size={15} aria-hidden="true" />Discard</button>
+                <div className="mt-6 flex items-start justify-center gap-6 sm:gap-8">
+                  <RoundButton label="Discard" icon={<Trash2 size={22} aria-hidden="true" />} onClick={() => setConfirm("discard")} tone="quiet" size="medium" buttonRef={discardTriggerRef} />
+                  <RoundButton label="Resume" icon={<Play size={30} aria-hidden="true" />} onClick={resume} />
+                  <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
                 </div>
               ) : (
                 !unsaved && <p className="mt-5 text-sm text-fitx-text-secondary" role="status">Saving your {SPORT_NOUN[activeSport]}…</p>
@@ -514,7 +581,7 @@ export function ActivityRecorderScreen() {
               : <p className="flex gap-2 px-1 text-xs leading-5 text-fitx-warning"><CloudOff size={15} aria-hidden="true" className="mt-0.5 shrink-0" />Kept in this tab only: this browser can’t save it on the device, so don’t reload or close FITX until you finish.</p>
           )}
           {confirm === "discard" && !recording && snapshot.restorable && (
-            <div className="rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-restorable-question">
+            <div className="rounded-2xl border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-restorable-question">
               <p id="discard-restorable-question" className="text-sm font-semibold text-fitx-danger">Discard the unfinished {SPORT_NOUN[snapshot.restorable.sport]}? It can’t be recovered.</p>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
