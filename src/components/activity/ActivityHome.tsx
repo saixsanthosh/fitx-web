@@ -122,16 +122,16 @@ export function ActivityHome({ initialFilter = "all" }: { initialFilter?: SportF
         <nav aria-label="Sports">
           <Stagger className="grid grid-cols-3 gap-2 sm:gap-3">
             {SPORTS.map((sport) => (
-              <StaggerItem key={sport}>
+              <StaggerItem key={sport} className="h-full">
                 <Link
                   href={sportHref(sport)}
-                  className={cn("group flex min-h-28 flex-col justify-between rounded-2xl border border-transparent p-3 transition-colors sm:min-h-32 sm:p-4", SPORT_TONE[sport].bg, "hover:border-fitx-border")}
+                  className={cn("group flex h-full min-h-28 flex-col justify-between rounded-2xl border border-transparent p-3 transition-colors sm:min-h-32 sm:p-4", SPORT_TONE[sport].bg, "hover:border-fitx-border")}
                 >
                   <SportBadge sport={sport} size={36} className="bg-fitx-card" />
                   <span className="mt-3 block">
                     <span className="block font-heading text-base font-bold tracking-[-.02em] text-fitx-text sm:text-lg">{SPORT_LABEL[sport]}</span>
                     <span className="block text-xs leading-4 tabular-nums text-fitx-text-secondary">
-                      {sportWeek && sportWeek[sport] > 0 ? <>{formatDistance(sportWeek[sport])}<span className="block">this week</span></> : "Start"}
+                      {sportWeek && sportWeek[sport] > 0 ? <>{formatDistance(sportWeek[sport])}<span className="block sm:ml-1 sm:inline">this week</span></> : "Start"}
                     </span>
                   </span>
                 </Link>

@@ -108,13 +108,19 @@ export const flow = {
     });
 
     await t.step("each sport keeps its own history: the run under Runs and on the run page, the walk under Walks", async () => {
+      const feed = page.locator("section[aria-labelledby=feed-title]");
+      const garmin = feed.getByText("Imported · Garmin Connect · GPX");
+      const apple = feed.getByText("Imported · Apple Health Export · GPX");
       await page.getByRole("radiogroup", { name: "Show" }).getByText("Runs", { exact: true }).click();
-      await page.getByText("Imported · Garmin Connect · GPX").first().waitFor({ timeout: 15000 });
-      t.expect(!(await page.getByText("Imported · Apple Health Export · GPX").first().isVisible().catch(() => false)), "the walk is not listed under runs");
+      await page.waitForURL((url) => url.searchParams.get("sport") === "run", { timeout: 10000 });
+      const walkGone = await apple.first().waitFor({ state: "detached", timeout: 15000 }).then(() => true, () => false);
+      t.expect(walkGone, "the walk is not listed under runs");
+      await garmin.first().waitFor({ timeout: 15000 });
       await t.checkpoint("history filtered to runs", { fullPage: true });
       await page.getByRole("radiogroup", { name: "Show" }).getByText("Walks", { exact: true }).click();
-      await page.getByText("Imported · Apple Health Export · GPX").first().waitFor({ timeout: 15000 });
-      t.expect(!(await page.getByText("Imported · Garmin Connect · GPX").first().isVisible().catch(() => false)), "the run is not listed under walks");
+      const runGone = await garmin.first().waitFor({ state: "detached", timeout: 15000 }).then(() => true, () => false);
+      t.expect(runGone, "the run is not listed under walks");
+      await apple.first().waitFor({ timeout: 15000 });
       await t.goto("/activity/run", { label: "run page with an import" });
       await page.getByText("Imported · Garmin Connect · GPX").first().waitFor({ timeout: 15000 });
       const stats = await textOf(page.getByRole("region", { name: "Run statistics" }));
