@@ -13,7 +13,8 @@ import { MoreTiles } from "@/components/landing/MoreTiles";
 import { ContactBlock } from "@/components/landing/ContactBlock";
 import { landingContact } from "@/components/landing/contact";
 import { pieceFoodFrom } from "@/components/landing/portion";
-import styles from "@/components/landing/landing.module.css";
+import landing from "@/components/landing/landing.module.css";
+import styles from "./page.module.css";
 
 export const metadata: Metadata = {
   title: "Train smart. Live fit.",
@@ -38,7 +39,7 @@ export default function HomePage() {
     <>
       {/* Plays once per tab for signed-out visitors (and with ?intro=…), records nothing; see introBootstrap.ts. */}
       <CinematicIntro />
-      <main id="main-content" className={styles.page}>
+      <main id="main-content" className={landing.page}>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema).replace(/</g, "\\u003c") }} />
         <LandingHero />
         <DualScenes />

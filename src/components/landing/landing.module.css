@@ -539,32 +539,6 @@
   .tileBody { padding: 28px; }
 }
 
-/* ───────────── Closing ───────────── */
-
-.closing {
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  min-height: 78svh;
-  place-items: center;
-  overflow: hidden;
-  background: var(--fitx-stage);
-  color: var(--fitx-on-stage);
-  text-align: center;
-}
-.closingPhoto { position: absolute; inset: -6% 0; z-index: -2; }
-.closingPhoto img { object-fit: cover; }
-.closingShade { position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse at center, color-mix(in srgb, var(--fitx-stage) 40%, transparent) 0%, color-mix(in srgb, var(--fitx-stage) 85%, transparent) 75%); }
-.closingInner { display: grid; justify-items: center; gap: 26px; padding: 80px var(--gutter); }
-.closingTitle {
-  margin: 0;
-  font-family: var(--display);
-  font-size: clamp(3rem, 12vw, 9rem);
-  font-weight: 800;
-  letter-spacing: -.065em;
-  line-height: .9;
-}
-
 /* ───────────── Contact ───────────── */
 
 .contact {
