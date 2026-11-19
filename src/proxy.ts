@@ -19,7 +19,7 @@ import { isMissingColumnError } from "@/lib/supabase/errors";
 /** Signed-in areas. Everything else (marketing, legal, sign-in pages) is public. */
 const PRIVATE_ROOTS = [
   "/dashboard", "/workouts", "/nutrition", "/activity", "/progress", "/goals", "/planner", "/profile", "/settings", "/help",
-  "/exercises", "/form-coach", "/onboarding", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
+  "/exercises", "/home-workout", "/form-coach", "/onboarding", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
 ];
 const AUTH_ENTRY = new Set(["/signin", "/signup", "/forgot-password"]);
 /** Parameters Supabase Auth appends when it sends a browser back after sign-in or an e-mail link. */

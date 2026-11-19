@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/Toaster";
 import { AnalyticsConsent } from "@/components/layout/AnalyticsConsent";
 import { INTRO_BOOTSTRAP_SCRIPT } from "@/components/brand/introBootstrap";
 import { BrandLoader } from "@/components/brand/BrandLoader";
+import { MotionProvider } from "@/components/motion/MotionProvider";
 import "./globals.css";
 
 const inter = Inter({
@@ -89,9 +90,11 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col font-body bg-background text-foreground">
         <BrandLoader />
-        {children}
-        <Toaster />
-        <AnalyticsConsent />
+        <MotionProvider>
+          {children}
+          <Toaster />
+          <AnalyticsConsent />
+        </MotionProvider>
       </body>
     </html>
   );

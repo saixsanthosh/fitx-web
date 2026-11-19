@@ -39,6 +39,14 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: supabaseStorageHost(), pathname: "/storage/v1/object/**" },
     ],
     qualities: [50, 60, 75, 90, 100],
+    formats: ["image/avif", "image/webp"],
+  },
+  // Form coach is now Home workout. 308s keep the query (?exercise=), so old links still open the exercise.
+  async redirects() {
+    return [
+      { source: "/form-coach", destination: "/home-workout", permanent: true },
+      { source: "/form-coach/:path*", destination: "/home-workout", permanent: true },
+    ];
   },
   async headers() {
     return [

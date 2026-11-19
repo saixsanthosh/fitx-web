@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { ExerciseGlyph } from "@/components/form-coach/ExerciseGlyph";
 import { EXERCISE_RULES } from "@/lib/form-rules/catalog";
+import { HOME_WORKOUT } from "@/config/routes";
 
 /** The six exercises the camera can coach. Plain links, so it renders on the server too. */
 export function ExercisePicker() {
@@ -12,7 +13,7 @@ export function ExercisePicker() {
         {EXERCISE_RULES.map((rule) => (
           <li key={rule.id}>
             <Link
-              href={`/form-coach?exercise=${rule.id}`}
+              href={`${HOME_WORKOUT}?exercise=${rule.id}`}
               scroll={false}
               className="fitx-panel group flex h-full items-start gap-4 p-4 hover:border-fitx-primary/50 focus-visible:border-fitx-primary/60"
             >

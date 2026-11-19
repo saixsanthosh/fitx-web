@@ -24,6 +24,9 @@
  * Anatomy   --fitx-anatomy-base/-muscle/-secondary: the body map (plain body, resting muscle, assisting muscle); the
  *           highlight is --fitx-primary. --fitx-tile-scrim: the dark wash over photo tiles (mix it with alpha).
  * Scrim     --fitx-scrim: the near-black behind photo shades and modal backdrops; mix it with alpha.
+ * Sports    --fitx-sport-walk/-run/-ride with -bg tints: activity colours (text-safe on cards and tints).
+ * Data      --fitx-macro-protein/-carbs/-fat and --fitx-chart-1…4: chart and macro series (text-safe on cards).
+ * Stage     --fitx-stage with --fitx-on-stage(-secondary): dark cinematic sections in every theme.
  *
  * The dark block and the system-dark block must stay identical; the contrast script fails if they drift.
  */
@@ -67,6 +70,24 @@
   --fitx-strong-hover: #303530;
   --fitx-strong-border: #1c201d;
   --fitx-on-strong: #ffffff;
+
+  /* Sports (walk, run, ride), macros, chart series and the cinematic stage. */
+  --fitx-sport-walk: #2c7a52;
+  --fitx-sport-walk-bg: rgba(44, 122, 82, 0.1);
+  --fitx-sport-run: #a34f0d;
+  --fitx-sport-run-bg: rgba(163, 79, 13, 0.1);
+  --fitx-sport-ride: #3367a6;
+  --fitx-sport-ride-bg: rgba(51, 103, 166, 0.1);
+  --fitx-macro-protein: #b64a32;
+  --fitx-macro-carbs: #966200;
+  --fitx-macro-fat: #3f6aa5;
+  --fitx-chart-1: #c44933;
+  --fitx-chart-2: #3569a8;
+  --fitx-chart-3: #276d47;
+  --fitx-chart-4: #9a6500;
+  --fitx-stage: #101210;
+  --fitx-on-stage: #f3f3ef;
+  --fitx-on-stage-secondary: #b8bdb8;
 
   /* Theme-independent: the same in every theme. */
   --fitx-scrim: #050808;
@@ -125,6 +146,22 @@
   --fitx-strong-hover: #202322;
   --fitx-strong-border: #8e918f;
   --fitx-on-strong: #e3e3e3;
+  --fitx-sport-walk: #7fcca1;
+  --fitx-sport-walk-bg: rgba(127, 204, 161, 0.12);
+  --fitx-sport-run: #f0a35e;
+  --fitx-sport-run-bg: rgba(240, 163, 94, 0.12);
+  --fitx-sport-ride: #8db8ea;
+  --fitx-sport-ride-bg: rgba(141, 184, 234, 0.12);
+  --fitx-macro-protein: #f08a74;
+  --fitx-macro-carbs: #e2b85f;
+  --fitx-macro-fat: #8bb8e9;
+  --fitx-chart-1: #ed725c;
+  --fitx-chart-2: #8bb8e9;
+  --fitx-chart-3: #8bcba3;
+  --fitx-chart-4: #e2b85f;
+  --fitx-stage: #0b0d0b;
+  --fitx-on-stage: #f3f3ef;
+  --fitx-on-stage-secondary: #b8bdb8;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -168,6 +205,22 @@
     --fitx-strong-hover: #202322;
     --fitx-strong-border: #8e918f;
     --fitx-on-strong: #e3e3e3;
+    --fitx-sport-walk: #7fcca1;
+    --fitx-sport-walk-bg: rgba(127, 204, 161, 0.12);
+    --fitx-sport-run: #f0a35e;
+    --fitx-sport-run-bg: rgba(240, 163, 94, 0.12);
+    --fitx-sport-ride: #8db8ea;
+    --fitx-sport-ride-bg: rgba(141, 184, 234, 0.12);
+    --fitx-macro-protein: #f08a74;
+    --fitx-macro-carbs: #e2b85f;
+    --fitx-macro-fat: #8bb8e9;
+    --fitx-chart-1: #ed725c;
+    --fitx-chart-2: #8bb8e9;
+    --fitx-chart-3: #8bcba3;
+    --fitx-chart-4: #e2b85f;
+    --fitx-stage: #0b0d0b;
+    --fitx-on-stage: #f3f3ef;
+    --fitx-on-stage-secondary: #b8bdb8;
   }
 }
 
@@ -207,6 +260,19 @@
   --fitx-anatomy-muscle: #4d534e;
   --fitx-anatomy-secondary: #966456;
   --fitx-tile-scrim: #050808;
+  --fitx-sport-walk: #7fcca1;
+  --fitx-sport-walk-bg: rgba(127, 204, 161, 0.12);
+  --fitx-sport-run: #f0a35e;
+  --fitx-sport-run-bg: rgba(240, 163, 94, 0.12);
+  --fitx-sport-ride: #8db8ea;
+  --fitx-sport-ride-bg: rgba(141, 184, 234, 0.12);
+  --fitx-macro-protein: #f08a74;
+  --fitx-macro-carbs: #e2b85f;
+  --fitx-macro-fat: #8bb8e9;
+  --fitx-chart-1: #ed725c;
+  --fitx-chart-2: #8bb8e9;
+  --fitx-chart-3: #8bcba3;
+  --fitx-chart-4: #e2b85f;
   color: var(--fitx-text);
 }
 
@@ -251,6 +317,24 @@
   --color-fitx-on-inverse: var(--fitx-on-inverse);
   --color-fitx-on-inverse-secondary: var(--fitx-on-inverse-secondary);
   --color-fitx-inverse-divider: var(--fitx-inverse-divider);
+  --color-fitx-sport-walk: var(--fitx-sport-walk);
+  --color-fitx-sport-walk-bg: var(--fitx-sport-walk-bg);
+  --color-fitx-sport-run: var(--fitx-sport-run);
+  --color-fitx-sport-run-bg: var(--fitx-sport-run-bg);
+  --color-fitx-sport-ride: var(--fitx-sport-ride);
+  --color-fitx-sport-ride-bg: var(--fitx-sport-ride-bg);
+  --color-fitx-macro-protein: var(--fitx-macro-protein);
+  --color-fitx-macro-carbs: var(--fitx-macro-carbs);
+  --color-fitx-macro-fat: var(--fitx-macro-fat);
+  --color-fitx-chart-1: var(--fitx-chart-1);
+  --color-fitx-chart-2: var(--fitx-chart-2);
+  --color-fitx-chart-3: var(--fitx-chart-3);
+  --color-fitx-chart-4: var(--fitx-chart-4);
+  --color-fitx-stage: var(--fitx-stage);
+  --color-fitx-on-stage: var(--fitx-on-stage);
+  --color-fitx-on-stage-secondary: var(--fitx-on-stage-secondary);
+  --spacing-fitx-section: var(--fitx-space-section);
+  --spacing-fitx-block: var(--fitx-space-block);
   --font-heading: var(--font-manrope);
   --font-body: var(--font-inter);
   --font-display: var(--font-manrope);
@@ -368,6 +452,14 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
   /* One content width and gutter for the public header, landing sections and footer. */
   --fitx-container: 1240px;
   --fitx-gutter: max(clamp(16px, 4vw, 40px), env(safe-area-inset-left), env(safe-area-inset-right));
+  /* Vertical rhythm: between page sections, and between blocks inside one (utilities mt-fitx-section, gap-fitx-block). */
+  --fitx-space-section: clamp(56px, 9vw, 128px);
+  --fitx-space-block: clamp(24px, 3.2vw, 40px);
+}
+/* Smooth in-page scrolling (anchor links, scrollIntoView) only for visitors who have not asked for less
+   motion. CSS only: nothing takes over the scroll wheel. */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
 }
 .fitx-container { width: min(100% - 2 * var(--fitx-gutter), var(--fitx-container)); margin-inline: auto; }
 /* Horizontal padding that also clears a landscape notch; set --fitx-pad-inline per breakpoint. */

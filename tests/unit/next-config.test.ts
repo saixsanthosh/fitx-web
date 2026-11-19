@@ -11,3 +11,16 @@ test("the form coach's pose runtime and models are cached for a year; every path
   assert.match(policy, /camera=\(self\)/);
   assert.match(policy, /geolocation=\(self\)/);
 });
+
+test("the old Form coach address redirects permanently to Home workout (the query is passed through)", async () => {
+  const rules = (await nextConfig.redirects?.()) ?? [];
+  const moved = rules.filter((rule) => rule.source.startsWith("/form-coach"));
+  assert.deepEqual(moved.map((rule) => [rule.source, rule.destination, rule.permanent]), [
+    ["/form-coach", "/home-workout", true],
+    ["/form-coach/:path*", "/home-workout", true],
+  ]);
+});
+
+test("images are served as AVIF, then WebP", () => {
+  assert.deepEqual(nextConfig.images?.formats, ["image/avif", "image/webp"]);
+});

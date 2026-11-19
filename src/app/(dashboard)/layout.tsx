@@ -23,8 +23,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <WorkspaceHeader />
           {/* Renders nothing unless FITX Admin has a live announcement this person has not dismissed. */}
           <AnnouncementBanner />
-          {/* The phone bar shows below 768 px, so the bottom padding stays clear of it until md. */}
-          <main id="main-content" className="mx-auto w-full max-w-[1480px] px-4 py-5 pb-24 sm:px-6 sm:pt-7 md:pb-10 lg:px-8">{children}</main>
+          {/* The phone bar shows below 768 px, so the bottom padding stays clear of it (and the home indicator) until md. */}
+          <main id="main-content" className="mx-auto w-full max-w-[1440px] px-4 pb-[calc(96px+env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pt-6 md:pb-14 lg:px-10 lg:pt-10">{children}</main>
         </div>
         <BottomNav />
         <SessionKeeper />

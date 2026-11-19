@@ -1,0 +1,8 @@
+/* ScrollScene: a tall section with a sticky, full-viewport stage. Decided in CSS, so the height is right
+   before any script runs (no layout shift on hydration). Reduced motion: one ordinary screen. */
+.scene { position: relative; }
+.stage { position: relative; min-height: 100svh; }
+@media (prefers-reduced-motion: no-preference) {
+  .scene { height: calc(var(--fitx-scene-length, 3) * 100svh); }
+  .stage { position: sticky; top: 0; height: 100svh; overflow: hidden; }
+}

@@ -104,6 +104,25 @@ export const PAIRS = (() => {
   add("--fitx-inverse-primary", ["#ffffff", ["--fitx-scrim", 0.79]], "text", "Hero eyebrow over the desktop photo shade", "inverse");
   add("--fitx-on-inverse", ["#ffffff", ["--fitx-scrim", 0.66]], "large", "Hero headline over the tablet photo shade (66% stop)", "inverse");
 
+  // Sports, macros and chart series: labels and fills on cards, tints and tracks.
+  for (const sport of ["walk", "run", "ride"]) {
+    for (const surface of ["--fitx-bg", "--fitx-surface", "--fitx-card-bg"]) add(`--fitx-sport-${sport}`, surface, "text", `${sport} label or icon`);
+    add(`--fitx-sport-${sport}`, ["--fitx-surface", `--fitx-sport-${sport}-bg`], "text", `${sport} label on its tint`);
+    add(`--fitx-sport-${sport}`, "--fitx-track", "ui", `${sport} fill against a track`);
+  }
+  for (const macro of ["protein", "carbs", "fat"]) {
+    add(`--fitx-macro-${macro}`, "--fitx-card-bg", "text", `${macro} label on a card`);
+    add(`--fitx-macro-${macro}`, "--fitx-track", "ui", `${macro} fill against its track`);
+  }
+  for (const series of [1, 2, 3, 4]) {
+    add(`--fitx-chart-${series}`, "--fitx-card-bg", "ui", `Chart series ${series} on a card`);
+    add(`--fitx-chart-${series}`, "--fitx-surface-variant", "ui", `Chart series ${series} on a variant surface`);
+  }
+  // The cinematic stage (dark in every theme).
+  add("--fitx-on-stage", "--fitx-stage", "text", "Text on the stage", "theme");
+  add("--fitx-on-stage-secondary", "--fitx-stage", "text", "Secondary text on the stage", "theme");
+  add("--fitx-inverse-primary", "--fitx-stage", "text", "Brand accent text on the stage", "theme");
+
   // Reference only: decorative separators (WCAG 1.4.11 does not apply to them).
   add("--fitx-border", "--fitx-surface", "info", "Card and field borders");
   add("--fitx-divider", "--fitx-surface", "info", "Dividers");

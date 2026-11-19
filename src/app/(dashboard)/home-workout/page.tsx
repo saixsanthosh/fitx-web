@@ -5,7 +5,7 @@ import { PageHeading } from "@/components/app/PageHeading";
 import { ExercisePicker } from "./ExercisePicker";
 import { FormCoachPractice } from "./FormCoachPractice";
 
-export const metadata: Metadata = { title: "Form coach" };
+export const metadata: Metadata = { title: "Home workout" };
 
 const FACTS = [
   {
@@ -25,11 +25,11 @@ const FACTS = [
   },
 ] as const;
 
-export default function FormCoachPage() {
+export default function HomeWorkoutPage() {
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeading
-        title="Form coach"
+        title="Home workout"
         description="Count reps and get posture cues from your camera for six bodyweight exercises. It all runs on this device."
       />
       <Suspense fallback={<ExercisePicker />}>

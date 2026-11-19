@@ -1,5 +1,11 @@
+import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
-import { BookOpen, ChartNoAxesColumn, CircleHelp, Dumbbell, House, Route, ScanLine, Settings, Sparkles, Target, UserRound, Utensils } from "lucide-react";
+import { BookOpen, ChartNoAxesColumn, CircleHelp, Dumbbell, House, ScanLine, Settings, Sparkles, UserRound, Utensils } from "lucide-react";
+import { ActivityNavIcon } from "@/components/layout/ActivityNavIcon";
+import { HOME_WORKOUT } from "@/config/routes";
+
+/** Props a custom (non-lucide) nav icon takes. */
+export type NavIconProps = { size?: number; className?: string; active?: boolean };
 
 /**
  * The signed-in app's navigation, defined once. The desktop sidebar, the tablet rail and the phone
@@ -10,20 +16,20 @@ export type NavItem = {
   label: string;
   /** Shorter label for the tablet rail and the phone bar. */
   shortLabel?: string;
-  icon: LucideIcon;
+  /** A lucide icon, or an app icon that draws its own active state (marked `fitxNavIcon`). */
+  icon: LucideIcon | ComponentType<NavIconProps>;
 };
 
-/** Main sections, in order. */
+/** Main sections, in order. The first PHONE_TAB_COUNT are the phone bar's tabs. */
 export const MAIN_NAV: readonly NavItem[] = [
   { href: "/dashboard", label: "Home", icon: House },
   { href: "/workouts", label: "Workouts", icon: Dumbbell },
   { href: "/nutrition", label: "Nutrition", icon: Utensils },
-  { href: "/activity", label: "Activity", icon: Route },
+  { href: "/activity", label: "Activity", icon: ActivityNavIcon },
   { href: "/ai-coach", label: "AI Coach", shortLabel: "Coach", icon: Sparkles },
   { href: "/progress", label: "Progress", icon: ChartNoAxesColumn },
-  { href: "/goals", label: "Goals", icon: Target },
   { href: "/exercises", label: "Exercise library", shortLabel: "Library", icon: BookOpen },
-  { href: "/form-coach", label: "Form coach", icon: ScanLine },
+  { href: HOME_WORKOUT, label: "Home workout", icon: ScanLine },
 ];
 
 /** Account entries: the sidebar footer, the header account menu and the More sheet. */
@@ -42,4 +48,9 @@ export const PHONE_MORE = [...MAIN_NAV.slice(PHONE_TAB_COUNT), ...ACCOUNT_NAV];
 /** True when `pathname` is the item's page or one of its sub-pages. */
 export function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** True for an app icon that takes `active` (lucide icons take `strokeWidth` instead). */
+export function isAppNavIcon(icon: NavItem["icon"]): icon is ComponentType<NavIconProps> {
+  return (icon as { fitxNavIcon?: boolean }).fitxNavIcon === true;
 }

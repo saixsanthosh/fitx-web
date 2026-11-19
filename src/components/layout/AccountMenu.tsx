@@ -70,7 +70,7 @@ export function AccountMenu({ summary }: { summary: AccountSummary | null }) {
         ref={panel}
         id={panelId}
         hidden={!open}
-        className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-fitx-border bg-fitx-elevated p-2 shadow-2xl"
+        className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-fitx-border bg-fitx-elevated p-2 shadow-[0_24px_60px_color-mix(in_srgb,var(--fitx-scrim)_18%,transparent)]"
       >
         {summary && (
           <div className="flex items-center gap-3 border-b border-fitx-divider px-2 pb-3 pt-1">
@@ -84,7 +84,7 @@ export function AccountMenu({ summary }: { summary: AccountSummary | null }) {
         <ul className="py-1">
           {ACCOUNT_NAV.map(({ href, label, icon: Icon }) => (
             <li key={href}>
-              <Link href={href} onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm text-fitx-text transition-colors hover:bg-fitx-hover">
+              <Link href={href} onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm text-fitx-text transition-colors hover:bg-fitx-hover">
                 <Icon size={17} aria-hidden="true" className="text-fitx-text-secondary" />{label}
               </Link>
             </li>

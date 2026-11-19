@@ -6,17 +6,22 @@ import { signInUi } from "./common.mjs";
 const PRIVATE = [
   "/dashboard", "/workouts", "/workouts/active", "/nutrition", "/nutrition/sources", "/activity", "/activity/record",
   "/activity/00000000-0000-4000-8000-000000000000", "/progress", "/goals?tab=week", "/planner", "/profile", "/settings", "/help",
-  "/exercises", "/exercises/00000000-0000-4000-8000-000000000000", "/form-coach", "/onboarding", "/achievements", "/ai-coach",
+  "/exercises", "/exercises/00000000-0000-4000-8000-000000000000", "/home-workout", "/form-coach", "/onboarding", "/achievements", "/ai-coach",
   "/subscription", "/tasks", "/social", "/admin", "/activity/import", "/exercises/muscles", "/workouts/programme", "/workouts/history",
   "/workouts/history/00000000-0000-4000-8000-000000000000", "/progress/muscles",
 ];
 const APP_PAGES = [
   "/dashboard", "/workouts", "/nutrition", "/nutrition/sources", "/activity", "/progress", "/goals", "/goals?tab=week", "/planner",
-  "/profile", "/settings", "/help", "/exercises", "/form-coach", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
+  "/profile", "/settings", "/help", "/exercises", "/home-workout", "/form-coach", "/form-coach?exercise=bodyweight_squat", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
   "/activity/import", "/exercises/muscles", "/workouts/programme", "/workouts/history", "/progress/muscles",
 ];
-/** Retired routes that now redirect on purpose (their page.tsx calls redirect()). */
-const MOVED = { "/planner": "/goals?tab=week", "/tasks": "/goals?tab=today", "/achievements": "/progress", "/social": "/dashboard", "/admin": "/dashboard" };
+/** Retired routes that now redirect on purpose (their page.tsx calls redirect(), or next.config.ts redirects them). */
+const MOVED = {
+  "/planner": "/goals?tab=week", "/tasks": "/goals?tab=today", "/achievements": "/progress", "/social": "/dashboard", "/admin": "/dashboard",
+  "/form-coach": "/home-workout", "/form-coach?exercise=bodyweight_squat": "/home-workout?exercise=bodyweight_squat",
+};
+/** Moved before sign-in too (next.config.ts redirects run before the proxy), so sign-in returns to the new page. */
+const SIGNED_OUT_NEXT = { "/form-coach": "/home-workout" };
 const PUBLIC_PAGES = ["/", "/features", "/pricing", "/about", "/for-gyms", "/privacy", "/terms", "/cookies", "/refunds", "/signin", "/signup", "/forgot-password"];
 
 export const flow = {
@@ -31,7 +36,7 @@ export const flow = {
         t.label = `signed out ${route}`;
         await page.goto(route, { waitUntil: "domcontentloaded" });
         const url = new URL(page.url());
-        const expected = route;
+        const expected = SIGNED_OUT_NEXT[route] ?? route;
         if (url.pathname !== "/signin" || url.searchParams.get("next") !== expected) wrong.push({ route, landed: `${url.pathname}${url.search}` });
       }
       await t.settle();
@@ -65,6 +70,22 @@ export const flow = {
       }
       await t.settle();
       t.expect(!wrong.length, "signed-in visits should land on /dashboard", wrong);
+    });
+
+    await t.step("signed in: the menu has Home workout, not Goals or Form coach, and the header has no search box", async () => {
+      await t.goto("/dashboard", { label: "menu check" });
+      const nav = page.getByRole("navigation", { name: "Main navigation" }).filter({ visible: true }).first();
+      const labels = (await nav.getByRole("link").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
+      t.note("main navigation", labels.join(" | "));
+      t.expect(!labels.some((text) => /^Goals$/.test(text)), "Goals should no longer be in the menu", labels);
+      t.expect(!labels.some((text) => /Form coach/i.test(text)), "Form coach should be renamed", labels);
+      const phone = (page.viewportSize()?.width ?? 0) < 768;
+      // Phones show four tabs and keep Home workout in More; tablets and desktops list it in the sidebar.
+      if (!phone) t.expect(labels.some((text) => /Home workout/.test(text)), "Home workout should be in the sidebar", labels);
+      t.expect((await nav.getByRole("link", { name: /Activity/ }).locator("svg[data-pose]").count()) === 1, "Activity should use the animated icon");
+      const searchboxes = await page.getByRole("searchbox").count();
+      t.expect(searchboxes === 0, `Home should have no search box now the header search is gone (found ${searchboxes})`);
+      await t.checkpoint("app shell menu");
     });
 
     await t.step("signed in: every app page opens", async () => {

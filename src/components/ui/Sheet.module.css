@@ -1,0 +1,50 @@
+/* Sheet: a bottom sheet on phones; from 768 px a side panel ("auto") or a centred dialog ("center"). */
+.sheet {
+  width: 100vw; max-width: 100vw; max-height: 92dvh; margin: auto 0 0; overflow: hidden;
+  border: 1px solid var(--fitx-border); border-width: 1px 0 0; border-radius: 20px 20px 0 0;
+  background: var(--fitx-elevated); color: var(--fitx-text); padding: 0;
+  box-shadow: 0 -18px 60px color-mix(in srgb, var(--fitx-scrim) 24%, transparent);
+}
+.sheet::backdrop { background: color-mix(in srgb, var(--fitx-scrim) 48%, transparent); }
+.grip { display: block; width: 36px; height: 4px; margin: 8px auto 0; border-radius: 99px; background: var(--fitx-track); }
+.body { display: flex; height: 100%; max-height: inherit; flex-direction: column; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px 10px 20px; }
+.title { font-family: var(--font-manrope), system-ui, sans-serif; font-size: 1.0625rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.3; }
+.description { margin-top: 2px; color: var(--fitx-text-secondary); font-size: .8125rem; line-height: 1.5; }
+.close { display: grid; flex: 0 0 auto; width: 44px; height: 44px; place-items: center; border-radius: 12px; color: var(--fitx-text-secondary); }
+.close:hover { background: var(--fitx-hover); color: var(--fitx-text); }
+.content { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 20px; }
+.footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--fitx-divider); padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
+.content:last-child { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .sheet[open] { animation: fitx-ui-sheet-up .32s cubic-bezier(.22, 1, .36, 1); }
+  .sheet[open]::backdrop { animation: fitx-ui-fade .24s ease-out; }
+}
+
+@media (min-width: 768px) {
+  .grip { display: none; }
+  .header { padding: 18px 14px 12px 24px; }
+  .content { padding: 4px 24px 24px; }
+  .footer { padding: 14px 24px; }
+  .auto {
+    width: min(460px, calc(100vw - 24px)); max-width: none; height: calc(100dvh - 24px); max-height: none;
+    margin: 12px 12px 12px auto; border-width: 1px; border-radius: 20px;
+    box-shadow: 0 24px 64px color-mix(in srgb, var(--fitx-scrim) 22%, transparent);
+  }
+  .center {
+    width: min(560px, calc(100vw - 48px)); max-width: none; max-height: min(86dvh, 760px); margin: auto;
+    border-width: 1px; border-radius: 20px; box-shadow: 0 24px 64px color-mix(in srgb, var(--fitx-scrim) 22%, transparent);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .auto[open] { animation-name: fitx-ui-sheet-side; }
+    .center[open] { animation-name: fitx-ui-sheet-rise; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet[open], .sheet[open]::backdrop { animation: fitx-ui-fade .15s ease-out; }
+}
+@keyframes fitx-ui-sheet-up { from { transform: translateY(48px); opacity: .4; } }
+@keyframes fitx-ui-sheet-side { from { transform: translateX(32px); opacity: .3; } }
+@keyframes fitx-ui-sheet-rise { from { transform: translateY(14px) scale(.985); opacity: 0; } }
+@keyframes fitx-ui-fade { from { opacity: 0; } }

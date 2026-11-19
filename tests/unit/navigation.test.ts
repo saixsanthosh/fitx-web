@@ -1,15 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ACCOUNT_NAV, MAIN_NAV, PHONE_MORE, PHONE_TAB_COUNT, PHONE_TABS, isActivePath } from "@/config/navigation";
+import { ScanLine } from "lucide-react";
+import { ActivityNavIcon } from "@/components/layout/ActivityNavIcon";
+import { ACCOUNT_NAV, MAIN_NAV, PHONE_MORE, PHONE_TAB_COUNT, PHONE_TABS, isActivePath, isAppNavIcon } from "@/config/navigation";
+import { HOME_PANELS, HOME_WORKOUT, homePanel } from "@/config/routes";
 
 // One list drives the desktop sidebar, the tablet rail, the phone bar and its More sheet.
 
-test("main sections, in order", () => {
+test("main sections, in order; Goals has left the menu (it lives on Home)", () => {
   assert.deepEqual(MAIN_NAV.map(({ href }) => href), [
-    "/dashboard", "/workouts", "/nutrition", "/activity", "/ai-coach", "/progress", "/goals", "/exercises", "/form-coach",
+    "/dashboard", "/workouts", "/nutrition", "/activity", "/ai-coach", "/progress", "/exercises", "/home-workout",
   ]);
   assert.equal(MAIN_NAV.find(({ href }) => href === "/ai-coach")?.shortLabel, "Coach");
-  assert.ok(!MAIN_NAV.some(({ href }) => href === "/planner"), "the planner is now the Week tab of Goals");
+  assert.ok(!MAIN_NAV.some(({ href }) => href === "/goals"), "Goals is reached from Home, not the menu");
+  assert.ok(!MAIN_NAV.some(({ href }) => href === "/planner"), "the planner is not a menu entry");
+});
+
+test("Form coach is now Home workout at /home-workout", () => {
+  assert.equal(HOME_WORKOUT, "/home-workout");
+  const item = MAIN_NAV.find(({ href }) => href === HOME_WORKOUT);
+  assert.equal(item?.label, "Home workout");
+  assert.equal(item?.icon, ScanLine);
+  assert.ok(!MAIN_NAV.some(({ href, label }) => href === "/form-coach" || /form coach/i.test(label)));
+});
+
+test("Activity uses the animated icon; lucide icons are told apart from app icons", () => {
+  const activity = MAIN_NAV.find(({ href }) => href === "/activity");
+  assert.equal(activity?.icon, ActivityNavIcon);
+  assert.equal(isAppNavIcon(ActivityNavIcon), true);
+  assert.equal(isAppNavIcon(ScanLine), false);
+  assert.deepEqual(MAIN_NAV.filter(({ icon }) => isAppNavIcon(icon)).map(({ href }) => href), ["/activity"]);
 });
 
 test("account entries: profile, settings, help", () => {
@@ -28,4 +48,13 @@ test("a section stays highlighted on its sub-pages only", () => {
   assert.equal(isActivePath("/activity/record", "/activity"), true);
   assert.equal(isActivePath("/activity", "/activity"), true);
   assert.equal(isActivePath("/activity-log", "/activity"), false);
+  assert.equal(isActivePath("/home-workout", "/dashboard"), false);
+});
+
+test("Home panel links: panel first, extras kept, panel never overridden", () => {
+  assert.deepEqual([...HOME_PANELS], ["goals", "todo", "week"]);
+  assert.equal(homePanel("goals"), "/dashboard?panel=goals");
+  assert.equal(homePanel("goals", { new: "water_day" }), "/dashboard?panel=goals&new=water_day");
+  assert.equal(homePanel("week", { panel: "todo" }), "/dashboard?panel=week");
+  assert.equal(homePanel("todo", { q: "a b&c" }), "/dashboard?panel=todo&q=a+b%26c");
 });

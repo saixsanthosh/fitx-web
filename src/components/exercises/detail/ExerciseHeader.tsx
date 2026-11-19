@@ -61,7 +61,7 @@ export function ExerciseHeader({ exercise, summary, cameraRuleId, saved, onToggl
       <div className="flex flex-wrap gap-2">
         <Link href={addToWorkoutHref(exercise.id)} className="fitx-button">Add to a workout<ArrowRight size={15} aria-hidden="true" /></Link>
         {cameraRuleId && (
-          <Link href={`/form-coach?exercise=${encodeURIComponent(cameraRuleId)}`} className="fitx-button fitx-button-secondary">
+          <Link href={`/home-workout?exercise=${encodeURIComponent(cameraRuleId)}`} className="fitx-button fitx-button-secondary">
             <ScanLine size={15} aria-hidden="true" />Practise with camera
           </Link>
         )}
