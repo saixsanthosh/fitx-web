@@ -166,6 +166,8 @@ export const flow = {
 
     await t.step("Home and Nutrition agree on today's calories and the estimated target", async () => {
       await t.goto("/nutrition", { label: "nutrition estimate" });
+      // The day's food and targets load after the page: wait for "eaten / target kcal" before reading it.
+      await page.locator("section[aria-label^='Nutrition summary']").getByText(/\/\s*[\d,]+\s*kcal/).first().waitFor({ timeout: 15000 });
       const overview = await textOf(page.locator("section[aria-label^='Nutrition summary']"));
       const nutrition = /([\d,]+)\s*\/\s*([\d,]+)\s*kcal/.exec(overview);
       await t.goto("/dashboard", { label: "home totals" });
@@ -182,6 +184,8 @@ export const flow = {
     }, { soft: true });
 
     await t.step("non-veg foods are hidden for a vegetarian", async () => {
+      // The soft step above may stop on Home; start from Nutrition either way.
+      if (!/\/nutrition$/.test(new URL(page.url()).pathname)) await t.goto("/nutrition", { label: "nutrition for non-veg" });
       await search(t, "chicken curry");
       const list = await textOf(page.locator("div[aria-live=polite]"));
       t.note("chicken curry with the filter on", list.slice(0, 600));
