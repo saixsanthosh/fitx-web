@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Barcode, BookOpen, Droplets, PackageSearch, Search, Target } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, ChevronLeft, PackageSearch, Plus, ScanBarcode, Search } from "lucide-react";
 import { BarcodeScanner } from "@/components/app/BarcodeScanner";
-import { EmptyState } from "@/components/app/EmptyState";
-import { PageHeading } from "@/components/app/PageHeading";
+import { DayOverview } from "@/components/nutrition/DayOverview";
 import { CustomFoodForm, type CustomFoodPrefill } from "@/components/nutrition/CustomFoodForm";
 import { EntryEditor, type EntryChange } from "@/components/nutrition/EntryEditor";
 import { FoodDetail } from "@/components/nutrition/FoodDetail";
@@ -18,11 +17,13 @@ import { MyFoods } from "@/components/nutrition/MyFoods";
 import { NameDialog } from "@/components/nutrition/NameDialog";
 import { NutritionHistory } from "@/components/nutrition/NutritionHistory";
 import type { AmountPrompt } from "@/components/nutrition/PortionPicker";
-import { SegmentRing } from "@/components/nutrition/SegmentRing";
 import { Routines } from "@/components/nutrition/Routines";
 import { TargetsEditor } from "@/components/nutrition/TargetsEditor";
 import ui from "@/components/nutrition/FoodUi.module.css";
-import { Sheet } from "@/components/workouts/Sheet";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Segmented } from "@/components/ui/Segmented";
+import { Sheet } from "@/components/ui/Sheet";
+import { homePanel } from "@/config/routes";
 import { useHydrated } from "@/components/ui/use-hydrated";
 import { createClient } from "@/lib/supabase/client";
 import { loadGoals } from "@/lib/data/goals";
@@ -31,7 +32,7 @@ import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { checkSectionName, mealForTime, mealSections } from "@/lib/domain/meal-time";
-import { calorieBalance, estimateNutritionTargets, goalPercent, goalProgress, MACRO_LABEL, resolveDayTargets, resolveWaterTarget, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
+import { estimateNutritionTargets, resolveDayTargets, resolveWaterTarget, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
 import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
@@ -49,11 +50,12 @@ import styles from "./Nutrition.module.css";
 
 type Profile = { age: number | null; gender: string | null; height: number | null; weight: number | null };
 type Prefs = { activity_level: string; primary_goal: string; daily_water_goal_ml: number; dietary_preferences: string[] | null };
-type Tab = "log" | "meals" | "foods" | "routines" | "insights" | "history";
+type Tab = "meals" | "foods" | "routines" | "history";
+type LogMode = "search" | "barcode";
 type NamePrompt = { kind: "meal"; slot: string; initial: string } | { kind: "day"; initial: string } | { kind: "section"; then: "log" | "sheet" | "none" };
 type BarcodeMiss = { code: string; name: string | null; noLabel: boolean };
 
-const EXAMPLES = ["3 idli", "150 g rice", "2 roti", "1 cup dal", "2 eggs"];
+const EXAMPLES = ["3 idli", "2 roti", "150 g rice", "1 cup dal", "2 eggs"];
 const NO_AMOUNT = parseFoodQuery("");
 const NO_CAPABILITIES: NutritionCapabilities = { customFoodsV2: false, templates: false, targets: false, customExtra: false };
 /** Search answers hold the user's own foods, so the browser must not answer from its cache. */
@@ -117,23 +119,30 @@ export default function NutritionPage() {
   const [addedSections, setAddedSections] = useState<string[]>([]);
   const [household, setHousehold] = useState<HouseholdMl>({});
   const [householdOpen, setHouseholdOpen] = useState(false);
-  /** The barcode product sheet is open for the selected food. */
-  const [sheetOpen, setSheetOpen] = useState(false);
+  /** The Log food sheet: search (with recent and frequent foods) or a barcode; the chosen food's amount in it. */
+  const [logOpen, setLogOpen] = useState(false);
+  const [logMode, setLogMode] = useState<LogMode>("search");
+  const [scannerOpen, setScannerOpen] = useState(false);
+  /** Bumped by "Type the number": once the scanner has closed, the barcode field takes the focus. */
+  const [typeRequest, setTypeRequest] = useState(0);
   const searchInput = useRef<HTMLInputElement>(null);
-  /** The measures dialog was opened from the product sheet, so the sheet comes back when it closes. */
-  const sheetReturn = useRef(false);
+  const barcodeInput = useRef<HTMLInputElement>(null);
+  /** Another dialog was opened from the Log food sheet, so the sheet comes back when that one closes. */
+  const reopenLog = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  /** "Tap the one you mean": a typed amount matched more than one food. */
+  const [pickHint, setPickHint] = useState("");
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>("log");
-  const [scanOnLoad, setScanOnLoad] = useState(false);
-  // Home's "Scan a barcode" link: open the scanner on Log food, then put the address back to /nutrition.
+  const [tab, setTab] = useState<Tab>("meals");
+  // Home's "Scan a barcode" link: open Log food on Barcode with the camera, then put the address back to /nutrition.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("scan") !== "1") return;
     void Promise.resolve().then(() => {
-      setTab("log");
-      setScanOnLoad(true);
+      setLogMode("barcode");
+      setLogOpen(true);
+      setScannerOpen(true);
       window.history.replaceState(null, "", "/nutrition");
     });
   }, []);
@@ -226,8 +235,6 @@ export default function NutritionPage() {
   const amountNumber = amount.trim() ? Number(amount) : Number.NaN;
   const grams = Number.isFinite(amountNumber) ? Math.round(amountNumber * (chosenPortion ? chosenPortion.grams : 1) * 10) / 10 : Number.NaN;
   const selectedMacros = selected && grams > 0 ? scaleMacros(selected, grams) : null;
-  const calorieGoal = target?.calories ? goalProgress(totals.calories, target.calories) : null;
-  const balance = calorieBalance(totals.calories, target?.calories);
   const filtering = dietFilter.nonVeg || dietFilter.egg;
   const shownResults = results.filter((food) => !hiddenByDiet(food.dietType, dietFilter));
   const hiddenCount = results.length - shownResults.length;
@@ -275,6 +282,7 @@ export default function NutritionPage() {
     setDerived(null);
     setAmountPrompt(null);
     setNotice("");
+    setPickHint("");
     setBarcodeMiss(null);
     if (resolution.kind === "grams") {
       setAmount(formatAmount(resolution.grams));
@@ -338,12 +346,11 @@ export default function NutritionPage() {
       setSources(data.sources || []);
       setSearchMode("barcode");
       setLastQuery(NO_AMOUNT);
-      setTab("log");
-      if (data.foods?.length) { chooseFood(data.foods[0]); setSheetOpen(true); }
+      if (data.foods?.length) chooseFood(data.foods[0]);
       else if (data.barcodeStatus === "invalid") setError(data.error || barcodeProblem("check-digit"));
       else if (data.barcodeStatus === "rate_limited") setError("Open Food Facts is busy right now (it limits how often FITX can ask). Try again in a minute, or add the product yourself.");
       else if (data.barcodeStatus === "timeout" || data.barcodeStatus === "unavailable") setError("Open Food Facts didn't answer, so the barcode couldn't be checked. Try again shortly, or add the product yourself.");
-      else { setSelected(null); setSheetOpen(false); setBarcodeMiss({ code: checked.code, name: data.productName ?? null, noLabel: data.barcodeStatus === "no_label" }); }
+      else { setSelected(null); setBarcodeMiss({ code: checked.code, name: data.productName ?? null, noLabel: data.barcodeStatus === "no_label" }); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Barcode lookup failed."); }
     finally { setBusy(false); }
   }, [chooseFood]);
@@ -385,7 +392,7 @@ export default function NutritionPage() {
       if (typed.amount !== null) setError("Add a food name after the amount, for example “150 g rice”.");
       return;
     }
-    setSearchingFoods(true); setError(""); setNotice(""); setBarcodeMiss(null);
+    setSearchingFoods(true); setError(""); setNotice(""); setPickHint(""); setBarcodeMiss(null);
     try {
       const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`, SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
@@ -416,12 +423,12 @@ export default function NutritionPage() {
           setDerived(null);
           setAmountPrompt(null);
           const amountText = describeTypedAmount(typed);
-          setNotice(hiddenPick
-            ? `“${hiddenPick.name}” is marked ${hiddenPick.dietType === "egg" ? "“Contains egg”" : "non-veg"}, so it is hidden. Untick “Hide foods marked ${hiddenPick.dietType === "egg" ? "egg" : "non-veg"}” to log it.`
+          setPickHint(hiddenPick
+            ? `“${hiddenPick.name}” is marked ${hiddenPick.dietType === "egg" ? "egg" : "non-veg"}, so it is hidden. Turn off “Hide ${hiddenPick.dietType === "egg" ? "egg" : "non-veg"}” to log it.`
             : visible.length === 1
-              ? `Is “${visible[0].name}” the food you mean? Tap it and FITX keeps your amount (${amountText}).`
+              ? `Is it “${visible[0].name}”? Tap it to keep ${amountText}.`
               : visible.length
-                ? `More than one food matches “${typed.text}”. Tap the one you mean and FITX keeps your amount (${amountText}).`
+                ? `Tap the “${typed.text}” you mean to keep ${amountText}.`
                 : `Every food that matches “${typed.text}” is hidden by the diet filter.`);
         }
       }
@@ -462,7 +469,7 @@ export default function NutritionPage() {
     toast.success(`Added ${label} to ${mealName}.`, { action: ids.length ? { label: "Undo", onClick: () => void undoAdded(ids, label) } : undefined, duration: 8000 });
   }
 
-  async function insertLoggedFood(food: FoodResult, quick = false) {
+  async function insertLoggedFood(food: FoodResult) {
     const supabase = createClient();
     if (!supabase) return setError("Nutrition tracking is not connected to Supabase.");
     setBusy(true);
@@ -496,10 +503,11 @@ export default function NutritionPage() {
       },
     }).select("id");
     if (inserted.error) { setError("That food could not be logged. Please try again."); return; }
-    setSelected(null); setSheetOpen(false); setQuery("");
+    // Back to the day, which now shows it; the toast can take it back.
+    setSelected(null); setLogOpen(false); setQuery(""); setLastSearch(""); setLastQuery(NO_AMOUNT);
     const ids = ((inserted.data ?? []) as Array<{ id: string }>).map((row) => row.id);
-    if (quick || sheetOpen) announceAdded(ids, food.name, meal);
-    else setNotice(`Added ${food.name} to ${meal}.`);
+    announceAdded(ids, food.name, meal);
+    void browseFoods();
     await load(); void refreshRecent();
   }
 
@@ -535,6 +543,56 @@ export default function NutritionPage() {
   function pickMeal(next: string) {
     mealPicked.current = true;
     setMeal(next);
+  }
+
+  /** Opens Log food, optionally on a meal (a meal's + in the diary) or on Barcode. */
+  function openLog(options: { meal?: string; mode?: LogMode; quiet?: boolean } = {}) {
+    if (options.meal) pickMeal(options.meal);
+    setLogMode(options.mode ?? "search");
+    setError(""); setNotice("");
+    setLogOpen(true);
+    // Straight into the search box (the sheet's content mounts with it), as the reference apps do.
+    if ((options.mode ?? "search") === "search" && !options.quiet) window.setTimeout(() => searchInput.current?.focus({ preventScroll: true }), 60);
+  }
+
+  /** The member closed Log food: the next one starts fresh. */
+  function closeLog() {
+    setLogOpen(false);
+    setSelected(null); setAmountPrompt(null); setBarcodeMiss(null); setPickHint(""); setError("");
+    reopenLog.current = false;
+  }
+
+  /** Steps out of Log food for another dialog (measures, a meal name, a new food) and remembers to come back. */
+  function hideLog() {
+    reopenLog.current = logOpen;
+    setLogOpen(false);
+  }
+
+  function restoreLog() {
+    if (!reopenLog.current) return;
+    reopenLog.current = false;
+    setLogOpen(true);
+  }
+
+  /** "Type the number" from the scanner: the barcode field, ready to type in. */
+  function typeBarcode() {
+    setScannerOpen(false);
+    setLogMode("barcode");
+    setLogOpen(true);
+    setTypeRequest((count) => count + 1);
+  }
+  // After the scanner's dialog has closed (and the browser has put the focus back where it was), move it to the field.
+  useEffect(() => {
+    if (!typeRequest || scannerOpen) return;
+    const timer = window.setTimeout(() => barcodeInput.current?.focus(), 80);
+    return () => window.clearTimeout(timer);
+  }, [typeRequest, scannerOpen]);
+
+  /** The search box under the overview opens Log food with the search running. */
+  async function quickSearch(event: FormEvent) {
+    event.preventDefault();
+    openLog({ quiet: true });
+    await runFoodSearch(query);
   }
 
   async function addWater(amountMl: number) {
@@ -605,10 +663,11 @@ export default function NutritionPage() {
     setBusy(false);
     setFoodForm(null);
     await load();
+    reopenLog.current = false;
     if (editing) { setNotice(`Saved changes to “${row.name}”.${photoProblem}`); return; }
-    chooseFood(customFoodResult(row, photoUrl));
-    setTab("log");
-    setNotice(`Saved “${row.name}” to My foods. It is not in today's log; choose an amount and add it when you eat it.${photoProblem}`);
+    // Saved, not logged: the toast offers to log it now.
+    const saved = customFoodResult(row, photoUrl);
+    toast.success(`Saved “${row.name}” to My foods.${photoProblem}`, { action: { label: "Log it", onClick: () => { chooseFood(saved); setLogMode("search"); setLogOpen(true); } }, duration: 8000 });
   }
 
   async function removeFood(row: CustomFoodRow) {
@@ -631,9 +690,8 @@ export default function NutritionPage() {
     if (!existing) setAddedSections((old) => [...old, chosen]);
     pickMeal(chosen);
     setNamePrompt(null);
-    setNotice(existing ? `“${chosen}” is already one of your meals; it is selected.` : `Added the meal “${chosen}”. It stays in your list once you log something in it, for 30 days after you last do.`);
-    if (then === "log") setTab("log");
-    if (then === "sheet") setSheetOpen(true);
+    setNotice(existing ? `“${chosen}” is selected.` : `Added “${chosen}”. It stays once you log something in it.`);
+    if (then === "sheet") restoreLog();
   }
 
   async function saveNamed(name: string) {
@@ -708,7 +766,7 @@ export default function NutritionPage() {
    */
   function saveSelectedAsFood(food: FoodResult) {
     const serving = food.portions.find((portion) => portion.unit === "serving");
-    setSheetOpen(false);
+    hideLog();
     setFoodForm({
       editing: null,
       prefill: {
@@ -725,187 +783,180 @@ export default function NutritionPage() {
     });
   }
 
-  const macroRows = ([["Protein", "protein", target?.protein], ["Carbs", "carbs", target?.carbs], ["Fat", "fat", target?.fat]] as const)
-    .map(([label, key, goal]) => ({ label, key, value: totals[key], goal, progress: goal ? goalProgress(totals[key], goal) : null, unknown: totals.unknown[key] }));
-  const calorieLabel = `${Math.round(totals.calories)} calories logged${target?.calories ? ` of ${target.calories} calorie target` : ""}${balance ? `, ${balance.remaining} ${balance.over ? "over" : "left"}` : ""}`;
   const visibleSources = sources.filter((source) => source.status !== "not_used");
   const estimateCount = entries.filter(isEstimateSnapshot).length;
-  const unknownTotals = (["protein", "carbs", "fat"] as const).filter((key) => totals.unknown[key] > 0);
   const showBrowse = searchMode === "browse";
-  const tabs: Array<[Tab, string]> = [["log", "Log food"], ["meals", "Meals"], ["foods", "My foods"], ["routines", "Routines"], ["insights", "Insights"], ["history", "History"]];
+  const tabs: Array<[Tab, string]> = [["meals", "Meals"], ["foods", "My foods"], ["routines", "Routines"], ["history", "History"]];
   const dayLabels = nutritionDayLabels(hydrated ? date : null);
   const unsourced = lastSearch && searchMode !== "packaged" && !searchingFoods ? unsourcedFor(lastSearch, results) : null;
+  /** A typed amount matched more than one food: the Add to log panel asks which one, and keeps the amount. */
+  const choosing = !selected && Boolean(pickHint);
 
-  /** The chosen food's details, shared by the Add to log panel and the barcode product sheet. */
-  function detailFor(food: FoodResult, mealControl: "select" | "chips", idPrefix: string, fromSheet: boolean) {
+  /** The chosen food's amount and meal, in the Add to log panel of the sheet. */
+  function detailFor(food: FoodResult) {
     return <FoodDetail food={food} amount={amount} unitKey={unitKey} options={portionOptions} chosen={chosenPortion} grams={grams} macros={selectedMacros}
       prompt={amountPrompt} onAmount={(value) => { setAmount(value); setAmountPrompt(null); }} onUnit={changeUnit}
-      onMeasures={() => { sheetReturn.current = fromSheet; setHouseholdOpen(true); if (fromSheet) setSheetOpen(false); }}
-      sections={sections} meal={meal} onMeal={pickMeal} onAddSection={() => { if (fromSheet) setSheetOpen(false); setNamePrompt({ kind: "section", then: fromSheet ? "sheet" : "none" }); }}
-      mealControl={mealControl} onClear={fromSheet ? undefined : () => setSelected(null)} idPrefix={idPrefix}/>;
+      onMeasures={() => { hideLog(); setHouseholdOpen(true); }}
+      sections={sections} meal={meal} onMeal={pickMeal} onAddSection={() => { hideLog(); setNamePrompt({ kind: "section", then: "sheet" }); }}
+      mealControl="select" idPrefix="log-portion"/>;
   }
 
+  const messages = <>
+    {error && <p role="alert" className={styles.alert}>{error}</p>}
+    {notice && !error && <p role="status" className={styles.notice}>{notice}</p>}
+  </>;
+
+  const foodList = (
+    <div aria-live="polite" className={styles.foodResults}>
+      {searchingFoods ? <p className={styles.loading}>Loading foods…</p> : <>
+        {unsourced && <div className={ui.callout}>
+          <p><strong>{unsourced.label}</strong> has no sourced values in FITX yet, so nothing is guessed.{shownResults.length > 0 ? " These only contain the word." : ""}</p>
+          <div className={ui.toolbar}>
+            <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => void runFoodSearch(lastSearch, true)}>Search packaged</button>
+            <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => { hideLog(); setFoodForm({ editing: null, prefill: { name: parseFoodQuery(lastSearch).text.replace(/^./, (letter) => letter.toUpperCase()) } }); }}>Create a food</button>
+          </div>
+        </div>}
+        {showBrowse && frequent.length > 0 && <FrequentFoods items={frequent} meal={meal} busy={busy} onAdd={(item) => void addUsual(item)} onChoose={chooseFrequent}/>}
+        {showBrowse && shownRecent.length > 0 && <>
+          <p className={styles.listLabel}>Recent</p>
+          {shownRecent.map((food, index) => <div key={`recent-${food.source}-${food.id}`} className={styles.listItem} style={{ "--i": Math.min(index, 10) } as CSSProperties}>
+            <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>
+          </div>)}
+        </>}
+        {showBrowse && <p className={styles.listLabel}>Common foods</p>}
+        {searchMode === "packaged" && <p className={ui.muted}>Packaged products from Open Food Facts, entered from labels by its community.</p>}
+        {shownResults.some((food) => food.suggestion) && <p className={ui.muted}>No exact match. Closest spellings:</p>}
+        {shownResults.map((food, index) => <div key={`${food.source}-${food.id}`} className={styles.listItem} style={{ "--i": Math.min(index, 10) } as CSSProperties}>
+          <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>
+        </div>)}
+        {hiddenCount > 0 && <p className={ui.muted}>{hiddenCount} {hiddenCount === 1 ? "food" : "foods"} marked {dietFilter.nonVeg && dietFilter.egg ? "non-veg or egg" : dietFilter.egg ? "egg" : "non-veg"} {hiddenCount === 1 ? "is" : "are"} hidden.</p>}
+        {filtering && shownResults.some((food) => !food.dietType) && <p className={ui.muted}>Foods without a diet label stay visible, marked “Diet not checked”.</p>}
+      </>}
+    </div>
+  );
+
   return (
-    <div className={`${styles.page} space-y-5`}>
-      <PageHeading title="Track your nutrition" description="Search a food, choose a portion, and keep a clear log of meals and water." actions={
-        <div className="flex items-center gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-2 py-1">
-          <button onClick={() => shiftDate(-1)} aria-label="Previous day" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover"><ArrowLeft size={16}/></button>
-          <span className="min-w-32 text-center text-xs text-fitx-text-secondary">{dayLabels.picker}</span>
-          <button onClick={() => shiftDate(1)} aria-label="Next day" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover"><ArrowRight size={16}/></button>
+    <div className={styles.page}>
+      <PageHeader title="Nutrition" actions={<>
+        <div className={styles.day} role="group" aria-label="Day">
+          <button type="button" onClick={() => shiftDate(-1)} aria-label="Previous day" className={styles.dayButton}><ArrowLeft size={16} aria-hidden="true"/></button>
+          <span className={styles.dayLabel}>{dayLabels.picker}</span>
+          <button type="button" onClick={() => shiftDate(1)} aria-label="Next day" className={styles.dayButton}><ArrowRight size={16} aria-hidden="true"/></button>
         </div>
-      }/>
-      <section className={styles.overview} aria-label={dayLabels.summary}>
-        <div className={styles.overviewHeader}>
-          <div><p className={styles.eyebrow}>Daily nutrition</p><h2>{dayLabels.heading}</h2></div>
-          <button type="button" onClick={() => setTargetsOpen(true)} className={styles.targetButton}><Target size={14}/>{manualTargets ? "Your targets" : "Edit targets"}</button>
-        </div>
-        <div className={styles.overviewBody}>
-          <div className={styles.calorieColumn}>
-            <div role="img" aria-label={calorieLabel}>
-              <SegmentRing size="lg" segments={[{ percent: calorieGoal?.percent ?? 0, tone: calorieGoal?.isOver ? "over" : "energy" }]}>
-                <strong className={styles.ringNumber}>{Math.round(totals.calories).toLocaleString()}</strong>
-                <span className={styles.ringSmall}>{target?.calories ? `/ ${target.calories} kcal` : "kcal logged"}</span>
-              </SegmentRing>
-            </div>
-            <div className={styles.calorieNotes}>
-              {balance
-                ? <p className={`${styles.remaining} ${balance.over ? styles.overNote : ""}`}><strong>{balance.remaining.toLocaleString()} kcal</strong> {balance.over ? "over your target" : "left"}</p>
-                : <p className={styles.targetHint}>Set a target to see how many calories are left.</p>}
-              {balance && <p className={styles.targetHint}>Target minus food. Exercise isn&apos;t added back.</p>}
-              {target && <p className={styles.targetHint}>{targetSourceText}</p>}
-              {estimateCount > 0 && <p className={styles.targetHint}>Includes {estimateCount} estimated {estimateCount === 1 ? "item" : "items"}</p>}
-            </div>
-          </div>
-          <div className={styles.macroGrid}>
-            {macroRows.map(({ label, key, value, goal, progress, unknown }) => (
-              <div key={label} className={styles.macro}>
-                <div className={styles.macroTop}><span>{label}</span><strong>{Math.round(value)} <small>g</small></strong></div>
-                {goal && progress ? <>
-                  <span className={styles.macroGoal}>of {goal} g · {progress.isOver ? <span className={styles.macroOver}>{progress.over} g over</span> : `${Math.max(0, Math.round(goal) - Math.round(value))} g left`}</span>
-                  <div className={`${styles.macroTrack} ${progress.isOver ? styles.isOver : ""}`} role="progressbar" aria-label={`${label} against target`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}><span style={{ width: `${progress.percent}%` }}/></div>
-                </> : <span className={styles.macroGoal}>logged today</span>}
-                {unknown > 0 && <span className={styles.macroUnknown}>Leaves out {unknown} {unknown === 1 ? "item" : "items"} with no {MACRO_LABEL[key]} value</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-      <nav aria-label="Nutrition sections" className={`${styles.tabs} flex gap-5 overflow-x-auto border-b border-fitx-divider text-sm`}>
-        {tabs.map(([value, label]) => <button key={value} onClick={() => setTab(value)} aria-current={tab === value ? "page" : undefined} className={`whitespace-nowrap border-b-2 px-1 pb-3 ${tab === value ? "border-fitx-primary text-fitx-primary-text" : "border-transparent text-fitx-text-secondary hover:text-fitx-text"}`}>{label}</button>)}
+        <button type="button" onClick={() => openLog()} className={`fitx-button ${styles.logButton}`}><Plus size={17} aria-hidden="true"/>Log food</button>
+      </>}/>
+
+      <DayOverview summaryLabel={dayLabels.summary} heading={dayLabels.heading} totals={totals} target={target} targetSource={targetSourceText}
+        hasOwnTargets={Boolean(manualTargets)} estimateCount={estimateCount} onTargets={() => setTargetsOpen(true)}
+        water={{ ml: waterMl, target: waterTarget, busy, goalHref: homePanel("goals", { new: "water_day" }), onAdd: (ml) => void addWater(ml) }}/>
+
+      {!logOpen && <form onSubmit={(event) => void quickSearch(event)} className={styles.quick} role="search" aria-label="Quick add">
+        <Search size={18} aria-hidden="true" className={styles.quickIcon}/>
+        <input className={styles.quickInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search food, e.g. 3 idli" aria-label="Search foods" enterKeyHint="search"/>
+        <button type="submit" className={styles.quickGo} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
+        <button type="button" className={styles.quickScan} onClick={() => { openLog({ mode: "barcode" }); setScannerOpen(true); }} aria-label="Scan a barcode"><ScanBarcode size={18} aria-hidden="true"/></button>
+      </form>}
+
+      <nav aria-label="Nutrition sections" className={styles.tabs}>
+        {tabs.map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} aria-current={tab === value ? "page" : undefined} className={styles.tab}>{label}</button>)}
       </nav>
-      {error && <p role="alert" className={styles.alert}>{error}</p>}
-      {notice && !error && <p role="status" className={styles.notice}>{notice}</p>}
-      {tab === "log" && <div className={`${styles.logGrid} grid items-start gap-4`}>
-        <section className={`${styles.searchPanel} fitx-panel p-4 sm:p-5`}>
-          <h2 className="mb-3 flex items-center gap-2 font-medium"><Search size={17} className="text-fitx-primary"/>Search food</h2>
-          <form onSubmit={searchFoods} className="flex gap-2">
-            <input ref={searchInput} className="fitx-field" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Food and amount, e.g. 3 idli or 150 g rice" aria-label="Search foods"/>
-            <button className="fitx-button fitx-button-secondary shrink-0 px-3" disabled={searchingFoods} aria-label="Search food"><Search size={17}/></button>
-          </form>
-          <div className={styles.suggestions}>
-            <span className="mr-1 text-[11px] text-fitx-text-disabled">Try</span>
-            {EXAMPLES.map((term) => <button key={term} type="button" onClick={() => void runFoodSearch(term)} className={styles.suggestion}>{term}</button>)}
-          </div>
-          <form onSubmit={findBarcode} className="mt-3 flex gap-2">
-            <input className="fitx-field" value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder="Barcode number" aria-label="Barcode number" inputMode="numeric"/>
-            <button className="fitx-button fitx-button-secondary shrink-0 px-3" disabled={busy} aria-label="Find barcode"><Barcode size={17}/></button>
-          </form>
-          <BarcodeScanner onDetected={onBarcodeDetected} autoOpen={scanOnLoad} onAutoOpened={() => setScanOnLoad(false)}/>
-          <div className={styles.searchTools}>
-            {lastSearch && searchMode !== "packaged" && <button type="button" className={ui.textButton} disabled={searchingFoods} onClick={() => void runFoodSearch(lastSearch, true)}><PackageSearch size={13} className="mr-1 inline"/>Search packaged products for “{parseFoodQuery(lastSearch).text}”</button>}
-            <label className={styles.filter}><input type="checkbox" checked={dietFilter.nonVeg} onChange={(event) => changeDietFilter({ nonVeg: event.target.checked })}/>Hide foods marked non-veg</label>
-            <label className={styles.filter}><input type="checkbox" checked={dietFilter.egg} onChange={(event) => changeDietFilter({ egg: event.target.checked })}/>Hide foods marked egg</label>
-            <Link href="/nutrition/sources" className={ui.textButton}><BookOpen size={13} className="mr-1 inline"/>Sources</Link>
-          </div>
-          {visibleSources.length > 0 && <p className={styles.sources} aria-label="Sources for these results">{visibleSources.map((source) => <span key={source.id} className={source.status === "ok" || source.status === "no_results" ? styles.sourceChip : styles.sourceChipDown}>{sourceText(source)}</span>)}</p>}
-          <div aria-live="polite" className={styles.foodResults}>
-            {searchingFoods ? <p className="py-5 text-center text-xs text-fitx-text-secondary">Loading foods…</p> : <>
-              {unsourced && <div className={ui.callout}>
-                <p><strong>{unsourced.label}</strong> isn&apos;t in FITX&apos;s food data with a source yet, so FITX won&apos;t guess its values.{shownResults.length > 0 ? " The foods below only contain the word or are other dishes." : ""}</p>
+      {!logOpen && messages}
+
+      <div className={styles.panel}>
+        {tab === "meals" && <MealLog entries={entries} title={dayLabels.diary} loading={loading} busy={busy} templatesReady={capabilities.templates} sections={sections}
+          onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
+          onAddSection={() => setNamePrompt({ kind: "section", then: "none" })}
+          onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
+          onSaveDay={() => setNamePrompt({ kind: "day", initial: `${readableDate(date, { weekday: "long" })} routine` })}/>}
+        {tab === "foods" && <MyFoods rows={customRows} loading={loading} busy={busy}
+          photoFor={photoFor} onUse={(row) => { chooseFood(customFoodResult(row, photoFor(row))); openLog({ quiet: true }); }} onAdd={() => setFoodForm({ editing: null, prefill: null })}
+          onEdit={(row) => setFoodForm({ editing: row, prefill: null })} onRemove={(row) => void removeFood(row)}/>}
+        {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
+          onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
+        {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={`${targetSourceText}.`}
+          onOpenDay={(key) => { const [year, month, day] = key.split("-").map(Number); setDate(new Date(year, month - 1, day)); setTab("meals"); }}/>}
+      </div>
+
+      <Sheet open={logOpen} onClose={closeLog} title="Log food" description={<>To <strong className="font-semibold text-fitx-text">{meal}</strong> · {dayLabels.picker}</>}>
+        <div className={styles.sheet}>
+          {messages}
+          {selected ? (
+            <section className={styles.addPanel} aria-labelledby="add-title">
+              <div className={styles.addHead}>
+                <button type="button" onClick={() => { setSelected(null); setAmountPrompt(null); }} className={styles.back} aria-label="Back to results"><ChevronLeft size={18} aria-hidden="true"/></button>
+                <h3 id="add-title" className={styles.addTitle}>Add to log</h3>
+              </div>
+              {detailFor(selected)}
+              <div className={styles.addActions}>
+                <button type="button" onClick={() => void logFood(selected)} disabled={busy} className="fitx-button w-full">{busy ? "Saving…" : "Add to log"}</button>
+                {selected.kind !== "custom" && <button type="button" onClick={() => saveSelectedAsFood(selected)} className={ui.textButton}>Save to My foods</button>}
+              </div>
+            </section>
+          ) : <>
+            <Segmented<LogMode> label="Log by" block value={logMode} onChange={(next) => { setLogMode(next); setError(""); }}
+              options={[{ value: "search", label: "Search", icon: <Search size={15} aria-hidden="true"/> }, { value: "barcode", label: "Barcode", icon: <ScanBarcode size={15} aria-hidden="true"/> }]}/>
+            {logMode === "search" ? <>
+              <form onSubmit={searchFoods} className={styles.search} role="search">
+                <Search size={17} aria-hidden="true" className={styles.searchIcon}/>
+                <input ref={searchInput} className={styles.searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Food and amount, e.g. 3 idli" aria-label="Search foods" enterKeyHint="search"/>
+                <button className={styles.searchGo} disabled={searchingFoods} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
+              </form>
+              {!lastSearch && <div className={styles.suggestions} aria-label="Examples">
+                {EXAMPLES.map((term) => <button key={term} type="button" onClick={() => void runFoodSearch(term)} className={styles.suggestion}>{term}</button>)}
+              </div>}
+              <div className={styles.filters}>
+                <label className={styles.filter}><input type="checkbox" checked={dietFilter.nonVeg} onChange={(event) => changeDietFilter({ nonVeg: event.target.checked })}/>Hide non-veg</label>
+                <label className={styles.filter}><input type="checkbox" checked={dietFilter.egg} onChange={(event) => changeDietFilter({ egg: event.target.checked })}/>Hide egg</label>
+                {lastSearch && searchMode !== "packaged" && <button type="button" className={ui.textButton} disabled={searchingFoods} onClick={() => void runFoodSearch(lastSearch, true)}><PackageSearch size={13} className="mr-1 inline" aria-hidden="true"/>Packaged</button>}
+              </div>
+              {choosing && <section className={styles.choose} aria-labelledby="choose-title">
+                <h3 id="choose-title" className="sr-only">Add to log</h3>
+                <p className={styles.chooseTitle}>Choose a food</p>
+                <p className={styles.chooseText}>{pickHint}</p>
+              </section>}
+              {foodList}
+              {visibleSources.length > 0 && !showBrowse && <p className={styles.sources} aria-label="Sources for these results">{visibleSources.map((source) => <span key={source.id} className={source.status === "ok" || source.status === "no_results" ? styles.sourceChip : styles.sourceChipDown}>{sourceText(source)}</span>)}</p>}
+              <div className={styles.sheetFoot}>
+                <button type="button" onClick={() => { hideLog(); setFoodForm({ editing: null, prefill: null }); }} className={ui.textButton}><Plus size={13} className="mr-1 inline" aria-hidden="true"/>Add your own food</button>
+                <Link href="/nutrition/sources" className={ui.textButton}><BookOpen size={13} className="mr-1 inline" aria-hidden="true"/>Sources</Link>
+              </div>
+            </> : <div className={styles.barcode}>
+              <button type="button" className={styles.camera} onClick={() => setScannerOpen(true)}>
+                <span className={styles.cameraArt} aria-hidden="true"><ScanBarcode size={30}/></span>
+                <span className={styles.cameraText}><strong>Scan with camera</strong><small>Rear camera, autofocus, torch</small></span>
+              </button>
+              <form onSubmit={findBarcode} className={styles.manual}>
+                <label htmlFor="barcode-number" className={styles.manualLabel}>Or type the number under the bars</label>
+                <div className={styles.manualRow}>
+                  <input id="barcode-number" ref={barcodeInput} className="fitx-field" value={barcode} onChange={(event) => setBarcode(event.target.value.replace(/[^\d\s-]/g, ""))} placeholder="e.g. 8901063010031" aria-label="Barcode number" inputMode="numeric" autoComplete="off"/>
+                  <button className="fitx-button shrink-0 px-4" disabled={busy || !barcode.trim()} aria-label="Find barcode">{busy ? "Finding…" : "Find"}</button>
+                </div>
+              </form>
+              {barcodeMiss && <div className={ui.callout}>
+                <p>{barcodeMiss.noLabel
+                  ? `Open Food Facts knows ${barcodeMiss.code}${barcodeMiss.name ? ` (“${barcodeMiss.name}”)` : ""} but has no nutrition label for it.`
+                  : `No product with barcode ${barcodeMiss.code} on Open Food Facts.`} Nothing was guessed.</p>
                 <div className={ui.toolbar}>
-                  <button type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" onClick={() => void runFoodSearch(lastSearch, true)}>Search packaged products</button>
-                  <button type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" onClick={() => setFoodForm({ editing: null, prefill: { name: parseFoodQuery(lastSearch).text.replace(/^./, (letter) => letter.toUpperCase()) } })}>Create a custom food</button>
+                  <button type="button" className="fitx-button min-h-11 px-3 text-xs" onClick={() => { hideLog(); setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } }); }}>Create a food</button>
+                  <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => { setBarcodeMiss(null); setLogMode("search"); window.setTimeout(() => searchInput.current?.focus(), 60); }}>Search by name</button>
+                  <a className={ui.textButton} href={`https://world.openfoodfacts.org/product/${barcodeMiss.code}`} target="_blank" rel="noopener noreferrer">Add to Open Food Facts</a>
                 </div>
               </div>}
-              {showBrowse && frequent.length > 0 && <FrequentFoods items={frequent} meal={meal} busy={busy} onAdd={(item) => void addUsual(item)} onChoose={chooseFrequent}/>}
-              {showBrowse && shownRecent.length > 0 && <>
-                <p className={styles.listLabel}>Recent</p>
-                {shownRecent.map((food) => <FoodResultCard key={`recent-${food.source}-${food.id}`} food={food} active={selected?.id === food.id && selected?.source === food.source} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>)}
-                <p className={styles.listLabel}>Common foods</p>
-              </>}
-              {searchMode === "packaged" && <p className={ui.muted}>Packaged products from Open Food Facts, entered by its community from package labels.</p>}
-              {shownResults.some((food) => food.suggestion) && <p className={ui.muted}>Nothing matched every word, so these are the closest spellings.</p>}
-              {shownResults.map((food) => <FoodResultCard key={`${food.source}-${food.id}`} food={food} active={selected?.id === food.id && selected?.source === food.source} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>)}
-              {hiddenCount > 0 && <p className={ui.muted}>{hiddenCount} {hiddenCount === 1 ? "food" : "foods"} marked {dietFilter.nonVeg && dietFilter.egg ? "non-veg or egg" : dietFilter.egg ? "egg" : "non-veg"} {hiddenCount === 1 ? "is" : "are"} hidden.</p>}
-              {filtering && shownResults.some((food) => !food.dietType) && <p className={ui.muted}>Foods without a diet label are still shown, marked “Diet not checked”. Check their ingredients if it matters to you.</p>}
-            </>}
-          </div>
-        </section>
-        <section className={`${styles.addPanel} fitx-panel p-4 sm:p-5`}>
-          <h2 className="mb-4 font-medium">Add to log</h2>
-          {barcodeMiss && !selected && <div className={ui.callout}>
-            <p>{barcodeMiss.noLabel
-              ? `Open Food Facts knows barcode ${barcodeMiss.code}${barcodeMiss.name ? ` (“${barcodeMiss.name}”)` : ""}, but has no usable nutrition label for it, so FITX has no values to show.`
-              : `Barcode ${barcodeMiss.code} wasn't recognised: Open Food Facts has no product with that code.`} Nothing was guessed. You can search by name, or create a custom food from the package.</p>
-            <div className={ui.toolbar}>
-              <button type="button" className="fitx-button min-h-10 px-3 text-xs" onClick={() => setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } })}>Create a custom food</button>
-              <button type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" onClick={() => { setBarcodeMiss(null); searchInput.current?.focus(); }}>Search by name</button>
-              <a className={ui.textButton} href={`https://world.openfoodfacts.org/product/${barcodeMiss.code}`} target="_blank" rel="noopener noreferrer">Add it to Open Food Facts</a>
-            </div>
-          </div>}
-          {selected ? <>
-            <div className="rounded-lg border border-fitx-border bg-fitx-surface p-3">
-              {detailFor(selected, "select", "log-portion", false)}
-            </div>
-            <button onClick={() => void logFood(selected)} disabled={busy} className="fitx-button mt-4 w-full">{busy ? "Saving…" : "Add to log"}</button>
-            {selected.kind !== "custom" && <button type="button" onClick={() => saveSelectedAsFood(selected)} className={`${ui.textButton} mt-2`}>Save to My foods</button>}
-          </> : !barcodeMiss && <EmptyState title="Choose a food" description="Search the database or look up a product barcode to see its serving nutrition here."/>}
-          <button type="button" onClick={() => setFoodForm({ editing: null, prefill: null })} className={`${ui.textButton} mt-4`}>Add your own food</button>
-        </section>
-        <aside className={styles.nutritionAside}>
-          <section className="fitx-panel p-4 sm:p-5">
-            <h2 className="mb-3 flex items-center gap-2 font-medium"><Droplets size={17} className="text-fitx-info"/>Water intake</h2>
-            <p className="mb-3 text-sm text-fitx-text-secondary">{(waterMl / 1000).toFixed(1)} L{waterTarget ? <span className="text-fitx-text-disabled"> / {(waterTarget / 1000).toFixed(1)} L</span> : null}</p>
-            {waterTarget
-              ? <div className="fitx-progress-track mb-3 h-2"><div className="fitx-progress-fill h-full rounded-full bg-fitx-info" style={{ width: `${goalPercent(waterMl, waterTarget)}%`, background: "var(--fitx-info)" }}/></div>
-              : <p className="mb-3 text-xs text-fitx-text-secondary">No water target yet. <Link href="/goals?tab=goals&new=water_day" className={ui.textButton}>Set a daily water goal</Link></p>}
-            <div className="flex gap-2">{[250, 500].map((ml) => <button key={ml} disabled={busy} onClick={() => void addWater(ml)} className="fitx-button fitx-button-secondary flex-1">+{ml} ml</button>)}</div>
-          </section>
-        </aside>
-      </div>}
-      {tab === "meals" && <MealLog entries={entries} title={readableDate(date)} loading={loading} busy={busy} templatesReady={capabilities.templates} sections={sections}
-        onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} onLogFood={() => setTab("log")} onCopyYesterday={() => void copyYesterday()}
-        onAddSection={() => setNamePrompt({ kind: "section", then: "none" })}
-        onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
-        onSaveDay={() => setNamePrompt({ kind: "day", initial: `${readableDate(date, { weekday: "long" })} routine` })}/>}
-      {tab === "foods" && <MyFoods rows={customRows} loading={loading} busy={busy}
-        photoFor={photoFor} onUse={(row) => { chooseFood(customFoodResult(row, photoFor(row))); setTab("log"); }} onAdd={() => setFoodForm({ editing: null, prefill: null })}
-        onEdit={(row) => setFoodForm({ editing: row, prefill: null })} onRemove={(row) => void removeFood(row)}/>}
-      {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
-        onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
-      {tab === "insights" && <section className="fitx-panel p-4 sm:p-5"><h2 className="mb-2 font-medium">Daily nutrition insights</h2><p className="mb-5 text-sm text-fitx-text-secondary">This view summarizes the food you have logged for the selected day{estimateCount > 0 ? `, including ${estimateCount} estimated ${estimateCount === 1 ? "item" : "items"}` : ""}. For more than one day, see History.</p>{unknownTotals.length > 0 && <p className="mb-4 text-xs text-fitx-text-secondary">{unknownTotals.map((key) => `${totals.unknown[key]} ${totals.unknown[key] === 1 ? "entry has" : "entries have"} no ${MACRO_LABEL[key]} value`).join(", ")}; those are left out of the totals, not counted as 0 g.</p>}{entries.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{([["Energy", Math.round(totals.calories), "kcal", "calories"], ["Protein", Math.round(totals.protein), "g", "protein"], ["Carbohydrates", Math.round(totals.carbs), "g", "carbs"], ["Fat", Math.round(totals.fat), "g", "fat"]] as const).map(([label, value, unit, key]) => { const goal = target?.[key] ?? null; const guessed = dayTargets?.estimated[key] ?? false; const progress = goal ? goalProgress(value, goal) : null; return <div key={label} className="rounded-xl border border-fitx-border bg-fitx-surface p-4"><p className="text-xs text-fitx-text-secondary">{label}</p><p className="mt-2 text-2xl font-semibold">{value} <span className="text-sm font-normal text-fitx-text-disabled">{unit}</span></p>{progress && <p className={`mt-2 text-xs ${progress.isOver ? styles.macroOver : "text-fitx-text-disabled"}`}>{progress.isOver ? `${progress.over} ${unit} over the ${guessed ? "estimated " : ""}target` : `${progress.percent}% of ${guessed ? "estimated" : "your"} target`}</p>}</div>; })}</div> : <EmptyState title="No nutrition data yet" description="Logged meals will be summarized here."/>}</section>}
-      {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={`${targetSourceText}.`}
-        onOpenDay={(key) => { const [year, month, day] = key.split("-").map(Number); setDate(new Date(year, month - 1, day)); setTab("meals"); }}/>}
-      {sheetOpen && selected && <Sheet title="Scanned product" description="Check the amount, pick the meal and add it." onClose={() => setSheetOpen(false)}
-        footer={<div className="grid w-full gap-2">
-          {/* The page's own alert sits behind this modal, so a rejected amount or a failed save is shown here, on its own row above the buttons. */}
-          {error && <p role="alert" className={styles.alert}>{error}</p>}
-          <div className={ui.sheetActions}>
-            <button type="button" className="fitx-button" disabled={busy} onClick={() => void logFood(selected)}>{busy ? "Saving…" : `Add to ${meal}`}</button>
-            {selected.kind !== "custom" && <button type="button" className="fitx-button fitx-button-secondary" onClick={() => saveSelectedAsFood(selected)}>Save to My foods</button>}
-          </div>
-        </div>}>
-        {detailFor(selected, "chips", "sheet-portion", true)}
-      </Sheet>}
+            </div>}
+          </>}
+        </div>
+      </Sheet>
+      <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onDetected={onBarcodeDetected} onManual={typeBarcode}/>
+
       {editingEntry && <EntryEditor entry={editingEntry} busy={busy} sections={sections} onCancel={() => setEditingEntry(null)} onSave={(change) => void saveEntry(editingEntry, change)}/>}
-      {foodForm && <CustomFoodForm editing={foodForm.editing} prefill={foodForm.prefill} photoUrl={photoFor(foodForm.editing ?? undefined)} v2={capabilities.customFoodsV2} busy={busy} onCancel={() => setFoodForm(null)} onSave={(input, photo, removePhoto) => void saveFood(input, photo, removePhoto)}/>}
+      {foodForm && <CustomFoodForm editing={foodForm.editing} prefill={foodForm.prefill} photoUrl={photoFor(foodForm.editing ?? undefined)} v2={capabilities.customFoodsV2} busy={busy} onCancel={() => { setFoodForm(null); restoreLog(); }} onSave={(input, photo, removePhoto) => void saveFood(input, photo, removePhoto)}/>}
       {namePrompt && <NameDialog title={namePrompt.kind === "section" ? "Add a meal" : namePrompt.kind === "meal" ? `Save ${namePrompt.slot.toLowerCase()} as a meal` : "Save this day as a routine"}
-        description={namePrompt.kind === "section" ? "A name for your own meal, such as Pre-workout or Evening tea. It sits beside Breakfast, Lunch, Dinner and Snack." : namePrompt.kind === "meal" ? "Its foods and amounts are copied, so you can add the same meal to any day." : "Every meal of this day is copied, so you can add the whole day again in one tap."}
+        description={namePrompt.kind === "section" ? "Such as Pre-workout or Evening tea." : namePrompt.kind === "meal" ? "Its foods and amounts are copied for any day." : "Every meal of this day, to add again in one tap."}
         label={namePrompt.kind === "section" ? "Meal name" : "Name"} maxLength={namePrompt.kind === "section" ? 40 : 80}
         validate={namePrompt.kind === "section" ? (value) => { const checked = checkSectionName(value); return checked.ok ? null : checked.reason; } : undefined}
-        initial={namePrompt.kind === "section" ? "" : namePrompt.initial} busy={busy} onCancel={() => { if (namePrompt.kind === "section" && namePrompt.then === "sheet") setSheetOpen(true); setNamePrompt(null); }} onSave={(name) => void saveNamed(name)}/>}
-      {householdOpen && <HouseholdMeasures sizes={household} onCancel={() => { setHouseholdOpen(false); if (selected && sheetReturn.current) setSheetOpen(true); }}
-        onSave={(sizes) => { saveHousehold(sizes); setHousehold(sizes); setHouseholdOpen(false); if (selected && sheetReturn.current) setSheetOpen(true); }}/>}
+        initial={namePrompt.kind === "section" ? "" : namePrompt.initial} busy={busy} onCancel={() => { setNamePrompt(null); restoreLog(); }} onSave={(name) => void saveNamed(name)}/>}
+      {householdOpen && <HouseholdMeasures sizes={household} onCancel={() => { setHouseholdOpen(false); restoreLog(); }}
+        onSave={(sizes) => { saveHousehold(sizes); setHousehold(sizes); setHouseholdOpen(false); restoreLog(); }}/>}
       {targetsOpen && <TargetsEditor estimated={estimated} manual={manualTargets} ready={capabilities.targets} busy={busy} onClose={() => setTargetsOpen(false)}
         onSave={(next) => void updateTargets(next)} onReset={() => void updateTargets(null)}/>}
     </div>

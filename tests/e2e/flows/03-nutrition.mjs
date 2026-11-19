@@ -1,7 +1,9 @@
-// Flow 3: Nutrition for a vegetarian. Quantity searches ("3 idlis", "150 g rice", "2 samosas") pick the amount and
-// unit, a size switch changes the numbers, each is logged; recent foods come back first; "Hide foods marked non-veg"
-// is on and hides chicken; a custom food is saved with a photo; today becomes a routine applied to tomorrow; own
-// targets are saved; and a barcode lookup with the internet blocked says Open Food Facts couldn't be reached.
+// Flow 3: Nutrition for a vegetarian. "Log food" opens one sheet with search, recent and frequent foods and the
+// barcode scanner. Quantity searches ("3 idlis", "150 g rice", "2 samosas") pick the amount and unit; idli switches
+// between pieces and grams with USDA's piece weight, a banana (no sourced piece weight) is grams only and says why; a
+// size switch changes the numbers, each is logged; recent foods come back first; "Hide non-veg" is on and hides
+// chicken; a custom food is saved with a photo; today becomes a routine applied to tomorrow; own targets are saved;
+// the scanner offers "Type the number"; and a barcode lookup with the internet blocked says it couldn't be checked.
 import { kolkataDate, signInUi, textOf } from "./common.mjs";
 import { makePng } from "../support/png.mjs";
 
@@ -9,6 +11,19 @@ function addPanel(page) {
   return page.locator("section").filter({ has: page.getByRole("heading", { name: "Add to log", exact: true }) }).first();
 }
 
+/** Opens the Log food sheet from the page's primary action. */
+async function openLog(page) {
+  await page.getByRole("button", { name: "Log food", exact: true }).click();
+  await page.getByRole("dialog", { name: "Log food" }).waitFor({ timeout: 10000 });
+}
+
+async function closeLog(page) {
+  const sheet = page.getByRole("dialog", { name: "Log food" });
+  await sheet.getByRole("button", { name: "Close", exact: true }).click();
+  await sheet.waitFor({ state: "hidden", timeout: 10000 });
+}
+
+/** Searches from the page's quick-add box, or from the sheet's own search when Log food is open (only one is there). */
 async function search(t, text) {
   const page = t.page;
   await page.getByRole("textbox", { name: "Search foods" }).fill(text);
@@ -40,7 +55,8 @@ async function logSelected(t, meal) {
   const panel = addPanel(t.page);
   await panel.getByRole("combobox", { name: "Meal", exact: true }).selectOption(meal);
   await panel.getByRole("button", { name: "Add to log" }).click();
-  await t.page.waitForTimeout(400);
+  // Logging closes the sheet and returns to the day.
+  await t.page.getByRole("dialog", { name: "Log food" }).waitFor({ state: "hidden", timeout: 15000 });
   await t.settle(2000);
 }
 
@@ -54,14 +70,19 @@ export const flow = {
     const tomorrow = kolkataDate(1);
     await signInUi(t, account);
 
-    await t.step("Nutrition opens on Log food with the vegetarian filter on", async () => {
+    await t.step("Nutrition shows the day; Log food opens the sheet with the vegetarian filter on", async () => {
       await t.goto("/nutrition", { label: "nutrition" });
       await page.getByRole("textbox", { name: "Search foods" }).waitFor();
-      const nonVeg = page.getByLabel("Hide foods marked non-veg");
-      const egg = page.getByLabel("Hide foods marked egg");
+      await page.getByRole("heading", { name: /^Meals/ }).waitFor({ timeout: 15000 });
+      await t.checkpoint("nutrition day");
+      await openLog(page);
+      const nonVeg = page.getByLabel("Hide non-veg");
+      const egg = page.getByLabel("Hide egg");
       t.expect(await nonVeg.isChecked(), "a vegetarian should start with non-veg foods hidden");
       t.note("egg filter starts", await egg.isChecked());
+      t.expect(await page.getByRole("radiogroup", { name: "Log by" }).isVisible(), "Search and Barcode should be offered");
       await t.checkpoint("nutrition log food");
+      await closeLog(page);
     });
 
     await t.step("\"3 idlis\" picks 3 pieces of idli", async () => {
@@ -71,7 +92,30 @@ export const flow = {
       t.expect(/idli/i.test(food.name), `the selected food should be idli (${food.name})`);
       t.expect(Number(food.amount) === 3, `the amount should be 3 (${food.amount})`);
       await t.checkpoint("3 idlis selected");
+      const panel = addPanel(page);
+      const count = panel.getByRole("radiogroup", { name: "Count in" });
+      t.expect(await count.getByRole("radio", { name: "Pieces" }).isChecked(), "idli should be counted in pieces");
+      await count.getByText("Grams", { exact: true }).click();
+      const grams = await selectedFood(t);
+      t.note("3 idlis in grams", grams);
+      t.expect(Number(grams.amount) === 114 && /^grams/.test(grams.unit ?? ""), `3 idli should be 114 g (USDA 38 g each) (${grams.amount} ${grams.unit})`);
+      await count.getByText("Pieces", { exact: true }).click();
+      const pieces = await selectedFood(t);
+      t.expect(Number(pieces.amount) === 3, `back to 3 pieces (${pieces.amount})`);
       await logSelected(t, "Breakfast");
+    });
+
+    await t.step("a banana has no sourced piece weight, so it is grams only and says why", async () => {
+      await search(t, "banana");
+      await page.locator("div[aria-live=polite] button[aria-pressed]").filter({ hasText: /^Bananas/ }).first().click();
+      const panel = addPanel(page);
+      await panel.getByRole("spinbutton", { name: "Amount", exact: true }).waitFor({ timeout: 10000 });
+      const text = await textOf(panel);
+      t.note("banana panel", text.slice(0, 400));
+      t.expect(/Grams only/.test(text), "a grams-only reason should show");
+      t.expect(!(await panel.getByRole("radiogroup", { name: "Count in" }).isVisible().catch(() => false)), "no pieces should be offered without a sourced weight");
+      await t.checkpoint("banana grams only");
+      await closeLog(page);
     });
 
     await t.step("\"150 g rice\" picks 150 grams of rice", async () => {
@@ -105,13 +149,19 @@ export const flow = {
       t.expect(logged.every((row) => Number(row.kcal) > 0), "every logged food should carry calories", logged);
     });
 
-    await t.step("recent foods come back first", async () => {
+    await t.step("the day lists the three foods, and recent foods come back first in Log food", async () => {
       await t.goto("/nutrition", { label: "recent foods" });
+      await page.locator("section[aria-labelledby='meals-title']").getByText(/samosa/i).first().waitFor({ timeout: 15000 });
+      const diary = await textOf(page.locator("section[aria-labelledby='meals-title']"));
+      t.expect(/idli/i.test(diary) && /samosa/i.test(diary) && /rice/i.test(diary), "the day's meals should list the three foods", diary.slice(0, 400));
+      await t.checkpoint("day with three foods");
+      await openLog(page);
       await page.getByText("Recent", { exact: true }).waitFor({ timeout: 15000 });
       const recent = await textOf(page.locator("div[aria-live=polite]"));
       t.note("recent list", recent.slice(0, 500));
       t.expect(/idli/i.test(recent) && /samosa/i.test(recent) && /rice/i.test(recent), "the three logged foods should be listed as recent");
       await t.checkpoint("recent foods");
+      await closeLog(page);
     });
 
     await t.step("Home and Nutrition agree on today's calories and the estimated target", async () => {
@@ -137,10 +187,10 @@ export const flow = {
       t.note("chicken curry with the filter on", list.slice(0, 600));
       t.expect(/marked non-veg( or egg)? (is|are) hidden/.test(list), "the hidden count should be stated");
       await t.checkpoint("non-veg hidden");
-      await page.getByLabel("Hide foods marked non-veg").uncheck();
+      await page.getByLabel("Hide non-veg").uncheck();
       const shown = await textOf(page.locator("div[aria-live=polite]"));
       t.expect(/chicken/i.test(shown), "unticking the filter should show the chicken results", shown.slice(0, 300));
-      await page.getByLabel("Hide foods marked non-veg").check();
+      await page.getByLabel("Hide non-veg").check();
     });
 
     await t.step("a custom food with a photo", async () => {
@@ -168,7 +218,12 @@ export const flow = {
       await page.getByText("Amma's poha").first().waitFor({ timeout: 10000 });
       const photo = page.locator("img[src*='/storage/v1/object/sign/']").first();
       await photo.waitFor({ timeout: 10000 });
-      const loaded = await photo.evaluate((image) => image.complete && image.naturalWidth > 0);
+      // Wait for the picture itself, not only its element.
+      const loaded = await photo.evaluate((image) => (image.complete && image.naturalWidth > 0) || new Promise((resolve) => {
+        image.addEventListener("load", () => resolve(image.naturalWidth > 0), { once: true });
+        image.addEventListener("error", () => resolve(false), { once: true });
+        setTimeout(() => resolve(image.complete && image.naturalWidth > 0), 10000);
+      }));
       t.expect(loaded, "the food photo should load from a signed link");
       await t.checkpoint("my foods with photo");
     });
@@ -215,8 +270,23 @@ export const flow = {
       await t.goto("/nutrition", { label: "nutrition after targets" });
     });
 
+    await t.step("the scanner always offers typing the number", async () => {
+      await openLog(page);
+      await page.getByRole("radiogroup", { name: "Log by" }).getByText("Barcode", { exact: true }).click();
+      await page.getByRole("button", { name: /Scan with camera/ }).click();
+      const scanner = page.getByRole("dialog", { name: "Scan barcode" });
+      await scanner.waitFor({ timeout: 10000 });
+      await page.waitForTimeout(1500);
+      t.note("scanner status", await scanner.getByRole("status").innerText().catch(() => ""));
+      await t.checkpoint("barcode scanner", { fullPage: false });
+      await scanner.getByRole("button", { name: "Type the number" }).click();
+      await scanner.waitFor({ state: "hidden", timeout: 10000 });
+      await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Barcode number", null, { timeout: 3000 }).catch(() => undefined);
+      const focused = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
+      t.expect(focused === "Barcode number", `"Type the number" should put the cursor in the barcode field (${focused})`);
+    });
+
     await t.step("a barcode lookup with the internet blocked says it couldn't be checked", async () => {
-      await page.getByRole("button", { name: "Log food", exact: true }).click();
       await page.getByRole("textbox", { name: "Barcode number" }).fill("8901063010031");
       await page.getByRole("button", { name: "Find barcode" }).click();
       const message = page.getByText(/couldn.t be checked|didn.t answer|unavailable/i).first();

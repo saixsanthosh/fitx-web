@@ -1,7 +1,11 @@
+"use client";
+
 import { Minus, Plus } from "lucide-react";
+import { Segmented } from "@/components/ui/Segmented";
 import { formatAmount, stepAmount, stepKindOf } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodUnit } from "@/lib/domain/food-query";
 import type { FoodMacros, MacroKey } from "@/lib/domain/nutrition";
+import { amountMode, countMode, pieceSizeLabel } from "@/lib/food/pieces";
 import type { FoodResult } from "@/lib/food/types";
 import { PortionEstimateBadge } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
@@ -39,8 +43,30 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
   const step = (direction: 1 | -1) => onAmount(formatAmount(stepAmount(Number(amount), direction, kind)));
   const hasVolume = options.some((portion) => portion.unit === "ml" || portion.vessel);
   const hasVessel = options.some((portion) => portion.vessel);
+  // Pieces only where the food's own data weighs one (USDA, the label, your saved serving); otherwise grams, and why.
+  const counting = countMode(food, options);
+  const entry = amountMode(unitKey, counting);
+  const switchTo = (next: "pieces" | "grams" | "other") => {
+    if (counting.kind !== "pieces" || next === entry) return;
+    if (next === "grams") { onUnit("g"); return; }
+    const piece = options[counting.preferred];
+    onUnit(`portion:${counting.preferred}`);
+    // From grams to pieces: a whole number of pieces, the nearest to what was there.
+    const typedGrams = entry === "grams" ? Number(amount) : Number.NaN;
+    onAmount(String(Number.isFinite(typedGrams) && typedGrams > 0 ? Math.max(1, Math.round(typedGrams / piece.grams)) : 1));
+  };
   return (
     <>
+      {counting.kind === "pieces" && <div className={styles.countBar}>
+        <Segmented<"pieces" | "grams" | "other"> label="Count in" value={entry} onChange={switchTo} block
+          options={[{ value: "pieces", label: "Pieces" }, { value: "grams", label: "Grams" }]}/>
+        {entry === "pieces" && counting.indices.length > 1 && <div role="group" aria-label="Piece size" className={styles.chips}>
+          {counting.indices.map((index) => (
+            <button key={index} type="button" className={styles.chip} aria-pressed={unitKey === `portion:${index}`} onClick={() => onUnit(`portion:${index}`)}>{pieceSizeLabel(options[index])}</button>
+          ))}
+        </div>}
+      </div>}
+      {counting.kind === "grams-only" && <p className={styles.gramsOnly}>{counting.reason}</p>}
       <div className={styles.macroTiles} aria-label="Nutrition for this amount">
         <div>{macros ? Math.round(macros.calories) : "–"}<span>kcal</span></div>
         {MACRO_TILES.map(([key, label]) => (
@@ -76,7 +102,7 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
             ? `Worked out from USDA's ${chosen.derivedFrom.label} = ${formatAmount(chosen.derivedFrom.grams)} g (US measures).`
             : `USDA average for ${chosen.label}: ${formatAmount(chosen.grams)} g.`} Real pieces and cups vary; weigh it for an exact log.
       </p>}
-      {!hasVolume && <p className={styles.portionSource}>Millilitres, cups, katori and bowls need a volume measure from the food&apos;s source, and this food has none, so use grams{food.portions.length ? " or one of its pieces" : ""}.</p>}
+      {!hasVolume && <p className={styles.portionSource}>No ml, cup or katori: the source has no volume measure for this food.</p>}
       {hasVessel && onMeasures && <button type="button" className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}
       {prompt && <div className={styles.prompt} role="status">
         <p>{prompt.message}</p>

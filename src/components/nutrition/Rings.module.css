@@ -5,9 +5,9 @@
 .track,.arc { fill: none; stroke-width: 11; }
 .track { stroke: var(--fitx-track); }
 .arc { stroke-linecap: butt; animation: ring-grow .9s cubic-bezier(.22,.8,.26,1) both; }
-.carbs { stroke: var(--fitx-info); }
-.protein { stroke: var(--fitx-gold); }
-.fat { stroke: var(--fitx-primary); }
+.carbs { stroke: var(--fitx-macro-carbs); }
+.protein { stroke: var(--fitx-macro-protein); }
+.fat { stroke: var(--fitx-macro-fat); }
 .energy { stroke: var(--fitx-success); }
 .over { stroke: var(--fitx-warning); }
 .center { position: relative; display: grid; justify-items: center; align-content: center; gap: .1rem; text-align: center; }

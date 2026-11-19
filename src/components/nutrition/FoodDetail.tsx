@@ -43,9 +43,9 @@ function sourceLine(food: FoodResult) {
 }
 
 /**
- * Everything about the chosen food in one block, used in the Add to log panel and in the barcode product sheet: name,
- * brand, picture and data source; the label's serving; the calorie ring with the macro split; every other nutrient
- * the product has; and the amount with a servings stepper and the meal.
+ * Everything about the chosen food in one block, in the order a member logs it: name and badges; the amount (pieces or
+ * grams where the food can be counted) and the meal; then the calorie ring with the macro split, every other nutrient
+ * the product has, the label's serving and where the values come from.
  */
 export function FoodDetail(props: FoodDetailProps) {
   const { food, grams, sections, meal, onMeal, onAddSection, mealControl } = props;
@@ -61,25 +61,14 @@ export function FoodDetail(props: FoodDetailProps) {
       <div className="flex items-start justify-between gap-3">
         {food.image && <Image src={food.image} alt={`${food.name} package`} width={72} height={72} unoptimized className={styles.productImage}/>}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{food.name}</p>
+          <p className="text-[17px] font-semibold leading-snug tracking-[-.01em]">{food.name}</p>
           <p className="mt-1 text-xs text-fitx-text-secondary">{food.brand ? `${food.brand} · ` : ""}{food.basis}</p>
           <p className="mt-1.5 flex flex-wrap gap-1"><BasisBadge basis={food.valueBasis}/><StateTag state={food.state}/><DietBadge diet={food.dietType}/></p>
         </div>
         {props.onClear && <button type="button" onClick={props.onClear} aria-label="Clear selected food" className={styles.iconButton}><X size={16}/></button>}
       </div>
-      <p className={styles.credit}>
-        {sourceLine(food)}
-        {food.imageCredit && <> · {food.imageCredit}</>}
-        {food.sourceUrl && <> · <a href={food.sourceUrl} target="_blank" rel="noopener noreferrer">product page</a></>}
-      </p>
-      {facts && <p className={styles.factLine}>{facts}</p>}
-      {food.servingNote && <p className={styles.factLine}>{food.servingNote}</p>}
-      {food.recipeNote && <p className={styles.recipeNote}>{food.recipeNote}</p>}
-      <ProductSummary food={food} grams={grams}/>
-      {problem && <p role="status" className={styles.callout}>{problem}</p>}
       <PortionPicker food={food} amount={props.amount} unitKey={props.unitKey} options={props.options} chosen={props.chosen} grams={grams} macros={props.macros}
         prompt={props.prompt} onAmount={props.onAmount} onUnit={props.onUnit} onMeasures={props.onMeasures} idPrefix={props.idPrefix}/>
-      <NutrientList food={food} grams={grams} source={food.source === "Open Food Facts" ? "this label" : "this source"}/>
       {mealControl === "select"
         ? <label className="mt-3 block text-xs text-fitx-text-secondary">Meal<select className="fitx-field mt-1.5" value={meal} onChange={(event) => (event.target.value === ADD_MEAL_VALUE ? onAddSection() : onMeal(event.target.value))}>
           {sections.map((name) => <option key={name}>{name}</option>)}
@@ -92,6 +81,17 @@ export function FoodDetail(props: FoodDetailProps) {
             <button type="button" className={styles.chip} onClick={onAddSection}>+ Add a meal</button>
           </div>
         </div>}
+      <ProductSummary food={food} grams={grams}/>
+      {problem && <p role="status" className={styles.callout}>{problem}</p>}
+      <NutrientList food={food} grams={grams} source={food.source === "Open Food Facts" ? "this label" : "this source"}/>
+      {facts && <p className={styles.factLine}>{facts}</p>}
+      {food.servingNote && <p className={styles.factLine}>{food.servingNote}</p>}
+      {food.recipeNote && <p className={styles.recipeNote}>{food.recipeNote}</p>}
+      <p className={`${styles.credit} mt-3`}>
+        {sourceLine(food)}
+        {food.imageCredit && <> · {food.imageCredit}</>}
+        {food.sourceUrl && <> · <a href={food.sourceUrl} target="_blank" rel="noopener noreferrer">product page</a></>}
+      </p>
     </>
   );
 }

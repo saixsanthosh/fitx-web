@@ -1,9 +1,10 @@
-import { Bookmark, CalendarDays, Copy, Pencil, Plus, Utensils, X } from "lucide-react";
+import { Bookmark, CalendarDays, Copy, Pencil, Plus, X } from "lucide-react";
 import { formatAmount } from "@/lib/domain/food-query";
 import { MACRO_LABEL, sumKnown } from "@/lib/domain/nutrition";
 import { entryBasis, entryMissing, isEstimateSnapshot, sameMeal, type MealEntry } from "@/lib/food/client-data";
 import { BasisBadge, PortionEstimateBadge } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
+import diary from "./MealLog.module.css";
 
 interface MealLogProps {
   entries: MealEntry[];
@@ -20,6 +21,8 @@ interface MealLogProps {
   onSaveDay: () => void;
   onCopyYesterday: () => void;
   onLogFood: () => void;
+  /** Opens Log food with this meal chosen. */
+  onAddTo: (slot: string) => void;
   onAddSection: () => void;
 }
 
@@ -28,42 +31,50 @@ export function isEstimateEntry(entry: MealEntry): boolean {
   return isEstimateSnapshot(entry);
 }
 
-export function MealLog({ entries, title, loading, busy, templatesReady, sections, onEdit, onDelete, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddSection }: MealLogProps) {
+/**
+ * The day's diary: each meal with its total and a quiet add button, the entries as plain rows. Totals leave out
+ * unknown values (they are never counted as 0 g) and say so.
+ */
+export function MealLog({ entries, title, loading, busy, templatesReady, sections, onEdit, onDelete, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
   const estimates = entries.filter(isEstimateEntry).length;
   const unknown = sumKnown(entries).unknown;
   const lacking = (["protein", "carbs", "fat"] as const).filter((key) => unknown[key] > 0);
   return (
-    <section className="fitx-panel p-4 sm:p-5">
-      <div className={styles.slotHeader}>
-        <h2 className="font-medium">Meals · {title}</h2>
-        <div className={styles.toolbar}>
-          <button type="button" className={styles.textButton} disabled={busy} onClick={onCopyYesterday}><Copy size={13} className="mr-1 inline"/>Copy yesterday</button>
-          {templatesReady && entries.length > 0 && <button type="button" className={styles.textButton} disabled={busy} onClick={onSaveDay}><CalendarDays size={13} className="mr-1 inline"/>Save today as a routine</button>}
-          <button type="button" className={styles.textButton} onClick={onAddSection}><Plus size={13} className="mr-1 inline"/>Add a meal</button>
+    <section className={diary.diary} aria-labelledby="meals-title">
+      <div className={diary.head}>
+        <h2 id="meals-title" className={diary.title}>Meals <span>{title}</span></h2>
+        <div className={diary.tools}>
+          <button type="button" className={styles.textButton} disabled={busy} onClick={onCopyYesterday}><Copy size={13} className="mr-1 inline" aria-hidden="true"/>Copy yesterday</button>
+          {templatesReady && entries.length > 0 && <button type="button" className={styles.textButton} disabled={busy} onClick={onSaveDay}><CalendarDays size={13} className="mr-1 inline" aria-hidden="true"/>Save today as a routine</button>}
+          <button type="button" className={styles.textButton} onClick={onAddSection}><Plus size={13} className="mr-1 inline" aria-hidden="true"/>Add a meal</button>
         </div>
       </div>
-      {estimates > 0 && <p className={`${styles.muted} mb-3`}>Totals include {estimates} estimated {estimates === 1 ? "item" : "items"} (a typical recipe or an average portion weight).</p>}
-      {lacking.length > 0 && <p className={`${styles.muted} mb-3`}>{lacking.map((key) => `${unknown[key]} ${unknown[key] === 1 ? "entry has" : "entries have"} no ${MACRO_LABEL[key]} value`).join(", ")}. Totals leave those out instead of counting 0 g.</p>}
-      {loading ? <p className={styles.muted}>Loading meals…</p> : entries.length === 0 ? (
-        <div className={styles.callout}>
-          <p>Nothing logged for this day yet.</p>
+      {(estimates > 0 || lacking.length > 0) && <p className={diary.note}>
+        {estimates > 0 && `Includes ${estimates} ${estimates === 1 ? "estimate" : "estimates"}. `}
+        {lacking.length > 0 && `${lacking.map((key) => `${unknown[key]} without ${MACRO_LABEL[key]}`).join(", ")}: left out of totals, not counted as 0 g.`}
+      </p>}
+      {loading && !entries.length ? <p className={styles.muted}>Loading meals…</p> : entries.length === 0 ? (
+        <div className={diary.empty}>
+          <p className={diary.emptyTitle}>Nothing logged yet</p>
           <div className={styles.toolbar}>
-            <button type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" onClick={onLogFood}>Log a food</button>
-            <button type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" disabled={busy} onClick={onCopyYesterday}>Copy yesterday&apos;s meals</button>
+            <button type="button" className="fitx-button min-h-11 px-4 text-sm" onClick={onLogFood}><Plus size={15} aria-hidden="true"/>Log a food</button>
+            <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm" disabled={busy} onClick={onCopyYesterday}>Copy yesterday&apos;s meals</button>
           </div>
         </div>
       ) : (
-        <div className="space-y-5">
+        <div className={diary.meals}>
           {sections.map((slot) => {
             const rows = entries.filter((entry) => sameMeal(entry.meal, slot));
+            const kcal = Math.round(sumKnown(rows).calories);
             return (
-              <div key={slot}>
-                <div className={styles.slotHeader}>
-                  <h3 className={styles.slotTitle}><Utensils size={15} className="text-fitx-primary"/>{slot}<span>{Math.round(sumKnown(rows).calories)} kcal</span></h3>
-                  {templatesReady && rows.length > 0 && <button type="button" className={styles.textButton} disabled={busy} onClick={() => onSaveMeal(slot)}><Bookmark size={13} className="mr-1 inline"/>Save this meal</button>}
+              <div key={slot} className={diary.meal}>
+                <div className={diary.mealHead}>
+                  <h3 className={diary.mealTitle}>{slot}</h3>
+                  <span className={diary.mealKcal}>{rows.length ? `${kcal.toLocaleString()} kcal` : ""}</span>
+                  {templatesReady && rows.length > 0 && <button type="button" className={styles.iconButton} disabled={busy} onClick={() => onSaveMeal(slot)} aria-label={`Save ${slot.toLowerCase()} as a meal`} title="Save this meal"><Bookmark size={15} aria-hidden="true"/></button>}
+                  <button type="button" className={diary.add} onClick={() => onAddTo(slot)} aria-label={`Add food to ${slot}`}><Plus size={16} aria-hidden="true"/></button>
                 </div>
-                {rows.length ? <div className={styles.list}>{rows.map((row) => <EntryRow key={row.id} entry={row} onEdit={onEdit} onDelete={onDelete}/>)}</div>
-                  : <p className={styles.muted}>Nothing logged yet.</p>}
+                {rows.length > 0 && <ul className={diary.rows}>{rows.map((row) => <EntryRow key={row.id} entry={row} onEdit={onEdit} onDelete={onDelete}/>)}</ul>}
               </div>
             );
           })}
@@ -80,9 +91,9 @@ function EntryRow({ entry, onEdit, onDelete }: { entry: MealEntry; onEdit: (entr
   const missing = entryMissing(entry);
   const macro = (letter: string, key: "protein" | "carbs" | "fat") => (missing.includes(key) ? `${letter} unknown` : `${letter} ${Math.round(Number(entry[key]))} g`);
   return (
-    <div className={styles.row}>
-      <div className={styles.rowMain}>
-        <p className={styles.rowTitle}>{entry.food_name}{entry.brand ? <span className="text-fitx-text-disabled"> · {entry.brand}</span> : null}</p>
+    <li className={diary.row}>
+      <div className={diary.rowMain}>
+        <p className={diary.rowTitle}>{entry.food_name}{entry.brand ? <span> · {entry.brand}</span> : null}</p>
         <p className={styles.rowMeta}>
           <span>{amountText}</span>
           {portion?.estimate && <PortionEstimateBadge/>}
@@ -90,9 +101,9 @@ function EntryRow({ entry, onEdit, onDelete }: { entry: MealEntry; onEdit: (entr
         </p>
         <p className={styles.rowMacros}>{macro("P", "protein")} · {macro("C", "carbs")} · {macro("F", "fat")}</p>
       </div>
-      <span className={styles.rowKcal}>{Math.round(Number(entry.calories))} kcal</span>
-      <button type="button" onClick={() => onEdit(entry)} aria-label={`Edit ${entry.food_name}`} className={styles.iconButton}><Pencil size={15}/></button>
-      <button type="button" onClick={() => onDelete(entry)} aria-label={`Remove ${entry.food_name}`} className={styles.iconButton}><X size={15}/></button>
-    </div>
+      <span className={diary.rowKcal}>{Math.round(Number(entry.calories))}<small>kcal</small></span>
+      <button type="button" onClick={() => onEdit(entry)} aria-label={`Edit ${entry.food_name}`} className={styles.iconButton}><Pencil size={15} aria-hidden="true"/></button>
+      <button type="button" onClick={() => onDelete(entry)} aria-label={`Remove ${entry.food_name}`} className={styles.iconButton}><X size={15} aria-hidden="true"/></button>
+    </li>
   );
 }
