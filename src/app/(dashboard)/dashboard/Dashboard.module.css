@@ -13,7 +13,6 @@
 
 .grid { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 16px; }
 .slot { min-width: 0; }
-.fill { height: 100%; }
 /* Today's plan, or a lone widget, spans the grid. */
 .wide { grid-column: 1 / -1; }
 .placeholder { min-height: 220px; border: 1px solid var(--fitx-divider); border-radius: 20px; background: linear-gradient(90deg, var(--fitx-surface), color-mix(in srgb, var(--fitx-surface-variant) 60%, var(--fitx-surface)), var(--fitx-surface)); background-size: 200% 100%; animation: shimmer 1.5s ease-in-out infinite; }

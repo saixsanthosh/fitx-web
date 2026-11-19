@@ -104,7 +104,7 @@ export function TodoList({ date, variant = "page", limit, onChanged, goalTitles 
       {legacy && <p className={styles.note}>Untimed To-Dos and reordering arrive with the next FITX update. Timed items work now.</p>}
 
       {items.length === 0 ? (
-        <p className={styles.empty}>Nothing on your list yet. Add a task, a workout or something personal.</p>
+        <p className={styles.empty}>Nothing on your list yet</p>
       ) : (
         <Reorder.Group
           as="ul"

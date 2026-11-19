@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SlidersHorizontal } from "lucide-react";
-import { Stagger, StaggerItem, useReducedMotionSafe } from "@/components/motion";
+import { useReducedMotionSafe } from "@/components/motion";
 import { Sheet } from "@/components/ui/Sheet";
 import { GoalsPanel, type GoalRequest } from "@/components/home/GoalsPanel";
 import { HomeHero } from "@/components/home/HomeHero";
@@ -152,13 +152,11 @@ function Home({ date }: { date: string }) {
           {[0, 1].map((index) => <div key={index} className={styles.placeholder} />)}
         </div>
       ) : shown.length ? (
-        <Stagger className={styles.grid}>
+        <div className={styles.grid}>
           {shown.map((id) => (
-            <StaggerItem key={id} className={`${styles.slot} ${WIDE_WIDGETS.has(id) || shown.length === 1 ? styles.wide : ""}`}>
-              <div className={styles.fill} data-widget={id}>{widget(id)}</div>
-            </StaggerItem>
+            <div key={id} className={`${styles.slot} ${WIDE_WIDGETS.has(id) || shown.length === 1 ? styles.wide : ""}`} data-widget={id}>{widget(id)}</div>
           ))}
-        </Stagger>
+        </div>
       ) : null}
 
       <CustomizePanel
