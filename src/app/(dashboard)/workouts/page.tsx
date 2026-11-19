@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, CalendarDays, Check, Clock3, Copy, Dumbbell, History, Home, Info, LayoutGrid, Pencil, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
-import { PageHeading } from "@/components/app/PageHeading";
+import { ArrowRight, CalendarDays, ChevronDown, Copy, Info, Pencil, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
+import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
+import { Reveal } from "@/components/motion";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Section } from "@/components/ui/Section";
 import { FocusTiles } from "@/components/training/FocusTiles";
 import { BuilderRow } from "@/components/workouts/BuilderRow";
 import { EquipmentPicker } from "@/components/workouts/EquipmentPicker";
@@ -15,6 +18,7 @@ import { ProgrammeBrowser } from "@/components/workouts/ProgrammeBrowser";
 import { ProgrammeCard } from "@/components/workouts/ProgrammeCard";
 import { Sheet } from "@/components/workouts/Sheet";
 import { SwapSheet } from "@/components/workouts/SwapSheet";
+import { TodayEmpty, TodayWorkout, type TodayWorkoutPlan } from "@/components/workouts/TodayWorkout";
 import { programmeById } from "@/data/programmes";
 import { programmeMeta } from "@/data/programmes/meta";
 import { createClient } from "@/lib/supabase/client";
@@ -38,6 +42,7 @@ import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonom
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
 import { MAX_PLAN_EXERCISES, moveRow, plannedFrom, removeRow, selectedIds, swapRow, toggleRow, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
+import { pickToday } from "./_lib/today-pick";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
 
@@ -59,18 +64,31 @@ const PLAN_LIST_COLUMNS = "id,title,planned_for,status,split";
 // Each plan's latest finished session, for the "Done" label: one embedded row per plan.
 const PLAN_LAST_DONE_EMBED = "workout_sessions(started_at)";
 const HISTORY_LIMIT = 6;
-const TARGETS_UNAVAILABLE_NOTICE = "Weight and time targets aren’t available yet while FITX finishes an update. Sets, reps, rest and exercise order still save as usual.";
+/** Equipment icons shown in the Gym equipment card before "+N". */
+const EQUIPMENT_SHOWN = 9;
+const TARGETS_UNAVAILABLE_NOTICE = "Weight and time targets arrive with the next FITX update. Everything else saves.";
 const BUILDER_MODES: ReadonlyArray<[BuilderMode, string]> = [["focus", "Body areas"], ["auto", "Your split"], ["custom", "Blank"]];
 
 /** "Done" in the success colour; the other statuses stay neutral. */
 function PlanStatusChip({ status }: { status: ReturnType<typeof planCardStatus> }) {
-  return <span className={status === "Done" ? "rounded-sm bg-fitx-success/10 px-2 py-1 text-[10px] font-medium text-fitx-success" : "rounded-sm bg-fitx-surface-variant px-2 py-1 text-[10px] text-fitx-text-secondary"}>{status}</span>;
+  return <span className={status === "Done" ? styles.chipDone : styles.chip}>{status}</span>;
 }
 
-/** An exact total, or a dash when the count could not be loaded. */
-function CountValue({ value }: { value: number | null }) {
-  if (value === null) return <><span aria-hidden="true">—</span><span className="sr-only">Not available right now</span></>;
-  return <>{value.toLocaleString()}</>;
+/** "Day 2 of 6 · Push, Pull, Legs", without the programme's name when the day's title already carries it. */
+function programmeEyebrow(title: string, dayIndex: number | null, programme: Programme): string {
+  const name = programmeShortTitle(programme);
+  const parts = [dayIndex !== null ? `Day ${dayIndex + 1} of ${programme.days.length}` : null, title.includes(name) ? null : name].filter(Boolean);
+  return parts.length ? parts.join(" · ") : name;
+}
+
+/** "Today", "Tomorrow" or "Thu 21 Nov" for a local day key. */
+function whenLabel(key: string, todayKey: string): string {
+  if (key === todayKey) return "Today";
+  const date = new Date(`${key}T12:00:00`);
+  const tomorrow = new Date(`${todayKey}T12:00:00`);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (localDateKey(tomorrow) === key) return "Tomorrow";
+  return readableDate(date, { weekday: "short", day: "numeric", month: "short" });
 }
 function toPlannedExercise(row: PlanExerciseRow, exercise: CatalogExercise): PlannedExercise {
   return { exercise, sort_order: row.sort_order, target_sets: row.target_sets, reps_min: row.reps_min, reps_max: row.reps_max, rest_seconds: row.rest_seconds, target_weight_kg: row.target_weight_kg ?? null, target_duration_seconds: row.target_duration_seconds ?? null };
@@ -86,8 +104,8 @@ function asLevel(value: string | undefined): Level {
 function programmeNotice(created: number, unfilled: readonly string[], error: unknown, skippedDays: readonly string[] = []) {
   if (error && !created) return "The programme days couldn’t be planned. Use “Plan the next 7 days” to try again.";
   const planned = created ? `Planned ${created} workout${created === 1 ? "" : "s"} for the next 7 days.` : skippedDays.length ? "No workouts were planned." : "None of your training days fall in the next 7 days.";
-  const skipped = skippedDays.length ? ` Nothing in the library fits ${[...new Set(skippedDays)].join(", ")} with your equipment, so ${skippedDays.length === 1 ? "that day isn’t" : "those days aren’t"} planned. Add equipment to your list for more options.` : "";
-  const gaps = unfilled.length ? ` Nothing in the library fits ${unfilled.join(", ").toLowerCase()} with your equipment, so ${unfilled.length === 1 ? "it was" : "those were"} left out.` : "";
+  const skipped = skippedDays.length ? ` ${[...new Set(skippedDays)].join(", ")}: nothing fits your equipment, so not planned.` : "";
+  const gaps = unfilled.length ? ` Left out for your equipment: ${unfilled.join(", ").toLowerCase()}.` : "";
   return planned + skipped + gaps + (error ? " Some days couldn’t be planned; try “Plan the next 7 days” again." : "");
 }
 
@@ -207,8 +225,8 @@ export default function WorkoutsPage() {
   const [planCursor, setPlanCursor] = useState<PlanPageCursor | null>(null);
   const [loadingMorePlans, setLoadingMorePlans] = useState(false);
   const [listDayKey, setListDayKey] = useState("");
-  // Workouts v2: Home and Gym, equipment lists, programmes, variety and swaps.
-  const [context, setContext] = useState<TrainingContext>("gym");
+  // The page is for the gym; home training lives on Home workout. A followed home programme still shows here.
+  const context: TrainingContext = "gym";
   const [profiles, setProfiles] = useState<EquipmentProfiles>({ home: null, gym: null, available: false });
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [enrolAvailable, setEnrolAvailable] = useState(false);
@@ -237,7 +255,11 @@ export default function WorkoutsPage() {
   // "Last time" lines for the builder's exercises, by exercise id (null: nothing completed yet).
   const [lastTimes, setLastTimes] = useState<ReadonlyMap<string, string | null>>(() => new Map());
   const lastTimeRequested = useRef(new Set<string>());
-  const contextInitialized = useRef(false);
+  // Today's workout: its exercises (null while loading), and why Start failed.
+  const [todayRows, setTodayRows] = useState<{ planId: string; rows: PlanExerciseRow[] | null; failed: boolean } | null>(null);
+  const [todayStartError, setTodayStartError] = useState("");
+  // Bumped by every load, so today's exercises are read again after a save or an edit.
+  const [loadVersion, setLoadVersion] = useState(0);
   // A ?plan= link opens that plan's preview once, on the first load that finds it.
   const deepLinkHandled = useRef(false);
   // A planner item's Start link (/workouts?plan=<plan>&event=<item>): starting that plan here keeps the item on
@@ -297,11 +319,6 @@ export default function WorkoutsPage() {
     setEquipmentLoadFailed(Boolean(profileResult.error));
     setProgrammeLoadFailed(Boolean(enrolmentResult.error || enrolmentPlans.error));
     setRecentDays(recent);
-    // The first load opens the section that matches the user's programme or where they said they train.
-    if (!contextInitialized.current) {
-      contextInitialized.current = true;
-      setContext(currentEnrolment?.context ?? (prefs.workout_location === "home" || prefs.workout_location === "outdoor" ? "home" : "gym"));
-    }
     // A linked plan from a later page is shown first; it is not repeated when its page loads.
     setPlans(linkedPlan && !planPage.rows.some((plan) => plan.id === linkedPlan.id) ? [linkedPlan, ...planPage.rows] : planPage.rows);
     setPlanCursor(planPage.next);
@@ -317,6 +334,7 @@ export default function WorkoutsPage() {
     setTargetsSupported((current) => !targetsProbe.error ? true : targetsMissing ? false : current);
     setLoading(false);
     setError("");
+    setLoadVersion((value) => value + 1);
     // Home, the week view and To-Do link here with ?plan=: the plan opens in its preview first.
     if (linkedPlanId && !deepLinkHandled.current) {
       deepLinkHandled.current = true;
@@ -363,12 +381,12 @@ export default function WorkoutsPage() {
     });
   }, [catalog, loading, preferences.workout_split, preferences.workout_location]);
 
-  // /workouts?equipment=home|gym (linked from the exercise library) opens that equipment list.
+  // /workouts?equipment=home|gym (linked from the exercise library) opens that equipment list. The home list is
+  // still edited here until Home workout has its own.
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("equipment");
     if (loading || (requested !== "home" && requested !== "gym")) return;
     void Promise.resolve().then(() => {
-      setContext(requested);
       setEquipmentEditor({ context: requested, keys: equipmentFor(profiles, requested, preferences.equipment).keys });
       window.history.replaceState(null, "", "/workouts");
     });
@@ -430,6 +448,26 @@ export default function WorkoutsPage() {
     });
   }, [creatorOpen, preview, userId]);
 
+  // Today's workout (else the next one) leads the page; its exercises are read for the card.
+  const todayKey = listDayKey || localDateKey();
+  const today = useMemo(() => pickToday(todayKey, programmePlans, plans), [todayKey, programmePlans, plans]);
+  const todayPlanId = today.kind === "none" ? null : today.plan.id;
+  const catalogById = useMemo(() => new Map(catalog.map((exercise) => [exercise.id, exercise])), [catalog]);
+  const targetsRef = useRef(targetsSupported);
+  useEffect(() => { targetsRef.current = targetsSupported; }, [targetsSupported]);
+  useEffect(() => {
+    const supabase = createClient();
+    if (!todayPlanId || !userId || !supabase) return;
+    let active = true;
+    void Promise.resolve().then(async () => {
+      if (!active) return;
+      setTodayRows((current) => current?.planId === todayPlanId && current.rows ? current : { planId: todayPlanId, rows: null, failed: false });
+      const outcome = await readPlanExercises(supabase, userId, todayPlanId, targetsRef.current !== false);
+      if (active) setTodayRows({ planId: todayPlanId, rows: outcome.error ? null : outcome.rows, failed: Boolean(outcome.error) });
+    });
+    return () => { active = false; };
+  }, [todayPlanId, userId, loadVersion]);
+
   const level = asLevel(preferences.fitness_level);
   const catalogReady = catalog.length > 0;
   /** The user's equipment for a context, including what their items also serve as. */
@@ -464,7 +502,7 @@ export default function WorkoutsPage() {
     }));
     const missed = generated.unfilled.map((slot) => (slot.label ?? "one exercise").toLowerCase());
     const note = missed.length ? `Nothing in the library fits ${missed.join(", ")} with your ${target} equipment, so ${missed.length === 1 ? "it was" : "they were"} left out.` : "";
-    return { rows, note, programme, title: `${day.title} · ${target === "home" ? "Home" : "Gym"}` };
+    return { rows, note, programme, title: target === "home" ? `${day.title} · Home` : day.title };
   }
 
   function applyAuto(target: TrainingContext, dayIndex: number, seed: number) {
@@ -486,7 +524,7 @@ export default function WorkoutsPage() {
     })));
     const short = day.short.length ? `Few exercises fit ${listFocusAreas(day.short).toLowerCase()} with your ${target} equipment and level, so ${day.short.length === 1 ? "it has" : "they have"} fewer.` : "";
     setAutoNote(short);
-    setTitle(`${listFocusAreas(areas)} · ${target === "home" ? "Home" : "Gym"}`.slice(0, 120));
+    setTitle((target === "home" ? `${listFocusAreas(areas)} · Home` : listFocusAreas(areas)).slice(0, 120));
     setSplit(areas.length === 1 && areas[0] === "full_body" ? "full_body" : "custom");
   }
 
@@ -549,7 +587,7 @@ export default function WorkoutsPage() {
     }).map((row, sort_order) => ({ ...row, sort_order }));
     if (!nextPreview.length) return setError("The movements from that workout are no longer in the library.");
     setMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
-    setPlanLocation(context === "home" ? "home" : "gym"); setPlannedFor(localDateKey()); setTime("18:00"); setAutoNote("");
+    setPlanLocation("gym"); setPlannedFor(localDateKey()); setTime("18:00"); setAutoNote("");
     setPreview(nextPreview); setCreatorOpen(true);
     if (nextPreview.length < rows.length) setNotice(`${rows.length - nextPreview.length} movement${rows.length - nextPreview.length === 1 ? " is" : "s are"} no longer in the library and ${rows.length - nextPreview.length === 1 ? "was" : "were"} left out.`);
   }
@@ -586,7 +624,6 @@ export default function WorkoutsPage() {
       maxDays: targetSessions(result.enrolment.started_on, result.enrolment.weekdays, programmeMeta(programme.id)?.lengthDays),
     });
     setProgrammeBusy(false);
-    setContext(programme.context);
     await load();
     setNotice(programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays));
     return null;
@@ -657,6 +694,13 @@ export default function WorkoutsPage() {
     if (result.error) return setError("The programme couldn’t be finished. Check your connection and try again.");
     await load();
     setNotice("Programme finished. Choose your next one below; your workouts stay in your history.");
+  }
+
+  /** Start on the Today card: straight into the session (its exercises are on the card already). */
+  async function startToday(planId: string) {
+    setTodayStartError("");
+    const message = await startWorkout(planId);
+    if (message) setTodayStartError(message);
   }
 
   /** Reads a plan's exercises, without the target columns when the database lacks them. */
@@ -935,135 +979,208 @@ export default function WorkoutsPage() {
     return startFailureMessage(started.failure);
   }
 
-  if (loading) return <div className="animate-pulse space-y-4 motion-reduce:animate-none" aria-label="Loading workouts"><div className="h-9 w-1/3 rounded bg-fitx-surface-variant"/><div className="h-48 rounded-2xl bg-fitx-surface"/><div className="h-48 rounded-2xl bg-fitx-surface"/></div>;
+  if (loading) return (
+    <div className={styles.page} aria-busy="true" aria-label="Loading workouts">
+      <div className="mb-8 h-9 w-40 rounded-lg bg-fitx-surface-variant" />
+      <div className={styles.topGrid}><div className={`${styles.skeleton} h-96`} /><div className={`${styles.skeleton} hidden h-96 lg:block`} /></div>
+    </div>
+  );
   if (error && !userId) return <EmptyState title="Workouts unavailable" description={error} action={<button className="fitx-button fitx-button-secondary" onClick={() => { setLoading(true); void load(); }}>Try again</button>} />;
   // Hidden only once the database has said it lacks the target columns, so nothing typed is lost on save.
   const showTargets = targetsSupported !== false;
-  const contextEquipment = equipmentFor(profiles, context, preferences.equipment);
-  const contextProgrammes = programmes.filter((programme) => programme.context === context);
+  const gymEquipment = equipmentFor(profiles, "gym", preferences.equipment);
+  const gymProgrammes = programmes.filter((programme) => programme.context === "gym");
   const enrolledProgramme = followedProgramme(programmes, enrolment);
   const builderProgramme = mode === "auto" && !editingPlanId ? autoProgramme(builderContext) : undefined;
   const rowToSwap = swapIndex !== null ? preview[swapIndex] : undefined;
-  const equipmentNames = contextEquipment.keys.map(equipmentLabel);
-  const equipmentSummary = equipmentNames.length
-    ? `${equipmentNames.slice(0, 5).join(", ")}${equipmentNames.length > 5 ? ` and ${equipmentNames.length - 5} more` : ""}.`
-    : "No equipment: body weight, the floor and a wall.";
   const builderSummary = planSummary(preview);
   const previewProgramme = enrolment && enrolledProgramme
     ? { enrolmentId: enrolment.id, title: programmeShortTitle(enrolledProgramme), dayCount: enrolledProgramme.days.length, dayTitles: enrolledProgramme.days.map((day) => day.title), paused: enrolment.status === "paused" }
     : null;
-  const enrolledNote = enrolment
-    ? `${enrolment.status === "paused" ? "Your paused programme is" : "You follow"} ${enrolledProgramme?.title ?? "a programme"}. Leave it on the ${enrolment.context === "home" ? "Home" : "Gym"} Workout tab to start another.`
-    : undefined;
+  const todayCard: TodayWorkoutPlan | null = today.kind === "none" ? null : {
+    id: today.plan.id,
+    title: today.plan.title,
+    when: whenLabel(today.plan.planned_for ?? todayKey, todayKey),
+    programme: today.programme && enrolledProgramme ? programmeEyebrow(today.plan.title, today.plan.programme_day_index ?? null, enrolledProgramme) : null,
+  };
+  const loadedToday = todayCard && todayRows?.planId === todayCard.id ? todayRows : null;
+  const doneToday = sessions.find((session) => localDateKey(new Date(session.started_at)) === todayKey) ?? null;
+  const hiddenEquipment = Math.max(0, gymEquipment.keys.length - EQUIPMENT_SHOWN);
 
   return (
-    <div className={`${styles.page} space-y-6`}>
-      <PageHeading title="Workouts" description="Train at home or in the gym, follow a programme, record each set and keep your history in one place."
-        actions={<div className={styles.headingActions}><button className={`fitx-button fitx-button-secondary ${styles.secondaryAction}`} onClick={() => openCreator("custom")}><Plus size={17}/>Custom workout</button><button className={`fitx-button ${styles.primaryAction}`} onClick={() => openCreator("auto")}><Sparkles size={16}/>Auto plan</button></div>} />
+    <div className={styles.page}>
+      <div className={styles.stack}>
+      <PageHeader title="Workouts" eyebrow="Gym"
+        meta={counts.completed !== null && counts.completed > 0 ? `${counts.completed.toLocaleString()} workout${counts.completed === 1 ? "" : "s"} done` : undefined}
+        actions={<button type="button" className={`fitx-button ${styles.headerAction}`} onClick={() => openCreator("focus")}><Plus size={18} aria-hidden="true" />New workout</button>} />
       {error && <p role="alert" className="fitx-alert fitx-alert-danger px-3 py-2 text-sm">{error}</p>}
-      {notice && <p role="status" className="flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-3 py-2 text-sm text-fitx-text-secondary"><Info size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info"/><span>{notice}</span></p>}
-      {activeSession && <div className={`${styles.activeSession} flex flex-col gap-3 rounded-xl border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between`}><div><p className="text-sm font-medium">Workout in progress</p><p className="mt-1 text-xs text-fitx-text-secondary">{activeSession.name} · started {readableDate(new Date(activeSession.started_at), { hour: "numeric", minute: "2-digit" })}</p></div><Link className="fitx-button" href={"/workouts/active?session=" + activeSession.id}>Continue workout<ArrowRight size={16}/></Link></div>}
+      {notice && <p role="status" className={styles.notice}><Info size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info"/><span>{notice}</span></p>}
+      {(equipmentLoadFailed || programmeLoadFailed) && <p role="status" className="fitx-alert">
+        {equipmentLoadFailed && programmeLoadFailed ? "Your equipment and programme couldn’t be loaded. Saving and planning wait until they do."
+          : equipmentLoadFailed ? "Your saved equipment couldn’t be loaded. Saving a list waits until it does."
+          : "Your programme couldn’t be loaded. Planning waits until it does, so no week is planned twice."}
+        <button type="button" onClick={() => { setLoading(true); void load(); }} className="fitx-alert-action">Try again</button>
+      </p>}
+      {activeSession && <div className={styles.activeSession}><span className={styles.livePulse} aria-hidden="true" /><div className="min-w-0 flex-1"><p className="text-sm font-semibold">Workout in progress</p><p className="truncate text-xs text-fitx-text-secondary">{activeSession.name} · started {readableDate(new Date(activeSession.started_at), { hour: "numeric", minute: "2-digit" })}</p></div><Link className="fitx-button min-h-11 shrink-0" href={"/workouts/active?session=" + activeSession.id}>Continue<ArrowRight size={16} aria-hidden="true"/></Link></div>}
 
-      <section aria-label="Home and gym workouts" className={styles.contextSection}>
-        <div role="tablist" aria-label="Where you train" className={styles.contextTabs}>
-          {(["home", "gym"] as const).map((value) => (
-            <button key={value} id={`workout-tab-${value}`} role="tab" type="button" aria-selected={context === value} aria-controls="workout-context-panel" onClick={() => setContext(value)} className={`${styles.contextTab} ${context === value ? styles.contextTabActive : ""}`}>
-              {value === "home" ? <Home size={16} aria-hidden="true"/> : <Dumbbell size={16} aria-hidden="true"/>}{value === "home" ? "Home Workout" : "Gym Workout"}
-            </button>
-          ))}
-        </div>
-        <div id="workout-context-panel" role="tabpanel" aria-labelledby={`workout-tab-${context}`} className={`${styles.contextPanel} fitx-panel`}>
-          <div className={styles.contextHeader}>
-            <div className="min-w-0">
-              <h2 className="font-semibold">{context === "home" ? "Your home equipment" : "Your gym equipment"}</h2>
-              <p className="mt-1 text-sm text-fitx-text-secondary">{equipmentSummary}{!contextEquipment.saved && <span> {context === "home" ? "A starting list from your profile: edit it to match what you have." : "A full commercial gym until you edit it."}</span>}</p>
+      <div className={styles.topGrid}>
+        <Section title={today.kind === "next" ? "Up next" : "Today"} id="today" className={styles.todaySection}>
+          {todayCard
+            ? <TodayWorkout plan={todayCard} rows={loadedToday?.rows ?? null} failed={Boolean(loadedToday?.failed)} catalog={catalogById} starting={starting === todayCard.id} startError={todayStartError} inProgress={Boolean(activeSession)}
+                onStart={() => void startToday(todayCard.id)} onDetails={() => setPreviewPlanId(todayCard.id)} onInfo={setInfoExercise} onRetry={() => setLoadVersion((value) => value + 1)} />
+            : <TodayEmpty title={doneToday ? "Done for today" : "Nothing planned today"} record={doneToday ? { id: doneToday.id, name: doneToday.name } : null}>
+                <button type="button" className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16} aria-hidden="true" />Plan today</button>
+                <button type="button" className="fitx-button fitx-button-secondary" onClick={() => openCreator("custom")}>Blank workout</button>
+              </TodayEmpty>}
+        </Section>
+
+        <Section title="History" id="history" className={styles.historySection}
+          action={<Link href="/workouts/history" className={styles.textLink}>All<ArrowRight size={14} aria-hidden="true" /></Link>}>
+          {sessions.length ? (
+            <ol className={styles.historyList}>
+              {sessions.map((session) => {
+                const date = new Date(session.started_at);
+                const seconds = Number(session.duration_seconds);
+                const duration = Number.isFinite(seconds) && seconds > 0 ? seconds < 60 ? "Under 1 min" : `${Math.round(seconds / 60)} min` : null;
+                const volume = Number(session.total_volume) > 0 ? Math.round(Number(session.total_volume)) : null;
+                return (
+                  <li key={session.id} className={styles.historyItem}>
+                    <Link href={`/workouts/history/${session.id}`} className={styles.historyLink}>
+                      <span className={styles.dateTile} aria-hidden="true"><span className={styles.dateDay}>{date.getDate()}</span><span className={styles.dateMonth}>{readableDate(date, { month: "short" })}</span></span>
+                      <span className="min-w-0 flex-1">
+                        <span className={styles.itemTitle}>{session.name}</span>
+                        <span className={styles.itemMeta}>
+                          <span className="sr-only">{readableDate(date, { weekday: "long", day: "numeric", month: "long" })}</span>
+                          {[duration, volume !== null ? `${volume.toLocaleString()} kg` : null].filter(Boolean).join(" · ") || readableDate(date, { weekday: "short" })}
+                        </span>
+                      </span>
+                    </Link>
+                    <button type="button" disabled={saving} onClick={() => void repeatSession(session)} aria-label={`Repeat ${session.name}`} title="Repeat" className={styles.iconButton}><RotateCcw size={16} aria-hidden="true" /></button>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : <div className={styles.quietEmpty}><p className="font-medium">No workouts yet</p><p className="text-sm text-fitx-text-secondary">Finished sessions show here.</p></div>}
+        </Section>
+      </div>
+
+      <Reveal amount={0.12}>
+        <Section title="Train by area" id="areas" action={<Link href="/exercises" className={styles.textLink}>Library<ArrowRight size={14} aria-hidden="true" /></Link>}>
+          <FocusTiles value={[]} onChange={() => undefined} onLaunch={(area) => openCreator("focus", "gym", [area])} layout="rail" label="Train by area" />
+        </Section>
+      </Reveal>
+
+      <Reveal amount={0.12}>
+        <Section title="Programme" id="programme">
+          {enrolment
+            ? enrolledProgramme
+              ? <ProgrammeCard programme={enrolledProgramme} enrolment={enrolment} plans={programmePlans} plansFailed={programmeLoadFailed} todayKey={todayKey} busy={programmeBusy || Boolean(starting)} planning={planningAhead} activeSession={Boolean(activeSession)}
+                  onPreview={(planId) => setPreviewPlanId(planId)} onPlanAhead={() => void planAhead()} onLeave={() => void leave()} onPause={() => void pause()} onResume={() => void resume()} onFinish={() => void finish()} />
+              : <section aria-label="Your programme" className={styles.quietEmpty}>
+                  <p className="font-medium">This programme is no longer available</p>
+                  <p className="text-sm text-fitx-text-secondary">Your workouts stay in your history.</p>
+                  <button type="button" onClick={() => void leave()} disabled={programmeBusy} className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start text-sm">Leave programme</button>
+                </section>
+            : <ProgrammeBrowser programmes={gymProgrammes} enrolAvailable={enrolAvailable && !programmeLoadFailed} busy={programmeBusy} onEnrol={enrol}
+                disabledNote={programmeLoadFailed ? "Following waits until your programme has loaded." : !enrolAvailable ? "Following a programme arrives with the next FITX update." : undefined} />}
+        </Section>
+      </Reveal>
+
+      <div className={styles.bottomGrid}>
+        <Section title="Your plans" id="plans" action={<Link href="/goals?tab=week" className={styles.textLink}>Week<ArrowRight size={14} aria-hidden="true" /></Link>}>
+          {plans.length ? (
+            <div className={styles.planList}>
+              {plans.map((plan) => (
+                <article key={plan.id} id={`workout-plan-${plan.id}`} className={styles.planRow}>
+                  <div className="min-w-0 flex-1">
+                    <h3 className={styles.itemTitle}>{plan.title}</h3>
+                    <p className={styles.itemMeta}><CalendarDays size={13} aria-hidden="true" />{plan.planned_for ? whenLabel(plan.planned_for, todayKey) : "No date"}<PlanStatusChip status={planCardStatus(plan.planned_for, todayKey, plan.last_done_key)} /></p>
+                  </div>
+                  <div className={styles.planActions}>
+                    <button type="button" className={styles.iconButton} onClick={() => void editPlan(plan.id)} aria-label={"Edit " + plan.title} title="Edit"><Pencil size={16} aria-hidden="true" /></button>
+                    <button type="button" className={styles.iconButton} onClick={() => void duplicatePlan(plan)} aria-label={"Duplicate " + plan.title} title="Copy"><Copy size={16} aria-hidden="true" /></button>
+                    <button type="button" className={styles.iconButton} onClick={() => void deletePlan(plan)} aria-label={"Delete " + plan.title} title="Delete"><Trash2 size={16} aria-hidden="true" /></button>
+                    <button type="button" aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`} onClick={() => setPreviewPlanId(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
+                  </div>
+                </article>
+              ))}
+              {(planCursor || (counts.plans !== null && counts.plans > plans.length)) && (
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  <p className="text-xs text-fitx-text-secondary">{plans.length.toLocaleString()}{counts.plans !== null && counts.plans >= plans.length ? ` of ${counts.plans.toLocaleString()}` : ""} plans</p>
+                  {planCursor && <button type="button" onClick={() => void loadMorePlans()} disabled={loadingMorePlans} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}
+                </div>
+              )}
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm" onClick={() => setEquipmentEditor({ context, keys: contextEquipment.keys })}><Pencil size={14}/>Edit equipment</button>
-              <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-sm" onClick={() => openCreator("focus", context)}><LayoutGrid size={15} aria-hidden="true"/>By body area</button>
-              <button type="button" className="fitx-button min-h-11 px-4 text-sm" onClick={() => openCreator("auto", context)}><Sparkles size={15}/>{context === "home" ? "Home workout for today" : "Gym workout for today"}</button>
+          ) : (
+            <div className={styles.quietEmpty}>
+              <p className="font-medium">No saved plans</p>
+              <button type="button" className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start" onClick={() => openCreator("focus")}><Plus size={16} aria-hidden="true" />Build a workout</button>
+            </div>
+          )}
+        </Section>
+
+        <Section title="Gym equipment" id="equipment">
+          <div className={styles.equipmentCard}>
+            <ul className={styles.equipmentGrid} aria-label={`${gymEquipment.keys.length} items on your gym list`}>
+              {gymEquipment.keys.length === 0 && <li className={styles.equipmentItem}><EquipmentIcon name="none" size={26} /><span>Body weight</span></li>}
+              {gymEquipment.keys.slice(0, EQUIPMENT_SHOWN).map((key) => <li key={key} className={styles.equipmentItem}><EquipmentIcon name={key} size={26} /><span>{equipmentLabel(key)}</span></li>)}
+              {hiddenEquipment > 0 && <li className={`${styles.equipmentItem} ${styles.equipmentMore}`}><span className={styles.equipmentCount}>+{hiddenEquipment}</span><span>more</span></li>}
+            </ul>
+            <div className={styles.equipmentFoot}>
+              <p className="text-xs text-fitx-text-secondary">{gymEquipment.saved ? `${gymEquipment.keys.length} items` : "A full gym until you edit it"}{!catalogCurated ? " · matching is approximate" : ""}</p>
+              <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-sm" onClick={() => setEquipmentEditor({ context: "gym", keys: gymEquipment.keys })}><Pencil size={14} aria-hidden="true" />Edit equipment</button>
             </div>
           </div>
-          {!catalogCurated && <p className="mt-3 text-xs text-fitx-text-secondary">Equipment matching is approximate until FITX’s exercise catalogue update is applied.</p>}
-          {(equipmentLoadFailed || programmeLoadFailed) && <p role="status" className="fitx-alert mt-3">
-            {equipmentLoadFailed && programmeLoadFailed ? "Your equipment lists and programme couldn’t be loaded. Saving a list and planning wait until they load, so nothing you saved is replaced or planned twice."
-              : equipmentLoadFailed ? "Your saved equipment lists couldn’t be loaded, so this shows starting lists. Saving a list waits until they load, so the one you saved is not replaced."
-              : "Your programme couldn’t be loaded. Following or planning a programme waits until it loads, so no week is planned twice."}
-            <button type="button" onClick={() => { setLoading(true); void load(); }} className="fitx-alert-action">Try again</button>
-          </p>}
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold">{context === "home" ? "Home programmes" : "Gym programmes"}</h3>
-            <p className="mt-1 mb-3 text-xs text-fitx-text-secondary">Pick a programme and FITX keeps the next 7 days planned on your training days, with exercises you can do with your equipment. Rest days are part of every plan.</p>
-            {enrolment && enrolment.context === context
-              ? enrolledProgramme
-                ? <ProgrammeCard programme={enrolledProgramme} enrolment={enrolment} plans={programmePlans} plansFailed={programmeLoadFailed} todayKey={listDayKey} busy={programmeBusy || Boolean(starting)} planning={planningAhead} activeSession={Boolean(activeSession)}
-                    onPreview={(planId) => setPreviewPlanId(planId)} onPlanAhead={() => void planAhead()} onLeave={() => void leave()} onPause={() => void pause()} onResume={() => void resume()} onFinish={() => void finish()} />
-                : <section aria-label="Your programme" className="rounded-xl border border-fitx-border bg-fitx-surface p-4 sm:p-5">
-                    <p className="font-medium">The programme you follow is no longer available</p>
-                    <p className="mt-1 text-sm text-fitx-text-secondary">Your finished workouts stay in your history. Leave it to follow another programme.</p>
-                    <button type="button" onClick={() => void leave()} disabled={programmeBusy} className="fitx-button fitx-button-secondary mt-3 min-h-11 text-sm">Leave programme</button>
-                  </section>
-              : <ProgrammeBrowser programmes={contextProgrammes} enrolAvailable={enrolAvailable && !enrolment && !programmeLoadFailed} busy={programmeBusy} onEnrol={enrol}
-                  disabledNote={enrolledNote ?? (programmeLoadFailed ? "Following a programme waits until your current one has loaded." : !enrolAvailable ? "You can browse these now. Following a programme becomes available with the next FITX update." : undefined)} />}
-          </div>
-        </div>
-      </section>
+        </Section>
+      </div>
+      </div>
 
-      <section aria-label="Workout totals" className={styles.metricsStrip}>
-        <div className={styles.metric}><span className={styles.metricMark} aria-hidden="true"/><p className={styles.metricValue}><CountValue value={counts.completed}/></p><p className={styles.metricLabel}>Completed</p></div>
-        <div className={styles.metric}><span className={styles.metricMark} aria-hidden="true"/><p className={styles.metricValue}><CountValue value={counts.plans}/></p><p className={styles.metricLabel}>Saved plans</p></div>
-        <div className={styles.metric}><span className={styles.metricMark} aria-hidden="true"/><p className={styles.metricValue}><CountValue value={counts.exercises}/></p><p className={styles.metricLabel}>Exercises</p></div>
-      </section>
-      <section className={styles.plansSection}>
-        <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Your plans</h2><p className="mt-1 text-xs text-fitx-text-secondary">Workouts you built or saved. Start one to review its exercises first. Programme days are listed with your programme.</p></div><Link href="/goals?tab=week" className="text-xs font-medium text-fitx-primary-text">Open your week<ArrowRight className="ml-1 inline" size={14}/></Link></div>
-        {plans.length ? <div className={styles.planList}>{plans.map((plan) => <article key={plan.id} id={`workout-plan-${plan.id}`} className={`${styles.planCard} fitx-panel flex flex-col gap-4 p-4 transition-colors sm:flex-row sm:items-center sm:p-5`}><div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-fitx-primary/10 text-fitx-primary"><Dumbbell size={20}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-medium">{plan.title}</h3><PlanStatusChip status={planCardStatus(plan.planned_for, listDayKey, plan.last_done_key)}/></div><p className="mt-1 flex items-center gap-1.5 text-xs capitalize text-fitx-text-secondary"><CalendarDays size={13}/>{plan.planned_for ? readableDate(new Date(plan.planned_for + "T12:00:00")) : "No date set"} · {plan.split.replaceAll("_", " ")}</p></div><div className="flex flex-wrap items-center gap-2"><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm" onClick={() => void editPlan(plan.id)} aria-label={"Edit " + plan.title}><Pencil size={14}/>Edit</button><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm" onClick={() => void duplicatePlan(plan)} aria-label={"Duplicate " + plan.title}><Copy size={14}/>Copy</button><button className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm" onClick={() => void deletePlan(plan)} aria-label={"Delete " + plan.title}><Trash2 size={14}/></button><button type="button" aria-haspopup="dialog" disabled={Boolean(starting)} className="fitx-button min-h-11 px-4 text-sm" onClick={() => setPreviewPlanId(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15}/></button></div></article>)}{(planCursor || (counts.plans !== null && counts.plans > plans.length)) && <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-fitx-text-secondary">Showing {plans.length.toLocaleString()}{counts.plans !== null && counts.plans >= plans.length ? ` of ${counts.plans.toLocaleString()}` : ""} saved plans</p>{planCursor && <button type="button" onClick={() => void loadMorePlans()} disabled={loadingMorePlans} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}</div>}</div> : <div className={styles.plansEmpty}><EmptyState title="No workout plans yet" description="Generate a plan that respects your equipment and training level, build one from the body areas you want to train, or add movements one by one." action={<button className="fitx-button" onClick={() => openCreator("focus")}><LayoutGrid size={16}/>Build a workout</button>} /></div>}
-      </section>
-      <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">Recent history</h2><p className="mt-1 text-xs text-fitx-text-secondary">Sessions you’ve finished. Open one to see its sets, or repeat it to train it again.</p></div><Link href="/workouts/history" className="inline-flex min-h-10 items-center gap-1.5 text-xs font-medium text-fitx-primary-text"><History size={14} aria-hidden="true"/>All history<ArrowRight size={14} aria-hidden="true"/></Link></div>
-        {sessions.length ? <div className={`${styles.historyList} fitx-panel divide-y divide-fitx-divider px-4 sm:px-5`}>{sessions.map((session) => <div key={session.id} className="flex items-center justify-between gap-4 py-3"><Link href={`/workouts/history/${session.id}`} className="-mx-2 flex min-h-12 min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1 hover:bg-fitx-hover"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-fitx-surface text-fitx-primary"><Check size={18} aria-hidden="true"/></span><span className="min-w-0"><span className="block truncate text-sm font-medium">{session.name}</span><span className="mt-1 flex items-center gap-1.5 text-xs text-fitx-text-secondary"><Clock3 size={12} aria-hidden="true"/>{readableDate(new Date(session.started_at), { weekday: "short", month: "short", day: "numeric" })} · {Math.round(session.duration_seconds / 60)} min{Number(session.total_volume) > 0 ? ` · ${Math.round(session.total_volume).toLocaleString()} kg` : ""}</span></span></Link><button type="button" disabled={saving} onClick={() => void repeatSession(session)} aria-label={`Repeat ${session.name}`} className="fitx-button fitx-button-quiet min-h-11 shrink-0 px-3 text-sm"><RotateCcw size={14}/>Repeat</button></div>)}</div> : <EmptyState title="No completed workouts yet" description="Your history will appear here after your first finished session." action={<Link className="fitx-button fitx-button-secondary" href="/exercises">Browse exercises</Link>} />}
-      </section>
-      <section className={`${styles.library} fitx-panel p-5`}><div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="font-semibold">Exercise library</h2><p className="mt-1 text-xs text-fitx-text-secondary">{(counts.exercises ?? catalog.length).toLocaleString()} movements with instructions and equipment. Swap finds alternatives for anything you can’t do.</p></div><Link href="/exercises" className="text-xs font-medium text-fitx-primary-text">Open library<ArrowRight className="ml-1 inline" size={14}/></Link></div><div className={styles.libraryGrid}>{catalog.slice(0, 6).map((exercise) => <Link key={exercise.id} href={"/exercises/" + exercise.id} className={styles.exerciseCard}><span className={styles.exerciseMark} aria-hidden="true"><Dumbbell size={15}/></span><span className={styles.exerciseText}><span className={styles.exerciseName}>{exercise.name}</span><span className={styles.exerciseMeta}>{exercise.primary_muscle.replaceAll("_", " ")} · {exercise.difficulty}</span></span><ArrowRight size={14} aria-hidden="true"/></Link>)}</div></section>
-
-      {creatorOpen && <div className="fixed inset-0 z-50 flex items-end justify-center bg-fitx-scrim/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="builder-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreatorOpen(false); }}><div ref={builderRef} className="max-h-[94dvh] w-full max-w-4xl overflow-y-auto rounded-t-xl border border-fitx-border bg-fitx-elevated shadow-2xl sm:max-h-[90dvh] sm:rounded-xl">
+      {creatorOpen && <div className="fixed inset-0 z-50 flex items-end justify-center bg-fitx-scrim/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="builder-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreatorOpen(false); }}><div ref={builderRef} className="max-h-[94dvh] w-full max-w-4xl overflow-y-auto rounded-t-[22px] border border-fitx-border bg-fitx-elevated shadow-2xl sm:max-h-[90dvh] sm:rounded-[22px]">
         <div className="p-4 sm:p-6">
-          <div className="mb-5 flex items-start justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[.15em] text-fitx-primary-text">Workout builder</p><h2 id="builder-title" className="mt-1 text-xl font-semibold">{editingPlanId ? "Edit workout plan" : mode === "auto" ? "Build a personalized plan" : mode === "focus" ? "Build by body area" : "Create a workout"}</h2><p className="mt-1 text-sm text-fitx-text-secondary">{builderProgramme ? `From ${builderProgramme.title}: main lifts first, matched to your ${builderContext} equipment, level and recent workouts.` : mode === "focus" && !editingPlanId ? `Choose what to train. FITX picks exercises you can do with your ${builderContext} equipment; change anything before you save.` : "Set your order and rep targets before you save."}</p></div><button onClick={() => setCreatorOpen(false)} aria-label="Close workout builder" className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18}/></button></div>
-          {!editingPlanId && <div role="group" aria-label="Start from" className="mb-4 inline-grid grid-cols-3 gap-1 rounded-xl border border-fitx-border bg-fitx-surface-variant p-1">
+          <div className="mb-5 flex items-start justify-between gap-3"><div className="min-w-0"><h2 id="builder-title" className="font-heading text-2xl font-bold tracking-[-.03em]">{editingPlanId ? "Edit workout plan" : mode === "auto" ? "Build from your split" : mode === "focus" ? "Build by body area" : "Create a workout"}</h2>{builderProgramme && <p className="mt-1 text-sm text-fitx-text-secondary">From {builderProgramme.title}</p>}</div><button type="button" onClick={() => setCreatorOpen(false)} aria-label="Close workout builder" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18} aria-hidden="true"/></button></div>
+          {!editingPlanId && <div role="group" aria-label="Start from" className="mb-5 grid grid-cols-3 gap-1 rounded-xl border border-fitx-border bg-fitx-surface-variant p-1 sm:inline-grid">
             {BUILDER_MODES.map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => switchMode(value)} className={`min-h-11 rounded-lg px-3 text-sm font-semibold ${mode === value ? "bg-fitx-surface text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>{label}</button>)}
           </div>}
           {mode === "focus" && !editingPlanId && <div className="mb-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold">{focusAreas.length ? `Training: ${listFocusAreas(focusAreas)}` : "What do you want to train?"}</p>
+              <p className="text-sm font-semibold">{focusAreas.length ? `Training: ${listFocusAreas(focusAreas)}` : "What to train"}</p>
               {focusAreas.length > 0 && <button type="button" aria-expanded={focusPickerOpen} onClick={() => setFocusPickerOpen((open) => !open)} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">{focusPickerOpen ? "Done choosing" : "Change areas"}</button>}
             </div>
-            {(focusPickerOpen || !focusAreas.length) && <div id="builder-focus-tiles" className="max-w-3xl"><FocusTiles value={focusAreas} label="Body areas to train" details={focusDetails} onChange={(areas) => { setFocusAreas(areas); applyFocus(builderContext, areas, autoSeed); }} /></div>}
+            {(focusPickerOpen || !focusAreas.length) && <div id="builder-focus-tiles"><FocusTiles layout="rail" credit={false} value={focusAreas} label="Body areas to train" details={focusDetails} onChange={(areas) => { setFocusAreas(areas); applyFocus(builderContext, areas, autoSeed); }} /></div>}
           </div>}
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Workout name<input className="fitx-field" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Training split<select className="fitx-field" value={split} onChange={(event) => setSplit(event.target.value)}><option value="full_body">Full body</option><option value="upper_lower">Upper / lower</option><option value="push_pull_legs">Push / pull / legs</option><option value="bro_split">Bro split</option><option value="home_bodyweight">Home bodyweight</option><option value="home_dumbbell">Home dumbbells</option><option value="custom">Custom</option></select></label>
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Training location<select className="fitx-field" value={planLocation} onChange={(event) => { setPlanLocation(event.target.value); const target = contextForLocation(event.target.value); if (!editingPlanId && mode === "auto") applyAuto(target, autoDay, autoSeed); if (!editingPlanId && mode === "focus" && focusAreas.length) applyFocus(target, focusAreas, autoSeed); }}><option value="gym">Gym</option><option value="home">Home</option><option value="outdoor">Outdoor</option><option value="both">Home or gym</option></select></label>
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Schedule date<input className="fitx-field" type="date" value={plannedFor} onChange={(event) => setPlannedFor(event.target.value)} disabled={editingProgrammeDay} aria-describedby={editingProgrammeDay ? "programme-day-date-note" : undefined} />{editingProgrammeDay && <span id="programme-day-date-note">A programme day keeps its date.</span>}</label>
+            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Date<input className="fitx-field" type="date" value={plannedFor} onChange={(event) => setPlannedFor(event.target.value)} disabled={editingProgrammeDay} aria-describedby={editingProgrammeDay ? "programme-day-date-note" : undefined} />{editingProgrammeDay && <span id="programme-day-date-note">A programme day keeps its date.</span>}</label>
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Start time<input className="fitx-field" type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={!plannedFor} /></label>
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary sm:col-span-2 xl:col-span-1">Notes (optional)<input className="fitx-field" maxLength={500} value={planNotes} onChange={(event) => setPlanNotes(event.target.value)} placeholder="Short focus for this session" /></label>
             {builderProgramme && <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Day<select className="fitx-field" value={autoDay % builderProgramme.days.length} onChange={(event) => { const day = Number(event.target.value); setAutoDay(day); applyAuto(builderContext, day, autoSeed); }}>{builderProgramme.days.map((day, index) => <option key={day.key} value={index}>{day.title}</option>)}</select></label>}
           </div>
+          <details className="group mt-3 rounded-xl border border-fitx-border">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-sm font-medium text-fitx-text-secondary [&::-webkit-details-marker]:hidden">More options<ChevronDown size={16} aria-hidden="true" className="transition-transform group-open:rotate-180 motion-reduce:transition-none" /></summary>
+            <div className="grid gap-3 border-t border-fitx-divider p-3 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Training split<select className="fitx-field" value={split} onChange={(event) => setSplit(event.target.value)}><option value="full_body">Full body</option><option value="upper_lower">Upper / lower</option><option value="push_pull_legs">Push / pull / legs</option><option value="bro_split">Bro split</option>{split.startsWith("home_") && <><option value="home_bodyweight">Home bodyweight</option><option value="home_dumbbell">Home dumbbells</option></>}<option value="custom">Custom</option></select></label>
+              <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Notes<input className="fitx-field" maxLength={500} value={planNotes} onChange={(event) => setPlanNotes(event.target.value)} placeholder="Optional" /></label>
+              {/* New workouts are for the gym; an older home plan keeps its place until it is moved here. */}
+              {planLocation !== "gym" && <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Where<select className="fitx-field" value={planLocation} onChange={(event) => { setPlanLocation(event.target.value); const target = contextForLocation(event.target.value); if (!editingPlanId && mode === "auto") applyAuto(target, autoDay, autoSeed); if (!editingPlanId && mode === "focus" && focusAreas.length) applyFocus(target, focusAreas, autoSeed); }}><option value="gym">Gym</option><option value="home">Home</option><option value="outdoor">Outdoor</option><option value="both">Home or gym</option></select></label>}
+            </div>
+          </details>
           <div className="mt-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">Exercise order <span className="font-normal text-fitx-text-secondary">· {preview.length}</span></h3>
               {((builderProgramme) || (mode === "focus" && !editingPlanId && focusAreas.length > 0)) && <button type="button" onClick={() => { const seed = autoSeed + 1; setAutoSeed(seed); if (mode === "focus") applyFocus(builderContext, focusAreas, seed); else applyAuto(builderContext, autoDay, seed); }} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">Regenerate plan</button>}
             </div>
-            {preview.length > 0 && <p className="mb-3 text-xs text-fitx-text-secondary" aria-live="polite">{builderSummary.exercises} exercise{builderSummary.exercises === 1 ? "" : "s"} · {builderSummary.totalSets} sets{builderSummary.estimateMinutes ? ` · about ${builderSummary.estimateMinutes} min (estimate from sets, reps and rest)` : ""}</p>}
-            {autoNote && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{autoNote} Add equipment to your list for more options.</span></p>}
+            {preview.length > 0 && <p className="mb-3 text-xs text-fitx-text-secondary" aria-live="polite">{builderSummary.exercises} exercise{builderSummary.exercises === 1 ? "" : "s"} · {builderSummary.totalSets} sets{builderSummary.estimateMinutes ? ` · ≈ ${builderSummary.estimateMinutes} min (estimate)` : ""}</p>}
+            {autoNote && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{autoNote}</span></p>}
             {!showTargets && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{TARGETS_UNAVAILABLE_NOTICE}</span></p>}
             {preview.length ? <ol className="space-y-2">{preview.map((item, index) => (
               <BuilderRow key={item.exercise.id} item={item} index={index} count={preview.length} owned={builderOwned} listName={builderContext} showTargets={showTargets} lastTime={lastTimes.get(item.exercise.id)}
                 onMove={(direction) => movePreview(index, direction)} onUpdate={(field, value) => updatePreview(index, field, value)} onUpdateTarget={(field, raw) => updateOptionalTarget(index, field, raw)}
                 onSwap={() => setSwapIndex(index)} onRemove={() => setPreview((rows) => removeRow(rows, item.exercise.id))} onInfo={() => setInfoExercise(item.exercise)} />
-            ))}</ol> : <EmptyState title="No exercises in the plan" description={mode === "focus" && !editingPlanId && !focusAreas.length ? "Choose one or more body areas above, or add exercises from the library below." : "Add exercises from the library below, or add equipment to your list for more options."}/>}
+            ))}</ol> : <p className="rounded-xl border border-dashed border-fitx-border px-4 py-5 text-sm text-fitx-text-secondary">{mode === "focus" && !editingPlanId && !focusAreas.length ? "Pick an area above or add exercises below." : "Add exercises below."}</p>}
           </div>
           <LibraryPicker catalog={catalog} selectedIds={selected} owned={builderOwned} listName={builderContext} full={preview.length >= MAX_PLAN_EXERCISES} onToggle={toggleSelected} onInfo={setInfoExercise} />
           {error && <p role="alert" className="fitx-alert fitx-alert-danger mt-4 px-3 py-2 text-sm">{error}</p>}
         </div>
-        <div className="sticky bottom-0 flex flex-col-reverse justify-end gap-2 border-t border-fitx-divider bg-fitx-elevated p-4 sm:flex-row sm:px-6"><button onClick={() => setCreatorOpen(false)} className="fitx-button fitx-button-quiet">Close</button><button disabled={saving || !preview.length} onClick={() => void savePlan()} className={`fitx-button ${activeSession ? "" : "fitx-button-secondary"}`}>{saving ? "Saving…" : editingPlanId ? "Save changes" : "Save workout"}<CalendarDays size={16}/></button>{!activeSession && <button disabled={saving || !preview.length || Boolean(starting)} onClick={() => void savePlan(true)} className="fitx-button">{starting ? "Starting…" : "Save and start"}<ArrowRight size={16}/></button>}</div>
+        <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-fitx-divider bg-fitx-elevated p-3 sm:flex sm:justify-end sm:px-6 sm:py-4"><button disabled={saving || !preview.length} onClick={() => void savePlan()} className={`fitx-button ${activeSession ? "col-span-2" : "fitx-button-secondary"}`}>{saving ? "Saving…" : editingPlanId ? "Save changes" : "Save workout"}<CalendarDays size={16}/></button>{!activeSession && <button disabled={saving || !preview.length || Boolean(starting)} onClick={() => void savePlan(true)} className="fitx-button">{starting ? "Starting…" : "Save and start"}<ArrowRight size={16}/></button>}</div>
       </div></div>}
 
       {rowToSwap && <SwapSheet target={rowToSwap.exercise} catalog={catalog} owned={builderOwned} level={level} exclude={new Set(preview.map((row) => row.exercise.id))} contextLabel={builderContext} onPick={(exercise) => swapPreview(swapIndex!, exercise)} onClose={() => setSwapIndex(null)} />}
@@ -1072,10 +1189,10 @@ export default function WorkoutsPage() {
         activeSession={activeSession ? { id: activeSession.id, name: activeSession.name } : null} starting={starting === previewPlanId} includeTargets={targetsSupported !== false}
         onBegin={startWorkout} onEdit={(planId) => { setPreviewPlanId(null); void editPlan(planId); }} onClose={() => setPreviewPlanId(null)} />}
       {equipmentEditor && <Sheet title={equipmentEditor.context === "home" ? "Your home equipment" : "Your gym equipment"} size="lg" onClose={() => setEquipmentEditor(null)}
-        description={equipmentEditor.context === "home" ? "Choose what you have at home. Workouts, programmes and swaps only use exercises you can do with it." : "Choose what your gym has. Remove anything it lacks and FITX picks alternatives."}
+        description={equipmentEditor.context === "home" ? "Workouts and swaps use only what you pick." : "Remove anything your gym lacks."}
         footer={<><button type="button" onClick={() => setEquipmentEditor(null)} className="fitx-button fitx-button-quiet">Cancel</button><button type="button" disabled={equipmentSaving || !profiles.available || equipmentLoadFailed} onClick={() => void saveEquipment()} className="fitx-button">{equipmentSaving ? "Saving…" : "Save list"}</button></>}>
-        {!profiles.available && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Saving equipment lists arrives with the next FITX update. Until then FITX uses the equipment from your profile at home and a full gym otherwise.</p>}
-        {profiles.available && equipmentLoadFailed && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Your saved list couldn’t be loaded, so this shows a starting list and saving is off for now. Close this and choose Try again.</p>}
+        {!profiles.available && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Saving lists arrives with the next FITX update.</p>}
+        {profiles.available && equipmentLoadFailed && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Your saved list couldn’t be loaded, so saving is off. Close this and choose Try again.</p>}
         <EquipmentPicker value={equipmentEditor.keys} context={equipmentEditor.context} onChange={(keys) => setEquipmentEditor({ context: equipmentEditor.context, keys })} />
       </Sheet>}
     </div>

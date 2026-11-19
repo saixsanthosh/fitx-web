@@ -155,3 +155,37 @@
   .tile:active:not(:disabled) { transform: scale(0.98); }
   .check { transition: background-color 160ms ease, border-color 160ms ease; }
 }
+
+/* Rail: a swipeable row on phones (the page never scrolls sideways; the row does), a grid from 768 px. */
+.rail {
+  grid-auto-columns: 9.5rem;
+  grid-auto-flow: column;
+  grid-template-columns: none;
+  margin-inline: -16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-inline: 16px;
+  padding-block: 2px;
+  scroll-padding-inline: 16px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar { display: none; }
+.rail > .tile { scroll-snap-align: start; }
+
+@media (min-width: 768px) {
+  .rail {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-inline: 0;
+    overflow: visible;
+    padding-inline: 0;
+  }
+  .rail > .tile { aspect-ratio: 4 / 3; }
+}
+
+@media (min-width: 1280px) {
+  .rail { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px; }
+  .rail > .tile { aspect-ratio: 3 / 4; }
+  .rail .label { font-size: 1rem; }
+}

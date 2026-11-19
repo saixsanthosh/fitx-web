@@ -1,5 +1,6 @@
-// Flow 2: Workouts. Home equipment edited and saved; a home programme followed (today planned), today's day
-// opened from the programme card in its plan preview and begun there; a set logged with reps and load, an exercise
+// Flow 2: Workouts (gym only: no Home and Gym switch). Gym equipment edited and saved; a gym programme followed
+// (today planned and shown as Today's workout with its exercises), today's day opened from the programme card in
+// its plan preview and begun there; a set logged with reps and load, an exercise
 // swapped, the session paused and resumed, then finished: history, personal records and today's planner item
 // ticked. A gym custom workout with a timed movement runs its set timer. A finished session is repeated from history.
 import { kolkataDate, signInUi, textOf } from "./common.mjs";
@@ -44,15 +45,20 @@ export const flow = {
     let sessionId = null;
     await signInUi(t, account);
 
-    await t.step("Workouts opens with Home and Gym tabs", async () => {
+    await t.step("Workouts is for the gym: no Home and Gym switch", async () => {
       await t.goto("/workouts", { label: "workouts" });
-      await page.getByRole("tab", { name: "Home Workout" }).click();
-      t.expect((await page.getByRole("tab", { name: "Home Workout" }).getAttribute("aria-selected")) === "true", "the Home tab should be selected");
-      await page.getByRole("heading", { name: "Your home equipment" }).waitFor();
-      await t.checkpoint("workouts home tab");
+      await page.getByRole("heading", { name: "Workouts", level: 1 }).waitFor();
+      await page.getByRole("heading", { name: "Gym equipment" }).waitFor();
+      t.expect((await page.getByRole("tab", { name: /Home Workout|Gym Workout/ }).count()) === 0, "the Home and Gym switch should be gone");
+      t.expect((await page.getByRole("heading", { name: "Your home equipment" }).count()) === 0, "home equipment is not on this page");
+      await page.getByRole("region", { name: "Today" }).getByText("Nothing planned today").waitFor();
+      t.expect((await page.getByRole("group", { name: "Train by area" }).getByRole("button").count()) >= 8, "every body area should be offered");
+      const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      t.expect(sideways <= 0, "the page should not scroll sideways", { sideways });
+      await t.checkpoint("workouts gym page");
     });
 
-    await t.step("edit and save the home equipment list", async () => {
+    await t.step("edit and save the gym equipment list", async () => {
       await page.getByRole("button", { name: "Edit equipment" }).click();
       const sheet = page.getByRole("dialog");
       await sheet.waitFor();
@@ -61,11 +67,11 @@ export const flow = {
       await t.checkpoint("equipment editor", { fullPage: false });
       await sheet.getByRole("button", { name: "Save list" }).click();
       await sheet.waitFor({ state: "detached", timeout: 10000 });
-      const row = await standin.one(`select equipment_keys::text keys from public.user_equipment_profiles where user_id = '${account.id}' and context = 'home'`);
-      t.expect(/kettlebell/.test(row?.keys ?? ""), "the saved home list should include the kettlebell", row);
+      const row = await standin.one(`select equipment_keys::text keys from public.user_equipment_profiles where user_id = '${account.id}' and context = 'gym'`);
+      t.expect(/kettlebell/.test(row?.keys ?? ""), "the saved gym list should include the kettlebell", row);
     });
 
-    await t.step("follow a home programme with today as a training day", async () => {
+    await t.step("follow a gym programme with today as a training day", async () => {
       const follow = page.getByRole("button", { name: "Follow", exact: true }).first();
       await follow.waitFor({ timeout: 15000 });
       await follow.click();
@@ -85,6 +91,14 @@ export const flow = {
           left join public.planner_events e on e.workout_plan_id = p.id where p.user_id = '${account.id}' order by p.planned_for`);
       t.note("planned programme days", planned);
       t.expect(planned.some((row) => row.planned_for === today && row.event_id && row.status === "scheduled"), "today's programme day should be on the planner", planned);
+      // Today's workout leads the page: the programme day, each exercise as a row with sets × reps.
+      const todayCard = page.getByRole("region", { name: "Today" });
+      const rows = todayCard.getByRole("list", { name: /^Exercises in / }).getByRole("listitem");
+      await rows.first().waitFor({ timeout: 15000 });
+      const todayText = await textOf(todayCard);
+      t.note("today card", todayText.slice(0, 300));
+      t.expect(/Day \d+ of \d+/i.test(todayText) && /×/.test(todayText), "Today should show the programme day and its sets", todayText.slice(0, 300));
+      t.expect(await todayCard.getByRole("button", { name: "Start workout" }).isEnabled(), "Today's workout can be started");
       await t.checkpoint("programme followed");
     });
 
@@ -162,14 +176,14 @@ export const flow = {
       t.expect(Number(row.records) >= 1, "personal records should be written", row);
       t.expect(/completed/.test(row.planner ?? ""), "today's planner item should be ticked", row);
       await t.goto("/workouts", { label: "workouts after finishing" });
-      const history = page.locator("section").filter({ has: page.getByRole("heading", { name: "Recent history" }) });
+      const history = page.getByRole("region", { name: "History" });
       t.expect((await history.getByRole("button", { name: /^Repeat / }).count()) >= 1, "the finished session should be in Recent history");
       await t.checkpoint("history after finishing");
     });
 
     await t.step("a gym custom workout with a timed set", async () => {
-      await page.getByRole("tab", { name: "Gym Workout" }).click();
-      await page.getByRole("button", { name: "Custom workout" }).click();
+      await page.getByRole("button", { name: "New workout" }).click();
+      await page.getByRole("dialog", { name: "Build by body area" }).getByRole("group", { name: "Start from" }).getByRole("button", { name: "Blank" }).click();
       const search = page.getByRole("textbox", { name: "Search exercises to add" });
       await search.fill("plank");
       const plank = page.locator("label").filter({ has: page.locator("input[type=checkbox]") }).filter({ hasText: /^Plank$|Plank/ }).first();

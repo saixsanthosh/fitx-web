@@ -1,7 +1,7 @@
 // Flow 2b: Workout history and records. A finished and an abandoned workout (seeded) are listed in the history, the
 // abandoned one marked as not counted; the finished one's record shows its totals, the muscles it trained, its sets
 // (one counted by the camera) and the record it holds, and takes a note; the abandoned one's record trains no muscle
-// and can be repeated as a new plan; opening a finished session's live page sends the member to its record.
+// and can be repeated as a new plan, which opens in its plan preview on Workouts; opening a finished session's live page sends the member to its record.
 import { randomUUID } from "node:crypto";
 import { signInUi, textOf } from "./common.mjs";
 
@@ -95,6 +95,9 @@ export const flow = {
           from public.workout_plans p join public.workout_plan_exercises e on e.plan_id = p.id where p.id = '${planId}' and p.user_id = '${uid}' group by p.id`);
       t.note("repeated plan", plan);
       t.expect(plan?.title === "Record check legs" && plan.status === "draft" && plan.exercises === "bodyweight_squat", "repeating should save a draft copy of the workout", plan);
+      const preview = page.getByRole("dialog", { name: /^Record check legs/ });
+      await preview.getByRole("button", { name: "Begin workout" }).waitFor({ timeout: 20000 });
+      t.expect((await preview.getByRole("region", { name: /^Exercises/ }).getByRole("listitem").count()) === 1, "the copy's preview should list its one exercise");
       await t.checkpoint("repeated workout in plans");
     });
 

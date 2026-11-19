@@ -1,5 +1,5 @@
-// Flow 13: Workout planning. A gym workout is built by body area (Chest and Arms tiles, an Abs exercise added from the
-// paged picker) and saved; its plan preview shows the summary, what it needs and each exercise, and an exercise opens
+// Flow 13: Workout planning. A gym workout is built by body area (the page's Chest tile opens the builder, Arms is
+// added there, an Abs exercise from the paged picker) and saved; it leads the page as Today's workout; its plan preview shows the summary, what it needs and each exercise, and an exercise opens
 // its details there. A gym programme is followed with today as a training day: the programme card's day strip, the
 // whole journey by week (rest days as planned recovery), then pausing (its coming days are removed) and resuming (the
 // next week is planned again from today).
@@ -19,12 +19,12 @@ export const flow = {
 
     await t.step("build a gym workout by body area", async () => {
       await t.goto("/workouts", { label: "workouts" });
-      await page.getByRole("tab", { name: "Gym Workout" }).click();
-      await page.getByRole("button", { name: "By body area" }).click();
+      await page.getByRole("group", { name: "Train by area" }).getByRole("button", { name: /^Chest/ }).click();
       const builder = page.getByRole("dialog", { name: "Build by body area" });
       await builder.waitFor();
+      await builder.getByText("Training: Chest").waitFor();
+      await builder.getByRole("button", { name: "Change areas" }).click();
       const tiles = builder.getByRole("group", { name: "Body areas to train" });
-      await tiles.getByRole("button", { name: /^Chest/ }).click();
       await tiles.getByRole("button", { name: /^Arms/ }).click();
       t.expect((await tiles.getByRole("button", { name: /^Chest/ }).getAttribute("aria-pressed")) === "true", "the Chest tile should be selected");
       const sets = builder.getByRole("spinbutton", { name: / target sets$/ });
@@ -45,8 +45,14 @@ export const flow = {
       t.expect(plan?.title?.startsWith("Chest and arms") && Number(plan.exercises) === generated + 1, "the plan should be saved with the added exercise", plan);
     });
 
-    await t.step("the plan preview: summary, equipment, exercises and an exercise's details", async () => {
-      const card = page.locator("article").filter({ hasText: "Chest and arms" }).first();
+    await t.step("today's workout card, then the plan preview: summary, equipment, exercises and an exercise's details", async () => {
+      const todayCard = page.getByRole("region", { name: "Today" });
+      await todayCard.getByRole("heading", { name: /^Chest and arms/ }).waitFor({ timeout: 15000 });
+      const todayRows = todayCard.getByRole("list", { name: /^Exercises in / }).getByRole("listitem");
+      await todayRows.first().waitFor({ timeout: 15000 });
+      t.expect((await todayRows.count()) >= 4, "Today should list the plan's exercises", { rows: await todayRows.count() });
+      await t.checkpoint("today's workout card");
+      const card = page.locator("article[id^='workout-plan-']").filter({ hasText: "Chest and arms" }).first();
       await card.getByRole("button", { name: /^Start/ }).click();
       const preview = page.getByRole("dialog", { name: /^Chest and arms/ });
       await preview.getByRole("button", { name: "Begin workout" }).waitFor({ timeout: 15000 });
