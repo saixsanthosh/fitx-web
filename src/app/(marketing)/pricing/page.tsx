@@ -17,6 +17,7 @@ const FREE_FEATURES = [
   "Workout planning and active sessions",
   "Exercise search with instructions",
   "Food search, barcode lookup and meal logging",
+  "Walk, run and ride tracking",
   "Water tracking",
   "Progress history",
 ];
@@ -33,7 +34,7 @@ export default async function PricingPage() {
       <p className="mt-5 max-w-2xl text-base leading-7 text-fitx-text-secondary">
         {catalog.open
           ? "A FITX account costs nothing. Premium plans are optional subscriptions, charged in Indian rupees through Razorpay."
-          : "FITX is available without a subscription or in-app purchase. No payment details are needed to create an account."}
+          : "No subscription, no card needed."}
       </p>
 
       <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -92,7 +93,7 @@ export default async function PricingPage() {
               {catalog.reason === "not_configured" ? "Subscriptions open soon" : "Not on sale right now"}
             </p>
             <p className="mt-3 text-sm leading-6 text-fitx-text-secondary">
-              When Premium plans are on sale, each plan’s price and what it includes are listed here before you pay.
+              Prices and what each plan includes appear here before you pay.
             </p>
           </section>
         )}
@@ -112,7 +113,7 @@ export default async function PricingPage() {
           </p>
         </div>
       ) : (
-        <p className="mt-6 text-xs text-fitx-text-secondary">Prices and terms for any paid plan are published here before it is sold.</p>
+        <p className="mt-6 text-xs text-fitx-text-secondary">Any paid plan&apos;s price and terms are published here first.</p>
       )}
     </main>
   );
