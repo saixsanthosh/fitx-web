@@ -65,7 +65,7 @@ export function Routines({ templates, ready, loading, busy, dateLabel, sections,
         <p className={styles.muted}>Save a meal or a whole day from the Meals tab, then add it to any day in one tap. Amounts and values are copied as they were logged.</p>
       </div>
       {loading ? <p className={styles.muted}>Loading…</p> : <>
-        {group("Saved meals", meals, <Utensils size={15} className="text-fitx-primary"/>, "No saved meals yet. Use “Save this meal” on the Meals tab.")}
+        {group("Saved meals", meals, <Utensils size={15} className="text-fitx-primary"/>, "No saved meals yet. Save one from its bookmark on Meals.")}
         {group("Daily routines", days, <CalendarDays size={15} className="text-fitx-primary"/>, "No routines yet. Use “Save today as a routine” on the Meals tab.")}
       </>}
     </section>

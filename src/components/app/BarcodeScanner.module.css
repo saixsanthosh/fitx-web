@@ -1,12 +1,67 @@
-/* The aiming frame over the camera preview. Colours come only from --fitx-* theme tokens. */
-.frame { position: absolute; inset: 0; pointer-events: none; }
-/* The dimmed mask is four bars around the clear window, so the barcode area stays bright. */
-.window { position: absolute; left: 14%; right: 14%; top: 31%; bottom: 31%; box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--fitx-scrim) 52%, transparent); border-radius: .5rem; }
-.corner { position: absolute; width: 1.6rem; height: 1.6rem; border: 3px solid var(--fitx-on-strong); }
-.tl { left: -2px; top: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: .5rem; }
-.tr { right: -2px; top: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: .5rem; }
-.bl { left: -2px; bottom: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: .5rem; }
-.br { right: -2px; bottom: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: .5rem; }
-.line { position: absolute; left: 6%; right: 6%; top: 50%; height: 2px; background: var(--fitx-primary); opacity: .85; animation: scan 2.2s ease-in-out infinite alternate; }
-@keyframes scan { from { top: 12%; } to { top: 88%; } }
-@media (prefers-reduced-motion: reduce) { .line { animation: none; top: 50%; } }
+/* The barcode scanner: a full-screen camera on phones, a centred panel from 768 px. Colours come only from --fitx-* tokens. */
+.dialog {
+  width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; overflow: hidden;
+  border: 0; background: var(--fitx-stage); color: var(--fitx-on-stage);
+}
+.dialog::backdrop { background: color-mix(in srgb, var(--fitx-scrim) 72%, transparent); }
+.body { display: flex; height: 100%; flex-direction: column; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: max(.5rem, env(safe-area-inset-top)) .75rem .5rem 1.25rem; }
+.title { font-size: 1.0625rem; font-weight: 700; letter-spacing: -.02em; }
+.round { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 999px; background: color-mix(in srgb, var(--fitx-on-stage) 12%, transparent); color: var(--fitx-on-stage); }
+.round:focus-visible,.action:focus-visible { outline: 2px solid var(--fitx-on-stage); outline-offset: 2px; }
+
+.stage { position: relative; flex: 1 1 auto; min-height: 14rem; overflow: hidden; background: var(--fitx-stage); touch-action: manipulation; }
+.video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mask { position: absolute; inset: 0; pointer-events: none; }
+/* Matches SCAN_WINDOW in src/lib/food/scanner.ts: what is read is what is framed. */
+.window {
+  position: absolute; left: 8%; right: 8%; top: 28%; bottom: 28%; border-radius: .9rem;
+  box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--fitx-stage) 58%, transparent);
+  --corner: var(--fitx-on-stage);
+}
+.stage[data-state="steady"] .window { --corner: var(--fitx-warning); }
+.stage[data-state="confirmed"] .window { --corner: var(--fitx-success); }
+.corner { position: absolute; width: 2rem; height: 2rem; border: 3px solid var(--corner); transition: border-color .18s ease, transform .18s ease; }
+.tl { left: -3px; top: -3px; border-right: 0; border-bottom: 0; border-top-left-radius: .9rem; }
+.tr { right: -3px; top: -3px; border-left: 0; border-bottom: 0; border-top-right-radius: .9rem; }
+.bl { left: -3px; bottom: -3px; border-right: 0; border-top: 0; border-bottom-left-radius: .9rem; }
+.br { right: -3px; bottom: -3px; border-left: 0; border-top: 0; border-bottom-right-radius: .9rem; }
+.stage[data-state="confirmed"] .tl { transform: translate(4px, 4px); }
+.stage[data-state="confirmed"] .tr { transform: translate(-4px, 4px); }
+.stage[data-state="confirmed"] .bl { transform: translate(4px, -4px); }
+.stage[data-state="confirmed"] .br { transform: translate(-4px, -4px); }
+/* A slow sweep while it looks for a code; it stops as soon as a code is seen. */
+.sweep { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
+.sweep > span { position: absolute; inset: 0; border-bottom: 2px solid color-mix(in srgb, var(--fitx-on-stage) 70%, transparent); transform: translateY(-100%); animation: fitx-scan-sweep 2.4s cubic-bezier(.65, 0, .35, 1) infinite alternate; }
+@keyframes fitx-scan-sweep { to { transform: translateY(0); } }
+.focus { position: absolute; width: 4.5rem; height: 4.5rem; margin: -2.25rem 0 0 -2.25rem; border: 2px solid var(--fitx-on-stage); border-radius: 999px; opacity: 0; pointer-events: none; animation: fitx-scan-focus .7s ease-out; }
+@keyframes fitx-scan-focus { 0% { opacity: 1; transform: scale(1.35); } 60% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+
+.panel { display: grid; gap: .8rem; padding: 1rem 1.25rem max(1rem, env(safe-area-inset-bottom)); }
+.status { min-height: 1.5rem; color: var(--fitx-on-stage); font-size: .95rem; font-weight: 600; letter-spacing: -.01em; }
+.status[data-state="failed"] { color: var(--fitx-on-stage); font-weight: 500; }
+.zoom { display: grid; grid-template-columns: auto minmax(0, 1fr) 3rem; align-items: center; gap: .75rem; color: var(--fitx-on-stage-secondary); font-size: .8rem; }
+.zoom input { width: 100%; min-height: 2.75rem; accent-color: var(--fitx-on-stage); }
+.zoom output { color: var(--fitx-on-stage); font-variant-numeric: tabular-nums; text-align: right; }
+.actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.action {
+  display: inline-flex; min-height: 2.75rem; align-items: center; gap: .45rem; border-radius: 999px; padding: 0 1rem;
+  background: color-mix(in srgb, var(--fitx-on-stage) 12%, transparent); color: var(--fitx-on-stage); font-size: .85rem; font-weight: 600;
+}
+.action:hover { background: color-mix(in srgb, var(--fitx-on-stage) 18%, transparent); }
+.action[aria-pressed="true"] { background: var(--fitx-on-stage); color: var(--fitx-stage); }
+.note { color: var(--fitx-on-stage-secondary); font-size: .75rem; }
+
+@media (min-width: 768px) {
+  .dialog { width: min(34rem, calc(100vw - 3rem)); height: min(46rem, calc(100dvh - 3rem)); margin: auto; border-radius: 1.25rem; box-shadow: 0 30px 80px color-mix(in srgb, var(--fitx-scrim) 40%, transparent); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dialog[open] { animation: fitx-scan-in .28s cubic-bezier(.22, 1, .36, 1); }
+}
+@keyframes fitx-scan-in { from { opacity: 0; transform: translateY(16px); } }
+@media (prefers-reduced-motion: reduce) {
+  .sweep { display: none; }
+  .corner { transition: none; }
+  .focus { animation-duration: .01s; }
+  .stage[data-state="confirmed"] .corner { transform: none; }
+}

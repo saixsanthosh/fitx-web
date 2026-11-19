@@ -30,7 +30,7 @@ export function MyFoods({ rows, loading, busy, photoFor, onUse, onAdd, onEdit, o
       <div className={styles.slotHeader}>
         <div>
           <h2 className="font-medium">My foods</h2>
-          <p className={styles.muted}>Foods and recipes you saved. They show up first when you search. Only you can see them, except their names, which the AI coach sends to outside AI services if you use it with “Use my FITX data” on.</p>
+          <p className={styles.muted}>Shown first when you search. Only you can see them, except their names, which the AI coach sends out only with “Use my FITX data” on.</p>
         </div>
         <button type="button" onClick={onAdd} className="fitx-button"><Plus size={15}/>Add a food</button>
       </div>

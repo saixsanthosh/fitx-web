@@ -1,0 +1,30 @@
+/* The day's diary. Colours come only from --fitx-* tokens. */
+.diary { display: grid; gap: 1rem; }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .25rem 1rem; }
+.title { color: var(--fitx-text); font-family: var(--font-manrope), system-ui, sans-serif; font-size: 1.125rem; font-weight: 700; letter-spacing: -.02em; }
+.title span { margin-left: .4rem; color: var(--fitx-text-disabled); font-size: .8rem; font-weight: 500; letter-spacing: 0; }
+.tools { display: flex; flex-wrap: wrap; gap: .25rem; margin-right: -.5rem; }
+.note { color: var(--fitx-text-secondary); font-size: .74rem; line-height: 1.5; }
+.meals { display: grid; gap: .75rem; }
+.meal { border: 1px solid var(--fitx-border); border-radius: 1rem; background: var(--fitx-card-bg); padding: .35rem .5rem .35rem 1rem; }
+.mealHead { display: flex; min-height: 3rem; align-items: center; gap: .5rem; }
+.mealTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--fitx-text); font-size: .95rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.mealKcal { color: var(--fitx-text-secondary); font-size: .8rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.add {
+  display: grid; flex: 0 0 auto; width: 2.75rem; height: 2.75rem; place-items: center; border: 1px solid var(--fitx-border); border-radius: 999px;
+  background: var(--fitx-surface); color: var(--fitx-text); transition: background-color .15s ease, border-color .15s ease, transform .15s ease;
+}
+.add:hover { border-color: var(--fitx-text-disabled); background: var(--fitx-hover); }
+.add:active { transform: scale(.94); }
+.add:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.rows { display: grid; margin: 0 0 .35rem; padding: 0; list-style: none; }
+.row { display: flex; min-width: 0; align-items: center; gap: .5rem; border-top: 1px solid var(--fitx-divider); padding: .55rem 0; animation: fitx-diary-in .32s cubic-bezier(.22, 1, .36, 1) both; }
+.rowMain { display: grid; flex: 1 1 auto; min-width: 0; gap: .15rem; }
+.rowTitle { overflow: hidden; color: var(--fitx-text); font-size: .875rem; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.rowTitle span { color: var(--fitx-text-disabled); font-weight: 400; }
+.rowKcal { flex: 0 0 auto; color: var(--fitx-text); font-size: .9rem; font-weight: 650; font-variant-numeric: tabular-nums; text-align: right; }
+.rowKcal small { display: block; color: var(--fitx-text-disabled); font-size: .62rem; font-weight: 500; }
+.empty { display: grid; justify-items: start; gap: .75rem; border: 1px dashed var(--fitx-border); border-radius: 1rem; padding: 1.5rem 1.25rem; }
+.emptyTitle { color: var(--fitx-text); font-size: 1rem; font-weight: 650; }
+@keyframes fitx-diary-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .row { animation: none; } .add { transition: none; } .add:active { transform: none; } }

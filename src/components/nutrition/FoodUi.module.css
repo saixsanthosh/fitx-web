@@ -98,9 +98,9 @@
 .legend small { color: var(--fitx-text-disabled); font-size: .64rem; }
 .legendName { color: var(--fitx-text-secondary); }
 .swatch { width: .6rem; height: .6rem; align-self: center; border-radius: 2px; }
-.swatch_carbs { background: var(--fitx-info); }
-.swatch_protein { background: var(--fitx-gold); }
-.swatch_fat { background: var(--fitx-primary); }
+.swatch_carbs { background: var(--fitx-macro-carbs); }
+.swatch_protein { background: var(--fitx-macro-protein); }
+.swatch_fat { background: var(--fitx-macro-fat); }
 .unknown,.unknownTile { color: var(--fitx-text-disabled); font-size: .68rem; font-weight: 500; }
 .nutrients { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .4rem; margin: .8rem 0 0; }
 .nutrients > div { border-radius: .5rem; background: var(--fitx-surface-variant); padding: .5rem .6rem; }
@@ -133,3 +133,8 @@
 .frequentName span { overflow: hidden; color: var(--fitx-text); font-size: .84rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .frequentName small { overflow: hidden; color: var(--fitx-text-secondary); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 .frequentName:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; border-radius: .4rem; }
+
+/* Pieces or grams for counted foods */
+.countBar { display: grid; gap: .5rem; margin-top: 1rem; }
+.countBar .chips { margin-top: 0; }
+.gramsOnly { margin-top: .85rem; border-left: 2px solid var(--fitx-border); padding-left: .6rem; color: var(--fitx-text-secondary); font-size: .74rem; line-height: 1.45; }

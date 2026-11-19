@@ -1,6 +1,7 @@
-// Flow 3b: the reference-spec nutrition journey. "curd" finds plain yogurt (not cottage cheese) and offers ml and katori
-// (a clearly labelled estimate), a meal is logged into a section the member named, the overview says how many calories
-// are left (or asks for a target), and the History tab shows the day as logged. Not run by the build stream; the
+// Flow 3b: the reference-spec nutrition journey. The quick-add search opens the Log food sheet, "curd" finds plain
+// yogurt (not cottage cheese) and offers ml and katori (a clearly labelled estimate), a meal is logged into a section
+// the member named (the sheet steps aside for the name and comes back), the overview says how many calories are left
+// (or asks for a target), and the History tab shows the day as logged. Not run by the build stream; the
 // integration pass runs it with the other flows.
 import { signInUi, textOf } from "./common.mjs";
 
@@ -24,6 +25,7 @@ export const flow = {
       await page.getByRole("button", { name: "Search food" }).click();
       await page.getByText("Loading foods…").waitFor({ state: "detached", timeout: 30000 }).catch(() => undefined);
       await t.settle(2000);
+      t.expect(await page.getByRole("dialog", { name: "Log food" }).isVisible(), "the quick-add search should open the Log food sheet");
       const panel = addPanel(page);
       const name = (await panel.locator("p").first().innerText()).trim();
       t.note("curd selected", name);
@@ -48,11 +50,15 @@ export const flow = {
     await t.step("a meal section the member names holds the entry", async () => {
       const panel = addPanel(page);
       await panel.getByRole("combobox", { name: "Meal", exact: true }).selectOption({ label: "Add a meal…" });
-      const dialog = page.getByRole("dialog");
+      // The Log food sheet steps aside for this dialog and comes back once the meal is named.
+      const dialog = page.getByRole("dialog", { name: "Add a meal" });
       await dialog.getByLabel("Meal name").fill("Pre-workout");
       await dialog.getByRole("button", { name: "Save", exact: true }).click();
       await dialog.waitFor({ state: "detached", timeout: 10000 });
+      await page.getByRole("dialog", { name: "Log food" }).waitFor({ timeout: 10000 });
+      t.expect((await panel.getByRole("combobox", { name: "Meal", exact: true }).inputValue()) === "Pre-workout", "the new meal should be chosen");
       await panel.getByRole("button", { name: "Add to log" }).click();
+      await page.getByRole("dialog", { name: "Log food" }).waitFor({ state: "hidden", timeout: 15000 });
       await t.settle(2000);
       const rows = await standin.sql(`select meal, protein, fat from public.meals where user_id = '${account.id}'`);
       t.note("logged rows", rows);
