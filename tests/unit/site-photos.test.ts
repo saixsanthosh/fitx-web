@@ -27,9 +27,13 @@ test("the site's photos are never shown unoptimized, so the browser never asks t
 });
 
 test("the sign-in pages' photo is decorative and drops out when it can't load", () => {
+  // The (auth) layout hands its frame to AuthChrome, which keeps the photo for pages without their own screen.
   const layout = read("app/(auth)/layout.tsx");
-  assert.match(layout, /<AuthVisualImage \/>/);
-  assert.doesNotMatch(layout, /<Image\b/, "the layout no longer renders the photo itself");
+  assert.match(layout, /<AuthChrome>/);
+  assert.doesNotMatch(layout, /<Image\b/, "the layout never renders the photo itself");
+  const frame = read("components/auth/AuthChrome.tsx");
+  assert.match(frame, /<AuthVisualImage \/>/);
+  assert.doesNotMatch(frame, /<Image\b/, "the frame shows the photo only through AuthVisualImage");
   const image = read("app/(auth)/AuthVisualImage.tsx");
   assert.match(image, /^"use client";/);
   assert.match(image, /if \(failed\) return null;/);
