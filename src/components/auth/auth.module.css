@@ -4,6 +4,7 @@
 .screen {
   display: flex;
   min-height: 100svh;
+  overflow-x: clip;
   flex-direction: column;
   background: var(--fitx-bg);
   color: var(--fitx-text);
@@ -416,8 +417,8 @@
   .screen:has(details[open]) .headline { display: block; }
   .stageTop { top: 28px; left: clamp(28px, 4vw, 56px); right: clamp(28px, 4vw, 56px); }
   .headline { left: clamp(28px, 4vw, 56px); bottom: clamp(32px, 6svh, 64px); font-size: clamp(3.4rem, 6.2vw, 6.4rem); }
-  .figure { top: 12%; right: 8%; bottom: 0; width: min(44%, 420px); }
-  .frame { inset: 16% 4% 6% 18%; }
+  .figure { top: auto; right: 9%; bottom: 5svh; width: auto; height: min(74svh, 640px, 46vw); aspect-ratio: 240 / 300; }
+  .frame { inset: 2% -4% 4% 4%; }
   .cue { display: block; right: clamp(28px, 4vw, 56px); bottom: clamp(32px, 6svh, 64px); padding: 9px 16px; font-size: 0.86rem; }
   .pause { right: 12px; bottom: auto; top: 76px; }
   .panel { overflow-y: auto; }

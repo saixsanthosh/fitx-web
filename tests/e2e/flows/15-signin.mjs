@@ -72,6 +72,9 @@ export const flow = {
       const focused = await page.evaluate(() => document.activeElement?.getAttribute("autocomplete"));
       t.expect(focused === "one-time-code", `the code field should have focus (got ${focused})`);
       await t.checkpoint("code sent", { fullPage: false });
+      await page.waitForTimeout(2300);
+      const later = (await page.getByRole("button", { name: /^Resend in / }).innerText()).trim();
+      t.expect(/^Resend in 0:5\d$/.test(later), `the resend timer counts down (shows "${later}")`);
     });
 
     await t.step("a wrong code is refused with a clear message", async () => {

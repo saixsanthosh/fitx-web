@@ -67,7 +67,7 @@ export default function SignInForm() {
     const address = email.trim();
     if (!isEmailAddress(address)) {
       setError("Enter your email address.");
-      emailInput.current?.focus();
+      emailInput.current?.focus({ preventScroll: true });
       return;
     }
     if (!open) {

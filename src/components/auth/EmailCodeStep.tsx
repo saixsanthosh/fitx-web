@@ -13,7 +13,8 @@ export function EmailCodeStep({ flow }: { flow: EmailCode }) {
   const { email, code, setCode, verifying, signingIn, error, notice, resendIn, sending } = flow;
 
   useEffect(() => {
-    input.current?.focus();
+    // No scrolling: the step slides in from the side, and focusing mid-slide would scroll the page sideways.
+    input.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
