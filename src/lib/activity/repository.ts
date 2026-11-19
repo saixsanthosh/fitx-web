@@ -368,10 +368,12 @@ export async function saveImportedActivity(client: SupabaseLike, userId: string,
   return result;
 }
 
-export async function listActivities(client: SupabaseLike, userId: string, options: { limit?: number; before?: number | null } = {}): Promise<DbResult<ActivityView[]>> {
+/** A page of activities, newest first; `sport` limits it to walks, runs or rides. */
+export async function listActivities(client: SupabaseLike, userId: string, options: { limit?: number; before?: number | null; sport?: Sport | null } = {}): Promise<DbResult<ActivityView[]>> {
   try {
     const { result } = await withSourceColumns(client, (includeSource) => {
       let query = table(client, "activities").select(columnList(SUMMARY_COLUMN_LIST, SOURCE_COLUMNS, includeSource)).eq("user_id", userId).order("started_at", { ascending: false }).limit(options.limit ?? 20);
+      if (options.sport) query = query.eq("sport", options.sport);
       if (options.before) query = query.lt("started_at", new Date(options.before).toISOString());
       return query;
     });
