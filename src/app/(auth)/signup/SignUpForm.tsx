@@ -1,124 +1,168 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
-import { Apple, LockKeyhole, Mail, UserRound } from "lucide-react";
-import { GoogleIcon } from "@/components/ui/GoogleIcon";
+import { useRef, useState, type FormEvent } from "react";
+import { AnimatePresence, m } from "framer-motion";
+import { Apple, LockKeyhole, Mail, Plus, UserRound } from "lucide-react";
+import { AuthScreen } from "@/components/auth/AuthScreen";
+import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
+import { GoogleButton, startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
+import { useEmailCode } from "@/components/auth/useEmailCode";
+import s from "@/components/auth/auth.module.css";
+import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
+import { isEmailAddress } from "@/lib/auth/email-code";
 import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
 import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
 const appleEnabled = process.env.NEXT_PUBLIC_APPLE_OAUTH_ENABLED === "true";
 
-export default function SignUpPage() {
+/** New accounts go to onboarding: the server sends them there (post-sign-in), whatever they asked for. */
+const noNext = () => null;
+
+type Pending = "password" | OAuthProvider | null;
+
+export default function SignUpForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<Pending>(null);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const emailInput = useRef<HTMLInputElement>(null);
+  const reduced = useReducedMotionSafe();
+  const codeFlow = useEmailCode(noNext);
+  const loading = pending !== null || codeFlow.sending;
 
-  async function signUp(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) return;
     setError("");
+    const address = email.trim();
+    if (!isEmailAddress(address)) {
+      setError("Enter your email address.");
+      emailInput.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (!open) {
+      const problem = await codeFlow.send(address);
+      if (problem) setError(problem);
+      return;
+    }
+    if (!name.trim()) return setError("Enter your name.");
     if (password.length < 8) return setError("Use at least 8 characters for your password.");
     if (password !== confirm) return setError("Your passwords do not match.");
     const supabase = createClient();
     if (!supabase) return setError("Account access is temporarily unavailable. Please try again later.");
-    setLoading(true);
+    setPending("password");
     try {
       const { data, error: authError } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: address,
         password,
-        options: {
-          data: { name: name.trim() },
-          emailRedirectTo: authCallbackUrl("/onboarding"),
-        },
+        options: { data: { name: name.trim() }, emailRedirectTo: authCallbackUrl("/onboarding") },
       });
       if (authError) {
         setError("We couldn’t create your account. Check your details and try again.");
-        setLoading(false);
+        setPending(null);
         return;
       }
       if (data.session) window.location.assign(await finishPasswordSignIn("/onboarding"));
-      else setSent(true);
-    } catch {
-      setError("We couldn’t connect to FITX. Check your connection and try again.");
-      setLoading(false);
-    }
-  }
-
-  async function signInWith(provider: "google" | "apple") {
-    if (loading) return;
-    const supabase = createClient();
-    if (!supabase) return setError("Account access is temporarily unavailable. Please try again later.");
-    setError("");
-    setLoading(true);
-    try {
-      const { error: authError } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: authCallbackUrl("/dashboard"),
-          ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {}),
-        },
-      });
-      if (authError) {
-        setError(/unsupported provider|provider is not enabled/i.test(authError.message)
-          ? `${provider === "google" ? "Google" : "Apple"} sign-in is not enabled for this app yet. Try email sign-up.`
-          : "We couldn’t start sign-in. Please try again.");
-        setLoading(false);
+      else {
+        setSent(true);
+        setPending(null);
       }
     } catch {
       setError("We couldn’t connect to FITX. Check your connection and try again.");
-      setLoading(false);
+      setPending(null);
     }
   }
 
+  async function signInWith(provider: OAuthProvider) {
+    if (loading) return;
+    setError("");
+    setPending(provider);
+    const problem = await startOAuth(provider, null);
+    if (problem) {
+      setError(problem);
+      setPending(null);
+    }
+  }
+
+  const slide = reduced
+    ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.15 } }
+    : { initial: { opacity: 0, x: 24 }, animate: { opacity: 1, x: 0 }, exit: { opacity: 0, x: -24 }, transition: { duration: DURATION.base, ease: EASE.out } };
+  const view = sent ? "sent" : codeFlow.step;
+
   return (
-    <div>
-      {sent ? (
-        <div className="auth-success">
-          <p className="auth-eyebrow">ONE MORE STEP</p>
-          <h1>Check your email</h1>
-          <p className="auth-subtitle">We sent a confirmation link to <strong>{email}</strong>. Open it to finish creating your FITX account.</p>
-          <Link href="/signin" className="auth-form-link">Back to sign in</Link>
-        </div>
-      ) : (
-        <>
-          <p className="auth-eyebrow">START YOUR NEXT CHAPTER</p>
-          <h1>Create your FITX account</h1>
-          <p className="auth-subtitle">Bring workouts, nutrition and progress into one routine.</p>
-          <button type="button" disabled={loading} onClick={() => void signInWith("google")} className="auth-google-button">
-            <GoogleIcon />{loading ? "Connecting…" : "Continue with Google"}
-          </button>
-          <p className="auth-privacy-note">Secure sign-in powered by Google. FITX never sees your Google password.</p>
-          {error && <p role="alert" className="auth-error">{error}</p>}
-          <details className="auth-email-details">
-            <summary>Other sign-up options</summary>
-            <div className="auth-email-form">
-              {appleEnabled && <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className="auth-option-button"><Apple size={17} aria-hidden="true" />Continue with Apple</button>}
-              <form onSubmit={signUp} className="auth-email-form">
-                <label className="auth-field-label">Your name
-                  <span className="auth-field-wrap"><UserRound size={16} aria-hidden="true" /><input className="fitx-field" autoComplete="name" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} /></span>
-                </label>
-                <label className="auth-field-label">Email address
-                  <span className="auth-field-wrap"><Mail size={16} aria-hidden="true" /><input className="fitx-field" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></span>
-                </label>
-                <label className="auth-field-label">Password
-                  <span className="auth-field-wrap"><LockKeyhole size={16} aria-hidden="true" /><input className="fitx-field" type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} /></span>
-                </label>
-                <label className="auth-field-label">Confirm password
-                  <span className="auth-field-wrap"><LockKeyhole size={16} aria-hidden="true" /><input className="fitx-field" type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={(e) => setConfirm(e.target.value)} /></span>
-                </label>
-                <button type="submit" disabled={loading} className="fitx-button w-full">{loading ? "Creating account…" : "Create account with email"}</button>
-              </form>
-            </div>
-          </details>
-          <p className="auth-account-note">Already use FITX? <Link href="/signin">Sign in</Link></p>
-        </>
-      )}
-    </div>
+    <AuthScreen footer={view === "email" && <p className={s.account}>Already use FITX? <Link href="/signin">Sign in</Link></p>}>
+      <AnimatePresence mode="popLayout" initial={false}>
+        {view === "sent" ? (
+          <m.div key="sent" className={s.body} {...slide}>
+            <h1 className={s.title}>Check your email</h1>
+            <p className={s.lead}>Open the link we sent to <strong>{email.trim()}</strong> to finish.</p>
+            <Link href="/signin" className={s.link}>Back to sign in</Link>
+          </m.div>
+        ) : view === "code" ? (
+          <m.div key="code" className={s.body} {...slide}>
+            <EmailCodeStep flow={codeFlow} />
+          </m.div>
+        ) : (
+          <m.div key="email" className={s.body} {...slide}>
+            <h1 className={s.title}>Create account</h1>
+            <GoogleButton pending={pending === "google"} disabled={loading} onClick={() => void signInWith("google")} />
+            <div className={s.divider}>or</div>
+            <form onSubmit={submit} className={s.form} noValidate>
+              <label className={s.field}>Email address
+                <span className={s.inputWrap}>
+                  <Mail size={16} aria-hidden="true" />
+                  <input ref={emailInput} className="fitx-field" type="email" autoComplete="email" inputMode="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+                </span>
+              </label>
+              {!open && (
+                <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                  {codeFlow.sending ? "Sending code…" : "Email me a code"}
+                </button>
+              )}
+              <details className={s.details} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+                <summary>Other sign-up options<Plus size={17} aria-hidden="true" /></summary>
+                <div className={s.detailsBody}>
+                  <label className={s.field}>Your name
+                    <span className={s.inputWrap}>
+                      <UserRound size={16} aria-hidden="true" />
+                      <input className="fitx-field" autoComplete="name" required={open} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
+                    </span>
+                  </label>
+                  <label className={s.field}>Password
+                    <span className={s.inputWrap}>
+                      <LockKeyhole size={16} aria-hidden="true" />
+                      <input className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
+                    </span>
+                  </label>
+                  <label className={s.field}>Confirm password
+                    <span className={s.inputWrap}>
+                      <LockKeyhole size={16} aria-hidden="true" />
+                      <input className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                    </span>
+                  </label>
+                  {open && (
+                    <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                      {pending === "password" ? "Creating account…" : "Create account with email"}
+                    </button>
+                  )}
+                  {appleEnabled && (
+                    <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className={s.option}>
+                      <Apple size={17} aria-hidden="true" />Continue with Apple
+                    </button>
+                  )}
+                </div>
+              </details>
+              {error && <p role="alert" className={s.error}>{error}</p>}
+            </form>
+          </m.div>
+        )}
+      </AnimatePresence>
+    </AuthScreen>
   );
 }
