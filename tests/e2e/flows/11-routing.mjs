@@ -5,7 +5,7 @@ import { signInUi } from "./common.mjs";
 
 const PRIVATE = [
   "/dashboard", "/workouts", "/workouts/active", "/nutrition", "/nutrition/sources", "/activity", "/activity/record",
-  "/activity/00000000-0000-4000-8000-000000000000", "/progress", "/goals?tab=week", "/planner", "/profile", "/settings", "/help",
+  "/activity/00000000-0000-4000-8000-000000000000", "/progress", "/goals", "/goals?tab=week", "/planner", "/profile", "/settings", "/help",
   "/exercises", "/exercises/00000000-0000-4000-8000-000000000000", "/home-workout", "/form-coach", "/onboarding", "/achievements", "/ai-coach",
   "/subscription", "/tasks", "/social", "/admin", "/activity/import", "/exercises/muscles", "/workouts/programme", "/workouts/history",
   "/workouts/history/00000000-0000-4000-8000-000000000000", "/progress/muscles",
@@ -17,7 +17,8 @@ const APP_PAGES = [
 ];
 /** Retired routes that now redirect on purpose (their page.tsx calls redirect(), or next.config.ts redirects them). */
 const MOVED = {
-  "/planner": "/goals?tab=week", "/tasks": "/goals?tab=today", "/achievements": "/progress", "/social": "/dashboard", "/admin": "/dashboard",
+  "/goals": "/dashboard?panel=goals", "/goals?tab=week": "/dashboard?panel=week", "/planner": "/dashboard?panel=week",
+  "/tasks": "/dashboard?panel=todo", "/achievements": "/progress", "/social": "/dashboard", "/admin": "/dashboard",
   "/form-coach": "/home-workout", "/form-coach?exercise=bodyweight_squat": "/home-workout?exercise=bodyweight_squat",
 };
 /** Moved before sign-in too (next.config.ts redirects run before the proxy), so sign-in returns to the new page. */
@@ -53,11 +54,12 @@ export const flow = {
     });
 
     const account = await standin.createAccount({ name: "Ravi Menon", tag: "routing" });
-    await t.step("sign in with next= lands on the requested page", async () => {
+    await t.step("sign in with next= lands on the requested page (an old Goals link, now Home's week plan)", async () => {
       await signInUi(t, account, { next: "/goals?tab=week" });
+      await page.waitForURL("**/dashboard?panel=week", { timeout: 15000 }).catch(() => undefined);
       const url = new URL(page.url());
-      t.expect(url.pathname === "/goals" && url.searchParams.get("tab") === "week", `expected /goals?tab=week after sign-in, got ${url.pathname}${url.search}`);
-      await t.checkpoint("goals week after sign-in with next");
+      t.expect(url.pathname === "/dashboard" && url.searchParams.get("panel") === "week", `expected /dashboard?panel=week after sign-in, got ${url.pathname}${url.search}`);
+      await t.checkpoint("week plan after sign-in with next");
     });
 
     await t.step("signed in: / and the sign-in pages go to the dashboard", async () => {

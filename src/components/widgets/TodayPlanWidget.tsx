@@ -13,6 +13,7 @@ import { todayPlan, weekActivity, whenLabel, type NextWorkout, type PlanWorkout,
 import { formatDistance, formatDurationWords } from "@/lib/activity/format";
 import { listRegions } from "@/lib/training/anatomy";
 import { workoutStartHref } from "@/lib/training/start-link";
+import { homePanel } from "@/config/routes";
 import type { Resource } from "./useHomeData";
 import { WidgetCard, WidgetError, WidgetSkeleton } from "./WidgetCard";
 import styles from "./Widgets.module.css";
@@ -35,7 +36,7 @@ function nextLine(next: NextWorkout | null, today: string): string | null {
 }
 
 function previewHref(workout: PlanWorkout): string {
-  return workout.planId ? workoutStartHref(workout.planId, workout.eventId) : "/goals?tab=today";
+  return workout.planId ? workoutStartHref(workout.planId, workout.eventId) : homePanel("todo");
 }
 
 type Lead = { tone: "active" | "plan" | "done" | "rest" | "empty"; eyebrow: ReactNode; title: string; meta: ReactNode; actions: ReactNode; map?: PlanWorkout | null };
@@ -103,7 +104,7 @@ function lead(plan: TodayPlan, today: string): Lead {
           title: "Plan your week",
           meta: "No workouts are planned for the next 7 days. Pick days and workouts, or follow a programme.",
           actions: <>
-            <Link href="/goals?tab=week" className="fitx-button"><CalendarPlus size={16} aria-hidden="true" />Plan your week</Link>
+            <Link href={homePanel("week")} className="fitx-button"><CalendarPlus size={16} aria-hidden="true" />Plan your week</Link>
             <Link href="/workouts" className={styles.secondaryAction}><Repeat size={15} aria-hidden="true" />Browse programmes</Link>
           </>,
         };

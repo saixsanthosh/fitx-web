@@ -1,6 +1,6 @@
 // Flow 13: the connected experience. A member with a finished workout, an abandoned one, a run and food with an
-// unknown protein value opens Home: Today's plan leads and counts the run, Muscles this week shows only the
-// finished workout's muscles, Today says what its totals leave out. Progress shows this week against last week,
+// unknown protein value opens Home: the Today ring leads and says what its totals leave out; Today's plan and
+// Muscles this week, added in Customise, count the run and only the finished workout's muscles. Progress shows this week against last week,
 // Focus next and the trends; /progress/muscles lists the share of the work, and choosing a muscle shows the
 // workout behind it with a link to its record. Nothing is counted from the abandoned workout.
 import { signInUi, textOf } from "./common.mjs";
@@ -36,14 +36,23 @@ export const flow = {
     t.note("seeded", { finished: finished?.id });
     await signInUi(t, account);
 
-    await t.step("Home leads with today's plan and counts this week's run", async () => {
+    await t.step("Today's plan, added in Customise, counts this week's run", async () => {
       await t.goto("/dashboard", { label: "home" });
+      const first = await page.locator("[data-widget]").evaluateAll((items) => items.map((item) => item.getAttribute("data-widget")));
+      t.expect(first[0] === "today", "the Today ring should lead Home", first);
+      t.expect(!first.includes("plan") && !first.includes("muscles"), "a new Home starts minimal", first);
+      await page.getByRole("button", { name: "Customise" }).click();
+      const sheet = page.getByRole("dialog", { name: "Customise Home" });
+      await sheet.getByRole("button", { name: "Add Today's plan to Home" }).click();
+      await sheet.getByRole("button", { name: "Add Muscles this week to Home" }).click();
+      await sheet.getByText("Saved", { exact: true }).waitFor({ timeout: 15000 });
+      await sheet.getByRole("button", { name: "Done" }).click();
       const plan = page.locator("[data-widget=plan]");
       await plan.locator("ol[aria-label^='Workouts and activities']").waitFor({ timeout: 20000 });
       const order = await page.locator("[data-widget]").evaluateAll((items) => items.map((item) => item.getAttribute("data-widget")));
       const text = await textOf(plan);
       t.note("home order and plan", { order, text: text.slice(0, 400) });
-      t.expect(order[0] === "plan", "Today's plan should lead a new account's Home", order);
+      t.expect(order[0] === "today" && order.includes("plan"), "the ring stays first and Today's plan is added", order);
       t.expect(/1 activity, 5\.20 km/.test(text), "the run should count in this week's line", text);
       t.expect(/1 workout\b/.test(text), "only the finished workout counts this week", text);
       await t.checkpoint("home with today's plan");
@@ -64,7 +73,7 @@ export const flow = {
       const text = await textOf(today);
       t.note("today widget", text);
       t.expect(/1 food has no protein value/.test(text), "the unknown protein should be named, not counted as 0", text);
-      t.expect(/Scan a barcode/.test(text), "the scan shortcut should be there", text);
+      t.expect(/Scan barcode/.test(text) && /Log food/.test(text), "the log and scan shortcuts should be there", text);
     }, { soft: true });
 
     await t.step("Progress compares this week and links each workout to its record", async () => {

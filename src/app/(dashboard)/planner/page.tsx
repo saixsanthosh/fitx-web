@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
+import { homePanel } from "@/config/routes";
 
-/** The Planner is now the Week tab of Goals. */
+/** The Planner is the week plan on Home. */
 export default function PlannerPage() {
-  redirect("/goals?tab=week");
+  redirect(homePanel("week"));
 }

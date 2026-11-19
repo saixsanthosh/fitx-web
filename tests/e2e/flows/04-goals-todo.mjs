@@ -1,7 +1,8 @@
-// Flow 4: Goals and To-Do. A daily (protein), a weekly (workouts) and a long-term (weight) goal are created; a To-Do
-// linked to a saved workout is started from its Start link and the workout finished, which ticks the To-Do; logged
-// food, the finished workout and a new weigh-in move the three goals; Home widgets are rearranged and stay arranged
-// after a reload.
+// Flow 4: Goals and To-Do, both on Home. The old Goals addresses land on Home; a daily (protein), a weekly
+// (workouts) and a long-term (weight) goal are created there; a To-Do linked to a saved workout is started from
+// its Start link and the workout finished, which ticks the To-Do; logged food, the finished workout and a new
+// weigh-in move the three goals; the week plan opens from Home; widgets added, moved and hidden in Customise stay
+// arranged after a reload.
 import { kolkataDate, signInUi } from "./common.mjs";
 
 async function newGoal(t, template, fill) {
@@ -22,7 +23,7 @@ async function goalProgress(t, title) {
 
 export const flow = {
   id: "04-goals-todo",
-  title: "Goals and To-Do: goals follow logs, a linked To-Do ticks itself, widgets stay arranged",
+  title: "Goals and To-Do on Home: goals follow logs, a linked To-Do ticks itself, widgets stay arranged",
   async run(t, { standin }) {
     const page = await t.open();
     const account = await standin.createAccount({ name: "Nikhil Rao", tag: "goals", profile: { weight: 72, target_weight: 70 } });
@@ -33,8 +34,32 @@ export const flow = {
         select '${account.id}', p.id, 'push_up', 'Push-Up', 0, 2, 8, 12, 60 from p returning plan_id`);
     await signInUi(t, account);
 
+    await t.step("the old Goals addresses open the matching place on Home", async () => {
+      const landed = {};
+      for (const [from, to] of [["/goals", "/dashboard?panel=goals"], ["/goals?tab=today", "/dashboard?panel=todo"], ["/goals?tab=week", "/dashboard?panel=week"], ["/planner", "/dashboard?panel=week"], ["/tasks", "/dashboard?panel=todo"]]) {
+        await t.goto(from, { label: `old ${from}` });
+        landed[from] = `${new URL(page.url()).pathname}${new URL(page.url()).search}`;
+        t.expect(landed[from] === to, `${from} should land on ${to}`, landed[from]);
+      }
+      // ?panel=week opens the week plan over Home.
+      await page.goto("/dashboard?panel=week", { waitUntil: "domcontentloaded" });
+      const week = page.getByRole("dialog", { name: "Week" });
+      await week.getByRole("group", { name: "Choose a day" }).waitFor({ timeout: 15000 });
+      await t.checkpoint("week plan from ?panel=week", { fullPage: false });
+      await week.getByRole("button", { name: "Close" }).click();
+      await week.waitFor({ state: "hidden", timeout: 10000 });
+      t.expect(new URL(page.url()).search === "", "closing the week plan leaves Home's plain address", page.url());
+      // A template link opens the goal editor on that template, once.
+      await t.goto("/goals?tab=goals&new=water_day", { label: "template link" });
+      const editor = page.getByRole("dialog", { name: "New goal" });
+      await editor.getByLabel(/^Target/).waitFor({ timeout: 15000 });
+      t.expect(new URL(page.url()).searchParams.get("new") === null, "the template is used once and dropped from the address", page.url());
+      await editor.getByRole("button", { name: "Cancel" }).click();
+      t.note("old addresses", landed);
+    });
+
     await t.step("create a daily, a weekly and a long-term goal", async () => {
-      await t.goto("/goals?tab=goals", { label: "goals" });
+      await t.goto("/dashboard?panel=goals", { label: "goals on home" });
       await newGoal(t, "Daily protein", async (sheet) => { await sheet.getByLabel(/^Target/).fill("60"); });
       await newGoal(t, "Workouts per week", async (sheet) => { await sheet.getByLabel(/^Target/).fill("3"); });
       await newGoal(t, "Reach a weight", async (sheet) => {
@@ -51,8 +76,8 @@ export const flow = {
     });
 
     await t.step("a To-Do linked to the saved workout gets a Start link", async () => {
-      await t.goto("/goals?tab=today", { label: "today tab" });
-      await page.getByRole("button", { name: "More options" }).first().click();
+      await t.goto("/dashboard?panel=todo", { label: "to-do on home" });
+      await page.locator("#home-todo").getByRole("button", { name: "More options" }).click();
       const sheet = page.getByRole("dialog");
       await sheet.getByLabel("What").fill("Evening push-ups");
       await sheet.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Type" }) }).locator("label").filter({ hasText: /^Workout$/ }).click();
@@ -92,7 +117,7 @@ export const flow = {
       await reps.locator("xpath=..").getByRole("button", { name: "Mark set incomplete" }).waitFor();
       await page.getByRole("button", { name: "Finish workout" }).click();
       await page.getByRole("heading", { name: "Workout complete" }).waitFor({ timeout: 30000 });
-      await t.goto("/goals?tab=today", { label: "today after the workout" });
+      await t.goto("/dashboard?panel=todo", { label: "to-do after the workout" });
       const box = page.getByRole("checkbox", { name: /^Evening push-ups: / });
       await box.waitFor({ timeout: 15000 });
       t.expect(await box.isChecked(), "the To-Do should be ticked once its workout is finished");
@@ -113,7 +138,7 @@ export const flow = {
       await t.settle(2000);
       const logged = await standin.one(`select food_name, protein::text from public.meals where user_id = '${account.id}' order by created_at desc limit 1`);
       t.note("logged for the protein goal", logged);
-      await t.goto("/goals?tab=goals", { label: "goals after food" });
+      await t.goto("/dashboard?panel=goals", { label: "goals after food" });
       const protein = t.goals.find((goal) => goal.metric === "protein_g").title;
       const progress = await goalProgress(t, protein);
       t.note("protein goal", progress);
@@ -134,7 +159,7 @@ export const flow = {
       await widget.getByLabel("Weight in kilograms").fill("71");
       await widget.getByRole("button", { name: "Save" }).click();
       await widget.getByText("71.0").first().waitFor({ timeout: 15000 }).catch(() => undefined);
-      await t.goto("/goals?tab=goals", { label: "goals after weigh-in" });
+      await t.goto("/dashboard?panel=goals", { label: "goals after weigh-in" });
       const weight = t.goals.find((goal) => goal.metric === "body_weight_kg").title;
       const progress = await goalProgress(t, weight);
       t.note("weight goal", progress);
@@ -142,19 +167,23 @@ export const flow = {
       await t.checkpoint("goals after logging");
     });
 
-    await t.step("Home widgets rearranged stay arranged after reload", async () => {
+    await t.step("Home widgets added, moved and hidden in Customise stay arranged after reload", async () => {
       await t.goto("/dashboard", { label: "arrange home" });
       const order = async () => page.locator("[data-widget]").evaluateAll((items) => items.map((item) => item.getAttribute("data-widget")));
       const before = await order();
-      await page.getByRole("button", { name: "Customize" }).click();
-      const sheet = page.getByRole("dialog");
-      await sheet.getByRole("button", { name: "Move Weight up" }).click();
-      await sheet.getByRole("button", { name: "Move Weight up" }).click();
+      t.expect(before[0] === "today" && JSON.stringify(before) === JSON.stringify(["today", "weight", "water"]), "a new Home: the Today ring, then weight and water", before);
+      t.expect(await page.locator("#home-todo").count() === 1 && await page.locator("#home-goals").count() === 1, "To-Do and Goals sit on Home");
+      await page.getByRole("button", { name: "Customise" }).click();
+      const sheet = page.getByRole("dialog", { name: "Customise Home" });
+      await sheet.getByRole("button", { name: "Add Macros to Home" }).click();
+      await sheet.getByRole("button", { name: "Add This week to Home" }).click();
+      await sheet.getByRole("button", { name: "Move Macros up" }).click();
+      await sheet.getByRole("button", { name: "Move Macros up" }).click();
       const hide = sheet.getByRole("button", { name: /^Hide / }).last();
       const hidden = (await hide.getAttribute("aria-label")).replace(/^Hide /, "");
       await hide.click();
       await sheet.getByText("Saved", { exact: true }).waitFor({ timeout: 15000 });
-      await t.checkpoint("customize home", { fullPage: false });
+      await t.checkpoint("customise home", { fullPage: false });
       await sheet.getByRole("button", { name: "Done" }).click();
       const arranged = await order();
       await page.reload();
@@ -165,7 +194,9 @@ export const flow = {
       t.note("home layout", { before, arranged, afterReload, hidden, stored });
       t.expect(JSON.stringify(arranged) !== JSON.stringify(before), "the arrangement should change", { before, arranged });
       t.expect(JSON.stringify(afterReload) === JSON.stringify(arranged), "the arrangement should survive a reload", { arranged, afterReload });
-      t.expect(arranged.indexOf("weight") < before.indexOf("weight"), "Weight should move up", { before, arranged });
+      t.expect(arranged[0] === "today", "the Today ring stays first", arranged);
+      t.expect(arranged.includes("macros") && arranged.indexOf("macros") < arranged.indexOf("weight"), "Macros should be added and moved above Weight", { before, arranged });
+      t.expect(hidden === "This week" && !arranged.includes("week"), "This week, hidden again, should be gone", { hidden, arranged });
       await t.checkpoint("home arranged after reload");
     });
   },

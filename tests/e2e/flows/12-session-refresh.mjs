@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { signInUi } from "./common.mjs";
 
-const PAGES = ["/dashboard", "/workouts", "/nutrition", "/goals", "/activity", "/settings", "/progress", "/help"];
+const PAGES = ["/dashboard", "/workouts", "/nutrition", "/dashboard?panel=goals", "/activity", "/settings", "/progress", "/help"];
 
 function authLog(outDir, since) {
   try {
@@ -35,7 +35,7 @@ export const flow = {
     await signInUi(t, account);
     const second = await t.context.newPage();
     t.instrument(second);
-    await second.goto("/goals");
+    await second.goto("/dashboard?panel=goals");
 
     await t.step(`two tabs stay signed in for ${Math.round((ttl * 3 + 30) / 60)} minutes of refreshes`, async () => {
       const until = Date.now() + (ttl * 3 + 30) * 1000;

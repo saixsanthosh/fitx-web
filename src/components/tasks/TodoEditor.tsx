@@ -6,6 +6,7 @@ import { Trash2 } from "lucide-react";
 import { loadGoalOptions, type GoalOption } from "@/lib/data/goals";
 import { loadPlanOptions, type PlanOption, type TodoSchema } from "@/lib/data/todo";
 import { TODO_KINDS, validateTodoDraft, type TodoDraft, type TodoInput } from "@/lib/domain/todo";
+import { homePanel } from "@/config/routes";
 import { Sheet } from "./Sheet";
 import { getSession } from "./session";
 import styles from "./Todo.module.css";
@@ -128,7 +129,7 @@ export function TodoEditor({ open, mode, initial, schema, onClose, onSubmit, onD
           </label>
         ) : (
           <p className={styles.fieldHint}>
-            To make To-Dos count toward a goal, <Link href="/goals?tab=goals&new=checklist" className={styles.inlineLink}>create a Checklist goal</Link>.
+            To make To-Dos count toward a goal, <Link href={homePanel("goals", { new: "checklist" })} className={styles.inlineLink} onClick={onClose}>create a Checklist goal</Link>.
           </p>
         ))}
         <label className={styles.field}>

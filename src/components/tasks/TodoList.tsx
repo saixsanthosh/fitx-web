@@ -6,6 +6,7 @@ import { Reorder, useDragControls, useReducedMotion } from "framer-motion";
 import { ArrowDown, ArrowUp, Check, Dumbbell, GripVertical, Moon, Pencil, Plus, Target, Trash2, Utensils } from "lucide-react";
 import { emptyTodoDraft, draftFromTodo, sortTodos, todoProgress, type TodoDraft, type TodoItem } from "@/lib/domain/todo";
 import { workoutStartHref } from "@/lib/training/start-link";
+import { homePanel } from "@/config/routes";
 import type { TodoSchema } from "@/lib/data/todo";
 import { TodoEditor } from "./TodoEditor";
 import { RowMenu } from "./RowMenu";
@@ -24,7 +25,7 @@ function KindIcon({ kind }: { kind: TodoItem["kind"] }) {
 }
 
 /**
- * One day's To-Do list, shared by the Home widget and the Goals "Today" tab: add, tick, edit,
+ * One day's To-Do list (Home's To-Do panel): add, tick, edit,
  * delete with Undo, and reorder by dragging the handle or with Move up / Move down (keyboard:
  * arrow keys on the handle).
  */
@@ -146,7 +147,7 @@ export function TodoList({ date, variant = "page", limit, onChanged, goalTitles 
           })}
         </Reorder.Group>
       )}
-      {hiddenCount > 0 && <Link href="/goals?tab=today" className={styles.showAll}>Show all {items.length}</Link>}
+      {hiddenCount > 0 && <Link href={homePanel("todo")} className={styles.showAll}>Show all {items.length}</Link>}
       <p className="sr-only" aria-live="polite">{announcement}</p>
 
       {editor && (

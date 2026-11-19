@@ -2,18 +2,17 @@
 
 import { useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Reorder, useDragControls, useReducedMotion } from "framer-motion";
-import { BicepsFlexed, CalendarCheck2, CalendarDays, ChevronDown, ChevronUp, Compass, Droplets, EyeOff, GripVertical, ListChecks, PieChart, Plus, Scale, Target, Utensils } from "lucide-react";
-import { Sheet } from "@/components/tasks/Sheet";
+import { BicepsFlexed, CalendarCheck2, CalendarDays, ChevronDown, ChevronUp, Compass, Droplets, EyeOff, GripVertical, Plus, Scale, Utensils } from "lucide-react";
+import { Sheet } from "@/components/ui/Sheet";
 import { WIDGETS, describePosition, hiddenIds, visibleIds, type LayoutAction, type LayoutItem, type WidgetId } from "@/lib/domain/dashboard-layout";
 import type { SaveState } from "./useHomeData";
 import styles from "./Widgets.module.css";
 
-export const WIDGET_ICONS: Record<WidgetId, typeof PieChart> = {
-  plan: CalendarCheck2, today: PieChart, next: Compass, muscles: BicepsFlexed, todo: ListChecks, goals: Target, weight: Scale,
-  water: Droplets, week: CalendarDays, macros: Utensils,
+export const WIDGET_ICONS: Record<WidgetId, typeof Scale> = {
+  plan: CalendarCheck2, next: Compass, muscles: BicepsFlexed, weight: Scale, water: Droplets, week: CalendarDays, macros: Utensils,
 };
 
-/** Arrange Home: drag or use the arrows to order widgets, hide them, or add hidden ones back. */
+/** Customise Home: drag or use the arrows to order widgets, hide them, or add hidden ones back. */
 export function CustomizePanel({ open, onClose, items, dispatch, save, canSave, loadError, onRetrySave }: {
   open: boolean;
   onClose: () => void;
@@ -35,16 +34,14 @@ export function CustomizePanel({ open, onClose, items, dispatch, save, canSave, 
   }
 
   const status = !canSave || save === "unavailable"
-    ? loadError || "Saving your arrangement arrives with the next FITX update. Changes apply until you leave this page."
+    ? loadError || "Can't save here yet. Changes last until you leave."
     : save === "saving" ? "Saving…" : save === "saved" ? "Saved" : save === "error" ? "Couldn't save your arrangement." : "";
 
   return (
     <Sheet
       open={open}
       onClose={onClose}
-      side
-      title="Arrange your Home"
-      description="Choose the widgets you want and the order they appear in."
+      title="Customise Home"
       footer={<>
         <button type="button" className={`fitx-button fitx-button-quiet ${styles.resetButton}`} onClick={() => { dispatch({ type: "reset" }); setAnnouncement("Home reset to the default widgets"); }}>Reset</button>
         <p className={styles.saveStatus} role="status">
@@ -54,7 +51,7 @@ export function CustomizePanel({ open, onClose, items, dispatch, save, canSave, 
         <button type="button" className="fitx-button" onClick={onClose}>Done</button>
       </>}
     >
-      <h3 className={styles.panelHeading}>On your Home</h3>
+      <h3 className={styles.panelHeading}>Shown</h3>
       {shown.length ? (
         <Reorder.Group as="ol" axis="y" values={shown} onReorder={(order: WidgetId[]) => dispatch({ type: "reorder", order })} className={styles.panelList}>
           {shown.map((id, index) => (
@@ -74,10 +71,10 @@ export function CustomizePanel({ open, onClose, items, dispatch, save, canSave, 
           ))}
         </Reorder.Group>
       ) : (
-        <p className={styles.panelEmpty}>Home is empty. Add a widget below.</p>
+        <p className={styles.panelEmpty}>No widgets shown</p>
       )}
 
-      <h3 className={styles.panelHeading}>More widgets</h3>
+      <h3 className={styles.panelHeading}>Add</h3>
       {hidden.length ? (
         <ul className={styles.panelList}>
           {hidden.map((id) => {
@@ -94,7 +91,7 @@ export function CustomizePanel({ open, onClose, items, dispatch, save, canSave, 
           })}
         </ul>
       ) : (
-        <p className={styles.panelEmpty}>Every widget is on your Home.</p>
+        <p className={styles.panelEmpty}>All widgets shown</p>
       )}
       <p className="sr-only" aria-live="polite">{announcement}</p>
     </Sheet>
