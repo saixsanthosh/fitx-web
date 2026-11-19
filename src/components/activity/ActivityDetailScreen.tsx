@@ -26,7 +26,7 @@ import { AboutNumbers, ActivityStatsPanel, InterruptionsList, SplitsTable } from
 import { ElevationProfile } from "./ElevationProfile";
 import { ShareCardDialog } from "./ShareCardDialog";
 import { AccountError } from "./AccountError";
-import { SportIcon } from "./sports";
+import { SportBadge, sportHref } from "./sports";
 import { useActivityAccount } from "./useActivityAccount";
 
 const ActivityMap = dynamic(() => import("./ActivityMap"), {
@@ -222,7 +222,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="mx-auto max-w-6xl space-y-5">
       <div className="flex items-center gap-2">
         <Link href="/activity" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label="Back to activity history"><ChevronLeft size={20} aria-hidden="true" /></Link>
         <p className="text-sm text-fitx-text-secondary">Activity</p>
@@ -230,7 +230,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
 
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className="flex items-center gap-2 text-xs font-medium text-fitx-text-secondary"><SportIcon sport={view.sport} size={15} className="text-fitx-primary" />{SPORT_LABEL[view.sport]} · {formatActivityDate(view.startedAt)}</p>
+          <p className="flex items-center gap-2.5 text-xs font-medium text-fitx-text-secondary"><SportBadge sport={view.sport} size={32} /><span><Link href={sportHref(view.sport)} className="font-semibold text-fitx-text hover:text-fitx-primary-text">{SPORT_LABEL[view.sport]}</Link> · {formatActivityDate(view.startedAt)}</span></p>
           <ActivitySourceBadge info={view} variant="pill" className="mt-2" />
           {editing ? (
             <form onSubmit={rename} className="mt-2 flex items-center gap-2">
@@ -240,7 +240,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
               <button type="button" onClick={closeRename} className="fitx-button fitx-button-quiet min-h-11 px-3" aria-label="Cancel renaming"><X size={17} aria-hidden="true" /></button>
             </form>
           ) : (
-            <h1 className="mt-1 flex items-center gap-2 text-[26px] font-bold leading-tight tracking-[-.03em] text-fitx-text sm:text-[30px]">
+            <h1 className="mt-2 flex items-center gap-2 font-heading text-[28px] font-bold leading-tight tracking-[-.035em] text-fitx-text sm:text-[34px]">
               <span className="min-w-0 break-words">{view.title}</span>
               {!view.local && <button type="button" ref={renameTriggerRef} onClick={() => { setTitle(view.title); setEditing(true); }} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label="Rename activity"><Pencil size={16} aria-hidden="true" /></button>}
             </h1>
