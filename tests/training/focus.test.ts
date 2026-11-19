@@ -407,7 +407,10 @@ describe("FocusTiles", () => {
   test("toggle buttons in a labelled group, with a decorative optimised photo, a mini body map and a check", () => {
     assert.match(source, /^"use client";/);
     assert.match(source, /role="group" aria-label=\{label\}/);
-    assert.match(source, /aria-pressed=\{on\}/);
+    // Toggles say whether they are pressed; launcher tiles (onLaunch) open a dialog instead and have no pressed state.
+    assert.match(source, /aria-pressed=\{onLaunch \? undefined : on\}/);
+    assert.match(source, /aria-haspopup=\{onLaunch \? "dialog" : undefined\}/);
+    assert.match(source, /onClick=\{\(\) => \(onLaunch \? onLaunch\(area\) : toggle\(area\)\)\}/);
     assert.match(source, /aria-describedby=/);
     assert.match(source, /import Image from "next\/image";/);
     assert.match(source, /alt=""/);
@@ -423,6 +426,8 @@ describe("FocusTiles", () => {
     assert.match(css, /@media \(prefers-reduced-motion: no-preference\)/);
     const code = css.replace(/\/\*[\s\S]*?\*\//g, "");
     assert.doesNotMatch(code, /#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i);
-    assert.ok(code.indexOf("transition") > code.indexOf("prefers-reduced-motion: no-preference"), "transitions sit inside the motion query");
+    assert.ok(code.indexOf("transition") > code.indexOf("prefers-reduced-motion: no-preference"), "transitions sit inside the motion query");    // The rail scrolls sideways inside itself on phones (snap), and is a grid from 768 px.
+    assert.match(css, /\.rail \{[^}]*overflow-x: auto;[^}]*scroll-snap-type: x mandatory;/);
+    assert.match(css, /@media \(min-width: 768px\) \{\s*\.rail \{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);[^}]*overflow: visible;/);
   });
 });

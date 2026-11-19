@@ -1,25 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, ChevronDown, Clock3, Flag, Layers, Target } from "lucide-react";
+import { ChevronDown, Layers } from "lucide-react";
 import { BodyMap } from "@/components/anatomy/BodyMap";
 import { programmeLengthLabel, programmeMeta } from "@/data/programmes/meta";
 import { equipmentLabel } from "@/lib/training/equipment";
 import { FOCUS_AREAS, focusLabel, type FocusArea } from "@/lib/training/focus";
-import { isFullBodyProgramme, programmeAreaShares, programmeRegionLevels, programmesForArea, slotPrescription, weeklyPattern, type Programme } from "@/lib/training/programmes";
+import { programmeRegionLevels, programmesForArea, slotPrescription, weeklyPattern, type Programme } from "@/lib/training/programmes";
 import { Sheet } from "./Sheet";
 
 const WEEKDAYS = [["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4], ["Fri", 5], ["Sat", 6], ["Sun", 0]] as const;
 
-/** "Most work: chest, back and legs", from the authored sets of one cycle. */
-function emphasis(programme: Programme): string {
-  const top = programmeAreaShares(programme).filter((entry) => entry.area !== "full_body").slice(0, 3).map((entry) => focusLabel(entry.area).toLowerCase());
-  if (!top.length) return "";
-  const list = top.length === 1 ? top[0] : `${top.slice(0, -1).join(", ")} and ${top[top.length - 1]}`;
-  return `${isFullBodyProgramme(programme) ? "Full body each session. " : ""}Most sets: ${list}.`;
-}
-
-/** The programmes for one context, browsable by body area, each with its days, and a form to start following one. */
+/** The programmes for one context as cards, filterable by body area, each with its days, and a form to start following one. */
 export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, disabledNote }: {
   programmes: readonly Programme[];
   enrolAvailable: boolean;
@@ -45,38 +37,37 @@ export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, di
           })}
         </div>
       )}
-      {area && <p className="text-xs text-fitx-text-secondary" role="status">{shown.length} programme{shown.length === 1 ? "" : "s"} {area === "full_body" ? "train the full body every session" : `train ${focusLabel(area).toLowerCase()}`}, the most work for it first.</p>}
-      <div className="space-y-2">
+      {area && <p className="sr-only" role="status">{shown.length} programme{shown.length === 1 ? "" : "s"}, the most work for {focusLabel(area).toLowerCase()} first.</p>}
+      <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
         {shown.map((programme) => {
           const open = openId === programme.id;
           const meta = programmeMeta(programme.id);
           const week = weeklyPattern(programme.defaultWeekdays);
           return (
-            <article key={programme.id} className="rounded-lg border border-fitx-border bg-fitx-surface">
-              <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-3 p-4 sm:grid-cols-[7rem_minmax(0,1fr)]">
-                <div className="row-span-1 sm:row-span-2">
+            <article key={programme.id} className={`rounded-[18px] border bg-fitx-card p-4 transition-colors motion-reduce:transition-none ${open ? "border-fitx-primary/40 md:col-span-2 xl:col-span-3" : "border-fitx-border hover:border-fitx-primary/30"}`}>
+              <div className="flex items-start gap-3">
+                <div className="w-[88px] shrink-0 rounded-xl bg-fitx-surface-variant p-1.5">
                   <BodyMap title={`${programme.title}: where its sets go`} levels={programmeRegionLevels(programme)} size="sm" />
                 </div>
-                <div className="min-w-0">
-                  <h4 className="font-medium">{programme.title}</h4>
-                  <p className="mt-1 text-sm text-fitx-text-secondary">{meta?.objective ?? programme.summary}</p>
-                  <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-fitx-text-secondary">
-                    <span className="inline-flex items-center gap-1"><Flag size={13} aria-hidden="true" />{programmeLengthLabel(meta?.lengthDays)}</span>
-                    <span className="inline-flex items-center gap-1"><CalendarDays size={13} aria-hidden="true" />{programme.daysPerWeek} days a week, {week.rest} rest</span>
-                    <span className="inline-flex items-center gap-1"><Clock3 size={13} aria-hidden="true" />About {programme.sessionMinutes} min</span>
-                    <span className="capitalize">{programme.level}</span>
-                  </p>
-                  {emphasis(programme) && <p className="mt-1.5 flex items-start gap-1 text-xs text-fitx-text-secondary"><Target size={13} aria-hidden="true" className="mt-px shrink-0" />{emphasis(programme)}</p>}
-                </div>
-                <div className="col-span-2 flex flex-wrap gap-2 sm:col-span-1 sm:col-start-2">
-                  <button type="button" onClick={() => setOpenId(open ? null : programme.id)} aria-expanded={open} className="fitx-button fitx-button-quiet min-h-11 flex-1 px-3 text-sm sm:flex-none">Days<ChevronDown size={14} className={`transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} aria-hidden="true" /></button>
-                  <button type="button" disabled={!enrolAvailable || busy} onClick={() => setEnrolling(programme)} className="fitx-button min-h-11 flex-1 px-4 text-sm sm:flex-none">Follow</button>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-heading text-base font-bold leading-snug tracking-[-.01em]">{programme.title}</h3>
+                  <p className="mt-1 line-clamp-2 text-sm text-fitx-text-secondary">{meta?.objective ?? programme.summary}</p>
                 </div>
               </div>
+              <ul className="mt-3 flex flex-wrap gap-1.5 text-xs text-fitx-text-secondary" aria-label="At a glance">
+                <li className="rounded-full bg-fitx-surface-variant px-2.5 py-1">{programmeLengthLabel(meta?.lengthDays)}</li>
+                <li className="rounded-full bg-fitx-surface-variant px-2.5 py-1">{programme.daysPerWeek} days a week, {week.rest} rest</li>
+                <li className="rounded-full bg-fitx-surface-variant px-2.5 py-1">About {programme.sessionMinutes} min</li>
+                <li className="rounded-full bg-fitx-surface-variant px-2.5 py-1 capitalize">{programme.level}</li>
+              </ul>
+              <div className="mt-3 flex gap-2">
+                <button type="button" onClick={() => setOpenId(open ? null : programme.id)} aria-expanded={open} className="fitx-button fitx-button-quiet min-h-11 flex-1 px-3 text-sm">Days<ChevronDown size={14} className={`transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} aria-hidden="true" /></button>
+                <button type="button" disabled={!enrolAvailable || busy} onClick={() => setEnrolling(programme)} className="fitx-button min-h-11 flex-1 px-4 text-sm">Follow</button>
+              </div>
               {open && (
-                <div className="border-t border-fitx-divider px-4 py-3">
+                <div className="mt-4 border-t border-fitx-divider pt-3">
                   <p className="mb-2 text-xs text-fitx-text-secondary">{programme.summary}</p>
-                  <ol className="grid gap-2 sm:grid-cols-2">
+                  <ol className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     {programme.days.map((day, index) => (
                       <li key={day.key} className="rounded-md bg-fitx-surface-variant p-3">
                         <p className="text-sm font-medium"><span className="mr-1.5 text-xs tabular-nums text-fitx-text-secondary">Day {index + 1}</span>{day.title}</p>
@@ -86,7 +77,7 @@ export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, di
                       </li>
                     ))}
                   </ol>
-                  <p className="mt-3 text-xs text-fitx-text-secondary">Rest days fall on the days you don’t pick. They are part of the plan, never a missed workout.</p>
+                  <p className="mt-3 text-xs text-fitx-text-secondary">Rest days fall on the days you don’t pick.</p>
                   {programme.builtAround.length > 0 && <p className="mt-2 flex items-center gap-1.5 text-xs text-fitx-text-secondary"><Layers size={13} aria-hidden="true" />Built around {programme.builtAround.map(equipmentLabel).join(", ").toLowerCase()}; exercises adapt to your list.</p>}
                   <p className="mt-2 text-xs text-fitx-text-secondary">{programme.sourceNotes}</p>
                 </div>

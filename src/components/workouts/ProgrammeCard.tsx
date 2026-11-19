@@ -63,29 +63,29 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
   const upNext = days.find((day) => day.date >= todayKey && (day.state === "today" || day.state === "planned" || day.state === "projected")) ?? null;
 
   return (
-    <section aria-label="Your programme" className="rounded-xl border border-fitx-primary/30 bg-fitx-primary/[.05] p-4 sm:p-5">
+    <section aria-label="Your programme" className="rounded-[20px] border border-fitx-border bg-fitx-card p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.14em] text-fitx-primary-text">Your programme{paused && <span className="rounded-sm bg-fitx-surface-variant px-1.5 py-0.5 text-[10px] tracking-[.08em] text-fitx-text-secondary">Paused</span>}</p>
-          <h4 className="mt-1 font-semibold">{programme.title}</h4>
+          <h3 className="mt-1 font-heading text-xl font-bold tracking-[-.02em]">{programme.title}</h3>
           <p className="mt-1 text-xs text-fitx-text-secondary">{programmeLengthLabel(meta?.lengthDays)} · {trainingDays} training day{trainingDays === 1 ? "" : "s"} and {7 - trainingDays} rest day{7 - trainingDays === 1 ? "" : "s"} a week</p>
           {meta?.objective && <p className="mt-1 text-sm text-fitx-text-secondary">{meta.objective}</p>}
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-fitx-border bg-fitx-surface p-3">
+        <div className="rounded-xl bg-fitx-surface-variant p-3">
           <p className="text-xs text-fitx-text-secondary">Sessions done</p>
           {target ? <>
             <p className="mt-1 text-sm font-semibold tabular-nums">{status.sessionsCompleted} of {target}</p>
             <div className="fitx-progress-track mt-2 h-1.5" aria-hidden="true"><div className="fitx-progress-fill" style={{ width: `${percent}%` }} /></div>
-            <p className="mt-1.5 text-[11px] text-fitx-text-secondary">Completed workouts only. A missed day moves the end later; it never counts as done.</p>
+            <p className="mt-1.5 text-[11px] text-fitx-text-secondary">Completed workouts only.</p>
           </> : <p className="mt-1 text-sm font-semibold tabular-nums">{status.sessionsCompleted} workout{status.sessionsCompleted === 1 ? "" : "s"}</p>}
         </div>
-        <div className="rounded-lg border border-fitx-border bg-fitx-surface p-3">
+        <div className="rounded-xl bg-fitx-surface-variant p-3">
           <p className="text-xs text-fitx-text-secondary">Where you are</p>
           <p className="mt-1 text-sm font-semibold">{whereYouAre(status, upNext, paused)}</p>
-          <p className="mt-1.5 text-[11px] text-fitx-text-secondary">{paused ? "Paused: your place is kept for when you resume." : `This week: ${status.week.done} of ${status.week.training} workout${status.week.training === 1 ? "" : "s"} done · ${status.week.rest} rest day${status.week.rest === 1 ? "" : "s"}`}</p>
+          <p className="mt-1.5 text-[11px] text-fitx-text-secondary">{paused ? "Your place is kept." : `This week: ${status.week.done} of ${status.week.training} workout${status.week.training === 1 ? "" : "s"} done · ${status.week.rest} rest day${status.week.rest === 1 ? "" : "s"}`}</p>
         </div>
       </div>
 
