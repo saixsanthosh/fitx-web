@@ -1,11 +1,18 @@
-// Flow 1: sign up with e-mail and password, onboarding v2 (body, goal, training, schedule, food with allergies,
-// budget), the once-per-account intro film on the first app page (skipped), the short loader on reload, and
-// Home showing the numbers that were saved.
+// Flow 1: sign up with e-mail and password, setup in three pages (personal details, food and nutrition, workout
+// setup with the equipment grid), the once-per-account intro film on the first app page (skipped), the short loader
+// on reload, and Home showing the numbers that were saved.
 import { choose, seeText, textOf } from "./common.mjs";
+
+const BIRTH_DATE = "1997-03-14";
+/** Whole years from BIRTH_DATE to today in Asia/Kolkata (the browser's zone in these runs). */
+const expectedAge = (() => {
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).split("-").map(Number);
+  return y - 1997 - (m < 3 || (m === 3 && d < 14) ? 1 : 0);
+})();
 
 export const flow = {
   id: "01-signup-onboarding",
-  title: "Sign up → onboarding v2 → film once → Home",
+  title: "Sign up → setup in three pages → film once → Home",
   schemes: (schemes) => schemes,
   async run(t, { standin }) {
     const account = standin.newCredentials("Asha Rao", "signup");
@@ -34,7 +41,7 @@ export const flow = {
         page.waitForURL("**/onboarding", { timeout: 30000 }),
         page.getByRole("button", { name: "Create account with email" }).click(),
       ]);
-      await seeText(t, "Tell us about you");
+      await page.getByRole("heading", { level: 1, name: "Personal details" }).waitFor();
       const row = await standin.one(`select u.id, p.name, p.onboarded from auth.users u join public.profiles p on p.id = u.id where u.email = '${account.email}'`);
       t.expect(row && row.onboarded === "f", "a profile row should exist and not be onboarded yet", row);
       userId = row.id;
@@ -43,75 +50,84 @@ export const flow = {
       t.expect(cookies.some((cookie) => cookie.name === "fitx_intro" && cookie.value === "play"), "the server should mark this device to play the film once (fitx_intro=play)");
     });
 
-    await t.step("onboarding 1 of 6: about you", async () => {
+    await t.step("setup 1 of 3: personal details", async () => {
       const name = page.getByRole("textbox", { name: "Name", exact: true });
       t.expect((await name.inputValue()) === account.name, "the name from sign-up should be filled in");
-      await t.checkpoint("onboarding about you (empty)");
+      const progress = page.getByRole("progressbar", { name: "Setup progress" });
+      t.expect((await progress.getAttribute("aria-valuemax")) === "3", "setup should have exactly three pages");
+      await t.checkpoint("setup personal details (empty)");
       await page.getByRole("button", { name: "Continue" }).click();
       await seeText(t, "Check the highlighted answers.");
-      await t.checkpoint("onboarding about you (validation)");
-      await page.getByRole("textbox", { name: "Age" }).fill("29");
-      await choose(t, "Sex for the calorie formula", "Female");
+      t.expect((await page.getByLabel("Date of birth").getAttribute("aria-invalid")) === "true", "an empty date of birth should be flagged");
+      await t.checkpoint("setup personal details (validation)");
+      await page.getByLabel("Date of birth").fill(BIRTH_DATE);
+      await seeText(t, `${expectedAge} years`);
+      await choose(t, "Gender", "Female");
       await page.getByRole("textbox", { name: "Height", exact: true }).fill("162");
       await page.getByRole("textbox", { name: "Current weight", exact: true }).fill("68.5");
       await page.getByRole("textbox", { name: /^Target weight/ }).fill("62");
+      await choose(t, "Primary goal", "Weight loss");
+      await choose(t, "Fitness experience", "Intermediate");
+      await choose(t, "Activity level", "Moderate");
+      await choose(t, "Workout setup", "Both");
+      await choose(t, "Diet", "Vegetarian");
+      await page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Injuries or limitations" }) }).locator("label").filter({ hasText: "Knees" }).click();
+      // The stage counts up to the estimate; give it time to land.
+      await page.waitForTimeout(1200);
+      const stage = page.locator("[data-onboarding-stage]");
+      const stageText = await textOf(stage);
+      startingKcal = Number((/([\d,]+)\s*kcal a day/.exec(stageText)?.[1] ?? "").replace(/,/g, "")) || null;
+      t.note("stage on page 1", stageText);
+      t.expect(/Estimate/.test(stageText), "the calorie target should be labelled as an estimate");
+      t.expect(startingKcal && startingKcal > 1000 && startingKcal < 3500, `a plausible starting calorie target should show (${stageText})`);
+      t.expect(/162 cm/.test(stageText) && /68\.5 kg/.test(stageText) && new RegExp(`${expectedAge} yrs`).test(stageText), "the stage should read back age, height and weight", stageText);
+      await t.checkpoint("setup personal details (filled)");
       await page.getByRole("button", { name: "Continue" }).click();
-      await seeText(t, "What are you working toward?");
+      await page.getByRole("heading", { level: 1, name: "Food and nutrition" }).waitFor();
     });
 
-    await t.step("onboarding 2 of 6: goal and activity", async () => {
-      await choose(t, "Main goal", "Fat loss");
-      await choose(t, "Daily activity", "Moderately active");
-      const preview = page.getByText("kcal a day").first();
-      await preview.waitFor();
-      const previewText = await textOf(page.locator("div[aria-live=polite]").filter({ hasText: "Your starting targets" }));
-      startingKcal = Number((/([\d,]+)\s*kcal a day/.exec(previewText)?.[1] ?? "").replace(/,/g, "")) || null;
-      t.note("starting targets shown", previewText);
-      t.expect(startingKcal && startingKcal > 1000 && startingKcal < 3500, `a plausible starting calorie target should show (${previewText})`);
-      await t.checkpoint("onboarding goal");
-      await page.getByRole("button", { name: "Continue" }).click();
-      await seeText(t, "Where and how do you train?");
-    });
-
-    await t.step("onboarding 3 of 6: training and home equipment", async () => {
-      await choose(t, "Where do you usually train?", "Gym and home");
-      await choose(t, "Training experience", "Intermediate");
-      for (const item of ["Dumbbells", "Resistance bands", "Weight bench"]) {
-        const button = page.getByRole("button", { name: item, exact: true });
-        await button.click();
-        t.expect((await button.getAttribute("aria-pressed")) === "true", `${item} should be selected`);
-      }
-      await page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Injuries or areas to go easy on" }) }).locator("label").filter({ hasText: "Knees" }).click();
-      await t.checkpoint("onboarding training");
-      await page.getByRole("button", { name: "Continue" }).click();
-      await seeText(t, "How much time do you have?");
-    });
-
-    await t.step("onboarding 4 of 6: schedule", async () => {
-      await choose(t, "Training days a week", "4");
-      await choose(t, "Typical session length", "45 min");
-      await choose(t, "Preferred training split", "Full body");
-      await page.getByRole("button", { name: "Continue" }).click();
-      await seeText(t, "How do you eat?");
-    });
-
-    await t.step("onboarding 5 of 6: diet and allergies", async () => {
-      await choose(t, "Which describes you best?", "Vegetarian");
+    await t.step("setup 2 of 3: food and nutrition", async () => {
+      const diet = page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Which describes you best?" }) });
+      t.expect(await diet.getByRole("radio", { name: "Vegetarian", exact: true }).isChecked(), "the diet given on page 1 should carry over");
+      await choose(t, "Which describes you best?", "Eggetarian");
       await page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Food allergies or intolerances" }) }).locator("label").filter({ hasText: "Peanuts" }).click();
       await page.getByRole("textbox", { name: "Add allergy" }).fill("kiwi");
       await page.getByRole("button", { name: "Add allergy" }).click();
       await seeText(t, "kiwi");
-      await choose(t, "Meals a day", "4");
-      await t.checkpoint("onboarding food");
+      // Typed but not added: it still saves with the page.
+      await page.getByRole("textbox", { name: "Add food" }).fill("Bitter gourd");
+      await choose(t, "Meals per day", "4");
+      await choose(t, "Food preference", "Home-cooked");
+      await choose(t, "Nutrition goal", "High protein");
+      await t.checkpoint("setup food and nutrition");
       await page.getByRole("button", { name: "Continue" }).click();
-      await seeText(t, "Food and budget");
+      await page.getByRole("heading", { level: 1, name: "Workout setup" }).waitFor();
     });
 
-    await t.step("onboarding 6 of 6: budget, then finish", async () => {
-      await choose(t, "How tight is your food budget?", "Moderate");
-      await page.getByRole("textbox", { name: /^Monthly food budget/ }).fill("6000");
-      await page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Cuisines you enjoy" }) }).locator("label").filter({ hasText: "South Indian" }).click();
-      await t.checkpoint("onboarding budget");
+    await t.step("setup 3 of 3: workout setup with the equipment grid", async () => {
+      const where = page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Workout location" }) });
+      t.expect(await where.getByRole("radio", { name: "Both" }).isChecked(), "the workout setup from page 1 should carry over");
+      const gym = page.getByRole("group", { name: "Gym equipment" });
+      await gym.waitFor();
+      const smith = gym.getByRole("button", { name: "Smith machine", exact: true });
+      t.expect((await smith.getAttribute("aria-pressed")) === "true", "the gym starts fully equipped");
+      await smith.click();
+      t.expect((await smith.getAttribute("aria-pressed")) === "false", "a gym item can be taken off");
+      await page.getByRole("radiogroup", { name: "Equipment for" }).getByText("Home", { exact: true }).click();
+      const home = page.getByRole("group", { name: "Home equipment" });
+      await home.waitFor();
+      const none = home.getByRole("button", { name: /^No equipment/ });
+      t.expect((await none.getAttribute("aria-pressed")) === "true", "with nothing chosen, home is bodyweight only");
+      for (const item of ["Dumbbells", "Resistance bands", "Weight bench"]) {
+        const button = home.getByRole("button", { name: item, exact: true });
+        await button.click();
+        t.expect((await button.getAttribute("aria-pressed")) === "true", `${item} should be selected`);
+      }
+      t.expect((await none.getAttribute("aria-pressed")) === "false", "No equipment turns off once something is chosen");
+      const experience = page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Workout experience" }) });
+      t.expect(await experience.getByRole("radio", { name: /Intermediate/ }).isChecked(), "the experience from page 1 should carry over");
+      await choose(t, "Days a week", "4");
+      await t.checkpoint("setup workout setup");
       await Promise.all([
         page.waitForURL("**/dashboard", { timeout: 30000 }),
         page.getByRole("button", { name: "Finish setup" }).click(),
@@ -165,22 +181,25 @@ export const flow = {
       await t.checkpoint("home after reload");
     });
 
-    await t.step("what onboarding saved", async () => {
-      const row = await standin.one(`select p.name, p.age, p.gender, p.height::text, p.weight::text, p.target_weight::text, p.onboarded,
-          up.primary_goal, up.activity_level, up.workout_location, up.fitness_level, up.workouts_per_week, up.session_duration_minutes, up.workout_split,
-          up.diet_type, up.allergies::text, up.meals_per_day, up.food_budget_level, up.monthly_food_budget_inr, up.cuisines::text, up.limitations::text, up.timezone,
+    await t.step("what setup saved", async () => {
+      const row = await standin.one(`select p.name, p.age, p.date_of_birth::text, p.gender, p.height::text, p.weight::text, p.target_weight::text, p.onboarded,
+          up.primary_goal, up.activity_level, up.workout_location, up.fitness_level, up.workouts_per_week,
+          up.diet_type, up.allergies::text, up.food_dislikes::text, up.meals_per_day, up.food_source, up.nutrition_focus, up.limitations::text, up.timezone,
           (select equipment_keys::text from public.user_equipment_profiles e where e.user_id = p.id and e.context = 'home') home_kit,
+          (select equipment_keys::text from public.user_equipment_profiles e where e.user_id = p.id and e.context = 'gym') gym_kit,
           (select string_agg(weight::text || ' ' || coalesce(note, ''), '; ') from public.body_metrics b where b.user_id = p.id) weigh_ins
         from public.profiles p join public.user_preferences up on up.user_id = p.id where p.id = '${userId}'`);
-      t.note("saved by onboarding", row);
+      t.note("saved by setup", row);
       t.expect(row?.onboarded === "t", "profile should be onboarded");
-      t.expect(row.age === "29" && row.gender === "female" && Number(row.height) === 162 && Number(row.weight) === 68.5 && Number(row.target_weight) === 62, "body answers saved", row);
-      t.expect(row.primary_goal === "fat_loss" && row.activity_level === "moderate", "goal and activity saved", row);
-      t.expect(row.workout_location === "both" && row.fitness_level === "intermediate", "training saved", row);
+      t.expect(row.date_of_birth === BIRTH_DATE && row.age === String(expectedAge), "date of birth saved, with the age it gives", row);
+      t.expect(row.gender === "female" && Number(row.height) === 162 && Number(row.weight) === 68.5 && Number(row.target_weight) === 62, "body answers saved", row);
+      t.expect(row.primary_goal === "weight_loss" && row.activity_level === "moderate", "goal and activity saved", row);
+      t.expect(row.workout_location === "both" && row.fitness_level === "intermediate" && row.workouts_per_week === "4", "workout setup saved", row);
       t.expect(/dumbbell/.test(row.home_kit ?? "") && /resistance_band/.test(row.home_kit ?? "") && /bench/.test(row.home_kit ?? ""), "home equipment list saved", row);
-      t.expect(row.workouts_per_week === "4" && row.session_duration_minutes === "45" && row.workout_split === "full_body", "schedule saved", row);
-      t.expect(row.diet_type === "vegetarian" && /peanuts/.test(row.allergies) && /kiwi/.test(row.allergies) && row.meals_per_day === "4", "diet and allergies saved", row);
-      t.expect(row.food_budget_level === "moderate" && row.monthly_food_budget_inr === "6000" && /south_indian/.test(row.cuisines), "budget saved", row);
+      t.expect(Boolean(row.gym_kit) && /barbell/.test(row.gym_kit) && !/smith_machine/.test(row.gym_kit), "gym equipment list saved without the Smith machine", row);
+      t.expect(row.diet_type === "eggetarian" && /peanuts/.test(row.allergies) && /kiwi/.test(row.allergies) && row.meals_per_day === "4", "diet and allergies saved", row);
+      t.expect(/Bitter gourd/.test(row.food_dislikes ?? ""), "a food typed but not added still saves", row);
+      t.expect(row.food_source === "home" && row.nutrition_focus === "high_protein", "food preference and nutrition goal saved", row);
       t.expect(/knee/.test(row.limitations ?? ""), "limitations saved", row);
       t.expect(/68\.5/.test(row.weigh_ins ?? ""), "a starting weigh-in logged", row);
     });

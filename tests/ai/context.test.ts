@@ -549,7 +549,9 @@ describe("privacy wording elsewhere", () => {
   test("onboarding does not say sex is used only for the calorie formula: the AI coach uses it too", () => {
     const { summary } = buildCoachContext(sources() as never, NOW);
     assert.equal((summary.member as Record<string, unknown>).sex, "male", "the coach summary carries sex");
-    const onboarding = readFileSync(new URL("../../src/app/(auth)/onboarding/OnboardingFlow.tsx", import.meta.url), "utf8");
+    // Setup's pages live in OnboardingFlow; its questions and their messages in src/lib/onboarding/form.ts.
+    const onboarding = ["../../src/app/(auth)/onboarding/OnboardingFlow.tsx", "../../src/lib/onboarding/form.ts"]
+      .map((file) => readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
     assert.doesNotMatch(onboarding, /\bonly for the calorie formula\b/);
     assert.match(onboarding.match(/errors\.gender = "([^"]+)"/)?.[1] ?? "", /\bAI coach\b/);
   });
@@ -569,10 +571,11 @@ describe("privacy wording elsewhere", () => {
   test("onboarding's “About you” step does not promise the body details stay in the account without the coach exception", () => {
     const { summary } = buildCoachContext(sources() as never, NOW);
     assert.deepEqual(Object.keys(summary.member as Record<string, unknown>).filter((key) => key !== "experience").sort(), ["age", "height_cm", "sex", "target_weight_kg", "weight_kg"], "the coach summary carries the step's answers");
-    const onboarding = readFileSync(new URL("../../src/app/(auth)/onboarding/OnboardingFlow.tsx", import.meta.url), "utf8");
-    const about = onboarding.match(/\bbody: \{ label: "About you"[^}]*\bdescription: "([^"]+)"/)?.[1] ?? "";
-    assert.ok(about, "the step's description is found");
-    if (/\bonly you can see\b/i.test(about)) assert.match(about, /\bAI coach\b/, `"${about}" needs the AI coach exception`);
+    // Setup v3 has no description under its titles; any sentence on its pages that promises privacy needs the exception.
+    const onboarding = ["../../src/app/(auth)/onboarding/OnboardingFlow.tsx", "../../src/lib/onboarding/form.ts", "../../src/components/onboarding/StageArt.tsx"]
+      .map((file) => readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
+    const promises = onboarding.split(/(?<=[.!?])\s+/).filter((sentence) => /\bonly you can see\b|\bstays? in your account\b/i.test(sentence));
+    for (const sentence of promises) assert.match(sentence, /\bAI coach\b/, `"${sentence}" needs the AI coach exception`);
   });
 
   test("saved foods are not promised private without the coach exception: the coach sends their names", () => {

@@ -34,12 +34,17 @@ export const GOAL_OPTIONS = [
   { value: "general_fitness", label: "General fitness", hint: "Feel fitter, stronger and healthier" },
   { value: "strength", label: "Strength", hint: "Lift heavier with focused training" },
   { value: "endurance", label: "Endurance", hint: "Go longer in cardio and sport" },
+  { value: "maintain_weight", label: "Maintain weight", hint: "Keep your weight steady" },
 ] as const satisfies readonly Option[];
 export type Goal = (typeof GOAL_OPTIONS)[number]["value"];
 export const GOALS: readonly Goal[] = values(GOAL_OPTIONS);
 /** Goals the database accepted before migration 20261118110000 widened its check. */
 export const GOALS_BEFORE_PROFILE_V2: readonly Goal[] = ["muscle_gain", "fat_loss", "strength", "general_fitness", "endurance"];
+/** Goals the database accepted before migration 20261120100000 (onboarding v3) added maintain_weight. */
+export const GOALS_BEFORE_ONBOARDING_V3: readonly Goal[] = ["muscle_gain", "weight_gain", "fat_loss", "weight_loss", "general_fitness", "strength", "endurance"];
 export const DEFAULT_GOAL: Goal = "general_fitness";
+/** The five goals setup offers, in the owner's order (Profile offers every goal). */
+export const ONBOARDING_GOALS: readonly Goal[] = ["muscle_gain", "weight_loss", "strength", "general_fitness", "maintain_weight"];
 
 export const ACTIVITY_OPTIONS = [
   { value: "sedentary", label: "Mostly sitting", hint: "Desk work and little walking" },
@@ -61,11 +66,32 @@ export const ACTIVITY_MULTIPLIERS: Readonly<Record<ActivityLevel, number>> = {
 };
 
 export const SEX_OPTIONS = [
-  { value: "female", label: "Female" },
   { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
   { value: "other", label: "Prefer not to say", hint: "FITX uses the average of the two formulas" },
 ] as const satisfies readonly Option[];
 export type Sex = (typeof SEX_OPTIONS)[number]["value"];
+
+/**
+ * Setup asks activity in three bands. Each band saves one of the five levels above, and a stored level shows
+ * as its band: Low covers sitting and light activity, High covers very and extremely active.
+ */
+export const ACTIVITY_BAND_OPTIONS = [
+  { value: "low", label: "Low", hint: "Mostly sitting" },
+  { value: "moderate", label: "Moderate", hint: "On your feet, some exercise" },
+  { value: "high", label: "High", hint: "Hard training or a physical job" },
+] as const satisfies readonly Option[];
+export type ActivityBand = (typeof ACTIVITY_BAND_OPTIONS)[number]["value"];
+const BAND_LEVEL: Readonly<Record<ActivityBand, ActivityLevel>> = { low: "sedentary", moderate: "moderate", high: "active" };
+
+export function activityBand(level: ActivityLevel): ActivityBand {
+  return level === "sedentary" || level === "light" ? "low" : level === "moderate" ? "moderate" : "high";
+}
+
+/** The level a band saves; a level already in that band is kept, so a stored "light" stays "light". */
+export function activityForBand(band: ActivityBand, current: ActivityLevel): ActivityLevel {
+  return activityBand(current) === band ? current : BAND_LEVEL[band];
+}
 
 // ─── Training ────────────────────────────────────────────────────────────────────────────────────
 
@@ -77,6 +103,12 @@ export const LOCATION_OPTIONS = [
 ] as const satisfies readonly Option[];
 export type TrainingLocation = (typeof LOCATION_OPTIONS)[number]["value"];
 export const DEFAULT_LOCATION: TrainingLocation = "gym";
+/** The three places setup offers, labelled as the owner wrote them. */
+export const ONBOARDING_LOCATION_OPTIONS = [
+  { value: "gym", label: "Gym" },
+  { value: "home", label: "Home" },
+  { value: "both", label: "Both" },
+] as const satisfies readonly Option<TrainingLocation>[];
 
 export const EXPERIENCE_OPTIONS = [
   { value: "beginner", label: "Beginner", hint: "New, or back after a long break" },
@@ -122,6 +154,8 @@ export function normalizeEquipment(input: unknown): { keys: string[]; unknown: s
 export const SESSION_LENGTHS = [20, 30, 45, 60, 75, 90] as const;
 export const DEFAULT_SESSION_MINUTES = 45;
 export const DAYS_PER_WEEK = [1, 2, 3, 4, 5, 6, 7] as const;
+/** Weekly availability in setup: 2 to 7 days. */
+export const ONBOARDING_DAYS_PER_WEEK = [2, 3, 4, 5, 6, 7] as const;
 export const DEFAULT_DAYS_PER_WEEK = 3;
 
 export const LIMITATION_OPTIONS = [
@@ -145,6 +179,8 @@ export const DIET_OPTIONS = [
   { value: "eggetarian", label: "Eggetarian", hint: "Vegetarian, plus eggs" },
 ] as const satisfies readonly Option[];
 export type DietType = (typeof DIET_OPTIONS)[number]["value"];
+/** The four diets setup offers ("Both" stays a Profile choice for accounts that have it). */
+export const ONBOARDING_DIETS: readonly DietType[] = ["vegetarian", "non_vegetarian", "vegan", "eggetarian"];
 
 /** Labels the first onboarding stored in `user_preferences.dietary_preferences`. */
 const LEGACY_DIET_LABELS: Readonly<Record<string, DietType>> = {
@@ -334,6 +370,31 @@ export function parseRupees(value: string): number | null {
 }
 
 export const MEALS_PER_DAY = [1, 2, 3, 4, 5, 6] as const;
+/** Meals a day in setup: 2, 3, 4 or 5+ (saved as 5). */
+export const ONBOARDING_MEAL_OPTIONS = [
+  { value: 2, label: "2" },
+  { value: 3, label: "3" },
+  { value: 4, label: "4" },
+  { value: 5, label: "5+" },
+] as const;
+/** The setup choice for a stored number of meals: 1 shows as 2, 6 or more as 5+. */
+export function onboardingMeals(meals: number): number {
+  return Math.min(5, Math.max(2, Math.round(meals)));
+}
+
+export const FOOD_SOURCE_OPTIONS = [
+  { value: "home", label: "Home-cooked" },
+  { value: "outside", label: "Outside food" },
+  { value: "both", label: "Both" },
+] as const satisfies readonly Option[];
+export type FoodSource = (typeof FOOD_SOURCE_OPTIONS)[number]["value"];
+
+export const NUTRITION_FOCUS_OPTIONS = [
+  { value: "high_protein", label: "High protein" },
+  { value: "balanced", label: "Balanced diet" },
+  { value: "none", label: "No specific preference" },
+] as const satisfies readonly Option[];
+export type NutritionFocus = (typeof NUTRITION_FOCUS_OPTIONS)[number]["value"];
 export const DEFAULT_MEALS_PER_DAY = 3;
 export const WATER_RANGE_ML = { min: 250, max: 10000 } as const;
 export const DEFAULT_WATER_ML = 2500;
@@ -342,6 +403,44 @@ export const DEFAULT_WATER_ML = 2500;
 
 export const NAME_MAX_LENGTH = 120;
 export const AGE_RANGE = { min: 13, max: 100 } as const;
+
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** The calendar date in `value` (YYYY-MM-DD) as [year, month, day], or null when it is not a real date. */
+function dateParts(value: unknown): [number, number, number] | null {
+  if (typeof value !== "string") return null;
+  const match = ISO_DATE.exec(value.trim().slice(0, 10));
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
+  return [year, month, day];
+}
+
+/** A stored or typed birth date as YYYY-MM-DD, or null when it is missing or not a real date. */
+export function normalizeBirthDate(value: unknown): string | null {
+  const parts = dateParts(value);
+  return parts ? `${String(parts[0]).padStart(4, "0")}-${String(parts[1]).padStart(2, "0")}-${String(parts[2]).padStart(2, "0")}` : null;
+}
+
+/** Whole years from a birth date (YYYY-MM-DD) to `today` (the local date), or null for a missing or future date. */
+export function ageFromBirthDate(birthDate: unknown, today: Date = new Date()): number | null {
+  const parts = dateParts(birthDate);
+  if (!parts) return null;
+  const [year, month, day] = parts;
+  const [ty, tm, td] = [today.getFullYear(), today.getMonth() + 1, today.getDate()];
+  const age = ty - year - (tm < month || (tm === month && td < day) ? 1 : 0);
+  return age >= 0 ? age : null;
+}
+
+/** The earliest and latest birth dates setup accepts on `today`: ages AGE_RANGE.min to AGE_RANGE.max. */
+export function birthDateBounds(today: Date = new Date()): { min: string; max: string } {
+  const iso = (year: number) => `${String(year).padStart(4, "0")}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  // Born on today's date AGE_RANGE.max + 1 years ago turns 101 today, so the earliest is one day later.
+  const earliest = new Date(today.getFullYear() - AGE_RANGE.max - 1, today.getMonth(), today.getDate() + 1);
+  const min = `${String(earliest.getFullYear()).padStart(4, "0")}-${String(earliest.getMonth() + 1).padStart(2, "0")}-${String(earliest.getDate()).padStart(2, "0")}`;
+  return { min, max: iso(today.getFullYear() - AGE_RANGE.min) };
+}
 export const HEIGHT_RANGE_CM = { min: 90, max: 250 } as const;
 export const WEIGHT_RANGE_KG = { min: 30, max: 500 } as const;
 

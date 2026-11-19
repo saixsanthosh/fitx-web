@@ -3,6 +3,18 @@ import assert from "node:assert/strict";
 import {
   ACTIVITY_MULTIPLIERS,
   ACTIVITY_OPTIONS,
+  AGE_RANGE,
+  GOALS_BEFORE_ONBOARDING_V3,
+  ONBOARDING_DIETS,
+  ONBOARDING_GOALS,
+  ONBOARDING_MEAL_OPTIONS,
+  SEX_OPTIONS,
+  activityBand,
+  activityForBand,
+  ageFromBirthDate,
+  birthDateBounds,
+  normalizeBirthDate,
+  onboardingMeals,
   DIET_OPTIONS,
   GOAL_OPTIONS,
   GOALS_BEFORE_PROFILE_V2,
@@ -159,5 +171,50 @@ describe("units and numbers", () => {
     assert.equal(inRange(72, WEIGHT_RANGE_KG), true);
     assert.equal(inRange(12, WEIGHT_RANGE_KG), false);
     assert.equal(inRange(null, WEIGHT_RANGE_KG), false);
+  });
+});
+
+describe("setup v3 vocabulary", () => {
+  test("setup offers the owner's five goals, including Maintain weight", () => {
+    assert.deepEqual(ONBOARDING_GOALS.map((goal) => optionLabel(GOAL_OPTIONS, goal)), ["Muscle gain", "Weight loss", "Strength", "General fitness", "Maintain weight"]);
+    assert.ok(!GOALS_BEFORE_ONBOARDING_V3.includes("maintain_weight"));
+    for (const goal of GOALS_BEFORE_PROFILE_V2) assert.ok(GOALS_BEFORE_ONBOARDING_V3.includes(goal));
+  });
+
+  test("gender reads Male, Female, Prefer not to say; diets include Eggetarian; meals 2 to 5+", () => {
+    assert.deepEqual(SEX_OPTIONS.map((option) => option.label), ["Male", "Female", "Prefer not to say"]);
+    assert.deepEqual(ONBOARDING_DIETS.map((diet) => optionLabel(DIET_OPTIONS, diet)), ["Vegetarian", "Non-vegetarian", "Vegan", "Eggetarian"]);
+    assert.deepEqual(ONBOARDING_MEAL_OPTIONS.map((option) => option.label), ["2", "3", "4", "5+"]);
+    assert.deepEqual([1, 2, 5, 6, 8].map(onboardingMeals), [2, 2, 5, 5, 5]);
+  });
+
+  test("activity in three bands keeps a stored level that is already in the chosen band", () => {
+    assert.deepEqual(ACTIVITY_OPTIONS.map((option) => activityBand(option.value)), ["low", "low", "moderate", "high", "high"]);
+    assert.equal(activityForBand("low", "light"), "light");
+    assert.equal(activityForBand("low", "moderate"), "sedentary");
+    assert.equal(activityForBand("high", "moderate"), "active");
+    assert.equal(activityForBand("high", "very_active"), "very_active");
+  });
+
+  test("age from a birth date counts whole years, birthdays included", () => {
+    const today = new Date(2026, 10, 19);
+    assert.equal(ageFromBirthDate("1997-11-19", today), 29, "the birthday itself");
+    assert.equal(ageFromBirthDate("1997-11-20", today), 28, "the day before the birthday");
+    assert.equal(ageFromBirthDate("2000-02-29", new Date(2026, 1, 28)), 25, "a leap-day birthday before 1 March");
+    assert.equal(ageFromBirthDate("2027-01-01", today), null, "the future");
+    assert.equal(ageFromBirthDate("1997-02-30", today), null, "not a real date");
+    assert.equal(ageFromBirthDate(null, today), null);
+    assert.equal(normalizeBirthDate("1997-03-14T00:00:00Z"), "1997-03-14");
+    assert.equal(normalizeBirthDate("14/03/1997"), null);
+  });
+
+  test("the date field allows exactly ages 13 to 100", () => {
+    const today = new Date(2026, 10, 19);
+    const { min, max } = birthDateBounds(today);
+    assert.equal(max, "2013-11-19");
+    assert.equal(ageFromBirthDate(max, today), AGE_RANGE.min);
+    assert.equal(min, "1925-11-20");
+    assert.equal(ageFromBirthDate(min, today), AGE_RANGE.max);
+    assert.equal(ageFromBirthDate("1925-11-19", today), AGE_RANGE.max + 1);
   });
 });
