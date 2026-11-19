@@ -3,12 +3,20 @@
 // sign-in is an auth.sessions row with its AMR claim and rotating refresh tokens, and deleting a user
 // cascades through every table that references auth.users. E-mail sign-up is auto-confirmed (no mail is
 // sent) and OAuth providers are not enabled, as on a project without them.
-import { randomBytes, randomUUID } from "node:crypto";
+// E-mail one-time codes (POST /otp, POST /verify with type "email") behave as on Supabase: a 6-digit code,
+// one request a minute per address, codes expire, a wrong code is otp_expired. Instead of mailing it the
+// stand-in keeps the last code per address in an outbox the flows read with the service-role key:
+// GET /auth/v1/__e2e/outbox?email=<address> → { code, sentAt } (404 when nothing was sent).
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { lit } from "./pg-wire.mjs";
 import { signJwt, verifyJwt } from "./jwt.mjs";
 
 const INSTANCE = "00000000-0000-0000-0000-000000000000";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const OTP_RESEND_SECONDS = 60;
+const OTP_TTL_SECONDS = 3600;
+const OTP_MAX_TRIES = 5;
 
 const authError = (status, errorCode, msg, extra = {}) => ({ status, body: { code: status, error_code: errorCode, msg, ...extra } });
 
@@ -19,6 +27,47 @@ export class AuthService {
     this.secret = secret;
     this.accessTtl = accessTtl;
     this.reuseInterval = reuseInterval;
+    /** address → { code, sentAt, expiresAt, tries }: the e-mail one-time codes "sent" (see the header). */
+    this.outbox = new Map();
+  }
+
+  /** POST /otp for an e-mail address: makes and "sends" a code, creating the user when create_user allows. */
+  async sendOtp(body) {
+    const address = String(body?.email ?? "").trim().toLowerCase();
+    if (!EMAIL_RE.test(address)) return authError(400, "validation_failed", "Unable to validate email address: invalid format");
+    const last = this.outbox.get(address);
+    const waited = last ? (Date.now() - last.sentAt) / 1000 : Infinity;
+    if (waited < OTP_RESEND_SECONDS) {
+      const left = Math.ceil(OTP_RESEND_SECONDS - waited);
+      return authError(429, "over_email_send_rate_limit", `For security purposes, you can only request this after ${left} seconds.`);
+    }
+    const id = await this.pool.value(`select id from auth.users where lower(email) = ${lit(address)} and deleted_at is null`);
+    if (!id) {
+      if (body?.create_user === false) return authError(422, "otp_disabled", "Signups not allowed for otp");
+      const created = await this.createUser({ email: address, password: randomBytes(18).toString("base64url"), data: body?.data ?? {} });
+      if (created.error) return created.error;
+    }
+    const code = String(randomInt(0, 1000000)).padStart(6, "0");
+    this.outbox.set(address, { code, sentAt: Date.now(), expiresAt: Date.now() + OTP_TTL_SECONDS * 1000, tries: 0 });
+    return { status: 200, body: {} };
+  }
+
+  /** POST /verify with type email: a right, unexpired code signs in once; anything else is otp_expired. */
+  async verifyOtp(body, request) {
+    const address = String(body?.email ?? "").trim().toLowerCase();
+    if (!["email", "magiclink", "signup"].includes(body?.type)) return authError(400, "validation_failed", "Verify requires a verification type");
+    const sent = this.outbox.get(address);
+    const expired = authError(403, "otp_expired", "Token has expired or is invalid");
+    if (!sent || sent.used || Date.now() > sent.expiresAt) return expired;
+    if (String(body?.token ?? "") !== sent.code) {
+      sent.tries += 1;
+      if (sent.tries >= OTP_MAX_TRIES) sent.used = true;
+      return expired;
+    }
+    sent.used = true;
+    const id = await this.pool.value(`select id from auth.users where lower(email) = ${lit(address)} and deleted_at is null`);
+    if (!id) return expired;
+    return { status: 200, body: await this.startSession(id, "otp", request) };
   }
 
   userJsonSql(where) {
@@ -135,6 +184,16 @@ export class AuthService {
 
     if (route === "/authorize" && method === "GET") {
       return authError(400, "validation_failed", "Unsupported provider: provider is not enabled");
+    }
+    if (route === "/otp" && method === "POST" && body?.email !== undefined) return this.sendOtp(body);
+    if (route === "/verify" && method === "POST") return this.verifyOtp(body, request);
+    if (route === "/__e2e/outbox" && method === "GET") {
+      const { claims, error } = this.claimsOf(bearer);
+      if (error) return error;
+      if (claims.role !== "service_role") return authError(403, "not_admin", "User not allowed");
+      const sent = this.outbox.get(String(query.get("email") ?? "").trim().toLowerCase());
+      if (!sent) return authError(404, "not_found", "No code sent to that address");
+      return { status: 200, body: { code: sent.code, sentAt: new Date(sent.sentAt).toISOString() } };
     }
     if ((route === "/recover" || route === "/otp" || route === "/resend" || route === "/magiclink") && method === "POST") {
       return { status: 200, body: {} }; // Nothing is mailed by the stand-in.
