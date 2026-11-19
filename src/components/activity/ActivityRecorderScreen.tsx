@@ -559,12 +559,12 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                   </div>
                 </div>
               ) : phase === "recording" ? (
-                <div className="mt-6 flex items-start justify-center gap-10">
+                <div className="mt-6 flex items-end justify-center gap-10">
                   <RoundButton label="Pause" icon={<Pause size={30} aria-hidden="true" />} onClick={pause} />
                   <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
                 </div>
               ) : phase === "paused" ? (
-                <div className="mt-6 flex items-start justify-center gap-6 sm:gap-8">
+                <div className="mt-6 flex items-end justify-center gap-6 sm:gap-8">
                   <RoundButton label="Discard" icon={<Trash2 size={22} aria-hidden="true" />} onClick={() => setConfirm("discard")} tone="quiet" size="medium" buttonRef={discardTriggerRef} />
                   <RoundButton label="Resume" icon={<Play size={30} aria-hidden="true" />} onClick={resume} />
                   <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />

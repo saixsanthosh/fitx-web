@@ -139,9 +139,11 @@ export const flow = {
       await page.getByRole("radiogroup", { name: "Show" }).getByText("Runs", { exact: true }).click();
       await page.getByText("No runs yet").waitFor({ timeout: 15000 });
       t.expect(new URL(page.url()).searchParams.get("sport") === "run", "the filter is kept in the address", page.url());
-      t.expect(!(await page.getByText("Cubbon Park evening walk").isVisible().catch(() => false)), "a walk is not listed under runs");
+      // Personal bests still name the walk; the list of activities must not.
+      const feed = page.locator("section[aria-labelledby=feed-title]");
+      t.expect((await feed.getByText("Cubbon Park evening walk").count()) === 0, "a walk is not listed under runs");
       await page.getByRole("radiogroup", { name: "Show" }).getByText("Walks", { exact: true }).click();
-      await page.getByText("Cubbon Park evening walk").first().waitFor({ timeout: 15000 });
+      await feed.getByText("Cubbon Park evening walk").first().waitFor({ timeout: 15000 });
       await t.goto("/activity/walk", { label: "walk page" });
       await page.getByText("Cubbon Park evening walk").first().waitFor({ timeout: 15000 });
       const stats = await textOf(page.getByRole("region", { name: "Walk statistics" }));

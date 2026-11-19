@@ -130,8 +130,8 @@ export function ActivityHome({ initialFilter = "all" }: { initialFilter?: SportF
                   <SportBadge sport={sport} size={36} className="bg-fitx-card" />
                   <span className="mt-3 block">
                     <span className="block font-heading text-base font-bold tracking-[-.02em] text-fitx-text sm:text-lg">{SPORT_LABEL[sport]}</span>
-                    <span className="block truncate text-xs tabular-nums text-fitx-text-secondary">
-                      {sportWeek && sportWeek[sport] > 0 ? `${formatDistance(sportWeek[sport])} this week` : "Start"}
+                    <span className="block text-xs leading-4 tabular-nums text-fitx-text-secondary">
+                      {sportWeek && sportWeek[sport] > 0 ? <>{formatDistance(sportWeek[sport])}<span className="block">this week</span></> : "Start"}
                     </span>
                   </span>
                 </Link>
