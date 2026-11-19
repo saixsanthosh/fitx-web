@@ -1,4 +1,4 @@
-/* Shown only while the head script sets <html data-fitx-loader="on|leaving">. */
+/* Shown only while the head script sets <html data-fitx-loader="on|leaving">. Whole sequence: about 0.6 s. */
 .loader { display: none; }
 
 :global(:root[data-fitx-loader]) .loader {
@@ -10,30 +10,56 @@
   background: var(--fitx-bg);
   color: var(--fitx-text);
   opacity: 1;
-  transition: opacity 200ms ease;
+  transition: opacity 180ms ease;
 }
 
 :global(:root[data-fitx-loader="leaving"]) .loader { opacity: 0; pointer-events: none; }
+:global(:root[data-fitx-loader="leaving"]) .lockup { transform: scale(1.03); }
 
-.lockup { display: grid; justify-items: center; gap: 14px; }
-
-.tagline {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .16em;
-  color: var(--fitx-text-secondary);
-  opacity: 0;
-  animation: loader-fade 260ms ease-out 360ms both;
+.lockup {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  transition: transform 180ms cubic-bezier(.22, 1, .36, 1);
 }
 
-/* The shared mark formation, compressed to fit the loader's half second. */
-.lockup :global(.fitx-mark__path--cap) { animation-duration: 300ms !important; animation-delay: 0ms !important; }
-.lockup :global(.fitx-mark__path--spine) { animation-duration: 300ms !important; animation-delay: 60ms !important; }
-.lockup :global(.fitx-mark__path--crossbar) { animation-duration: 220ms !important; animation-delay: 120ms !important; }
-.lockup :global(.fitx-mark__path--x) { animation-duration: 320ms !important; animation-delay: 180ms !important; }
-.lockup :global(.fitx-wordmark) { animation-duration: 260ms !important; animation-delay: 300ms !important; }
+.row { display: inline-flex; align-items: center; gap: 10px; }
 
-@keyframes loader-fade { to { opacity: 1; } }
+/* The shared mark formation, compressed to the loader's half second. */
+.mark :global(.fitx-mark__path) { stroke-width: 6; }
+.mark :global(.fitx-mark__path--cap) { animation-duration: 260ms !important; animation-delay: 0ms !important; }
+.mark :global(.fitx-mark__path--spine) { animation-duration: 260ms !important; animation-delay: 50ms !important; }
+.mark :global(.fitx-mark__path--crossbar) { animation-duration: 200ms !important; animation-delay: 110ms !important; }
+.mark :global(.fitx-mark__path--x) { animation-duration: 300ms !important; animation-delay: 160ms !important; }
+.mark :global(.fitx-mark__path--x) { color: var(--fitx-primary); }
+
+.wordClip { display: block; overflow: hidden; }
+.word {
+  display: block;
+  font-size: 30px;
+  line-height: 1;
+  animation: word-in 380ms cubic-bezier(.22, 1, .36, 1) 220ms both;
+}
+
+.track {
+  position: relative;
+  width: 112px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--fitx-track);
+}
+.fill {
+  position: absolute;
+  inset: 0;
+  background: var(--fitx-primary);
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: fill 560ms cubic-bezier(.65, 0, .35, 1) 60ms both;
+}
+
+@keyframes word-in { from { transform: translateX(-110%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fill { to { transform: scaleX(1); } }
 
 @media (prefers-reduced-motion: reduce) {
   .loader { display: none !important; }

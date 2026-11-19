@@ -1,16 +1,40 @@
 import Link from "next/link";
-import { Barcode, BookOpen, ChartNoAxesColumnIncreasing, Dumbbell, Droplets, Utensils } from "lucide-react";
+import { Barcode, BookOpen, ChartNoAxesColumnIncreasing, Droplets, Dumbbell, Footprints, Utensils } from "lucide-react";
 import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata = publicPageMetadata({ title: "Features", description: "Explore workout planning, exercise instructions, nutrition and calorie logging, water tracking, and progress history in FITX.", path: "/features" });
+export const metadata = publicPageMetadata({ title: "Features", description: "Gym plans, the exercise library, food logging, barcode lookup, activity tracking, water and progress in FITX.", path: "/features" });
+
 const items = [
-  { icon: Dumbbell, title: "Workout planning", text: "Create and schedule plans, choose movements, and record working sets in an active session." },
-  { icon: BookOpen, title: "Exercise library", text: "Search movements by name or muscle group and review equipment, instructions, and suggested sets." },
-  { icon: Utensils, title: "Nutrition logging", text: "Search food data, choose a portion, and save meals with calories and macronutrients." },
-  { icon: Barcode, title: "Barcode lookup", text: "Look up packaged food products through Open Food Facts when a barcode is available." },
-  { icon: Droplets, title: "Water tracking", text: "Log water in simple increments and compare it with your personal daily goal." },
-  { icon: ChartNoAxesColumnIncreasing, title: "Progress history", text: "Review the workouts and body measurements you have recorded over time." },
+  { icon: Dumbbell, title: "Gym plans", text: "Plan sessions and log every set." },
+  { icon: BookOpen, title: "Exercise library", text: "Find a movement by name or muscle." },
+  { icon: Utensils, title: "Food log", text: "Log meals in grams or pieces." },
+  { icon: Barcode, title: "Barcode lookup", text: "Scan packaged food (Open Food Facts)." },
+  { icon: Footprints, title: "Activity", text: "Walk, run and ride with a live GPS route." },
+  { icon: Droplets, title: "Water", text: "Tap to log, against your daily goal." },
+  { icon: ChartNoAxesColumnIncreasing, title: "Progress", text: "Sessions, records and measurements over time." },
 ];
+
 export default function FeaturesPage() {
-  return <main id="main-content" className="fitx-container flex-1 py-14 lg:py-20"><p className="text-xs font-semibold uppercase tracking-[.2em] text-fitx-primary-text">FITX features</p><h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">Useful tools for the parts of fitness you want to track.</h1><p className="mt-5 max-w-2xl text-sm leading-6 text-fitx-text-secondary">FITX keeps your plans and logs together. You decide what to record, and your progress views use your saved entries.</p><div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map(({icon:Icon,title,text})=><article key={title} className="fitx-panel p-5 sm:p-6"><span className="grid h-11 w-11 place-items-center rounded-lg border border-fitx-primary/20 bg-fitx-primary/10 text-fitx-primary"><Icon size={20} aria-hidden="true"/></span><h2 className="mt-5 text-base font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-fitx-text-secondary">{text}</p></article>)}</div><div className="mt-10 flex flex-wrap gap-3"><Link href="/signup" className="fitx-button min-h-11 px-4">Create account</Link><Link href="/signin" className="fitx-button fitx-button-secondary min-h-11 px-4">Sign in</Link></div></main>;
+  return (
+    <main id="main-content" className="fitx-container flex-1 py-14 lg:py-20">
+      <p className="text-xs font-semibold uppercase tracking-[.2em] text-fitx-primary-text">FITX</p>
+      <h1 className="mt-3 font-heading text-4xl font-extrabold tracking-[-0.05em] sm:text-6xl">Features</h1>
+      <ul className="mt-10 grid border-t border-fitx-divider sm:grid-cols-2 sm:gap-x-10 lg:grid-cols-3">
+        {items.map(({ icon: Icon, title, text }) => (
+          <li key={title} className="flex gap-4 border-b border-fitx-divider py-5">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-fitx-surface-variant text-fitx-primary-text"><Icon size={20} aria-hidden="true" /></span>
+            <div>
+              <h2 className="text-base font-semibold">{title}</h2>
+              <p className="mt-1 text-sm text-fitx-text-secondary">{text}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-10 flex flex-wrap gap-3">
+        <Link href="/signup" className="fitx-button min-h-11 px-4 fitx-when-signed-out">Create account</Link>
+        <Link href="/signin" className="fitx-button fitx-button-secondary min-h-11 px-4 fitx-when-signed-out">Sign in</Link>
+        <Link href="/dashboard" className="fitx-button min-h-11 px-4 fitx-when-signed-in">Open dashboard</Link>
+      </div>
+    </main>
+  );
 }

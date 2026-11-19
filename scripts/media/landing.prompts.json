@@ -1,0 +1,103 @@
+{
+  "set": "landing",
+  "style": "Photoreal editorial sports photograph, natural and unposed, shot on a full-frame camera with a 50mm lens, soft warm neutral light, deep charcoal shadows, gentle film grain, true-to-life skin texture. Colour palette: warm off-white, charcoal, muted sage and a single terracotta ember accent (#C44933). No text, letters, numbers, logos, brand marks, watermarks or signage anywhere in the image; clothing and equipment are plain and unbranded. Not a real or famous person.",
+  "people": {
+    "man": "an Indian man in his late twenties, short dark hair, neatly trimmed beard, athletic build, plain charcoal t-shirt, black training shorts",
+    "woman": "an Indian woman in her late twenties, dark hair tied in a low bun, fit build, plain terracotta sports top, black leggings, barefoot"
+  },
+  "images": [
+    {
+      "id": "hero",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A man resting between sets at a squat rack in a quiet, warmly lit gym",
+      "prompt": "Wide cinematic shot of {man} standing beside a squat rack in an empty, quiet gym at dawn, resting between sets with one hand on the bar, looking down calmly. Low warm window light rakes across from the right; the left two thirds of the frame fall into deep charcoal shadow with soft out-of-focus racks, leaving calm empty space for a headline. Subject on the right third, mid-shot.",
+      "retouch": [
+        {
+          "x": 0.462,
+          "y": 0.115,
+          "w": 0.068,
+          "h": 0.08,
+          "sigma": 14
+        },
+        {
+          "x": 0.895,
+          "y": 0.585,
+          "w": 0.07,
+          "h": 0.115,
+          "sigma": 9
+        },
+        {
+          "x": 0.955,
+          "y": 0.74,
+          "w": 0.045,
+          "h": 0.065,
+          "sigma": 8
+        }
+      ],
+      "note": "The model drew an exit sign and plate numbers; retouch blurs them."
+    },
+    {
+      "id": "man-plan",
+      "aspect": "4:5",
+      "longEdge": 1600,
+      "alt": "A man on a gym bench checking his workout on his phone",
+      "prompt": "Portrait of {man} sitting on a flat gym bench between sets, leaning forward, elbows on knees, looking down at a smartphone held in both hands. The phone's screen faces him and is not visible to the camera. A pair of plain dumbbells rests on the rubber floor at his feet. Warm side light from a window on the left, softly blurred gym in the background. Camera at chest height, three-quarter front view, locked off."
+    },
+    {
+      "id": "man-lift",
+      "aspect": "4:5",
+      "longEdge": 1600,
+      "ref": "man-plan",
+      "alt": "A man pressing a pair of dumbbells overhead on a gym bench",
+      "prompt": "The same man, the same bench, the same gym, the same light and exactly the same camera position and framing as the reference photograph. He has put the phone away and is now seated upright on the bench pressing the two dumbbells overhead, arms nearly straight, focused expression. Keep his face, beard, clothes and the background identical to the reference."
+    },
+    {
+      "id": "woman-mid",
+      "aspect": "4:5",
+      "longEdge": 1600,
+      "alt": "A woman at home halfway down into a bodyweight squat, her phone propped on a stool",
+      "prompt": "Full-body portrait of {woman} in a bright, minimal living room with pale walls, a linen sofa and a large window, standing tall on a woven mat at the start of a bodyweight squat, feet shoulder-width apart, arms reaching straight forward at shoulder height. Her smartphone is propped upright against a low wooden stool on the floor in the lower left foreground, its screen turned towards her and softly out of focus. Seen from a three-quarter side angle, her whole body from head to feet in frame with space around her. Camera at hip height on a tripod, locked off.",
+      "note": "This prompt asked for the standing start; the model drew the half squat, so that is this frame and the other two are drawn from it."
+    },
+    {
+      "id": "woman-stand",
+      "aspect": "4:5",
+      "longEdge": 1600,
+      "ref": "woman-mid",
+      "alt": "A woman at home standing tall at the start of a squat",
+      "prompt": "The same woman, the same living room, the same light and exactly the same camera position and framing as the reference photograph. She is now standing fully upright at the start of the bodyweight squat: legs straight, hips under her shoulders, chest tall, arms reaching straight forward at shoulder height. The phone stays on the stool in the same place. Keep her face, hair, clothes and the room identical to the reference."
+    },
+    {
+      "id": "woman-squat",
+      "aspect": "4:5",
+      "longEdge": 1600,
+      "ref": "woman-mid",
+      "alt": "A woman at home at the bottom of a squat, thighs level with the floor",
+      "prompt": "The same woman, the same living room, the same light and exactly the same camera position and framing as the reference photograph. She is now at the bottom of a deep bodyweight squat: thighs parallel to the floor, knees tracking over her toes, heels down, chest up, arms reaching forward for balance. The phone stays propped against the stool in the same place. Keep her face, hair, clothes and the room identical to the reference."
+    },
+    {
+      "id": "food",
+      "aspect": "4:5",
+      "longEdge": 1600,
+      "alt": "A home-cooked lunch of rice, dal, paneer and salad on a steel plate",
+      "prompt": "A food photograph only, with no people in it. Seen from directly above: a home-cooked Indian lunch on a dark stone table — a round steel plate with steamed rice, yellow dal in a small steel bowl, paneer curry in a second small bowl, cucumber and tomato salad, and a folded plain terracotta cotton napkin beside the plate. Soft warm daylight from the top left, natural shadows, nothing staged or glossy.",
+      "note": "The first attempt returned a runner instead of food and was discarded."
+    },
+    {
+      "id": "run",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "ref": "woman-mid",
+      "alt": "A woman running along an empty, tree-lined road at dawn",
+      "prompt": "The same woman as in the reference photograph, now in running shoes, running along an empty tree-lined Indian city road at dawn, seen from the side in mid-stride, slight motion blur in the background, low golden light behind her, long soft shadows. Wide frame with open road ahead of her on the right."
+    },
+    {
+      "id": "closing",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "An empty gym floor at dusk with racks and plates in pools of warm light",
+      "prompt": "Wide shot of an empty gym floor at dusk: squat racks, a bench and stacked iron plates in pools of warm light, the rest falling into deep charcoal shadow, a calm dark area in the centre of the frame. No people."
+    }
+  ]
+}

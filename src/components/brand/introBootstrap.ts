@@ -36,7 +36,7 @@ const ACCOUNT_FILM_REPEAT_MS = (INTRO_PLAY_MAX_AGE + 60 * 60) * 1000;
  *    consumed, marked or preloaded until the page is first shown, and the film is chosen then, so a tab
  *    nobody has looked at never uses up or records the account's film,
  *  - otherwise, on a returning device (`fitx_intro=seen`), shows the short brand loader
- *    (`data-fitx-loader`) until the app hydrates, for at most about a second,
+ *    (`data-fitx-loader`) until the app hydrates: at least 0.56 s, gone by 1.08 s at most,
  *  - never shows either on a focus screen (a live workout, /workouts/active, or the activity recorder,
  *    /activity/record): the account's film waits for the next app page,
  *  - never plays the account's film on Help either, which an account still in setup can open (see
@@ -182,9 +182,9 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
       if (gone) return;
       gone = true;
       root.setAttribute("data-fitx-loader", "leaving");
-      window.setTimeout(function () { root.removeAttribute("data-fitx-loader"); }, 220);
+      window.setTimeout(function () { root.removeAttribute("data-fitx-loader"); }, 180);
     };
-    window.__fitxReleaseLoader = function () { window.setTimeout(hide, Math.max(0, 650 - (Date.now() - shownAt))); };
-    window.setTimeout(hide, 1000);
+    window.__fitxReleaseLoader = function () { window.setTimeout(hide, Math.max(0, 560 - (Date.now() - shownAt))); };
+    window.setTimeout(hide, 900);
   } catch (e) {}
 })();`;
