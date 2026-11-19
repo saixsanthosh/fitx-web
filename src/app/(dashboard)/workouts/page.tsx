@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { homePanel } from "@/config/routes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, CalendarDays, ChevronDown, Copy, Info, Pencil, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
@@ -1087,7 +1088,7 @@ export default function WorkoutsPage() {
       </Reveal>
 
       <div className={styles.bottomGrid}>
-        <Section title="Your plans" id="plans" action={<Link href="/goals?tab=week" className={styles.textLink}>Week<ArrowRight size={14} aria-hidden="true" /></Link>}>
+        <Section title="Your plans" id="plans" action={<Link href={homePanel("week")} className={styles.textLink}>Week<ArrowRight size={14} aria-hidden="true" /></Link>}>
           {plans.length ? (
             <div className={styles.planList}>
               {plans.map((plan) => (
