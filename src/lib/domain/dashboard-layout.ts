@@ -2,6 +2,11 @@
  * The Home dashboard's widgets: which exist, the default arrangement, and how a stored arrangement
  * (user_preferences.dashboard_layout) is read back and changed.
  *
+ * Home always shows its fixed parts first: the Today ring (the hero), then the To-Do list and Goals side by
+ * side. The widgets here come after them, in the member's order. "today", "todo" and "goals" were widgets in
+ * an older FITX; they are now fixed parts of Home (FIXED_PARTS), so a stored layout's entries for them are
+ * dropped on read and never written back.
+ *
  * The stored value is `{ version: 1, items: [{ id, visible }] }`. Reading is forgiving: unknown or
  * repeated ids are dropped, widgets released after the layout was saved are added hidden (so Home
  * never changes unasked) and reported as `fresh`, so Home can offer them once, and shown widgets always
@@ -12,17 +17,17 @@
  */
 
 export const WIDGETS = {
-  plan: { title: "Today's plan", description: "What to do today: your workout, a rest day or what to plan" },
-  today: { title: "Today", description: "Calories and protein against your targets" },
-  next: { title: "Focus next", description: "What your logs suggest working on next" },
-  muscles: { title: "Muscles this week", description: "The muscles your logged sets worked this week" },
-  todo: { title: "To-Do", description: "Today's tasks and workouts" },
-  goals: { title: "Goals", description: "Your daily, weekly and long-term goals" },
+  plan: { title: "Today's plan", description: "Your workout, a rest day or what to plan" },
+  next: { title: "Focus next", description: "What your logs suggest next" },
+  muscles: { title: "Muscles this week", description: "Muscles your logged sets worked" },
   weight: { title: "Weight", description: "Latest weigh-in and your target" },
   water: { title: "Water", description: "Today's water, with quick add" },
-  week: { title: "This week", description: "Workouts this week against your plan" },
-  macros: { title: "Macros", description: "Protein, carbs and fat against targets" },
+  week: { title: "This week", description: "Workouts against your plan" },
+  macros: { title: "Macros", description: "Protein, carbs and fat" },
 } as const;
+
+/** Parts of Home that are always there, ahead of the widgets; once widgets, now never stored. */
+export const FIXED_PARTS = ["today", "todo", "goals"] as const;
 
 export type WidgetId = keyof typeof WIDGETS;
 export type LayoutItem = { id: WidgetId; visible: boolean };
@@ -31,10 +36,10 @@ export type StoredLayout = { version: 1; items: LayoutItem[] };
 export const LAYOUT_VERSION = 1;
 export const WIDGET_IDS = Object.keys(WIDGETS) as WidgetId[];
 /**
- * Shown on a new account, in this order: what to do today first, then today's food, what to work on next,
- * this week's muscles, the To-Do list, goals and weight. Everything else starts hidden.
+ * Shown on a new account under the fixed parts: weight and water, the two things logged from Home. Everything
+ * else starts hidden and is one tap away in Customise.
  */
-export const DEFAULT_VISIBLE: readonly WidgetId[] = ["plan", "today", "next", "muscles", "todo", "goals", "weight"];
+export const DEFAULT_VISIBLE: readonly WidgetId[] = ["weight", "water"];
 /** Ids an older FITX stored, and the widget that took each one's place. */
 export const RETIRED_IDS: Readonly<Record<string, WidgetId>> = { workout: "plan" };
 /** Widgets that span the whole Home grid. */

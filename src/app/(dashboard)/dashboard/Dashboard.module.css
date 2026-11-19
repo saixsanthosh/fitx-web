@@ -1,30 +1,35 @@
-.page { min-width: 0; max-width: 1180px; margin: 0 auto; }
-.header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.page { display: flex; min-width: 0; max-width: 1180px; flex-direction: column; gap: 22px; margin: 0 auto; }
+.header { display: grid; gap: 4px; }
 .date { color: var(--fitx-text-secondary); font-size: .8rem; font-weight: 600; letter-spacing: .02em; }
-.greeting { margin-top: 4px; overflow-wrap: anywhere; color: var(--fitx-text); font-size: clamp(1.6rem, 3.2vw, 2.1rem); font-weight: 750; letter-spacing: -.045em; line-height: 1.12; }
-.greeting span { color: var(--fitx-text); }
-.customize { display: inline-flex; min-height: 44px; flex: 0 0 auto; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 12px; background: var(--fitx-surface); padding: 0 16px; color: var(--fitx-text); font-size: .86rem; font-weight: 650; transition: border-color .16s ease, background-color .16s ease; }
+.greeting { overflow-wrap: anywhere; color: var(--fitx-text); font-family: var(--font-heading); font-size: clamp(1.55rem, 3vw, 2.1rem); font-weight: 750; letter-spacing: -.045em; line-height: 1.12; }
+
+.customize { display: inline-flex; min-height: 44px; flex: 0 0 auto; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 12px; background: var(--fitx-surface); padding: 0 14px; color: var(--fitx-text); font-size: .84rem; font-weight: 650; transition: border-color .16s ease, background-color .16s ease; }
 .customize svg { color: var(--fitx-primary); }
 .customize:hover:not(:disabled) { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); }
 .customize:disabled { opacity: .55; }
 
+/* To-Do and Goals side by side from 1024 px. */
+.panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: stretch; }
+
 .grid { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 16px; }
 .slot { min-width: 0; }
-/* Today's plan is the page's lead: it spans the grid. */
+/* Today's plan, or a lone widget, spans the grid. */
 .wide { grid-column: 1 / -1; }
-.placeholder { min-height: 220px; border: 1px solid var(--fitx-divider); border-radius: 16px; background: linear-gradient(90deg, var(--fitx-surface), color-mix(in srgb, var(--fitx-surface-variant) 60%, var(--fitx-surface)), var(--fitx-surface)); background-size: 200% 100%; animation: shimmer 1.5s ease-in-out infinite; }
+.placeholder { min-height: 220px; border: 1px solid var(--fitx-divider); border-radius: 20px; background: linear-gradient(90deg, var(--fitx-surface), color-mix(in srgb, var(--fitx-surface-variant) 60%, var(--fitx-surface)), var(--fitx-surface)); background-size: 200% 100%; animation: shimmer 1.5s ease-in-out infinite; }
+.heroPlaceholder { min-height: 300px; border: 1px solid var(--fitx-divider); border-radius: 24px; background: var(--fitx-surface); }
 .lineShort, .lineLong { display: block; height: 14px; border-radius: 7px; background: var(--fitx-surface-variant); }
 .lineShort { width: 160px; }
 .lineLong { width: 260px; height: 30px; }
-.emptyHome { display: grid; justify-items: center; gap: 14px; border: 1px dashed var(--fitx-border); border-radius: 16px; padding: 40px 20px; color: var(--fitx-text-secondary); text-align: center; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 
 @media (min-width: 768px) {
+  .page { gap: 26px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-  .header { margin-bottom: 26px; }
+}
+@media (min-width: 1024px) {
+  .panels { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 24px; }
 }
 @media (max-width: 479px) {
-  .header { align-items: center; }
   .customize { width: 44px; justify-content: center; padding: 0; }
   .customize span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }

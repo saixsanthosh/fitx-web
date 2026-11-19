@@ -1,33 +1,30 @@
 "use client";
 
-import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { ArrowDownRight, ArrowUpRight, CalendarDays, Check, CircleCheck, Droplets, ListChecks, Minus, PieChart, Plus, Scale, ScanBarcode, Target, Utensils } from "lucide-react";
-import { ProgressRings } from "@/components/app/ProgressRing";
+import { ArrowDownRight, ArrowUpRight, CalendarDays, Check, Droplets, Minus, Plus, Scale, Utensils } from "lucide-react";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
-import { TodoList } from "@/components/tasks/TodoList";
 import { getSession, messageFor } from "@/components/tasks/session";
 import { logWater, saveWeighIn, type SummaryResult } from "@/lib/data/today";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
-import { appliesOn, dailyGoalsMet, evaluateView, formatGoalValue, progressSummary, remainingLabel, sortGoals } from "@/lib/domain/goals";
+import { appliesOn, formatGoalValue } from "@/lib/domain/goals";
 import { missingNote, unknownDayTotal, type MacroKey, type MealTotals } from "@/lib/domain/meal-totals";
 import { todayTargets, weekStrip, weightView, type DailyTarget } from "@/lib/domain/today";
 import { notifyUserContextChanged } from "@/lib/domain/user-context";
+import { homePanel } from "@/config/routes";
 import { WEIGHT_RANGE_KG, weightRangeText, weightText, weightToKg, weightUnitName, weightUnitOf } from "@/lib/domain/weight-display";
 import type { GoalsData, Resource } from "./useHomeData";
 import { WidgetCard, WidgetError, WidgetNote, WidgetSkeleton, WidgetStale } from "./WidgetCard";
 import styles from "./Widgets.module.css";
 
 const shortDate = (key: string | null) => (key ? keyToLocalDate(key).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
-const kcal = (value: number) => Math.round(value).toLocaleString();
 
 /** A total no logged food gives a value for (contract C11): a dash, read out as "Not known". */
-function Unknown() {
+export function Unknown() {
   return <><span aria-hidden="true">—</span><span className="sr-only">Not known</span></>;
 }
 
-function SourceTag({ target }: { target: DailyTarget }) {
+export function SourceTag({ target }: { target: DailyTarget }) {
   if (!target.target || !target.source) return null;
   const label = target.source === "goal" ? (target.direction === "limit" ? "Your limit" : "Your goal")
     : target.source === "target" ? "Your target"
@@ -39,7 +36,7 @@ function SourceTag({ target }: { target: DailyTarget }) {
  * Summary-backed widgets share one request; each still shows its own loading and error state. A failed
  * refresh of the same day keeps its numbers but says they could not be updated.
  */
-function SummaryGate({ summary, label, children }: { summary: Resource<SummaryResult>; label: string; children: (data: SummaryResult) => React.ReactNode }) {
+export function SummaryGate({ summary, label, children, loading }: { summary: Resource<SummaryResult>; label: string; children: (data: SummaryResult) => React.ReactNode; loading?: React.ReactNode }) {
   if (summary.data) {
     return (
       <>
@@ -49,94 +46,14 @@ function SummaryGate({ summary, label, children }: { summary: Resource<SummaryRe
     );
   }
   if (summary.status === "error") return <WidgetError message={summary.error} onRetry={summary.reload} />;
-  return <WidgetSkeleton label={label} />;
-}
-
-export function TodayWidget({ summary, goals }: { summary: Resource<SummaryResult>; goals: Resource<GoalsData> }) {
-  return (
-    <WidgetCard title="Today" icon={<PieChart size={16} />} href="/nutrition" hrefLabel="Open nutrition">
-      <SummaryGate summary={summary} label="Loading today's numbers">
-        {({ summary: today, food }) => {
-          const targets = todayTargets(today, goals.data?.goals);
-          const met = goals.data ? dailyGoalsMet(goals.data.goals, today.localDate) : null;
-          const calories = targets.calories;
-          const protein = targets.protein;
-          // Food is logged but none of it gives this value: the total is unknown, so no number, ring or "left".
-          const caloriesUnknown = unknownDayTotal(food, "calories");
-          const proteinUnknown = unknownDayTotal(food, "protein");
-          const caloriesOver = !caloriesUnknown && calories.target !== null && calories.over > 0;
-          const estimated = calories.source === "estimate" || protein.source === "estimate";
-          const ringLabel = [
-            caloriesUnknown ? "Calories not known" : `${kcal(calories.value)} kcal${calories.target ? ` of ${calories.source === "estimate" ? "an estimated " : ""}${kcal(calories.target)} kcal` : " logged"}`,
-            proteinUnknown ? "protein not known" : `${Math.round(protein.value)} g protein${protein.target ? ` of ${protein.source === "estimate" ? "an estimated " : ""}${Math.round(protein.target)} g` : ""}`,
-          ].join("; ");
-          return (
-            <div className={styles.today}>
-              <ProgressRings
-                size={156}
-                thickness={13}
-                gap={6}
-                label={ringLabel}
-                rings={[
-                  { value: calories.value, target: caloriesUnknown ? null : calories.target, color: caloriesOver ? "var(--fitx-warning)" : "var(--fitx-primary)" },
-                  { value: protein.value, target: proteinUnknown ? null : protein.target, color: "var(--fitx-gold)" },
-                ]}
-              >
-                <span className={styles.ringValue}>{caloriesUnknown ? <Unknown /> : kcal(calories.value)}</span>
-                <span className={styles.ringUnit}>kcal today</span>
-              </ProgressRings>
-              <div className={styles.legend}>
-                <TodayRow name="Calories" color="var(--fitx-primary)" target={calories} format={(value) => `${kcal(value)}`} unit="kcal" over={caloriesOver} unknown={caloriesUnknown} />
-                <TodayRow name="Protein" color="var(--fitx-gold)" target={protein} format={(value) => `${Math.round(value)}`} unit="g" unknown={proteinUnknown} />
-                {met && met.total > 0 && (
-                  <p className={styles.met}><CircleCheck size={15} aria-hidden="true" />{met.met} of {met.total} daily {met.total === 1 ? "goal" : "goals"} done</p>
-                )}
-              </div>
-              {!caloriesUnknown && calories.target && calories.value <= calories.target ? (
-                <p className={styles.left}>
-                  <strong>{kcal(calories.target - calories.value)}</strong> kcal left
-                  <span>Your {calories.source === "estimate" ? "estimated target" : calories.source === "goal" ? (calories.direction === "limit" ? "limit" : "goal") : "target"} minus food logged. Exercise isn&apos;t added back.</span>
-                </p>
-              ) : null}
-              <FoodNotes food={food} keys={["calories", "protein"]} />
-              {!calories.target && !protein.target ? (
-                <WidgetNote href="/profile" action="Add them in Profile">Targets need your age, height and weight.</WidgetNote>
-              ) : estimated ? (
-                <WidgetNote href="/nutrition" action="Set your own in Nutrition">Estimates use your profile and latest weigh-in.</WidgetNote>
-              ) : null}
-              <div className={styles.todayActions}>
-                <Link href="/nutrition?scan=1" className={styles.secondaryAction}><ScanBarcode size={15} aria-hidden="true" />Scan a barcode</Link>
-              </div>
-            </div>
-          );
-        }}
-      </SummaryGate>
-    </WidgetCard>
-  );
-}
-
-function TodayRow({ name, color, target, format, unit, over = false, unknown = false }: { name: string; color: string; target: DailyTarget; format: (value: number) => string; unit: string; over?: boolean; unknown?: boolean }) {
-  return (
-    <div className={styles.legendRow}>
-      <span className={styles.dot} style={{ background: over ? "var(--fitx-warning)" : color }} aria-hidden="true" />
-      <div className={styles.legendText}>
-        <p className={styles.legendName}>{name} <SourceTag target={target} /></p>
-        <p className={styles.legendValue}>
-          <strong>{unknown ? <Unknown /> : format(target.value)}</strong>
-          {target.target ? <> / {format(target.target)} {unit}</> : <> {unit}</>}
-        </p>
-        {over && <p className={styles.over}>{format(target.over)} {unit} over</p>}
-      </div>
-      {target.target && !unknown ? <span className={styles.legendPercent}>{target.percent}%</span> : null}
-    </div>
-  );
+  return loading ?? <WidgetSkeleton label={label} />;
 }
 
 /**
  * What today's totals leave out or estimate (contract C11): foods without a value are not counted as 0, and
  * estimated entries are named, the way the Nutrition log says it.
  */
-function FoodNotes({ food, keys }: { food: MealTotals | null; keys: readonly MacroKey[] }) {
+export function FoodNotes({ food, keys }: { food: MealTotals | null; keys: readonly MacroKey[] }) {
   if (!food || !food.entries) return null;
   const missing = keys.map((key) => missingNote(food[key], key)).filter(Boolean);
   if (!missing.length && !food.estimated) return null;
@@ -146,56 +63,6 @@ function FoodNotes({ food, keys }: { food: MealTotals | null; keys: readonly Mac
       {missing.length && food.estimated ? " " : null}
       {food.estimated ? `Includes ${food.estimated} estimated ${food.estimated === 1 ? "item" : "items"} (a typical recipe or an average portion).` : null}
     </p>
-  );
-}
-
-export function GoalsWidget({ goals, date }: { goals: Resource<GoalsData>; date: string }) {
-  return (
-    <WidgetCard title="Goals" icon={<Target size={16} />} href="/goals?tab=goals" hrefLabel="Manage goals">
-      {!goals.data ? (
-        goals.status === "error" ? <WidgetError message={goals.error} onRetry={goals.reload} /> : <WidgetSkeleton label="Loading your goals" />
-      ) : (() => {
-        const current = sortGoals(goals.data.goals.filter((goal) => goal.status === "active" && (goal.period === "long_term" ? !goal.dueOn || goal.dueOn >= date : appliesOn(goal, date))));
-        if (!current.length) {
-          return (
-            <div className={styles.emptyGoals}>
-              <p>No goals yet. Pick one to start; progress fills in from what you already log.</p>
-              <div className={styles.templateLinks}>
-                <Link href="/goals?tab=goals&new=protein_day">Daily protein</Link>
-                <Link href="/goals?tab=goals&new=workouts_week">Workouts a week</Link>
-                <Link href="/goals?tab=goals&new=water_day">Daily water</Link>
-              </div>
-              {goals.data.schema === "v1" && <WidgetNote>Daily and automatic goals arrive with the next FITX update.</WidgetNote>}
-            </div>
-          );
-        }
-        const shown = current.slice(0, 4);
-        return (
-          <>
-            <ul className={styles.goalRows}>
-              {shown.map((goal) => {
-                const evaluation = evaluateView(goal);
-                const over = evaluation.state === "over_limit";
-                return (
-                  <li key={goal.id} className={styles.goalRow}>
-                    <div className={styles.goalTop}>
-                      <p className={styles.goalTitle}>{evaluation.achieved && <Check size={14} className={styles.goalDone} aria-label="Done" />}{goal.title}</p>
-                      <span className={styles.goalPeriod}>{goal.period === "daily" ? "Today" : goal.period === "weekly" ? "This week" : "Long-term"}</span>
-                    </div>
-                    <div className="fitx-progress-track h-1.5" role="progressbar" aria-label={`${goal.title}: ${progressSummary(goal)}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={evaluation.percent}>
-                      <div className="fitx-progress-fill" style={{ width: `${evaluation.percent}%`, background: over ? "var(--fitx-warning)" : evaluation.achieved ? "var(--fitx-success)" : undefined }} />
-                    </div>
-                    <p className={styles.goalMeta}><span>{progressSummary(goal)}</span><span className={over ? styles.overText : undefined}>{remainingLabel(goal, evaluation)}</span></p>
-                    {goal.missingEntries ? <p className={styles.goalMissing}>{goal.missingEntries} {goal.missingEntries === 1 ? "food has" : "foods have"} no {goal.metric === "protein_g" ? "protein" : "calorie"} value and {goal.missingEntries === 1 ? "isn't" : "aren't"} counted</p> : null}
-                  </li>
-                );
-              })}
-            </ul>
-            {current.length > shown.length && <Link href="/goals?tab=goals" className={styles.more}>{current.length - shown.length} more</Link>}
-          </>
-        );
-      })()}
-    </WidgetCard>
   );
 }
 
@@ -250,11 +117,11 @@ export function WeightWidget({ summary, goals, date, onLogged }: { summary: Reso
                   </p>
                 </>
               ) : (
-                <p className={styles.subtle}>No weigh-in yet. Log one to track your progress.</p>
+                <p className={styles.subtle}>No weigh-in yet</p>
               )}
               {view.target !== null && view.current !== null && (
                 <div className={styles.weightTarget}>
-                  <p><span>Target {weightText(view.target, unit)} {unit}{view.targetSource === "profile" ? " (from your profile)" : ""}</span><strong>{view.toGo === 0 ? "Reached" : view.toGo === null ? "" : `${weightText(view.toGo, unit)} ${unit} to go`}</strong></p>
+                  <p><span>Target {weightText(view.target, unit)} {unit}</span><strong>{view.toGo === 0 ? "Reached" : view.toGo === null ? "" : `${weightText(view.toGo, unit)} ${unit} to go`}</strong></p>
                   {view.percent !== null && (
                     <div className="fitx-progress-track h-1.5" role="progressbar" aria-label="Progress to your target weight" aria-valuemin={0} aria-valuemax={100} aria-valuenow={view.percent}>
                       <div className="fitx-progress-fill" style={{ width: `${view.percent}%` }} />
@@ -262,7 +129,7 @@ export function WeightWidget({ summary, goals, date, onLogged }: { summary: Reso
                   )}
                 </div>
               )}
-              {view.target === null && <WidgetNote href="/goals?tab=goals&new=weight" action="Set a weight goal">No target weight yet.</WidgetNote>}
+              {view.target === null && <WidgetNote href={homePanel("goals", { new: "weight" })} action="Set a weight goal">No target yet.</WidgetNote>}
               {open ? (
                 <form className={styles.inlineForm} onSubmit={(event) => void save(event)}>
                   <label className="sr-only" htmlFor="home-weight">Weight in {weightUnitName(unit)}</label>
@@ -308,7 +175,7 @@ export function WaterWidget({ summary, goals, date, onLogged }: { summary: Resou
                 <div className="fitx-progress-track h-2" role="progressbar" aria-label="Water today" aria-valuemin={0} aria-valuemax={100} aria-valuenow={water.percent}>
                   <div className="fitx-progress-fill" style={{ width: `${water.percent}%`, background: "var(--fitx-info)" }} />
                 </div>
-              ) : <WidgetNote href="/goals?tab=goals&new=water_day" action="Set a daily water goal">No water target yet.</WidgetNote>}
+              ) : <WidgetNote href={homePanel("goals", { new: "water_day" })} action="Set a water goal">No target yet.</WidgetNote>}
               <div className={styles.quickButtons}>
                 {[250, 500].map((amount) => (
                   <button key={amount} type="button" className={styles.secondaryAction} disabled={saving !== null} onClick={() => void add(amount)}>
@@ -326,7 +193,7 @@ export function WaterWidget({ summary, goals, date, onLogged }: { summary: Resou
 
 export function WeekWidget({ summary, goals }: { summary: Resource<SummaryResult>; goals: Resource<GoalsData> }) {
   return (
-    <WidgetCard title="This week" icon={<CalendarDays size={16} />} href="/goals?tab=week" hrefLabel="Open your week">
+    <WidgetCard title="This week" icon={<CalendarDays size={16} />} href={homePanel("week")} hrefLabel="Open your week">
       <SummaryGate summary={summary} label="Loading this week">
         {({ summary: today }) => {
           const goal = goals.data?.goals.find((item) => item.metric === "workouts_completed" && item.period === "weekly" && appliesOn(item, today.localDate));
@@ -377,21 +244,12 @@ export function MacrosWidget({ summary, goals }: { summary: Resource<SummaryResu
               })}
               <FoodNotes food={food} keys={["protein", "carbs", "fat"]} />
               {!targets.protein.target && !targets.carbs.target && !targets.fat.target && (
-                <WidgetNote href="/nutrition" action="Set targets in Nutrition">No targets yet. Set your own, or add your age, height and weight in Profile for an estimate.</WidgetNote>
+                <WidgetNote href="/nutrition" action="Set targets">No targets yet.</WidgetNote>
               )}
             </div>
           );
         }}
       </SummaryGate>
-    </WidgetCard>
-  );
-}
-
-export function TodoWidget({ date, goals, onChanged }: { date: string; goals: Resource<GoalsData>; onChanged: () => void }) {
-  const goalTitles = Object.fromEntries((goals.data?.goals ?? []).map((goal) => [goal.id, goal.title]));
-  return (
-    <WidgetCard title="To-Do" icon={<ListChecks size={16} />} href="/goals?tab=today" hrefLabel="Open your To-Do list">
-      <TodoList date={date} variant="widget" limit={6} onChanged={onChanged} goalTitles={goalTitles} />
     </WidgetCard>
   );
 }

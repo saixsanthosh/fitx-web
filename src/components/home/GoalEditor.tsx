@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { CalendarCheck, Droplets, Dumbbell, Flame, Footprints, ListChecks, PenLine, Scale, Timer, Utensils } from "lucide-react";
-import { Sheet } from "@/components/tasks/Sheet";
+import { Sheet } from "@/components/ui/Sheet";
 import { getSession, messageFor } from "@/components/tasks/session";
 import { createGoal, updateGoal, type GoalsSchema } from "@/lib/data/goals";
 import {
@@ -20,7 +20,7 @@ const TEMPLATE_ICONS: Record<GoalTemplateKey, typeof Dumbbell> = {
 /** A placeholder per kind of target: an example of the format, not a recommendation. */
 const PLACEHOLDERS: Partial<Record<GoalDraft["metric"], string>> = { water_ml: "3000", activity_distance_km: "15", active_minutes: "150" };
 
-/** Create a goal from a template, or edit one. Prefilled from the user's own numbers where FITX has them. */
+/** Create a goal from a template, or edit one. Prefilled from the member's own numbers where FITX has them. */
 export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClose, onSaved }: {
   mode: "add" | "edit";
   schema: GoalsSchema;
@@ -82,7 +82,7 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
       open
       onClose={onClose}
       title={mode === "edit" ? "Edit goal" : draft ? "New goal" : "Choose a goal"}
-      description={!draft ? "Automatic goals fill in from what you already log in FITX." : metric?.source}
+      description={draft ? metric?.source : "Most goals fill in from what you log."}
       footer={draft ? <>
         {mode === "add" && !initialTemplate && <button type="button" className={`fitx-button fitx-button-quiet ${styles.footerStart}`} onClick={() => setDraft(null)}>Back</button>}
         <button type="button" className="fitx-button fitx-button-secondary" onClick={onClose}>Cancel</button>
@@ -91,7 +91,7 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
     >
       {!draft ? (
         <>
-          {legacy && <p className="fitx-alert mb-4">Daily, weekly and automatic goals arrive with the next FITX update. Custom goals work now.</p>}
+          {legacy && <p className="fitx-alert mb-4">Only custom goals work until the next FITX update.</p>}
           <ul className={styles.templates}>
             {GOAL_TEMPLATES.map((template) => {
               const Icon = TEMPLATE_ICONS[template.key];
@@ -201,9 +201,9 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
             <span>Notes <em>optional</em></span>
             <textarea className="fitx-field" maxLength={1000} value={draft.notes} onChange={(event) => change({ notes: event.target.value })} />
           </label>
-          {draft.template === "checklist" && <p className={styles.hint}><CalendarCheck size={14} aria-hidden="true" />Link To-Dos to this goal from the To-Do editor (“Counts toward”). Each one you finish moves it forward.</p>}
-          {draft.metric === "activity_distance_km" && <p className={styles.hint}><Footprints size={14} aria-hidden="true" />Counts the distance of the walks, runs and rides you record in Activity, by the day each one started.</p>}
-          {draft.metric === "active_minutes" && <p className={styles.hint}><Timer size={14} aria-hidden="true" />Counts the moving time of your recorded activities plus the training time of finished workouts (pauses left out).</p>}
+          {draft.template === "checklist" && <p className={styles.hint}><CalendarCheck size={14} aria-hidden="true" />Link To-Dos to it with “Counts toward” in the To-Do editor.</p>}
+          {draft.metric === "activity_distance_km" && <p className={styles.hint}><Footprints size={14} aria-hidden="true" />Walks, runs and rides you record, by the day each started.</p>}
+          {draft.metric === "active_minutes" && <p className={styles.hint}><Timer size={14} aria-hidden="true" />Activity moving time plus workout training time, pauses left out.</p>}
         </form>
       )}
     </Sheet>

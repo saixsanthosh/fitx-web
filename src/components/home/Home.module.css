@@ -1,0 +1,63 @@
+/* Home: the Today hero, the To-Do and Goals panels. Theme tokens only (scripts/check-raw-colors.mjs). */
+
+/* Hero */
+.hero { container-type: inline-size; position: relative; min-width: 0; border: 1px solid var(--fitx-border); border-radius: 24px; background: var(--fitx-card-bg); padding: 10px 14px 20px 20px; box-shadow: 0 18px 44px color-mix(in srgb, var(--fitx-scrim) 5%, transparent); }
+.heroHead { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; }
+.heroTitle { color: var(--fitx-text-secondary); font-size: .72rem; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
+.heroBody { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 18px; padding: 4px 6px 0 0; }
+.side { display: grid; width: 100%; min-width: 0; align-content: center; gap: 14px; }
+.side > p { margin-top: 0; }
+
+.ring { position: relative; width: min(100%, 212px); aspect-ratio: 1; flex: 0 0 auto; }
+.ringSvg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ringCenter { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.ringValue { color: var(--fitx-text); font-family: var(--font-heading); font-size: 2.35rem; font-weight: 800; letter-spacing: -.05em; line-height: 1; font-variant-numeric: tabular-nums; }
+.ringUnit { margin-top: 6px; color: var(--fitx-text-secondary); font-size: .74rem; font-weight: 600; }
+.ringPlaceholder { border-radius: 50%; border: 15px solid var(--fitx-track); }
+
+.left { display: flex; align-items: baseline; gap: 8px; color: var(--fitx-text-secondary); font-size: .92rem; font-weight: 600; }
+.left strong { color: var(--fitx-text); font-family: var(--font-heading); font-size: 1.9rem; font-weight: 800; letter-spacing: -.04em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.left .overText { color: var(--fitx-warning); }
+
+.rows { display: grid; gap: 10px; border-top: 1px solid var(--fitx-divider); padding-top: 14px; }
+.row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; align-items: center; gap: 4px 10px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+.rowName { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--fitx-text-secondary); font-size: .82rem; font-weight: 600; }
+.rowValue { color: var(--fitx-text-secondary); font-size: .82rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rowValue strong { color: var(--fitx-text); font-size: .98rem; font-weight: 700; }
+.rowPercent { min-width: 40px; color: var(--fitx-text); font-size: .82rem; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions :global(.fitx-button) { min-height: 46px; border-radius: 12px; padding: 0 18px; }
+.quiet { display: inline-flex; min-height: 46px; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 12px; background: var(--fitx-surface); padding: 0 16px; color: var(--fitx-text); font-size: .88rem; font-weight: 650; transition: border-color .16s ease; }
+.quiet svg { color: var(--fitx-primary); }
+.quiet:hover { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); }
+
+.lineShort, .lineLong { display: block; height: 14px; border-radius: 7px; background: var(--fitx-surface-variant); }
+.lineShort { width: 70%; }
+.lineLong { width: 45%; height: 32px; }
+
+@container (min-width: 560px) {
+  .heroBody { grid-template-columns: auto minmax(0, 1fr); justify-items: stretch; align-items: center; gap: 36px; padding: 6px 20px 6px 8px; }
+  .ring { width: 220px; }
+}
+@container (min-width: 860px) {
+  .heroBody { grid-template-columns: auto minmax(0, 480px); justify-content: start; gap: 64px; padding-left: 24px; }
+  .ring { width: 248px; }
+  .ringValue { font-size: 2.7rem; }
+  .left strong { font-size: 2.3rem; }
+}
+
+/* To-Do panel (Goals has its own styles) */
+.panel { display: flex; min-width: 0; flex-direction: column; gap: 14px; scroll-margin-top: 88px; }
+.panelHead { display: flex; min-height: 44px; align-items: center; gap: 10px; }
+.panelTitle { color: var(--fitx-text); font-family: var(--font-heading); font-size: 1.2rem; font-weight: 750; letter-spacing: -.025em; outline: none; }
+.panelButton { display: inline-flex; min-height: 44px; align-items: center; gap: 6px; margin-left: auto; border-radius: 12px; padding: 0 14px; color: var(--fitx-primary-text); font-size: .86rem; font-weight: 700; transition: background-color .16s ease; }
+.panelButton:hover { background: color-mix(in srgb, var(--fitx-primary) 9%, transparent); }
+.todoCard { min-width: 0; flex: 1; border: 1px solid var(--fitx-border); border-radius: 20px; background: var(--fitx-card-bg); padding: 16px; }
+
+@media (max-width: 420px) {
+  .hero { padding: 8px 10px 16px 16px; border-radius: 20px; }
+  .todoCard { padding: 14px 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .quiet, .panelButton { transition: none; } }

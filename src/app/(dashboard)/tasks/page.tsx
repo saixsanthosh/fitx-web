@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
+import { homePanel } from "@/config/routes";
 
-/** Tasks live in the To-Do list on the Today tab of Goals. */
+/** Tasks live in the To-Do list on Home. */
 export default function TasksPage() {
-  redirect("/goals?tab=today");
+  redirect(homePanel("todo"));
 }

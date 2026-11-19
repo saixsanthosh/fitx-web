@@ -39,48 +39,9 @@
 .secondaryAction svg { color: var(--fitx-primary); }
 .more { display: inline-flex; min-height: 44px; align-items: center; margin-top: 6px; color: var(--fitx-primary-text); font-size: .82rem; font-weight: 650; }
 
-/* Today */
-.today { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 18px 22px; }
-.today > .note { grid-column: 1 / -1; margin-top: 0; }
-.ringValue { color: var(--fitx-text); font-size: 1.6rem; font-weight: 750; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
-.ringUnit { margin-top: 4px; color: var(--fitx-text-secondary); font-size: .72rem; }
-.legend { display: grid; min-width: 0; gap: 14px; }
-.legendRow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: start; gap: 10px; }
-.dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; }
-.legendText { min-width: 0; }
-.legendName { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--fitx-text-secondary); font-size: .76rem; font-weight: 600; }
-.legendValue { margin-top: 2px; color: var(--fitx-text-secondary); font-size: .82rem; font-variant-numeric: tabular-nums; }
-.legendValue strong { color: var(--fitx-text); font-size: 1.05rem; font-weight: 700; }
-.legendPercent { color: var(--fitx-text); font-size: .9rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.over, .overText { color: var(--fitx-warning); font-size: .76rem; font-weight: 650; }
-.met { display: flex; align-items: center; gap: 7px; border-top: 1px solid var(--fitx-divider); padding-top: 12px; color: var(--fitx-text); font-size: .82rem; font-weight: 600; }
-.met svg { color: var(--fitx-success); }
-@container (max-width: 380px) {
-  .today { grid-template-columns: minmax(0, 1fr); justify-items: center; }
-  .legend { width: 100%; }
-}
-
-/* Today: what is left, what the totals leave out, the scan shortcut */
-.left { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; border-top: 1px solid var(--fitx-divider); padding-top: 12px; color: var(--fitx-text-secondary); font-size: .86rem; }
-.left strong { color: var(--fitx-text); font-size: 1.25rem; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.left span { flex-basis: 100%; font-size: .76rem; line-height: 1.45; }
+/* What today's totals leave out (the Home hero and Macros) */
 .foodNote { grid-column: 1 / -1; color: var(--fitx-text-secondary); font-size: .76rem; line-height: 1.5; }
-.todayActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
-.left, .foodNote, .todayActions { justify-self: stretch; }
-
-/* Goals */
-.goalRows { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
-.goalRow { display: grid; gap: 7px; }
-.goalTop { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.goalTitle { display: flex; min-width: 0; align-items: center; gap: 6px; overflow-wrap: anywhere; color: var(--fitx-text); font-size: .9rem; font-weight: 600; }
-.goalDone { flex: 0 0 auto; color: var(--fitx-success); }
-.goalPeriod { flex: 0 0 auto; color: var(--fitx-text-secondary); font-size: .7rem; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
-.goalMeta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; color: var(--fitx-text-secondary); font-size: .76rem; font-variant-numeric: tabular-nums; }
-.goalMissing { color: var(--fitx-text-secondary); font-size: .72rem; line-height: 1.4; }
-.emptyGoals { display: grid; gap: 12px; color: var(--fitx-text-secondary); font-size: .85rem; line-height: 1.55; }
-.templateLinks { display: flex; flex-wrap: wrap; gap: 8px; }
-.templateLinks a { display: inline-flex; min-height: 44px; align-items: center; border: 1px solid var(--fitx-border); border-radius: 999px; padding: 0 14px; color: var(--fitx-text); font-size: .82rem; font-weight: 600; }
-.templateLinks a:hover { border-color: var(--fitx-primary); color: var(--fitx-primary-text); }
+.over, .overText { color: var(--fitx-warning); font-size: .76rem; font-weight: 650; }
 
 /* Weight */
 .weight { display: grid; gap: 10px; }
@@ -210,7 +171,7 @@
   .hintActions { grid-column: auto; }
 }
 
-/* Customize panel */
+/* Customise panel */
 .panelHeading { margin: 4px 0 10px; color: var(--fitx-text-secondary); font-size: .72rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .panelList { display: grid; gap: 8px; margin: 0 0 22px; padding: 0; list-style: none; }
 .panelRow { display: flex; min-height: 64px; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 14px; background: var(--fitx-surface); padding: 6px 6px 6px 4px; }
