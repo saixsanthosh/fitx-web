@@ -39,6 +39,15 @@ export const flow = {
       const section = page.locator("section[aria-labelledby=settings-account]");
       await section.getByText(account.email).waitFor({ timeout: 15000 });
       t.expect((await textOf(section)).includes("Email and password"), "the sign-in method should read Email and password");
+      // The theme card: three options of one height, and no empty band under them before Intro film.
+      const theme = await page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Theme" }) }).evaluate((fieldset) => {
+        const boxes = [...fieldset.querySelectorAll(".fitx-choice__box")].map((box) => Math.round(box.getBoundingClientRect().height));
+        const holder = fieldset.parentElement.getBoundingClientRect();
+        return { boxes, below: Math.round(holder.bottom - fieldset.getBoundingClientRect().bottom) };
+      });
+      t.note("theme card", theme);
+      t.expect(theme.boxes.length === 3 && new Set(theme.boxes).size === 1, "the three theme options should be the same height", theme);
+      t.expect(theme.below <= 20, "no empty space under the theme options while there is no message", theme);
       await t.checkpoint("settings");
     });
 
