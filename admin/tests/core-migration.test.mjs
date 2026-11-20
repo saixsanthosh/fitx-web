@@ -94,3 +94,26 @@ test("the console never paints inline styles (the CSP blocks them) and keeps raw
     }
   }
 });
+
+test("links in lists and filter tabs are 44 px targets, and small coral text on the dark stage passes AA", async () => {
+  const css = await readFile(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.row-link \{[^}]*min-height: 44px;/);
+  assert.match(css, /\.filter-tabs a \{[^}]*min-height: 44px;/);
+  // Light, dark and system dark each declare --stage and --coral-on-stage; 9 px text needs 4.5:1 against the stage.
+  const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const stages = [...css.matchAll(/--stage: (#[0-9a-f]{6});/g)].map((match) => match[1]);
+  const corals = [...css.matchAll(/--coral-on-stage: (#[0-9a-f]{6});/g)].map((match) => match[1]);
+  assert.equal(stages.length, 3);
+  assert.equal(corals.length, 3);
+  stages.forEach((stage, index) => {
+    const [light, dark] = [luminance(stage), luminance(corals[index])].sort((a, b) => b - a);
+    assert.ok((light + 0.05) / (dark + 0.05) >= 4.5, `${corals[index]} on ${stage}`);
+  });
+  const shell = await readFile(new URL("../src/components/admin-shell.module.css", import.meta.url), "utf8");
+  assert.match(shell, /\.brandWord small \{\n  color: var\(--coral-on-stage\);/);
+  const login = await readFile(new URL("../src/app/login/login.module.css", import.meta.url), "utf8");
+  assert.match(login, /\.stageBrand em \{ color: var\(--coral-on-stage\); \}/);
+});

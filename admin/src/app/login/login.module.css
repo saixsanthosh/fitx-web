@@ -36,11 +36,12 @@
 }
 .stageBrand em,
 .cardBrand em {
-  color: var(--coral);
+  color: var(--coral-deep);
   font-size: 9px;
   font-style: normal;
   letter-spacing: 0.3em;
 }
+.stageBrand em { color: var(--coral-on-stage); }
 
 .stageLine {
   position: absolute;

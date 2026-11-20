@@ -52,7 +52,7 @@
   line-height: 1;
 }
 .brandWord small {
-  color: var(--coral);
+  color: var(--coral-on-stage);
   font-size: 9px;
   letter-spacing: 0.3em;
 }
