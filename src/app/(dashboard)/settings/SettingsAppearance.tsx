@@ -38,14 +38,15 @@ export function SettingsAppearance() {
 
   return (
     <SettingsGroup id="settings-appearance" title="Appearance">
+      {/* The three options fill the card edge to edge; the status line takes room only once there is something to say. */}
       <div className="py-4">
       <fieldset>
         <legend className="text-sm font-medium text-fitx-text">Theme</legend>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-3 items-stretch gap-2 sm:gap-3">
           {OPTIONS.map(({ value, label, icon: Icon }) => (
-            <label key={value} className="fitx-choice">
+            <label key={value} className="fitx-choice h-full">
               <input type="radio" name="fitx-theme" value={value} checked={mode === value} onChange={() => void choose(value)} />
-              <span className="fitx-choice__box min-h-20 flex-col justify-center gap-1.5 px-2 text-center">
+              <span className="fitx-choice__box h-full min-h-[76px] flex-col justify-center gap-1.5 px-2 text-center">
                 <Icon size={20} aria-hidden="true" className="fitx-choice__icon" />
                 <span className="block text-[13px] font-semibold leading-tight text-fitx-text">{label}</span>
               </span>
@@ -53,7 +54,7 @@ export function SettingsAppearance() {
           ))}
         </div>
       </fieldset>
-      <p role="status" aria-live="polite" className="m-0 mt-2 min-h-5 text-xs text-fitx-text-secondary">{message}</p>
+      <p role="status" aria-live="polite" className="m-0 mt-2 text-xs leading-5 text-fitx-text-secondary empty:mt-0">{message}</p>
       </div>
       <SettingsRow label="Intro film">
         <IntroReplayControl className="inline-flex min-h-11 items-center rounded-full border border-fitx-border px-4 text-sm font-semibold text-fitx-text transition-colors hover:bg-fitx-hover motion-reduce:transition-none" />

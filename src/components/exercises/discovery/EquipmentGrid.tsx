@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
 import { EQUIPMENT, type TrainingContext } from "@/lib/training/taxonomy";
+import styles from "./Library.module.css";
 
 /** The items shown before "More equipment", most common first; the rest follow in catalogue order. */
 const FIRST: Record<TrainingContext, readonly string[]> = {
@@ -23,7 +24,8 @@ const label = (key: string) => SHORT_LABELS[key] ?? EQUIPMENT.find((item) => ite
 /**
  * "What do you have?": equipment as illustrated toggle tiles (aria-pressed). "No equipment" means body weight only
  * and clears the rest; choosing an item clears "No equipment". Less common items sit behind "More equipment",
- * except any that are selected. The common items depend on where the member trains.
+ * except any that are selected. The common items depend on where the member trains. On phones the tiles are one
+ * row that scrolls sideways, like Focus above it, so the results stay close to the top; a grid from 640 px.
  */
 export function EquipmentGrid({ value, onChange, context, disabled = false }: {
   /** The member's equipment keys; null while unknown (nothing is shown as chosen). */
@@ -52,7 +54,7 @@ export function EquipmentGrid({ value, onChange, context, disabled = false }: {
       aria-pressed={on}
       disabled={disabled}
       onClick={onClick}
-      className={`relative flex h-full min-h-[92px] w-full flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-center text-xs font-medium leading-tight transition-colors motion-reduce:transition-none disabled:opacity-60 ${on ? "border-fitx-primary bg-fitx-primary/10 text-fitx-text" : "border-fitx-border bg-fitx-surface text-fitx-text-secondary hover:border-fitx-primary/45 hover:text-fitx-text"}`}
+      className={`relative flex h-full min-h-[92px] w-[104px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-center text-xs font-medium leading-tight transition-colors motion-reduce:transition-none disabled:opacity-60 sm:w-full ${on ? "border-fitx-primary bg-fitx-primary/10 text-fitx-text" : "border-fitx-border bg-fitx-surface text-fitx-text-secondary hover:border-fitx-primary/45 hover:text-fitx-text"}`}
     >
       <span className={on ? "text-fitx-primary" : ""}><EquipmentIcon name={key} size={30} /></span>
       <span>{text}</span>
@@ -63,7 +65,8 @@ export function EquipmentGrid({ value, onChange, context, disabled = false }: {
   );
   return (
     <div className="grid gap-2">
-      <div role="group" aria-label="Equipment you have" className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8">
+      <div role="group" aria-label="Equipment you have"
+        className={`${styles.rail} -mx-3.5 flex gap-2 overflow-x-auto px-3.5 pb-1 sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:px-0 sm:pb-0 md:grid-cols-6 xl:grid-cols-8`}>
         {tile("none", known && selected.size === 0, "No equipment", () => onChange([]))}
         {shown.map((key) => tile(key, selected.has(key), label(key), () => toggle(key)))}
       </div>

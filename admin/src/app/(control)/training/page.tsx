@@ -232,7 +232,7 @@ function LibraryTab({ counts }: { counts: Awaited<ReturnType<typeof getTrainingC
   return (
     <div className={styles.page}>
       <p className={styles.hint}>
-        These lists come with the app, and members&apos; equipment, programmes and filters use them. Assign them on each exercise.
+        Fixed lists in the app, with how many exercises use each. Set them on each exercise.
       </p>
       <Section title="Muscle groups">
         <VocabularyGrid entries={MUSCLE_GROUPS.map((group) => entry(c.muscle_groups, group, MUSCLE_GROUP_LABELS[group]))} hrefFor={(key) => `/training?group=${key}`} />

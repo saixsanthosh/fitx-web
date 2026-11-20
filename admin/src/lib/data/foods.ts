@@ -173,9 +173,3 @@ export async function getFoodCategories() {
   }));
   return { state: "ready" as const, categories };
 }
-
-/**
- * Members' saved meals and day routines are their own (row level security, owner only); FITX has no meal
- * plans that Admin publishes. Only the counts appear, in Reports.
- */
-export const MEAL_PLANS_SOURCE = "none" as const;

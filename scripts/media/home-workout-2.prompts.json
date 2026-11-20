@@ -38,8 +38,8 @@
       "id": "superman",
       "aspect": "4:5",
       "longEdge": 1000,
-      "alt": "A man lying face down lifting his chest and arms off the mat",
-      "prompt": "Photographed from floor level, exactly side-on: {man} lies on his belly on a dark mat in the prone superman back extension. His stomach and hips rest on the mat; his straight arms point forward beyond his head, and his upper chest, arms and straight legs float a little above the mat, so the body forms a shallow curve like a rocking chair. Nothing but his stomach and hips touches the floor: his hands and feet are in the air."
+      "alt": "A man face down on a mat, arms, chest and straight legs all lifted, only his belly and hips touching",
+      "prompt": "Camera at mat level, exactly side-on, a clean profile of the whole body from fingertips to toes: {man} is lying face down on a dark mat, his body stretched out long and flat along it, in the prone superman back extension. His belly, lower ribs and the front of his hips are pressed into the mat and carry all his weight; he is not floating and not balancing on his toes or hands. From that position he lifts both ends of his body a little off the floor at the same time: his straight arms reach forward beyond his head, hands a few centimetres above the mat; his upper chest and head lift slightly, face down; and his straight legs, together, lift from the hips so his thighs, knees, shins and feet are a few centimetres above the mat, toes pointed back. Only the belly and hips touch the mat: the hands, knees and toes do not. The whole body sits in a thin, low band just above the mat in the lower third of the frame, a gentle banana-shaped curve that dips at the belly and rises slightly at the hands and the feet."
     },
     {
       "id": "shoulder-press",

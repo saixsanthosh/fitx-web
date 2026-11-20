@@ -1,6 +1,6 @@
 // Flow 13: the connected experience. A member with a finished workout, an abandoned one, a run and food with an
 // unknown protein value opens Home: the Today ring leads and says what its totals leave out; Today's plan and
-// Muscles this week, added in Customise, count the run and only the finished workout's muscles. Progress shows this week against last week,
+// Muscles this week, added in Customise, count the run and only the finished workout's muscles. Progress shows this week (with no comparison in the member's first week),
 // Focus next and the trends, and a measurement logged there in pounds is saved in kg and becomes the profile weight; /progress/muscles lists the share of the work, and choosing a muscle shows the
 // workout behind it with a link to its record. Nothing is counted from the abandoned workout.
 import { signInUi, textOf } from "./common.mjs";
@@ -76,7 +76,7 @@ export const flow = {
       t.expect(/Scan barcode/.test(text) && /Log food/.test(text), "the log and scan shortcuts should be there", text);
     }, { soft: true });
 
-    await t.step("Progress compares this week and links each workout to its record", async () => {
+    await t.step("Progress shows this week, no comparison in the first week, and links each workout to its record", async () => {
       await t.goto("/progress", { label: "progress" });
       await page.getByRole("heading", { name: "This week so far" }).waitFor({ timeout: 20000 });
       await page.getByText("Workouts a week").first().waitFor({ timeout: 20000 });
@@ -84,6 +84,9 @@ export const flow = {
       t.note("week band", band);
       t.expect(/workouts\s*1\b/i.test(band), "one workout this week", band);
       t.expect(/distance\s*5\.2/i.test(band), "the run's distance", band);
+      // The account was made today: there is no last week to set against, so no "Last week: 0" comparison.
+      t.expect(!/Last (week|Monday):/.test(band), "a member in their first week sees no comparison with last week", band);
+      t.expect(await page.getByText("Against the same days last week").count() === 0, "no comparison note in the first week");
       const link = await page.locator("a[href^='/workouts/history/']").first().getAttribute("href");
       t.expect(link === `/workouts/history/${finished?.id}`, "the recent workout should open its record", { link });
       t.expect(await page.locator("#focus-next").count() === 1, "Focus next should be on Progress");
@@ -125,6 +128,7 @@ export const flow = {
       t.note("body section", text.slice(0, 400));
       t.expect(/140\.0\s*lb/.test(text), "the latest weight shows in pounds", text);
       t.expect(/Waist\s*81\.5 cm/i.test(text), "the waist size is listed", text);
+      t.expect(!/profile weight didn't update/.test(text), "no profile-weight notice when the profile copy saved", text);
       await t.checkpoint("progress after logging");
     });
 

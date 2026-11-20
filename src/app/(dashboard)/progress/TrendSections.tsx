@@ -16,17 +16,18 @@ const km = (metres: number) => number(metres / 1000, 1);
 const dayMonth = (key: string) => keyToLocalDate(key).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 const dateLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
-type Cell = { label: string; value: string | null; unit?: string; versus: string };
+type Cell = { label: string; value: string | null; unit?: string; versus: string | null };
 
 /**
  * "This week so far" against the same days of last week: four numbers, no more. An unknown value shows a dash,
- * never 0; activities that could not be read say so.
+ * never 0; activities that could not be read say so. Without a last week to compare (the member's first week),
+ * the numbers stand alone.
  */
-export function WeekBand({ week, activities }: { week: WeekSoFar; activities: SourceState }) {
+export function WeekBand({ week, compare, activities }: { week: WeekSoFar; compare: boolean; activities: SourceState }) {
   const now = week.current;
   const then = week.previous;
   const label = week.days === 1 ? "Last Monday" : "Last week";
-  const versus = (value: string | null) => `${label}: ${value ?? "—"}`;
+  const versus = (value: string | null) => (compare ? `${label}: ${value ?? "—"}` : null);
   const activityKnown = activities === "ok" && now.distanceM !== null && now.movingSeconds !== null;
   const activityNote = activities === "unavailable" ? "Activity isn't set up yet" : "Couldn't load activities";
   const cells: Cell[] = [
@@ -45,7 +46,7 @@ export function WeekBand({ week, activities }: { week: WeekSoFar; activities: So
               {cell.value === null ? <><span aria-hidden="true">—</span><span className="sr-only">Not known</span></> : cell.value}
               {cell.value !== null && cell.unit ? <span className={styles.bandUnit}>{cell.unit}</span> : null}
             </span>
-            <span className={styles.bandVersus}>{cell.versus}</span>
+            {cell.versus ? <span className={styles.bandVersus}>{cell.versus}</span> : null}
           </dd>
         </div>
       ))}

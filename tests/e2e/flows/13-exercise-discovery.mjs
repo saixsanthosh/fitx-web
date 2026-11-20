@@ -46,6 +46,14 @@ export const flow = {
     await t.step("a focus area and no equipment at home: what the member can do first, alternatives for the rest", async () => {
       await page.getByRole("group", { name: "Focus areas" }).getByRole("button", { name: /^Chest/ }).click();
       await page.getByRole("group", { name: "Where you train" }).getByRole("button", { name: "Home" }).click();
+      // On phones the equipment is one sideways row, like Focus, so it does not push the results a screen down.
+      const equipment = page.getByRole("group", { name: "Equipment you have" });
+      if ((page.viewportSize()?.width ?? 1440) < 640) {
+        const shape = await equipment.evaluate((group) => ({ height: Math.round(group.getBoundingClientRect().height), page: document.documentElement.scrollWidth, view: window.innerWidth }));
+        t.note("equipment on a phone", shape);
+        t.expect(shape.height <= 130, "the equipment tiles should be a single row on a phone", shape);
+        t.expect(shape.page <= shape.view, "the equipment row must not make the page scroll sideways", shape);
+      }
       await page.getByRole("group", { name: "Equipment you have" }).getByRole("button", { name: "No equipment" }).click();
       await page.waitForFunction(() => {
         const params = new URL(location.href).searchParams;
