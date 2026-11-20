@@ -1,0 +1,50 @@
+/* Exercise library motion (ExerciseResultCard, the results grid). Transform and opacity only; nothing moves under
+   reduced motion. Theme tokens only (scripts/check-raw-colors.mjs). */
+
+.card {
+  --rise-delay: 0ms;
+}
+
+.cover {
+  aspect-ratio: 4 / 3;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Each card rises in once as it is rendered; later cards wait a little longer (capped by the caller). */
+  .card {
+    animation: rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--rise-delay);
+  }
+  .photo {
+    transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .card:hover .photo,
+  .card:focus-within .photo {
+    transform: scale(1.045);
+  }
+  .save {
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease;
+  }
+  .save:active {
+    transform: scale(0.92);
+  }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The save button floats on the photo: a surface disc, so it reads on any picture in both themes. */
+.save {
+  background: color-mix(in srgb, var(--fitx-surface) 88%, transparent);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--fitx-scrim) 20%, transparent);
+}
+
+/* A thin rail that scrolls sideways on phones without a visible scrollbar. */
+.rail {
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+.rail::-webkit-scrollbar { display: none; }
+.rail > * { scroll-snap-align: start; }

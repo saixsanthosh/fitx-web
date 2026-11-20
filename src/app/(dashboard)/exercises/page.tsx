@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Bookmark, Dumbbell, Filter, House, PersonStanding, Sparkles } from "lucide-react";
-import { PageHeading } from "@/components/app/PageHeading";
+import { ArrowRight, Bookmark, Dumbbell, House, PersonStanding, SlidersHorizontal, Sparkles } from "lucide-react";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { ActiveFilters } from "@/components/exercises/discovery/ActiveFilters";
 import { DiscoverySection } from "@/components/exercises/discovery/DiscoverySection";
 import { EquipmentGrid } from "@/components/exercises/discovery/EquipmentGrid";
@@ -21,6 +21,8 @@ import { expandOwnedEquipment, sortEquipmentKeys } from "@/lib/training/equipmen
 import { survivingExerciseIds } from "@/lib/training/exercise-merges";
 import { FOCUS_AREAS } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
+import { LEVELS, type Level } from "@/lib/training/taxonomy";
+import styles from "@/components/exercises/discovery/Library.module.css";
 import { buildVocabulary, highlightRanges, suggestSpelling } from "@/lib/training/search-terms";
 import { rankSubstitutes } from "@/lib/training/substitutions";
 import type { TrainingContext } from "@/lib/training/taxonomy";
@@ -32,11 +34,13 @@ import {
   libraryQuery,
   muscleWordFilter,
   panelFilterCount,
+  quickLevel,
   readLibraryState,
   relaxLabel,
   relaxState,
   withoutChip,
   withoutFilters,
+  withQuickLevel,
   writeLibraryState,
   type LibrarySort,
   type LibraryState,
@@ -47,7 +51,8 @@ import { replaceSearch, useCatalogue, useLibraryAccount, useSavedExercises, useU
 const PAGE_SIZE = 24;
 const RECENT_SHOWN = 6;
 const SECTIONS_KEY = "fitx:exercise:v1:library-sections";
-const CONTEXT_TITLES: Record<TrainingContext, string> = { home: "Home Workout", gym: "Gym Workout" };
+const CONTEXT_TITLES: Record<TrainingContext, string> = { home: "Home", gym: "Gym" };
+const LEVEL_LABELS: Record<Level, string> = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" };
 const SORT_LABELS: Record<LibrarySort, string> = { best: "Best match", name: "Name, A to Z", difficulty: "Easiest first" };
 
 type Sections = { focus: boolean; equipment: boolean };
@@ -167,7 +172,7 @@ export default function ExerciseLibraryPage() {
   const focusDetails = counts
     ? Object.fromEntries(FOCUS_AREAS.map((area) => {
       const { total, doable } = counts[area];
-      const text = `${total.toLocaleString()} ${total === 1 ? "exercise" : "exercises"}`;
+      const text = total.toLocaleString();
       return [area, doable === null ? text : `${text} · ${doable.toLocaleString()} you can do`];
     }))
     : undefined;
@@ -217,8 +222,9 @@ export default function ExerciseLibraryPage() {
 
   const resultsTitle = !result ? (catalogue.status === "error" ? "Exercises unavailable" : "Loading exercises") : `${result.items.length.toLocaleString()} ${result.items.length === 1 ? "exercise" : "exercises"}`;
   const directCount = result && view.focus.length ? result.items.filter((item) => item.focusTier === 0).length : null;
+  const levelChoice = quickLevel(state);
 
-  const renderCard = (item: RankedExercise) => (
+  const renderCard = (item: RankedExercise, index = 0) => (
     <ExerciseResultCard
       key={item.exercise.id}
       item={item}
@@ -230,22 +236,25 @@ export default function ExerciseLibraryPage() {
       alternative={alternatives.get(item.exercise.id) ?? null}
       listName={listName}
       onOpen={rememberCurrentSearch}
+      index={index}
     />
   );
 
   return (
-    <div className="space-y-5 sm:space-y-6">
-      <PageHeading
+    <div>
+      <PageHeader
         title="Exercise library"
-        description="Search every FITX exercise, or choose what you want to train and what you have, and the exercises you can do come first."
+        meta={exercises ? `${exercises.length.toLocaleString()} exercises` : undefined}
         actions={<>
           <Link href={browseByMuscleHref(state)} className="fitx-button fitx-button-secondary min-h-11 px-3.5"><PersonStanding size={16} aria-hidden="true" />Browse by muscle</Link>
           <Link href="/workouts" className="fitx-button min-h-11 px-3.5">Build a workout<ArrowRight size={15} aria-hidden="true" /></Link>
         </>}
+        className="mb-5 sm:mb-7"
       />
 
-      <section aria-label="Search and filters" className="fitx-panel grid gap-3 p-3 sm:p-4">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
+      <div className="space-y-6 sm:space-y-8">
+      <section aria-label="Search and filters" className="grid gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
           <SearchField
             value={state.q}
             onChange={(value) => update({ q: value })}
@@ -257,15 +266,26 @@ export default function ExerciseLibraryPage() {
           />
           <div className="flex gap-2">
             <button type="button" aria-pressed={state.saved} onClick={() => update({ saved: !state.saved })} disabled={!userId}
-              className={`fitx-button min-h-12 flex-1 px-3.5 lg:flex-none ${state.saved ? "" : "fitx-button-secondary"}`}>
+              className={`fitx-button min-h-12 flex-1 px-3.5 sm:flex-none ${state.saved ? "" : "fitx-button-secondary"}`}>
               <Bookmark size={15} aria-hidden="true" />Saved{saved.ready && <span className="tabular-nums">{saved.ids.length}</span>}
             </button>
             <button type="button" aria-expanded={filtersOpen} aria-controls="exercise-filters" onClick={() => setFiltersOpen((open) => !open)}
-              className="fitx-button fitx-button-secondary min-h-12 flex-1 px-3.5 lg:flex-none">
-              <Filter size={15} aria-hidden="true" />Filters
+              className="fitx-button fitx-button-secondary min-h-12 flex-1 px-3.5 sm:flex-none">
+              <SlidersHorizontal size={15} aria-hidden="true" />Filters
               {panelFilterCount(state) > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-fitx-primary px-1 text-[10px] text-fitx-on-primary">{panelFilterCount(state)}</span>}
             </button>
           </div>
+        </div>
+        <div role="group" aria-label="Level" className={`${styles.rail} -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0`}>
+          {([null, ...LEVELS] as const).map((level) => {
+            const on = levelChoice === level;
+            return (
+              <button key={level ?? "all"} type="button" aria-pressed={on} onClick={() => navigate(withQuickLevel(state, level))}
+                className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm transition-colors motion-reduce:transition-none ${on ? "border-fitx-strong bg-fitx-strong font-semibold text-fitx-on-strong" : "border-fitx-border bg-fitx-surface text-fitx-text-secondary hover:text-fitx-text"}`}>
+                {level ? LEVEL_LABELS[level] : "All levels"}
+              </button>
+            );
+          })}
         </div>
         {wordFilter && (
           <p className="m-0 flex flex-wrap items-center gap-x-2 text-sm text-fitx-text-secondary">
@@ -274,38 +294,37 @@ export default function ExerciseLibraryPage() {
             <button type="button" onClick={() => navigate(wordFilter.next)} className="inline-flex min-h-11 items-center font-semibold text-fitx-primary-text underline underline-offset-4">Filter by {wordFilter.label}</button>
           </p>
         )}
-        {filtersOpen && <FilterPanel id="exercise-filters" state={state} onChange={navigate} />}
-        {catalogue.status === "ready" && !catalogue.curated && <p className="m-0 text-xs leading-5 text-fitx-text-secondary">Some filters are approximate until FITX’s exercise catalogue update is applied.</p>}
+        {filtersOpen && <div className="fitx-panel p-3.5 sm:p-5"><FilterPanel id="exercise-filters" state={state} onChange={navigate} /></div>}
+        {catalogue.status === "ready" && !catalogue.curated && <p className="m-0 text-xs text-fitx-text-secondary">Some filters are approximate until the catalogue update is applied.</p>}
         {account.status === "error" && (
           <p role="alert" className="fitx-alert fitx-alert-danger m-0">
-            Your account could not be checked, so your equipment lists and saved exercises are not shown. Check your connection and try again.
+            Your equipment and saved exercises could not be loaded.
             <button type="button" className="fitx-alert-action" onClick={retryAccount}>Try again</button>
           </p>
         )}
         {saved.problem && <p role="alert" className="fitx-alert fitx-alert-danger m-0">{saved.problem}</p>}
-        {saved.moved > 0 && <p role="status" className="m-0 text-xs text-fitx-text-secondary">{saved.moved === 1 ? "1 exercise you saved on this device is" : `${saved.moved} exercises you saved on this device are`} now saved to your account, so they show on every device.</p>}
+        {saved.moved > 0 && <p role="status" className="m-0 text-xs text-fitx-text-secondary">{saved.moved === 1 ? "1 saved exercise" : `${saved.moved} saved exercises`} moved from this device to your account.</p>}
+        <ActiveFilters chips={chipItems} onRemove={(id) => {
+          const chip = chips.find((item) => `${item.key}:${item.value}` === id);
+          if (chip) navigate(withoutChip(state, chip));
+        }} onClearAll={() => navigate(withoutFilters(state))} />
       </section>
 
-      <ActiveFilters chips={chipItems} onRemove={(id) => {
-        const chip = chips.find((item) => `${item.key}:${item.value}` === id);
-        if (chip) navigate(withoutChip(state, chip));
-      }} onClearAll={() => navigate(withoutFilters(state))} />
-
       {!searching && (
-        <DiscoverySection id="focus" title="What do you want to train?" open={sections.focus} onToggle={() => toggleSection("focus")}
-          summary={state.focus.length ? `Showing exercises for ${state.focus.length === 1 ? "this area" : "these areas"} first. Pick more or tap again to remove.` : "Pick one or more areas. Exercises for them come first."}>
-          <FocusTiles value={state.focus} onChange={(focus) => update({ focus })} details={focusDetails} className="max-w-4xl" />
-        </DiscoverySection>
+        <section aria-labelledby="focus-title" className="grid gap-3">
+          <h2 id="focus-title" className="m-0 font-heading text-lg font-semibold tracking-[-.02em]">Focus</h2>
+          <FocusTiles value={state.focus} onChange={(focus) => update({ focus })} details={focusDetails} layout="rail" credit={false} />
+        </section>
       )}
 
       {!searching && (
-        <DiscoverySection id="equipment" title="What do you have?" open={sections.equipment} onToggle={() => toggleSection("equipment")}
-          summary={account.status === "loading" ? "Loading your equipment lists…" : account.status === "error" && !haveKeys ? "Your equipment lists could not be loaded." : haveKeys ? `${state.have ? "Changed for this search" : list?.saved ? `Your saved ${contextName} list` : `A starting ${contextName} list`}: ${equipmentListText(haveKeys)}.` : "Sign in to check exercises against your equipment."}
+        <DiscoverySection id="equipment" title="Equipment" open={sections.equipment} onToggle={() => toggleSection("equipment")}
+          summary={account.status === "loading" ? "Loading your lists…" : account.status === "error" && !haveKeys ? "Your lists could not be loaded." : haveKeys ? `${state.have ? "This search" : list?.saved ? `Your ${contextName} list` : `Starting ${contextName} list`}: ${equipmentListText(haveKeys)}` : "Sign in to match your equipment."}
           actions={(
-            <div role="group" aria-label="Where you train" className="grid grid-cols-2 gap-1 rounded-lg border border-fitx-border bg-fitx-surface-variant p-1">
+            <div role="group" aria-label="Where you train" className="grid grid-cols-2 gap-1 rounded-full border border-fitx-border bg-fitx-surface-variant p-1">
               {(["home", "gym"] as const).map((value) => (
                 <button key={value} type="button" aria-pressed={state.context === value} onClick={() => { setListNote(null); update({ context: value, have: null }); }}
-                  className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors motion-reduce:transition-none ${state.context === value ? "bg-fitx-card text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>
+                  className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors motion-reduce:transition-none ${state.context === value ? "bg-fitx-card text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>
                   {value === "home" ? <House size={15} aria-hidden="true" /> : <Dumbbell size={15} aria-hidden="true" />}{value === "home" ? "Home" : "Gym"}
                 </button>
               ))}
@@ -329,7 +348,7 @@ export default function ExerciseLibraryPage() {
                 )}
                 {state.have && <button type="button" onClick={() => update({ have: null })} className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-fitx-primary-text underline underline-offset-4">{list?.saved ? "Use my saved list" : "Use the starting list"}</button>}
                 {!state.have && account.status === "ready" && account.profiles.available && (
-                  <Link href={`/workouts?equipment=${state.context}`} className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-fitx-primary-text underline underline-offset-4">Edit on Workouts</Link>
+                  <Link href={`/workouts?equipment=${state.context}`} className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-fitx-primary-text underline underline-offset-4">Edit list</Link>
                 )}
               </div>
             </div>
@@ -340,16 +359,13 @@ export default function ExerciseLibraryPage() {
       )}
 
       {!searching && chips.length === 0 && recentlyViewed.length > 0 && (
-        <section aria-labelledby="recent-viewed" className="space-y-2">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 id="recent-viewed" className="m-0 text-sm font-semibold">Recently viewed</h2>
-            <span className="text-[11px] text-fitx-text-secondary">On this device</span>
-          </div>
-          <ul className="m-0 flex list-none gap-2 overflow-x-auto p-0 pb-1">
+        <section aria-labelledby="recent-viewed" className="grid gap-3">
+          <h2 id="recent-viewed" className="m-0 font-heading text-lg font-semibold tracking-[-.02em]">Recently viewed</h2>
+          <ul className={`${styles.rail} -mx-4 m-0 flex list-none gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0`}>
             {recentlyViewed.map((exercise) => (
               <li key={exercise.id} className="shrink-0">
-                <Link href={`/exercises/${encodeURIComponent(exercise.id)}`} className="flex min-h-14 w-52 flex-col justify-center rounded-lg border border-fitx-border bg-fitx-surface px-3 py-2 text-xs transition-colors hover:border-fitx-primary/45 motion-reduce:transition-none">
-                  <span className="block truncate font-medium text-fitx-text">{exercise.name}</span>
+                <Link href={`/exercises/${encodeURIComponent(exercise.id)}`} className="flex min-h-14 w-48 flex-col justify-center rounded-xl border border-fitx-border bg-fitx-surface px-3.5 py-2 text-xs transition-colors hover:border-fitx-primary/45 motion-reduce:transition-none">
+                  <span className="block truncate text-sm font-medium text-fitx-text">{exercise.name}</span>
                   <span className="mt-0.5 block truncate text-fitx-text-secondary">{mainMuscleLabel(exercise)}</span>
                 </Link>
               </li>
@@ -359,28 +375,28 @@ export default function ExerciseLibraryPage() {
       )}
 
       {recentMatches.length > 0 && (
-        <section aria-labelledby="recent-matches" className="space-y-2">
+        <section aria-labelledby="recent-matches" className="grid gap-3">
           <h2 id="recent-matches" className="m-0 text-xs font-semibold uppercase tracking-[.12em] text-fitx-text-secondary">Recent</h2>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{recentMatches.map(renderCard)}</div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">{recentMatches.map((item, index) => renderCard(item, index))}</div>
         </section>
       )}
 
-      <section aria-labelledby="exercise-results" aria-busy={updating || !result} className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-fitx-divider pb-3">
+      <section aria-labelledby="exercise-results" aria-busy={updating || !result} className="grid gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="m-0 text-xs font-semibold uppercase tracking-[.13em] text-fitx-primary-text">{searching ? "Search results" : CONTEXT_TITLES[state.context]}</p>
-            <h2 id="exercise-results" className="m-0 mt-1 text-lg font-semibold tracking-tight">{resultsTitle}</h2>
-            {result && result.items.length > 0 && (
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-primary-text">{searching ? "Results" : CONTEXT_TITLES[state.context]}</p>
+            <h2 id="exercise-results" className="m-0 mt-1 font-heading text-xl font-semibold tracking-[-.02em]">{resultsTitle}</h2>
+            {result && result.items.length > 0 && (directCount !== null || result.doableCount !== null) && (
               <p className="m-0 mt-0.5 text-xs text-fitx-text-secondary">
-                {directCount !== null && `${directCount.toLocaleString()} train it as the main muscle`}
+                {directCount !== null && `${directCount.toLocaleString()} main-muscle`}
                 {directCount !== null && result.doableCount !== null && " · "}
-                {result.doableCount !== null && `${result.doableCount.toLocaleString()} you can do with ${listName}`}
+                {result.doableCount !== null && `${result.doableCount.toLocaleString()} you can do`}
               </p>
             )}
           </div>
           <label className="flex items-center gap-2 text-xs font-medium text-fitx-text-secondary">
-            Sort
-            <select className="fitx-field min-h-11 w-auto py-0 text-sm text-fitx-text" value={state.sort} onChange={(event) => update({ sort: event.target.value as LibrarySort })}>
+            <span className="sr-only sm:not-sr-only">Sort</span>
+            <select aria-label="Sort" className="fitx-field min-h-11 w-auto py-0 text-sm text-fitx-text" value={state.sort} onChange={(event) => update({ sort: event.target.value as LibrarySort })}>
               {(Object.keys(SORT_LABELS) as LibrarySort[]).map((sort) => <option key={sort} value={sort}>{SORT_LABELS[sort]}</option>)}
             </select>
           </label>
@@ -389,31 +405,31 @@ export default function ExerciseLibraryPage() {
 
         {catalogue.status === "error" ? (
           <div role="alert" className="fitx-alert fitx-alert-danger">
-            The exercise library could not be loaded. Check your connection and try again.
+            The library could not be loaded.
             <button type="button" className="fitx-alert-action" onClick={retry}>Try again</button>
           </div>
         ) : !result ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading exercises">
-            {Array.from({ length: 6 }, (_, index) => (
-              <div key={index} className="fitx-panel flex gap-3 p-3.5">
-                <div className="h-16 w-16 shrink-0 animate-pulse rounded-xl bg-fitx-surface-variant" />
-                <div className="flex-1 space-y-2 pt-1"><div className="h-4 w-3/4 animate-pulse rounded bg-fitx-surface-variant" /><div className="h-3 w-1/2 animate-pulse rounded bg-fitx-surface-variant" /></div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4" role="status" aria-label="Loading exercises">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={index} className="overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface">
+                <div className={`${styles.cover} animate-pulse bg-fitx-surface-variant motion-reduce:animate-none`} />
+                <div className="space-y-2 p-3.5"><div className="h-4 w-3/4 animate-pulse rounded bg-fitx-surface-variant motion-reduce:animate-none" /><div className="h-3 w-1/2 animate-pulse rounded bg-fitx-surface-variant motion-reduce:animate-none" /></div>
               </div>
             ))}
           </div>
         ) : result.items.length === 0 ? (
           view.saved && !userId ? (
             <NoResults title="Saved exercises unavailable" options={[]} onRelax={() => undefined}
-              description={account.status === "error" ? "Your account could not be checked, so your saved exercises cannot be shown yet." : "Sign in to save exercises and see them here."}
+              description={account.status === "error" ? "Your account could not be checked." : "Sign in to save exercises."}
               clearLabel="Show all exercises" onClear={() => update({ saved: false })} />
           ) : view.saved && !saved.ids.length ? (
             <NoResults title="No saved exercises yet" options={[]} onRelax={() => undefined}
-              description={`Save an exercise with its bookmark and it stays here${saved.store === "account" ? " on every device you sign in on" : " on this device"}.`}
+              description={`Tap the bookmark on any exercise${saved.store === "account" ? "" : ". Saved on this device"}.`}
               clearLabel="Show all exercises" onClear={() => update({ saved: false })} />
           ) : (
             <NoResults
               title="No exercises match"
-              description={view.q.trim() ? `Nothing matches “${view.q.trim()}”${chips.length ? " with these filters" : ""}.` : "No exercise matches all of these filters together."}
+              description={view.q.trim() ? `Nothing matches “${view.q.trim()}”${chips.length ? " with these filters" : ""}.` : "No exercise matches all of these filters."}
               spelling={spelling}
               onSpelling={(text) => update({ q: text })}
               options={relax.map((item) => ({ id: item.facet, label: relaxLabel(item.facet, view), count: item.count }))}
@@ -428,18 +444,18 @@ export default function ExerciseLibraryPage() {
           )
         ) : (
           <>
-            <div className={`grid gap-3 transition-opacity motion-reduce:transition-none md:grid-cols-2 xl:grid-cols-3 ${updating ? "opacity-60" : ""}`}>
+            <div className={`grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 sm:gap-4 motion-reduce:transition-none xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}>
               {visible.map((item, index) => (
                 <Fragment key={item.exercise.id}>
                   {result.assistFrom === index && (
-                    <p className="m-0 border-t border-fitx-divider pt-3 text-xs font-semibold uppercase tracking-[.12em] text-fitx-text-secondary md:col-span-2 xl:col-span-3">Also works {view.focus.length === 1 ? "this area" : "these areas"}, as an assisting muscle</p>
+                    <p className="col-span-full m-0 border-t border-fitx-divider pt-3 text-[11px] font-semibold uppercase tracking-[.14em] text-fitx-text-secondary">Assisting muscle</p>
                   )}
-                  {renderCard(item)}
+                  {renderCard(item, index)}
                 </Fragment>
               ))}
             </div>
-            <div className="flex flex-col items-center gap-2 pt-1">
-              <p className="m-0 text-xs text-fitx-text-secondary">Showing {visible.length.toLocaleString()} of {result.items.length.toLocaleString()}</p>
+            <div className="flex flex-col items-center gap-2 pt-2">
+              <p className="m-0 text-xs text-fitx-text-secondary">{visible.length.toLocaleString()} of {result.items.length.toLocaleString()}</p>
               {visible.length < result.items.length && (
                 <button type="button" className="fitx-button fitx-button-secondary min-h-11" onClick={() => setLimit({ key: viewKey, count: shownCount + PAGE_SIZE })}>Show more exercises</button>
               )}
@@ -449,8 +465,9 @@ export default function ExerciseLibraryPage() {
       </section>
 
       <p className="text-center text-[11px] leading-5 text-fitx-text-secondary">
-        Exercise photos and guidance are adapted from <a className="text-fitx-primary-text underline underline-offset-2" href={FREE_EXERCISE_DB_SOURCE_URL} target="_blank" rel="noreferrer">Free Exercise DB</a> for general fitness education; the photos are stills, not demonstrations. Match loads to your own experience and use a range of motion you can control.
+        Photos and steps adapted from <a className="text-fitx-primary-text underline underline-offset-2" href={FREE_EXERCISE_DB_SOURCE_URL} target="_blank" rel="noreferrer">Free Exercise DB</a>. Stills, not demonstrations.
       </p>
+      </div>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { Download } from "lucide-react";
 import { DeleteAccount } from "@/components/account/DeleteAccount";
 import { countRecords, exportAccountData, exportFileName, ExportError } from "@/lib/account/export";
 import { createClient } from "@/lib/supabase/client";
+import { SettingsGroup } from "./SettingsParts";
 
 /**
  * Settings → "Your data": download everything FITX stores for the account (read in the browser under
@@ -13,14 +14,10 @@ import { createClient } from "@/lib/supabase/client";
  */
 export function SettingsData() {
   return (
-    <section id="your-data" aria-labelledby="settings-your-data" className="fitx-panel scroll-mt-24 p-5">
-      <h2 id="settings-your-data" className="text-base font-semibold text-fitx-text">Your data</h2>
-      <p className="mt-1 text-sm leading-6 text-fitx-text-secondary">Take a copy of everything FITX stores for you, or delete your account for good.</p>
-      <div className="mt-4 divide-y divide-fitx-divider border-t border-fitx-divider">
-        <DownloadData />
-        <DeleteAccount />
-      </div>
-    </section>
+    <SettingsGroup id="settings-your-data" sectionId="your-data" title="Privacy and data">
+      <DownloadData />
+      <DeleteAccount />
+    </SettingsGroup>
   );
 }
 
@@ -60,10 +57,10 @@ function DownloadData() {
   }
 
   return (
-    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <h3 className="text-sm font-semibold text-fitx-text">Download my data</h3>
-        <p className="mt-1 max-w-prose text-sm leading-6 text-fitx-text-secondary">A JSON file with your profile, preferences, workouts, activities, food log, weigh-ins, goals, planner, AI coach conversations and help requests, plus the names of images you uploaded.</p>
+        <p className="mt-0.5 max-w-prose text-sm leading-6 text-fitx-text-secondary">Everything FITX stores for you, as a JSON file.</p>
         {state.text && (
           <p role={state.kind === "error" ? "alert" : "status"} className={`mt-2 text-sm ${state.kind === "error" ? "text-fitx-danger" : state.kind === "done" ? "text-fitx-success" : "text-fitx-text-secondary"}`}>{state.text}</p>
         )}

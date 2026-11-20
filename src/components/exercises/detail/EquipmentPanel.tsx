@@ -56,7 +56,7 @@ export function EquipmentPanel({ required, equipment, signedIn, onShowAlternativ
         <p className="mt-2 text-xs leading-5 text-fitx-text-secondary">
           {listSourceNote(lists, equipment)}{" "}
           {equipment.profiles.available
-            ? <Link href="/workouts" className="font-medium"><span className="text-fitx-primary-text underline underline-offset-2">Edit your lists on the Workouts page</span></Link>
+            ? <Link href="/workouts" className="font-medium"><span className="text-fitx-primary-text underline underline-offset-2">Edit lists</span></Link>
             : "Saving your own lists becomes available with the next FITX update."}
         </p>
       )}
@@ -69,9 +69,9 @@ export function EquipmentPanel({ required, equipment, signedIn, onShowAlternativ
 }
 
 function listSourceNote(lists: Array<{ context: TrainingContext; saved: boolean }>, equipment: EquipmentState) {
-  if (equipment.failed) return "Your saved equipment lists could not be loaded, so this uses starting lists.";
+  if (equipment.failed) return "Your lists could not be loaded; starting lists used.";
   const [home, gym] = lists;
-  if (home.saved && gym.saved) return "Checked against your saved Home and Gym lists.";
-  if (!home.saved && !gym.saved) return "Checked against starting lists (your profile’s equipment at home, a full commercial gym) until you save your own.";
-  return home.saved ? "Checked against your saved Home list and a starting Gym list (a full commercial gym)." : "Checked against a starting Home list from your profile and your saved Gym list.";
+  if (home.saved && gym.saved) return "Checked against your saved lists.";
+  if (!home.saved && !gym.saved) return "Checked against starting lists (a full gym).";
+  return home.saved ? "Gym: a starting list (a full gym)." : "Home: a starting list from your profile.";
 }

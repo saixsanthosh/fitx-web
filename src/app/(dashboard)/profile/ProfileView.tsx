@@ -3,21 +3,45 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Camera, Download, Flame, RotateCcw, Settings, Trash2, UserRound } from "lucide-react";
-import { PageHeading } from "@/components/app/PageHeading";
+import { Camera, Download, Pencil, RotateCcw, Settings, Trash2, UserRound } from "lucide-react";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
-import { NAME_MAX_LENGTH, formatWeight } from "@/lib/domain/profile-options";
+import { CountUp } from "@/components/motion";
+import { calculateNutritionTargets, type NutritionTargets } from "@/lib/domain/nutrition";
+import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, NAME_MAX_LENGTH, formatWeight, optionLabel } from "@/lib/domain/profile-options";
 import { targetReason } from "@/lib/domain/target-reason";
 import { loadUserContext, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import { createClient } from "@/lib/supabase/client";
-import { BodySection, DietSection, TrainingSection } from "./ProfileSections";
+import type { SectionNotice } from "./ProfileParts";
+import { BodySection, FoodSection, GoalSection, LimitsSection, TrainingSection, type SectionId, type SectionProps } from "./ProfileSections";
 
 const MEDIA_BUCKET = "fitx-user-media";
 const PHOTO_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 
 type Status = "loading" | "ready" | "signed_out" | "unavailable" | "error";
-type SectionId = "body" | "diet" | "training";
+
+const SECTIONS: { id: SectionId; label: string }[] = [
+  { id: "body", label: "Body" },
+  { id: "goal", label: "Goal" },
+  { id: "training", label: "Training" },
+  { id: "food", label: "Food" },
+  { id: "limits", label: "Injuries" },
+];
+
+/**
+ * Today's targets as Profile shows them: from the same profile, weight and goal as everywhere, with the member's
+ * nutrition goal applied (High protein raises protein).
+ */
+export function profileTargets(data: UserContextData): NutritionTargets | null {
+  if (!data.profile) return null;
+  return calculateNutritionTargets(
+    { age: data.profile.age, gender: data.profile.gender, height: data.profile.height, weight: data.currentWeightKg },
+    data.preferences.activity_level,
+    data.preferences.primary_goal,
+    data.preferences.nutrition_focus,
+  );
+}
 
 /**
  * The shared user context when the dashboard layout provides one, otherwise the page's own copy, so
@@ -50,13 +74,8 @@ function useProfileData() {
 export function ProfileView() {
   const { status, data, avatarUrl, reload } = useProfileData();
   const [editing, setEditing] = useState<SectionId | null>(null);
-  const [message, setMessage] = useState("");
+  const [notices, setNotices] = useState<Partial<Record<SectionId, SectionNotice>>>({});
   const [retrying, setRetrying] = useState(false);
-
-  const onSaved = useCallback(async (text: string) => {
-    await reload();
-    setMessage(text);
-  }, [reload]);
 
   async function retry() {
     setRetrying(true);
@@ -66,20 +85,20 @@ export function ProfileView() {
 
   if (status === "loading") {
     return (
-      <div className="mx-auto max-w-5xl space-y-5" aria-busy="true">
-        <PageHeading title="Profile" description="Your details, goal and preferences." />
+      <div className="mx-auto max-w-5xl" aria-busy="true">
+        <PageHeader title="Profile" />
         <p role="status" className="sr-only">Loading your profile…</p>
-        {[0, 1, 2].map((key) => <div key={key} className="fitx-panel h-40 animate-pulse" />)}
+        <div className="space-y-4">{[0, 1, 2].map((key) => <div key={key} className="h-40 animate-pulse rounded-2xl bg-fitx-surface-variant motion-reduce:animate-none" />)}</div>
       </div>
     );
   }
   if (status !== "ready" || !data) {
     const text = status === "signed_out" ? "Sign in to see your profile."
-      : status === "unavailable" ? "Your profile isn't available right now because FITX can't reach its database."
-      : "Your profile couldn't be loaded, so editing is paused to keep your details safe.";
+      : status === "unavailable" ? "Your profile isn't available right now."
+      : "Your profile couldn't be loaded, so editing is paused.";
     return (
-      <div className="mx-auto max-w-5xl space-y-5">
-        <PageHeading title="Profile" description="Your details, goal and preferences." />
+      <div className="mx-auto max-w-5xl">
+        <PageHeader title="Profile" />
         <div role="alert" className="fitx-alert fitx-alert-danger flex flex-wrap items-center gap-x-2">
           <span>{text}</span>
           {status === "error" && (
@@ -93,41 +112,67 @@ export function ProfileView() {
     );
   }
 
-  const sectionProps = (id: SectionId) => ({
+  const targets = profileTargets(data);
+  const open = (id: SectionId) => {
+    setNotices((current) => ({ ...current, [id]: undefined }));
+    setEditing(id);
+  };
+  const sectionProps = (id: SectionId): SectionProps => ({
     data,
     editing: editing === id,
-    onEdit: () => { setMessage(""); setEditing(id); },
+    notice: notices[id] ?? null,
+    onEdit: () => open(id),
     onClose: () => setEditing((current) => (current === id ? null : current)),
-    onSaved,
+    onSaved: async (notice) => {
+      await reload();
+      setNotices((current) => ({ ...current, [id]: notice }));
+    },
   });
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
-      <PageHeading
-        title="Profile"
-        description="Your details, goal and preferences. FITX uses them for your daily targets and auto workouts; the AI coach uses them too if you turn on “Use my FITX data”."
-        actions={<Link href="/settings" className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm"><Settings size={16} aria-hidden="true" />Settings</Link>}
-      />
-      {message && <p role="status" className="fitx-alert fitx-alert-success">{message}</p>}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-        <IdentityCard data={data} avatarUrl={avatarUrl} onSaved={onSaved} />
-        <TargetsCard data={data} onEditBody={() => { setMessage(""); setEditing("body"); document.getElementById("body")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+    <div className="mx-auto max-w-5xl">
+      <ProfileHeader data={data} avatarUrl={avatarUrl} onSaved={async () => { await reload(); }} />
+      <TargetsStrip data={data} targets={targets} onEditBody={() => { open("body"); document.getElementById("body")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+      <div className="mt-8 grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-10">
+        <nav aria-label="Profile sections" className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:overflow-visible lg:px-0">
+          <ul className="m-0 flex list-none gap-2 p-0 lg:sticky lg:top-24 lg:flex-col lg:gap-1">
+            {SECTIONS.map((section) => (
+              <li key={section.id} className="shrink-0">
+                <a href={`#${section.id}`} className="inline-flex min-h-11 items-center rounded-full border border-fitx-border bg-fitx-surface px-4 text-sm font-medium text-fitx-text-secondary transition-colors hover:text-fitx-text motion-reduce:transition-none lg:w-full lg:rounded-lg lg:border-transparent lg:bg-transparent lg:px-3 lg:hover:bg-fitx-hover">
+                  {section.label}
+                </a>
+              </li>
+            ))}
+            <li className="shrink-0 lg:mt-4 lg:border-t lg:border-fitx-divider lg:pt-4">
+              <Link href="/settings" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-fitx-border bg-fitx-surface px-4 text-sm font-medium text-fitx-text-secondary hover:text-fitx-text lg:w-full lg:rounded-lg lg:border-transparent lg:bg-transparent lg:px-3 lg:hover:bg-fitx-hover">
+                <Settings size={15} aria-hidden="true" />Settings
+              </Link>
+            </li>
+          </ul>
+        </nav>
+        <div className="min-w-0 space-y-4">
+          <BodySection {...sectionProps("body")} />
+          <GoalSection {...sectionProps("goal")} />
+          <TrainingSection {...sectionProps("training")} />
+          <FoodSection {...sectionProps("food")} />
+          <LimitsSection {...sectionProps("limits")} />
+          <p className="px-1 pt-2 text-sm text-fitx-text-secondary">Weight history is on <Link href="/progress" className="font-medium text-fitx-primary-text underline-offset-4 hover:underline">Progress</Link>.</p>
+        </div>
       </div>
-      <BodySection {...sectionProps("body")} />
-      <DietSection {...sectionProps("diet")} />
-      <TrainingSection {...sectionProps("training")} />
-      <p className="px-1 text-sm text-fitx-text-secondary">Body measurements and your weight history are on <Link href="/progress" className="font-medium text-fitx-primary-text underline-offset-4 hover:underline">Progress</Link>.</p>
     </div>
   );
 }
 
-function IdentityCard({ data, avatarUrl, onSaved }: { data: UserContextData; avatarUrl: string | null; onSaved: (message: string) => Promise<void> }) {
+function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; avatarUrl: string | null; onSaved: (message: string) => Promise<void> }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(data.profile?.name ?? "");
   const [busy, setBusy] = useState<"" | "name" | "photo">("");
   const [error, setError] = useState("");
-  const memberSince = data.profile?.created_at ? new Date(data.profile.created_at).toLocaleDateString(undefined, { month: "long", year: "numeric" }) : null;
+  const memberSince = data.profile?.created_at ? new Date(data.profile.created_at).toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : null;
+  const [notice, setNotice] = useState("");
+  const goal = optionLabel(GOAL_OPTIONS, data.preferences.primary_goal);
+  const experience = optionLabel(EXPERIENCE_OPTIONS, data.preferences.fitness_level);
   const storedAvatar = data.profile?.avatar ?? null;
   // A photo uploaded to FITX (not the Google picture, which is only a link) can be downloaded.
   const uploadedPhoto = Boolean(storedAvatar && storedAvatar.startsWith(`${data.userId}/`));
@@ -145,12 +190,14 @@ function IdentityCard({ data, avatarUrl, onSaved }: { data: UserContextData; ava
     if (!supabase) return setError("Your name couldn't be saved right now.");
     setBusy("name");
     setError("");
+    setNotice("");
     const saved = await updateProfileRow(supabase, data.userId, { name: value });
     if (saved.error) {
       setBusy("");
       return setError("Your name couldn't be saved. Try again.");
     }
     await onSaved("Name saved.");
+    setNotice("Name saved");
     setBusy("");
     setEditingName(false);
   }
@@ -181,6 +228,7 @@ function IdentityCard({ data, avatarUrl, onSaved }: { data: UserContextData; ava
     }
     if (storedAvatar && storedAvatar.startsWith(`${data.userId}/`)) await supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]);
     await onSaved("Photo updated.");
+    setNotice("Photo updated");
     setBusy("");
   }
 
@@ -210,90 +258,106 @@ function IdentityCard({ data, avatarUrl, onSaved }: { data: UserContextData; ava
     }
     if (storedAvatar && storedAvatar.startsWith(`${data.userId}/`)) await supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]);
     await onSaved("Photo removed.");
+    setNotice("Photo removed");
     setBusy("");
   }
 
   return (
-    <section aria-labelledby="identity-title" className="fitx-panel p-4 sm:p-6">
-      <h2 id="identity-title" className="sr-only">Your account</h2>
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-        <div className="relative h-20 w-20 shrink-0">
-          <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-full border border-fitx-border bg-fitx-surface-variant text-fitx-text-secondary">
-            {avatarUrl ? <Image src={avatarUrl} alt="Your profile photo" width={80} height={80} unoptimized className="h-full w-full object-cover" /> : <UserRound size={30} aria-hidden="true" />}
+    <header aria-labelledby="profile-name-title" className="mb-6 sm:mb-8">
+      <p className="mb-4 text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-primary-text">Profile</p>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-7">
+        <div className="relative h-24 w-24 shrink-0 sm:h-28 sm:w-28">
+          <div className="grid h-full w-full place-items-center overflow-hidden rounded-full border border-fitx-border bg-fitx-surface-variant text-fitx-text-secondary">
+            {avatarUrl ? <Image src={avatarUrl} alt="Your profile photo" width={112} height={112} unoptimized className="h-full w-full object-cover" /> : <UserRound size={36} aria-hidden="true" />}
           </div>
+          <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => void uploadPhoto(event)} />
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy === "photo"} aria-label={storedAvatar ? "Change photo" : "Add photo"}
+            className="absolute -bottom-1 -right-1 grid h-11 w-11 place-items-center rounded-full border-4 border-fitx-bg bg-fitx-strong text-fitx-on-strong transition-transform motion-safe:hover:scale-105 disabled:opacity-60">
+            <Camera size={16} aria-hidden="true" />
+          </button>
         </div>
         <div className="min-w-0 flex-1">
           {editingName ? (
             <form onSubmit={(event) => void saveName(event)} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <h1 id="profile-name-title" className="sr-only">Profile</h1>
               <label htmlFor="profile-name" className="sr-only">Name</label>
-              <input id="profile-name" className="fitx-field" value={name} maxLength={NAME_MAX_LENGTH} autoComplete="name" autoFocus onChange={(event) => setName(event.target.value)} />
+              <input id="profile-name" className="fitx-field max-w-md" value={name} maxLength={NAME_MAX_LENGTH} autoComplete="name" autoFocus onChange={(event) => setName(event.target.value)} />
               <div className="flex gap-2">
                 <button type="submit" disabled={busy === "name"} className="fitx-button px-4">{busy === "name" ? "Saving…" : "Save"}</button>
                 <button type="button" onClick={() => { setEditingName(false); setName(data.profile?.name ?? ""); setError(""); }} className="fitx-button fitx-button-secondary px-4">Cancel</button>
               </div>
             </form>
           ) : (
-            <div className="flex flex-wrap items-center gap-x-2">
-              <p className="truncate text-xl font-semibold tracking-[-.02em] text-fitx-text">{data.profile?.name || "Add your name"}</p>
-              <button type="button" onClick={() => { setName(data.profile?.name ?? ""); setEditingName(true); }} className="inline-flex min-h-11 items-center text-sm font-medium text-fitx-primary-text underline-offset-4 hover:underline">Edit name</button>
+            <div className="flex items-start gap-1">
+              <h1 id="profile-name-title" className="min-w-0 break-words font-heading text-[30px] font-bold leading-[1.05] tracking-[-.035em] text-fitx-text sm:text-[40px]">
+                {data.profile?.name || "Add your name"}
+              </h1>
+              <button type="button" onClick={() => { setName(data.profile?.name ?? ""); setEditingName(true); setNotice(""); }} aria-label="Edit name"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
+                <Pencil size={16} aria-hidden="true" />
+              </button>
             </div>
           )}
-          {data.email && <p className="mt-1 break-all text-sm text-fitx-text-secondary">{data.email}</p>}
-          {memberSince && <p className="mt-0.5 text-xs text-fitx-text-secondary">Member since {memberSince}</p>}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => void uploadPhoto(event)} />
-            <button type="button" onClick={() => fileInput.current?.click()} disabled={busy === "photo"} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm">
-              <Camera size={15} aria-hidden="true" />{busy === "photo" ? "Working…" : storedAvatar ? "Change photo" : "Add photo"}
-            </button>
-            {uploadedPhoto && (
-              <button type="button" onClick={() => void downloadPhoto()} disabled={busy === "photo"} className="fitx-button fitx-button-quiet min-h-11 px-3.5 text-sm">
-                <Download size={15} aria-hidden="true" />Download
-              </button>
-            )}
-            {storedAvatar && (
-              <button type="button" onClick={() => void removePhoto()} disabled={busy === "photo"} className="fitx-button fitx-button-quiet min-h-11 px-3.5 text-sm">
-                <Trash2 size={15} aria-hidden="true" />Remove
-              </button>
-            )}
-          </div>
-          <p className="mt-2 text-xs text-fitx-text-secondary">Private to your account · JPEG, PNG or WebP up to 5 MB</p>
+          <p className="mt-2 text-[15px] font-medium text-fitx-text">{[goal, experience].filter(Boolean).join(" · ")}</p>
+          <p className="mt-1 break-all text-sm text-fitx-text-secondary">{[data.email, memberSince ? `Since ${memberSince}` : null].filter(Boolean).join(" · ")}</p>
+          {(uploadedPhoto || storedAvatar) && (
+            <div className="mt-2 flex flex-wrap gap-x-1">
+              {uploadedPhoto && (
+                <button type="button" onClick={() => void downloadPhoto()} disabled={busy === "photo"} className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-2 text-sm text-fitx-text-secondary hover:text-fitx-text">
+                  <Download size={14} aria-hidden="true" />Download photo
+                </button>
+              )}
+              {storedAvatar && (
+                <button type="button" onClick={() => void removePhoto()} disabled={busy === "photo"} className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-2 text-sm text-fitx-text-secondary hover:text-fitx-text">
+                  <Trash2 size={14} aria-hidden="true" />Remove photo
+                </button>
+              )}
+            </div>
+          )}
+          <p role="status" aria-live="polite" className="m-0 min-h-5 text-xs font-medium text-fitx-success">{busy === "photo" ? <span className="text-fitx-text-secondary">Working…</span> : notice}</p>
         </div>
       </div>
       {error && <p role="alert" className="fitx-alert fitx-alert-danger mt-4">{error}</p>}
-    </section>
+    </header>
   );
 }
 
-function TargetsCard({ data, onEditBody }: { data: UserContextData; onEditBody: () => void }) {
-  const targets = data.targets;
+function TargetsStrip({ data, targets, onEditBody }: { data: UserContextData; targets: NutritionTargets | null; onEditBody: () => void }) {
+  if (!targets) {
+    return (
+      <section aria-labelledby="targets-title" className="flex flex-col gap-3 rounded-2xl border border-dashed border-fitx-border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <h2 id="targets-title" className="text-sm font-semibold text-fitx-text">Daily targets need your date of birth, height and weight</h2>
+        <button type="button" onClick={onEditBody} className="fitx-button fitx-button-secondary self-start sm:self-auto">Add body details</button>
+      </section>
+    );
+  }
+  const macros = [
+    { label: "Protein", grams: targets.protein, high: targets.proteinFocus === "high" },
+    { label: "Carbs", grams: targets.carbs, high: false },
+    { label: "Fat", grams: targets.fat, high: false },
+  ];
   return (
-    <section aria-labelledby="targets-title" className="fitx-panel flex flex-col p-4 sm:p-6">
-      <div className="flex items-center gap-2">
-        <Flame size={17} aria-hidden="true" className="text-fitx-primary" />
-        <h2 id="targets-title" className="text-base font-semibold text-fitx-text">Today’s targets</h2>
-      </div>
-      {targets ? (
-        <>
-          <p className="mt-4 text-3xl font-semibold tracking-[-.03em] text-fitx-text">{targets.calories.toLocaleString("en-IN")}<span className="ml-1.5 text-sm font-medium tracking-normal text-fitx-text-secondary">kcal</span></p>
-          <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
-            {([["Protein", targets.protein], ["Carbs", targets.carbs], ["Fat", targets.fat]] as const).map(([label, grams]) => (
-              <div key={label} className="rounded-lg bg-fitx-surface-variant px-2 py-2.5">
-                <dt className="text-xs text-fitx-text-secondary">{label}</dt>
-                <dd className="mt-0.5 text-sm font-semibold text-fitx-text">{grams} g</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="mt-3 text-xs leading-5 text-fitx-text-secondary">
-            {targetReason(targets)} Based on {formatWeight(data.currentWeightKg, data.preferences.weight_unit)}; an estimate that follows your weigh-ins.
+    <section aria-labelledby="targets-title" className="overflow-hidden rounded-2xl bg-fitx-stage text-fitx-on-stage">
+      <div className="grid gap-5 p-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-end sm:p-7">
+        <div>
+          <h2 id="targets-title" className="text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-on-stage-secondary">Daily target · estimate</h2>
+          <p className="mt-2 font-heading text-[44px] font-bold leading-none tracking-[-.04em] tabular-nums sm:text-[56px]">
+            <CountUp value={targets.calories} format={(n) => Math.round(n).toLocaleString("en-IN")} />
+            <span className="ml-2 text-base font-medium tracking-normal text-fitx-on-stage-secondary">kcal</span>
           </p>
-          <Link href="/progress" className="mt-auto inline-flex min-h-11 items-center pt-2 text-sm font-medium text-fitx-primary-text underline-offset-4 hover:underline">Log a weigh-in</Link>
-        </>
-      ) : (
-        <>
-          <p className="mt-3 text-sm leading-6 text-fitx-text-secondary">Add your age, height and weight to see your daily calorie and protein targets.</p>
-          <button type="button" onClick={onEditBody} className="fitx-button fitx-button-secondary mt-4 self-start">Add body details</button>
-        </>
-      )}
+        </div>
+        <dl className="grid grid-cols-3 gap-2">
+          {macros.map(({ label, grams, high }) => (
+            <div key={label} className="rounded-xl border border-fitx-inverse-divider px-3 py-2.5">
+              <dt className="flex items-center gap-1.5 text-xs text-fitx-on-stage-secondary">{label}{high && <span className="rounded-full bg-fitx-primary px-1.5 text-[10px] font-semibold text-fitx-on-primary">High</span>}</dt>
+              <dd className="mt-0.5 text-lg font-semibold tabular-nums">{grams} g</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <p className="border-t border-fitx-inverse-divider px-5 py-3 text-xs leading-5 text-fitx-on-stage-secondary sm:px-7">
+        {targetReason(targets)} From {formatWeight(data.currentWeightKg, data.preferences.weight_unit)}.
+      </p>
     </section>
   );
 }

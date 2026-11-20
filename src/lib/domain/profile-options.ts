@@ -43,6 +43,22 @@ export const GOALS_BEFORE_PROFILE_V2: readonly Goal[] = ["muscle_gain", "fat_los
 /** Goals the database accepted before migration 20261120100000 (onboarding v3) added maintain_weight. */
 export const GOALS_BEFORE_ONBOARDING_V3: readonly Goal[] = ["muscle_gain", "weight_gain", "fat_loss", "weight_loss", "general_fitness", "strength", "endurance"];
 export const DEFAULT_GOAL: Goal = "general_fitness";
+
+/** Goals Profile shows but this database cannot store yet: before profile v2 only five, before onboarding v3 all but Maintain weight. */
+export function unavailableProfileGoals(schema: { preferencesV2: boolean; onboardingV3: boolean }): Goal[] {
+  const allowed = !schema.preferencesV2 ? GOALS_BEFORE_PROFILE_V2 : !schema.onboardingV3 ? GOALS_BEFORE_ONBOARDING_V3 : null;
+  return allowed ? GOAL_OPTIONS.map((option) => option.value).filter((goal) => !allowed.includes(goal)) : [];
+}
+
+/**
+ * Number choices for an edit form: the standard ones, plus the stored value when it is not among them (an older
+ * answer such as 1 training day or 6 meals), so saving an untouched form never changes it. Sorted, no repeats.
+ */
+export function choicesKeeping(standard: readonly { value: number; label: string }[], current: number): { value: number; label: string }[] {
+  const list = [...standard];
+  if (Number.isFinite(current) && !list.some((option) => option.value === current)) list.push({ value: current, label: String(current) });
+  return list.sort((a, b) => a.value - b.value);
+}
 /** The five goals setup offers, in the owner's order (Profile offers every goal). */
 export const ONBOARDING_GOALS: readonly Goal[] = ["muscle_gain", "weight_loss", "strength", "general_fitness", "maintain_weight"];
 

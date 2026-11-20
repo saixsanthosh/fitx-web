@@ -10,6 +10,8 @@ import {
   ONBOARDING_MEAL_OPTIONS,
   SEX_OPTIONS,
   activityBand,
+  choicesKeeping,
+  unavailableProfileGoals,
   activityForBand,
   ageFromBirthDate,
   birthDateBounds,
@@ -216,5 +218,21 @@ describe("setup v3 vocabulary", () => {
     assert.equal(min, "1925-11-20");
     assert.equal(ageFromBirthDate(min, today), AGE_RANGE.max);
     assert.equal(ageFromBirthDate("1925-11-19", today), AGE_RANGE.max + 1);
+  });
+});
+
+describe("Profile edit choices", () => {
+  test("goals the database cannot store yet are offered but disabled", () => {
+    assert.deepEqual(unavailableProfileGoals({ preferencesV2: true, onboardingV3: true }), []);
+    assert.deepEqual(unavailableProfileGoals({ preferencesV2: true, onboardingV3: false }), ["maintain_weight"]);
+    assert.deepEqual(unavailableProfileGoals({ preferencesV2: false, onboardingV3: false }), ["weight_gain", "weight_loss", "maintain_weight"]);
+  });
+
+  test("an older stored answer stays a choice, so an untouched form never changes it", () => {
+    const days = [2, 3, 4, 5, 6, 7].map((value) => ({ value, label: String(value) }));
+    assert.deepEqual(choicesKeeping(days, 4).map((option) => option.value), [2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(choicesKeeping(days, 1).map((option) => option.value), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(choicesKeeping(ONBOARDING_MEAL_OPTIONS, 6).map((option) => option.label), ["2", "3", "4", "5+", "6"]);
+    assert.deepEqual(choicesKeeping(ONBOARDING_MEAL_OPTIONS, 5).map((option) => option.label), ["2", "3", "4", "5+"]);
   });
 });

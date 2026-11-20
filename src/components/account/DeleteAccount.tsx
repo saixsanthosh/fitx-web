@@ -329,11 +329,11 @@ export function DeleteAccount({
   }
 
   return (
-    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <h3 className="text-sm font-semibold text-fitx-text">Delete my account</h3>
-        <p className="mt-1 max-w-prose text-sm leading-6 text-fitx-text-secondary">
-          Permanently deletes your login, profile, every log and plan, and your uploaded images. It can’t be undone.
+        <p className="mt-0.5 max-w-prose text-sm leading-6 text-fitx-text-secondary">
+          Removes your login, logs, plans and images for good.
         </p>
         {unavailable && <p className="mt-2 max-w-prose text-sm leading-6 text-fitx-text-secondary">Deleting from the app isn’t switched on yet.{supportLink}</p>}
         {statusError && <p role="alert" className="mt-2 text-sm text-fitx-danger">We couldn’t check whether deletion is available. Reload the page to try again.</p>}

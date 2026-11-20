@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { Pencil } from "lucide-react";
+import { m } from "framer-motion";
+import { Check, Info, Pencil } from "lucide-react";
+import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 
 /** The edit form's first field. In a radio group that is the chosen option, where Tab would land too. */
 function firstField(section: HTMLElement | null): HTMLElement | null {
@@ -13,29 +15,36 @@ function firstField(section: HTMLElement | null): HTMLElement | null {
   return first;
 }
 
-/** A Profile section: a summary of saved values, or its edit form. */
+/** What a save left to say: "Saved" with a tick, or a note (something waits for an update). */
+export type SectionNotice = { tone: "saved" | "note"; text: string };
+
+/**
+ * A Profile section, edited in place: its saved values, or its form. The header keeps a live saving status
+ * ("Saved", or a note when part of it waits for an update), so the result is shown where the change was made.
+ */
 export function SectionCard({
   id,
   title,
-  description,
   icon,
   editing,
   onEdit,
   canEdit,
+  notice,
   children,
 }: {
   id: string;
   title: string;
-  description: string;
   icon: ReactNode;
   editing: boolean;
   onEdit: () => void;
   canEdit: boolean;
+  notice?: SectionNotice | null;
   children: ReactNode;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const editButton = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(editing);
+  const reduced = useReducedMotionSafe();
   // Keyboard and screen-reader users keep their place: into the form when it opens, back to Edit when it closes.
   useEffect(() => {
     if (editing && !wasEditing.current) {
@@ -46,23 +55,39 @@ export function SectionCard({
     wasEditing.current = editing;
   }, [editing]);
   return (
-    <section ref={sectionRef} id={id} aria-labelledby={`${id}-title`} className="fitx-panel scroll-mt-24 p-4 sm:p-6">
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <span aria-hidden="true" className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fitx-primary/10 text-fitx-primary">{icon}</span>
-          <div className="min-w-0">
-            <h2 id={`${id}-title`} className="text-base font-semibold text-fitx-text">{title}</h2>
-            <p className="mt-0.5 text-sm leading-6 text-fitx-text-secondary">{description}</p>
-          </div>
+    <section
+      ref={sectionRef}
+      id={id}
+      aria-labelledby={`${id}-title`}
+      className={`scroll-mt-28 rounded-2xl border bg-fitx-surface transition-colors motion-reduce:transition-none ${editing ? "border-fitx-primary/45" : "border-fitx-border"}`}
+    >
+      <div className="flex min-h-16 items-center justify-between gap-3 px-4 pt-3 sm:px-6 sm:pt-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-fitx-surface-variant text-fitx-text">{icon}</span>
+          <h2 id={`${id}-title`} className="font-heading text-lg font-semibold tracking-[-.02em] text-fitx-text">{title}</h2>
         </div>
-        {!editing && canEdit && (
-          <button ref={editButton} type="button" onClick={onEdit} className="fitx-button fitx-button-secondary min-h-11 shrink-0 px-3.5 text-sm" aria-label={`Edit ${title.toLowerCase()}`}>
-            <Pencil size={15} aria-hidden="true" />
-            <span className="hidden sm:inline">Edit</span>
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {!editing && canEdit && (
+            <button ref={editButton} type="button" onClick={onEdit} aria-label={`Edit ${title.toLowerCase()}`}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold text-fitx-primary-text transition-colors hover:bg-fitx-primary/10 motion-reduce:transition-none">
+              <Pencil size={14} aria-hidden="true" />Edit
+            </button>
+          )}
+        </div>
       </div>
-      {children}
+      <p role="status" aria-live="polite" className={`mx-4 flex items-start gap-1.5 text-xs font-medium leading-5 sm:mx-6 ${notice && !editing ? "mt-1" : "sr-only"} ${notice?.tone === "saved" ? "text-fitx-success" : "text-fitx-text-secondary"}`}>
+        {notice && !editing && (notice.tone === "saved" ? <Check size={14} strokeWidth={2.5} aria-hidden="true" className="mt-0.5 shrink-0" /> : <Info size={14} aria-hidden="true" className="mt-0.5 shrink-0" />)}
+        {notice && !editing ? notice.text : ""}
+      </p>
+      <m.div
+        key={editing ? "edit" : "view"}
+        initial={reduced ? false : { opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DURATION.base, ease: EASE.out }}
+        className="px-4 pb-5 pt-3 sm:px-6 sm:pb-6"
+      >
+        {children}
+      </m.div>
     </section>
   );
 }
@@ -73,9 +98,9 @@ export function DetailList({ children }: { children: ReactNode }) {
 
 export function Detail({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
   return (
-    <div className={wide ? "sm:col-span-2" : undefined}>
-      <dt className="text-xs font-medium text-fitx-text-secondary">{label}</dt>
-      <dd className="mt-1 text-sm font-medium text-fitx-text">{children}</dd>
+    <div className={`min-w-0 ${wide ? "sm:col-span-2" : ""}`}>
+      <dt className="text-xs text-fitx-text-secondary">{label}</dt>
+      <dd className="mt-1 text-[15px] font-medium text-fitx-text">{children}</dd>
     </div>
   );
 }
@@ -101,7 +126,7 @@ export function EditActions({ saving, onCancel, error }: { saving: boolean; onCa
       {error && <p role="alert" className="fitx-alert fitx-alert-danger mb-4">{error}</p>}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" onClick={onCancel} disabled={saving} className="fitx-button fitx-button-secondary">Cancel</button>
-        <button type="submit" disabled={saving} className="fitx-button">{saving ? "Saving…" : "Save changes"}</button>
+        <button type="submit" disabled={saving} aria-busy={saving} className="fitx-button min-w-32">{saving ? "Saving…" : "Save"}</button>
       </div>
     </div>
   );

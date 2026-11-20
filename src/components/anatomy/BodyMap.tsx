@@ -29,6 +29,8 @@
  *  legend     Shows a key under the figures for the two-tone and heat modes.
  *  showLabel  Shows the name of the hovered or focused region (else the selected one) under the figures.
  *             Default: on in picker mode.
+ *  reveal     Highlighted regions fade in one after another when the map first renders (primary first, then
+ *             secondary, then heat levels). Opacity only; nothing moves with reduced motion. Default off.
  *  className  Extra class on the root element.
  *
  * Colours come from theme tokens (BodyMap.module.css), so the map follows the light, dark and inverse themes.
@@ -50,6 +52,7 @@ export type BodyMapProps = {
   size?: "sm" | "md" | "lg";
   legend?: boolean;
   showLabel?: boolean;
+  reveal?: boolean;
   className?: string;
 };
 
@@ -63,7 +66,7 @@ function level01(value: number | undefined): number {
 }
 
 export function BodyMap({
-  title, view = "both", levels, primary, secondary, selected = null, onSelect, size = "md", legend = false, showLabel, className,
+  title, view = "both", levels, primary, secondary, selected = null, onSelect, size = "md", legend = false, showLabel, reveal = false, className,
 }: BodyMapProps) {
   const [hovered, setHovered] = useState<RegionKey | null>(null);
   const [focused, setFocused] = useState<RegionKey | null>(null);
@@ -80,6 +83,13 @@ export function BodyMap({
     if (secondarySet.has(key)) return "secondary";
     return levelOf(key) > 0 ? "level" : "idle";
   };
+
+  // Reveal: highlighted regions in order (selected and primary first, then secondary, then the strongest levels).
+  const revealOrder = new Map<RegionKey, number>();
+  if (reveal) {
+    const rank = (key: RegionKey) => ({ selected: 0, primary: 0, secondary: 1, level: 2 - levelOf(key), idle: 9 })[stateOf(key)];
+    BODY_REGIONS.filter((key) => stateOf(key) !== "idle").sort((a, b) => rank(a) - rank(b)).forEach((key, index) => revealOrder.set(key, index));
+  }
 
   // The view in which a region takes keyboard focus: the first one that draws it.
   const tabView = new Map<RegionKey, BodyView>();
@@ -104,11 +114,15 @@ export function BodyMap({
     const paths = BODY_ART[side].regions[key];
     if (!paths?.length) return null;
     const state = stateOf(key);
+    const order = revealOrder.get(key);
+    const vars: Record<string, string> = {};
+    if (state === "level") vars["--level"] = levelOf(key).toFixed(3);
+    if (order !== undefined) vars["--reveal-delay"] = `${Math.min(order, 12) * 70 + 120}ms`;
     const shared = {
       className: cn(styles.region, active === key && styles.active),
       "data-region": key,
       "data-state": state,
-      style: state === "level" ? ({ "--level": levelOf(key).toFixed(3) } as CSSProperties) : undefined,
+      style: Object.keys(vars).length ? (vars as CSSProperties) : undefined,
     };
     const plates = paths.map((d, index) => <path key={index} className={styles.plate} d={d} />);
     const hover = { onPointerEnter: () => setHovered(key), onPointerLeave: () => leave(key) };
@@ -153,7 +167,7 @@ export function BodyMap({
     : { role: "img", "aria-label": describe(title, shown, primarySet, secondarySet, levelOf, selected) };
 
   return (
-    <div className={cn(styles.root, SIZE_CLASSES[size], views.length > 1 ? styles.pair : styles.single, interactive && styles.interactive, className)} {...rootRole}>
+    <div className={cn(styles.root, SIZE_CLASSES[size], views.length > 1 ? styles.pair : styles.single, interactive && styles.interactive, reveal && styles.reveal, className)} {...rootRole}>
       <div className={styles.views}>{views.map(figure)}</div>
       {legend && (hasPrimary || hasSecondary || hasLevels) && (
         <ul className={styles.legend} aria-hidden={interactive ? undefined : true}>

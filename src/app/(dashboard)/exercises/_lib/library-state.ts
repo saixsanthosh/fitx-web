@@ -354,3 +354,14 @@ export function libraryQuery(state: LibraryState, savedIds: readonly string[]): 
     sort: state.sort,
   };
 }
+
+/** The level row above the results: "All levels" clears the level filter; a level shows only that level. */
+export function withQuickLevel(state: LibraryState, level: Level | null): LibraryState {
+  return { ...state, difficulties: level ? [level] : [] };
+}
+
+/** Which chip of the level row is on: null for "All levels", a level when exactly that one is chosen, else "mixed". */
+export function quickLevel(state: Pick<LibraryState, "difficulties">): Level | null | "mixed" {
+  if (!state.difficulties.length) return null;
+  return state.difficulties.length === 1 ? state.difficulties[0] : "mixed";
+}
