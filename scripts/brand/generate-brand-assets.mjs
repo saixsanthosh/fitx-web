@@ -1,9 +1,12 @@
+// Regenerates the FITX logo PNGs in public/brand and src/app/favicon.ico from the SVG marks there.
+// Run from the repository root: node scripts/brand/generate-brand-assets.mjs (sharp comes with Next).
+
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const brandDir = path.join(root, "public", "brand");
 const markPath = path.join(brandDir, "fitx-mark-black.svg");
 const appIconPath = path.join(brandDir, "fitx-app-icon.svg");

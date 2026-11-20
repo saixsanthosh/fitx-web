@@ -2,10 +2,10 @@
 /**
  * Checks the colour tokens in src/app/globals.css against WCAG 2.2 contrast minimums.
  *
- *   node scripts/check-contrast.mjs            # failures plus a summary
- *   node scripts/check-contrast.mjs --all      # every pair, passing ones too
- *   node scripts/check-contrast.mjs --json     # machine-readable result
- *   node scripts/check-contrast.mjs --css path/to/file.css
+ *   node scripts/checks/check-contrast.mjs            # failures plus a summary
+ *   node scripts/checks/check-contrast.mjs --all      # every pair, passing ones too
+ *   node scripts/checks/check-contrast.mjs --json     # machine-readable result
+ *   node scripts/checks/check-contrast.mjs --css path/to/file.css
  *
  * Palettes: light (`:root`, which is also what "system" shows on a light OS), dark
  * (`:root[data-theme="dark"]`), system-dark (`:root[data-theme="system"]` inside

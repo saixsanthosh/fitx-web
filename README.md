@@ -1,50 +1,87 @@
 # FITX
 
-FITX is a personal fitness tracker for planning workouts, recording training, tracking meals and water, and following body measurements and goals. The app uses a responsive dark interface with Supabase authentication and per-user data protection.
+FITX is a fitness app for planning and logging workouts, tracking food and water, and following progress, with an AI coach. It runs at https://fitnessx.vercel.app. The private Admin console is a separate app in `admin/`.
 
-## Stack
+## Folder map
 
-- Next.js 16 App Router, React 19, and TypeScript
-- Tailwind CSS 4
-- Supabase Auth, Postgres, private Storage, and row-level security
-- Open Food Facts for product and barcode nutrition lookups
-- Optional USDA FoodData Central search, enabled with a server-only API key
+```text
+src/                 The FITX app (Next.js 16 App Router, React 19, TypeScript, Tailwind CSS 4)
+  app/               Routes: (marketing) landing, (auth) sign-in, (dashboard) the signed-in app, api/
+  components/        UI by area (home, workouts, nutrition, coach, brand intro, ...)
+  lib/               Data access, domain rules, Supabase clients, AI router, billing
+  data/              Static data and media manifests (sources in src/data/DATA_SOURCES.md)
+  proxy.ts           Request proxy: session refresh and the platform gate
+admin/               FITX Admin, its own Next.js app and Vercel project (see admin/README.md)
+supabase/migrations/ Every database change, applied in file-name order
+tests/               node:test suites; tests/integration needs local PostgreSQL; tests/e2e is the browser run
+scripts/
+  checks/            Colour-token and contrast checks (npm run check:colors, check:contrast)
+  catalog/           Exercise catalogue and programme builders, media mirror, local migration check
+  media/             AI image generator for landing and Home workout pictures, with its prompt files
+  food/              USDA FoodData Central importers for the food catalogue seed
+  brand/             Regenerates the logo PNGs and favicon
+public/              Static files: brand marks and intro film, media, pose models
+docs/runbooks/       Owner runbooks: database changes, Razorpay billing
+```
 
 ## Run locally
 
+Needs Node.js 20 or newer.
+
 ```bash
-npm install
-cp .env.example .env.local
-npm run dev
+npm ci
+cp .env.example .env.local   # fill in the Supabase URL and publishable key at least
+npm run dev                  # http://localhost:3000
 ```
 
-Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) to the project URL and public client key. Never place Supabase service-role keys or other private credentials in client-side variables.
+Admin runs on its own:
 
-Google sign-in is always offered and must be enabled in Supabase; the Apple button appears only when `NEXT_PUBLIC_APPLE_OAUTH_ENABLED=true` and Apple is configured in Supabase. In production every sign-in redirect uses `NEXT_PUBLIC_SITE_URL` (default `https://fitnessx.vercel.app`), which must be listed in Supabase → Authentication → URL Configuration. `USDA_API_KEY` is optional and must remain server-side. Food searches use Open Food Facts without it.
+```bash
+cd admin
+npm ci
+cp .env.example .env.local
+npm run admin:hash           # paste the printed line into FITX_ADMIN_PASSWORD_HASH
+npm run dev                  # http://localhost:3100/login
+```
 
-## Product areas
-
-- Sign up, sign in, email confirmation, password reset, and a first-run setup flow
-- Account profile, training preferences, private profile image uploads
-- Personalized or custom workout plans, scheduling, in-session set logging, workout history, and personal records
-- Nutrition search, barcode lookup, custom foods, meal logging, daily macros, and water tracking
-- Body measurements, progress history, goals, and a weekly planner
-- Exercise library with movement instructions, equipment, and alternatives
-
-Every dashboard and API request uses the signed-in user's Supabase session. Personal tables and uploaded profile media are protected by row-level security and per-user storage policies. The exercise catalog is read-only and contains curated reference information.
-
-## Database
-
-Database migrations live in `supabase/migrations/`. The FITX Supabase project uses the initial account/log tables plus additive migrations for plans, workout sessions, nutrition, water, goals, planner events, and private profile media. Apply new changes as migrations; avoid editing an already applied migration.
-
-## Deployment
-
-The `fitx-web` GitHub repository is connected to the FITX Vercel project. Pushing to the production branch starts a Vercel deployment. Configure Supabase public variables in Vercel for Production, Preview, and Development as needed. Optional provider keys should be added only if the matching integration is configured.
-
-## Checks
+## Checks and tests
 
 ```bash
 npm run lint
-npx tsc --noEmit
+npm run typecheck
+npx tsc --noEmit -p tsconfig.test.json   # type-checks the tests
+npm test                                 # every unit and integration suite
+npm run check:colors                     # no hard-coded colours outside the theme tokens
+npm run check:contrast                   # text contrast in light, dark and system themes
 npm run build
+npm run test:e2e -- --build              # signed-in browser run on a throwaway database
 ```
+
+The integration tests and the e2e run start a throwaway local PostgreSQL 17 (server binaries on `PATH`); without it those suites are skipped. The e2e run also needs Google Chrome and `playwright-core` (see the top of `tests/e2e/run.mjs`). Nothing in the tests touches a real Supabase project.
+
+Admin: from `admin/`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `bash tests/database/run-database-checks.sh [port]` for its database checks.
+
+## Runbooks and owner setup
+
+- `docs/runbooks/platform-database.md`: every pending database change, its check query and undo, and the Vercel variables for each project.
+- `docs/runbooks/billing-razorpay.md`: turning on Razorpay subscriptions.
+- `docs/runbooks/phase1-database.md`: the earlier release 2 runbook, now covered by the platform runbook.
+- `admin/README.md`: the Admin owner checklist, roles, migrations and deployment.
+- `src/lib/ai/README.md`: the AI coach providers and switches.
+
+## Environment variables
+
+`.env.example` lists every variable with a note; copy it to `.env.local`. Never commit `.env.local` or put a server key in a `NEXT_PUBLIC_` variable.
+
+- Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`), and server-only `SUPABASE_SECRET_KEY`.
+- Site: `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_APPLE_OAUTH_ENABLED`, `GOOGLE_SITE_VERIFICATION`, `NEXT_PUBLIC_FITX_INSTAGRAM_URL`, `NEXT_PUBLIC_FITX_CONTACT_EMAIL`.
+- Food search: `USDA_API_KEY`, `OPEN_FOOD_FACTS_USER_AGENT`.
+- AI coach: `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `AI_COACH_ENABLED`, `AI_GEMINI_WITH_MEMBER_DATA`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`.
+- Billing: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `CRON_SECRET`, `BILLING_TEST_EMAILS`.
+- Activity map: `NEXT_PUBLIC_ACTIVITY_MAP_STYLE_LIGHT`, `NEXT_PUBLIC_ACTIVITY_MAP_STYLE_DARK`.
+
+Admin's variables are in `admin/.env.example` and `admin/README.md`.
+
+## Deployment
+
+Pushing to `master` deploys both Vercel projects, `fitnessx` (repository root) and `admin` (`admin/`). A path filter (`admin/scripts/vercel-ignore.mjs`, set in each `vercel.json`) skips a project's build when none of its files changed. Database migrations are applied separately, by following the database runbook.

@@ -3,9 +3,9 @@
  * Fails when app code hard-codes a colour instead of using the theme tokens in src/app/globals.css.
  * Hard-coded colours ignore the light, dark and system themes, which is how dark-on-dark text slips in.
  *
- *   node scripts/check-raw-colors.mjs              # scan src/
- *   node scripts/check-raw-colors.mjs <path ...>   # scan only these files or folders
- *   node scripts/check-raw-colors.mjs --json       # machine-readable result
+ *   node scripts/checks/check-raw-colors.mjs              # scan src/
+ *   node scripts/checks/check-raw-colors.mjs <path ...>   # scan only these files or folders
+ *   node scripts/checks/check-raw-colors.mjs --json       # machine-readable result
  *
  * Reports hex colours (#c44933), colour functions (rgb(), rgba(), hsl(), oklch() …), Tailwind palette
  * utilities (text-red-200, bg-white/5, border-black/20) and, in CSS, named colours (white, black …).

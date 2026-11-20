@@ -1,5 +1,5 @@
-// Tests for scripts/check-contrast.mjs and scripts/check-raw-colors.mjs.
-// Run with: node --test scripts/theme-checks.test.mjs
+// Tests for scripts/checks/check-contrast.mjs and scripts/checks/check-raw-colors.mjs.
+// Run with: node --test scripts/checks/theme-checks.test.mjs (from the repository root; npm test runs it too)
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
