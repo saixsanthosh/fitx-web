@@ -341,7 +341,7 @@ function TargetsStrip({ data, targets, onEditBody }: { data: UserContextData; ta
     { label: "Fat", grams: targets.fat, high: false },
   ];
   return (
-    <section aria-labelledby="targets-title" className="overflow-hidden rounded-2xl bg-fitx-stage text-fitx-on-stage">
+    <section aria-labelledby="targets-title" className="overflow-hidden rounded-2xl border border-fitx-border bg-fitx-stage text-fitx-on-stage">
       <div className="grid gap-5 p-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-end sm:p-7">
         <div>
           <h2 id="targets-title" className="text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-on-stage-secondary">Daily target · estimate</h2>
