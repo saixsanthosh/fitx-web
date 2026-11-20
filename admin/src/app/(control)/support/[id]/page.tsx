@@ -26,10 +26,10 @@ const notices: Record<string, { tone: "success" | "error"; text: string }> = {
   updated: { tone: "success", text: "Request updated and recorded in the audit log." },
   reply_length: { tone: "error", text: `A reply needs 1 to ${SUPPORT_REPLY_MAX} characters.` },
   invalid: { tone: "error", text: "Check the status, priority and assignee." },
-  assignee: { tone: "error", text: "The assignee must be an active Admin member with support access." },
+  assignee: { tone: "error", text: "The assignee must be an active operator with support access." },
   changed: { tone: "error", text: "Nothing was saved: this request changed after you opened it (for example, the person replied). Check the latest version below and save again." },
   forbidden: { tone: "error", text: "Your role cannot change help requests." },
-  migration: { tone: "error", text: `This needs migration ${MIGRATIONS.support}.` },
+  migration: { tone: "error", text: `This needs migration ${MIGRATIONS.adminV2}.` },
   configuration: { tone: "error", text: "Server data access is not configured." },
   failed: { tone: "error", text: "The change did not complete. The server log has the details." },
 };
@@ -61,7 +61,7 @@ export default async function SupportRequestPage({ params, searchParams }: { par
           </article>
           {thread.messages.map((entry) => (
             <article key={entry.id} className={`thread-message ${entry.authorKind === "staff" ? "thread-staff" : "thread-user"}`}>
-              <header><strong>{entry.authorKind === "staff" ? `FITX Support${entry.authorEmail ? ` (${entry.authorEmail})` : ""}` : (thread.requesterEmail ?? "Customer")}</strong><time dateTime={entry.createdAt}>{formatIstDateTime(entry.createdAt)}</time></header>
+              <header><strong>{entry.authorKind === "staff" ? `FITX Support${entry.authorLabel ? ` (${entry.authorLabel})` : ""}` : (thread.requesterEmail ?? "Customer")}</strong><time dateTime={entry.createdAt}>{formatIstDateTime(entry.createdAt)}</time></header>
               <p>{entry.body}</p>
             </article>
           ))}
@@ -87,10 +87,10 @@ export default async function SupportRequestPage({ params, searchParams }: { par
               <label>Priority<select name="priority" defaultValue={thread.priority}>{SUPPORT_PRIORITIES.map((priority) => <option key={priority} value={priority}>{SUPPORT_PRIORITY_LABELS[priority]}</option>)}</select></label>
               <label>Assigned to<select name="assignee" defaultValue={thread.assignedTo ?? ""}>
                 <option value="">Nobody</option>
-                {thread.assignees.map((member) => <option key={member.userId} value={member.userId}>{member.email ?? member.userId.slice(0, 8)}</option>)}
+                {thread.assignees.map((member) => <option key={member.operatorId} value={member.operatorId}>{member.username}</option>)}
                 {/* The current assignee always stays selectable, so saving other details never drops them. */}
-                {thread.assignedTo && !thread.assignees.some((member) => member.userId === thread.assignedTo) && (
-                  <option value={thread.assignedTo}>{thread.assignedToEmail ?? thread.assignedTo.slice(0, 8)} (current assignee)</option>
+                {thread.assignedTo && !thread.assignees.some((member) => member.operatorId === thread.assignedTo) && (
+                  <option value={thread.assignedTo}>{thread.assignedToLabel ?? thread.assignedTo.slice(0, 8)} (current assignee)</option>
                 )}
               </select></label>
               <PendingButton className="quiet-button" pendingLabel="Saving…">Save</PendingButton>

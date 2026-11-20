@@ -36,7 +36,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
         <option value="">Any action</option>
         {groups.map((group) => <optgroup key={group} label={group}>{(Object.keys(AUDIT_ACTIONS) as AuditAction[]).filter((action) => AUDIT_ACTIONS[action].group === group).map((action) => <option key={action} value={action}>{AUDIT_ACTIONS[action].label}</option>)}</optgroup>)}
       </select></label>
-      <label>Actor<input name="actor" defaultValue={filters.actor} placeholder="Email or account ID" /></label>
+      <label>Actor<input name="actor" defaultValue={filters.actor} placeholder="Username, email or ID" /></label>
       <label>Resource<select name="resource" defaultValue={filters.resourceType ?? ""}><option value="">Any</option>{AUDIT_RESOURCE_TYPES.map((type) => <option key={type} value={type}>{type.replaceAll("_", " ")}</option>)}</select></label>
       <label>Resource ID<input name="resource_id" defaultValue={filters.resourceId} placeholder="Exact ID" /></label>
       <label>From (IST)<input type="date" name="from" defaultValue={filters.from} /></label>
@@ -49,7 +49,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       {result.rows.length ? <div className="table-scroll"><table><thead><tr><th>Time (IST)</th><th>Action</th><th>Actor</th><th>Resource</th><th>Details</th></tr></thead><tbody>{result.rows.map((row) => <tr key={row.id}>
         <td>{formatIstDateTime(row.createdAt) ?? "—"}</td>
         <td><strong>{auditActionLabel(row.action)}</strong></td>
-        <td>{row.actorEmail ?? (row.actorId ? <span className="mono-cell">{row.actorId.slice(0, 8)}</span> : "—")}</td>
+        <td>{row.actorLabel ?? ((row.actorOperatorId ?? row.actorId) ? <span className="mono-cell">{(row.actorOperatorId ?? row.actorId)?.slice(0, 8)}</span> : "—")}</td>
         <td>{row.resourceType.replaceAll("_", " ")}{row.resourceId && <small className="table-subline mono-cell">{row.resourceId}</small>}</td>
         <td className="details-cell">{summariseAuditDetails(row.details) || "—"}</td>
       </tr>)}</tbody></table></div> : <div className="empty-state"><h3>No events</h3><p>{filtered ? "Nothing matches these filters." : "Audited changes will appear here."}</p></div>}

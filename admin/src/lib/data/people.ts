@@ -75,7 +75,7 @@ function summaryFromAuthUser(user: User): PersonSummary {
 }
 
 export async function searchPeople(rawQuery: string, rawPage: number): Promise<PeopleResult> {
-  const { user: actor } = await requireAdmin("people.view");
+  const actor = await requireAdmin("people.view");
   const admin = createAdminSupabase();
   if (!admin) return { state: "service_key_missing" };
 
@@ -133,7 +133,7 @@ export async function searchPeople(rawQuery: string, rawPage: number): Promise<P
   }
 
   const viewLogged = await logAdminEvent({
-    actorId: actor.id,
+    actor,
     action: "users_listed",
     resourceType: "user",
     details: { page, searched: Boolean(query), results: result.people.length },
@@ -144,7 +144,7 @@ export async function searchPeople(rawQuery: string, rawPage: number): Promise<P
 export type PersonResult = { state: "ready"; person: PersonDetail; viewLogged: AuditWrite } | { state: "not_found" | "service_key_missing" | "query_failed" };
 
 export async function getPerson(id: string): Promise<PersonResult> {
-  const { user: actor } = await requireAdmin("people.view");
+  const actor = await requireAdmin("people.view");
   if (!isUuid(id)) return { state: "not_found" };
   const admin = createAdminSupabase();
   if (!admin) return { state: "service_key_missing" };
@@ -174,6 +174,6 @@ export async function getPerson(id: string): Promise<PersonResult> {
     hasAuthenticator: (user.factors ?? []).some((factor) => factor.status === "verified"),
   };
 
-  const viewLogged = await logAdminEvent({ actorId: actor.id, action: "user_viewed", resourceType: "user", resourceId: id });
+  const viewLogged = await logAdminEvent({ actor, action: "user_viewed", resourceType: "user", resourceId: id });
   return { state: "ready", person, viewLogged };
 }

@@ -1,5 +1,6 @@
 // Recognises "this part of the database is not installed yet", so screens can say which migration
-// is needed instead of failing. No imports.
+// is needed instead of failing. No imports. Frozen after the admin-a stream: keep new migration names in
+// your own module.
 
 export const MIGRATIONS = {
   roles: "20261118180001_fitx_admin_roles",
@@ -8,6 +9,7 @@ export const MIGRATIONS = {
   people: "20261118180004_fitx_admin_people",
   support: "20261118180005_fitx_support",
   announcements: "20261118180006_fitx_announcements",
+  adminV2: "20261121100030_fitx_admin_v2",
 } as const;
 
 export type MigrationKey = keyof typeof MIGRATIONS;

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Activity, ArrowUpRight, CircleHelp, Dumbbell, LogIn, Users, Utensils } from "lucide-react";
 import { ModuleState } from "@/components/module-state";
+import { CountUp } from "@/components/motion/count-up";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getPlatformMetrics, getSupportCounts, type MetricKey } from "@/lib/data/metrics";
 import { can } from "@/lib/roles";
@@ -92,7 +93,7 @@ export default async function OverviewPage() {
           <div className="metric-grid">
             {group.tiles.map((tile) => (
               <article className="metric-panel" key={tile.key}>
-                <p className="metric-value">{result.metrics[tile.key].toLocaleString("en-IN")}</p>
+                <p className="metric-value"><CountUp value={result.metrics[tile.key]} /></p>
                 <h3>{tile.label}</h3>
               </article>
             ))}
@@ -105,7 +106,7 @@ export default async function OverviewPage() {
             {LEGACY_TILES.map((tile) => (
               <article className="metric-panel" key={tile.key}>
                 <div className="metric-top"><Utensils aria-hidden="true" size={17} /><span>{tile.note}</span></div>
-                <p className="metric-value">{result.metrics[tile.key].toLocaleString("en-IN")}</p>
+                <p className="metric-value"><CountUp value={result.metrics[tile.key]} /></p>
                 <h3>{tile.label}</h3>
               </article>
             ))}

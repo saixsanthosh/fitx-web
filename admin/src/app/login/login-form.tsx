@@ -1,0 +1,56 @@
+"use client";
+
+import { useActionState, useState } from "react";
+import { Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { signIn, type LoginState } from "./actions";
+import styles from "./login.module.css";
+
+/** Username and password. The server gives one message for every failure. */
+export function LoginForm({ next }: { next: string }) {
+  const [state, action, pending] = useActionState<LoginState, FormData>(signIn, null);
+  const [visible, setVisible] = useState(false);
+  const error = state?.error ?? null;
+
+  return (
+    <form action={action} className={styles.form}>
+      <input type="hidden" name="next" value={next} />
+      <label className={styles.field}>
+        <span>Username</span>
+        <input
+          name="username"
+          autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+          maxLength={64}
+          defaultValue={state?.username ?? ""}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? "login-error" : undefined}
+        />
+      </label>
+      <label className={styles.field}>
+        <span>Password</span>
+        <span className={styles.passwordRow}>
+          <input
+            name="password"
+            type={visible ? "text" : "password"}
+            autoComplete="current-password"
+            required
+            maxLength={256}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "login-error" : undefined}
+          />
+          <button type="button" className={styles.reveal} onClick={() => setVisible((value) => !value)} aria-label={visible ? "Hide password" : "Show password"} aria-pressed={visible}>
+            {visible ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}
+          </button>
+        </span>
+      </label>
+      <p id="login-error" className={styles.error} role="alert">{error}</p>
+      <button className={styles.submit} type="submit" disabled={pending} aria-disabled={pending}>
+        {pending && <LoaderCircle aria-hidden="true" className={styles.spin} size={18} />}
+        <span>Sign in</span>
+      </button>
+    </form>
+  );
+}

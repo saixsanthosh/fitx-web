@@ -1,7 +1,8 @@
 #!/bin/bash
 # Applies every migration in supabase/migrations to a throwaway local PostgreSQL database (shaped like a
-# Supabase project by the shared stand-in, tests/support/supabase-stub.sql), runs the Phase 10 migrations
-# a second time, and then the Phase 10 checks. As in `npm test`, a migration that needs pg_cron is skipped
+# Supabase project by the shared stand-in, tests/support/supabase-stub.sql), runs the Admin migrations
+# (Phase 10 and the 2026-11-21 fitx_admin_* files) a second time, and then every *-checks.sql here:
+# phase10-checks.sql and its lock test first, then the others in name order. As in `npm test`, a migration that needs pg_cron is skipped
 # when this PostgreSQL lacks it. Nothing touches a real project. Needs PostgreSQL 15 or newer (initdb,
 # pg_ctl, psql).
 # Usage: admin/tests/database/run-database-checks.sh [port]     (default 54329)
@@ -34,10 +35,11 @@ for file in "$ROOT"/supabase/migrations/*.sql; do
   count=$((count + 1))
 done
 echo "All $count migrations applied ($skipped skipped)."
-for file in "$ROOT"/supabase/migrations/202611181800*.sql; do
+for file in "$ROOT"/supabase/migrations/202611181800*.sql "$ROOT"/supabase/migrations/2026112110003*_fitx_admin_*.sql; do
+  [ -f "$file" ] || continue
   "${PSQL[@]}" -d fitx --single-transaction -f "$file" >/dev/null 2>"$WORK/last.log" || { echo "Re-run FAILED: $(basename "$file")"; cat "$WORK/last.log"; exit 1; }
 done
-echo "Phase 10 migrations ran a second time without errors."
+echo "Admin migrations ran a second time without errors."
 "${PSQL[@]}" -d fitx -f "$HERE/phase10-checks.sql"
 
 # Parallel replies from one account must wait for each other (the per-account advisory lock), or
@@ -71,3 +73,8 @@ exception when lock_not_available then null; end $$;
 SQL
 wait "$holder" || { echo "FAILED: session A"; cat "$WORK/lock-a.log"; exit 1; }
 echo "ALL PHASE 10 DATABASE CHECKS PASSED"
+for file in "$HERE"/*-checks.sql; do
+  [ "$(basename "$file")" = "phase10-checks.sql" ] && continue
+  "${PSQL[@]}" -d fitx -f "$file"
+done
+echo "ALL ADMIN DATABASE CHECKS PASSED"

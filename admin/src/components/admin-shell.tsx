@@ -1,47 +1,49 @@
 import Link from "next/link";
+import { KeyRound, LogOut } from "lucide-react";
+import { signOut } from "@/app/login/actions";
+import { AdminNavigation, MobileMenu, SectionTitle } from "@/components/admin-navigation";
 import { FitxMark } from "@/components/fitx-mark";
-import { AdminNavigation } from "@/components/admin-navigation";
-import { signOut } from "@/app/signin/actions";
+import { RouteTransition } from "@/components/motion/route-transition";
 import { ROLE_LABELS, type AdminRole } from "@/lib/roles";
+import styles from "./admin-shell.module.css";
 
-export function AdminShell({ children, email, role, pages }: { children: React.ReactNode; email: string; role: AdminRole; pages: readonly string[] }) {
-  const roleLabel = ROLE_LABELS[role];
-
+/** The console frame: the section rail (a menu dialog below 1024 px), the top bar and the page. */
+export function AdminShell({ children, username, role, pages }: { children: React.ReactNode; username: string; role: AdminRole; pages: readonly string[] }) {
+  const home = pages[0] ?? "/account";
   return (
-    <div className="admin-shell">
-      <aside className="sidebar" aria-label="Main sidebar">
-        <Link href="/overview" className="brand-lockup" aria-label="FITX Admin overview">
-          <span className="brand-mark"><FitxMark /></span>
-          <span className="brand-copy"><strong>FITX</strong><small>ADMIN</small></span>
+    <div className={styles.shell}>
+      <a className={styles.skip} href="#main">Skip to content</a>
+      <aside className={styles.rail} aria-label="Console">
+        <Link href={home} className={styles.brand} aria-label="FITX Admin home">
+          <span className={styles.brandMark}><FitxMark size={26} /></span>
+          <span className={styles.brandWord}>FITX<small>ADMIN</small></span>
         </Link>
+        <svg className={styles.pulse} viewBox="0 0 200 24" aria-hidden="true" focusable="false">
+          <path pathLength={1} d="M0 12H62L70 4L80 20L90 2L100 22L108 12H200" />
+        </svg>
         <AdminNavigation allowed={pages} />
-        <div className="sidebar-bottom">
-          <div className="system-status"><span className="status-dot" />Private workspace</div>
-          <p>Operations console</p>
+        <div className={styles.railFoot}>
+          <span className={styles.operatorAvatar} aria-hidden="true">{username.slice(0, 1).toUpperCase()}</span>
+          <span className={styles.operatorText}><strong>{username}</strong><small>{ROLE_LABELS[role]}</small></span>
         </div>
       </aside>
 
-      <div className="main-column">
-        <header className="topbar">
-          <details className="mobile-menu">
-            <summary aria-label="Open navigation"><span className="menu-glyph" /></summary>
-            <div className="mobile-menu-panel">
-              <AdminNavigation mobile allowed={pages} />
-            </div>
-          </details>
-          <Link href="/overview" className="mobile-brand" aria-label="FITX Admin overview">
-            <FitxMark size={28} /> <span>FITX <em>ADMIN</em></span>
-          </Link>
-          <div className="topbar-spacer" />
-          <div className="account-chip">
-            <span className="account-avatar" aria-hidden="true">{email.slice(0, 1).toUpperCase()}</span>
-            <span className="account-details"><strong>{email}</strong><small>{roleLabel}</small></span>
+      <div className={styles.column}>
+        <header className={styles.topbar}>
+          <MobileMenu allowed={pages} />
+          <Link href={home} className={styles.topBrand} aria-label="FITX Admin home"><FitxMark size={24} /></Link>
+          <SectionTitle />
+          <div className={styles.topActions}>
+            <span className={styles.topOperator}><strong>{username}</strong><small>{ROLE_LABELS[role]}</small></span>
+            <Link href="/account" className={styles.iconButton} aria-label="Your account" title="Your account"><KeyRound aria-hidden="true" size={18} /></Link>
+            <form action={signOut}>
+              <button className={styles.signOut} type="submit"><LogOut aria-hidden="true" size={17} /><span>Sign out</span></button>
+            </form>
           </div>
-          <form action={signOut}>
-            <button className="signout-button" type="submit">Sign out</button>
-          </form>
         </header>
-        <main className="main-content">{children}</main>
+        <main id="main" className={styles.main} tabIndex={-1}>
+          <RouteTransition>{children}</RouteTransition>
+        </main>
       </div>
     </div>
   );

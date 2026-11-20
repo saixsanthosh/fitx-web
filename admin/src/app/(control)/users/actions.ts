@@ -2,11 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdmin, type AdminContext } from "@/lib/admin-auth";
+import { requireAdmin, type AdminOperator } from "@/lib/admin-auth";
 import { logAdminEvent } from "@/lib/audit";
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
-import { can } from "@/lib/roles";
 import { isMissingFunction, isMissingTable, isPermissionError } from "@/lib/schema";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
@@ -46,19 +45,18 @@ function customerSiteUrl(): string {
 }
 
 /**
- * Refuses actions on yourself, and on Admin team accounts (inactive ones too, since their access can be
- * switched back on) unless you may manage Admin access.
+ * The service client for an action on a member account. Operators are not member accounts, so there is
+ * no "yourself" or Admin team rule any more; an old Google-era Admin membership (fitx_admin_members) is
+ * still read so a deletion can say whether the account had one.
  */
-async function checkTarget(actor: AdminContext, id: string): Promise<{ admin: AdminClient; membership: Membership }> {
-  if (id === actor.user.id) back(id, "self");
+async function checkTarget(id: string): Promise<{ admin: AdminClient; membership: Membership }> {
   const admin = createAdminSupabase();
   if (!admin) back(id, "configuration");
   const { data, error } = await admin.from("fitx_admin_members").select("is_active").eq("user_id", id).maybeSingle();
-  if (error) {
+  if (error && !isMissingTable(error)) {
     logServerError("people.check_target", error);
     back(id, "failed");
   }
-  if (data && !can(actor.role, "access.manage")) back(id, "admin_account");
   return { admin, membership: data ? { isActive: Boolean(data.is_active) } : null };
 }
 
@@ -100,8 +98,8 @@ async function listMediaFiles(admin: AdminClient, id: string): Promise<{ paths: 
 }
 
 /** Writes the "requested" audit row; the action does not run if it cannot be recorded. */
-async function recordIntent(actor: AdminContext, id: string, action: "user_suspend_requested" | "user_unsuspend_requested" | "user_password_reset_requested" | "user_delete_requested", details: Record<string, unknown>) {
-  const intent = await logAdminEvent({ actorId: actor.user.id, action, resourceType: "user", resourceId: id, details });
+async function recordIntent(actor: AdminOperator, id: string, action: "user_suspend_requested" | "user_unsuspend_requested" | "user_password_reset_requested" | "user_delete_requested", details: Record<string, unknown>) {
+  const intent = await logAdminEvent({ actor, action, resourceType: "user", resourceId: id, details });
   if (!intent.ok) back(id, intent.reason === "migration_pending" ? "audit_migration" : "audit_failed");
 }
 
@@ -110,21 +108,21 @@ export async function suspendAccount(formData: FormData) {
   const id = readId(formData);
   const reason = readReason(formData);
   if (!reason) back(id, "reason_required");
-  const { admin } = await checkTarget(actor, id);
+  const { admin } = await checkTarget(id);
   await recordIntent(actor, id, "user_suspend_requested", { reason });
 
   const { error } = await admin.auth.admin.updateUserById(id, { ban_duration: SUSPEND_DURATION });
   if (error) {
     logServerError("people.suspend", error);
-    await logAdminEvent({ actorId: actor.user.id, action: "user_suspend_failed", resourceType: "user", resourceId: id, details: { reason, error: error.code ?? error.status ?? null } });
+    await logAdminEvent({ actor, action: "user_suspend_failed", resourceType: "user", resourceId: id, details: { reason, error: error.code ?? error.status ?? null } });
     back(id, "failed");
   }
   // End existing sessions too, so the suspension applies now rather than at the next token refresh.
-  const revoked = await admin.rpc("fitx_admin_revoke_user_sessions", { p_actor_id: actor.user.id, p_user_id: id, p_reason: `Suspended: ${reason}` });
+  const revoked = await admin.rpc("fitx_admin_op_revoke_user_sessions", { p_operator_id: actor.id, p_user_id: id, p_reason: `Suspended: ${reason}` });
   const sessionsPending = revoked.error ? isMissingFunction(revoked.error) : false;
   if (revoked.error && !sessionsPending) logServerError("people.suspend_sessions", revoked.error);
   await logAdminEvent({
-    actorId: actor.user.id,
+    actor,
     action: "user_suspended",
     resourceType: "user",
     resourceId: id,
@@ -139,16 +137,16 @@ export async function unsuspendAccount(formData: FormData) {
   const id = readId(formData);
   const reason = readReason(formData);
   if (!reason) back(id, "reason_required");
-  const { admin } = await checkTarget(actor, id);
+  const { admin } = await checkTarget(id);
   await recordIntent(actor, id, "user_unsuspend_requested", { reason });
 
   const { error } = await admin.auth.admin.updateUserById(id, { ban_duration: "none" });
   if (error) {
     logServerError("people.unsuspend", error);
-    await logAdminEvent({ actorId: actor.user.id, action: "user_unsuspend_failed", resourceType: "user", resourceId: id, details: { reason, error: error.code ?? error.status ?? null } });
+    await logAdminEvent({ actor, action: "user_unsuspend_failed", resourceType: "user", resourceId: id, details: { reason, error: error.code ?? error.status ?? null } });
     back(id, "failed");
   }
-  await logAdminEvent({ actorId: actor.user.id, action: "user_unsuspended", resourceType: "user", resourceId: id, details: { reason } });
+  await logAdminEvent({ actor, action: "user_unsuspended", resourceType: "user", resourceId: id, details: { reason } });
   revalidatePath(`/users/${id}`);
   back(id, "unsuspended");
 }
@@ -158,10 +156,10 @@ export async function revokeSessions(formData: FormData) {
   const id = readId(formData);
   const reason = readReason(formData);
   if (!reason) back(id, "reason_required");
-  const { admin } = await checkTarget(actor, id);
+  const { admin } = await checkTarget(id);
 
   // The database function signs the account out everywhere and writes the audit row in one transaction.
-  const { error } = await admin.rpc("fitx_admin_revoke_user_sessions", { p_actor_id: actor.user.id, p_user_id: id, p_reason: reason });
+  const { error } = await admin.rpc("fitx_admin_op_revoke_user_sessions", { p_operator_id: actor.id, p_user_id: id, p_reason: reason });
   if (error) {
     if (isMissingFunction(error)) back(id, "people_migration");
     if (isPermissionError(error)) {
@@ -179,7 +177,7 @@ export async function sendPasswordReset(formData: FormData) {
   const actor = await requireAdmin("people.support");
   const id = readId(formData);
   if (process.env.FITX_ADMIN_PASSWORD_RESET_EMAILS !== "on") back(id, "reset_disabled");
-  const { admin } = await checkTarget(actor, id);
+  const { admin } = await checkTarget(id);
 
   const { data, error: lookupError } = await admin.auth.admin.getUserById(id);
   const user = data?.user;
@@ -193,10 +191,10 @@ export async function sendPasswordReset(formData: FormData) {
   });
   if (error) {
     logServerError("people.password_reset", error);
-    await logAdminEvent({ actorId: actor.user.id, action: "user_password_reset_failed", resourceType: "user", resourceId: id, details: { error: error.code ?? error.status ?? null } });
+    await logAdminEvent({ actor, action: "user_password_reset_failed", resourceType: "user", resourceId: id, details: { error: error.code ?? error.status ?? null } });
     back(id, "reset_failed");
   }
-  await logAdminEvent({ actorId: actor.user.id, action: "user_password_reset_sent", resourceType: "user", resourceId: id });
+  await logAdminEvent({ actor, action: "user_password_reset_sent", resourceType: "user", resourceId: id });
   back(id, "reset_sent");
 }
 
@@ -205,15 +203,13 @@ export async function deleteAccount(formData: FormData) {
   const id = readId(formData);
   const reason = readReason(formData);
   if (!reason) back(id, "reason_required");
-  const { admin, membership } = await checkTarget(actor, id);
+  const { admin, membership } = await checkTarget(id);
 
   const { data, error: lookupError } = await admin.auth.admin.getUserById(id);
   if (lookupError || !data?.user) back(id, "failed");
   const typed = formData.get("confirmEmail");
   if (typeof typed !== "string" || !data.user.email || typed.trim().toLowerCase() !== data.user.email.toLowerCase()) back(id, "confirm_mismatch");
-  // Active Admin access is switched off on the Access screen first, so a deletion never removes a working
-  // team member by surprise. An inactive membership goes with the account (on delete cascade).
-  if (membership?.isActive) back(id, "remove_access_first");
+  // A Google-era Admin membership goes with the account (on delete cascade); it no longer signs anyone in.
   // Razorpay would keep charging a deleted account, so a subscription it still bills is cancelled first.
   const billed = await hasBilledSubscription(admin, id);
   if (billed === null) back(id, "failed");
@@ -225,7 +221,7 @@ export async function deleteAccount(formData: FormData) {
   const files = await listMediaFiles(admin, id);
   if (files.error) {
     logServerError("people.delete_storage_list", files.error);
-    await logAdminEvent({ actorId: actor.user.id, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "storage" } });
+    await logAdminEvent({ actor, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "storage" } });
     back(id, "delete_failed");
   }
   let filesRemoved = 0;
@@ -234,7 +230,7 @@ export async function deleteAccount(formData: FormData) {
     const removed = await admin.storage.from(USER_MEDIA_BUCKET).remove(batch);
     if (removed.error) {
       logServerError("people.delete_storage_remove", removed.error);
-      await logAdminEvent({ actorId: actor.user.id, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "storage", files_removed: filesRemoved } });
+      await logAdminEvent({ actor, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "storage", files_removed: filesRemoved } });
       back(id, "delete_failed");
     }
     filesRemoved += removed.data?.length ?? batch.length;
@@ -243,10 +239,10 @@ export async function deleteAccount(formData: FormData) {
   const { error } = await admin.auth.admin.deleteUser(id);
   if (error) {
     logServerError("people.delete", error);
-    await logAdminEvent({ actorId: actor.user.id, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "account", error: error.code ?? error.status ?? null } });
+    await logAdminEvent({ actor, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "account", error: error.code ?? error.status ?? null } });
     back(id, "delete_failed");
   }
-  await logAdminEvent({ actorId: actor.user.id, action: "user_deleted", resourceType: "user", resourceId: id, details: { reason, files_removed: filesRemoved } });
+  await logAdminEvent({ actor, action: "user_deleted", resourceType: "user", resourceId: id, details: { reason, files_removed: filesRemoved } });
   revalidatePath("/users");
   redirect("/users?notice=deleted");
 }

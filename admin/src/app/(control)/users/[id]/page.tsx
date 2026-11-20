@@ -26,12 +26,9 @@ const notices: Record<string, { tone: "success" | "error"; text: string }> = {
   no_email: { tone: "error", text: "This account has no email address." },
   reset_failed: { tone: "error", text: "Supabase did not send the email. Its email rate limit may have been reached; try again later." },
   reason_required: { tone: "error", text: "Give a reason of 3 to 200 characters. It is kept in the audit log." },
-  self: { tone: "error", text: "You cannot do that to your own account here." },
-  admin_account: { tone: "error", text: "This is an Admin team account. Only a super-admin can act on it." },
-  remove_access_first: { tone: "error", text: "Set this person's Admin access to Inactive on the Access screen before deleting the account." },
   billing_active: { tone: "error", text: "Nothing was deleted: Razorpay is still billing this account's FITX subscription. Ask the person to cancel it on the Subscription page in FITX, or cancel it in the Razorpay dashboard, then try again." },
   confirm_mismatch: { tone: "error", text: "The email you typed does not match this account, so nothing was deleted." },
-  audit_migration: { tone: "error", text: `Nothing was changed: account actions are recorded first, and the audit function needs migration ${MIGRATIONS.audit}.` },
+  audit_migration: { tone: "error", text: `Nothing was changed: account actions are recorded first, and the audit function needs migration ${MIGRATIONS.adminV2}.` },
   audit_failed: { tone: "error", text: "Nothing was changed because the audit log could not record the action." },
   people_migration: { tone: "error", text: `Signing out everywhere needs migration ${MIGRATIONS.people}.` },
   revoke_refused: { tone: "error", text: "Supabase refused to end the sessions. The server log has the details." },
@@ -56,16 +53,15 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
 
   const person = result.person;
   const suspended = isSuspended(person.bannedUntil);
-  const isSelf = person.id === actor.user.id;
-  const protectedAdmin = person.adminRole !== null && !can(actor.role, "access.manage");
-  const canAct = !isSelf && !protectedAdmin;
+  // Operators are not member accounts, so no member account is "yours" or protected here.
+  const canAct = true;
   const resetEnabled = process.env.FITX_ADMIN_PASSWORD_RESET_EMAILS === "on";
   const message = notice ? notices[notice] : undefined;
 
   return (
     <div className="page-stack">
       {back}
-      <div className="page-heading-row"><div><p className="eyebrow">ACCOUNT</p><h1 className="break-anywhere">{person.email ?? "No email"}</h1><p className="page-lede">Account and sign-in details from Supabase Auth. {result.viewLogged.ok ? "Opening this page is recorded in the audit log." : result.viewLogged.reason === "migration_pending" ? `This view was not recorded: the audit log needs migration ${MIGRATIONS.audit}.` : "This view could not be recorded in the audit log; the server log has the details."}</p></div><span className="page-heading-icon"><UserRound aria-hidden="true" size={20} /></span></div>
+      <div className="page-heading-row"><div><p className="eyebrow">ACCOUNT</p><h1 className="break-anywhere">{person.email ?? "No email"}</h1><p className="page-lede">Account and sign-in details from Supabase Auth. {result.viewLogged.ok ? "Opening this page is recorded in the audit log." : result.viewLogged.reason === "migration_pending" ? `This view was not recorded: the audit log needs migration ${MIGRATIONS.adminV2}.` : "This view could not be recorded in the audit log; the server log has the details."}</p></div><span className="page-heading-icon"><UserRound aria-hidden="true" size={20} /></span></div>
       {message && <p className={`inline-notice ${message.tone === "success" ? "notice-success" : "notice-error"}`} role="status">{message.text}</p>}
 
       <section className="table-panel detail-panel" aria-label="Account details">
@@ -78,12 +74,10 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
           <Field label="Email confirmed">{person.emailConfirmedAt ? formatIstDateTime(person.emailConfirmedAt) : "Not confirmed"}</Field>
           <Field label="Signs in with">{person.providers.map((provider) => PROVIDER_LABELS[provider] ?? provider).join(", ") || "—"}</Field>
           <Field label="Authenticator app">{person.hasAuthenticator ? "Set up" : "Not set up"}</Field>
-          <Field label="Admin team">{person.adminRole ? `${ROLE_LABELS[person.adminRole]}${person.adminActive ? "" : " (inactive)"}` : "No"}</Field>
+          {person.adminRole && <Field label="Old Google Admin access">{`${ROLE_LABELS[person.adminRole]}${person.adminActive ? "" : " (inactive)"}`}</Field>}
         </dl>
       </section>
 
-      {isSelf && <p className="table-note">This is your own account. Use Sign out for your session.</p>}
-      {protectedAdmin && <p className="table-note">This account belongs to the Admin team. Only a super-admin can change it.</p>}
 
       {canAct && (
         <section className="action-grid" aria-label="Account actions">

@@ -1,6 +1,6 @@
 import "server-only";
 import { requireAdmin } from "@/lib/admin-auth";
-import { emailsFor, listSupportAssignees } from "@/lib/data/members";
+import { emailsFor, listSupportAssignees, usernamesFor } from "@/lib/data/members";
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
 import { isMissingFunction, isMissingTable } from "@/lib/schema";
@@ -25,7 +25,8 @@ export type SupportListRow = {
   priority: SupportPriority;
   requesterEmail: string | null;
   requesterId: string;
-  assigneeEmail: string | null;
+  /** The assigned operator's username, or an old Google-era assignee's email. */
+  assigneeLabel: string | null;
   createdAt: string;
   lastMessageAt: string;
 };
@@ -53,7 +54,7 @@ export function parseSupportFilters(params: SearchParams): SupportFilters {
 }
 
 export async function listSupportRequests(filters: SupportFilters): Promise<SupportListResult> {
-  const { user } = await requireAdmin("support.view");
+  const actor = await requireAdmin("support.view");
   const admin = createAdminSupabase();
   if (!admin) return { state: "service_key_missing" };
 
@@ -67,13 +68,13 @@ export async function listSupportRequests(filters: SupportFilters): Promise<Supp
   const offset = (filters.page - 1) * SUPPORT_PAGE_SIZE;
   let query = admin
     .from("support_requests")
-    .select("id,user_id,category,subject,status,priority,assigned_to,created_at,last_message_at", { count: "exact" })
+    .select("id,user_id,category,subject,status,priority,assigned_to,assigned_operator_id,created_at,last_message_at", { count: "exact" })
     .order("last_message_at", { ascending: false })
     .range(offset, offset + SUPPORT_PAGE_SIZE - 1);
   if (filters.status === "active") query = query.in("status", ["open", "in_progress", "waiting_on_user"]);
   else if (filters.status !== "all") query = query.eq("status", filters.status);
   if (filters.category) query = query.eq("category", filters.category);
-  if (filters.mine) query = query.eq("assigned_to", user.id);
+  if (filters.mine) query = query.eq("assigned_operator_id", actor.id);
 
   const { data, error, count } = await query;
   if (error) {
@@ -82,7 +83,10 @@ export async function listSupportRequests(filters: SupportFilters): Promise<Supp
     return { state: "query_failed" };
   }
   const rows = data ?? [];
-  const emails = await emailsFor(rows.flatMap((row) => [row.user_id as string, row.assigned_to as string | null]));
+  const [emails, usernames] = await Promise.all([
+    emailsFor(rows.flatMap((row) => [row.user_id as string, row.assigned_to as string | null])),
+    usernamesFor(rows.map((row) => row.assigned_operator_id as string | null)),
+  ]);
   const counts: Record<string, number> = {};
   for (const [status, value] of Object.entries((countsResult.data as Record<string, unknown> | null) ?? {})) counts[status] = Number(value) || 0;
   const total = count ?? rows.length;
@@ -96,7 +100,7 @@ export async function listSupportRequests(filters: SupportFilters): Promise<Supp
       priority: row.priority as SupportPriority,
       requesterId: String(row.user_id),
       requesterEmail: emails.get(String(row.user_id)) ?? null,
-      assigneeEmail: row.assigned_to ? (emails.get(String(row.assigned_to)) ?? null) : null,
+      assigneeLabel: row.assigned_operator_id ? (usernames.get(String(row.assigned_operator_id)) ?? null) : row.assigned_to ? (emails.get(String(row.assigned_to)) ?? null) : null,
       createdAt: String(row.created_at),
       lastMessageAt: String(row.last_message_at),
     })),
@@ -117,13 +121,15 @@ export type SupportThread = {
   pagePath: string | null;
   requesterId: string;
   requesterEmail: string | null;
+  /** The assigned operator's ID. */
   assignedTo: string | null;
-  assignedToEmail: string | null;
+  /** Their username, or an old Google-era assignee's email. */
+  assignedToLabel: string | null;
   createdAt: string;
   /** When the request last changed; the Details form sends it back so a stale page cannot overwrite newer changes. */
   updatedAt: string;
-  messages: Array<{ id: string; authorKind: "user" | "staff"; authorEmail: string | null; body: string; createdAt: string }>;
-  assignees: Array<{ userId: string; email: string | null }>;
+  messages: Array<{ id: string; authorKind: "user" | "staff"; authorLabel: string | null; body: string; createdAt: string }>;
+  assignees: Array<{ operatorId: string; username: string }>;
 };
 
 export type SupportThreadResult = { state: "ready"; thread: SupportThread } | { state: "not_found" | "service_key_missing" | "migration_pending" | "query_failed" };
@@ -136,7 +142,7 @@ export async function getSupportThread(id: string): Promise<SupportThreadResult>
 
   const request = await admin
     .from("support_requests")
-    .select("id,user_id,category,subject,body,status,priority,assigned_to,page_path,created_at,updated_at")
+    .select("id,user_id,category,subject,body,status,priority,assigned_to,assigned_operator_id,page_path,created_at,updated_at")
     .eq("id", id)
     .maybeSingle();
   if (request.error) {
@@ -148,7 +154,7 @@ export async function getSupportThread(id: string): Promise<SupportThreadResult>
 
   const messages = await admin
     .from("support_messages")
-    .select("id,author_id,author_kind,body,created_at")
+    .select("id,author_id,author_operator_id,author_kind,body,created_at")
     .eq("request_id", id)
     .order("created_at", { ascending: true })
     .limit(500);
@@ -157,10 +163,13 @@ export async function getSupportThread(id: string): Promise<SupportThreadResult>
     return { state: "query_failed" };
   }
   const row = request.data;
-  const emails = await emailsFor([
-    row.user_id as string,
-    row.assigned_to as string | null,
-    ...(messages.data ?? []).map((message) => message.author_id as string | null),
+  const [emails, usernames] = await Promise.all([
+    emailsFor([
+      row.user_id as string,
+      row.assigned_to as string | null,
+      ...(messages.data ?? []).map((message) => message.author_id as string | null),
+    ]),
+    usernamesFor([row.assigned_operator_id as string | null, ...(messages.data ?? []).map((message) => message.author_operator_id as string | null)]),
   ]);
   return {
     state: "ready",
@@ -174,14 +183,18 @@ export async function getSupportThread(id: string): Promise<SupportThreadResult>
       pagePath: typeof row.page_path === "string" ? row.page_path : null,
       requesterId: String(row.user_id),
       requesterEmail: emails.get(String(row.user_id)) ?? null,
-      assignedTo: typeof row.assigned_to === "string" ? row.assigned_to : null,
-      assignedToEmail: typeof row.assigned_to === "string" ? (emails.get(row.assigned_to) ?? null) : null,
+      assignedTo: typeof row.assigned_operator_id === "string" ? row.assigned_operator_id : null,
+      assignedToLabel: typeof row.assigned_operator_id === "string"
+        ? (usernames.get(row.assigned_operator_id) ?? null)
+        : typeof row.assigned_to === "string" ? (emails.get(row.assigned_to) ?? null) : null,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
       messages: (messages.data ?? []).map((message) => ({
         id: String(message.id),
         authorKind: message.author_kind === "staff" ? "staff" : "user",
-        authorEmail: message.author_id ? (emails.get(String(message.author_id)) ?? null) : null,
+        authorLabel: message.author_operator_id
+          ? (usernames.get(String(message.author_operator_id)) ?? null)
+          : message.author_id ? (emails.get(String(message.author_id)) ?? null) : null,
         body: String(message.body),
         createdAt: String(message.created_at),
       })),

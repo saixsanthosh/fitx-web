@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import motion from "@/components/motion/motion.module.css";
 
 export type TrendPoint = { day: string; label: string; value: number };
 
@@ -109,8 +110,8 @@ export function TrendChart({ title, points, initialWidth = 640 }: { title: strin
       {xLabels.map((index) => (
         <text key={index} className="chart-axis" textAnchor={index === 0 ? "start" : index === last ? "end" : "middle"} x={x(index)} y={HEIGHT - 6}>{points[index].label}</text>
       ))}
-      <path className="chart-area" d={area} fill={`url(#${gradientId})`} />
-      <path className="chart-line" d={line} />
+      <path className={`chart-area ${motion.fadeArea}`} d={area} fill={`url(#${gradientId})`} />
+      <path className={`chart-line ${motion.drawLine}`} d={line} pathLength={1} />
       <circle className="chart-end-dot" cx={x(last)} cy={y(points[last].value)} r={4} />
       <text className="chart-end-label" x={x(last) + 9} y={y(points[last].value) + 4}>{points[last].value.toLocaleString("en-IN")}</text>
       {shown && active !== null && (

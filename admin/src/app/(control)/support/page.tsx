@@ -58,7 +58,7 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
               <td>{row.requesterEmail ?? <span className="mono-cell">{row.requesterId.slice(0, 8)}</span>}</td>
               <td><span className={`status-pill ${row.status === "open" ? "status-danger" : row.status === "resolved" || row.status === "closed" ? "status-neutral" : "status-good"}`}><i />{SUPPORT_STATUS_LABELS[row.status]}</span></td>
               <td>{SUPPORT_PRIORITY_LABELS[row.priority]}</td>
-              <td>{row.assigneeEmail ?? "—"}</td>
+              <td>{row.assigneeLabel ?? "—"}</td>
               <td>{formatIstDateTime(row.lastMessageAt) ?? "—"}</td>
             </tr>)}
           </tbody></table></div> : <div className="empty-state"><h3>No requests here</h3><p>Nothing matches these filters.</p></div>}
