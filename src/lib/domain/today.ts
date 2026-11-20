@@ -24,7 +24,14 @@ export type TodaySummary = {
   previousWeight: WeighIn | null;
   profile: { name: string | null; age: number | null; gender: string | null; height: number | null; weight: number | null; targetWeight: number | null };
   /** Null when the user has no preferences row: no workout or water target is invented then. */
-  preferences: { workoutsPerWeek: number | null; dailyWaterGoalMl: number | null; activityLevel: string | null; primaryGoal: string | null } | null;
+  preferences: {
+    workoutsPerWeek: number | null;
+    dailyWaterGoalMl: number | null;
+    activityLevel: string | null;
+    primaryGoal: string | null;
+    /** The nutrition goal (onboarding v3); "high_protein" raises the protein target. Absent before migration #41. */
+    nutritionFocus?: string | null;
+  } | null;
   plannedWorkouts: PlannedWorkout[];
   /** Null when the To-Do list is not available yet. */
   todo: { total: number; completed: number } | null;
@@ -96,6 +103,7 @@ export function parseTodaySummary(raw: unknown): TodaySummary | null {
         dailyWaterGoalMl: num(preferences.daily_water_goal_ml),
         activityLevel: str(preferences.activity_level),
         primaryGoal: str(preferences.primary_goal),
+        nutritionFocus: str(preferences.nutrition_focus),
       }
       : null,
     plannedWorkouts: Array.isArray(root.planned_workouts)
@@ -207,6 +215,7 @@ export function estimatedTargets(summary: TodaySummary): FoodMacros | null {
     { age: summary.profile.age, gender: summary.profile.gender, height: summary.profile.height, weight: summary.weight?.kg ?? summary.profile.weight },
     summary.preferences?.activityLevel ?? undefined,
     summary.preferences?.primaryGoal ?? undefined,
+    summary.preferences?.nutritionFocus ?? null,
   );
 }
 

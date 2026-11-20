@@ -8,6 +8,7 @@ import { createGoal, loadGoalOptions, loadGoals } from "@/lib/data/goals";
 import { insertTodo, loadTodos, saveTodoOrder } from "@/lib/data/todo";
 import { FeatureUnavailableError, DataError } from "@/lib/data/missing-schema";
 import { defaultLayout, layoutReducer, visibleIds } from "@/lib/domain/dashboard-layout";
+import { estimatedTargets } from "@/lib/domain/today";
 import { validateGoalDraft, goalDraft } from "@/lib/domain/goals";
 import { validateTodoDraft, emptyTodoDraft } from "@/lib/domain/todo";
 
@@ -25,9 +26,11 @@ test("the summary comes from one database call (plus the Nutrition targets and t
   const result = await loadTodaySummary(db(stub), USER, DAY, "Asia/Kolkata");
   assert.equal(result.source, "database");
   assert.equal(result.summary.nutrition.calories, 900);
-  // profiles: the birth date only, so the age follows a birthday (the summary's stored age lags until a save).
-  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles"]);
+  // profiles: the birth date only, so the age follows a birthday (the summary's stored age lags until a save);
+  // user_preferences: the nutrition goal only, which the summary does not carry.
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles", "user_preferences"]);
   assert.ok(used(stub.callsTo("profiles")[0], "select", "date_of_birth"));
+  assert.ok(used(stub.callsTo("user_preferences")[0], "select", "nutrition_focus"));
   assert.deepEqual(stub.calls[0].args, { p_local_date: DAY, p_tz: "Asia/Kolkata" });
   assert.ok(used(stub.callsTo("meals")[0], "eq", "date", DAY));
   assert.deepEqual(result.food?.protein, { sum: 40, known: 1, missing: 1 }, "the unknown protein is counted as missing, not as 0 g");
@@ -44,6 +47,20 @@ test("the age comes from the birth date on the member's day; without one, or bef
   assert.equal((await loadTodaySummary(db(noColumn), USER, DAY, null)).summary.profile.age, 17);
   const noAge = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: { local_date: DAY, profile: {} } } : call.name === "profiles" ? { data: { date_of_birth: null } } : undefined));
   assert.equal((await loadTodaySummary(db(noAge), USER, DAY, null)).summary.profile.age, null, "an unknown age stays unknown, never 0");
+});
+
+test("the nutrition goal reaches Home's targets; without the column (before migration #41) the standard target stands", async () => {
+  const summary = { local_date: DAY, profile: { age: 30, gender: "male", height: 178, weight: 82 }, preferences: { activity_level: "moderate", primary_goal: "muscle_gain" } };
+  const read = async (prefs: Record<string, unknown>) => (await loadTodaySummary(db(new StubDb((call) => (call.name === "fitx_today_summary" ? { data: summary } : call.name === "user_preferences" ? prefs : undefined))), USER, DAY, null)).summary;
+  const high = await read({ data: { nutrition_focus: "high_protein" } });
+  assert.equal(high.preferences?.nutritionFocus, "high_protein");
+  const standard = await read({ data: { nutrition_focus: "none" } });
+  const noColumn = await read({ error: MISSING_COLUMN });
+  assert.equal(noColumn.preferences?.nutritionFocus, null);
+  assert.ok(estimatedTargets(high)!.protein > estimatedTargets(standard)!.protein, "High protein raises Home's protein target");
+  assert.deepEqual(estimatedTargets(noColumn), estimatedTargets(standard));
+  const noRow = await loadTodaySummary(db(new StubDb((call) => (call.name === "fitx_today_summary" ? { data: { local_date: DAY } } : call.name === "user_preferences" ? { data: { nutrition_focus: "high_protein" } } : undefined))), USER, DAY, null);
+  assert.equal(noRow.summary.preferences, null, "no preferences row is invented for the nutrition goal");
 });
 
 test("today's entries failing to load leaves the sums standing and the checks unknown", async () => {
@@ -78,7 +95,8 @@ test("any other summary failure is reported, not hidden behind the fallback", as
   const stub = new StubDb(() => ({ error: { code: "57014", message: "timeout" } }));
   await assert.rejects(loadTodaySummary(db(stub), USER, DAY, null), DataError);
   assert.equal(stub.callsTo("fitx_today_summary").length, 1);
-  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles"], "no fallback queries ran");
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles", "user_preferences"], "no fallback queries ran");
+  assert.deepEqual(stub.callsTo("user_preferences").map((call) => used(call, "select", "nutrition_focus")), [true], "user_preferences was read only for the nutrition goal");
   assert.deepEqual(stub.callsTo("profiles").map((call) => used(call, "select", "date_of_birth")), [true], "profiles was read only for the birth date, not by the fallback");
 });
 

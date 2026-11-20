@@ -48,7 +48,7 @@ export function SettingsAccount({ profile }: { profile?: ReactNode }) {
       {profile}
       <div className="flex flex-wrap items-center gap-x-6 py-2">
         <LogoutButton />
-        <LogoutButton scope="global" label="Sign out everywhere" />
+        <LogoutButton scope="global" />
       </div>
     </SettingsGroup>
   );

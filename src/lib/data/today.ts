@@ -11,7 +11,7 @@ import { readLayout, serializeLayout, type LayoutItem, type WidgetId } from "@/l
 import { MEAL_VALUE_COLUMNS, mealTotals, type MealTotals, type MealValueRow } from "@/lib/domain/meal-totals";
 import { parseTodaySummary, summaryFromRows, type TodaySummary } from "@/lib/domain/today";
 import { profileAge } from "@/lib/domain/profile-options";
-import { loadBirthDate, logWeighIn } from "@/lib/domain/user-context";
+import { loadBirthDate, loadNutritionFocus, logWeighIn } from "@/lib/domain/user-context";
 import { DataError, isMissingColumnError, isMissingFunctionError, isMissingSchemaError } from "./missing-schema";
 
 export type Db = SupabaseClient;
@@ -49,19 +49,27 @@ async function loadDayFood(db: Db, userId: string, localDate: string): Promise<M
 
 export async function loadTodaySummary(db: Db, userId: string, localDate: string, timeZone = browserTimeZone()): Promise<SummaryResult> {
   // The targets the user set in Nutrition; null when there are none or the table is not there yet.
-  const [rpc, targets, food, birthDate] = await Promise.all([
+  const [rpc, targets, food, birthDate, focus] = await Promise.all([
     db.rpc("fitx_today_summary", { p_local_date: localDate, p_tz: timeZone }),
     loadTargets(db, userId).catch(() => null),
     loadDayFood(db, userId, localDate).catch(() => null),
     loadBirthDate(db, userId),
+    // Not in fitx_today_summary: read on its own, so High protein raises Home's protein target as everywhere.
+    loadNutritionFocus(db, userId),
   ]);
+  const complete = (summary: TodaySummary) => withNutritionFocus(withBirthDateAge(summary, birthDate, localDate), focus);
   if (!rpc.error) {
     const summary = parseTodaySummary(rpc.data);
-    if (summary) return { summary: { ...withBirthDateAge(summary, birthDate, localDate), targets }, source: "database", food };
+    if (summary) return { summary: { ...complete(summary), targets }, source: "database", food };
     throw new DataError("Today's summary came back empty.");
   }
   if (!isMissingFunctionError(rpc.error)) throw new DataError("Today's summary could not be loaded.", rpc.error);
-  return { summary: { ...withBirthDateAge(await summaryInBrowser(db, userId, localDate, timeZone), birthDate, localDate), targets }, source: "browser", food };
+  return { summary: { ...complete(await summaryInBrowser(db, userId, localDate, timeZone)), targets }, source: "browser", food };
+}
+
+/** The summary with the member's nutrition goal; a member without a preferences row keeps none (no target is invented). */
+export function withNutritionFocus(summary: TodaySummary, focus: string | null): TodaySummary {
+  return summary.preferences ? { ...summary, preferences: { ...summary.preferences, nutritionFocus: focus } } : summary;
 }
 
 /**

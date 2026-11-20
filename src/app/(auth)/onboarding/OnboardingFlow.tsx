@@ -194,8 +194,10 @@ export function OnboardingFlow() {
   const age = form ? ageFromBirthDate(form.birthDate) : null;
   const targets = useMemo(() => {
     if (!form) return null;
-    return calculateNutritionTargets({ age, gender: form.gender, height: form.heightCm, weight: form.weightKg }, form.activity, form.goal);
-  }, [form, age]);
+    // The nutrition goal is stored only with onboarding v3; before it, Home shows the standard target too.
+    const focus = schema.onboardingV3 ? form.nutritionFocus : null;
+    return calculateNutritionTargets({ age, gender: form.gender, height: form.heightCm, weight: form.weightKg }, form.activity, form.goal, focus);
+  }, [form, age, schema]);
 
   async function savePage(current: OnboardingPage, values: OnboardingForm) {
     const supabase = createClient();

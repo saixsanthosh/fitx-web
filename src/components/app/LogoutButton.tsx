@@ -43,7 +43,7 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
     window.location.replace("/signin?signed_out=1");
   }
 
-  const text = label ?? (everywhere ? "Sign out of all devices" : "Log out");
+  const text = label ?? (everywhere ? "Sign out everywhere" : "Log out");
   return (
     <span className="inline-flex flex-col items-start gap-1">
       <button

@@ -373,6 +373,19 @@ export async function loadBirthDate(supabase: SupabaseClient, userId: string): P
   }
 }
 
+/**
+ * The member's nutrition goal ("high_protein", "balanced" or "none"), or null when none is set, the column is not
+ * there yet (before migration #41) or the read fails; the targets are then the standard ones.
+ */
+export async function loadNutritionFocus(supabase: SupabaseClient, userId: string): Promise<NutritionFocus | null> {
+  try {
+    const { data, error } = await supabase.from("user_preferences").select("nutrition_focus").eq("user_id", userId).maybeSingle();
+    return error ? null : pickOrNull(NUTRITION_FOCUS_OPTIONS, (data as Row | null)?.nutrition_focus);
+  } catch {
+    return null;
+  }
+}
+
 export async function updateProfileRow(supabase: SupabaseClient, userId: string, patch: Row): Promise<{ error: WriteError }> {
   const payload = { ...patch, updated_at: new Date().toISOString() };
   const first = await supabase.from("profiles").update(payload).eq("id", userId).select("id");

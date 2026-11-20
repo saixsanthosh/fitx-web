@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ScanLine } from "lucide-react";
+import { HomeWorkoutNavIcon, SQUAT_POSE_MS, squatAt } from "@/components/home-workout/HomeWorkoutNavIcon";
 import { ActivityNavIcon } from "@/components/layout/ActivityNavIcon";
 import { ACCOUNT_NAV, MAIN_NAV, PHONE_MORE, PHONE_TAB_COUNT, PHONE_TABS, isActivePath, isAppNavIcon } from "@/config/navigation";
 import { HOME_PANELS, HOME_WORKOUT, homePanel } from "@/config/routes";
@@ -20,16 +21,18 @@ test("Form coach is now Home workout at /home-workout", () => {
   assert.equal(HOME_WORKOUT, "/home-workout");
   const item = MAIN_NAV.find(({ href }) => href === HOME_WORKOUT);
   assert.equal(item?.label, "Home workout");
-  assert.equal(item?.icon, ScanLine);
+  assert.equal(item?.icon, HomeWorkoutNavIcon, "Home workout has its own drawn icon");
+  assert.equal(isAppNavIcon(HomeWorkoutNavIcon), true, "it draws its own active state");
+  assert.deepEqual([0, 1, 2, 3].map((slot) => squatAt(slot * SQUAT_POSE_MS + 10)), [false, true, false, true], "it stands, then squats, in turn");
   assert.ok(!MAIN_NAV.some(({ href, label }) => href === "/form-coach" || /form coach/i.test(label)));
 });
 
-test("Activity uses the animated icon; lucide icons are told apart from app icons", () => {
+test("Activity and Home workout use the animated icons; lucide icons are told apart from app icons", () => {
   const activity = MAIN_NAV.find(({ href }) => href === "/activity");
   assert.equal(activity?.icon, ActivityNavIcon);
   assert.equal(isAppNavIcon(ActivityNavIcon), true);
   assert.equal(isAppNavIcon(ScanLine), false);
-  assert.deepEqual(MAIN_NAV.filter(({ icon }) => isAppNavIcon(icon)).map(({ href }) => href), ["/activity"]);
+  assert.deepEqual(MAIN_NAV.filter(({ icon }) => isAppNavIcon(icon)).map(({ href }) => href), ["/activity", "/home-workout"]);
 });
 
 test("account entries: profile, settings, help", () => {

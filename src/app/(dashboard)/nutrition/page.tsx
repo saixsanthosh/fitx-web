@@ -31,6 +31,7 @@ import { dailyGoalFor, type GoalView } from "@/lib/domain/goals";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { profileAge } from "@/lib/domain/profile-options";
 import { loadBirthDate } from "@/lib/domain/user-context";
+import { isMissingColumnError } from "@/lib/supabase/errors";
 import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { checkSectionName, mealForTime, mealSections } from "@/lib/domain/meal-time";
@@ -51,7 +52,15 @@ import { nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
 
 type Profile = { age: number | null; gender: string | null; height: number | null; weight: number | null };
-type Prefs = { activity_level: string; primary_goal: string; daily_water_goal_ml: number; dietary_preferences: string[] | null };
+type Prefs = { activity_level: string; primary_goal: string; daily_water_goal_ml: number; dietary_preferences: string[] | null; nutrition_focus?: string | null };
+
+const PREF_COLUMNS = "activity_level,primary_goal,daily_water_goal_ml,dietary_preferences";
+/** The preferences Nutrition reads; the nutrition goal (onboarding v3, migration #41) only where the column exists. */
+async function loadPrefs(supabase: NonNullable<ReturnType<typeof createClient>>, uid: string) {
+  const newer = await supabase.from("user_preferences").select(`${PREF_COLUMNS},nutrition_focus`).eq("user_id", uid).maybeSingle();
+  if (!newer.error || !isMissingColumnError(newer.error)) return newer;
+  return supabase.from("user_preferences").select(PREF_COLUMNS).eq("user_id", uid).maybeSingle();
+}
 type Tab = "meals" | "foods" | "routines" | "history";
 type LogMode = "search" | "barcode";
 type NamePrompt = { kind: "meal"; slot: string; initial: string } | { kind: "day"; initial: string } | { kind: "section"; then: "log" | "sheet" | "none" };
@@ -168,7 +177,7 @@ export default function NutritionPage() {
       supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", uid).eq("date", dateKey).order("created_at", { ascending: true }),
       supabase.from("water_logs").select("amount_ml").eq("user_id", uid).eq("local_date", dateKey),
       supabase.from("profiles").select("age,gender,height,weight").eq("id", uid).maybeSingle(),
-      supabase.from("user_preferences").select("activity_level,primary_goal,daily_water_goal_ml,dietary_preferences").eq("user_id", uid).maybeSingle(),
+      loadPrefs(supabase, uid),
       loadCustomFoods(supabase, uid, caps.customFoodsV2),
       caps.targets ? loadTargets(supabase, uid) : Promise.resolve(null),
       caps.templates ? loadTemplates(supabase, uid) : Promise.resolve([]),
@@ -185,7 +194,7 @@ export default function NutritionPage() {
       const prefs = prefsResult.data as Prefs | null;
       setWaterGoal(prefs?.daily_water_goal_ml && prefs.daily_water_goal_ml > 0 ? prefs.daily_water_goal_ml : null);
       const profile = (profileResult.data || {}) as Profile;
-      setEstimated(estimateNutritionTargets({ ...profile, age: profileAge({ age: profile.age, date_of_birth: birthDate }) }, prefs?.activity_level, prefs?.primary_goal));
+      setEstimated(estimateNutritionTargets({ ...profile, age: profileAge({ age: profile.age, date_of_birth: birthDate }) }, prefs?.activity_level, prefs?.primary_goal, prefs?.nutrition_focus ?? null));
       if (!dietFilterSet.current) { dietFilterSet.current = true; setDietFilter(dietFilterFor(prefs?.dietary_preferences)); }
       setCustomRows(custom.rows);
       if (caps.customFoodsV2) setPhotoUrls(await signedPhotoUrls(supabase, custom.rows.map((row) => row.image_path ?? "")));

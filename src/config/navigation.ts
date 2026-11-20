@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
-import { BookOpen, ChartNoAxesColumn, CircleHelp, Dumbbell, House, ScanLine, Settings, Sparkles, UserRound, Utensils } from "lucide-react";
+import { BookOpen, ChartNoAxesColumn, CircleHelp, Dumbbell, House, Settings, Sparkles, UserRound, Utensils } from "lucide-react";
+import { HomeWorkoutNavIcon } from "@/components/home-workout/HomeWorkoutNavIcon";
 import { ActivityNavIcon } from "@/components/layout/ActivityNavIcon";
 import { HOME_WORKOUT } from "@/config/routes";
 
@@ -29,7 +30,7 @@ export const MAIN_NAV: readonly NavItem[] = [
   { href: "/ai-coach", label: "AI Coach", shortLabel: "Coach", icon: Sparkles },
   { href: "/progress", label: "Progress", icon: ChartNoAxesColumn },
   { href: "/exercises", label: "Exercise library", shortLabel: "Library", icon: BookOpen },
-  { href: HOME_WORKOUT, label: "Home workout", icon: ScanLine },
+  { href: HOME_WORKOUT, label: "Home workout", icon: HomeWorkoutNavIcon },
 ];
 
 /** Account entries: the sidebar footer, the header account menu and the More sheet. */
