@@ -99,6 +99,8 @@ test("links in lists and filter tabs are 44 px targets, and small coral text on 
   const css = await readFile(new URL("../src/app/globals.css", import.meta.url), "utf8");
   assert.match(css, /\.row-link \{[^}]*min-height: 44px;/);
   assert.match(css, /\.filter-tabs a \{[^}]*min-height: 44px;/);
+  const content = await readFile(new URL("../src/components/content/content.module.css", import.meta.url), "utf8");
+  assert.match(content, /\.rowLink \{[^}]*min-height: 44px;/, "Workouts and Nutrition list links");
   // Light, dark and system dark each declare --stage and --coral-on-stage; 9 px text needs 4.5:1 against the stage.
   const luminance = (hex) => {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
