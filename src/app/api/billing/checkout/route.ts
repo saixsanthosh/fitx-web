@@ -4,6 +4,9 @@ import { PLAN_CODE_RE, startCheckout } from "@/lib/billing/checkout";
 import { checkoutAllowedFor, logBillingUnavailable, readBillingConfig } from "@/lib/billing/config";
 import { createBillingDeps } from "@/lib/billing/deps";
 import { displayName, noStore } from "@/lib/billing/http";
+import { readJsonObject } from "@/lib/security/body";
+import { takeRouteLimit } from "@/lib/security/rate-limit";
+import { bodyErrorResponse, rateLimitedResponse } from "@/lib/security/responses";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 
 export const maxDuration = 20;
@@ -28,12 +31,12 @@ export async function POST(request: NextRequest) {
   }
   if (!checkoutAllowedFor(config.config, user.email)) return route.applyTo(noStore({ error: "unavailable" }, 503));
 
-  let plan: unknown = null;
-  try {
-    plan = ((await request.json()) as { plan?: unknown } | null)?.plan;
-  } catch {
-    plan = null;
-  }
+  // Each new checkout creates a Razorpay subscription: a short per-account limit here, the daily one in startCheckout.
+  const limit = takeRouteLimit("checkout", user.id);
+  if (!limit.allowed) return route.applyTo(rateLimitedResponse(limit.retryAfterSeconds));
+  const read = await readJsonObject(request, 1024);
+  if (!read.ok && read.status === 413) return route.applyTo(bodyErrorResponse(read));
+  const plan: unknown = read.ok ? read.value.plan : null;
   if (typeof plan !== "string" || !PLAN_CODE_RE.test(plan)) return route.applyTo(noStore({ error: "invalid_plan" }, 400));
 
   try {

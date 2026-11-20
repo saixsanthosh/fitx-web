@@ -15,6 +15,9 @@ import { isSameOriginRequest } from "@/lib/auth/same-origin";
 import { cancelForUser } from "@/lib/billing/cancel";
 import { readBillingConfig } from "@/lib/billing/config";
 import { createBillingDeps } from "@/lib/billing/deps";
+import { readJsonObject } from "@/lib/security/body";
+import { takeRouteLimit } from "@/lib/security/rate-limit";
+import { bodyErrorResponse, rateLimitedResponse } from "@/lib/security/responses";
 import { isMissingTableError } from "@/lib/supabase/errors";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 
@@ -28,6 +31,7 @@ import { createRouteSupabase } from "@/lib/supabase/route-client";
  *        refused with 409 before anything is removed, and so is an account with active FITX Admin access
  *        (409 admin_access: it is switched off in Admin first).
  * The account deleted is always the session's own; the request can only refuse, never name another one.
+ * The body is at most 1 KB, and one account may try at most 5 deletions in 10 minutes (per server instance).
  * When Supabase Auth can't be reached, both answer 503 rather than "signed out".
  */
 
@@ -80,12 +84,12 @@ export async function DELETE(request: NextRequest) {
   const admin = createAdminClient();
   if (!admin) return route.applyTo(json({ error: "not_configured" }, 503));
 
-  let body: { confirm?: unknown; expectedUserId?: unknown } = {};
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    body = {};
-  }
+  const limit = takeRouteLimit("accountDelete", user.id);
+  if (!limit.allowed) return route.applyTo(rateLimitedResponse(limit.retryAfterSeconds));
+
+  const read = await readJsonObject(request, 1024, { allowEmpty: true });
+  if (!read.ok && read.status === 413) return route.applyTo(bodyErrorResponse(read));
+  const body: { confirm?: unknown; expectedUserId?: unknown } = read.ok ? read.value : {};
   if (body?.confirm !== DELETE_CONFIRMATION) return route.applyTo(json({ error: "confirmation_required" }, 400));
   // The screen confirmed one account; if this session is now another one, delete nothing.
   if (body?.expectedUserId !== user.id) return route.applyTo(json({ error: "account_changed" }, 409));

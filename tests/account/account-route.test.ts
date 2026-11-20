@@ -11,6 +11,9 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = fake.url;
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
 
 const { NextRequest } = await import("next/server");
+// These tests call one route many times in a row; the burst limits have their own tests (tests/unit/security-limits.test.ts).
+const { configureRouteLimitsForTests } = await import("@/lib/security/rate-limit");
+configureRouteLimitsForTests({ accountDelete: { limit: 10_000, windowMs: 60_000 } });
 const route = await import("@/app/api/account/route");
 const { isAllowedStatusRequest, isAuthOutage, isRecentSignIn, sessionSignedInAt, RECENT_SIGN_IN_MINUTES } = await import("@/lib/account/deletion");
 

@@ -4,6 +4,8 @@ import { cancelForUser } from "@/lib/billing/cancel";
 import { logBillingUnavailable, readBillingConfig } from "@/lib/billing/config";
 import { createBillingDeps } from "@/lib/billing/deps";
 import { noStore } from "@/lib/billing/http";
+import { takeRouteLimit } from "@/lib/security/rate-limit";
+import { rateLimitedResponse } from "@/lib/security/responses";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 
 export const maxDuration = 20;
@@ -17,6 +19,8 @@ export async function POST(request: NextRequest) {
     data: { user },
   } = await route.supabase.auth.getUser();
   if (!user) return route.applyTo(noStore({ error: "sign_in_required" }, 401));
+  const limit = takeRouteLimit("billingAction", user.id);
+  if (!limit.allowed) return route.applyTo(rateLimitedResponse(limit.retryAfterSeconds));
   const config = readBillingConfig();
   if (!config.ok) {
     logBillingUnavailable(config.reason);

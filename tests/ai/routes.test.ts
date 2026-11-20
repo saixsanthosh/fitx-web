@@ -23,6 +23,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch;
 
 const { NextRequest } = await import("next/server");
+// These tests call one route many times in a row; the burst limits have their own tests (tests/unit/security-limits.test.ts).
+const { configureRouteLimitsForTests } = await import("@/lib/security/rate-limit");
+configureRouteLimitsForTests({ coachTurn: { limit: 10_000, windowMs: 60_000 } });
 const chat = await import("@/app/api/coach/chat/route");
 const swap = await import("@/app/api/coach/swap/route");
 const actions = await import("@/app/api/coach/actions/[id]/route");
@@ -221,6 +224,41 @@ describe("POST /api/coach/chat: the gate", () => {
     assert.ok(Number(response.headers.get("retry-after")) > 0);
     assert.match((await errorOf(response)).message, /for the last 24 hours/);
     assert.equal(providers.calls.length, 0);
+  });
+});
+
+describe("POST /api/coach/chat and /api/coach/swap: bursts", () => {
+  test("a burst over the per-minute limit is 429 before the quota or any provider is touched", async () => {
+    seedMember();
+    consentTo();
+    route = (url) => (providerOf(url) === "groq" ? openAiStream(["Fine."]) : { status: 500 });
+    configureRouteLimitsForTests({ coachTurn: { limit: 2, windowMs: 60_000 } });
+    try {
+      for (let i = 0; i < 2; i += 1) assert.equal((await chat.POST(request("/api/coach/chat", { body: { message: `hi ${i}` } }))).status, 200);
+      const calls = providers.calls.length;
+      const limited = await chat.POST(request("/api/coach/chat", { body: { message: "one more" } }));
+      assert.equal(limited.status, 429);
+      assert.ok(Number(limited.headers.get("retry-after")) > 0);
+      assert.match((await errorOf(limited)).message, /sending messages quickly/);
+      const swapped = await swap.POST(request("/api/coach/swap", { body: { actionId: "3b241101-e2bb-4255-8caf-4136c566a962" } }));
+      assert.equal(swapped.status, 429, "swaps share the same burst limit");
+      assert.equal(providers.calls.length, calls);
+    } finally {
+      configureRouteLimitsForTests({ coachTurn: { limit: 10_000, windowMs: 60_000 } });
+    }
+  });
+
+  test("bodies that are too large, not JSON or not sent as JSON are refused as invalid", async () => {
+    seedMember();
+    consentTo();
+    const tooLarge = await chat.POST(request("/api/coach/chat", { body: { message: "x".repeat(20_000) } }));
+    assert.equal(tooLarge.status, 400);
+    const asText = new NextRequest(new URL("/api/coach/chat", SITE), {
+      method: "POST",
+      headers: { host: "fitnessx.vercel.app", "x-forwarded-proto": "https", "sec-fetch-site": "same-origin", cookie: `sb-127-auth-token=${db.session(MEMBER)}`, "content-type": "text/plain" },
+      body: JSON.stringify({ message: "hi" }),
+    });
+    assert.equal((await chat.POST(asText)).status, 400);
   });
 });
 

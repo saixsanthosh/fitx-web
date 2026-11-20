@@ -65,6 +65,9 @@ describe("billing API routes end to end", { skip: TestDatabase.available() ? fal
     });
     delete process.env.VERCEL_ENV;
     ({ NextRequest } = await import("next/server"));
+    // These tests call each route many times for one account; the burst limits have their own tests.
+    const { configureRouteLimitsForTests } = await import("@/lib/security/rate-limit");
+    configureRouteLimitsForTests({ checkout: { limit: 10_000, windowMs: 60_000 }, billingAction: { limit: 10_000, windowMs: 60_000 } });
     routes.checkout = await import("@/app/api/billing/checkout/route");
     routes.verify = await import("@/app/api/billing/verify/route");
     routes.cancel = await import("@/app/api/billing/cancel/route");
