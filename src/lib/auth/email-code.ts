@@ -69,7 +69,7 @@ export function sendCodeProblem(error: AuthErrorLike): SendCodeProblem {
     return { message: "Check the email address and try again.", retryAfter: null };
   }
   if (code === "otp_disabled" || code === "signup_disabled" || /signups? not allowed/i.test(message)) {
-    return { message: "Email codes are not available for this address. Use Google or your password.", retryAfter: null };
+    return { message: "Email codes aren’t available right now. Use Google or your password.", retryAfter: null };
   }
   if (code === "email_provider_disabled" || /email logins are disabled|provider is not enabled/i.test(message)) {
     return { message: "Email codes are turned off for FITX right now. Use Google.", retryAfter: null };

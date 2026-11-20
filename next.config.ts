@@ -1,5 +1,25 @@
 import type { NextConfig } from "next";
 
+/**
+ * Security headers and the Content-Security-Policy, built here (not in the proxy) so that pages stay static: no
+ * per-request nonce. Everything below is decided at build time from the environment, and the builders are exported
+ * for tests/unit/security-headers.test.ts.
+ */
+
+/** The project's Supabase origin and its realtime websocket origin, from NEXT_PUBLIC_SUPABASE_URL. */
+export function supabaseOrigins(value: string | undefined | null): { http: string; ws: string } {
+  try {
+    const url = new URL(value ?? "");
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      // http (the local stand-in) talks ws://, https talks wss://: the same rule the real host follows.
+      return { http: url.origin, ws: `${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}` };
+    }
+  } catch {
+    // Not set or not a URL: fall back to Supabase-hosted projects.
+  }
+  return { http: "https://*.supabase.co", ws: "wss://*.supabase.co" };
+}
+
 /** The project's own Supabase Storage host (signed user media); any project only as a local fallback. */
 function supabaseStorageHost() {
   try {
@@ -9,17 +29,104 @@ function supabaseStorageHost() {
   }
 }
 
-const SECURITY_HEADERS = [
-  { key: "Strict-Transport-Security", value: "max-age=31536000" },
-  { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "X-Frame-Options", value: "DENY" },
-  // Camera for the barcode scanner (and later form coaching), location for activity tracking; nothing else.
-  { key: "Permissions-Policy", value: "camera=(self), geolocation=(self), microphone=(), payment=(), usb=(), serial=(), hid=(), bluetooth=()" },
-  // No script directives yet: Next's per-page inline scripts need nonces, which would make every page
-  // dynamic. These still stop framing, base-tag injection, plugins and off-site form posts.
-  { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" },
+/**
+ * Outside origins the browser may use, each proven by the code (see the security report's inventory):
+ *  - Razorpay Checkout: its loader script (subscription page), the payment iframe, the calls the loader makes and its
+ *    images. The loader is Razorpay's documented checkout.js; its own iframe has its own policy.
+ *  - OpenFreeMap: the activity map's style, tiles, glyphs and sprites (fetched by maplibre).
+ *  - Photos shown without the image optimiser: the pinned Free Exercise DB revision on GitHub and Open Food Facts
+ *    product photos (the same hosts the server-side checks accept).
+ */
+const RAZORPAY = {
+  script: ["https://checkout.razorpay.com"],
+  frame: ["https://api.razorpay.com", "https://checkout.razorpay.com"],
+  connect: ["https://api.razorpay.com", "https://lumberjack.razorpay.com"],
+  img: ["https://cdn.razorpay.com"],
+};
+const MAP_TILES = ["https://tiles.openfreemap.org"];
+const PHOTO_HOSTS = [
+  "https://raw.githubusercontent.com",
+  "https://images.openfoodfacts.org",
+  "https://static.openfoodfacts.org",
+  "https://world.openfoodfacts.org",
 ];
+/** Vercel's toolbar and comments, injected on preview deployments only. */
+const VERCEL_LIVE = "https://vercel.live";
+
+export type CspOptions = {
+  supabaseUrl: string | undefined | null;
+  /** `next dev`: React needs eval for its debugging stacks. */
+  isDev?: boolean;
+  /** A Vercel preview deployment (VERCEL_ENV=preview), which carries the Vercel toolbar. */
+  isPreview?: boolean;
+};
+
+export function buildContentSecurityPolicy({ supabaseUrl, isDev = false, isPreview = false }: CspOptions): string {
+  const supabase = supabaseOrigins(supabaseUrl);
+  const preview = isPreview ? [VERCEL_LIVE] : [];
+  const directives: Array<[string, string[]]> = [
+    ["default-src", ["'self'"]],
+    // Next's inline bootstrap and page data scripts differ on every page and static pages carry no nonce, so inline
+    // scripts are allowed; outside scripts are limited to Razorpay's loader. The pose model is WebAssembly.
+    ["script-src", ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", ...(isDev ? ["'unsafe-eval'"] : []), ...RAZORPAY.script, ...preview]],
+    // Server-rendered style attributes (React style props, motion start values).
+    ["style-src", ["'self'", "'unsafe-inline'"]],
+    ["img-src", ["'self'", "data:", "blob:", supabase.http, ...PHOTO_HOSTS, ...RAZORPAY.img, ...preview]],
+    ["font-src", ["'self'", ...preview]],
+    ["connect-src", ["'self'", supabase.http, supabase.ws, ...MAP_TILES, ...RAZORPAY.connect, ...preview]],
+    ["media-src", ["'self'", "blob:", supabase.http]],
+    ["worker-src", ["'self'", "blob:"]],
+    ["frame-src", [...RAZORPAY.frame, ...preview]],
+    ["manifest-src", ["'self'"]],
+    ["object-src", ["'none'"]],
+    ["base-uri", ["'self'"]],
+    ["form-action", ["'self'"]],
+    ["frame-ancestors", ["'none'"]],
+  ];
+  return directives.map(([name, sources]) => `${name} ${sources.join(" ")}`).join("; ");
+}
+
+/**
+ * Whether the policy blocks (Content-Security-Policy) or only reports (Content-Security-Policy-Report-Only).
+ * Enforced once the full e2e run saw no violation. FITX_CSP_REPORT_ONLY=1 at build time switches back to reporting
+ * without a code change (headers are fixed at build, so it needs a redeploy).
+ */
+export const CSP_ENFORCED = true;
+
+export type HeaderOptions = CspOptions & { reportOnly?: boolean };
+
+export function securityHeaders(options: HeaderOptions): Array<{ key: string; value: string }> {
+  const reportOnly = options.reportOnly ?? !CSP_ENFORCED;
+  return [
+    // HTTPS for a year on this host and its subdomains (fitnessx.vercel.app has none of its own); no preload.
+    { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+    { key: "X-Content-Type-Options", value: "nosniff" },
+    { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+    { key: "X-Frame-Options", value: "DENY" },
+    // Razorpay may open a bank or card window from its checkout; that window must still reach its opener.
+    { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
+    { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+    // Camera for the barcode scanner and Home workout, location for activity tracking, the screen kept awake during
+    // workouts and recordings, payment only for Razorpay's iframe; no microphone or other device access.
+    {
+      key: "Permissions-Policy",
+      value: [
+        "camera=(self)", "geolocation=(self)", "screen-wake-lock=(self)", "fullscreen=(self)",
+        'payment=(self "https://api.razorpay.com")',
+        "microphone=()", "usb=()", "serial=()", "hid=()", "bluetooth=()", "midi=()", "display-capture=()",
+        "accelerometer=()", "gyroscope=()", "magnetometer=()", "browsing-topics=()",
+      ].join(", "),
+    },
+    { key: reportOnly ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy", value: buildContentSecurityPolicy(options) },
+  ];
+}
+
+const SECURITY_HEADERS = securityHeaders({
+  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  isDev: process.env.NODE_ENV === "development",
+  isPreview: process.env.VERCEL_ENV === "preview",
+  reportOnly: process.env.FITX_CSP_REPORT_ONLY === "1" ? true : undefined,
+});
 
 const nextConfig: NextConfig = {
   // The route badge is useful during development, but should not sit on top of

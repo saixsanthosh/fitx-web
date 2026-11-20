@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { CoachError, applyProposal } from "@/lib/ai/coach";
-import { coachGate, errorResponse, jsonResponse, readJsonBody } from "@/lib/ai/http";
+import { coachGate, errorResponse, jsonResponse } from "@/lib/ai/http";
 import { dismissAction } from "@/lib/ai/store";
 import { isUuid } from "@/lib/ai/validate";
+import { readJsonObjectOrNull } from "@/lib/security/body";
 
 /**
  * POST { op: "apply" | "dismiss" } for one coach proposal.
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (!access.ok) return access.response;
   const { gate } = access;
   const { id } = await context.params;
-  const body = await readJsonBody(request, 500);
+  const body = await readJsonObjectOrNull(request, 500);
   const op = body?.op;
   if (!isUuid(id) || (op !== "apply" && op !== "dismiss")) return gate.finish(errorResponse(new CoachError("invalid", "Unknown request.")));
   try {

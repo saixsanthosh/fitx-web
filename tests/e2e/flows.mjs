@@ -2,12 +2,17 @@
 // running (tests/e2e/run.mjs starts both). Each flow runs in a fresh browser context at each size.
 //
 //   node tests/e2e/flows.mjs --out=<dir> [--flows=01,02] [--sizes=phone,desktop] [--schemes=light,dark]
+//
+// Every page is watched for Content-Security-Policy violations (enforced and report-only alike, from the page's
+// securitypolicyviolation events and Chrome's own console reports, which also cover workers). Any violation fails
+// that flow run with the directive and the blocked URL, and all of them are listed in <out>/csp-violations.json.
 //   env: E2E_APP_URL (http://fitx-e2e.localhost:3720), E2E_STANDIN (<out>/standin.json),
 //        E2E_CHROME (system Chrome), E2E_PLAYWRIGHT_CORE (path to playwright-core's index.mjs)
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { FlowSession, launchChrome, loadPlaywright } from "./support/browser.mjs";
+import { CspFlowSession } from "./csp-watch.mjs";
+import { launchChrome, loadPlaywright } from "./support/browser.mjs";
 import { Standin } from "./support/standin-client.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -45,6 +50,7 @@ for (const file of files) {
 
 const results = [];
 const notRun = [];
+const cspViolations = [];
 try {
   for (const flow of flows) {
     for (const size of flow.sizes ?? sizes) {
@@ -53,7 +59,7 @@ try {
           notRun.push(`${flow.id} ${size} ${scheme}`);
           continue;
         }
-        const t = new FlowSession({ browser, appUrl: APP_URL, dbUrl: standin.url, outDir: OUT, size, scheme, flowId: flow.id });
+        const t = new CspFlowSession({ browser, appUrl: APP_URL, dbUrl: standin.url, outDir: OUT, size, scheme, flowId: flow.id });
         const started = Date.now();
         process.stdout.write(`[e2e] ${flow.id} ${size} ${scheme} … `);
         let crash = null;
@@ -64,6 +70,10 @@ try {
           if (!error?.stepFailed) t.steps.push({ name: "unexpected error", status: "fail", error: String(error?.stack ?? error).slice(0, 1500) });
         } finally {
           await t.close();
+        }
+        for (const violation of t.recordCspViolations()) {
+          cspViolations.push({ flow: flow.id, size, scheme, ...violation });
+          console.log(`[e2e] CSP violation in ${flow.id} ${size} ${scheme}: ${violation.directive} blocked ${violation.blocked || "(inline)"} on ${violation.page}`);
         }
         const summary = { ...t.summary(), title: flow.title, ms: Date.now() - started, ...(stopped ? { stopped } : {}) };
         t.save();
@@ -81,6 +91,8 @@ try {
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 writeFileSync(path.join(OUT, `results-${stamp}.json`), JSON.stringify(results, null, 2));
 writeFileSync(path.join(OUT, "results-latest.json"), JSON.stringify(results, null, 2));
+writeFileSync(path.join(OUT, "csp-violations.json"), JSON.stringify(cspViolations, null, 2));
+console.log(`[e2e] CSP violations: ${cspViolations.length}`);
 const failed = results.filter((result) => result.status === "fail");
 console.log(`[e2e] ${results.length - failed.length}/${results.length} flow runs passed; results in ${OUT}`);
 if (stopped) console.log(`[e2e] run stopped early (${stopped}); not run: ${notRun.join(", ") || "none"}`);

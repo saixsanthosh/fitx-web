@@ -2,6 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { LONG_MAX_AGE, SESSION_COOKIE_RE, sessionCookieOptions } from "@/lib/auth/cookies";
 import { applySignInCookies, resolvePostSignIn } from "@/lib/auth/post-sign-in";
 import { isSameOriginRequest } from "@/lib/auth/same-origin";
+import { readJsonObject } from "@/lib/security/body";
+import { takeRouteLimit } from "@/lib/security/rate-limit";
+import { bodyErrorResponse, rateLimitedResponse } from "@/lib/security/responses";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 
 const json = (body: unknown, status = 200) => {
@@ -22,12 +25,10 @@ export async function POST(request: NextRequest) {
   const route = createRouteSupabase(request);
   if (!route) return json({ error: "unavailable" }, 503);
 
-  let body: { intent?: unknown; next?: unknown } = {};
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    body = {};
-  }
+  // `next` is at most 2048 characters (safeNext's own limit), so 4 KB is plenty.
+  const read = await readJsonObject(request, 4096, { allowEmpty: true });
+  if (!read.ok && read.status === 413) return bodyErrorResponse(read);
+  const body: { intent?: unknown; next?: unknown } = read.ok ? read.value : {};
 
   const restamp = (response: NextResponse) => {
     for (const cookie of request.cookies.getAll()) {
@@ -42,6 +43,8 @@ export async function POST(request: NextRequest) {
   const { data } = await route.supabase.auth.getClaims();
   const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
   if (!userId) return route.applyTo(json({ error: "signed_out" }, 401));
+  const limit = takeRouteLimit("session", userId);
+  if (!limit.allowed) return route.applyTo(rateLimitedResponse(limit.retryAfterSeconds));
   if (body.intent !== "sign-in") return route.applyTo(restamp(json({ ok: true })));
 
   const result = await resolvePostSignIn({

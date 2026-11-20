@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { CoachError, unavailableError } from "@/lib/ai/coach";
 import { buildCoachContext, loadContextSources } from "@/lib/ai/context";
-import { coachGate, errorResponse, jsonResponse, readJsonBody } from "@/lib/ai/http";
+import { coachGate, errorResponse, jsonResponse } from "@/lib/ai/http";
 import { getConsent, saveConsent, updateDataSharing, withdrawConsent } from "@/lib/ai/store";
+import { readJsonObjectOrNull } from "@/lib/security/body";
 
 /**
  * POST { shareData: boolean }: agree to the coach, or change "Use my FITX data" later.
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
   const access = await coachGate(request, { mutating: true });
   if (!access.ok) return access.response;
   const { gate } = access;
-  const body = await readJsonBody(request, 500);
+  const body = await readJsonObjectOrNull(request, 500);
   if (!body || typeof body.shareData !== "boolean") return gate.finish(errorResponse(new CoachError("invalid", "Choose whether the coach may use your FITX data.")));
   try {
     const existing = await getConsent(gate.db, gate.userId);

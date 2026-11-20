@@ -4,6 +4,8 @@ import { applySignInCookies, resolvePostSignIn } from "@/lib/auth/post-sign-in";
 import { isSuspendedError } from "@/lib/platform/account-status";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 
+const MAX_CODE_LENGTH = 512;
+
 const noStore = <T extends NextResponse>(response: T) => {
   response.headers.set("Cache-Control", "private, no-store");
   return response;
@@ -30,11 +32,20 @@ export async function GET(request: NextRequest) {
   }
 
   const code = searchParams.get("code");
-  if (!code) return back("callback");
+  // Supabase's codes are short ids; anything else is not one and is never sent on.
+  if (!code || code.length > MAX_CODE_LENGTH || !/^[A-Za-z0-9._~-]+$/.test(code)) return back("callback");
   const route = createRouteSupabase(request);
   if (!route) return noStore(NextResponse.redirect(new URL("/signin?setup=supabase", origin)));
 
-  const { data, error } = await route.supabase.auth.exchangeCodeForSession(code);
+  let exchanged: Awaited<ReturnType<typeof route.supabase.auth.exchangeCodeForSession>>;
+  try {
+    exchanged = await route.supabase.auth.exchangeCodeForSession(code);
+  } catch (failure) {
+    // An unreadable cookie or an unexpected answer: back to sign in, never an error page.
+    console.warn("[fitx-auth] the sign-in code could not be exchanged", failure instanceof Error ? failure.name : "unknown");
+    return route.applyTo(back("callback"));
+  }
+  const { data, error } = exchanged;
   if (error || !data.user) {
     if (isSuspendedError(error)) return route.applyTo(back("suspended"));
     // The code was opened in a different browser (or app) from the one that started sign-in.

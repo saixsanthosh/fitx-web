@@ -9,6 +9,7 @@ import {
   introCookieOptions,
   isSecureRequest,
   ONBOARDED_COOKIE,
+  SESSION_COOKIE_RE,
   sessionCookieOptions,
 } from "@/lib/auth/cookies";
 import { openBeforeOnboarding } from "@/lib/auth/before-onboarding";
@@ -53,9 +54,27 @@ const noStore = <T extends NextResponse>(response: T) => {
  *     once per device and account, on a full page load (readProfile), so it plays on the next full load
  *     of an app page.
  * Checks are optimistic (data stays protected by row-level security); a Supabase outage never
- * signs anyone out here.
+ * signs anyone out here. The proxy never fails a request: anything that throws (for example a session
+ * cookie that is not a session) is answered by recoverFromFailure.
  */
 export async function proxy(request: NextRequest) {
+  try {
+    return await routeRequest(request);
+  } catch (error) {
+    return recoverFromFailure(request, error);
+  }
+}
+
+/**
+ * Something in the proxy threw. The request carries on unchanged (pages and APIs check the session themselves, and
+ * row-level security guards the data) rather than failing; the session is never cleared for an unknown failure.
+ */
+function recoverFromFailure(request: NextRequest, error: unknown) {
+  console.warn("[fitx-proxy] routing skipped after an error", error instanceof Error ? error.name : "unknown");
+  return NextResponse.next();
+}
+
+async function routeRequest(request: NextRequest) {
   const { pathname, search, searchParams } = request.nextUrl;
 
   const canonical = canonicalOrigin();
@@ -123,15 +142,25 @@ export async function proxy(request: NextRequest) {
   };
 
   // An Auth outage must not hold every page for the client's full retry budget (~25 s).
-  const claims = await Promise.race([
-    supabase.auth.getClaims(),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), SESSION_CHECK_TIMEOUT_MS)),
-  ]);
-  if (claims === null) return finish(response);
-  const { data, error } = claims;
-  const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
-  if (!userId && error && (isAuthRetryableFetchError(error) || (typeof error.status === "number" && error.status >= 500))) {
-    return finish(response);
+  let userId: string | null = null;
+  try {
+    const claims = await Promise.race([
+      supabase.auth.getClaims(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), SESSION_CHECK_TIMEOUT_MS)),
+    ]);
+    if (claims === null) return finish(response);
+    const { data, error } = claims;
+    userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
+    if (!userId && error && (isAuthRetryableFetchError(error) || (typeof error.status === "number" && error.status >= 500))) {
+      return finish(response);
+    }
+  } catch {
+    // A session cookie that is not a session (edited, truncated or from another app): the device is signed out
+    // instead of every page failing until the cookie is cleared by hand.
+    const unreadable = request.cookies.getAll().filter((cookie) => SESSION_COOKIE_RE.test(cookie.name)).map((cookie) => cookie.name);
+    for (const name of unreadable) request.cookies.delete(name);
+    response = NextResponse.next({ request });
+    for (const name of unreadable) response.cookies.set(name, "", { ...sessionCookieOptions(secure), maxAge: 0 });
   }
 
   const hinted = request.cookies.get(AUTH_HINT_COOKIE)?.value === "1";

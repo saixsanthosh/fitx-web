@@ -112,6 +112,12 @@ try {
   app.stderr.on("data", (chunk) => appLog.push(chunk));
   app.on("exit", () => writeFileSync(path.join(OUT, "next-start.log"), Buffer.concat(appLog)));
   await waitFor(async () => (await fetch(`${APP_URL}/`)).ok, "next start", 60000);
+  // Which Content-Security-Policy this build serves; flows.mjs fails a flow on any violation of it.
+  const home = await fetch(`${APP_URL}/`);
+  const enforced = home.headers.get("content-security-policy");
+  const reportOnly = home.headers.get("content-security-policy-report-only");
+  console.log(`[e2e] content security policy: ${enforced ? "enforced" : reportOnly ? "report-only" : "none"}`);
+  writeFileSync(path.join(OUT, "csp.txt"), `${enforced ? "Content-Security-Policy" : "Content-Security-Policy-Report-Only"}: ${enforced ?? reportOnly ?? ""}\n`);
 
   // The AI coach's consent screen needs a set-up provider: a second server uses a fake Ollama on 127.0.0.1.
   start(lowPriority[0], [...lowPriority.slice(1), process.execPath, path.join(HERE, "support", "fake-ollama.mjs")], {

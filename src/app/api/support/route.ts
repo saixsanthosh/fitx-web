@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { validateSupportRequest } from "@/components/support/support-rules";
 import { isSameOriginRequest } from "@/lib/auth/same-origin";
+import { takeRouteLimit } from "@/lib/security/rate-limit";
+import { rateLimitedResponse } from "@/lib/security/responses";
 import { isMissingFunctionError } from "@/lib/supabase/errors";
 import { createClient } from "@/lib/supabase/server";
 import { readSupportJson } from "./read-json";
@@ -18,7 +20,12 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "signed_out" }, { status: 401, headers: noStore });
 
-  const checked = validateSupportRequest(await readSupportJson(request));
+  // Bursts stop here; the hourly and daily limits are the database function's.
+  const limit = takeRouteLimit("support", user.id);
+  if (!limit.allowed) return rateLimitedResponse(limit.retryAfterSeconds);
+  const body = await readSupportJson(request);
+  if (body.tooLarge) return NextResponse.json({ error: "payload_too_large" }, { status: 413, headers: noStore });
+  const checked = validateSupportRequest(body.value);
   if (!checked.ok) return NextResponse.json({ error: "invalid", message: checked.error }, { status: 400, headers: noStore });
 
   const { data, error } = await supabase.rpc("fitx_submit_support_request", {
