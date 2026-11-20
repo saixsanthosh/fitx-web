@@ -137,8 +137,8 @@ export function Composer({
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-3 px-2.5 pb-1 pt-1 text-[11px] leading-5 text-fitx-text-secondary">
         <span id={hintId}>
-          {!plansAllowed && plansNote && mode === "chat" ? plansNote : hint ?? "Not medical advice."}
-          {hint && <span className="hidden sm:inline"> · not medical advice</span>}
+          {!plansAllowed && plansNote && mode === "chat" ? `${plansNote} ` : hint ? `${hint} · ` : null}
+          <span className="whitespace-nowrap">Not medical advice.</span>
         </span>
         <span id={counterId} aria-live="polite" className={cn(draft.length > MAX - 200 ? "" : "sr-only", draft.length > MAX && "text-fitx-danger")}>
           {draft.length}/{MAX}
