@@ -13,6 +13,7 @@ import {
 } from "@/lib/auth/cookies";
 import { openBeforeOnboarding } from "@/lib/auth/before-onboarding";
 import { safeNext } from "@/lib/auth/safe-next";
+import { platformGate } from "@/lib/platform/gate";
 import { canonicalOrigin } from "@/lib/site-url";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 
@@ -20,6 +21,7 @@ import { isMissingColumnError } from "@/lib/supabase/errors";
 const PRIVATE_ROOTS = [
   "/dashboard", "/workouts", "/nutrition", "/activity", "/progress", "/goals", "/planner", "/profile", "/settings", "/help",
   "/exercises", "/home-workout", "/form-coach", "/onboarding", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
+  "/unavailable",
 ];
 const AUTH_ENTRY = new Set(["/signin", "/signup", "/forgot-password"]);
 /** Parameters Supabase Auth appends when it sends a browser back after sign-in or an e-mail link. */
@@ -45,7 +47,9 @@ const noStore = <T extends NextResponse>(response: T) => {
  *  4. signed-in visitors skip the marketing home and the sign-in pages; signed-out visitors are sent
  *     to sign in from private pages; unfinished accounts go to onboarding from every page except
  *     onboarding and Help;
- *  5. a device that was already signed in takes the account's one-time intro film from the account,
+ *  5. a feature switched off in FITX Admin closes its pages and APIs for signed-in members
+ *     (src/lib/platform/gate.ts): pages are rewritten to /unavailable, APIs answer 503;
+ *  6. a device that was already signed in takes the account's one-time intro film from the account,
  *     once per device and account, on a full page load (readProfile), so it plays on the next full load
  *     of an app page.
  * Checks are optimistic (data stays protected by row-level security); a Supabase outage never
@@ -143,6 +147,18 @@ export async function proxy(request: NextRequest) {
     return redirect(`/signin?next=${encodeURIComponent(safeNext(`${pathname}${search}`))}`);
   }
 
+  const gated = await platformGate(request);
+  if (gated) {
+    // A rewrite renders /unavailable in this request, so it needs the refreshed session cookies the way
+    // NextResponse.next({ request }) carries them.
+    if (gated.headers.has("x-middleware-rewrite")) {
+      for (const [header, value] of response.headers) {
+        if (header === "x-middleware-override-headers" || header.startsWith("x-middleware-request-")) gated.headers.set(header, value);
+      }
+    }
+    return finish(gated);
+  }
+
   const isHome = pathname === "/";
   if (!isHome && !isPrivate(pathname) && !AUTH_ENTRY.has(pathname)) return finish(response);
 
@@ -228,6 +244,10 @@ async function readProfile(
 
 export const config = {
   matcher: [
+    // The APIs a platform switch can close (FEATURE_ROUTES in src/lib/platform/settings.ts); other APIs skip the proxy.
+    "/api/coach/:path*",
+    "/api/billing/checkout/:path*",
+    "/api/support/:path*",
     "/((?!_next/static|_next/image|api/|favicon\\.ico|icon\\.svg|apple-icon|manifest\\.webmanifest|robots\\.txt|sitemap\\.xml|opengraph-image|twitter-image|brand/|images/|models/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|mp4|webm|woff2?|txt|xml|json|map)$).*)",
   ],
 };

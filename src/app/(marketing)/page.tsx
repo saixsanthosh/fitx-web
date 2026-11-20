@@ -11,7 +11,7 @@ import { DualScenes } from "@/components/landing/DualScenes";
 import { HomeWorkoutFeatures } from "@/components/landing/HomeWorkoutFeatures";
 import { MoreTiles } from "@/components/landing/MoreTiles";
 import { ContactBlock } from "@/components/landing/ContactBlock";
-import { landingContact } from "@/components/landing/contact";
+import { publicContact } from "@/components/landing/site-contact";
 import { pieceFoodFrom } from "@/components/landing/portion";
 import landing from "@/components/landing/landing.module.css";
 import styles from "./page.module.css";
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 /** Idli from the built-in list (USDA FoodData Central, FNDDS), logged by the piece. */
 const IDLI = pieceFoodFrom(staples.foods, "2708346", { pieceLabel: "idli", source: "USDA FoodData Central" });
 
-export default function HomePage() {
+export default async function HomePage() {
   const websiteSchema = {
     "@context": "https://schema.org",
     "@type": "WebSite",
@@ -34,6 +34,7 @@ export default function HomePage() {
     description: "Training, nutrition and activity in one place.",
   };
   const closing = LANDING_MEDIA.closing;
+  const contact = await publicContact();
 
   return (
     <>
@@ -60,7 +61,7 @@ export default function HomePage() {
             </Link>
           </div>
         </section>
-        <ContactBlock contact={landingContact()} />
+        <ContactBlock contact={contact} />
       </main>
     </>
   );

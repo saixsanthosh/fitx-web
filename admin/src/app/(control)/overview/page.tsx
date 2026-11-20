@@ -1,120 +1,181 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Activity, ArrowUpRight, CircleHelp, Dumbbell, LogIn, Users, Utensils } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
+import { BarChart, Feed, Kpi, PageHead, Panel, SplitBar, consoleStyles as ui } from "@/components/console/ui";
+import { dailyAverageHint } from "@/components/console/chart-math";
 import { ModuleState } from "@/components/module-state";
-import { requireAdmin } from "@/lib/admin-auth";
-import { getPlatformMetrics, getSupportCounts, type MetricKey } from "@/lib/data/metrics";
-import { can } from "@/lib/roles";
+import { CountUp } from "@/components/motion/count-up";
+import { ADMIN_OPS_MIGRATION } from "@/components/settings/settings-rules";
+import { METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
+import { hasPermission, requireAdmin } from "@/lib/admin-auth";
+import { auditActionLabel } from "@/lib/audit-catalog";
+import { READ_ONLY_AUDIT_ACTIONS } from "@/lib/audit-catalog-core";
+import { recentAuditEvents } from "@/lib/data/audit";
+import { getOverviewExtras, getOverviewTrends, getPlatformMetrics, getSupportCounts, type TrendDay } from "@/lib/data/metrics";
 import { MIGRATIONS } from "@/lib/schema";
-import { formatIstDateTime } from "@/lib/time";
+import { formatIstDateTime, formatShortDay } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Overview" };
+export const metadata: Metadata = { title: "Dashboard" };
 
-type Tile = { key: MetricKey; label: string };
-
-const GROUPS: Array<{ title: string; icon: typeof Users; definition: string; tiles: Tile[] }> = [
-  {
-    title: "Accounts",
-    icon: Users,
-    definition: "FITX sign-ups that are not deleted or anonymous. Admin team accounts are left out of every number on this page.",
-    tiles: [
-      { key: "accounts", label: "Registered accounts" },
-      { key: "confirmed_accounts", label: "With a confirmed email" },
-      { key: "new_accounts_7d", label: "New in the last 7 days" },
-      { key: "new_accounts_30d", label: "New in the last 30 days" },
-    ],
-  },
-  {
-    title: "Signed in (from Supabase Auth)",
-    icon: LogIn,
-    definition: "Accounts whose most recent fresh sign-in falls in the window. Staying signed in does not count as a new sign-in, so regular users are undercounted here.",
-    tiles: [
-      { key: "signed_in_24h", label: "Last 24 hours" },
-      { key: "signed_in_7d", label: "Last 7 days" },
-      { key: "signed_in_30d", label: "Last 30 days" },
-    ],
-  },
-  {
-    title: "Active (from app activity)",
-    icon: Activity,
-    definition: "Accounts that logged a workout, workout set, meal, water entry, body measurement or goal progress in the window. Signing in alone does not count.",
-    tiles: [
-      { key: "active_24h", label: "Last 24 hours" },
-      { key: "active_7d", label: "Last 7 days" },
-      { key: "active_30d", label: "Last 30 days" },
-    ],
-  },
-  {
-    title: "Training and nutrition volume",
-    icon: Dumbbell,
-    definition: "Completed workout sessions (by the day they started), meal entries, and exercises published in the library.",
-    tiles: [
-      { key: "workouts_completed_7d", label: "Workouts completed, 7 days" },
-      { key: "workouts_completed_30d", label: "Workouts completed, 30 days" },
-      { key: "meals_logged_7d", label: "Meals logged, 7 days" },
-      { key: "meals_logged_30d", label: "Meals logged, 30 days" },
-      { key: "published_exercises", label: "Published exercises" },
-    ],
-  },
-];
+const DEFINITIONS = [
+  ["Registered", "Sign-ups that are not deleted or anonymous. Old Admin team accounts are left out."],
+  ["Active", "Logged a workout, set, meal, water, body measurement, goal progress, walk, run or ride in the window."],
+  ["Signed in", "A fresh sign-in in the window. Staying signed in does not count."],
+  ["New", "Accounts created in the window."],
+  ["Premium", "A live Razorpay subscription with paid access now."],
+  ["Ever subscribed", "Paid for a live subscription at least once. Opening checkout alone does not count."],
+] as const;
 
 const LEGACY_TILES = [
-  { key: "registered_users", label: "Registered users", note: "All Auth accounts, including unconfirmed and Admin team accounts" },
-  { key: "active_users_30d", label: "Signed in, 30 days", note: "Fresh sign-ins only; staying signed in does not count" },
-  { key: "completed_workouts_30d", label: "Completed workouts", note: "Last 30 days" },
-  { key: "active_exercises", label: "Published exercises", note: "Active library entries" },
-  { key: "food_logs_30d", label: "Meal logs", note: "Last 30 days, by meal date" },
+  { key: "registered_users", label: "Registered users" },
+  { key: "active_users_30d", label: "Signed in, 30 days" },
+  { key: "completed_workouts_30d", label: "Workouts, 30 days" },
+  { key: "active_exercises", label: "Published exercises" },
+  { key: "food_logs_30d", label: "Meals, 30 days" },
 ] as const;
+
+function series(days: TrendDay[], key: keyof Omit<TrendDay, "day">) {
+  return days.map((day) => ({ label: formatShortDay(day.day), value: day[key] }));
+}
 
 export default async function OverviewPage() {
   const admin = await requireAdmin("overview.view");
-  const [result, supportCounts] = await Promise.all([
+  const canSupport = hasPermission(admin, "support.view");
+  const canAudit = hasPermission(admin, "audit.view");
+  const [result, extras, trends, supportCounts, recent] = await Promise.all([
     getPlatformMetrics(),
-    can(admin.role, "support.view") ? getSupportCounts() : Promise.resolve(null),
+    getOverviewExtras(),
+    getOverviewTrends(30),
+    canSupport ? getSupportCounts() : Promise.resolve(null),
+    canAudit ? recentAuditEvents({ limit: 8, excludeActions: READ_ONLY_AUDIT_ACTIONS, permission: "audit.view" }) : Promise.resolve(null),
   ]);
-  const needsAttention = supportCounts ? (supportCounts.open ?? 0) + (supportCounts.in_progress ?? 0) + (supportCounts.waiting_on_user ?? 0) : null;
+  const days = trends.state === "ready" ? trends.days : [];
+  const metrics = result.state === "ready" ? result.metrics : null;
+  const more = extras.state === "ready" ? extras.extras : null;
+  const waiting = supportCounts ? (supportCounts.open ?? 0) + (supportCounts.in_progress ?? 0) + (supportCounts.waiting_on_user ?? 0) : null;
 
   return (
     <div className="page-stack">
-      <div className="page-heading-row">
-        <div><p className="eyebrow">FITX / OPERATIONS</p><h1>Platform overview</h1><p className="page-lede">Live counts from the FITX database. Each number says exactly what it counts.</p></div>
-        <div className="date-stamp">{result.state === "ready" && result.metrics.generated_at ? `UPDATED ${formatIstDateTime(result.metrics.generated_at)?.toUpperCase()}` : "PRIVATE ADMIN WORKSPACE"}</div>
-      </div>
+      <PageHead
+        eyebrow="Dashboard"
+        title="Overview"
+        meta={metrics?.generated_at ? `Updated ${formatIstDateTime(metrics.generated_at)}` : undefined}
+        actions={hasPermission(admin, "reports.view") ? <Link className="quiet-button" href="/reports">Reports<ArrowUpRight aria-hidden="true" size={16} /></Link> : undefined}
+      />
 
-      {needsAttention !== null && (
-        <Link className="attention-banner" href="/support"><CircleHelp aria-hidden="true" size={18} /><span><strong>{needsAttention.toLocaleString("en-IN")}</strong> help requests need attention ({(supportCounts?.open ?? 0).toLocaleString("en-IN")} not yet answered)</span><ArrowUpRight aria-hidden="true" size={16} /></Link>
-      )}
-
-      {result.state === "ready" ? GROUPS.map((group) => (
-        <section className="metric-section" key={group.title} aria-label={group.title}>
-          <div className="metric-section-heading"><group.icon aria-hidden="true" size={17} /><h2>{group.title}</h2></div>
-          <p className="metric-definition">{group.definition}</p>
-          <div className="metric-grid">
-            {group.tiles.map((tile) => (
-              <article className="metric-panel" key={tile.key}>
-                <p className="metric-value">{result.metrics[tile.key].toLocaleString("en-IN")}</p>
-                <h3>{tile.label}</h3>
-              </article>
-            ))}
-          </div>
-        </section>
-      )) : result.state === "legacy" ? (
+      {metrics ? (
         <>
-          <p className="inline-notice notice-error" role="status">These are the original five counts. Apply migration <code>{MIGRATIONS.metrics}</code> for the defined metrics above, which leave out Admin team accounts and measure real activity.</p>
-          <section className="metric-grid" aria-label="Original platform counts">
-            {LEGACY_TILES.map((tile) => (
-              <article className="metric-panel" key={tile.key}>
-                <div className="metric-top"><Utensils aria-hidden="true" size={17} /><span>{tile.note}</span></div>
-                <p className="metric-value">{result.metrics[tile.key].toLocaleString("en-IN")}</p>
-                <h3>{tile.label}</h3>
-              </article>
-            ))}
+          <section className={`${ui.hero} ${ui.rise}`} aria-labelledby="hero-title">
+            <svg className={ui.heroArt} viewBox="0 0 800 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+              <g className={ui.heroGrid}>
+                {Array.from({ length: 17 }, (_, index) => <line key={`v${index}`} x1={index * 50} y1={0} x2={index * 50} y2={360} />)}
+                {Array.from({ length: 8 }, (_, index) => <line key={`h${index}`} x1={0} y1={index * 50} x2={800} y2={index * 50} />)}
+              </g>
+              <circle className={ui.heroRing} cx={620} cy={180} r={160} />
+              <circle className={ui.heroRing} cx={620} cy={180} r={104} />
+              <circle className={ui.heroArc} cx={620} cy={180} r={132} pathLength={1} transform="rotate(-90 620 180)" />
+            </svg>
+            <div>
+              <p className={ui.heroLabel} id="hero-title"><span className={ui.live} aria-hidden="true" />Registered users</p>
+              <p className={ui.heroValue}><CountUp value={metrics.accounts} duration={1400} /></p>
+              <p className={ui.heroNote}>{metrics.confirmed_accounts.toLocaleString("en-IN")} confirmed</p>
+            </div>
+            <div className={`${ui.heroStats} ${ui.stagger}`}>
+              <div className={ui.heroStat}><strong><CountUp value={metrics.new_accounts_7d} /></strong><span>New, 7 days</span></div>
+              <div className={ui.heroStat}><strong><CountUp value={metrics.new_accounts_30d} /></strong><span>New, 30 days</span></div>
+              <div className={ui.heroStat}><strong><CountUp value={metrics.active_7d} /></strong><span>Active, 7 days</span></div>
+              <div className={ui.heroStat}><strong><CountUp value={more ? more.suspended : null} /></strong><span>Suspended</span></div>
+            </div>
+          </section>
+
+          {waiting !== null && waiting > 0 && (
+            <Link className="attention-banner" href="/support"><span className={ui.live} aria-hidden="true" /><span><strong>{waiting.toLocaleString("en-IN")}</strong> help requests waiting · {(supportCounts?.open ?? 0).toLocaleString("en-IN")} new</span><ArrowUpRight aria-hidden="true" size={16} /></Link>
+          )}
+
+          <section aria-labelledby="active-title" className="metric-section">
+            <h2 id="active-title" className="sr-only">Active users</h2>
+            <div className={`${ui.kpiGrid} ${ui.stagger}`}>
+              <Kpi label="Active today" value={metrics.active_24h} hint="Last 24 hours" accent />
+              <Kpi label="Active, 30 days" value={metrics.active_30d} hint={dailyAverageHint(days.map((day) => day.active_accounts))} trend={days.map((day) => day.active_accounts)} />
+              <Kpi label="Signed in, 24 hours" value={metrics.signed_in_24h} hint={`${metrics.signed_in_7d.toLocaleString("en-IN")} in 7 days`} />
+              <Kpi label="Signed in, 30 days" value={metrics.signed_in_30d} hint="Fresh sign-ins only" />
+            </div>
           </section>
         </>
-      ) : <ModuleState state={result.state} migration={MIGRATIONS.metrics} />}
+      ) : result.state === "legacy" ? (
+        <>
+          <p className="inline-notice notice-error" role="status">Older counts. Apply <code>{MIGRATIONS.metrics}</code> for the full dashboard.</p>
+          <div className={`${ui.kpiGrid} ${ui.stagger}`}>{LEGACY_TILES.map((tile) => <Kpi key={tile.key} label={tile.label} value={result.metrics[tile.key]} />)}</div>
+        </>
+      ) : result.state !== "ready" ? <ModuleState state={result.state} migration={MIGRATIONS.metrics} /> : null}
 
-      {can(admin.role, "reports.view") && <Link className="text-link" href="/reports">Daily trends in Reports <ArrowUpRight aria-hidden="true" size={15} /></Link>}
-      <p className="privacy-note">Counts only. Billing and refunds are not shown because FITX has no payment records yet.</p>
+      {trends.state === "ready" && days.length > 0 && (
+        <Panel title="Platform activity" hint="Last 30 days, IST" className={ui.onScroll}>
+          <div className={ui.columns}>
+            <div><h3 className="metric-definition">New registrations</h3><BarChart title="New registrations" points={series(days, "new_accounts")} /></div>
+            <div><h3 className="metric-definition">Active accounts</h3><BarChart title="Active accounts" points={series(days, "active_accounts")} tone="green" /></div>
+            <div><h3 className="metric-definition">Workouts completed</h3><BarChart title="Workouts completed" points={series(days, "workouts_completed")} tone="slate" /></div>
+            <div><h3 className="metric-definition">Meals logged</h3><BarChart title="Meals logged" points={series(days, "meals_logged")} /></div>
+          </div>
+        </Panel>
+      )}
+
+      <div className={`${ui.columns} ${ui.columnsWide}`}>
+        <div className={ui.stack}>
+          <Panel
+            title="Subscriptions"
+            hint="Live mode"
+            className={ui.onScroll}
+            action={hasPermission(admin, "billing.view") ? <Link className="text-link" href="/billing">Open<ArrowUpRight aria-hidden="true" size={15} /></Link> : undefined}
+          >
+            {more ? (
+              <div className={ui.stack}>
+                <div className={`${ui.kpiGrid} ${ui.kpiGrid3}`}>
+                  <Kpi label="Premium now" value={more.premium} accent />
+                  <Kpi label="Free" value={metrics ? Math.max(metrics.accounts - more.premium, 0) : null} />
+                  <Kpi label="Ever subscribed" value={Object.values(more.subscriptions).reduce((sum, value) => sum + value, 0)} />
+                </div>
+                <SplitBar
+                  label="Latest subscription status"
+                  empty="No live subscriptions yet."
+                  segments={Object.entries(more.subscriptions).sort((a, b) => b[1] - a[1]).map(([status, value]) => ({ key: status, label: subscriptionLabel(status, false)?.text ?? status, value }))}
+                />
+              </div>
+            ) : extras.state !== "ready" ? <ModuleState state={extras.state} migration={ADMIN_OPS_MIGRATION} /> : null}
+          </Panel>
+
+          <Panel title="Sign-in methods" hint="Accounts per method" className={ui.onScroll}>
+            {more ? (
+              <SplitBar label="Sign-in methods" segments={Object.entries(more.methods).sort((a, b) => b[1] - a[1]).map(([method, value]) => ({ key: method, label: METHOD_LABELS[method] ?? method, value }))} />
+            ) : <p className="metric-definition">Needs migration <code>{ADMIN_OPS_MIGRATION}</code>.</p>}
+          </Panel>
+
+          {metrics && (
+            <div className={`${ui.kpiGrid} ${ui.kpiGrid3} ${ui.onScroll}`}>
+              <Kpi label="Workouts, 7 days" value={metrics.workouts_completed_7d} hint={`${metrics.workouts_completed_30d.toLocaleString("en-IN")} in 30 days`} />
+              <Kpi label="Meals, 7 days" value={metrics.meals_logged_7d} hint={`${metrics.meals_logged_30d.toLocaleString("en-IN")} in 30 days`} />
+              <Kpi label="Exercises live" value={metrics.published_exercises} />
+            </div>
+          )}
+        </div>
+
+        <div className={ui.stack}>
+          {recent && (
+            <Panel title="Recent admin activity" className={ui.onScroll} action={<Link className="text-link" href="/audit">Audit log<ArrowUpRight aria-hidden="true" size={15} /></Link>}>
+              {recent.state === "ready" ? (
+                recent.rows.length ? (
+                  <Feed items={recent.rows.map((row) => ({ id: row.id, title: auditActionLabel(row.action), detail: `${row.actorLabel ?? "System"} · ${formatIstDateTime(row.createdAt) ?? ""}` }))} />
+                ) : <p className="metric-definition">Nothing yet.</p>
+              ) : <ModuleState state={recent.state} />}
+            </Panel>
+          )}
+          <Panel title="How we count" className={ui.onScroll} flush>
+            <dl className={ui.definitions}>
+              {DEFINITIONS.map(([term, text]) => <div key={term}><dt>{term}</dt><dd>{text}</dd></div>)}
+            </dl>
+          </Panel>
+        </div>
+      </div>
     </div>
   );
 }

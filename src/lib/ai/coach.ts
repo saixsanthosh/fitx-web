@@ -51,7 +51,8 @@ export type CoachDeps = {
   userId: string;
   config: AiConfig;
   router: AiRouter;
-  catalogue: () => readonly CatalogueFood[];
+  /** The food data grounding uses: the bundled list, with the catalogue's current rows once it is seeded. */
+  catalogue: () => readonly CatalogueFood[] | Promise<readonly CatalogueFood[]>;
   live: LiveLookups;
   signal?: AbortSignal;
   now?: () => Date;
@@ -313,8 +314,9 @@ async function mealPlanTurn(state: TurnState, emit: Emit) {
   emit({ type: "status", text: "Checking every food against FITX's nutrition data" });
   // Live lookups (Open Food Facts, USDA) only when there is time left for them; the local data always runs.
   const live = state.deadline - state.clock() > LIVE_LOOKUP_MIN_MS ? state.live : undefined;
+  const catalogue = await state.catalogue();
   const grounded = await Promise.all(
-    result.value.plan.meals.map((meal) => Promise.all(meal.items.map((item) => groundFood(item, { catalogue: state.catalogue(), live, diet: facts.diet, allergies: facts.allergies })))),
+    result.value.plan.meals.map((meal) => Promise.all(meal.items.map((item) => groundFood(item, { catalogue, live, diet: facts.diet, allergies: facts.allergies })))),
   );
   const built = buildMealPlan(result.value.plan, grounded, facts, state.input.budgetNote, result.value.removed);
   const messageId = crypto.randomUUID();
@@ -469,7 +471,8 @@ export async function runSwap(deps: CoachDeps, input: { actionId: string; note: 
       { signal: deps.signal, deadlineMs: modelBudget({ deadline, clock }) },
     );
     const live = deadline - clock() > LIVE_LOOKUP_MIN_MS ? deps.live : undefined;
-    const outcomes = await Promise.all(result.value.map((option) => groundFood(option, { catalogue: deps.catalogue(), live, diet: facts.diet, allergies: facts.allergies })));
+    const catalogue = await deps.catalogue();
+    const outcomes = await Promise.all(result.value.map((option) => groundFood(option, { catalogue, live, diet: facts.diet, allergies: facts.allergies })));
     const usable = outcomes.map((outcome, index) => ({ outcome, why: result.value[index].why })).filter((entry): entry is { outcome: GroundedFood; why: string | null } => !isConflict(entry.outcome));
     if (!usable.length) throw new CoachError("failed", "FITX couldn't find a swap that fits your diet and allergies. Try telling the coach what you can get.");
     const choice = pickSwap(item, usable.map((entry) => entry.outcome), usable.map((entry) => entry.why));

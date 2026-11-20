@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
-import { landingContact } from "@/components/landing/contact";
+import { publicContact } from "@/components/landing/site-contact";
 import { LEGAL_NAV, PUBLIC_NAV } from "./publicNav";
 import styles from "./PublicFooter.module.css";
 
 const links = [...PUBLIC_NAV, ...LEGAL_NAV];
 
 /** The public pages' footer: the mark, the site and legal links, and the owner's contact links when set. */
-export function PublicFooter() {
-  const contact = landingContact();
+export async function PublicFooter() {
+  const contact = await publicContact();
   return (
     <footer className="fitx-inverse border-t border-fitx-divider bg-background pb-[env(safe-area-inset-bottom)]">
       <div className="fitx-container grid gap-6 py-9 md:grid-cols-[1fr_auto] md:items-start">

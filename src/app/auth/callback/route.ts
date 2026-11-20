@@ -1,6 +1,7 @@
 import { isAuthPKCECodeVerifierMissingError } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { applySignInCookies, resolvePostSignIn } from "@/lib/auth/post-sign-in";
+import { isSuspendedError } from "@/lib/platform/account-status";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 
 const noStore = <T extends NextResponse>(response: T) => {
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest) {
   const providerError = searchParams.get("error");
   const errorCode = searchParams.get("error_code");
   if (providerError || errorCode) {
+    // An account suspended in FITX Admin (banned in Supabase Auth) comes back with error_code=user_banned.
+    if (isSuspendedError(searchParams)) return back("suspended");
     // Supabase reports an expired or reused e-mail link as access_denied + otp_expired.
     if (errorCode === "otp_expired") return back("expired");
     const description = searchParams.get("error_description") ?? "";
@@ -33,6 +36,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await route.supabase.auth.exchangeCodeForSession(code);
   if (error || !data.user) {
+    if (isSuspendedError(error)) return route.applyTo(back("suspended"));
     // The code was opened in a different browser (or app) from the one that started sign-in.
     return route.applyTo(back(isAuthPKCECodeVerifierMissingError(error) ? "browser" : "callback"));
   }

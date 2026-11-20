@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   }
 
   const logged = await logAdminEvent({
-    actorId: actor.user.id,
+    actor,
     action: "audit_exported",
     resourceType: "audit_log",
     details: {
@@ -28,14 +28,14 @@ export async function GET(request: NextRequest) {
   if (!logged.ok) return NextResponse.json({ error: "audit_unavailable" }, { status: 503 });
 
   const csv = toCsv(
-    ["time_ist", "time_utc", "action", "action_label", "actor_email", "actor_id", "resource_type", "resource_id", "details"],
+    ["time_ist", "time_utc", "action", "action_label", "actor", "actor_id", "resource_type", "resource_id", "details"],
     result.rows.map((row) => [
       formatIstDateTime(row.createdAt),
       row.createdAt,
       row.action,
       auditActionLabel(row.action),
-      row.actorEmail,
-      row.actorId,
+      row.actorLabel,
+      row.actorOperatorId ?? row.actorId,
       row.resourceType,
       row.resourceId,
       row.details,

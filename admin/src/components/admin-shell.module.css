@@ -1,0 +1,367 @@
+/* The console frame. Admin colour variables only (globals.css), tints through color-mix. Mobile first:
+   a top bar with a menu dialog; from 1024 px a fixed section rail. */
+
+.shell {
+  /* The rail and the menu stay dark in both themes (--stage and --on-stage in globals.css). */
+  min-height: 100vh;
+  min-height: 100svh;
+  background: var(--paper);
+}
+
+.skip {
+  position: absolute;
+  z-index: 80;
+  top: 8px;
+  left: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  transform: translateY(-160%);
+}
+.skip:focus-visible { transform: none; }
+
+/* Rail (wide screens) ---------------------------------------------------------------------------- */
+
+.rail { display: none; }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  color: var(--on-stage);
+  text-decoration: none;
+}
+.brandMark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--on-stage) 22%, transparent);
+  border-radius: 11px;
+  color: var(--on-stage);
+}
+.brandWord {
+  display: grid;
+  gap: 2px;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1;
+}
+.brandWord small {
+  color: var(--coral-on-stage);
+  font-size: 9px;
+  letter-spacing: 0.3em;
+}
+
+.pulse {
+  display: block;
+  width: 100%;
+  height: 24px;
+  margin: 18px 0 14px;
+  fill: none;
+  stroke: var(--coral);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pulse path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: trace 1600ms cubic-bezier(0.65, 0, 0.35, 1) 200ms forwards;
+  }
+}
+
+.railNav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -8px;
+  padding: 0 8px;
+  scrollbar-width: thin;
+}
+
+.railFoot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--on-stage) 14%, transparent);
+}
+.operatorAvatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--coral);
+  color: var(--surface);
+  font-weight: 800;
+}
+.operatorText { display: grid; min-width: 0; gap: 2px; }
+.operatorText strong { overflow: hidden; color: var(--on-stage); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.operatorText small { color: color-mix(in srgb, var(--on-stage) 62%, transparent); font-size: 11px; }
+
+/* Section list (rail and menu dialog) -------------------------------------------------------------- */
+
+.sectionsWrap { position: relative; }
+
+.sections {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marker {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 40px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--coral) 18%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 50% 0;
+}
+
+.sectionLink {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: 22px 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--on-stage) 72%, transparent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 160ms ease;
+}
+.sectionLink:hover { color: var(--on-stage); }
+.sectionLink:focus-visible { outline: 2px solid var(--coral); outline-offset: 1px; }
+[data-active="true"] > .sectionLink { color: var(--on-stage); }
+.sectionNumber {
+  color: color-mix(in srgb, var(--on-stage) 40%, transparent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+[data-active="true"] > .sectionLink .sectionNumber { color: var(--coral); }
+.sectionLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.subRoutes {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 6px;
+  padding: 0 0 0 46px;
+  list-style: none;
+}
+.subLink {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--on-stage) 62%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.subLink:hover { color: var(--on-stage); }
+.subLink[aria-current="page"] { color: var(--on-stage); box-shadow: inset 2px 0 0 var(--coral); }
+.subLink:focus-visible { outline: 2px solid var(--coral); outline-offset: 1px; }
+
+/* Column, top bar and page ------------------------------------------------------------------------- */
+
+.column { min-width: 0; }
+
+.topbar {
+  position: sticky;
+  z-index: 30;
+  top: 0;
+  display: flex;
+  height: 60px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.topBrand {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  color: var(--ink);
+}
+
+.sectionTitle {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.sectionTitleInner { display: inline-flex; max-width: 100%; align-items: baseline; gap: 8px; white-space: nowrap; }
+.sectionTitleInner > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.sectionTitleNumber { color: var(--coral); font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: 0.08em; }
+
+.topActions { display: flex; align-items: center; gap: 6px; }
+.topOperator { display: none; }
+
+.menuButton,
+.iconButton {
+  display: inline-grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.menuButton:hover,
+.iconButton:hover { border-color: var(--line-strong); background: var(--surface-soft); }
+
+.signOut {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.signOut span { display: none; }
+.signOut:hover { border-color: var(--ink-soft); }
+
+.main {
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  padding: 20px 16px 56px;
+  outline: none;
+}
+
+/* Menu dialog (phones and tablets) ------------------------------------------------------------------ */
+
+.drawer {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overscroll-behavior: contain;
+}
+.drawer::backdrop { background: color-mix(in srgb, var(--stage) 60%, transparent); }
+.drawerPanel {
+  display: flex;
+  width: min(86vw, 340px);
+  height: 100%;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 12px 12px 24px;
+  background: var(--stage);
+}
+.drawerTop { display: flex; align-items: center; justify-content: space-between; padding: 0 0 8px 12px; }
+.drawerTitle { color: var(--on-stage); font-size: 13px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+.drawerTop .iconButton { color: var(--on-stage); }
+.drawerTop .iconButton:hover { border-color: color-mix(in srgb, var(--on-stage) 24%, transparent); background: transparent; }
+
+@media (min-width: 640px) {
+  .signOut span { display: inline; }
+  .main { padding: 28px 24px 64px; }
+}
+
+@media (min-width: 768px) {
+  .topOperator {
+    display: grid;
+    gap: 1px;
+    margin-right: 6px;
+    text-align: right;
+  }
+  .topOperator strong { color: var(--ink); font-size: 12px; }
+  .topOperator small { color: var(--muted); font-size: 11px; }
+}
+
+@media (min-width: 1024px) {
+  .rail {
+    position: fixed;
+    z-index: 40;
+    inset: 0 auto 0 0;
+    display: flex;
+    width: 264px;
+    flex-direction: column;
+    padding: 24px 18px 18px;
+    background: var(--stage);
+  }
+  .column { margin-left: 264px; }
+  .menuButton,
+  .topBrand { display: none; }
+  .topbar { height: 64px; padding: 0 28px; }
+  .topOperator { display: none; }
+  .main { padding: 32px 36px 72px; }
+}
+
+@media (min-width: 1440px) {
+  .main { padding: 36px 48px 80px; }
+}
+
+/* A hairline keeps the rail apart from the page when both are dark. */
+.rail, .drawerPanel { border-right: 1px solid color-mix(in srgb, var(--on-stage) 8%, transparent); }
+
+/* Unread counts beside a section (Support). */
+.count {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--coral);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+.sectionLink:has(.count) { grid-template-columns: 22px 18px minmax(0, 1fr) auto; }
+.themeSlot { display: none; }
+@media (min-width: 640px) { .themeSlot { display: block; } }
+
+@keyframes trace { to { stroke-dashoffset: 0; } }
+.drawerTheme { margin-top: auto; padding: 12px; }
+.drawerTheme fieldset { border-color: color-mix(in srgb, var(--on-stage) 16%, transparent); background: color-mix(in srgb, var(--on-stage) 6%, transparent); }
+.drawerTheme label { color: color-mix(in srgb, var(--on-stage) 72%, transparent); }
+.drawerTheme label:has(input:checked) { color: var(--ink); }
+.drawerPanel [data-active="true"] > .sectionLink { background: color-mix(in srgb, var(--coral) 18%, transparent); }

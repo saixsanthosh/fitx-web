@@ -1,56 +1,13 @@
-// Every action the Admin audit log records, with the words the Audit screen shows. No imports.
-// Actions written inside database functions are marked "database"; the rest go through
-// fitx_admin_log_event from the Admin server.
+// Every action the Admin audit log records, with the words the Audit screen shows: the core list
+// (audit-catalog-core.ts) and the content list (audit-catalog-content.ts). Imports only those two.
+import { CONTENT_AUDIT_ACTIONS, CONTENT_AUDIT_RESOURCE_TYPES } from "./audit-catalog-content";
+import { CORE_AUDIT_ACTIONS, CORE_AUDIT_RESOURCE_TYPES } from "./audit-catalog-core";
 
-export const AUDIT_ACTIONS = {
-  admin_sign_in: { label: "Signed in to Admin", group: "Sign-in", source: "server" },
-  admin_sign_in_denied: { label: "Admin sign-in refused", group: "Sign-in", source: "server" },
-  admin_signed_out: { label: "Signed out of Admin", group: "Sign-in", source: "server" },
-  admin_session_expired: { label: "Admin session expired", group: "Sign-in", source: "server" },
-  admin_mfa_enrolled: { label: "Authenticator app set up", group: "Sign-in", source: "server" },
-  admin_mfa_verified: { label: "Authenticator code accepted", group: "Sign-in", source: "server" },
-  admin_mfa_failed: { label: "Authenticator code refused", group: "Sign-in", source: "server" },
-  admin_mfa_reset_requested: { label: "Authenticator reset requested", group: "Access", source: "server" },
-  admin_mfa_reset: { label: "Authenticator app reset", group: "Access", source: "server" },
-  admin_member_updated: { label: "Admin access changed", group: "Access", source: "database" },
-  admin_member_bootstrapped: { label: "First super-admin set up", group: "Access", source: "database" },
-  users_listed: { label: "People list viewed", group: "People", source: "server" },
-  user_viewed: { label: "Account details viewed", group: "People", source: "server" },
-  user_sessions_revoked: { label: "Signed out everywhere", group: "People", source: "database" },
-  user_suspend_requested: { label: "Suspension requested", group: "People", source: "server" },
-  user_suspended: { label: "Account suspended", group: "People", source: "server" },
-  user_suspend_failed: { label: "Suspension failed", group: "People", source: "server" },
-  user_unsuspend_requested: { label: "Unsuspension requested", group: "People", source: "server" },
-  user_unsuspended: { label: "Account unsuspended", group: "People", source: "server" },
-  user_unsuspend_failed: { label: "Unsuspension failed", group: "People", source: "server" },
-  user_password_reset_requested: { label: "Password reset requested", group: "People", source: "server" },
-  user_password_reset_sent: { label: "Password reset email sent", group: "People", source: "server" },
-  user_password_reset_failed: { label: "Password reset failed", group: "People", source: "server" },
-  user_delete_requested: { label: "Account deletion requested", group: "People", source: "server" },
-  user_deleted: { label: "Account deleted", group: "People", source: "server" },
-  user_delete_failed: { label: "Account deletion failed", group: "People", source: "server" },
-  support_request_updated: { label: "Help request updated", group: "Support", source: "database" },
-  support_reply_sent: { label: "Help reply sent", group: "Support", source: "database" },
-  announcement_created: { label: "Announcement created", group: "Announcements", source: "database" },
-  announcement_updated: { label: "Announcement edited", group: "Announcements", source: "database" },
-  announcement_published: { label: "Announcement published", group: "Announcements", source: "database" },
-  announcement_unpublished: { label: "Announcement back to draft", group: "Announcements", source: "database" },
-  announcement_archived: { label: "Announcement archived", group: "Announcements", source: "database" },
-  exercise_visibility_updated: { label: "Exercise visibility changed", group: "Content", source: "database" },
-  audit_exported: { label: "Audit log exported", group: "Audit", source: "server" },
-} as const;
+export const AUDIT_ACTIONS = { ...CORE_AUDIT_ACTIONS, ...CONTENT_AUDIT_ACTIONS } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 
-export const AUDIT_RESOURCE_TYPES = [
-  "admin_session",
-  "admin_member",
-  "user",
-  "support_request",
-  "announcement",
-  "exercise",
-  "audit_log",
-] as const;
+export const AUDIT_RESOURCE_TYPES = [...new Set([...CORE_AUDIT_RESOURCE_TYPES, ...CONTENT_AUDIT_RESOURCE_TYPES])] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];
 
 export function isAuditAction(value: unknown): value is AuditAction {

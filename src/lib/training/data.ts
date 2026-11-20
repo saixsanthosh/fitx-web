@@ -74,13 +74,13 @@ type ProgrammeRow = {
 /**
  * Published programmes from the database. Until the programme migrations are applied (or if the
  * request fails) the authored copies are shown and `enrolAvailable` is false, because enrolling needs
- * the database tables.
+ * the database tables. An empty list is an answer: Admin moved every programme to draft, so none is shown.
  */
 export async function loadProgrammes(supabase: Db): Promise<{ programmes: Programme[]; enrolAvailable: boolean }> {
   const result = await supabase.from("training_programmes")
     .select("id,title,summary,context,split,level,days_per_week,default_weekdays,session_minutes,built_around,is_premium,source_notes,training_programme_days(day_index,key,title,focus,slots)");
   const rows = (result.data ?? []) as unknown as ProgrammeRow[];
-  if (result.error || !rows.length) return { programmes: [...PROGRAMMES], enrolAvailable: false };
+  if (result.error) return { programmes: [...PROGRAMMES], enrolAvailable: false };
   const order = new Map(PROGRAMMES.map((programme, index) => [programme.id, index]));
   const programmes = rows.map((row): Programme => ({
     id: row.id, title: row.title, summary: row.summary, context: row.context, split: row.split, level: row.level,

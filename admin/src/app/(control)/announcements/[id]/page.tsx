@@ -54,12 +54,12 @@ export default async function AnnouncementPage({ params, searchParams }: { param
     <div className="page-stack narrow-stack">
       {back}
       <div className="page-heading-row">
-        <div><p className="eyebrow">ANNOUNCEMENT</p><h1 className="break-anywhere">{row.title}</h1><p className="page-lede"><span className={`status-pill ${status.tone}`}><i />{status.text}</span>{row.publishedAt ? ` First published ${formatIstDateTime(row.publishedAt)}.` : ""}{row.dismissals !== null ? ` Dismissed by ${row.dismissals.toLocaleString("en-IN")} accounts.` : ""}</p></div>
+        <div><p className="eyebrow">Announcement</p><h1 className="break-anywhere">{row.title}</h1><p className="page-lede"><span className={`status-pill ${status.tone}`}><i />{status.text}</span>{row.publishedAt ? ` First published ${formatIstDateTime(row.publishedAt)}.` : ""}{row.dismissals !== null ? ` Dismissed by ${row.dismissals.toLocaleString("en-IN")} accounts.` : ""}</p></div>
       </div>
       {message && <p className={`inline-notice ${message.tone === "success" ? "notice-success" : "notice-error"}`} role="status">{message.text}</p>}
 
       <section className="table-panel form-panel" aria-label="Preview">
-        <p className="eyebrow">PREVIEW</p>
+        <p className="eyebrow">Preview</p>
         <div className={`announcement-preview tone-${row.tone}`}>
           <strong>{row.title}</strong>
           <p>{row.body}</p>

@@ -172,17 +172,33 @@ test("a repeated query parameter is read as its first value", async () => {
   assert.equal(firstParam(undefined), "");
 });
 
-test("an authenticator reset is recorded before anything changes and then ends the member's sessions", async () => {
+test("authenticator resets went with the Google sign-in; operators get password resets that end their sessions", async () => {
   const source = await readFile(new URL("../src/app/(control)/access-control/actions.ts", import.meta.url), "utf8");
-  const reset = source.slice(source.indexOf("export async function resetAuthenticator"));
-  const order = ["admin_mfa_reset_requested", "if (!intent.ok)", "mfa.listFactors", "mfa.deleteFactor", "fitx_admin_revoke_user_sessions", "action: \"admin_mfa_reset\","];
-  // The completion row is the last "admin_mfa_reset" write; an earlier one records a partial failure.
-  const positions = order.map((needle, index) => (index === order.length - 1 ? reset.lastIndexOf(needle) : reset.indexOf(needle)));
-  for (const [index, position] of positions.entries()) assert.ok(position >= 0, `${order[index]} is missing`);
-  for (let index = 1; index < positions.length; index += 1) {
-    assert.ok(positions[index - 1] < positions[index], `${order[index - 1]} must come before ${order[index]}`);
+  assert.doesNotMatch(source, /resetAuthenticator|mfa\./);
+  assert.match(source, /export async function resetPassword[^]*requireAdmin\("access\.manage"\)[^]*resetOperatorPassword/);
+  const v2 = await readFile(new URL("20261121100030_fitx_admin_v2.sql", migrationsDir), "utf8");
+  const setPassword = v2.slice(v2.indexOf("create or replace function public.fitx_admin_op_set_operator_password"));
+  assert.match(setPassword.slice(0, setPassword.indexOf("$function$;", 200)), /fitx_admin_op_end_sessions\(p_target_id/);
+  assert.ok(audit.isAuditAction("admin_mfa_reset_requested"), "old audit rows keep their words");
+  assert.ok(audit.isAuditAction("operator_password_reset"));
+});
+
+test("every action the v2 migration writes is in the catalog, marked as written by the database", async () => {
+  const v2 = await readFile(new URL("20261121100030_fitx_admin_v2.sql", migrationsDir), "utf8");
+  const written = new Set();
+  for (const match of v2.matchAll(/fitx_admin_op_log_event\(p_operator_id,\s*(?:case[^]*?end|'([a-z_]+)')/g)) {
+    if (match[1]) written.add(match[1]);
   }
-  assert.ok(audit.isAuditAction("admin_mfa_reset_requested"));
+  for (const match of v2.matchAll(/then '((?:announcement|operator)_[a-z_]+)'|else '((?:announcement|operator)_[a-z_]+)'/g)) written.add(match[1] ?? match[2]);
+  assert.ok(written.size >= 10, [...written].join(", "));
+  for (const action of written) {
+    assert.ok(audit.isAuditAction(action), `${action} is written by SQL but missing from the catalog`);
+    assert.equal(audit.AUDIT_ACTIONS[action].source, "database", action);
+  }
+  for (const action of ["admin_login_succeeded", "admin_login_failed", "admin_login_locked", "admin_login_ip_limited", "admin_signed_out", "admin_session_revoked"]) {
+    assert.equal(audit.AUDIT_ACTIONS[action]?.source, "server", action);
+  }
+  assert.ok(audit.AUDIT_RESOURCE_TYPES.includes("admin_operator"));
 });
 
 test("the audit log keeps its actor: no foreign key, and the trigger refuses every change", () => {

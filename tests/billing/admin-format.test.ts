@@ -15,6 +15,9 @@ import {
   parsePlans,
   parseSubscribers,
   paymentLabel,
+  parsePlanDetail,
+  razorpayPaymentUrl,
+  canRefund,
 } from "../../admin/src/app/(control)/billing/format.ts";
 
 const overview = {
@@ -92,5 +95,26 @@ describe("paid through", () => {
     assert.equal(lastCoveredInstant("2026-12-05T18:30:00Z"), "2026-12-05T18:29:59.999Z");
     assert.equal(lastCoveredInstant(null), null);
     assert.equal(lastCoveredInstant("not a date"), null);
+  });
+});
+
+describe("plans and refunds in Admin", () => {
+  test("a plan carries its description, features and Razorpay ids; anything without a code is dropped", () => {
+    const plan = parsePlanDetail({ code: "premium", name: "Premium", description: "All of FITX", features: ["Coach", "", 3, "Programmes"], amount_paise: 19900, billing_period: "monthly", billing_interval: 1, is_active: false, razorpay_plan_id_test: "plan_T1", razorpay_plan_id_live: null, sort_order: 2 });
+    assert.ok(plan);
+    assert.deepEqual(plan.features, ["Coach", "Programmes"]);
+    assert.equal(plan.razorpayPlanIdTest, "plan_T1");
+    assert.equal(plan.razorpayPlanIdLive, null);
+    assert.equal(plan.sortOrder, 2);
+    assert.equal(parsePlanDetail({ name: "No code" }), null);
+    assert.equal(parsePlanDetail(null), null);
+  });
+
+  test("refunds open the payment in the Razorpay Dashboard, only while something is left to refund", () => {
+    assert.equal(razorpayPaymentUrl("pay_Abc123"), "https://dashboard.razorpay.com/app/payments/pay_Abc123");
+    assert.equal(razorpayPaymentUrl("pay_../../x"), null);
+    assert.equal(canRefund({ status: "captured", amountPaise: 19900, refundedPaise: 0 }), true);
+    assert.equal(canRefund({ status: "captured", amountPaise: 19900, refundedPaise: 19900 }), false);
+    assert.equal(canRefund({ status: "failed", amountPaise: 19900, refundedPaise: 0 }), false);
   });
 });

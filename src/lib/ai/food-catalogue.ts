@@ -1,6 +1,7 @@
 import "server-only";
 import { inferFoodState, rankFoods } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodState } from "@/lib/domain/food-query";
+import type { RankableFood } from "@/lib/food/catalog-search";
 
 /**
  * The same local food data the Nutrition search uses (src/app/api/foods/search/route.ts): FITX's
@@ -77,6 +78,31 @@ export function buildCatalogue(staples: StapleFile, foundation: readonly Foundat
   }));
   // Curated staples first: on equal matches they win, as in the search route.
   return [...curated, ...lab];
+}
+
+/**
+ * The bundled foods as the catalogue has them now (src/lib/food/catalogue-copies.ts): Admin's corrections,
+ * renames and portions win, and a food Admin hid is left out. Bundled everyday names stay, so matching still works.
+ */
+export function withCatalogueRows(catalogue: readonly CatalogueFood[], copies: ReadonlyMap<string, RankableFood>): CatalogueFood[] {
+  return catalogue.flatMap((food) => {
+    const row = copies.get(food.id);
+    if (!row) return [];
+    const dataType = row.dataType ?? food.dataType;
+    return [{
+      ...food,
+      name: row.name,
+      calories: row.calories,
+      protein: row.protein,
+      carbs: row.carbs,
+      fat: row.fat,
+      dataType,
+      basis: (dataType && BASIS[dataType]) || food.basis,
+      state: row.state ?? food.state,
+      portions: row.portions ?? [],
+      aliases: [...new Set([...(row.aliases ?? []), ...(food.aliases ?? [])])],
+    }];
+  });
 }
 
 /** Ranked matches for some food words, best first (every word must match, as in Nutrition search). */

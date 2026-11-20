@@ -39,7 +39,7 @@ export async function replyToRequest(formData: FormData) {
 
   const admin = createAdminSupabase();
   if (!admin) back(id, "configuration");
-  const { error } = await admin.rpc("fitx_admin_support_reply", { p_actor_id: actor.user.id, p_request_id: id, p_body: body, p_status: status });
+  const { error } = await admin.rpc("fitx_admin_op_support_reply", { p_operator_id: actor.id, p_request_id: id, p_body: body, p_status: status });
   if (error) failure(id, "support.reply", error);
   revalidatePath(`/support/${id}`);
   revalidatePath("/support");
@@ -59,12 +59,12 @@ export async function updateRequest(formData: FormData) {
 
   const admin = createAdminSupabase();
   if (!admin) back(id, "configuration");
-  const { error } = await admin.rpc("fitx_admin_support_update", {
-    p_actor_id: actor.user.id,
+  const { error } = await admin.rpc("fitx_admin_op_support_update", {
+    p_operator_id: actor.id,
     p_request_id: id,
     p_status: status,
     p_priority: priority,
-    p_assigned_to: assignee === "" ? null : assignee,
+    p_assigned_operator_id: assignee === "" ? null : assignee,
     // The request as the agent saw it; the database refuses the save if it changed since (40001).
     p_expected_updated_at: seenUpdatedAt,
   });

@@ -10,8 +10,9 @@ import { GoogleButton, startOAuth, type OAuthProvider } from "@/components/auth/
 import { useEmailCode } from "@/components/auth/useEmailCode";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
-import { isEmailAddress } from "@/lib/auth/email-code";
+import { isEmailAddress, passwordSignInProblem } from "@/lib/auth/email-code";
 import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { SUSPENDED_MESSAGE } from "@/lib/platform/account-status";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 const appleEnabled = process.env.NEXT_PUBLIC_APPLE_OAUTH_ENABLED === "true";
@@ -27,6 +28,7 @@ const LOCATION_ERRORS: Record<string, string> = {
   callback: "We couldn’t complete sign-in. Please try again.",
   browser: "That link was opened in a different browser or app. Sign in again here.",
   expired: "That link has expired or was already used. Sign in again, or ask for a new code.",
+  suspended: SUSPENDED_MESSAGE,
 };
 
 function getLocationError() {
@@ -82,11 +84,7 @@ export default function SignInForm() {
     try {
       const { error: authError } = await supabase.auth.signInWithPassword({ email: address, password });
       if (authError) {
-        setError(/email not confirmed/i.test(authError.message)
-          ? "Confirm your email address first, or sign in with a code."
-          : /invalid login credentials/i.test(authError.message)
-            ? "That email and password don’t match. Try again, or use a code."
-            : "We couldn’t sign you in. Please try again.");
+        setError(passwordSignInProblem(authError));
         setPending(null);
         return;
       }

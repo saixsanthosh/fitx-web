@@ -1,12 +1,15 @@
 // Help request rules shared by the Help page and /api/support. No imports, so tests can load it
 // directly. supabase/migrations/20261118180005_fitx_support.sql enforces the same limits again.
 
-export const SUPPORT_CATEGORIES = ["question", "problem", "feedback", "account", "other"] as const;
+// "complaint" is accepted once migration 20261121100033_fitx_admin_ops widens the database check; until then
+// the Help page leaves it out (helpCategories).
+export const SUPPORT_CATEGORIES = ["question", "problem", "complaint", "feedback", "account", "other"] as const;
 export type SupportCategory = (typeof SUPPORT_CATEGORIES)[number];
 
 export const SUPPORT_CATEGORY_LABELS: Record<SupportCategory, string> = {
   question: "A question",
   problem: "Something is not working",
+  complaint: "A complaint",
   feedback: "Feedback or an idea",
   account: "My account or sign-in",
   other: "Something else",
@@ -20,6 +23,11 @@ export const SUPPORT_STATUS_LABELS: Record<string, string> = {
   resolved: "Resolved",
   closed: "Closed",
 };
+
+/** The categories the Help form offers: complaints only when the database accepts them. */
+export function helpCategories(complaintsAccepted: boolean): readonly SupportCategory[] {
+  return complaintsAccepted ? SUPPORT_CATEGORIES : SUPPORT_CATEGORIES.filter((category) => category !== "complaint");
+}
 
 export const SUPPORT_LIMITS = { subjectMin: 3, subjectMax: 120, bodyMin: 10, bodyMax: 4000, replyMax: 4000 } as const;
 
@@ -105,6 +113,7 @@ export const SUPPORT_ERROR_MESSAGES: Record<string, string> = {
   rate_limited: "You have sent several messages recently. Please wait a little before sending another.",
   invalid: "Check the length of what you wrote and try again.",
   unavailable: "Help requests are not switched on yet.",
+  feature_unavailable: "Messages are paused for now. Please try again later.",
   closed: "This conversation is closed. Start a new message instead.",
   not_found: "That conversation could not be found.",
   signed_out: "Your session ended. Sign in again to send this.",

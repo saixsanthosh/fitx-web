@@ -43,8 +43,8 @@ export async function saveAnnouncement(_previous: AnnouncementFormState, formDat
   const admin = createAdminSupabase();
   if (!admin) return { error: "Server data access is not configured." };
   const value = checked.value;
-  const { data, error } = await admin.rpc("fitx_admin_save_announcement", {
-    p_actor_id: actor.user.id,
+  const { data, error } = await admin.rpc("fitx_admin_op_save_announcement", {
+    p_operator_id: actor.id,
     p_id: id,
     p_title: value.title,
     p_body: value.body,
@@ -57,7 +57,7 @@ export async function saveAnnouncement(_previous: AnnouncementFormState, formDat
     p_confirm_live: formData.get("confirm_live") === "yes",
   });
   if (error) {
-    if (isMissingFunction(error)) return { error: `Announcements need migration ${MIGRATIONS.announcements}.` };
+    if (isMissingFunction(error)) return { error: `Announcements need migration ${MIGRATIONS.adminV2}.` };
     if (isPermissionError(error)) return { error: "Your role cannot change announcements." };
     if (error.code === "P0002") return { error: "This announcement no longer exists." };
     if (error.code === "55000") return { error: "This announcement is published, so saving changes what signed-in people see. Tick the confirmation and save again, or choose Back to draft first." };
@@ -79,7 +79,7 @@ export async function setAnnouncementStatus(formData: FormData) {
 
   const admin = createAdminSupabase();
   if (!admin) redirect(`/announcements/${id}?notice=configuration`);
-  const { error } = await admin.rpc("fitx_admin_set_announcement_status", { p_actor_id: actor.user.id, p_id: id, p_status: status as AnnouncementStatus });
+  const { error } = await admin.rpc("fitx_admin_op_set_announcement_status", { p_operator_id: actor.id, p_id: id, p_status: status as AnnouncementStatus });
   if (error) {
     if (isMissingFunction(error)) redirect(`/announcements/${id}?notice=migration`);
     if (isPermissionError(error)) redirect(`/announcements/${id}?notice=forbidden`);

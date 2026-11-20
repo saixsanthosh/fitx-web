@@ -84,8 +84,13 @@ export async function getPlatformMetrics(): Promise<MetricsResult> {
   return counts ? { state: "legacy", metrics: counts } : { state: "query_failed" };
 }
 
-export async function getDailyTrends(days: number): Promise<TrendsResult> {
-  await requireAdmin("reports.view");
+/** Daily counts for the Dashboard, which every role with overview.view opens (Reports reads its own, data/reports.ts). */
+export async function getOverviewTrends(days: number): Promise<TrendsResult> {
+  await requireAdmin("overview.view");
+  return readDailyTrends(days);
+}
+
+async function readDailyTrends(days: number): Promise<TrendsResult> {
   const admin = createAdminSupabase();
   if (!admin) return { state: "service_key_missing" };
 
@@ -123,4 +128,49 @@ export async function getSupportCounts(): Promise<Record<string, number> | null>
     if (parsed !== null) result[status] = parsed;
   }
   return result;
+}
+
+export type OverviewExtras = {
+  suspended: number;
+  /** Accounts per sign-in method (an account with two methods counts in both). */
+  methods: Record<string, number>;
+  /** The latest live subscription's status per account. */
+  subscriptions: Record<string, number>;
+  premium: number;
+};
+
+export type OverviewExtrasResult = { state: "ready"; extras: OverviewExtras } | { state: "service_key_missing" | "migration_pending" | "query_failed" };
+
+function countMap(value: unknown): Record<string, number> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const result: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const parsed = count(raw);
+    if (parsed === null) return null;
+    result[key] = parsed;
+  }
+  return result;
+}
+
+/** Suspensions, sign-in methods and subscription counts for the Dashboard (overview.view). */
+export async function getOverviewExtras(): Promise<OverviewExtrasResult> {
+  await requireAdmin("overview.view");
+  const admin = createAdminSupabase();
+  if (!admin) return { state: "service_key_missing" };
+  const { data, error } = await admin.rpc("fitx_admin_overview_extras");
+  if (error) {
+    if (isMissingFunction(error)) return { state: "migration_pending" };
+    logServerError("data.overview_extras", error);
+    return { state: "query_failed" };
+  }
+  const source = (data ?? {}) as Record<string, unknown>;
+  const suspended = count(source.suspended);
+  const premium = count(source.premium);
+  const methods = countMap(source.methods);
+  const subscriptions = countMap(source.subscriptions);
+  if (suspended === null || premium === null || !methods || !subscriptions) {
+    logServerError("data.overview_extras", { message: "the overview function returned a value that is not a count" });
+    return { state: "query_failed" };
+  }
+  return { state: "ready", extras: { suspended, premium, methods, subscriptions } };
 }
