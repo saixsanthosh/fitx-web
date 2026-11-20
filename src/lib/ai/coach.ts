@@ -10,7 +10,7 @@ import type { LiveLookups } from "./food-lookup";
 import { customFoodFor, customMealFor, groundFood, isConflict, resize, sumItems, type GroundedFood, type GroundingConflict } from "./grounding";
 import { MEAL_PLAN_SCHEMA, SWAP_SCHEMA, WORKOUT_SCHEMA, parseMealPlan, parseSwap, parseWorkout, type ModelMealPlan } from "./plans";
 import { chatSystemPrompt, historyTurns, mealPlanSystemPrompt, memberTurn, swapSystemPrompt, workoutSystemPrompt, type ExerciseCandidate } from "./prompts";
-import { PROVIDER_LABELS } from "./registry";
+import { providerLabel } from "./registry";
 import { AiUnavailableError, type AiRouter } from "./router";
 import { CARE_DAYS, cautionNotes, screenMessage, type SafetyCaution } from "./safety";
 import * as store from "./store";
@@ -285,7 +285,7 @@ async function chatTurn(state: TurnState, emit: Emit) {
     task: "chat",
     content,
     data: notes.length ? { notes } : null,
-    provider: PROVIDER_LABELS[result.provider],
+    provider: providerLabel(result.provider, state.config),
     model: result.model,
   });
   return { message, actions: [] };
@@ -326,7 +326,7 @@ async function mealPlanTurn(state: TurnState, emit: Emit) {
     task: "meal_plan",
     content: planText(built.plan),
     data: { plan: built.plan, ...(notes.length ? { notes } : {}) },
-    provider: PROVIDER_LABELS[result.provider],
+    provider: providerLabel(result.provider, state.config),
     model: result.model,
   });
   await saveProposals(state, messageId, built.actions);
@@ -392,7 +392,7 @@ async function workoutTurn(state: TurnState, emit: Emit) {
     task: "workout_plan",
     content: `Workout: ${plan.title}. ${plan.summary} ${plan.exercises.map((exercise) => `${exercise.name} ${exercise.sets}×${exercise.holdSeconds ? `${exercise.holdSeconds}s` : `${exercise.repsMin}-${exercise.repsMax}`}`).join("; ")}.`.slice(0, 2000),
     data: { plan, ...(notes.length ? { notes } : {}) },
-    provider: PROVIDER_LABELS[result.provider],
+    provider: providerLabel(result.provider, state.config),
     model: result.model,
   });
   const payload = {

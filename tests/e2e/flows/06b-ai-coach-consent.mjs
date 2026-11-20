@@ -50,6 +50,16 @@ export const flow = {
       await message.waitFor({ timeout: 20000 });
       const consent = await standin.one(`select share_personal_data from public.ai_coach_consents where user_id = '${account.id}'`);
       t.expect(consent?.share_personal_data === "f", "the consent should record that nothing is shared", consent);
+      // Questions only: the starting prompts are general ones, never written from the member's data.
+      const suggestions = page.getByRole("list", { name: "Suggested questions" });
+      await suggestions.waitFor({ timeout: 15000 });
+      const suggested = await textOf(suggestions);
+      t.note("suggested questions", suggested);
+      t.expect(!/Today ·|Last workout|kcal/.test(suggested), "no prompt built from logs with Questions only", suggested);
+      await suggestions.getByRole("button").first().click();
+      t.expect((await message.inputValue()).length > 0, "a suggestion fills the message box");
+      t.expect(/1 AI service ready/.test(await textOf(page.locator("main"))), "the page says which AI services are ready, by name only");
+      await t.checkpoint("coach ready");
       await message.fill("How many push-ups should I do as a beginner?");
       await page.getByRole("button", { name: "Send", exact: true }).click();
       await page.getByText("try 3 sets of 8 to 12 push-ups").first().waitFor({ timeout: 30000 });

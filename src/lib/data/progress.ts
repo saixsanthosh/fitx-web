@@ -118,3 +118,84 @@ export async function loadRecentWorkouts(db: Db, userId: string, limit = 8): Pro
     return { id: row.id, name: row.name, startedAt: row.started_at, trainingSeconds: seconds !== null && seconds > 0 ? seconds : null, volumeKg: kg !== null && kg > 0 ? kg : null };
   });
 }
+
+// ─── Pure summaries for the page (no database) ────────────────────────────────────────────────────
+
+/** How regularly the member trained: finished weeks with at least one workout, against their weekly plan. */
+export type Consistency = {
+  /** Finished Monday-to-Sunday weeks counted (this week, still running, is left out). */
+  weeks: number;
+  /** Of those, weeks with at least one finished workout. */
+  trainedWeeks: number;
+  /** Weeks that reached the member's own workouts-a-week plan; null without a plan. */
+  planWeeks: number | null;
+  /** The plan from setup (2 to 7 a week), or null when not set. */
+  plan: number | null;
+  /** Finished workouts in the counted weeks. */
+  workouts: number;
+};
+
+export function trainingConsistency(weeks: ReadonlyArray<{ workouts: number; inProgress: boolean }>, plan: number | null): Consistency {
+  const finished = weeks.filter((week) => !week.inProgress);
+  const validPlan = plan !== null && Number.isInteger(plan) && plan >= 1 && plan <= 7 ? plan : null;
+  return {
+    weeks: finished.length,
+    trainedWeeks: finished.filter((week) => week.workouts > 0).length,
+    planWeeks: validPlan === null ? null : finished.filter((week) => week.workouts >= validPlan).length,
+    plan: validPlan,
+    workouts: finished.reduce((sum, week) => sum + week.workouts, 0),
+  };
+}
+
+export type BodyMetricRow = { id: string; date: string; weight: number | null; body_fat: number | null; measurements: Record<string, number> | null };
+
+export type WeightSummary = {
+  /** Weigh-ins in the range, oldest first. */
+  points: Array<{ date: string; kg: number }>;
+  latest: { date: string; kg: number } | null;
+  /** Latest minus the first weigh-in in the range; null with fewer than two. */
+  changeKg: number | null;
+};
+
+const daysBefore = (today: string, key: string) => (Date.parse(`${today}T12:00:00Z`) - Date.parse(`${key}T12:00:00Z`)) / 86_400_000;
+
+/**
+ * Weigh-ins over the last `rangeDays` days (0: all of them). On a day with two weigh-ins the later one counts,
+ * as Profile and Home take it. Rows arrive newest first.
+ */
+export function weightSummary(rows: readonly BodyMetricRow[], today: string, rangeDays: number): WeightSummary {
+  const byDay = new Map<string, number>();
+  for (const row of rows) {
+    const kg = row.weight === null || row.weight === undefined ? null : Number(row.weight);
+    if (kg === null || !Number.isFinite(kg) || kg <= 0 || byDay.has(row.date)) continue;
+    if (rangeDays > 0 && daysBefore(today, row.date) > rangeDays) continue;
+    byDay.set(row.date, kg);
+  }
+  const points = [...byDay.entries()].map(([date, kg]) => ({ date, kg })).sort((a, b) => a.date.localeCompare(b.date));
+  const latest = points.at(-1) ?? null;
+  return { points, latest, changeKg: points.length >= 2 ? Math.round((points.at(-1)!.kg - points[0].kg) * 10) / 10 : null };
+}
+
+export type MeasurementLine = { name: string; latest: number; date: string; changeCm: number | null; unit: "cm" | "%" };
+
+/** The newest value of each tape measurement (and body fat) ever logged, with the change since its first one. */
+export function latestMeasurements(rows: readonly BodyMetricRow[]): MeasurementLine[] {
+  const series = new Map<string, Array<{ date: string; value: number }>>();
+  const add = (name: string, date: string, value: unknown) => {
+    const number = Number(value);
+    if (value === null || value === undefined || !Number.isFinite(number) || number <= 0) return;
+    const list = series.get(name) ?? [];
+    list.push({ date, value: number });
+    series.set(name, list);
+  };
+  for (const row of rows) {
+    add("body_fat", row.date, row.body_fat);
+    for (const [name, value] of Object.entries(row.measurements ?? {})) add(name, row.date, value);
+  }
+  return [...series.entries()].map(([name, list]) => {
+    // Rows arrive newest first: the first entry is the latest, the last the oldest.
+    const latest = list[0];
+    const oldest = list.at(-1)!;
+    return { name, latest: latest.value, date: latest.date, changeCm: list.length > 1 ? Math.round((latest.value - oldest.value) * 10) / 10 : null, unit: name === "body_fat" ? "%" : "cm" } as MeasurementLine;
+  }).sort((a, b) => (a.name === "body_fat" ? -1 : b.name === "body_fat" ? 1 : a.name.localeCompare(b.name)));
+}

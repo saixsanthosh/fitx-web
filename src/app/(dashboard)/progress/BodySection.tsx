@@ -1,35 +1,38 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Scale } from "lucide-react";
+import { Plus, Scale } from "lucide-react";
 import { Sparkline } from "@/components/charts/Sparkline";
-import { EmptyState } from "@/components/app/EmptyState";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { getSession, messageFor } from "@/components/tasks/session";
+import { Segmented } from "@/components/ui/Segmented";
+import { Sheet } from "@/components/ui/Sheet";
+import { latestMeasurements, weightSummary, type BodyMetricRow } from "@/lib/data/progress";
 import { localDateKey } from "@/lib/domain/dates";
 import { notifyUserContextChanged, syncProfileWeight } from "@/lib/domain/user-context";
 import { WEIGHT_RANGE_KG, weightIn, weightText, weightToKg, weightUnitOf } from "@/lib/domain/weight-display";
 import styles from "./Progress.module.css";
 
-type Metric = { id: string; date: string; weight: number | null; body_fat: number | null; measurements: Record<string, number> };
-
-const RANGES: ReadonlyArray<[number, string]> = [[30, "30 days"], [90, "90 days"], [365, "1 year"], [0, "All"]];
+type Range = "30" | "90" | "365" | "0";
+const RANGES: ReadonlyArray<{ value: Range; label: string }> = [
+  { value: "30", label: "30 d" },
+  { value: "90", label: "90 d" },
+  { value: "365", label: "1 yr" },
+  { value: "0", label: "All" },
+];
+const RANGE_WORDS: Record<Range, string> = { "30": "in 30 days", "90": "in 90 days", "365": "in a year", "0": "since your first weigh-in" };
 const MEASUREMENTS = ["waist", "chest", "hips", "arm", "thigh", "neck"];
 const dayLabel = (key: string, options: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" }) => new Date(`${key}T12:00:00`).toLocaleDateString(undefined, options);
+const signed = (value: number, digits = 1) => `${value > 0 ? "+" : value < 0 ? "−" : "±"}${Math.abs(value).toFixed(digits)}`;
 
-/** Weigh-ins, body fat and tape measurements over time, and the form to log them. Weights show in the member's unit. */
+/** Weight trend and the newest of each measurement, in the member's unit, with the form to log them in a sheet. */
 export function BodySection() {
   const unit = weightUnitOf(useOptionalUserContext()?.data?.preferences.weight_unit);
-  const [metrics, setMetrics] = useState<Metric[] | null>(null);
+  const [metrics, setMetrics] = useState<BodyMetricRow[] | null>(null);
   const [error, setError] = useState("");
-  const [range, setRange] = useState(90);
-  const [weight, setWeight] = useState("");
-  const [bodyFat, setBodyFat] = useState("");
-  const [measurementName, setMeasurementName] = useState("waist");
-  const [measurement, setMeasurement] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState("");
-  const [today] = useState(() => new Date());
+  const [range, setRange] = useState<Range>("90");
+  const [open, setOpen] = useState(false);
+  const [today] = useState(() => localDateKey());
 
   const load = useCallback(async () => {
     try {
@@ -37,7 +40,7 @@ export function BodySection() {
       const result = await db.from("body_metrics").select("id,date,weight,body_fat,measurements").eq("user_id", userId)
         .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(365);
       if (result.error) throw result.error;
-      setMetrics((result.data ?? []) as Metric[]);
+      setMetrics((result.data ?? []) as BodyMetricRow[]);
       setError("");
     } catch (failure) {
       setError(messageFor(failure, "Your body measurements could not be loaded."));
@@ -45,16 +48,98 @@ export function BodySection() {
   }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
-  // The newest logged values are shown as hints only, so saving one tape measurement never re-logs an old weight.
-  const lastWeight = metrics?.find((row) => row.weight !== null)?.weight ?? null;
-  const lastBodyFat = metrics?.find((row) => row.body_fat !== null)?.body_fat ?? null;
-  const filtered = useMemo(() => {
-    const rows = metrics ?? [];
-    const kept = range === 0 ? rows : rows.filter((item) => (today.getTime() - new Date(`${item.date}T12:00:00`).getTime()) / 86_400_000 <= range);
-    return kept.slice().reverse();
-  }, [metrics, range, today]);
-  const weights = filtered.filter((item) => item.weight !== null);
-  const visible = filtered.filter((item) => item.weight !== null || item.body_fat !== null || Object.keys(item.measurements || {}).length > 0);
+  const weight = useMemo(() => weightSummary(metrics ?? [], today, Number(range)), [metrics, today, range]);
+  const everWeighed = useMemo(() => weightSummary(metrics ?? [], today, 0).latest, [metrics, today]);
+  const measures = useMemo(() => latestMeasurements(metrics ?? []), [metrics]);
+  const lastWeight = everWeighed?.kg ?? null;
+  const lastBodyFat = measures.find((line) => line.name === "body_fat")?.latest ?? null;
+
+  return (
+    <section aria-labelledby="body-title" className={styles.panel}>
+      <div className={styles.panelHead}>
+        <h2 id="body-title" className={styles.panelTitle}><Scale size={17} aria-hidden="true" />Body</h2>
+        <button type="button" className="fitx-button fitx-button-secondary" onClick={() => setOpen(true)}><Plus size={16} aria-hidden="true" />Log measurement</button>
+      </div>
+
+      {error ? <p role="alert" className="fitx-alert fitx-alert-danger">{error} <button type="button" className="fitx-alert-action" onClick={() => void load()}>Try again</button></p>
+        : metrics === null ? <div className={`${styles.loading} ${styles.loadingTall}`} aria-busy="true" aria-label="Loading your body measurements" />
+          : !everWeighed && !measures.length ? (
+            <div className={styles.empty}>
+              <strong>No weigh-ins yet</strong>
+              <p>Log your weight to see its trend.</p>
+            </div>
+          ) : (
+            <>
+              {everWeighed ? (
+                <div className="grid gap-3">
+                  <div className={styles.weightHead}>
+                    <div>
+                      <p className={styles.chartLabel}>Weight</p>
+                      <p className={styles.weightNow}>{weightText(everWeighed.kg, unit)}<small>{unit}</small></p>
+                      <p className={styles.weightMeta}>
+                        {weight.changeKg !== null
+                          ? <><span className={styles.change}>{signed(weightIn(weight.changeKg, unit))} {unit}</span> {RANGE_WORDS[range]}</>
+                          : `Logged ${dayLabel(everWeighed.date, { day: "numeric", month: "short", year: "numeric" })}`}
+                      </p>
+                    </div>
+                    <Segmented options={RANGES} value={range} onChange={setRange} label="Time range" />
+                  </div>
+                  {weight.points.length ? (
+                    <Sparkline
+                      values={weight.points.map((point) => weightIn(point.kg, unit))}
+                      label={`Weight from ${dayLabel(weight.points[0].date)} to ${dayLabel(weight.points.at(-1)!.date)}`}
+                      format={(value) => `${value.toFixed(1)} ${unit}`}
+                      startLabel={dayLabel(weight.points[0].date)}
+                      endLabel={dayLabel(weight.points.at(-1)!.date)}
+                      showRange
+                      height={112}
+                    />
+                  ) : <p className={styles.panelNote}>No weigh-ins in this range.</p>}
+                </div>
+              ) : <p className={styles.panelNote}>No weigh-ins yet.</p>}
+              {measures.length ? (
+                <div className="grid gap-2">
+                  <h3 className={styles.chartLabel}>Measurements</h3>
+                  <ul className={styles.measures}>
+                    {measures.map((line) => (
+                      <li key={line.name}>
+                        <span>{line.name === "body_fat" ? "Body fat" : line.name.replaceAll("_", " ")}</span>
+                        <strong>{line.latest.toFixed(1)} {line.unit}</strong>
+                        <small>{line.changeCm !== null ? `${signed(line.changeCm)} since first` : dayLabel(line.date)}</small>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </>
+          )}
+
+      <MeasurementSheet
+        open={open}
+        onClose={() => setOpen(false)}
+        unit={unit}
+        lastWeight={lastWeight}
+        lastBodyFat={lastBodyFat}
+        onSaved={async () => { setOpen(false); await load(); }}
+      />
+    </section>
+  );
+}
+
+function MeasurementSheet({ open, onClose, unit, lastWeight, lastBodyFat, onSaved }: {
+  open: boolean;
+  onClose: () => void;
+  unit: "kg" | "lb";
+  lastWeight: number | null;
+  lastBodyFat: number | null;
+  onSaved: () => Promise<void>;
+}) {
+  const [weight, setWeight] = useState("");
+  const [bodyFat, setBodyFat] = useState("");
+  const [measurementName, setMeasurementName] = useState("waist");
+  const [measurement, setMeasurement] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -63,10 +148,10 @@ export function BodySection() {
     const parsedFat = bodyFat.trim() ? Number(bodyFat) : null;
     const parsedMeasurement = measurement.trim() ? Number(measurement) : null;
     if ((parsedWeight !== null && (!(parsedWeight >= WEIGHT_RANGE_KG.min) || parsedWeight > WEIGHT_RANGE_KG.max)) || (parsedFat !== null && (!(parsedFat >= 2) || parsedFat > 80)) || (parsedMeasurement !== null && (!(parsedMeasurement >= 10) || parsedMeasurement > 300))) {
-      setFormError("Check your measurement values and try again.");
+      setFormError("Check your values and try again.");
       return;
     }
-    if (parsedWeight === null && parsedFat === null && parsedMeasurement === null) { setFormError("Enter at least one measurement to save."); return; }
+    if (parsedWeight === null && parsedFat === null && parsedMeasurement === null) { setFormError("Enter at least one value."); return; }
     setSaving(true);
     setFormError("");
     try {
@@ -78,7 +163,7 @@ export function BodySection() {
       // A new weigh-in is the current weight everywhere: the profile copy, targets and the header.
       if (parsedWeight !== null) { await syncProfileWeight(db, userId, parsedWeight); notifyUserContextChanged(); }
       setWeight(""); setBodyFat(""); setMeasurement("");
-      await load();
+      await onSaved();
     } catch (failure) {
       setFormError(messageFor(failure, "Your measurement could not be saved."));
     } finally {
@@ -87,59 +172,15 @@ export function BodySection() {
   }
 
   return (
-    <div className={styles.bodyLayout}>
-      <section className={`fitx-panel ${styles.panel}`} aria-labelledby="body-title">
-        <div className={styles.panelHead}>
-          <div>
-            <h2 id="body-title" className={styles.panelTitle}>Body measurements</h2>
-            <p className={styles.panelNote}>Values you have added over time</p>
-          </div>
-          <div className={styles.rangeChips} role="group" aria-label="Time range">
-            {RANGES.map(([value, label]) => <button key={value} type="button" aria-pressed={range === value} onClick={() => setRange(value)}>{label}</button>)}
-          </div>
-        </div>
-        {error ? <p role="alert" className="fitx-alert fitx-alert-danger">{error}</p>
-          : metrics === null ? <div className={styles.loadingBlock} aria-busy="true" aria-label="Loading your body measurements" />
-            : (
-              <>
-                {weights.length >= 1 && (
-                  <div className={styles.weightChart}>
-                    <div className={styles.weightChartHeading}><span>Weight</span><strong>{weightText(Number(weights[weights.length - 1].weight), unit)} <small>{unit}</small></strong></div>
-                    <Sparkline
-                      values={weights.map((item) => weightIn(Number(item.weight), unit))}
-                      label={`Weight from ${dayLabel(weights[0].date)} to ${dayLabel(weights[weights.length - 1].date)}`}
-                      format={(value) => `${value.toFixed(1)} ${unit}`}
-                      startLabel={dayLabel(weights[0].date)}
-                      endLabel={dayLabel(weights[weights.length - 1].date)}
-                      showRange
-                      height={88}
-                    />
-                  </div>
-                )}
-                {visible.length ? (
-                  <ul className={styles.metricList}>
-                    {visible.slice().reverse().map((item) => {
-                      const values = [
-                        item.weight !== null ? `${weightText(Number(item.weight), unit)} ${unit}` : null,
-                        item.body_fat !== null ? `${Number(item.body_fat).toFixed(1)}% body fat` : null,
-                        ...Object.entries(item.measurements || {}).map(([name, value]) => `${name.replaceAll("_", " ")} ${value} cm`),
-                      ].filter(Boolean);
-                      return <li key={item.id}><span>{dayLabel(item.date, { day: "numeric", month: "short", year: "numeric" })}</span><strong>{values.join(" · ")}</strong></li>;
-                    })}
-                  </ul>
-                ) : <EmptyState title="No body measurements" description="Your weight, body fat and tape measurements will appear here after you record them." />}
-              </>
-            )}
-      </section>
-      <form onSubmit={(event) => void save(event)} className={`fitx-panel ${styles.panel} ${styles.measurementForm}`} aria-labelledby="measure-title">
-        <h2 id="measure-title" className={styles.panelTitle}><Scale size={16} aria-hidden="true" />Log a measurement</h2>
-        <label>Weight ({unit})<input className="fitx-field" type="number" min={unit === "lb" ? 67 : WEIGHT_RANGE_KG.min} max={unit === "lb" ? 1102 : WEIGHT_RANGE_KG.max} step="0.1" value={weight} onChange={(event) => setWeight(event.target.value)} placeholder={lastWeight === null ? "Optional" : `Last: ${weightText(Number(lastWeight), unit)}`} /></label>
-        <label>Body fat (%)<input className="fitx-field" type="number" min="2" max="80" step="0.1" value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} placeholder={lastBodyFat === null ? "Optional" : `Last: ${Number(lastBodyFat).toFixed(1)}`} /></label>
-        <label>Measurement<select className="fitx-field" value={measurementName} onChange={(event) => setMeasurementName(event.target.value)}>{MEASUREMENTS.map((name) => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)} (cm)</option>)}</select></label>
-        <label>Size (cm)<input className="fitx-field" type="number" min="10" max="300" step="0.1" value={measurement} onChange={(event) => setMeasurement(event.target.value)} placeholder="Optional" /></label>
+    <Sheet open={open} onClose={onClose} title="Log measurement">
+      <form onSubmit={(event) => void save(event)} className={styles.form} aria-label="Log measurement">
+        <label>Weight ({unit})<input className="fitx-field" inputMode="decimal" type="number" min={unit === "lb" ? 67 : WEIGHT_RANGE_KG.min} max={unit === "lb" ? 1102 : WEIGHT_RANGE_KG.max} step="0.1" value={weight} onChange={(event) => setWeight(event.target.value)} placeholder={lastWeight === null ? "Optional" : `Last: ${weightText(lastWeight, unit)}`} /></label>
+        <label>Body fat (%)<input className="fitx-field" inputMode="decimal" type="number" min="2" max="80" step="0.1" value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} placeholder={lastBodyFat === null ? "Optional" : `Last: ${lastBodyFat.toFixed(1)}`} /></label>
+        <label>Measurement<select className="fitx-field" value={measurementName} onChange={(event) => setMeasurementName(event.target.value)}>{MEASUREMENTS.map((name) => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}</select></label>
+        <label>Size (cm)<input className="fitx-field" inputMode="decimal" type="number" min="10" max="300" step="0.1" value={measurement} onChange={(event) => setMeasurement(event.target.value)} placeholder="Optional" /></label>
         {formError && <p role="alert" className={`fitx-alert fitx-alert-danger ${styles.formWide}`}>{formError}</p>}
-        <button disabled={saving} className={`fitx-button ${styles.formWide}`}>{saving ? "Saving…" : "Save measurement"}</button>
+        <button disabled={saving} className={`fitx-button ${styles.formWide}`}>{saving ? "Saving…" : "Save"}</button>
       </form>
-    </div>
+    </Sheet>
   );
 }

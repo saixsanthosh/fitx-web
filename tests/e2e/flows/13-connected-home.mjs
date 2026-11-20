@@ -87,6 +87,8 @@ export const flow = {
       const link = await page.locator("a[href^='/workouts/history/']").first().getAttribute("href");
       t.expect(link === `/workouts/history/${finished?.id}`, "the recent workout should open its record", { link });
       t.expect(await page.locator("#focus-next").count() === 1, "Focus next should be on Progress");
+      t.expect(await page.getByRole("link", { name: /Muscle map/ }).count() > 0, "Progress links to the muscle map");
+      t.expect(await page.getByText("Calories a logged day").count() === 0, "food averages stay on Nutrition, not repeated on Progress");
       await t.checkpoint("progress trends");
     });
 

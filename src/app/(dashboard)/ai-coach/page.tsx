@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { PageHeading } from "@/components/app/PageHeading";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { CoachApp } from "@/components/coach/CoachApp";
 import { CoachUnavailable } from "@/components/coach/CoachUnavailable";
 import { readAiConfig } from "@/lib/ai/config";
@@ -12,14 +12,9 @@ export const metadata: Metadata = { title: "AI Coach" };
 
 export default async function AiCoachPage() {
   const supabase = await createClient();
-  const heading = (
-    <PageHeading
-      title="AI Coach"
-      description="Personal answers, meal plans and workouts from your own FITX data. Every food is checked against FITX's nutrition data and every exercise comes from the exercise library."
-    />
-  );
+  const heading = <PageHeader title="AI Coach" className="mb-4 sm:mb-6" />;
   if (!supabase) {
-    return <div className="mx-auto max-w-[1160px]">{heading}<CoachUnavailable state="not_available" /></div>;
+    return <div className="mx-auto max-w-[1180px]">{heading}<CoachUnavailable state="not_available" /></div>;
   }
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/signin?next=%2Fai-coach");
@@ -32,7 +27,7 @@ export default async function AiCoachPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1160px]">
+    <div className="mx-auto max-w-[1180px]">
       {heading}
       {status ? <CoachApp initialStatus={status} /> : <CoachUnavailable state="failed" />}
     </div>

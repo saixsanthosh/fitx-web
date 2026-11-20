@@ -3,38 +3,42 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { BicepsFlexed, Compass } from "lucide-react";
-import { PageHeading } from "@/components/app/PageHeading";
+import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { getSession } from "@/components/tasks/session";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { InsightList } from "@/components/widgets/InsightList";
 import { useGoalsData, useResource, useToday, useTodaySummary } from "@/components/widgets/useHomeData";
 import { WidgetError } from "@/components/widgets/WidgetCard";
-import { loadAllTimeTotals, loadRecentWorkouts, loadTrendRows, TREND_WEEKS } from "@/lib/data/progress";
+import { loadAllTimeTotals, loadRecentWorkouts, loadTrendRows, trainingConsistency, TREND_WEEKS } from "@/lib/data/progress";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import { improveNext, proteinTargetFrom } from "@/lib/domain/insights";
 import { todayTargets } from "@/lib/domain/today";
-import { trendsEmpty, weekSoFar, weeklyTrends } from "@/lib/domain/trends";
+import { weekSoFar, weeklyTrends } from "@/lib/domain/trends";
 import { musclePeriodRange, summariseMuscles } from "@/lib/training/muscle-history";
 import { BodySection } from "./BodySection";
-import { AllTimeCard, MuscleCard, RecentWorkouts, RecordsSection } from "./ProgressCards";
-import { TrendCharts, WeekBand } from "./TrendSections";
+import { MuscleMapLink, RecordsSection } from "./ProgressCards";
+import { TrainingPanel, WeekBand } from "./TrendSections";
 import styles from "./Progress.module.css";
 
-/** Progress: "How am I progressing?" and "What should I improve next?", from what the member logged. */
+/**
+ * Progress, kept to what answers "How am I progressing?": this week against last, what to focus on next,
+ * training consistency and volume, weight and measurements, personal records and the muscle map.
+ */
 export function ProgressView() {
   const today = useToday();
   return (
     <div className={styles.page}>
-      <PageHeading
+      <PageHeader
         title="Progress"
-        description="Your training, activity, food and body over time, worked out from what you log."
-        actions={<Link href="/progress/muscles" className="fitx-button fitx-button-secondary"><BicepsFlexed size={16} aria-hidden="true" />Muscles</Link>}
+        actions={<Link href="/progress/muscles" className={styles.headerLink}><BicepsFlexed size={16} aria-hidden="true" />Muscle map</Link>}
       />
-      {today ? <ProgressContent today={today} /> : <div className={styles.loadingBlock} aria-busy="true" aria-label="Loading your progress" />}
+      {today ? <ProgressContent today={today} /> : <div className={`${styles.loading} ${styles.loadingTall}`} aria-busy="true" aria-label="Loading your progress" />}
     </div>
   );
 }
 
 function ProgressContent({ today }: { today: string }) {
+  const plan = useOptionalUserContext()?.data;
   const loadTrends = useCallback(async () => {
     const { db, userId } = await getSession();
     return loadTrendRows(db, userId, today, TREND_WEEKS);
@@ -45,23 +49,27 @@ function ProgressContent({ today }: { today: string }) {
   }, []);
   const loadRecent = useCallback(async () => {
     const { db, userId } = await getSession();
-    return loadRecentWorkouts(db, userId);
+    return loadRecentWorkouts(db, userId, 3);
   }, []);
   const trends = useResource(loadTrends, "Your trends could not be loaded.");
   const totals = useResource(loadTotals, "Your totals could not be loaded.");
   const recent = useResource(loadRecent, "Your recent workouts could not be loaded.");
   const summary = useTodaySummary(today);
   const goals = useGoalsData(today);
+  // The days-a-week answer from setup, only when the member has saved one.
+  const weeklyPlan = plan?.hasPreferences ? plan.preferences.workouts_per_week : null;
 
   const derived = useMemo(() => {
     if (!trends.data) return null;
     const data = { sessions: trends.data.sessions, activities: trends.data.activities, foodDays: trends.data.foodDays };
+    const weeks = weeklyTrends(data, today, TREND_WEEKS);
     return {
       week: weekSoFar(data, today),
-      weeks: weeklyTrends(data, today, TREND_WEEKS),
+      weeks,
+      consistency: trainingConsistency(weeks, weeklyPlan),
       muscles: summariseMuscles(trends.data.sessions, musclePeriodRange("week", keyToLocalDate(today))),
     };
-  }, [trends.data, today]);
+  }, [trends.data, today, weeklyPlan]);
 
   const insights = useMemo(() => {
     if (!trends.data || (!summary.data && summary.status !== "error")) return null;
@@ -76,9 +84,6 @@ function ProgressContent({ today }: { today: string }) {
     });
   }, [trends.data, summary.data, summary.status, goals.data, today]);
 
-  const activities = trends.data?.activitiesState ?? "ok";
-  const foodError = trends.data?.foodError ?? false;
-
   // Home's "Focus next" links to /progress#focus-next; the section only exists once the browser knows the day,
   // so the jump is made here, once, when its content is in.
   const jumped = useRef(false);
@@ -88,56 +93,51 @@ function ProgressContent({ today }: { today: string }) {
     document.getElementById("focus-next")?.scrollIntoView({ block: "start" });
   }, [insights]);
 
+  const trendError = trends.status === "error" && !trends.data ? <WidgetError message={trends.error} onRetry={trends.reload} /> : null;
+
   return (
     <div className={styles.sections}>
-      <section aria-labelledby="week-title" className={styles.section}>
+      <section aria-labelledby="week-title">
         <div className={styles.sectionHead}>
           <h2 id="week-title" className={styles.sectionTitle}>This week so far</h2>
-          <p className={styles.sectionNote}>Monday to today, next to the same days of last week</p>
+          <p className={styles.sectionNote}>Against the same days last week</p>
         </div>
         {derived ? (
           <>
-            <WeekBand week={derived.week} activities={activities} foodError={foodError} />
-            {trends.data?.sessionsCapped && <p className={styles.sectionNote}>Only your latest 600 workouts are counted here.</p>}
+            <WeekBand week={derived.week} activities={trends.data?.activitiesState ?? "ok"} />
+            {trends.data?.sessionsCapped && <p className={`${styles.sectionNote} mt-2`}>Only your latest 600 workouts are counted.</p>}
           </>
-        ) : trends.status === "error" ? <WidgetError message={trends.error} onRetry={trends.reload} /> : <div className={styles.loadingBand} aria-busy="true" aria-label="Loading this week" />}
+        ) : trendError ?? <div className={styles.loading} aria-busy="true" aria-label="Loading this week" />}
       </section>
 
-      <section id="focus-next" aria-labelledby="focus-title" className={`fitx-panel ${styles.panel} ${styles.focusPanel}`}>
+      <section id="focus-next" aria-labelledby="focus-title" className={`${styles.panel} ${styles.focus}`}>
         <div className={styles.panelHead}>
-          <div>
-            <h2 id="focus-title" className={styles.panelTitle}><Compass size={16} aria-hidden="true" />Focus next</h2>
-            <p className={styles.panelNote}>What your last five weeks of logs suggest. Observations, not medical advice.</p>
-          </div>
+          <h2 id="focus-title" className={styles.panelTitle}><Compass size={17} aria-hidden="true" />Focus next</h2>
+          <span className={styles.panelNote}>From your last 5 weeks · not medical advice</span>
         </div>
         {insights ? <InsightList insights={insights.insights} status={insights.status} />
-          : trends.status === "error" ? <WidgetError message={trends.error} onRetry={trends.reload} />
-            : <div className={styles.loadingBlock} aria-busy="true" aria-label="Looking at your recent logs" />}
+          : trendError ?? <div className={styles.loading} aria-busy="true" aria-label="Looking at your recent logs" />}
       </section>
 
-      <section aria-labelledby="trends-title" className={styles.section}>
-        <div className={styles.sectionHead}>
-          <h2 id="trends-title" className={styles.sectionTitle}>The last {TREND_WEEKS} weeks</h2>
-          <p className={styles.sectionNote}>Each bar is a Monday-to-Sunday week; this week, still running, is lighter.</p>
+      <div className={styles.columns}>
+        <div className="min-w-0">
+          {derived ? (
+            <TrainingPanel
+              weeks={derived.weeks}
+              consistency={derived.consistency}
+              recent={recent.data}
+              recentError={recent.status === "error" && !recent.data ? recent.error : ""}
+              totals={totals.data}
+            />
+          ) : trendError ?? <div className={`${styles.loading} ${styles.loadingTall}`} aria-busy="true" aria-label="Loading your training" />}
         </div>
-        {derived ? (
-          trendsEmpty(derived.weeks)
-            ? <div className={styles.firstRun}><p>Log a workout, record a walk or log a meal and your weekly trends start here.</p><div className={styles.firstRunLinks}><Link href="/workouts">Workouts</Link><Link href="/activity">Activity</Link><Link href="/nutrition">Nutrition</Link></div></div>
-            : <TrendCharts weeks={derived.weeks} activities={activities} foodError={foodError} />
-        ) : trends.status === "error" ? <WidgetError message={trends.error} onRetry={trends.reload} /> : <div className={styles.loadingBand} aria-busy="true" aria-label="Loading your trends" />}
-      </section>
-
-      <div className={styles.twoUp}>
-        {derived ? <MuscleCard summary={derived.muscles} /> : <div className={styles.loadingBlock} aria-busy="true" aria-label="Loading this week's muscles" />}
-        <AllTimeCard totals={totals.data} error={totals.status === "error" && !totals.data ? totals.error : ""} onRetry={totals.reload} />
+        <div className={styles.sections}>
+          <BodySection />
+          <MuscleMapLink summary={derived?.muscles ?? null} />
+        </div>
       </div>
 
-      <div className={styles.twoUp}>
-        <RecentWorkouts workouts={recent.data} error={recent.status === "error" && !recent.data ? recent.error : ""} onRetry={recent.reload} />
-        <RecordsSection />
-      </div>
-
-      <BodySection />
+      <RecordsSection />
     </div>
   );
 }

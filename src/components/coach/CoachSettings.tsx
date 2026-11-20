@@ -115,6 +115,7 @@ export function CoachSettings({
         {providers.length > 0 && (
           <section aria-labelledby="coach-providers-title">
             <h3 id="coach-providers-title" className="text-sm font-semibold">Who answers</h3>
+            <p className="mt-1 text-xs leading-5 text-fitx-text-secondary">Free AI services. If one is busy, the next one answers.</p>
             <ul className="mt-2 space-y-2">
               {providers.map((provider) => (
                 <li key={provider.id} className="rounded-lg border border-fitx-border px-3 py-2.5">

@@ -416,6 +416,19 @@ describe("privacy page", () => {
     assert.match(turn, /personalData: state\.sharesData \|\| state\.careMode,/);
   });
 
+  test("the AI coach section names the optional Ollama server the owner can set up, and that it may get any request", async () => {
+    const { candidatesFor } = await import("@/lib/ai/registry");
+    const { readAiConfig } = await import("@/lib/ai/config");
+    const config = readAiConfig({ GROQ_API_KEY: "groq-test", OLLAMA_BASE_URL: "https://ollama.example.com", OLLAMA_MODEL: "llama3.2", VERCEL_ENV: "production" });
+    for (const task of ["chat", "meal_plan", "workout_plan", "swap"] as const) {
+      const order = candidatesFor(task, config, { personalData: true }).map((candidate) => candidate.provider);
+      assert.equal(order.at(-1), "ollama", `${task}: Ollama is tried last, member data included`);
+    }
+    const coach = section("AI coach");
+    assert.match(coach, /\ban Ollama server run by FITX’s owner, when one is set up\b/);
+    assert.match(coach, /\btried last, after those services, and can get any coach request\b/);
+  });
+
   test("the AI coach section says sharing starts off, what the safety notes pause and when consent is asked again", async () => {
     const { CARE_DAYS } = await import("@/lib/ai/safety");
     const { needsNewConsent } = await import("@/lib/ai/store");
@@ -694,5 +707,58 @@ describe("privacy wording elsewhere", () => {
     }
     assert.match(sharedSummaryLines(buildCoachContext(sources() as never, NOW)).join("\n"), /^Injuries or limitations: none added yet$/m, "named even before any are added");
     assert.deepEqual(sharedSummaryLines(buildCoachContext(sources({ profile: { age: 16, gender: "female" } }) as never, NOW)), [], "nothing is shared for under-18s");
+  });
+});
+
+describe("onboarding answers through Profile's readers", () => {
+  test("the age comes from the birth date on the member's own day, ahead of a stale stored age", () => {
+    const base = sources();
+    // 17 November in India: the 30th birthday is today there, while it is still 16 November in UTC.
+    const { facts, summary } = buildCoachContext({ ...base, profile: { ...(base.profile as Record<string, unknown>), age: 29, date_of_birth: "1996-11-17" } } as never, NOW);
+    assert.equal(facts.age, 30);
+    assert.equal((summary.member as Record<string, unknown>).age, 30);
+    const teen = buildCoachContext({ ...base, profile: { ...(base.profile as Record<string, unknown>), age: 19, date_of_birth: "2010-01-01" } } as never, NOW);
+    assert.equal(teen.facts.minor, true, "a birth date that makes the member 16 wins over a stored 19");
+  });
+
+  test("where meals come from and the nutrition goal go only while the privacy page names them", async () => {
+    const { FOOD_HABITS_IN_SUMMARY } = await import("@/lib/ai/context");
+    const { sharedSummaryLines } = await import("@/lib/ai/status");
+    const base = sources();
+    const preferences = { ...(base.preferences as Record<string, unknown>), food_source: "home", nutrition_focus: "high_protein" };
+    const off = buildCoachContext({ ...base, preferences } as never, NOW, { foodHabits: false });
+    assert.equal(off.facts.foodSource, "home");
+    assert.equal(off.facts.nutritionGoal, "High protein");
+    const offFood = off.summary.food_preferences as Record<string, unknown>;
+    assert.ok(!("meals_from" in offFood) && !("nutrition_focus" in offFood));
+    assert.doesNotMatch(sharedSummaryLines(off).join("\n"), /where your meals come from/);
+    const offPrompt = mealPlanSystemPrompt({ context: off, facts: off.facts, sharesData: true, mealsPerDay: 3, budgetNote: null });
+    assert.doesNotMatch(offPrompt, /mostly eats|wants high-protein/, "switched off, the meal-plan rules leave them out too");
+    const on = buildCoachContext({ ...base, preferences } as never, NOW, { foodHabits: true });
+    assert.equal((on.summary.food_preferences as Record<string, unknown>).meals_from, "mostly home-cooked");
+    assert.equal((on.summary.food_preferences as Record<string, unknown>).nutrition_focus, "high protein");
+    assert.match(sharedSummaryLines(on).join("\n"), /where your meals come from, your nutrition goal/);
+    assert.equal(FOOD_HABITS_IN_SUMMARY, true, "the privacy page names both, so the summary carries them");
+    const page = readFileSync(new URL("../../src/app/(marketing)/privacy/page.tsx", import.meta.url), "utf8");
+    assert.match(page, /where your meals come from/, "the privacy page names it before it is sent");
+    assert.match(page, /your nutrition goal/);
+    const unanswered = buildCoachContext(base as never, NOW, { foodHabits: true });
+    assert.equal(unanswered.facts.foodSource, null, "an unanswered question is not a default answer");
+    assert.equal(unanswered.facts.nutritionGoal, null);
+    assert.ok(!("meals_from" in (unanswered.summary.food_preferences as Record<string, unknown>)));
+  });
+
+  test("unknown values are left out, never sent as 0", () => {
+    const base = sources();
+    const today = localDate(NOW, "Asia/Kolkata");
+    const meals = [{ date: today, meal: "Lunch", food_name: "Packaged wrap", calories: 420, protein: null, carbs: null, fat: 12 }];
+    const goals = [{ title: "Bench 60 kg", category: "strength", target_value: 60, current_value: null, unit: "kg", due_on: null }];
+    const { summary } = buildCoachContext({ ...base, meals, goals } as never, NOW);
+    const nutrition = summary.nutrition as Record<string, unknown>;
+    assert.equal(nutrition.foods_without_protein, 1);
+    assert.equal(nutrition.foods_without_calories, undefined);
+    assert.equal((summary.active_goals as Array<Record<string, unknown>>)[0].progress, "unknown of 60 kg");
+    const empty = buildCoachContext({ ...base, meals: [] } as never, NOW);
+    assert.deepEqual((empty.summary.nutrition as Record<string, unknown>).today, { items_logged: 0 }, "nothing logged today is not 0 kcal");
   });
 });

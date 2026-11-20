@@ -47,34 +47,46 @@ none of it (and no key) can reach the browser. Providers are called with plain `
 | `AI_ALLOW_PAID` | Leave unset. `true` lets the router use models that are not on a free tier. |
 | `AI_GEMINI_WITH_MEMBER_DATA` | Leave unset unless the owner accepts it. On Gemini's free tier Google may use prompts to improve its products and people at Google may read them, so by default Gemini gets only "Questions only" requests, never the member's FITX summary. `true` lets it answer chats with the summary and plans too. |
 | `AI_GEMINI_MODELS`, `AI_GROQ_MODELS`, `AI_OPENROUTER_MODELS` | Optional comma-separated lists replacing the default models. Models not known to be free are still refused unless `AI_ALLOW_PAID=true`. |
-| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Local development only, see below. |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Optional: an Ollama server the owner runs, see below. |
 
 Any one key is enough for "Questions only". "Use my FITX data" and plans need a Groq or OpenRouter key
 (or `AI_GEMINI_WITH_MEMBER_DATA=true`); until then the page says so. More keys mean more free capacity
 and better fallbacks.
 Default models (checked on each provider's own pages on 2026-11-16) live only in `registry.ts`.
 
-## Ollama: local development only
+## Ollama (optional)
 
-Ollama runs a model on your own computer. A Vercel function is a short-lived container without a GPU,
-and "localhost" there is not your computer, so FITX never depends on Ollama in production.
+Ollama runs a model on a machine you control. FITX reads its address only from the server's environment,
+never from a member, a request or the database, and always tries it last, after the free hosted providers.
 
-To try the coach on your machine without any key:
+- **Your own server:** `OLLAMA_BASE_URL=https://ollama.example.com` (https only; no user name, password or query
+  in the address) and `OLLAMA_MODEL=llama3.2`. This works on Vercel too. Keep the server private: anyone who can
+  reach it can use it. The coach names it "Ollama (FITX's own server)".
+- **This computer, for development:** `ollama pull llama3.2`, then `OLLAMA_BASE_URL=http://127.0.0.1:11434` and
+  `OLLAMA_MODEL=llama3.2` in `.env.local`. A localhost address is ignored on Vercel, where "localhost" is the
+  function itself.
 
-```bash
-ollama pull llama3.2
-```
+A sleeping or slow Ollama server costs at most 10 seconds to the first word and 25 seconds in all
+(`PROVIDER_TIMEOUTS` in `router.ts`); then the coach says it is at capacity. The coach page and Coach settings
+name the connected services, never their keys, addresses or models.
 
-Then put `OLLAMA_BASE_URL=http://127.0.0.1:11434` and `OLLAMA_MODEL=llama3.2` in `.env.local` and run
-`npm run dev`. The router uses Ollama last, after any free cloud provider that has a key. It is always
-ignored on Vercel (production and preview) and for any host other than localhost.
+## Quick prompts
+
+With "Use my FITX data" on, the coach page offers up to four starting points written from the member's own
+data (`quick-prompts.ts`): today's food against the targets, the last workout, the last 7 days of activities,
+an active goal, and the setup answers (diet, allergies, foods avoided, meals a day, where meals come from, the
+nutrition goal, age from the birth date, equipment and days a week). A prompt only fills the message box, so
+what it says is what would be sent. An unknown value is never stated or counted as 0. With "Questions only" and
+for under-18 accounts the prompts are general ones.
 
 ## What the coach sends
 
 A short summary (about 1-2k tokens) rebuilt on every request: age, sex, height, weight trend and target
 weight, goal, training setup, injuries or limitations, diet, allergies, budget, 7-day food totals and
 most-logged foods, saved food names, 28-day training, personal records, active goals, and how many
-workouts and other planner items are planned for the next 7 days. Never a name, email, photo, account
+workouts and other planner items are planned for the next 7 days. The age comes from the birth date when there
+is one. Where meals come from and the nutrition goal go too, in the summary and the meal-plan rules; the privacy
+page names them (`FOOD_HABITS_IN_SUMMARY` in `context.ts`). Never a name, email, photo, account
 or row id, private notes or exact times. Members who choose "Questions only", every member under 18, and
 every account without an age in its profile send no summary: only a profile age of 18 or over
 (`facts.adult`) can switch "Use my FITX data" on. Every prompt still carries the lowest daily calories the coach may suggest

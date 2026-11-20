@@ -22,6 +22,12 @@ export const PROVIDER_LABELS: Record<ProviderId, string> = {
   ollama: "Ollama (this computer)",
 };
 
+/** The name shown for a provider: Ollama says whether it runs on this computer or on the owner's own server. */
+export function providerLabel(provider: ProviderId, config: Pick<AiConfig, "ollama">): string {
+  if (provider === "ollama" && config.ollama?.kind === "remote") return "Ollama (FITX's own server)";
+  return PROVIDER_LABELS[provider];
+}
+
 /** Gemini models with a free tier on the pricing page (2026-11-16). */
 const GEMINI_FREE = new Set([
   "gemini-4-hydrogen",

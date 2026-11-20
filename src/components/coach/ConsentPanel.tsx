@@ -54,18 +54,20 @@ export function ConsentPanel({
           <p className="text-xs font-semibold uppercase tracking-[.14em] text-fitx-primary-text">FITX Coach</p>
           <h2 id="coach-consent-title" className="mt-2 text-[24px] font-bold leading-tight tracking-[-.03em] text-fitx-text sm:text-[28px]">Coaching built on your own numbers</h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-fitx-text-secondary">
-            The coach uses free AI services to answer your questions. FITX checks every food it suggests against its nutrition data, and every exercise against its exercise library.
+            Free AI services answer. FITX checks every food against its nutrition data and every exercise against its library.
           </p>
-          <ul className="mt-5 grid gap-3 sm:grid-cols-3">
+          <ul className="mt-5 grid gap-x-5 gap-y-3 sm:grid-cols-3">
             {[
               { icon: MessageCircle, title: "Ask anything", text: "Training, food and recovery questions" },
               { icon: Utensils, title: "Meal plans", text: minor ? "Not available under 18" : ageMissing ? "Need your age in Profile first" : "Planned around your diet, allergies and budget. Check labels too" },
               { icon: Dumbbell, title: "Workouts", text: minor ? "Not available under 18" : ageMissing ? "Need your age in Profile first" : "Only exercises you can do with your kit" },
             ].map(({ icon: Icon, title, text }) => (
-              <li key={title} className="rounded-lg border border-fitx-border bg-fitx-surface-variant/60 p-3">
-                <Icon size={18} aria-hidden="true" className="text-fitx-primary" />
-                <p className="mt-2 text-sm font-semibold text-fitx-text">{title}</p>
-                <p className="mt-0.5 text-xs leading-5 text-fitx-text-secondary">{text}</p>
+              <li key={title} className="flex gap-3 sm:block">
+                <Icon size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-primary" />
+                <span className="block sm:mt-2">
+                  <span className="block text-sm font-semibold text-fitx-text">{title}</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-fitx-text-secondary">{text}</span>
+                </span>
               </li>
             ))}
           </ul>

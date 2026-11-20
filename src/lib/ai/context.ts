@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { estimateNutritionTargets } from "@/lib/domain/nutrition";
-import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, normalizeDietType, profileAge, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
+import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, NUTRITION_FOCUS_OPTIONS, normalizeDietType, optionLabel, profileAge, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
+import { normalizePreferences, normalizeProfile, targetsFor } from "@/lib/domain/user-context";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { isCountedSession, loadLibraryMuscles, regionsTrained, summariseMuscles, type LoggedSession } from "@/lib/training/muscle-history";
@@ -61,6 +61,10 @@ export type MemberFacts = {
   sessionMinutes: number;
   split: string;
   recentMuscles: string[];
+  /** Whether the summary carries where meals come from and the nutrition goal (FOOD_HABITS_IN_SUMMARY). */
+  foodHabitsShared: boolean;
+  /** "High protein", "Balanced diet" or "No specific preference", when answered. */
+  nutritionGoal: string | null;
 };
 
 export type CoachContext = { facts: MemberFacts; summary: Record<string, unknown> };
@@ -200,11 +204,22 @@ async function recentMusclesFrom(supabase: Db, userId: string, sessions: Array<{
   return regionsTrained(summariseMuscles(logged, { start: new Date(since), end: null }));
 }
 
-export function buildCoachContext(sources: ContextSources, now = new Date()): CoachContext {
+/**
+ * Where meals come from and the nutrition goal (onboarding v3) go to the coach in the summary and the meal-plan
+ * rules: the privacy page's AI coach section and the consent list name them ("where your meals come from" and
+ * "your nutrition goal"). Turning this off keeps them for the quick prompts and the protein target only.
+ */
+export const FOOD_HABITS_IN_SUMMARY = true;
+
+export function buildCoachContext(sources: ContextSources, now = new Date(), options: { foodHabits?: boolean } = {}): CoachContext {
   const prefs = sources.preferences ?? {};
   const profile = sources.profile ?? {};
   const timeZone = validTimeZone(text(prefs.timezone)) ?? "UTC";
   const today = localDate(now, timeZone);
+  // Profile's own readers (user-context.ts), so the daily targets match Home, Nutrition and Profile.
+  const memberProfile = normalizeProfile(sources.profile, new Date(`${today}T12:00:00`));
+  const memberPrefs = normalizePreferences(sources.preferences).values;
+  const answered = (key: string) => prefs[key] !== null && prefs[key] !== undefined && prefs[key] !== "";
 
   // From the birth date on the member's own date: the stored age is only refreshed when the profile is saved.
   const age = integer(profileAge(profile, today), 13, 100);
@@ -218,8 +233,8 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const goal = text(prefs.primary_goal) ?? "general_fitness";
   const activity = text(prefs.activity_level) ?? "moderate";
   const floor = calorieFloor(sex);
-  // The shared target rules (they also cover weight_gain and weight_loss once onboarding v2 lands).
-  const estimated = minor ? null : estimateNutritionTargets({ age, gender: sex, height, weight }, activity, goal);
+  // The shared target rules, as Home and Nutrition work them out (targetsFor: goal, activity and nutrition goal).
+  const estimated = minor || !memberProfile ? null : targetsFor({ ...memberProfile, age, gender: sex, height }, memberPrefs, weight);
   const target = estimated ? { ...estimated, calories: Math.max(estimated.calories, floor) } : null;
 
   // Onboarding v2 keeps the diet in diet_type plus food_rules. The first onboarding's labels
@@ -237,6 +252,8 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const focus = prefs.nutrition_focus;
   const nutritionFocus: MemberFacts["nutritionFocus"] = focus === "high_protein" || focus === "balanced" ? focus : null;
   const equipment = [...new Set(list(prefs.equipment).map((item) => normalizeEquipment(String(item))).filter(Boolean))].slice(0, 20);
+  const foodHabits = options.foodHabits ?? FOOD_HABITS_IN_SUMMARY;
+  const nutritionGoal = answered("nutrition_focus") ? optionLabel(NUTRITION_FOCUS_OPTIONS, memberPrefs.nutrition_focus) : null;
 
   const facts: MemberFacts = {
     age,
@@ -259,6 +276,8 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
     sessionMinutes: integer(prefs.session_duration_minutes, 15, 180) ?? 45,
     split: text(prefs.workout_split) ?? "full_body",
     recentMuscles: sources.recentMuscles.slice(0, 12),
+    foodHabitsShared: foodHabits,
+    nutritionGoal,
   };
 
   const summary: Record<string, unknown> = {
@@ -287,8 +306,8 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
       diet: describeDiet(diet),
       allergies: describeAllergies(allergies),
       meals_per_day: integer(prefs.meals_per_day, 1, 8),
-      meals_from: foodSource ? FOOD_SOURCE_TEXT[foodSource] : null,
-      nutrition_focus: nutritionFocus ? humanize(nutritionFocus) : null,
+      meals_from: foodHabits && foodSource ? FOOD_SOURCE_TEXT[foodSource] : null,
+      nutrition_focus: foodHabits && nutritionFocus ? humanize(nutritionFocus) : null,
       budget,
       cuisines: shortList(prefs.cuisines, 6, 30).map(humanize),
       dislikes: shortList(prefs.food_dislikes ?? prefs.disliked_foods, 10, 30),
@@ -313,7 +332,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
       .map((goalRow) => compact({
         title: cleanText(goalRow.title, 80),
         category: cleanText(goalRow.category, 20),
-        progress: `${round1(Number(goalRow.current_value ?? 0))} of ${round1(Number(goalRow.target_value ?? 0))}${goalRow.unit ? ` ${cleanText(goalRow.unit, 12)}` : ""}`,
+        progress: goalProgressText(goalRow),
         due: dateOnly(goalRow.due_on),
       })),
     next_7_days: {
@@ -322,6 +341,14 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
     },
   };
   return { facts, summary };
+}
+
+/** "1 of 4 kg"; an unknown value is said to be unknown, never counted as 0. */
+function goalProgressText(goal: ContextSources["goals"][number]): string | null {
+  const known = (value: unknown) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+  if (!known(goal.target_value)) return null;
+  const unit = goal.unit ? ` ${cleanText(goal.unit, 12) ?? ""}`.trimEnd() : "";
+  return `${known(goal.current_value) ? round1(Number(goal.current_value)) : "unknown"} of ${round1(Number(goal.target_value))}${unit}`;
 }
 
 function nutritionSummary(meals: ContextSources["meals"], today: string) {
@@ -346,6 +373,8 @@ function nutritionSummary(meals: ContextSources["meals"], today: string) {
       }
     : null;
   const todayTotal = byDay.get(today);
+  // A food logged without a calorie or protein value is left out of the totals, and the summary says how many.
+  const missing = (field: "calories" | "protein") => inWeek.filter((meal) => meal[field] === null || meal[field] === undefined).length;
   const counts = new Map<string, number>();
   for (const meal of inWeek) {
     const name = cleanText(meal.food_name, 40);
@@ -357,7 +386,9 @@ function nutritionSummary(meals: ContextSources["meals"], today: string) {
     by_day: logged.map(([date, day]) => ({ date, kcal: Math.round(day.calories), protein_g: round1(day.protein) })),
     today: todayTotal
       ? { kcal: Math.round(todayTotal.calories), protein_g: round1(todayTotal.protein), carbs_g: round1(todayTotal.carbs), fat_g: round1(todayTotal.fat), items_logged: inWeek.filter((meal) => meal.date === today).length }
-      : { kcal: 0, items_logged: 0 },
+      : { items_logged: 0 },
+    ...(missing("calories") ? { foods_without_calories: missing("calories") } : {}),
+    ...(missing("protein") ? { foods_without_protein: missing("protein") } : {}),
     most_logged_foods: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name]) => name),
   };
 }
