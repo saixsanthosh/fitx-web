@@ -93,12 +93,12 @@ export function SectionCard({
 }
 
 export function DetailList({ children }: { children: ReactNode }) {
-  return <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">{children}</dl>;
+  return <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:gap-x-8">{children}</dl>;
 }
 
 export function Detail({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
   return (
-    <div className={`min-w-0 ${wide ? "sm:col-span-2" : ""}`}>
+    <div className={`min-w-0 ${wide ? "col-span-2" : ""}`}>
       <dt className="text-xs text-fitx-text-secondary">{label}</dt>
       <dd className="mt-1 text-[15px] font-medium text-fitx-text">{children}</dd>
     </div>

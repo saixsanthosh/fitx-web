@@ -74,6 +74,7 @@ export const flow = {
     });
 
     await t.step("a theme choice is saved to the account and kept after reload", async () => {
+      await t.goto("/settings", { label: "settings theme" });
       await page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Theme" }) }).locator("label").filter({ hasText: "Dark" }).click();
       await page.getByText("Saved. Your other devices will use it too.").waitFor({ timeout: 15000 });
       t.expect((await page.evaluate(() => document.documentElement.getAttribute("data-theme"))) === "dark", "the page should switch to dark at once");

@@ -38,7 +38,8 @@ export function SettingsAppearance() {
 
   return (
     <SettingsGroup id="settings-appearance" title="Appearance">
-      <fieldset className="py-4">
+      <div className="py-4">
+      <fieldset>
         <legend className="text-sm font-medium text-fitx-text">Theme</legend>
         <div className="mt-3 grid grid-cols-3 gap-2">
           {OPTIONS.map(({ value, label, icon: Icon }) => (
@@ -51,8 +52,9 @@ export function SettingsAppearance() {
             </label>
           ))}
         </div>
-        <p role="status" aria-live="polite" className="m-0 mt-2 min-h-5 text-xs text-fitx-text-secondary">{message}</p>
       </fieldset>
+      <p role="status" aria-live="polite" className="m-0 mt-2 min-h-5 text-xs text-fitx-text-secondary">{message}</p>
+      </div>
       <SettingsRow label="Intro film">
         <IntroReplayControl className="inline-flex min-h-11 items-center rounded-full border border-fitx-border px-4 text-sm font-semibold text-fitx-text transition-colors hover:bg-fitx-hover motion-reduce:transition-none" />
       </SettingsRow>

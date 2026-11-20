@@ -246,8 +246,8 @@ export default function ExerciseLibraryPage() {
         title="Exercise library"
         meta={exercises ? `${exercises.length.toLocaleString()} exercises` : undefined}
         actions={<>
-          <Link href={browseByMuscleHref(state)} className="fitx-button fitx-button-secondary min-h-11 px-3.5"><PersonStanding size={16} aria-hidden="true" />Browse by muscle</Link>
-          <Link href="/workouts" className="fitx-button min-h-11 px-3.5">Build a workout<ArrowRight size={15} aria-hidden="true" /></Link>
+          <Link href={browseByMuscleHref(state)} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm"><PersonStanding size={16} aria-hidden="true" />Browse by muscle</Link>
+          <Link href="/workouts" className="fitx-button min-h-11 px-3.5 text-sm">Build a workout<ArrowRight size={15} aria-hidden="true" /></Link>
         </>}
         className="mb-5 sm:mb-7"
       />
@@ -281,7 +281,7 @@ export default function ExerciseLibraryPage() {
             const on = levelChoice === level;
             return (
               <button key={level ?? "all"} type="button" aria-pressed={on} onClick={() => navigate(withQuickLevel(state, level))}
-                className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm transition-colors motion-reduce:transition-none ${on ? "border-fitx-strong bg-fitx-strong font-semibold text-fitx-on-strong" : "border-fitx-border bg-fitx-surface text-fitx-text-secondary hover:text-fitx-text"}`}>
+                className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm transition-colors motion-reduce:transition-none ${on ? "border-fitx-primary bg-fitx-primary/10 font-semibold text-fitx-primary-text" : "border-fitx-border bg-fitx-surface text-fitx-text-secondary hover:text-fitx-text"}`}>
                 {level ? LEVEL_LABELS[level] : "All levels"}
               </button>
             );

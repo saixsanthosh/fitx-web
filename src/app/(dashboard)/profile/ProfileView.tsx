@@ -299,7 +299,11 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
             </div>
           )}
           <p className="mt-2 text-[15px] font-medium text-fitx-text">{[goal, experience].filter(Boolean).join(" · ")}</p>
-          <p className="mt-1 break-all text-sm text-fitx-text-secondary">{[data.email, memberSince ? `Since ${memberSince}` : null].filter(Boolean).join(" · ")}</p>
+          <p className="mt-1 text-sm text-fitx-text-secondary">
+            {data.email && <span className="break-all">{data.email}</span>}
+            {data.email && memberSince && <span aria-hidden="true"> · </span>}
+            {memberSince && <span className="whitespace-nowrap">Since {memberSince}</span>}
+          </p>
           {(uploadedPhoto || storedAvatar) && (
             <div className="mt-2 flex flex-wrap gap-x-1">
               {uploadedPhoto && (
