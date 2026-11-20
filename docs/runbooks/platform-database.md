@@ -1287,14 +1287,15 @@ website information (support email, Instagram). Members and visitors may read it
 every feature on when it cannot read it. `member_notifications` holds notices sent to chosen accounts: each member
 reads and dismisses only their own, sees neither who sent them nor the batch, and the database stamps the dismissal
 itself. Help requests gain a Complaint category and staff unread tracking (`staff_seen_at`, `staff_unread`, both
-hidden from members). Adds the Admin account search v2, the Dashboard extras and the Security summary. Every function
+hidden from members). Adds the Admin account search v2, a lookup of pasted recipient emails in one call, the
+Dashboard extras and the Security summary. Every function
 is for the server key only. It adds one settings row with everything on and changes no other row.
 
 ```sql
--- Check 20261121100033: expect 1, t, 10, t, t
+-- Check 20261121100033: expect 1, t, 11, t, t
 select (select count(*) from public.platform_settings) as settings_rows,
        to_regclass('public.member_notifications') is not null as notices,
-       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('fitx_admin_op_save_platform_settings','fitx_admin_op_send_notifications','fitx_admin_notification_history','fitx_admin_op_support_mark_seen','fitx_admin_support_inbox','fitx_admin_search_users_v2','fitx_admin_overview_extras','fitx_admin_security_overview','fitx_support_staff_seen','fitx_member_notification_dismiss_guard')) as functions,
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('fitx_admin_op_save_platform_settings','fitx_admin_op_send_notifications','fitx_admin_notification_history','fitx_admin_find_users_by_emails','fitx_admin_op_support_mark_seen','fitx_admin_support_inbox','fitx_admin_search_users_v2','fitx_admin_overview_extras','fitx_admin_security_overview','fitx_support_staff_seen','fitx_member_notification_dismiss_guard')) as functions,
        exists (select 1 from information_schema.columns where table_schema='public' and table_name='support_requests' and column_name='staff_unread') as unread_column,
        (select pg_get_constraintdef(oid) ilike '%complaint%' from pg_constraint where conrelid='public.support_requests'::regclass and conname='support_requests_category_check') as complaints;
 ```
@@ -1440,6 +1441,7 @@ drop trigger if exists member_notifications_dismiss_guard on public.member_notif
 drop function if exists public.fitx_admin_op_save_platform_settings(uuid, jsonb, jsonb, jsonb, timestamptz);
 drop function if exists public.fitx_admin_op_send_notifications(uuid, uuid[], text, text, text, text, text);
 drop function if exists public.fitx_admin_notification_history(integer);
+drop function if exists public.fitx_admin_find_users_by_emails(text[]);
 drop function if exists public.fitx_admin_op_support_mark_seen(uuid, uuid);
 drop function if exists public.fitx_admin_support_inbox();
 drop function if exists public.fitx_admin_search_users_v2(text, text, text, text, integer, integer);

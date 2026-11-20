@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/admin-auth";
+import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { validateAnnouncement } from "@/lib/announcement-input";
 import { NOTICE_MAX_RECIPIENTS, NOTICE_MAX_TYPED, parseRecipients } from "@/components/notifications/notice-rules";
 import { publishAnnouncement, resolveRecipients, sendNotice } from "@/lib/data/notifications";
@@ -39,6 +39,7 @@ export async function sendNotification(_previous: NoticeFormState, formData: For
   if (!checked.ok) return { error: checked.error };
 
   if (audience === "everyone") {
+    if (formData.get("confirm_everyone") !== "yes") return { error: "Tick the confirmation box first." };
     const published = await publishAnnouncement(actor, checked.value);
     if (!published.ok) {
       return { error: published.error === "forbidden" ? "Your role cannot send to everyone." : published.error === "migration" ? `This needs migration ${MIGRATIONS.adminV2}.` : published.error === "configuration" ? "Server data access is not configured." : "Nothing was sent. The server log has the details." };
@@ -51,9 +52,11 @@ export async function sendNotification(_previous: NoticeFormState, formData: For
   const list = parseRecipients(formData.get("recipients"));
   if (list.invalid.length) return { error: `Not an email or account ID: ${list.invalid.slice(0, 3).join(", ")}${list.invalid.length > 3 ? "…" : ""}` };
   if (!list.ids.length && !list.emails.length) return { error: "Add at least one email or account ID." };
+  // Looking an email up tells whether it has a FITX account, which only roles that may see accounts can learn.
+  if (list.emails.length && !hasPermission(actor, "people.view")) return { error: "Your role can send to account IDs only." };
   if (list.emails.length > NOTICE_MAX_TYPED) return { error: `Paste at most ${NOTICE_MAX_TYPED} emails, or select the accounts on Users.` };
   const resolved = await resolveRecipients(list);
-  if (!resolved.ok) return { error: resolved.error === "configuration" ? "Server data access is not configured." : "The emails could not be looked up. Try again." };
+  if (!resolved.ok) return { error: resolved.error === "configuration" ? "Server data access is not configured." : resolved.error === "forbidden" ? "Your role can send to account IDs only." : "The emails could not be looked up. Try again." };
   if (resolved.unknown.length) return { error: `No FITX account uses ${resolved.unknown.slice(0, 3).join(", ")}${resolved.unknown.length > 3 ? "…" : ""}. Nothing was sent.` };
   if (resolved.ids.length > NOTICE_MAX_RECIPIENTS) return { error: `At most ${NOTICE_MAX_RECIPIENTS} accounts at a time.` };
 

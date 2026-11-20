@@ -8,13 +8,28 @@ import { NOTICE_MAX_TYPED, type NoticeAudience } from "./notice-rules";
 import styles from "./notifications.module.css";
 
 /** The composer: who gets it, the words, and a live preview of the banner members will see. */
-export function NoticeForm({ canEveryone, recipients }: { canEveryone: boolean; recipients: string }) {
+export function NoticeForm({ canEveryone, canUseEmails, recipients }: { canEveryone: boolean; canUseEmails: boolean; recipients: string }) {
   const [state, action, pending] = useActionState<NoticeFormState, FormData>(sendNotification, null);
   const [audience, setAudience] = useState<NoticeAudience>(recipients || !canEveryone ? "chosen" : "everyone");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [tone, setTone] = useState<AnnouncementTone>("info");
   const [label, setLabel] = useState("");
+  // After a send the composer starts empty (recipients too), so a second press cannot repeat the same notice.
+  const [prefill, setPrefill] = useState(recipients);
+  const [formKey, setFormKey] = useState(0);
+  const [handled, setHandled] = useState<NoticeFormState>(state);
+  if (state !== handled) {
+    setHandled(state);
+    if (state?.sent) {
+      setTitle("");
+      setBody("");
+      setTone("info");
+      setLabel("");
+      setPrefill("");
+      setFormKey((key) => key + 1);
+    }
+  }
 
   // Submitting through a transition keeps what was typed when the server refuses it.
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -25,7 +40,7 @@ export function NoticeForm({ canEveryone, recipients }: { canEveryone: boolean; 
 
   return (
     <div className={styles.composer}>
-      <form action={action} onSubmit={submit} className="stack-form">
+      <form key={formKey} action={action} onSubmit={submit} className="stack-form">
         <fieldset className={styles.audience}>
           <legend>Send to</legend>
           <label className={styles.choice}>
@@ -38,7 +53,7 @@ export function NoticeForm({ canEveryone, recipients }: { canEveryone: boolean; 
           </label>
         </fieldset>
         {audience === "chosen" && (
-          <label>Recipients<textarea name="recipients" rows={4} required defaultValue={recipients} placeholder="Emails or account IDs, one per line" /><span className="field-note">Up to {NOTICE_MAX_TYPED} emails, or select accounts on Users.</span></label>
+          <label>Recipients<textarea name="recipients" rows={4} required defaultValue={prefill} placeholder={canUseEmails ? "Emails or account IDs, one per line" : "Account IDs, one per line"} /><span className="field-note">{canUseEmails ? `Up to ${NOTICE_MAX_TYPED} emails, or select accounts on Users.` : "Your role can send to account IDs only."}</span></label>
         )}
         <label>Title<input name="title" required minLength={3} maxLength={ANNOUNCEMENT_LIMITS.title} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <label>Message<textarea name="body" required maxLength={ANNOUNCEMENT_LIMITS.body} rows={4} value={body} onChange={(event) => setBody(event.target.value)} /></label>
@@ -53,6 +68,7 @@ export function NoticeForm({ canEveryone, recipients }: { canEveryone: boolean; 
             <label>Show until (IST)<input type="datetime-local" name="ends_at" /></label>
           </div>
         )}
+        {audience === "everyone" && <label className="check-label"><input type="checkbox" name="confirm_everyone" value="yes" required />Show to every signed-in member</label>}
         {state?.error && <p role="alert" className="form-error">{state.error}</p>}
         {state?.sent && <p role="status" className="inline-notice notice-success">{state.sent}</p>}
         <button className="primary-button" type="submit" disabled={pending}>

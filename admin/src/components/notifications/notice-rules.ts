@@ -3,7 +3,7 @@
 
 /** The database's limit per send. */
 export const NOTICE_MAX_RECIPIENTS = 500;
-/** Emails are looked up one by one, so a pasted list is capped lower; pick larger groups on Users. */
+/** Pasted emails are looked up before sending, so a pasted list is capped lower; pick larger groups on Users. */
 export const NOTICE_MAX_TYPED = 100;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

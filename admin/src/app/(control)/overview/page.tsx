@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { BarChart, Feed, Kpi, PageHead, Panel, SplitBar, consoleStyles as ui } from "@/components/console/ui";
-import { halfChange } from "@/components/console/chart-math";
+import { dailyAverageHint } from "@/components/console/chart-math";
 import { ModuleState } from "@/components/module-state";
 import { CountUp } from "@/components/motion/count-up";
 import { ADMIN_OPS_MIGRATION } from "@/components/settings/settings-rules";
 import { METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { auditActionLabel } from "@/lib/audit-catalog";
+import { READ_ONLY_AUDIT_ACTIONS } from "@/lib/audit-catalog-core";
 import { recentAuditEvents } from "@/lib/data/audit";
 import { getOverviewExtras, getOverviewTrends, getPlatformMetrics, getSupportCounts, type TrendDay } from "@/lib/data/metrics";
 import { MIGRATIONS } from "@/lib/schema";
@@ -36,12 +37,6 @@ function series(days: TrendDay[], key: keyof Omit<TrendDay, "day">) {
   return days.map((day) => ({ label: formatShortDay(day.day), value: day[key] }));
 }
 
-function change(values: number[]): string | undefined {
-  const delta = halfChange(values);
-  if (delta === null) return undefined;
-  return delta === 0 ? "Level with the 15 days before" : `${delta > 0 ? "+" : "−"}${Math.abs(delta).toLocaleString("en-IN")} on the 15 days before`;
-}
-
 export default async function OverviewPage() {
   const admin = await requireAdmin("overview.view");
   const canSupport = hasPermission(admin, "support.view");
@@ -51,7 +46,7 @@ export default async function OverviewPage() {
     getOverviewExtras(),
     getOverviewTrends(30),
     canSupport ? getSupportCounts() : Promise.resolve(null),
-    canAudit ? recentAuditEvents({ limit: 8, permission: "audit.view" }) : Promise.resolve(null),
+    canAudit ? recentAuditEvents({ limit: 8, excludeActions: READ_ONLY_AUDIT_ACTIONS, permission: "audit.view" }) : Promise.resolve(null),
   ]);
   const days = trends.state === "ready" ? trends.days : [];
   const metrics = result.state === "ready" ? result.metrics : null;
@@ -100,7 +95,7 @@ export default async function OverviewPage() {
             <h2 id="active-title" className="sr-only">Active users</h2>
             <div className={`${ui.kpiGrid} ${ui.stagger}`}>
               <Kpi label="Active today" value={metrics.active_24h} hint="Last 24 hours" accent />
-              <Kpi label="Active, 30 days" value={metrics.active_30d} hint={change(days.map((day) => day.active_accounts))} trend={days.map((day) => day.active_accounts)} />
+              <Kpi label="Active, 30 days" value={metrics.active_30d} hint={dailyAverageHint(days.map((day) => day.active_accounts))} trend={days.map((day) => day.active_accounts)} />
               <Kpi label="Signed in, 24 hours" value={metrics.signed_in_24h} hint={`${metrics.signed_in_7d.toLocaleString("en-IN")} in 7 days`} />
               <Kpi label="Signed in, 30 days" value={metrics.signed_in_30d} hint="Fresh sign-ins only" />
             </div>

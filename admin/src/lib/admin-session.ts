@@ -237,6 +237,8 @@ export type AdminSessionRow = {
   id: string;
   operatorId: string;
   username: string | null;
+  /** The session belongs to the root operator (the owner): only the owner may end it. */
+  ownerIsRoot: boolean;
   createdAt: string;
   lastSeenAt: string;
   revokedAt: string | null;
@@ -253,7 +255,7 @@ export async function listAdminSessions({ operatorId, activeOnly = false, limit 
   if (!admin) return { state: "service_key_missing" };
   let query = admin
     .from("admin_web_sessions")
-    .select("id,operator_id,created_at,last_seen_at,revoked_at,revoked_reason,user_agent,admin_operators(username)")
+    .select("id,operator_id,created_at,last_seen_at,revoked_at,revoked_reason,user_agent,admin_operators(username,is_root)")
     .order("created_at", { ascending: false })
     .limit(Math.min(Math.max(Math.trunc(limit) || 1, 1), 200));
   if (operatorId) query = query.eq("operator_id", operatorId);
@@ -268,13 +270,14 @@ export async function listAdminSessions({ operatorId, activeOnly = false, limit 
   const sessions = (data ?? []).map((raw) => {
     const row = raw as unknown as {
       id: string; operator_id: string; created_at: string; last_seen_at: string; revoked_at: string | null; revoked_reason: string | null;
-      user_agent: string | null; admin_operators: { username: string } | Array<{ username: string }> | null;
+      user_agent: string | null; admin_operators: { username: string; is_root: boolean } | Array<{ username: string; is_root: boolean }> | null;
     };
     const owner = Array.isArray(row.admin_operators) ? row.admin_operators[0] : row.admin_operators;
     return {
       id: row.id,
       operatorId: row.operator_id,
       username: owner?.username ?? null,
+      ownerIsRoot: Boolean(owner?.is_root),
       createdAt: row.created_at,
       lastSeenAt: row.last_seen_at,
       revokedAt: row.revoked_at,

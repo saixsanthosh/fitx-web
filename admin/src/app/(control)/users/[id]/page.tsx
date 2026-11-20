@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Notice, Panel, consoleStyles as ui } from "@/components/console/ui";
-import { formatPhone, methodLabels, METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
+import { deleteConfirmation, formatPhone, methodLabels, METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
 import styles from "@/components/users/users.module.css";
 import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -34,7 +34,7 @@ const notices: Record<string, { tone: "success" | "error"; text: string }> = {
   reset_failed: { tone: "error", text: "Supabase did not send the email. Its email rate limit may have been reached; try again later." },
   reason_required: { tone: "error", text: "Give a reason of 3 to 200 characters. It is kept in the audit log." },
   billing_active: { tone: "error", text: "Nothing was deleted: Razorpay is still billing this account's FITX subscription. Ask the person to cancel it on the Subscription page in FITX, or cancel it in the Razorpay dashboard, then try again." },
-  confirm_mismatch: { tone: "error", text: "The email you typed does not match this account, so nothing was deleted." },
+  confirm_mismatch: { tone: "error", text: "What you typed does not match this account, so nothing was deleted." },
   audit_migration: { tone: "error", text: `Nothing was changed: account actions are recorded first, and the audit function needs migration ${MIGRATIONS.adminV2}.` },
   audit_failed: { tone: "error", text: "Nothing was changed because the audit log could not record the action." },
   people_migration: { tone: "error", text: `Signing out everywhere needs migration ${MIGRATIONS.people}.` },
@@ -65,6 +65,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
   const resetEnabled = process.env.FITX_ADMIN_PASSWORD_RESET_EMAILS === "on";
   const message = notice ? notices[notice] : undefined;
   const title = person.email ?? formatPhone(person.phone) ?? "No email or phone";
+  const deleteCheck = deleteConfirmation(person);
   const plan = subscriptionLabel(person.subscriptionStatus, person.premium);
 
   return (
@@ -170,8 +171,8 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
             <form action={deleteAccount} className="stack-form">
               <input type="hidden" name="userId" value={person.id} />
               <label>Reason (audit log)<input name="reason" required minLength={3} maxLength={200} /></label>
-              <label>Type the account email to confirm<input name="confirmEmail" required autoComplete="off" placeholder={person.email ?? ""} /></label>
-              <button className="danger-button" type="submit" disabled={!person.email}>Delete permanently</button>
+              <label>{deleteCheck.label}<input name="confirmEmail" required autoComplete="off" placeholder={deleteCheck.expected} /></label>
+              <button className="danger-button" type="submit">Delete permanently</button>
             </form>
           </article>
         )}

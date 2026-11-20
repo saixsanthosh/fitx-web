@@ -84,6 +84,8 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
           <div className="table-scroll"><table><thead><tr><th>Operator</th><th>Browser</th><th>Signed in</th><th>Last seen</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
             {sessions.sessions.map((session) => {
               const own = session.operatorId === actor.id;
+              // Only the owner may end the owner's sessions, so other operators never see those buttons.
+              const canEndOthers = manage && !own && (!session.ownerIsRoot || actor.isRoot);
               return (
                 <tr key={session.id}>
                   <td><strong>{session.username ?? "–"}</strong>{session.isCurrent && <small className="table-subline">This browser</small>}</td>
@@ -92,8 +94,8 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
                   <td>{formatIstDateTime(session.lastSeenAt) ?? "–"}</td>
                   <td>
                     <div className="pagination-actions">
-                      {!session.isCurrent && (own || manage) && <form action={endSession}><input type="hidden" name="sessionId" value={session.id} /><button className="quiet-button" type="submit">End</button></form>}
-                      {manage && !own && <form action={endOperatorSessions}><input type="hidden" name="operatorId" value={session.operatorId} /><button className="quiet-button" type="submit">End all</button></form>}
+                      {!session.isCurrent && (own || canEndOthers) && <form action={endSession}><input type="hidden" name="sessionId" value={session.id} /><button className="quiet-button" type="submit">End</button></form>}
+                      {canEndOthers && <form action={endOperatorSessions}><input type="hidden" name="operatorId" value={session.operatorId} /><button className="quiet-button" type="submit">End all</button></form>}
                     </div>
                   </td>
                 </tr>

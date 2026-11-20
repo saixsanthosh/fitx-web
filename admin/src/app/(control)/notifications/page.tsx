@@ -27,7 +27,7 @@ export default async function NotificationsPage({ searchParams }: { searchParams
     <div className="page-stack">
       <PageHead eyebrow="Notifications" title="Send" meta="Shown in the app's banner until dismissed" />
       <Panel title="New notice" className={ui.rise}>
-        <NoticeForm canEveryone={canEveryone} recipients={recipientsFromQuery(firstParam(params.to))} />
+        <NoticeForm canEveryone={canEveryone} canUseEmails={hasPermission(actor, "people.view")} recipients={recipientsFromQuery(firstParam(params.to))} />
       </Panel>
 
       <div className={ui.columns}>

@@ -71,3 +71,24 @@ export function halfChange(values: readonly number[]): number | null {
   const newer = values.slice(values.length - half).reduce((sum, value) => sum + value, 0);
   return newer - older;
 }
+
+/**
+ * The average per day of each half of a daily series (newer and older), or null when too short. Use this for
+ * daily counts of distinct accounts: summing them counts account-days, which is not comparable to a headline
+ * count of distinct accounts.
+ */
+export function halfAverages(values: readonly number[]): { newer: number; older: number } | null {
+  if (values.length < 4) return null;
+  const half = Math.floor(values.length / 2);
+  const mean = (part: readonly number[]) => part.reduce((sum, value) => sum + value, 0) / part.length;
+  return { newer: mean(values.slice(values.length - half)), older: mean(values.slice(0, half)) };
+}
+
+/** "Avg 7.3 a day, 6.1 the 15 days before", from a daily series; undefined when too short. */
+export function dailyAverageHint(values: readonly number[]): string | undefined {
+  const averages = halfAverages(values);
+  if (!averages) return undefined;
+  const half = Math.floor(values.length / 2);
+  const format = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
+  return `Avg ${format(averages.newer)} a day, ${format(averages.older)} the ${half} days before`;
+}

@@ -1,6 +1,6 @@
 .tabs { position: relative; display: flex; gap: 6px; overflow-x: auto; padding: 12px 16px 0; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
-.tab { display: inline-flex; min-height: 40px; flex: 0 0 auto; align-items: center; gap: 8px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-soft); font-size: 13px; font-weight: 650; text-decoration: none; }
+.tab { display: inline-flex; min-height: 44px; flex: 0 0 auto; align-items: center; gap: 8px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-soft); font-size: 13px; font-weight: 650; text-decoration: none; }
 .tab:hover { border-color: var(--line-strong); color: var(--ink); }
 .tab[aria-current="page"] { border-color: var(--ink); background: var(--ink); color: var(--surface); }
 .tab b { font-variant-numeric: tabular-nums; }

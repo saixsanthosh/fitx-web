@@ -50,24 +50,45 @@ export async function listNoticeHistory(limit = 50): Promise<NoticeHistoryResult
   };
 }
 
-export type ResolvedRecipients = { ok: true; ids: string[]; unknown: string[] } | { ok: false; error: "too_many" | "lookup_failed" | "configuration" };
+export type ResolvedRecipients = { ok: true; ids: string[]; unknown: string[] } | { ok: false; error: "too_many" | "lookup_failed" | "configuration" | "forbidden" };
 
-/** Account IDs for a pasted list: IDs as given, emails looked up one by one (at most NOTICE_MAX_TYPED). */
+/**
+ * Account IDs for a pasted list: IDs as given, emails looked up in one call (at most NOTICE_MAX_TYPED).
+ * Emails need people.view as well, since a lookup shows whether an address has an account. Before the
+ * set-based lookup exists, emails are looked up one by one.
+ */
 export async function resolveRecipients(list: RecipientList): Promise<ResolvedRecipients> {
-  await requireAdmin("notifications.send");
+  const actor = await requireAdmin("notifications.send");
   if (list.emails.length > NOTICE_MAX_TYPED) return { ok: false, error: "too_many" };
+  if (list.emails.length && !hasPermission(actor, "people.view")) return { ok: false, error: "forbidden" };
+  const ids = new Set(list.ids);
+  if (!list.emails.length) return { ok: true, ids: [...ids], unknown: [] };
   const admin = createAdminSupabase();
   if (!admin) return { ok: false, error: "configuration" };
-  const ids = new Set(list.ids);
+  const found = new Map<string, string>();
+  const bulk = await admin.rpc("fitx_admin_find_users_by_emails", { p_emails: list.emails });
+  if (!bulk.error) {
+    for (const row of (Array.isArray(bulk.data) ? bulk.data : []) as Array<{ email?: unknown; user_id?: unknown }>) {
+      if (typeof row.email === "string" && row.user_id) found.set(row.email.toLowerCase(), String(row.user_id));
+    }
+  } else if (isMissingFunction(bulk.error)) {
+    for (const email of list.emails) {
+      const { data, error } = await admin.rpc("fitx_admin_find_user_by_email", { p_email: email });
+      if (error) {
+        if (!isMissingFunction(error)) logServerError("data.notice_lookup", error);
+        return { ok: false, error: "lookup_failed" };
+      }
+      const match = (Array.isArray(data) ? data : [])[0] as { user_id?: string } | undefined;
+      if (match?.user_id) found.set(email, String(match.user_id));
+    }
+  } else {
+    logServerError("data.notice_lookup", bulk.error);
+    return { ok: false, error: "lookup_failed" };
+  }
   const unknown: string[] = [];
   for (const email of list.emails) {
-    const { data, error } = await admin.rpc("fitx_admin_find_user_by_email", { p_email: email });
-    if (error) {
-      if (!isMissingFunction(error)) logServerError("data.notice_lookup", error);
-      return { ok: false, error: "lookup_failed" };
-    }
-    const match = (Array.isArray(data) ? data : [])[0] as { user_id?: string } | undefined;
-    if (match?.user_id) ids.add(String(match.user_id));
+    const id = found.get(email);
+    if (id) ids.add(id);
     else unknown.push(email);
   }
   return { ok: true, ids: [...ids], unknown };

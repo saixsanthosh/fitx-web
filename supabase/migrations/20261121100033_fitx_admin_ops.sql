@@ -308,6 +308,29 @@ as $function$
   limit least(greatest(coalesce(p_limit, 50), 1), 200);
 $function$;
 
+-- The FITX account for each of up to 100 email addresses (any letter case), in one call, so a pasted list of
+-- recipients is not looked up one address at a time. Addresses with no account are left out; when two
+-- accounts share an address, the older one is used, as in fitx_admin_find_user_by_email.
+create or replace function public.fitx_admin_find_users_by_emails(p_emails text[])
+returns table (email text, user_id uuid)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $function$
+begin
+  if coalesce(pg_catalog.cardinality(p_emails), 0) > 100 then
+    raise exception using errcode = '22023', message = 'At most 100 emails per call';
+  end if;
+  return query
+    select distinct on (pg_catalog.lower(u.email::text)) pg_catalog.lower(u.email::text), u.id
+    from auth.users u
+    where u.deleted_at is null
+      and pg_catalog.lower(u.email::text) in (select pg_catalog.lower(pg_catalog.btrim(e)) from pg_catalog.unnest(coalesce(p_emails, array[]::text[])) e)
+    order by pg_catalog.lower(u.email::text), u.created_at;
+end;
+$function$;
+
 -- Support inbox -------------------------------------------------------------------------------------------
 
 -- Complaints get their own category, next to questions, problems, feedback, account and other.
@@ -635,6 +658,7 @@ revoke all on function public.fitx_admin_op_save_platform_settings(uuid, jsonb, 
 revoke all on function public.fitx_member_notification_dismiss_guard() from public, anon, authenticated;
 revoke all on function public.fitx_admin_op_send_notifications(uuid, uuid[], text, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.fitx_admin_notification_history(integer) from public, anon, authenticated;
+revoke all on function public.fitx_admin_find_users_by_emails(text[]) from public, anon, authenticated;
 revoke all on function public.fitx_support_staff_seen() from public, anon, authenticated;
 revoke all on function public.fitx_admin_op_support_mark_seen(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.fitx_admin_support_inbox() from public, anon, authenticated;
@@ -645,6 +669,7 @@ revoke all on function public.fitx_admin_security_overview() from public, anon, 
 grant execute on function public.fitx_admin_op_save_platform_settings(uuid, jsonb, jsonb, jsonb, timestamptz) to service_role;
 grant execute on function public.fitx_admin_op_send_notifications(uuid, uuid[], text, text, text, text, text) to service_role;
 grant execute on function public.fitx_admin_notification_history(integer) to service_role;
+grant execute on function public.fitx_admin_find_users_by_emails(text[]) to service_role;
 grant execute on function public.fitx_admin_op_support_mark_seen(uuid, uuid) to service_role;
 grant execute on function public.fitx_admin_support_inbox() to service_role;
 grant execute on function public.fitx_admin_search_users_v2(text, text, text, text, integer, integer) to service_role;

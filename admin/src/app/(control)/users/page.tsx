@@ -104,7 +104,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
               <table>
                 <thead>
                   <tr>
-                    {bulk && <th className={styles.check}><span className={styles.checkLabel}><SelectAll form="bulk-users" /></span></th>}
+                    {bulk && <th className={styles.check}><label className={styles.checkLabel}><SelectAll form="bulk-users" /></label></th>}
                     <th>Account</th><th>Signs in with</th><th>Status</th><th>Plan</th><th>Joined</th><th>Last sign-in</th>
                   </tr>
                 </thead>

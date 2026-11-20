@@ -90,3 +90,24 @@ export function formatPhone(phone: string | null | undefined): string | null {
   const digits = phone.replace(/[^0-9]/g, "");
   return digits ? `+${digits}` : null;
 }
+
+export type DeleteConfirmation = { kind: "email" | "phone" | "id"; expected: string; label: string };
+
+/**
+ * What the operator types before deleting an account: its email; for an account with no email, its phone
+ * number; with neither, the first 8 characters of its account ID.
+ */
+export function deleteConfirmation(account: { id: string; email?: string | null; phone?: string | null }): DeleteConfirmation {
+  if (account.email) return { kind: "email", expected: account.email, label: "Type the account email to confirm" };
+  const phone = formatPhone(account.phone);
+  if (phone) return { kind: "phone", expected: phone, label: "Type the account phone number to confirm" };
+  return { kind: "id", expected: account.id.slice(0, 8), label: "Type the first 8 characters of the account ID to confirm" };
+}
+
+/** Whether the typed text confirms deleting this account (letter case, spaces and phone punctuation aside). */
+export function confirmsDeletion(typed: unknown, account: { id: string; email?: string | null; phone?: string | null }): boolean {
+  if (typeof typed !== "string" || !typed.trim()) return false;
+  const { kind, expected } = deleteConfirmation(account);
+  if (kind === "phone") return typed.replace(/[^0-9]/g, "") === expected.slice(1);
+  return typed.trim().toLowerCase() === expected.toLowerCase();
+}

@@ -154,10 +154,10 @@ export async function exportAuditEvents(filters: AuditFilters): Promise<{ state:
 export type RecentAuditResult = { state: "ready"; rows: AuditRow[] } | { state: "service_key_missing" | "migration_pending" | "query_failed" };
 
 /**
- * The newest audit rows, optionally only some actions: recent admin activity on the Dashboard (audit.view)
- * and the Admin sign-in history on Security (security.view).
+ * The newest audit rows, optionally only some actions or leaving some out: recent admin activity on the
+ * Dashboard (audit.view, read-only views left out) and the Admin sign-in history on Security (security.view).
  */
-export async function recentAuditEvents({ limit, actions, permission }: { limit: number; actions?: readonly string[]; permission: "audit.view" | "security.view" }): Promise<RecentAuditResult> {
+export async function recentAuditEvents({ limit, actions, excludeActions, permission }: { limit: number; actions?: readonly string[]; excludeActions?: readonly string[]; permission: "audit.view" | "security.view" }): Promise<RecentAuditResult> {
   await requireAdmin(permission);
   const admin = createAdminSupabase();
   if (!admin) return { state: "service_key_missing" };
@@ -168,6 +168,8 @@ export async function recentAuditEvents({ limit, actions, permission }: { limit:
     .order("id", { ascending: false })
     .limit(Math.min(Math.max(Math.trunc(limit) || 1, 1), 100));
   if (actions?.length) query = query.in("action", [...actions]);
+  const excluded = (excludeActions ?? []).filter((action) => /^[a-z0-9_]+$/.test(action));
+  if (excluded.length) query = query.not("action", "in", `(${excluded.join(",")})`);
   const { data, error } = await query;
   if (error) {
     if (isMissingTable(error)) return { state: "migration_pending" };

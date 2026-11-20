@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin, type AdminOperator } from "@/lib/admin-auth";
 import { logAdminEvent } from "@/lib/audit";
-import { BULK_SUSPEND_MAX, selectedIds } from "@/components/users/people-filters";
+import { BULK_SUSPEND_MAX, confirmsDeletion, selectedIds } from "@/components/users/people-filters";
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
 import { isMissingFunction, isMissingTable, isPermissionError } from "@/lib/schema";
@@ -208,8 +208,8 @@ export async function deleteAccount(formData: FormData) {
 
   const { data, error: lookupError } = await admin.auth.admin.getUserById(id);
   if (lookupError || !data?.user) back(id, "failed");
-  const typed = formData.get("confirmEmail");
-  if (typeof typed !== "string" || !data.user.email || typed.trim().toLowerCase() !== data.user.email.toLowerCase()) back(id, "confirm_mismatch");
+  // The email; for an account without one, its phone number, or else the start of its account ID.
+  if (!confirmsDeletion(formData.get("confirmEmail"), { id, email: data.user.email, phone: data.user.phone })) back(id, "confirm_mismatch");
   // A Google-era Admin membership goes with the account (on delete cascade); it no longer signs anyone in.
   // Razorpay would keep charging a deleted account, so a subscription it still bills is cancelled first.
   const billed = await hasBilledSubscription(admin, id);

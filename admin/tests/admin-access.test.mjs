@@ -105,6 +105,23 @@ test("every page, Server Action and Route Handler under (control) calls requireA
   }
 });
 
+test("every Server Action outside (control) calls requireAdmin too, except the sign-in page's own", async () => {
+  const src = new URL("../src/", import.meta.url);
+  const files = [];
+  for (const name of await readdir(src, { recursive: true })) {
+    if (!/\.(ts|tsx)$/.test(name) || name.startsWith("app/(control)/") || name === "app/login/actions.ts") continue;
+    const source = await readFile(new URL(name, src), "utf8");
+    if (/^\s*["']use server["'];/.test(source)) files.push([name, source]);
+  }
+  assert.ok(files.some(([name]) => name === "components/theme/theme-actions.ts"), "the theme switch's action is scanned");
+  for (const [name, source] of files) {
+    for (const fn of source.matchAll(/export async function (\w+)\(/g)) {
+      const body = source.slice(fn.index, source.indexOf("\n}\n", fn.index));
+      assert.match(body, /await requireAdmin\(/, `${name}: ${fn[1]} must call requireAdmin first`);
+    }
+  }
+});
+
 test("the old Google, allowlist and authenticator sign-in is gone and its addresses redirect to /login", async () => {
   const config = await readFile(new URL("../next.config.ts", import.meta.url), "utf8");
   for (const path of ["/signin", "/auth/callback", "/auth/expired", "/mfa", "/mfa/setup", "/access"]) assert.ok(config.includes(`"${path}"`), path);

@@ -58,3 +58,9 @@ export const CORE_AUDIT_ACTIONS = {
 } as const satisfies Record<string, AuditActionEntry>;
 
 export const CORE_AUDIT_RESOURCE_TYPES = ["admin_session", "admin_member", "admin_operator", "user", "support_request", "announcement", "audit_log", "notification_batch", "platform_settings"] as const;
+
+/**
+ * Audit rows that record a look, not a change: still logged and listed on /audit, but left out of the
+ * Dashboard's "Recent admin activity" so browsing Users or Support does not push real changes off it.
+ */
+export const READ_ONLY_AUDIT_ACTIONS = ["users_listed", "user_viewed", "support_request_read"] as const satisfies readonly (keyof typeof CORE_AUDIT_ACTIONS)[];

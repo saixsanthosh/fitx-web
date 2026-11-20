@@ -101,6 +101,17 @@ test("charts: bars, sparklines and shares from counts", () => {
   assert.equal(charts.halfChange([1, 2]), null);
 });
 
+test("charts: daily active accounts compare as averages a day, never as summed account-days", () => {
+  // Ten members active every day for 30 days: 10 a day in both halves, not "+150".
+  const steady = Array.from({ length: 30 }, () => 10);
+  assert.deepEqual(charts.halfAverages(steady), { newer: 10, older: 10 });
+  assert.equal(charts.dailyAverageHint(steady), "Avg 10 a day, 10 the 15 days before");
+  const rising = [...Array.from({ length: 15 }, () => 6), ...Array.from({ length: 14 }, () => 7), 8];
+  assert.equal(charts.dailyAverageHint(rising), "Avg 7.1 a day, 6 the 15 days before");
+  assert.equal(charts.halfAverages([1, 2, 3]), null);
+  assert.equal(charts.dailyAverageHint([1, 2]), undefined);
+});
+
 test("theme and support vocabulary", () => {
   assert.equal(theme.parseAdminTheme("dark"), "dark");
   assert.equal(theme.parseAdminTheme("purple"), "system");
@@ -120,4 +131,23 @@ test("users: phone numbers read with a plus", () => {
   assert.equal(people.formatPhone("+91 98123"), "+9198123");
   assert.equal(people.formatPhone(""), null);
   assert.equal(people.formatPhone(null), null);
+});
+
+test("users: deleting an account confirms with its email, else its phone number, else the start of its ID", () => {
+  const id = "c0ffee12-0000-4000-8000-0000000000c3";
+  const withEmail = { id, email: "Asha@Example.test", phone: "919812345678" };
+  assert.equal(people.deleteConfirmation(withEmail).kind, "email");
+  assert.equal(people.confirmsDeletion(" asha@example.test ", withEmail), true);
+  assert.equal(people.confirmsDeletion("+919812345678", withEmail), false, "the email wins while there is one");
+
+  const phoneOnly = { id, email: null, phone: "919812345678" };
+  assert.deepEqual(people.deleteConfirmation(phoneOnly), { kind: "phone", expected: "+919812345678", label: "Type the account phone number to confirm" });
+  for (const typed of ["+919812345678", "+91 98123 45678", "919812345678"]) assert.equal(people.confirmsDeletion(typed, phoneOnly), true, typed);
+  for (const typed of ["+91981234567", "", "   ", null]) assert.equal(people.confirmsDeletion(typed, phoneOnly), false, String(typed));
+
+  const neither = { id, email: null, phone: null };
+  assert.deepEqual(people.deleteConfirmation(neither), { kind: "id", expected: "c0ffee12", label: "Type the first 8 characters of the account ID to confirm" });
+  assert.equal(people.confirmsDeletion("C0FFEE12", neither), true);
+  assert.equal(people.confirmsDeletion("c0ffee1", neither), false);
+  assert.equal(people.confirmsDeletion(id, neither), false);
 });

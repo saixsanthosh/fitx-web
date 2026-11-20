@@ -119,6 +119,15 @@ describe("admin ops migration", { skip }, () => {
     assert.equal(JSON.stringify(audit).includes("rest day"), false);
   });
 
+  test("pasted recipient emails resolve in one call, for the server key only, with unknown addresses left out", () => {
+    const rows = pg.json(`select to_json(array(select row_to_json(r) from public.fitx_admin_find_users_by_emails(array[' Asha@Example.test ', 'ben@example.test', 'nobody@example.test']) r order by r.email))`);
+    assert.deepEqual(rows, [{ email: "asha@example.test", user_id: A }, { email: "ben@example.test", user_id: B }]);
+    assert.deepEqual(pg.json(`select to_json(array(select r from public.fitx_admin_find_users_by_emails(array[]::text[]) r))`), []);
+    assert.match(errorOf(`select * from public.fitx_admin_find_users_by_emails(array(select 'x' || g || '@example.test' from generate_series(1, 101) g))`), /At most 100 emails/);
+    assert.match(errorOf(`select * from public.fitx_admin_find_users_by_emails(array['asha@example.test'])`, asA), /permission denied/);
+    assert.match(errorOf(`select * from public.fitx_admin_find_users_by_emails(array['asha@example.test'])`, anon), /permission denied/);
+  });
+
   test("support: complaints are a category, and a request is unread until an operator reads or answers it", () => {
     const id = pg.exec(`select public.fitx_submit_support_request('complaint', 'Charged twice', 'I was charged twice this month for one plan.', '/subscription')`, asA);
     const inbox = () => pg.json(`select public.fitx_admin_support_inbox()`);
