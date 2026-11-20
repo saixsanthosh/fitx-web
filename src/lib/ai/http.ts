@@ -4,7 +4,7 @@ import { isSameOriginRequest } from "@/lib/auth/same-origin";
 import { createRouteSupabase } from "@/lib/supabase/route-client";
 import { readAiConfig, type AiConfig } from "./config";
 import { CoachError, toCoachError, type CoachDeps } from "./coach";
-import { foodCatalogue } from "./food-data";
+import { currentFoodCatalogue } from "./food-data";
 import { createLiveLookups } from "./food-lookup";
 import { createAiRouter } from "./router";
 import type { Db } from "./store";
@@ -58,7 +58,7 @@ export function coachDeps(gate: CoachGate, signal?: AbortSignal): CoachDeps {
     userId: gate.userId,
     config: gate.config,
     router: createAiRouter({ config: gate.config }),
-    catalogue: foodCatalogue,
+    catalogue: () => currentFoodCatalogue(gate.db),
     live: createLiveLookups({ usdaKey: process.env.USDA_API_KEY?.trim() || undefined, offUserAgent: process.env.OPEN_FOOD_FACTS_USER_AGENT }),
     signal,
   };

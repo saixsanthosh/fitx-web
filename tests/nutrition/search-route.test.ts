@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { localFoodsFrom } from "@/lib/food/catalog-search";
+import { localFoodsFrom, USDA_SOURCE } from "@/lib/food/catalog-search";
 import type { OffAnswer } from "@/lib/food/open-food-facts";
 import { searchFoods, SEARCH_CACHE_CONTROL, type FoodSearchServices } from "@/lib/food/search-route";
 import type { FoodSearchResponse, SourceStatus } from "@/lib/food/types";
@@ -14,18 +14,26 @@ type Result = { data: unknown; error: { code: string } | null };
 const ok = (data: unknown): Result => ({ data, error: null });
 const failed = (code: string): Result => ({ data: null, error: { code } });
 
+/** What a table query asked for: the ids of an `.in("id", …)` filter, if any. */
+type TableQuery = { ids: string[] | null };
+type TableAnswer = Result | ((query: TableQuery) => Result);
+
 /**
- * A Supabase client that answers each RPC and table with a fixed result and records what was asked. Every query
- * builder method returns the builder, which resolves to its table's result when awaited.
+ * A Supabase client that answers each RPC and table with a fixed result (or one worked out from the query) and
+ * records what was asked. Every query builder method returns the builder, which resolves to its table's result
+ * when awaited.
  */
-function fakeSupabase(answers: { rpc?: Record<string, Result>; tables?: Record<string, Result> } = {}) {
+function fakeSupabase(answers: { rpc?: Record<string, Result>; tables?: Record<string, TableAnswer> } = {}) {
   const calls: string[] = [];
   const query = (table: string) => {
+    const asked: TableQuery = { ids: null };
     const builder: Record<string, unknown> = {};
     for (const method of ["select", "eq", "is", "order", "limit"]) builder[method] = () => builder;
+    builder.in = (_column: string, ids: string[]) => { asked.ids = [...ids]; return builder; };
     builder.then = (resolve: (value: Result) => unknown, reject: (reason: unknown) => unknown) => {
-      calls.push(`from:${table}`);
-      return Promise.resolve(answers.tables?.[table] ?? ok([])).then(resolve, reject);
+      calls.push(asked.ids ? `from:${table}:in` : `from:${table}`);
+      const answer = answers.tables?.[table];
+      return Promise.resolve(typeof answer === "function" ? answer(asked) : answer ?? ok([])).then(resolve, reject);
     };
     return builder;
   };
@@ -62,6 +70,27 @@ async function search(path: string, supabase: ReturnType<typeof fakeSupabase>, s
 }
 
 const source = (body: FoodSearchResponse, id: SourceStatus["id"]) => body.sources.find((item) => item.id === id);
+
+/** A food_catalog table row (with its food_portions) for a bundled food, as seeded, with `extra` changes. */
+function tableRow(id: string, extra: Record<string, unknown> = {}) {
+  const food = local.all.find((item) => item.id === id);
+  assert.ok(food, id);
+  return { id, name: food.name, aliases: food.aliases ?? [], keywords: [], category: null, diet_type: null, state: food.state,
+    kcal: food.calories, protein_g: food.protein, carbs_g: food.carbs, fat_g: food.fat, fiber_g: null, sugar_g: null, sodium_mg: null,
+    value_basis: food.valueBasis, source_data_type: food.dataType, image_url: null, image_attribution: null,
+    food_portions: food.portions.map((portion, index) => ({ label: portion.label, unit: portion.unit, grams: portion.grams, is_default: Boolean(portion.countDefault), is_estimate: portion.estimate !== false, sort_order: index })),
+    ...extra };
+}
+
+/**
+ * A seeded catalogue as members' row-level security shows it: every bundled USDA food, `hidden` ones left out,
+ * `edited` ones changed. Answers both the "is it seeded" probe and reads by id.
+ */
+function seededCatalogue(options: { hidden?: string[]; edited?: Record<string, Record<string, unknown>> } = {}): TableAnswer {
+  const hidden = new Set(options.hidden ?? []);
+  const rows = local.all.filter((food) => food.source === USDA_SOURCE && !hidden.has(food.id)).map((food) => tableRow(food.id, options.edited?.[food.id]));
+  return ({ ids }) => ok(ids ? rows.filter((row) => ids.includes(row.id)) : rows.slice(0, 1));
+}
 
 /** A search_foods catalogue row. */
 function dbRow(id: string, name: string, extra: Record<string, unknown> = {}) {
@@ -109,12 +138,18 @@ test("an empty catalogue (migrations applied, seed parts not yet) answers from t
 });
 
 test("foods the catalogue lacks come from the built-in list; foods it has are listed once, with its values", async () => {
-  const filled = { food_catalog: ok([{ id: "2708346" }]) };
-  const mango = await search("/api/foods/search?q=mango", fakeSupabase({ rpc: { search_foods: ok([]) }, tables: filled }));
+  const filled = { food_catalog: seededCatalogue({ edited: { "2710834": { kcal: 61 } } }) };
+  // Only the bundled everyday name "aam" finds these mangoes; the catalogue's rows still give the values.
+  const mango = await search("/api/foods/search?q=aam", fakeSupabase({ rpc: { search_foods: ok([]) }, tables: filled }));
   assert.match(mango.body.foods[0]?.name ?? "", /^Mango, /);
   assert.equal(mango.body.mode, "catalog");
-  assert.equal(source(mango.body, "fitx-catalog")?.status, "no_results");
-  assert.equal(source(mango.body, "fitx-built-in")?.count, 2);
+  assert.equal(mango.body.foods.find((food) => food.id === "2710834")?.calories, 61, "the catalogue's corrected values");
+  assert.equal(source(mango.body, "fitx-catalog")?.count, 2);
+  assert.equal(source(mango.body, "fitx-built-in")?.status, "not_used");
+
+  const recipe = await search("/api/foods/search?q=dal%20tadka", fakeSupabase({ rpc: { search_foods: ok([]) }, tables: filled }));
+  assert.ok(recipe.body.foods.some((food) => food.id === "fitx-recipe-dal-tadka"), "FITX's recipe estimates are not in the catalogue");
+  assert.equal(source(recipe.body, "fitx-built-in")?.status, "ok");
 
   const rice = await search("/api/foods/search?q=rice", fakeSupabase({
     rpc: { search_foods: ok([dbRow("2708408", "Rice, white, cooked, no added fat", { aliases: ["rice", "chawal"], kcal: 130, state: "cooked" })]) },
@@ -127,7 +162,7 @@ test("foods the catalogue lacks come from the built-in list; foods it has are li
 });
 
 test("the database's close spellings are left out once the built-in list matched every word", async () => {
-  const db = fakeSupabase({ rpc: { search_foods: ok([dbRow("2707335", "Soup, Manhattan clam chowder", { fuzzy: true })]) } });
+  const db = fakeSupabase({ rpc: { search_foods: ok([dbRow("2707335", "Soup, Manhattan clam chowder", { fuzzy: true })]) }, tables: { food_catalog: seededCatalogue() } });
   const { body } = await search("/api/foods/search?q=mango", db);
   assert.equal(body.foods.some((food) => food.suggestion), false);
   assert.match(body.foods[0]?.name ?? "", /^Mango, /);
@@ -156,4 +191,49 @@ test("your own foods are found by their brand, without being picked by it", asyn
   }
   const { body } = await search("/api/foods/search?q=bhujia", db);
   assert.equal(body.pick?.id, "c1");
+});
+
+test("a food Admin hid stays out of search: its bundled copy does not come back", async () => {
+  // Rice is a curated staple; search_foods leaves it out once it is hidden, and so does the read by id.
+  const tables = { food_catalog: seededCatalogue({ hidden: ["2708408"] }) };
+  const rice = await search("/api/foods/search?q=rice", fakeSupabase({ rpc: { search_foods: ok([]) }, tables }));
+  assert.equal(rice.body.foods.some((food) => food.id === "2708408"), false);
+  assert.notEqual(rice.body.pick?.id, "2708408");
+  assert.ok(rice.body.foods.length > 0, "other rice foods are still found");
+  const fuzzy = await search("/api/foods/search?q=rice", fakeSupabase({ rpc: { search_foods: ok([dbRow("2707335", "Soup, Manhattan clam chowder", { fuzzy: true })]) }, tables }));
+  assert.equal(fuzzy.body.foods.some((food) => food.id === "2708408"), false, "also when the catalogue answered with close spellings");
+});
+
+test("browse shows the staples as the catalogue has them: corrected, renamed, re-portioned or hidden", async () => {
+  const tables = { food_catalog: seededCatalogue({
+    hidden: ["2708408"],
+    edited: { "2708346": { name: "Idli, plain", kcal: 140, protein_g: 4.5, food_portions: [{ label: "1 small idli", unit: "piece", grams: 30, is_default: true, is_estimate: true, sort_order: 0 }] } },
+  }) };
+  const db = fakeSupabase({ tables });
+  const { body } = await search("/api/foods/search?browse=1", db);
+  assert.equal(body.mode, "browse");
+  assert.equal(body.foods.some((food) => food.id === "2708408"), false, "hidden rice is not listed");
+  assert.equal(body.foods.length, local.staples.length - 1);
+  const idli = body.foods.find((food) => food.id === "2708346");
+  assert.equal(idli?.name, "Idli, plain");
+  assert.equal(idli?.calories, 140);
+  assert.deepEqual(idli?.portions.map((portion) => [portion.label, portion.grams]), [["1 small idli", 30]]);
+  assert.deepEqual(body.foods.map((food) => food.id), local.staples.map((food) => food.id).filter((id) => id !== "2708408"), "the curated order stays");
+  assert.deepEqual(source(body, "fitx-catalog"), { id: "fitx-catalog", label: "FITX food catalogue", status: "ok", count: local.staples.length - 1 });
+  assert.equal(db.calls.includes("rpc:fitx_take_food_search_quota"), false, "browse still takes no quota");
+
+  const empty = await search("/api/foods/search?browse=1", fakeSupabase({ tables: { food_catalog: ok([]) } }));
+  assert.equal(empty.body.foods.length, local.staples.length, "before the seed parts, the bundled staples");
+  const outage = await search("/api/foods/search?browse=1", fakeSupabase({ tables: { food_catalog: failed("57014") } }));
+  assert.equal(outage.body.foods.length, local.staples.length, "and when the catalogue cannot be read");
+});
+
+test("every bundled USDA food is in the catalogue's seed, so a seeded catalogue that leaves one out has hidden it", () => {
+  const dir = new URL("../../supabase/migrations/", import.meta.url);
+  const seeded = new Set<string>();
+  for (const file of readdirSync(dir).filter((name) => /_fitx_food_catalog_seed_part_\d+\.sql$/.test(name))) {
+    for (const match of readFileSync(new URL(file, dir), "utf8").matchAll(/\{"id":"([^"]+)"/g)) seeded.add(match[1]);
+  }
+  const missing = local.all.filter((food) => food.source === USDA_SOURCE && !seeded.has(food.id)).map((food) => `${food.id} ${food.name}`);
+  assert.deepEqual(missing, [], "add these foods to the catalogue in a migration before bundling them");
 });

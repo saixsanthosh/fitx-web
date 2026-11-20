@@ -4,18 +4,22 @@
  * - ?q=…            FITX's food catalogue (database function search_foods) and the user's own foods, ranked. The
  *                   built-in list (curated staples and the USDA Foundation snapshot) answers for every food the
  *                   database did not return: before the catalogue migrations, while their seed parts are being
- *                   applied, and for foods the seed does not hold yet. "3 idlis" searches for "idli"; the page
- *                   turns the 3 into grams with the chosen food.
+ *                   applied, and for foods the seed does not hold (FITX's recipe estimates). Once the catalogue is
+ *                   seeded, a bundled food it holds is shown with the catalogue's current row, or not at all when
+ *                   Admin hid it (src/lib/food/catalogue-copies.ts). "3 idlis" searches for "idli"; the page turns
+ *                   the 3 into grams with the chosen food.
  * - ?q=…&packaged=1 Open Food Facts packaged products, only when the user asks (shared, rate-limited service).
  * - ?barcode=…      the user's own food with that barcode, else Open Food Facts.
- * - ?browse=1       the curated staples. It asks nothing outside FITX, so it takes no search quota.
+ * - ?browse=1       the curated staples, as the catalogue has them once it is seeded. It asks nothing outside FITX,
+ *                   so it takes no search quota.
  * Answers carry the user's own foods and recent logs, so browsers never keep them (`private, no-store`).
  */
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseFoodQuery, singular } from "@/lib/domain/food-query";
+import { parseFoodQuery, rankFoods, singular } from "@/lib/domain/food-query";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { customRowToFood, publicFood, rankAndPick, searchRowToFood, stemsFor, type RankableFood } from "@/lib/food/catalog-search";
+import { catalogueCopies, heldByCatalogue, withCatalogueCopies } from "@/lib/food/catalogue-copies";
 import type { OffAnswer } from "@/lib/food/open-food-facts";
 import type { FoodResult, FoodSearchResponse, SourceId, SourceState, SourceStatus } from "@/lib/food/types";
 import { isMissingColumnError, isMissingFunctionError } from "@/lib/supabase/errors";
@@ -77,8 +81,16 @@ export async function searchFoods(request: Request, supabase: SupabaseClient | n
 
   // Browse skips the quota above, so it must answer before anything that calls an outside service.
   if (browse) {
-    report("fitx-built-in", "ok", services.stapleFoods.length);
-    return respond({ foods: [...services.stapleFoods], sources, pick: null, mode: "browse" });
+    const copies = await catalogueCopies(supabase, services.stapleFoods.filter(heldByCatalogue).map((food) => food.id));
+    if (!copies) {
+      report("fitx-built-in", "ok", services.stapleFoods.length);
+      return respond({ foods: [...services.stapleFoods], sources, pick: null, mode: "browse" });
+    }
+    const staples = withCatalogueCopies(services.stapleFoods, copies);
+    const fromCatalogue = staples.filter((food) => copies.has(food.id)).length;
+    report("fitx-catalog", fromCatalogue ? "ok" : "no_results", fromCatalogue);
+    if (staples.length > fromCatalogue) report("fitx-built-in", "ok", staples.length - fromCatalogue);
+    return respond({ foods: staples, sources, pick: null, mode: "browse" });
   }
 
   if (params.has("barcode")) {
@@ -118,16 +130,19 @@ export async function searchFoods(request: Request, supabase: SupabaseClient | n
   let fromDb: RankableFood[] = [];
   let custom: RankableFood[];
   let catalogState: SourceState;
+  let seeded = false;
   const { data: rows, error } = await supabase.rpc("search_foods", { phrase: searchText, stems: stemsFor(query.words), max_results: 120 });
   if (!error) {
     const results = (Array.isArray(rows) ? rows : []).map((row) => searchRowToFood(row as Record<string, unknown>));
     fromDb = results.filter((food) => food.kind === "catalog");
     custom = results.filter((food) => food.kind === "custom");
     catalogState = "no_results";
+    seeded = fromDb.length > 0;
     if (!fromDb.length) {
       // The catalogue tables can exist before any seed part is applied: an empty catalogue is not set up, not a miss.
       const probe = await supabase.from("food_catalog").select("id").limit(1);
       if (!probe.error && !probe.data?.length) { mode = "fallback"; catalogState = "not_used"; }
+      seeded = !probe.error && Boolean(probe.data?.length);
     }
   } else {
     // Before the migrations the function is missing, which is expected; anything else is an outage worth showing.
@@ -137,7 +152,17 @@ export async function searchFoods(request: Request, supabase: SupabaseClient | n
     custom = await customFoods(supabase, user.id);
   }
   const inDb = new Set(fromDb.map((food) => food.id));
-  const builtIn = services.localFoods.filter((food) => !inDb.has(food.id));
+  let builtIn = services.localFoods.filter((food) => !inDb.has(food.id));
+  if (seeded) {
+    // Bundled foods that match but that search_foods did not return: Admin hid them, or only their bundled
+    // everyday names match. Show the catalogue's current row, or nothing when it is hidden.
+    builtIn = rankFoods(builtIn, query.words);
+    const copies = await catalogueCopies(supabase, builtIn.filter(heldByCatalogue).map((food) => food.id), { seeded: true });
+    if (copies) {
+      builtIn = withCatalogueCopies(builtIn, copies);
+      for (const id of copies.keys()) inDb.add(id);
+    }
+  }
   const ranked = rankAndPick([...fromDb, ...builtIn], custom, query.words);
   const dbCount = ranked.foods.filter((food) => food.kind === "catalog" && inDb.has(food.id)).length;
   const builtInCount = ranked.foods.filter((food) => food.kind === "catalog" && !inDb.has(food.id)).length;
