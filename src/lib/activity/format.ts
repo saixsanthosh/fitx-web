@@ -33,6 +33,17 @@ export function formatDurationWords(totalSeconds: number): string {
   return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
 }
 
+/**
+ * A time total as one tile figure and its unit: seconds under a minute, whole minutes under an hour,
+ * then hours to one decimal. A time above zero never reads as 0 (43 s is "43 s", not "0.0 h").
+ */
+export function durationFigure(totalSeconds: number): { value: number; unit: "s" | "min" | "h"; format: (n: number) => string } {
+  const s = Math.max(0, totalSeconds);
+  if (s < 59.5) return { value: s > 0 ? Math.max(1, Math.round(s)) : 0, unit: "s", format: (n) => String(Math.round(n)) };
+  if (s < 3570) return { value: s / 60, unit: "min", format: (n) => String(Math.round(n)) };
+  return { value: s / 3600, unit: "h", format: (n) => n.toFixed(1) };
+}
+
 /** "5:32" (minutes:seconds per km), or "–" when unknown or slower than 60 min/km. */
 export function paceValue(secondsPerKm: number | null | undefined): string {
   if (secondsPerKm === null || secondsPerKm === undefined || !Number.isFinite(secondsPerKm) || secondsPerKm <= 0 || secondsPerKm >= 3600) return "–";
