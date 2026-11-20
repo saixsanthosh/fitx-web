@@ -45,15 +45,16 @@ const elsewhere = (name) => typeof name === "string" && (ELSEWHERE_TABLES.has(na
 
 // What experience 2.0 (20261002172610, 20261002172706) left on production outside those tables, and no migration
 // in the repository creates. Nothing in the app, Admin, the scripts or the pending migrations reads or writes it,
-// and production has no rows in any of it (2026-11-17). Whether to keep it, lock it down or drop it is the owner's
-// decision; until a migration settles it, production ends with exactly these extras. Remove an entry when one does.
+// and production has no rows in any of it (2026-11-17). 20261121100040 locks it down (the API roles lose their rights);
+// dropping it is the owner's decision. Until a migration drops it, production ends with exactly these extras. Remove
+// an entry when one does.
 const LEFTOVERS = [
   {
     what:
       "the tables food_favorites, outdoor_activities, activity_shares and user_release_reads (exercise_favorites was adopted by " +
       "20261119100020), with their " +
-      "columns, keys, checks, indexes, owner-only policies and grants: signed-in members can write their own rows, and " +
-      "signed-out visitors hold every table privilege but no policy lets them reach a row",
+      "columns, keys, checks, indexes, owner-only policies and grants; until 20261121100040 signed-in members could write their " +
+      "own rows and signed-out visitors held every table privilege (no policy let them reach a row); it takes every right from both",
     pattern: /^(relation|column|constraint|index|policy|trigger|rows) public\.(food_favorites|outdoor_activities|activity_shares|user_release_reads)(\.|$)/,
   },
   {
@@ -62,8 +63,8 @@ const LEFTOVERS = [
   },
   {
     what:
-      "get_activity_share(text): runs as its owner and signed-out visitors can call it (the runbook's Final 3 lists it); " +
-      "it returns the route coordinates saved in activity_shares for a share token",
+      "get_activity_share(text): runs as its owner and returns the route coordinates saved in activity_shares for a share " +
+      "token; signed-out visitors could call it (the runbook's Final 3 listed it) until 20261121100040 took that right away",
     pattern: /^function public\.get_activity_share\(p_token text\)$/,
   },
 ];
@@ -327,23 +328,41 @@ describe("the pending migrations on production, which has three hand-applied cha
     assert.ok(problems.length === 0, problems.join("\n"));
   });
 
-  test("the pending migrations leave experience 2.0's leftovers as they found them", (t) => {
+  test("the pending migrations leave experience 2.0's leftovers as they found them, apart from 20261121100040's lock-down", (t) => {
     if (notBuilt()) return t.skip(skipReason());
     const only = (snapshot) => Object.fromEntries(Object.entries(snapshot).filter(([key]) => leftover(key)));
-    const touched = moves(diff(only(production.beforePending), only(production.end)));
+    const before = only(production.beforePending);
+    const end = only(production.end);
+    // The lock-down: the four tables lose every privilege of anon and authenticated, and get_activity_share loses
+    // anon's. Nothing else about them may change.
+    const lockedDown = (key) => {
+      const roles = key.startsWith("relation ") ? ["anon", "authenticated"] : key.startsWith("function ") ? ["anon"] : [];
+      const a = before[key]?.value;
+      const b = end[key]?.value;
+      if (!roles.length || !Array.isArray(a?.acl) || !b) return false;
+      const ofRoles = (entry) => roles.some((role) => entry.startsWith(`${role}=`));
+      return roles.every((role) => a.acl.some((entry) => entry.startsWith(`${role}=`))) && same({ ...a, acl: a.acl.filter((entry) => !ofRoles(entry)) }, b);
+    };
+    const locked = Object.keys(before).filter(lockedDown);
+    const rest = (snapshot) => Object.fromEntries(Object.entries(snapshot).filter(([key]) => !locked.includes(key)));
+    const touched = moves(diff(rest(before), rest(end)));
     assert.ok(
       touched.length === 0,
       `the pending migrations changed experience 2.0's leftovers, which are the owner's to decide about:\n${indent(touched)}`,
     );
-    t.diagnostic(`${Object.keys(only(production.end)).length} leftover objects unchanged`);
+    assert.deepEqual(locked.sort(), [
+      "function public.get_activity_share(p_token text)",
+      "relation public.activity_shares", "relation public.food_favorites", "relation public.outdoor_activities", "relation public.user_release_reads",
+    ], "20261121100040 locks down the four tables and the share function");
+    t.diagnostic(`${Object.keys(end).length} leftover objects compared, ${locked.length} locked down`);
   });
 
-  test("the runbook's final checks agree on both, except get_activity_share in Final 3", (t) => {
+  test("the runbook's final checks agree on both, and Final 3 lists no function once 20261121100040 has locked down get_activity_share", (t) => {
     if (notBuilt()) return t.skip(skipReason());
     const final3 = Object.keys(fresh.finalChecks).find((label) => label.startsWith("Final 3"));
     assert.deepEqual(fresh.finalChecks[final3], [], "on a fresh database Final 3 lists no function");
-    assert.deepEqual(production.finalChecks[final3], ["get_activity_share(text)"], "on production Final 3 lists only experience 2.0's share function");
-    assert.deepEqual({ ...production.finalChecks, [final3]: [] }, fresh.finalChecks);
+    assert.deepEqual(production.finalChecks[final3], [], "on production signed-out visitors can no longer call experience 2.0's share function");
+    assert.deepEqual(production.finalChecks, fresh.finalChecks);
   });
 
   test("applied a second time, the pending migrations change nothing more on production", (t) => {

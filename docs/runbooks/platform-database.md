@@ -5,10 +5,10 @@ time. It is written for the FITX owner. You do not need to know SQL. "The sessio
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **What is pending:** the 44 files from `20261115100000` to `20261121100036` in `supabase/migrations` on
+- **What is pending:** the 45 files from `20261115100000` to `20261121100040` in `supabase/migrations` on
   the branch `claude/train`. That folder is the source of truth. Production already has the 14 files from
   September 2026 and none of these, plus three changes that were applied to it by hand and have no file in
-  that folder (section 1.8). Five of the 44 files meet what those three made; they are written for it, and
+  that folder (section 1.8). Five of the 45 files meet what those three made; they are written for it, and
   their summaries say what they do on production.
 - **Older runbooks:** `docs/runbooks/phase1-database.md` covered the first five files for release 2. This
   runbook includes them, so use this one. `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
@@ -36,7 +36,7 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only these 44 files, only from `claude/train`. Never a copy from another branch or worktree, never
+- Only these 45 files, only from `claude/train`. Never a copy from another branch or worktree, never
   the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from `claude/train`), and
   never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
   production already has (section 1.8).
@@ -44,8 +44,8 @@ For each file, in the order of section 2:
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Do all 44 in one sitting if you can, then deploy the new app (section 6.4) the same
-  day. If you need two sittings, stop after #11 and do #12 to #44 on the day you deploy: #12 changes muscle
+- Pick a quiet time. Do all 45 in one sitting if you can, then deploy the new app (section 6.4) the same
+  day. If you need two sittings, stop after #11 and do #12 to #45 on the day you deploy: #12 changes muscle
   names that the live app's automatic workout builder still uses. The five food parts and #37 may also wait
   until after the deploy (section 2.1).
 - The live app keeps working throughout. Only three files change something it uses: #1 (it then saves pauses
@@ -108,7 +108,7 @@ numbers differ from the file names, stop and compare them with section 2 first.
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the 44 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
+-- Start 2: changes from the 45 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
 select m.file, m.object
 from (values
   ('20261115100000', 'column', 'workout_sessions.active_duration_seconds'),
@@ -144,7 +144,8 @@ from (values
   ('20261120100000', 'column', 'profiles.date_of_birth'),
   ('20261121100030', 'table', 'admin_operators'),
   ('20261121100033', 'table', 'platform_settings'),
-  ('20261121100036', 'function', 'fitx_admin_op_report(uuid,integer)')
+  ('20261121100036', 'function', 'fitx_admin_op_report(uuid,integer)'),
+  ('20261121100040', 'table', 'fitx_member_write_budget')
 ) as m (file, kind, object)
 where case m.kind
   when 'table' then to_regclass('public.' || m.object) is not null
@@ -241,7 +242,7 @@ applied by hand, outside this repository. Exact copies, checked against the hist
 | `20261002172706 fitx_share_access_and_index` | Only signed-out visitors may call `get_activity_share`; one index. |
 | `20261116093902 fitx_admin_control_plane` | The old Admin draft ("Prepared for review only"): the Admin team list, the Admin audit log and three Admin functions. |
 
-Five of the 44 files meet what these made, and are written for it:
+Five of the 45 files meet what these made, and are written for it:
 
 - #1 finds `paused_at` and adds the other two pause fields.
 - #2 finds all five of its fields, in which the live app already saves targets and set times. It adds its five
@@ -253,7 +254,7 @@ Five of the 44 files meet what these made, and are written for it:
   made them, and adopts them unchanged: FITX now keeps saved exercises there.
 
 Every other file does exactly what it does on a new project. `tests/integration/migrations.test.mjs` applies
-all 44 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
+all 45 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
 new project apart from what stays (below) and the order of fields: in the six tables experience 2.0 added fields
 to, production lists its fields before the ones these files add. Nothing in FITX depends on that order. (Production
 also has an event trigger, `ensure_rls`, that switches row level security on for each new public table, from
@@ -313,21 +314,22 @@ something has paused workouts the way experience 2.0 does, and #1 reads those fi
 workout would show the wrong time, or 00:00:00 while paused. If any other count in Start 10 is not 0, tell the
 session; the files still apply, but it changes the decision below.
 
-**What stays, for you to decide.** After all 44 files, production still has four of experience 2.0's five tables (#40 adopts the fifth, `exercise_favorites`),
-`get_activity_share(text)`, five extra fields on exercises, three on custom foods, five on the workout tables
-(distances, a paused total and a rest timer) and its three workout checks. Nothing in FITX uses any of it. Two
-things to weigh:
+**What stays, and what #45 does about it.** After all 45 files, production still has four of experience 2.0's five
+tables (#40 adopts the fifth, `exercise_favorites`), `get_activity_share(text)`, five extra fields on exercises, three on
+custom foods, five on the workout tables (distances, a paused total and a rest timer) and its three workout checks.
+Nothing in FITX uses any of it. Before #45 two things were open:
 
-- Signed-out visitors can call `get_activity_share`. It returns whatever route a share row holds to anyone with
+- Signed-out visitors could call `get_activity_share`. It returns whatever route a share row holds to anyone with
   its token. FITX's own sharing makes the share picture on the phone and keeps no share links.
 - Signed-in members could write their own rows into the four tables through the API. "Download my data" leaves
   those tables out, and the 90-day clean-up of GPS points does not cover `outdoor_activities`.
 
-The choices: keep it as it is (nothing changes; Final 3 lists `get_activity_share`); lock it down (signed-out
-visitors lose the function, the API roles lose the four tables); or remove it (a migration that stops if any of
-the four tables has rows or any of the extra fields it drops holds a value, as Start 10 counts them, then drops
-the function, the tables and the extra fields). For the second or third, the session writes a new migration
-after #44, tests it on the copy, and applies it with your OK.
+#45 (the security review, phase 15) locks them down: signed-out visitors lose the function, and members and visitors
+lose every right on the four tables, so only the server key reaches them. Nothing is deleted; the tables, the fields
+and any rows stay, and Final 3 then lists no function. Removing them for good is still your choice: a later migration
+that stops if any of the four tables has rows or any of the extra fields it drops holds a value, as Start 10 counts
+them, then drops the function, the tables and the extra fields. The session writes it, tests it on the copy, and
+applies it with your OK.
 
 ## 2. Apply order
 
@@ -382,6 +384,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 42 | `20261121100030_fitx_admin_v2` | Username and password sign-in for Admin operators, database sessions, sign-in limits, operator versions of every Admin write function. | Additive · yes | #29 to #35 | Admin /login and every Admin write | Until it is applied Admin refuses every sign-in and logs the missing migration; the FITX app is unaffected. Replaces the role table of #30 (21 permissions). |
 | 43 | `20261121100033_fitx_admin_ops` | Platform settings (feature switches, maintenance notice, website information), notices to chosen accounts, the Complaint category and unread tracking for Help requests, account search v2, Dashboard and Security summaries; the Dashboard's active counts and trend also count a walk, run or ride (it replaces #32's two functions). | Additive · marks older Help requests read · yes | #42; #26, #32, #34, #35 and #36 | Admin Settings, Notifications, Support inbox and Security; the app's /unavailable page, notices and maintenance banner | Until it is applied the app keeps every feature on, and those Admin screens say they need this update. Before an undo, move complaint rows to another category (section 5). |
 | 44 | `20261121100036_fitx_admin_content` | No table. Type and size limits on `exercise-media`, a public `food-media` bucket, operator functions to edit exercises and their media, publish programmes, edit foods, portions, photos and categories, add and edit subscription plans (never prices), and read report counts. | Additive · yes | #42; #13, #14, #17, #26 and #36 | Admin Workouts, Nutrition, Subscriptions and Reports | Before it is applied those screens say they need this update; Admin Overview is unaffected. Its `food-media` bucket is deleted in Dashboard → Storage, not with SQL. |
+| 45 | `20261121100040_fitx_security_hardening` | The security review: signed-out visitors lose experience 2.0's share function and members its four unused tables; workouts are no longer broadcast; members' photo uploads and how much each member can write an hour and a day get limits; members can join published programmes only. | Takes privileges away, adds limits · yes | The tables it limits: September files, #8, #11, #14, #18, #25, #26, #35, #39, #40 |  Phase 15 hardening | No change members notice: the limits are far above normal use. Until it is applied, the app works as before. |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1324,6 +1327,43 @@ select (select count(*) from pg_proc where pronamespace = 'public'::regnamespace
   (select count(*) from storage.buckets where id in ('exercise-media','food-media') and public and file_size_limit is not null) as buckets;
 ```
 
+### #45 `20261121100040_fitx_security_hardening`
+
+The database security review (phase 15). Five fixes, each needed because a member or a visitor could use the publishable
+key, which every browser has, straight against the database:
+
+- Signed-out visitors can no longer call experience 2.0's `get_activity_share`, and members and visitors lose every right
+  on its four unused tables (section 1.8). Only the server key reaches them; nothing in them is deleted.
+- `workout_sessions` leaves the Realtime broadcast. Nothing in FITX listens to it, and Realtime sends deletions without
+  checking who may see them, so any visitor could watch members' workouts being deleted.
+- A member's private photo folder (profile photo and food photos) takes at most 1,000 files and 250 MB, and 100 uploads
+  an hour. The browser uploads there directly, so one account could otherwise fill the project's storage.
+- Each member can write at most 10,000 rows and 50 MB an hour, and 50,000 rows and 150 MB in 24 hours, to the tables
+  members write directly (workouts, meals, To-Dos, activities, the coach and the rest). A busy day is a few thousand
+  rows and a few MB. The count is kept in a new table, `fitx_member_write_budget` (two days of hourly totals, server key
+  only); past the limit the write is refused with "write limit reached". Writes by the server, Admin and sign-up are
+  not counted. Help requests and replies keep their own limits (#34).
+- A member can join only a published programme. Before, a member who knew a draft programme's id could join it and
+  read its unpublished days.
+
+It changes no row, and a second run changes nothing.
+
+```sql
+-- Check 20261121100040: expect f, 0, 0, 1, 66, t, f
+select
+  coalesce((select has_function_privilege('anon', p.oid, 'EXECUTE') from pg_proc p where p.oid = to_regprocedure('public.get_activity_share(text)')), false) as visitors_call_share,
+  (select count(*) from pg_class c where c.relnamespace = 'public'::regnamespace and c.relname in ('food_favorites', 'outdoor_activities', 'activity_shares', 'user_release_reads')
+     and (has_table_privilege('anon', c.oid, 'SELECT, INSERT, UPDATE, DELETE') or has_table_privilege('authenticated', c.oid, 'SELECT, INSERT, UPDATE, DELETE'))) as leftover_tables_open,
+  (select count(*) from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public') as broadcast_tables,
+  (select count(*) from pg_policy where polrelid = 'storage.objects'::regclass and polname = 'fitx_media_insert_quota' and not polpermissive) as photo_limit,
+  (select count(*) from pg_trigger where tgname in ('fitx_write_budget_insert', 'fitx_write_budget_update') and tgenabled = 'O') as write_limit_triggers,
+  exists (select 1 from pg_trigger where tgrelid = 'public.programme_enrolments'::regclass and tgname = 'programme_enrolments_published') as published_programmes_only,
+  has_table_privilege('authenticated', 'public.fitx_member_write_budget', 'SELECT') as members_read_the_count;
+```
+
+66 is two triggers on each of the 33 tables members write directly. If `broadcast_tables` is not 0, a table was added
+to Realtime outside these files: tell the session.
+
 ## 4. If a migration fails part-way
 
 1. **Stop.** Do not apply the next file. The live app keeps working, and the new app waits for each file.
@@ -1374,6 +1414,7 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
+| 45 | SQL below. Puts back the share function for signed-out visitors, members' rights on experience 2.0's four tables and the workouts broadcast, and drops the photo and write limits (with their counts) and the published-programmes rule. |
 | 44 | SQL below, then delete the `food-media` bucket (and the photos in it) in Dashboard → Storage, not with SQL. Admin's Workouts, Nutrition, Subscriptions and Reports then say they need the update; exercises, foods and plans already saved stay. |
 | 43 | First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. The Dashboard's active counts keep counting walks, runs and rides; to count them as before, run #32's file again. Audit rows it wrote stay: the audit log is permanent. |
 | 42 | Undo #44 and #43 first. SQL below. Drops the operators, their sessions and sign-in attempts, the operator functions and the operator columns on support and announcements, and puts back the role table of #30; Admin then refuses every sign-in. The two audit columns `actor_operator_id` and `actor_username` stay, so the log keeps who did what. |
@@ -1411,6 +1452,45 @@ feature off in the app is usually better than an undo.
 | 3 | SQL below. The app then treats every account as having seen the film. |
 | 2 | SQL below. On production the five fields came with experience 2.0 (1.8) and hold the live app's targets and set times, so it drops only #2's five range checks. |
 | 1 | SQL below. Drops the saved active time and stretch start; open workouts keep their clock in the browser again. On production `paused_at` came with experience 2.0 (1.8), so it stays, but emptied: otherwise #1, applied again later, would show each workout that was paused at the undo as paused with no time. |
+
+```sql
+-- Undo 20261121100040 (writes; puts back what #45 locked down and drops its limits)
+begin;
+drop trigger if exists programme_enrolments_published on public.programme_enrolments;
+drop function if exists public.fitx_programme_enrolment_published();
+do $undo$
+declare
+  v record;
+begin
+  for v in select t.tgrelid::regclass as rel, t.tgname from pg_trigger t
+           where t.tgname in ('fitx_write_budget_insert', 'fitx_write_budget_update') loop
+    execute format('drop trigger %I on %s', v.tgname, v.rel);
+  end loop;
+  if to_regclass('public.food_favorites') is not null then
+    grant all on table public.food_favorites, public.outdoor_activities, public.activity_shares, public.user_release_reads to anon, authenticated;
+  end if;
+  if to_regprocedure('public.get_activity_share(text)') is not null then
+    grant execute on function public.get_activity_share(text) to anon;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'workout_sessions') then
+    alter publication supabase_realtime add table public.workout_sessions;
+  end if;
+end $undo$;
+drop function if exists public.fitx_member_write_budget();
+drop table if exists public.fitx_member_write_budget;
+drop policy if exists fitx_media_insert_quota on storage.objects;
+drop function if exists public.fitx_user_media_upload_allowed();
+commit;
+```
+
+```sql
+-- After undo 20261121100040: what is left. Expect: t, 1, 0, 0, f
+select coalesce((select has_function_privilege('anon', p.oid, 'EXECUTE') from pg_proc p where p.oid = to_regprocedure('public.get_activity_share(text)')), false) as visitors_call_share,
+  (select count(*) from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'workout_sessions') as broadcast_tables,
+  (select count(*) from pg_trigger where tgname in ('fitx_write_budget_insert', 'fitx_write_budget_update', 'programme_enrolments_published')) as triggers_left,
+  (select count(*) from pg_policy where polrelid = 'storage.objects'::regclass and polname = 'fitx_media_insert_quota') as photo_limit,
+  to_regclass('public.fitx_member_write_budget') is not null as count_table;
+```
 
 ```sql
 -- Undo 20261121100036 (writes; then delete the food-media bucket in Dashboard → Storage)
@@ -1811,26 +1891,26 @@ select relname from pg_class where relnamespace = 'public'::regnamespace and rel
 ```
 
 ```sql
--- Final 2: tables with row level security but no policy. Expect exactly these nine, on purpose: admin_login_attempts, admin_operators, admin_web_sessions, ai_coach_limits, ai_coach_usage_events, billing_provider_events, billing_reconciliation_runs, fitx_admin_audit_logs, fitx_rate_limits
+-- Final 2: tables with row level security but no policy. Expect exactly these ten, on purpose: admin_login_attempts, admin_operators, admin_web_sessions, ai_coach_limits, ai_coach_usage_events, billing_provider_events, billing_reconciliation_runs, fitx_admin_audit_logs, fitx_member_write_budget, fitx_rate_limits
 select c.relname from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'r' and c.relrowsecurity
   and not exists (select 1 from pg_policy p where p.polrelid = c.oid)
 order by 1;
 ```
 
 ```sql
--- Final 3: functions that run as their owner but have no fixed search path, or that signed-out visitors can call. Expect: one row, get_activity_share, t
+-- Final 3: functions that run as their owner but have no fixed search path, or that signed-out visitors can call. Expect: no rows
 select p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') as visitors_can_call
 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
   and (has_function_privilege('anon', p.oid, 'EXECUTE')
        or not exists (select 1 from unnest(coalesce(p.proconfig, '{}'::text[])) as s (setting) where s.setting like 'search_path=%'));
 ```
 
-`get_activity_share` is experience 2.0's, not from these files: it stays until you decide (section 1.8). Any
-other row: tell the session.
+Before #45 it listed experience 2.0's `get_activity_share`, which #45 locks down (section 1.8). Any row: tell the
+session.
 
-Then run Start 2 again: now it lists all 34 rows.
+Then run Start 2 again: now it lists all 35 rows.
 
-The nine tables in Final 2 are reached only by database functions or the server key, which is why they have
+The ten tables in Final 2 are reached only by database functions or the server key, which is why they have
 no policy. Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
 expected. Tell the session about any other new finding.
 
@@ -1886,7 +1966,8 @@ from (values
   ('20261118200000', 'fitx_food_catalog_rajma_keywords'), ('20261119100000', 'fitx_activity_sources'),
   ('20261119100010', 'fitx_exercise_notes'), ('20261119100020', 'fitx_exercise_favorites'),
   ('20261120100000', 'fitx_onboarding_v3'), ('20261121100030', 'fitx_admin_v2'),
-  ('20261121100033', 'fitx_admin_ops'), ('20261121100036', 'fitx_admin_content')
+  ('20261121100033', 'fitx_admin_ops'), ('20261121100036', 'fitx_admin_content'),
+  ('20261121100040', 'fitx_security_hardening')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and h.version not in ('20261002172610', '20261002172706', '20261116093902')
@@ -1894,7 +1975,7 @@ where h.name = f.name and h.version <> f.version
 ```
 
 ```sql
--- History 2: expect 61 rows in version order: the 14 September ones, the three of section 1.8 and the 44 files of section 2, with their numbers and names
+-- History 2: expect 62 rows in version order: the 14 September ones, the three of section 1.8 and the 45 files of section 2, with their numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
