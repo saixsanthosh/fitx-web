@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateNutritionTargets } from "@/lib/domain/nutrition";
-import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, normalizeDietType } from "@/lib/domain/profile-options";
+import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, normalizeDietType, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { isCountedSession, loadLibraryMuscles, regionsTrained, summariseMuscles, type LoggedSession } from "@/lib/training/muscle-history";
@@ -50,6 +50,10 @@ export type MemberFacts = {
   target: Macros | null;
   calorieFloor: number;
   budget: string | null;
+  /** Where the member's meals mostly come from (onboarding's "Food preference"); null when not answered. */
+  foodSource: FoodSource | null;
+  /** The member's nutrition goal; null when not answered or "No specific preference". */
+  nutritionFocus: Exclude<NutritionFocus, "none"> | null;
   location: string;
   equipment: string[];
   level: string;
@@ -214,6 +218,11 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const diet = dietRulesFrom([...(dietType ? [dietType] : []), ...list(prefs.food_rules), ...legacyRules]);
   const allergies = allergyRulesFrom([...list(prefs.allergies), ...list(prefs.other_allergies)]);
   const budget = budgetText(prefs);
+  // Onboarding v3 answers. "No specific preference" tells the coach nothing, so it is left out.
+  const source = prefs.food_source;
+  const foodSource: FoodSource | null = source === "home" || source === "outside" || source === "both" ? source : null;
+  const focus = prefs.nutrition_focus;
+  const nutritionFocus: MemberFacts["nutritionFocus"] = focus === "high_protein" || focus === "balanced" ? focus : null;
   const equipment = [...new Set(list(prefs.equipment).map((item) => normalizeEquipment(String(item))).filter(Boolean))].slice(0, 20);
 
   const facts: MemberFacts = {
@@ -228,6 +237,8 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
     target,
     calorieFloor: floor,
     budget,
+    foodSource,
+    nutritionFocus,
     location: text(prefs.workout_location) ?? "gym",
     equipment: equipment.length ? equipment : ["bodyweight"],
     level: text(prefs.fitness_level) ?? "beginner",
@@ -263,6 +274,8 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
       diet: describeDiet(diet),
       allergies: describeAllergies(allergies),
       meals_per_day: integer(prefs.meals_per_day, 1, 8),
+      meals_from: foodSource ? FOOD_SOURCE_TEXT[foodSource] : null,
+      nutrition_focus: nutritionFocus ? humanize(nutritionFocus) : null,
       budget,
       cuisines: shortList(prefs.cuisines, 6, 30).map(humanize),
       dislikes: shortList(prefs.food_dislikes ?? prefs.disliked_foods, 10, 30),
@@ -410,6 +423,8 @@ function limitationsText(prefs: Record<string, unknown>): string | null {
   if (items.length) return items.join(", ");
   return cleanText(prefs.training_limitations ?? prefs.injuries, 200);
 }
+
+const FOOD_SOURCE_TEXT: Record<FoodSource, string> = { home: "mostly home-cooked", outside: "mostly outside food", both: "home-cooked and outside food" };
 
 function humanize(value: string) {
   return value.replace(/_/g, " ");

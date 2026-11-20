@@ -14,6 +14,7 @@ import {
   DIET_OPTIONS,
   EXPERIENCE_OPTIONS,
   FOOD_RULE_OPTIONS,
+  FOOD_SOURCE_OPTIONS,
   GOAL_OPTIONS,
   HEIGHT_RANGE_CM,
   LIMITATION_OPTIONS,
@@ -23,6 +24,7 @@ import {
   MAX_LIMITATION_LENGTH,
   MEALS_PER_DAY,
   MONTHLY_BUDGET_RANGE,
+  NUTRITION_FOCUS_OPTIONS,
   SESSION_LENGTHS,
   SEX_OPTIONS,
   SPLIT_OPTIONS,
@@ -49,9 +51,11 @@ import {
   type DietType,
   type Experience,
   type FoodRule,
+  type FoodSource,
   type Goal,
   type HeightUnit,
   type LimitationKey,
+  type NutritionFocus,
   type Sex,
   type TrainingLocation,
   type WeightUnit,
@@ -243,14 +247,21 @@ type DietDraft = {
   dislikes: string[];
   budgetLevel: BudgetLevel | null;
   monthlyBudget: string;
+  foodSource: FoodSource | null;
+  nutritionFocus: NutritionFocus | null;
   /** Typed into a tag field but not added yet; saved with the section. */
   allergyDraft: string;
   dislikeDraft: string;
 };
 
+/** It guides the coach's meal plans and leaves FITX's targets alone (onboarding says the same). */
+const NUTRITION_GOAL_HINT = "Shapes coach meal plans, not your daily targets.";
+
 export function DietSection({ data, editing, onEdit, onClose, onSaved }: SectionProps) {
   const prefs = data.preferences;
   const v2 = data.schema.preferencesV2;
+  // Onboarding v3's food preference and nutrition goal save with the v2 columns' tier, so they need both.
+  const v3 = v2 && data.schema.onboardingV3;
   const allergies = splitAllergies(prefs.allergies);
   const original: DietDraft = {
     diet: prefs.diet_type,
@@ -263,6 +274,8 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     dislikes: prefs.food_dislikes,
     budgetLevel: prefs.food_budget_level,
     monthlyBudget: prefs.monthly_food_budget_inr == null ? "" : String(prefs.monthly_food_budget_inr),
+    foodSource: prefs.food_source,
+    nutritionFocus: prefs.nutrition_focus,
     allergyDraft: "",
     dislikeDraft: "",
   };
@@ -303,6 +316,7 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     const before = {
       diet_type: prefs.diet_type, allergies: prefs.allergies, meals_per_day: prefs.meals_per_day, daily_water_goal_ml: prefs.daily_water_goal_ml,
       food_rules: prefs.food_rules, cuisines: prefs.cuisines, food_dislikes: prefs.food_dislikes, food_budget_level: prefs.food_budget_level, monthly_food_budget_inr: prefs.monthly_food_budget_inr,
+      ...(v3 ? { food_source: prefs.food_source, nutrition_focus: prefs.nutrition_focus } : {}),
     };
     // Text still in a tag field counts as an entry.
     const customAllergies = commitDraft(draft.customAllergies, draft.allergyDraft);
@@ -310,6 +324,7 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     const after = {
       diet_type: draft.diet, allergies: joinKnown(draft.allergies, customAllergies), meals_per_day: draft.meals, daily_water_goal_ml: Math.round(water),
       food_rules: draft.foodRules, cuisines: draft.cuisines, food_dislikes: dislikes, food_budget_level: draft.budgetLevel, monthly_food_budget_inr: budget,
+      ...(v3 ? { food_source: draft.foodSource, nutrition_focus: draft.nutritionFocus } : {}),
     };
     const patch: Record<string, unknown> = changedFields(before, after);
     if ("diet_type" in patch) patch.dietary_preferences = legacyDietaryPreferences(draft.diet, data.legacy.dietaryPreferences);
@@ -319,7 +334,7 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     }
     setSaving(true);
     setError("");
-    const saved = await savePreferences(supabase, data.userId, patch, { v2 });
+    const saved = await savePreferences(supabase, data.userId, patch, { v2, v3 });
     if (saved.error) return failed(setSaving, setError);
     // The diet type is also kept in the original column, so only the other new answers can be pending.
     const pending = saved.skipped.filter((column) => column !== "diet_type");
@@ -346,6 +361,10 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
             <Detail label="Cuisines you enjoy" wide><ChipList items={labelsFor(CUISINE_OPTIONS, prefs.cuisines)} empty="No preference" /></Detail>
             <Detail label="Foods you don't eat" wide><ChipList items={prefs.food_dislikes} /></Detail>
           </>}
+          {v3 && <>
+            <Detail label="Food preference">{optionLabel(FOOD_SOURCE_OPTIONS, prefs.food_source) ?? <NotSet />}</Detail>
+            <Detail label="Nutrition goal">{optionLabel(NUTRITION_FOCUS_OPTIONS, prefs.nutrition_focus) ?? <NotSet />}</Detail>
+          </>}
         </DetailList>
       ) : (
         <form ref={formRef} noValidate onSubmit={(event) => void save(event)}>
@@ -363,6 +382,10 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
               <ChipGroup legend="Food rules you follow" options={FOOD_RULE_OPTIONS} values={draft.foodRules} onChange={(values) => set("foodRules", values)} />
               <ChipGroup legend="Cuisines you enjoy" options={CUISINE_OPTIONS} values={draft.cuisines} onChange={(values) => set("cuisines", values)} />
               <TagInput legend="Foods you don't eat" hint="Dislikes count too." values={draft.dislikes} onChange={(values) => set("dislikes", values)} draft={draft.dislikeDraft} onDraftChange={(value) => set("dislikeDraft", value)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />
+              {v3 && <>
+                <ChoiceGroup legend="Food preference" options={FOOD_SOURCE_OPTIONS} value={draft.foodSource} onChange={(value) => set("foodSource", value)} columns="grid-cols-1 sm:grid-cols-3" onClear={() => set("foodSource", null)} clearLabel="Clear your food preference" />
+                <ChoiceGroup legend="Nutrition goal" hint={NUTRITION_GOAL_HINT} options={NUTRITION_FOCUS_OPTIONS} value={draft.nutritionFocus} onChange={(value) => set("nutritionFocus", value)} columns="grid-cols-1 sm:grid-cols-3" onClear={() => set("nutritionFocus", null)} clearLabel="Clear your nutrition goal" />
+              </>}
             </> : <p className="text-xs leading-5 text-fitx-text-secondary">Food budget, cuisines and food rules arrive with the next FITX update.</p>}
           </div>
           <EditActions saving={saving} onCancel={onClose} error={error} />
