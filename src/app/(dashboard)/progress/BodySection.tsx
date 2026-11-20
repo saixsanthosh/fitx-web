@@ -7,7 +7,7 @@ import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { getSession, messageFor } from "@/components/tasks/session";
 import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
-import { latestMeasurements, weightSummary, type BodyMetricRow } from "@/lib/data/progress";
+import { latestMeasurements, measurementSaved, weightSummary, type BodyMetricRow, type MeasurementSaved } from "@/lib/data/progress";
 import { localDateKey } from "@/lib/domain/dates";
 import { addDays } from "@/lib/domain/day-keys";
 import { notifyUserContextChanged, syncProfileWeight } from "@/lib/domain/user-context";
@@ -30,6 +30,8 @@ const dayLabel = (key: string, options: Intl.DateTimeFormatOptions = { day: "num
 const sinceLabel = (key: string, today: string) => `since ${dayLabel(key, key.slice(0, 4) === today.slice(0, 4) ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" })}`;
 const signed = (value: number, digits = 1) => `${value > 0 ? "+" : value < 0 ? "−" : "±"}${Math.abs(value).toFixed(digits)}`;
 
+const PROFILE_WEIGHT_NOT_SAVED = "Measurement saved. Your profile weight didn't update.";
+
 /** Weight trend and the newest of each measurement, in the member's unit, with the form to log them in a sheet. */
 export function BodySection() {
   const unit = weightUnitOf(useOptionalUserContext()?.data?.preferences.weight_unit);
@@ -38,6 +40,9 @@ export function BodySection() {
   const [range, setRange] = useState<Range>("90");
   const [open, setOpen] = useState(false);
   const [today] = useState(() => localDateKey());
+  // A weigh-in that saved while the profile copy of the weight did not: the kilograms still to bring across.
+  const [unsyncedKg, setUnsyncedKg] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -65,6 +70,19 @@ export function BodySection() {
   const changeWords = range === "0" || cutShort ? (weight.points[0] ? sinceLabel(weight.points[0].date, today) : "") : RANGE_WORDS[range];
   const lastBodyFat = measures.find((line) => line.name === "body_fat")?.latest ?? null;
 
+  const retrySync = async () => {
+    if (unsyncedKg === null || syncing) return;
+    setSyncing(true);
+    try {
+      const { db, userId } = await getSession();
+      if (!(await syncProfileWeight(db, userId, unsyncedKg)).error) { setUnsyncedKg(null); notifyUserContextChanged(); }
+    } catch {
+      // Still not saved: the notice stays with its Try again.
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <section aria-labelledby="body-title" className={styles.panel}>
       <div className={styles.panelHead}>
@@ -72,6 +90,12 @@ export function BodySection() {
         <button type="button" className="fitx-button fitx-button-secondary" onClick={() => setOpen(true)}><Plus size={16} aria-hidden="true" />Log measurement</button>
       </div>
 
+      {unsyncedKg !== null ? (
+        <p role="alert" className="fitx-alert fitx-alert-danger">
+          {PROFILE_WEIGHT_NOT_SAVED}{" "}
+          <button type="button" className="fitx-alert-action" disabled={syncing} onClick={() => void retrySync()}>{syncing ? "Trying…" : "Try again"}</button>
+        </p>
+      ) : null}
       {error ? <p role="alert" className="fitx-alert fitx-alert-danger">{error} <button type="button" className="fitx-alert-action" onClick={() => void load()}>Try again</button></p>
         : metrics === null ? <div className={`${styles.loading} ${styles.loadingTall}`} aria-busy="true" aria-label="Loading your body measurements" />
           : !everWeighed && !measures.length ? (
@@ -131,7 +155,12 @@ export function BodySection() {
         unit={unit}
         lastWeight={lastWeight}
         lastBodyFat={lastBodyFat}
-        onSaved={async () => { setOpen(false); await load(); }}
+        onSaved={async (result) => {
+          // Only a new weigh-in settles the profile weight; a waist size alone leaves an earlier notice in place.
+          if (result.weighed) setUnsyncedKg(result.unsyncedKg);
+          setOpen(false);
+          await load();
+        }}
       />
     </section>
   );
@@ -143,7 +172,7 @@ function MeasurementSheet({ open, onClose, unit, lastWeight, lastBodyFat, onSave
   unit: "kg" | "lb";
   lastWeight: number | null;
   lastBodyFat: number | null;
-  onSaved: () => Promise<void>;
+  onSaved: (result: MeasurementSaved) => Promise<void>;
 }) {
   const [weight, setWeight] = useState("");
   const [bodyFat, setBodyFat] = useState("");
@@ -171,10 +200,12 @@ function MeasurementSheet({ open, onClose, unit, lastWeight, lastBodyFat, onSave
       if (parsedMeasurement !== null) values[measurementName] = parsedMeasurement;
       const result = await db.from("body_metrics").insert({ user_id: userId, date: localDateKey(), weight: parsedWeight, body_fat: parsedFat, measurements: values });
       if (result.error) throw result.error;
-      // A new weigh-in is the current weight everywhere: the profile copy, targets and the header.
-      if (parsedWeight !== null) { await syncProfileWeight(db, userId, parsedWeight); notifyUserContextChanged(); }
+      // A new weigh-in is the current weight everywhere: the profile copy, targets and the header. The row is saved
+      // either way, so the sheet closes; a profile copy that did not save is said on the page, with a retry.
+      const synced = parsedWeight === null ? null : await syncProfileWeight(db, userId, parsedWeight).catch((failure: unknown) => ({ error: failure }));
+      if (parsedWeight !== null) notifyUserContextChanged();
       setWeight(""); setBodyFat(""); setMeasurement("");
-      await onSaved();
+      await onSaved(measurementSaved(parsedWeight, synced));
     } catch (failure) {
       setFormError(messageFor(failure, "Your measurement could not be saved."));
     } finally {

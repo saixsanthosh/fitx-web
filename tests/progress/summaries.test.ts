@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { firstTrackedDay, latestMeasurements, trainingConsistency, weeksFrom, weightSummary, type BodyMetricRow } from "@/lib/data/progress";
+import { firstTrackedDay, hasLastWeek, latestMeasurements, measurementSaved, trainingConsistency, weeksFrom, weightSummary, type BodyMetricRow } from "@/lib/data/progress";
 import { weeklyTrends } from "@/lib/domain/trends";
 
 const row = (date: string, weight: number | null, extra: Partial<BodyMetricRow> = {}): BodyMetricRow => ({ id: `${date}-${weight}`, date, weight, body_fat: null, measurements: {}, ...extra });
@@ -83,5 +83,41 @@ describe("the Progress page stays minimal", () => {
     // Food averages live on Nutrition and today's macros on Home; Progress does not repeat them.
     assert.doesNotMatch(view + source("TrendSections.tsx"), /Calories a logged day|Protein a logged day|label: "Calories"/);
     assert.doesNotMatch(view, /MuscleCard|AllTimeCard/);
+  });
+});
+
+describe("this week against last week", () => {
+  // Friday 20 November 2026: this week runs from Monday 16, the same days last week from Monday 9 to Friday 13.
+  const today = "2026-11-20";
+  test("a member who joined this week has no last week to compare, so no comparison (not a drop to 0)", () => {
+    assert.equal(hasLastWeek("2026-11-18", today), false);
+    assert.equal(hasLastWeek("2026-11-16", today), false, "joined on Monday");
+    assert.equal(hasLastWeek("2026-11-14", today), false, "joined last Saturday: none of last Monday to Friday was tracked");
+    assert.equal(hasLastWeek(null, today), false, "nothing known");
+  });
+  test("compares once some of the same days last week were tracked", () => {
+    assert.equal(hasLastWeek("2026-11-13", today), true);
+    assert.equal(hasLastWeek("2026-10-01", today), true);
+  });
+  test("the band leaves the comparison out when there is none", () => {
+    const source = readFileSync(new URL("../../src/app/(dashboard)/progress/TrendSections.tsx", import.meta.url), "utf8");
+    const view = readFileSync(new URL("../../src/app/(dashboard)/progress/ProgressView.tsx", import.meta.url), "utf8");
+    assert.match(source, /compare \? `\$\{label\}: /);
+    assert.match(view, /compare: hasLastWeek\(from, today\)/);
+    assert.match(view, /derived\?\.compare \? <p className=\{styles\.sectionNote\}>Against the same days last week/);
+  });
+});
+
+describe("a weigh-in whose profile copy did not save", () => {
+  test("keeps the weight to retry, so the page can say the measurement saved but the profile weight did not", () => {
+    assert.deepEqual(measurementSaved(63.5, { error: { message: "permission denied" } }), { weighed: true, unsyncedKg: 63.5 });
+    assert.deepEqual(measurementSaved(63.5, { error: null }), { weighed: true, unsyncedKg: null });
+    assert.deepEqual(measurementSaved(null, null), { weighed: false, unsyncedKg: null }, "a waist size alone has no profile weight");
+  });
+  test("Progress shows the notice with a retry instead of ignoring the result", () => {
+    const body = readFileSync(new URL("../../src/app/(dashboard)/progress/BodySection.tsx", import.meta.url), "utf8");
+    assert.match(body, /Measurement saved\. Your profile weight didn't update\./);
+    assert.match(body, /measurementSaved\(parsedWeight, synced\)/);
+    assert.doesNotMatch(body, /\{ await syncProfileWeight\(db, userId, parsedWeight\); notifyUserContextChanged\(\); \}/);
   });
 });

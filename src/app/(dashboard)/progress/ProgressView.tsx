@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { InsightList } from "@/components/widgets/InsightList";
 import { useGoalsData, useResource, useToday, useTodaySummary } from "@/components/widgets/useHomeData";
 import { WidgetError } from "@/components/widgets/WidgetCard";
-import { firstTrackedDay, loadAllTimeTotals, loadRecentWorkouts, loadTrendRows, trainingConsistency, TREND_WEEKS, weeksFrom } from "@/lib/data/progress";
+import { firstTrackedDay, hasLastWeek, loadAllTimeTotals, loadRecentWorkouts, loadTrendRows, trainingConsistency, TREND_WEEKS, weeksFrom } from "@/lib/data/progress";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import { improveNext, proteinTargetFrom } from "@/lib/domain/insights";
 import { todayTargets } from "@/lib/domain/today";
@@ -64,9 +64,12 @@ function ProgressContent({ today }: { today: string }) {
     if (!trends.data) return null;
     const data = { sessions: trends.data.sessions, activities: trends.data.activities, foodDays: trends.data.foodDays };
     // Weeks before the account (or anything logged) are unknown, not untrained: they are left out.
-    const weeks = weeksFrom(weeklyTrends(data, today, TREND_WEEKS), firstTrackedDay(joinedAt, data));
+    const from = firstTrackedDay(joinedAt, data);
+    const weeks = weeksFrom(weeklyTrends(data, today, TREND_WEEKS), from);
     return {
       week: weekSoFar(data, today),
+      // No comparison in the member's first week: last week's numbers would be zeros from before they joined.
+      compare: hasLastWeek(from, today),
       weeks,
       consistency: trainingConsistency(weeks, weeklyPlan),
       muscles: summariseMuscles(trends.data.sessions, musclePeriodRange("week", keyToLocalDate(today))),
@@ -102,11 +105,11 @@ function ProgressContent({ today }: { today: string }) {
       <section aria-labelledby="week-title">
         <div className={styles.sectionHead}>
           <h2 id="week-title" className={styles.sectionTitle}>This week so far</h2>
-          <p className={styles.sectionNote}>Against the same days last week</p>
+          {derived?.compare ? <p className={styles.sectionNote}>Against the same days last week</p> : null}
         </div>
         {derived ? (
           <>
-            <WeekBand week={derived.week} activities={trends.data?.activitiesState ?? "ok"} />
+            <WeekBand week={derived.week} compare={derived.compare} activities={trends.data?.activitiesState ?? "ok"} />
             {trends.data?.sessionsCapped && <p className={`${styles.sectionNote} mt-2`}>Only your latest 600 workouts are counted.</p>}
           </>
         ) : trendError ?? <div className={styles.loading} aria-busy="true" aria-label="Loading this week" />}

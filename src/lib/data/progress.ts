@@ -168,6 +168,15 @@ export function weeksFrom<T extends { weekStart: string }>(weeks: readonly T[], 
   return weeks.filter((week, index) => index === weeks.length - 1 || addDays(week.weekStart, 6) >= from);
 }
 
+/**
+ * Whether "This week so far" has a last week to set against: at least one of the same days last week (Monday to
+ * today's weekday) is on or after the first tracked day. A member who joined this week has none, and a week before
+ * they joined is unknown, not a week of zeros. Null (nothing known) has none either.
+ */
+export function hasLastWeek(from: string | null, today: string): boolean {
+  return from !== null && isDateKey(today) && from <= addDays(today, -7);
+}
+
 export function trainingConsistency(weeks: ReadonlyArray<{ workouts: number; inProgress: boolean }>, plan: number | null): Consistency {
   const finished = weeks.filter((week) => !week.inProgress);
   const validPlan = plan !== null && Number.isInteger(plan) && plan >= 1 && plan <= 7 ? plan : null;
@@ -235,4 +244,20 @@ export function latestMeasurements(rows: readonly BodyMetricRow[]): MeasurementL
     const oldest = list.at(-1)!;
     return { name, latest: latest.value, date: latest.date, changeCm: list.length > 1 ? Math.round((latest.value - oldest.value) * 10) / 10 : null, since: list.length > 1 ? oldest.date : null, unit: name === "body_fat" ? "%" : "cm" } as MeasurementLine;
   }).sort((a, b) => (a.name === "body_fat" ? -1 : b.name === "body_fat" ? 1 : a.name.localeCompare(b.name)));
+}
+
+export type MeasurementSaved = {
+  /** True when the row had a weight, so the profile copy was (or should have been) brought up to date. */
+  weighed: boolean;
+  /** The weigh-in (kg) still to copy to profiles.weight because that write failed; null when there is nothing to retry. */
+  unsyncedKg: number | null;
+};
+
+/**
+ * After a measurement row is saved: the weigh-in still to copy to the profile when that write failed (an error
+ * result or a thrown one), so Progress can say the measurement saved but the profile weight did not, and retry.
+ * Targets follow the newest weigh-in, not profiles.weight, so they stay right in the meantime.
+ */
+export function measurementSaved(weightKg: number | null, synced: { error: unknown } | null): MeasurementSaved {
+  return { weighed: weightKg !== null, unsyncedKg: weightKg !== null && (synced === null || synced.error) ? weightKg : null };
 }
