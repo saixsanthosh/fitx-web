@@ -62,9 +62,15 @@ test("notices: pasted recipients split into IDs and emails, each once; junk is r
 });
 
 test("users: filters accept only known values and round-trip through the link", () => {
-  const filters = people.parsePeopleFilters({ q: " asha ", status: "suspended", method: "google", plan: "premium", page: "2" });
+  const filters = people.parsePeopleFilters({ status: "suspended", method: "google", plan: "premium", page: "2" }, " asha ");
   assert.deepEqual(filters, { q: "asha", status: "suspended", method: "google", plan: "premium", page: 2 });
-  assert.equal(people.peopleHref(filters, { page: 1 }), "/users?q=asha&status=suspended&method=google&plan=premium");
+  assert.equal(people.peopleHref(filters, { page: 1 }, "sealed-token"), "/users?s=sealed-token&status=suspended&method=google&plan=premium");
+  // The search text is never read from, or written to, the URL (it would land in request logs and history).
+  assert.equal(people.parsePeopleFilters({ q: "asha@example.test" }).q, "");
+  assert.equal(people.peopleHref(filters), "/users?status=suspended&method=google&plan=premium&page=2");
+  assert.equal(people.peopleHref({ ...filters, q: "" }, {}, "stale-token"), "/users?status=suspended&method=google&plan=premium&page=2");
+  assert.equal(people.normalisePeopleQuery(`  ${"x".repeat(200)} `).length, 120);
+  assert.equal(people.normalisePeopleQuery(null), "");
   const junk = people.parsePeopleFilters({ status: "deleted", method: "myspace", plan: "gold", page: "-1" });
   assert.deepEqual(junk, { q: "", status: null, method: null, plan: null, page: 1 });
   assert.equal(people.peopleHref(junk), "/users");

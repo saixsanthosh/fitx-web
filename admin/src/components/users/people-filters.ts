@@ -29,10 +29,19 @@ function oneOf<T extends string>(list: readonly T[], value: string): T | null {
   return (list as readonly string[]).includes(value) ? (value as T) : null;
 }
 
-export function parsePeopleFilters(params: SearchParams): PeopleFilters {
+/** Search text as the list uses it: trimmed, at most 120 characters. */
+export function normalisePeopleQuery(value: unknown): string {
+  return typeof value === "string" ? value.trim().slice(0, 120) : "";
+}
+
+/**
+ * The filters from the list's query string. The search text is never read from the URL (an email or phone
+ * number there would land in request logs): the page passes it in, opened from the sealed `s` token.
+ */
+export function parsePeopleFilters(params: SearchParams, query = ""): PeopleFilters {
   const page = Number(first(params, "page") || "1");
   return {
-    q: first(params, "q").trim().slice(0, 120),
+    q: normalisePeopleQuery(query),
     status: oneOf(PEOPLE_STATUSES, first(params, "status")),
     method: oneOf(SIGN_IN_METHODS, first(params, "method")),
     plan: oneOf(PEOPLE_PLANS, first(params, "plan")),
@@ -40,11 +49,14 @@ export function parsePeopleFilters(params: SearchParams): PeopleFilters {
   };
 }
 
-/** The filters as a link to /users; empty values are left out. */
-export function peopleHref(filters: PeopleFilters, overrides: Partial<PeopleFilters> = {}): string {
+/**
+ * The filters as a link to /users; empty values are left out. The search text itself never goes in the
+ * link: `search` is its sealed token, written as `s` only while there is search text.
+ */
+export function peopleHref(filters: PeopleFilters, overrides: Partial<PeopleFilters> = {}, search: string | null = null): string {
   const merged = { ...filters, ...overrides };
   const query = new URLSearchParams();
-  if (merged.q) query.set("q", merged.q);
+  if (merged.q && search) query.set("s", search);
   if (merged.status) query.set("status", merged.status);
   if (merged.method) query.set("method", merged.method);
   if (merged.plan) query.set("plan", merged.plan);

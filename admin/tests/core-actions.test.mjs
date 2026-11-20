@@ -1,6 +1,7 @@
 // Admin-core server code with a fake Supabase: who may end whose sessions, what the Dashboard's recent
 // activity leaves out, how pasted recipients are looked up and who may paste emails, the confirmation before
-// a notice to everyone, and the theme switch's session check. Made-up names, IDs and addresses only.
+// a notice to everyone, the theme switch's session check, and the Users search that keeps emails out of
+// URLs. Made-up names, IDs and addresses only.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFakes, rpcCalls, SESSION_STUBS, setTestEnv, tableCalls } from "./helpers/fakes.mjs";
@@ -11,6 +12,8 @@ const audit = await importTypeScriptModule("src/lib/data/audit.ts", SESSION_STUB
 const notices = await importTypeScriptModule("src/lib/data/notifications.ts", SESSION_STUBS);
 const noticeActions = await importTypeScriptModule("src/app/(control)/notifications/actions.ts", SESSION_STUBS);
 const themeActions = await importTypeScriptModule("src/components/theme/theme-actions.ts", SESSION_STUBS);
+const userActions = await importTypeScriptModule("src/app/(control)/users/actions.ts", SESSION_STUBS);
+const peopleSearch = await importTypeScriptModule("src/lib/people-search.ts", SESSION_STUBS);
 const { READ_ONLY_AUDIT_ACTIONS } = await importTypeScriptModule("src/lib/audit-catalog-core.ts");
 
 const ROOT_ID = "00000000-0000-4000-8000-0000000000a1";
@@ -115,4 +118,51 @@ test("the theme switch's Server Action needs a signed-in operator", async () => 
   await themeActions.saveAdminTheme("dark");
   assert.equal(fake.cookieWrites.length, 1);
   assert.equal(fake.cookieWrites[0].value, "dark");
+});
+
+async function redirectOf(promise) {
+  try {
+    await promise;
+  } catch (error) {
+    if (error.url) return error.url;
+    throw error;
+  }
+  throw new Error("expected a redirect");
+}
+
+test("the Users search posts its text and comes back with an opaque token, never the email or phone in the URL", async () => {
+  const email = "asha.k@example.test";
+  const url = await redirectOf(userActions.searchUsers(form([["q", `  ${email} `], ["status", "suspended"], ["method", "myspace"], ["plan", "premium"]])));
+  assert.doesNotMatch(url, /asha|example|%40|@/i);
+  const params = new URL(url, "https://admin.invalid").searchParams;
+  assert.deepEqual([...params.keys()], ["s", "status", "plan"]);
+  assert.equal(params.get("status"), "suspended");
+  assert.equal(peopleSearch.openPeopleSearch(params.get("s"), superAdmin.id), email);
+  // Bound to the operator who searched, and to the 30 minutes after.
+  assert.equal(peopleSearch.openPeopleSearch(params.get("s"), ROOT_ID), null);
+  assert.equal(peopleSearch.openPeopleSearch(params.get("s"), superAdmin.id, Date.now() + peopleSearch.PEOPLE_SEARCH_TTL_MS + 1000), null);
+  const phone = await redirectOf(userActions.searchUsers(form([["q", "+91 98123 45678"]])));
+  assert.doesNotMatch(phone, /98123|45678/);
+  assert.equal(await redirectOf(userActions.searchUsers(form([["q", "   "], ["plan", "free"]]))), "/users?plan=free");
+});
+
+test("a Users search token that was altered, made up or sealed under another key opens to nothing", () => {
+  const token = peopleSearch.sealPeopleSearch("ben@example.test", OTHER_ID);
+  const raw = Buffer.from(token, "base64url");
+  raw[raw.length - 20] ^= 1;
+  assert.equal(peopleSearch.openPeopleSearch(raw.toString("base64url"), OTHER_ID), null);
+  assert.equal(peopleSearch.openPeopleSearch("not a token", OTHER_ID), null);
+  assert.equal(peopleSearch.openPeopleSearch("AAAA", OTHER_ID), null);
+  assert.equal(peopleSearch.openPeopleSearch("", OTHER_ID), null);
+  setTestEnv({ SUPABASE_SECRET_KEY: "another-made-up-key" });
+  assert.equal(peopleSearch.openPeopleSearch(token, OTHER_ID), null);
+  delete process.env.SUPABASE_SECRET_KEY;
+  assert.equal(peopleSearch.sealPeopleSearch("ben@example.test", OTHER_ID), null);
+});
+
+test("without the server key the Users search says so instead of putting the text in the URL", async () => {
+  delete process.env.SUPABASE_SECRET_KEY;
+  assert.equal(await redirectOf(userActions.searchUsers(form([["q", "ben@example.test"]]))), "/users?notice=configuration");
+  fake.operator = null;
+  await assert.rejects(userActions.searchUsers(form([["q", "ben@example.test"]])), /no operator/);
 });

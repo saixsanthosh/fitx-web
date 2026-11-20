@@ -23,11 +23,12 @@ import { SelectAll, SelectionCount } from "@/components/users/select-all";
 import styles from "@/components/users/users.module.css";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { isSuspended, searchPeopleFiltered } from "@/lib/data/people";
+import { openPeopleSearch, PEOPLE_SEARCH_PARAM } from "@/lib/people-search";
 import { ROLE_LABELS } from "@/lib/roles";
 import { MIGRATIONS } from "@/lib/schema";
 import { firstParam } from "@/lib/search-params";
 import { formatIstDate } from "@/lib/time";
-import { noticeSelected, suspendSelected } from "./actions";
+import { noticeSelected, searchUsers, suspendSelected } from "./actions";
 
 export const metadata: Metadata = { title: "Users" };
 
@@ -52,13 +53,15 @@ function dateLabel(value: string | null | undefined, empty: string) {
 export default async function UsersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const actor = await requireAdmin("people.view");
   const params = await searchParams;
-  const filters = parsePeopleFilters(params);
+  const searchToken = firstParam(params[PEOPLE_SEARCH_PARAM]);
+  const query = searchToken ? openPeopleSearch(searchToken, actor.id) : null;
+  const filters = parsePeopleFilters(params, query ?? "");
   const result = await searchPeopleFiltered(filters);
   const notice = NOTICES[firstParam(params.notice)];
   const canSuspend = hasPermission(actor, "people.suspend");
   const canNotify = hasPermission(actor, "notifications.send");
   const bulk = canSuspend || canNotify;
-  const here = peopleHref(filters);
+  const here = peopleHref(filters, {}, searchToken);
 
   return (
     <div className="page-stack">
@@ -68,10 +71,11 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         meta={result.state === "ready" && result.total !== null ? `${result.total.toLocaleString("en-IN")} ${hasFilters(filters) ? "matching" : "accounts"}` : undefined}
       />
       {notice && <Notice tone={notice.tone}>{notice.text(firstParam(params.count) || "0")}</Notice>}
+      {searchToken && query === null && <Notice tone="error">That search has expired. Search again.</Notice>}
 
       {result.state === "ready" ? (
         <section className="table-panel" aria-label="Accounts">
-          <form action="/users" className={ui.toolbar} role="search">
+          <form action={searchUsers} className={ui.toolbar} role="search">
             <label className={ui.wide}>
               <span><Search aria-hidden="true" size={14} /> Search</span>
               <input name="q" type="search" defaultValue={filters.q} maxLength={120} placeholder="Email, phone, name or ID" disabled={!result.searchAvailable} />
@@ -156,8 +160,8 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
           <div className="table-footer">
             <span>{result.total !== null ? `Page ${result.page} of ${Math.max(1, Math.ceil(result.total / 25)).toLocaleString("en-IN")}` : `Page ${result.page}`}</span>
             <div className="pagination-actions">
-              {result.page > 1 && <Link className="quiet-button" href={peopleHref(filters, { page: result.page - 1 })}>Previous</Link>}
-              {result.hasNext && <Link className="quiet-button" href={peopleHref(filters, { page: result.page + 1 })}>Next</Link>}
+              {result.page > 1 && <Link className="quiet-button" href={peopleHref(filters, { page: result.page - 1 }, searchToken)}>Previous</Link>}
+              {result.hasNext && <Link className="quiet-button" href={peopleHref(filters, { page: result.page + 1 }, searchToken)}>Next</Link>}
             </div>
           </div>
         </section>

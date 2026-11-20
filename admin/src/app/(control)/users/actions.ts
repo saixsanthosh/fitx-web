@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin, type AdminOperator } from "@/lib/admin-auth";
 import { logAdminEvent } from "@/lib/audit";
-import { BULK_SUSPEND_MAX, confirmsDeletion, selectedIds } from "@/components/users/people-filters";
+import { BULK_SUSPEND_MAX, confirmsDeletion, normalisePeopleQuery, parsePeopleFilters, peopleHref, selectedIds } from "@/components/users/people-filters";
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
+import { sealPeopleSearch } from "@/lib/people-search";
 import { isMissingFunction, isMissingTable, isPermissionError } from "@/lib/schema";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
@@ -305,4 +306,20 @@ export async function noticeSelected(formData: FormData) {
   const ids = selectedIds(formData.getAll("ids")).slice(0, 500);
   if (!ids.length) redirect(withNotice(listReturn(formData), "none_selected"));
   redirect(`/notifications?to=${ids.join(",")}`);
+}
+
+/**
+ * The Users search form posts here, so the search text (an email, a phone number) stays out of the URL and
+ * so out of request logs and browser history. It comes back to the list sealed in an opaque token.
+ */
+export async function searchUsers(formData: FormData) {
+  const actor = await requireAdmin("people.view");
+  const field = (name: string) => {
+    const value = formData.get(name);
+    return typeof value === "string" ? value : undefined;
+  };
+  const filters = parsePeopleFilters({ status: field("status"), method: field("method"), plan: field("plan") }, normalisePeopleQuery(formData.get("q")));
+  const token = filters.q ? sealPeopleSearch(filters.q, actor.id) : null;
+  if (filters.q && !token) redirect("/users?notice=configuration");
+  redirect(peopleHref(filters, { page: 1 }, token));
 }

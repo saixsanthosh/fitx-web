@@ -80,6 +80,11 @@ test("the ten sections link every admin-core screen, each behind its own permiss
   assert.match(users, /export async function suspendSelected\(formData: FormData\) \{\n  const actor = await requireAdmin\("people\.suspend"\);/);
   assert.match(users, /if \(formData\.get\("confirm"\) !== "yes"\)/);
   assert.match(users, /ids\.length > BULK_SUSPEND_MAX/);
+  assert.match(users, /export async function searchUsers\(formData: FormData\) \{\n  const actor = await requireAdmin\("people\.view"\);/);
+  // The search form posts (a GET form would put emails and phone numbers in the URL, so in request logs).
+  const usersPage = await readFile(new URL("../src/app/(control)/users/page.tsx", import.meta.url), "utf8");
+  assert.match(usersPage, /<form action=\{searchUsers\}[^>]*role="search"/);
+  assert.doesNotMatch(usersPage, /action="\/users"/);
 });
 
 test("the console never paints inline styles (the CSP blocks them) and keeps raw colours in the theme file", async () => {

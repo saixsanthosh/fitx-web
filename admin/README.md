@@ -95,6 +95,7 @@ Set these in a local `.env.local` or in the **admin Vercel project only**. `.env
 5. **Database.** Admin reads and writes only on the server with the service key (`src/lib/supabase/admin.ts`). Every write goes through a `fitx_admin_op_*` function that checks the operator's role in Postgres and writes its audit row in the same transaction. All of them are executable by `service_role` only and pin `search_path`.
 6. **Browser.** Every response carries a Content-Security-Policy with a fresh nonce: scripts only from Admin itself, no inline styles or eval in production, no framing, forms post only to Admin. Images, video and uploads may also use the Supabase project, and images the exercise catalogue's GitHub source (`raw.githubusercontent.com/yuhonas/free-exercise-db/`).
 7. Failed checks are written to the server logs as `[fitx-admin]` lines; emails, IDs, tokens and keys are masked.
+8. **No member details in URLs.** The Users search posts its text to a Server Action, which returns to the list with an opaque `s` token (AES-256-GCM under a key derived from the service key, bound to the operator, valid for 30 minutes; `src/lib/people-search.ts`). Emails and phone numbers typed into it never reach request logs or browser history. A plain `?q=` is ignored.
 
 ## Password reset emails
 
