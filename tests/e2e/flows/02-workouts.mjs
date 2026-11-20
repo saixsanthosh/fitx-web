@@ -53,6 +53,10 @@ export const flow = {
       t.expect((await page.getByRole("heading", { name: "Your home equipment" }).count()) === 0, "home equipment is not on this page");
       await page.getByRole("region", { name: "Today" }).getByText("Nothing planned today").waitFor();
       t.expect((await page.getByRole("group", { name: "Train by area" }).getByRole("button").count()) >= 8, "every body area should be offered");
+      // The Programme heading only ever stands over programmes (it goes when none is published).
+      const programmeHeading = await page.getByRole("heading", { name: "Programme", exact: true }).count();
+      const programmeCards = await page.locator("#programme article").count();
+      t.expect(programmeHeading === 0 || programmeCards > 0, "no Programme heading with nothing under it", { programmeHeading, programmeCards });
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       t.expect(sideways <= 0, "the page should not scroll sideways", { sideways });
       await t.checkpoint("workouts gym page");

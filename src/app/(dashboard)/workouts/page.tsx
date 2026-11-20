@@ -1071,6 +1071,8 @@ export default function WorkoutsPage() {
         </Section>
       </Reveal>
 
+      {/* With no programme published (and none followed) the section goes, heading and all: no empty "Programme". */}
+      {(enrolment || gymProgrammes.length > 0) && (
       <Reveal amount={0.12}>
         <Section title="Programme" id="programme">
           {enrolment
@@ -1086,6 +1088,7 @@ export default function WorkoutsPage() {
                 disabledNote={programmeLoadFailed ? "Following waits until your programme has loaded." : !enrolAvailable ? "Following a programme arrives with the next FITX update." : undefined} />}
         </Section>
       </Reveal>
+      )}
 
       <div className={styles.bottomGrid}>
         <Section title="Your plans" id="plans" action={<Link href={homePanel("week")} className={styles.textLink}>Week<ArrowRight size={14} aria-hidden="true" /></Link>}>
