@@ -6,6 +6,7 @@ import { ArrowLeft, Mail } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import s from "@/components/auth/auth.module.css";
 import { isEmailAddress, sendCodeProblem } from "@/lib/auth/email-code";
+import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
@@ -23,6 +24,8 @@ export default function ForgotPasswordPage() {
     if (!isEmailAddress(address)) return setError("Enter your email address.");
     const supabase = createClient();
     if (!supabase) return setError("Password reset is temporarily unavailable.");
+    const wait = browserEmailCooldown().wait(address);
+    if (wait > 0) return setError(cooldownMessage(wait));
     setLoading(true);
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(address, { redirectTo: authCallbackUrl("/reset-password") });
@@ -31,6 +34,7 @@ export default function ForgotPasswordPage() {
           ? "A link was sent a moment ago. Wait a minute, then try again."
           : "We couldn’t send a reset link. Please try again.");
       }
+      browserEmailCooldown().record(address);
       setSent(true);
     } catch {
       setError("We couldn’t connect to FITX. Check your connection and try again.");

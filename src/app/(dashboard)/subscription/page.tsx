@@ -10,13 +10,16 @@ export const metadata: Metadata = { title: "Subscription" };
 // Per-account billing details: always rendered for the request, never prerendered or cached.
 export const dynamic = "force-dynamic";
 
-/** No plan can be bought here right now; `configured` is false before Razorpay billing is set up. */
-function OpensSoon({ configured }: { configured: boolean }) {
+/**
+ * No plan can be bought here right now; `configured` is false before Razorpay billing is set up, `paused` is
+ * true while Subscriptions is switched off in Admin.
+ */
+function OpensSoon({ configured, paused = false }: { configured: boolean; paused?: boolean }) {
   return (
     <section className="overflow-hidden rounded-2xl bg-fitx-stage p-6 text-fitx-on-stage sm:p-9" aria-labelledby="subscription-soon">
       <p className="text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-on-stage-secondary">FITX Premium</p>
       <h2 id="subscription-soon" className="mt-3 font-heading text-[28px] font-bold leading-tight tracking-[-.03em] sm:text-[34px]">
-        {configured ? "Premium isn’t on sale right now" : "Subscriptions open soon"}
+        {paused ? "New subscriptions are paused" : configured ? "Premium isn’t on sale right now" : "Subscriptions open soon"}
       </h2>
       <p className="mt-3 max-w-md text-sm leading-6 text-fitx-on-stage-secondary">
         A FITX account is free. Prices show here before anything is charged.
@@ -52,7 +55,10 @@ export default async function SubscriptionPage() {
               mode={model.mode}
             />
           ) : (
-            <OpensSoon configured={model.mode !== null} />
+            <OpensSoon configured={model.mode !== null} paused={model.newSubscriptionsPaused} />
+          )}
+          {model.current && model.newSubscriptionsPaused && (
+            <p className="text-sm text-fitx-text-secondary" role="note">New subscriptions are paused for now.</p>
           )}
           <BillingHistory payments={model.payments} refunds={model.refunds} />
           <p className="text-xs leading-5 text-fitx-text-secondary">

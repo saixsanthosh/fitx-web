@@ -27,15 +27,31 @@ test("today's sets survive a reload, yesterday's do not, and blocked storage is 
   const storage = { getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => void values.set(k, v), removeItem: (k: string) => void values.delete(k) };
   const now = new Date(2026, 10, 20, 9).getTime();
   const set = setFromSummary(summary({}), "Push-up", now, "a")!;
-  writeSets(storage, [set], now);
-  assert.equal(readSets(storage, now + 3_600_000).length, 1);
-  assert.equal(readSets(storage, new Date(2026, 10, 21, 9).getTime()).length, 0);
+  writeSets(storage, [set], now, "user-a");
+  assert.equal(readSets(storage, now + 3_600_000, "user-a").length, 1);
+  assert.equal(readSets(storage, new Date(2026, 10, 21, 9).getTime(), "user-a").length, 0);
   assert.equal(localDay(now), "2026-11-20");
-  writeSets(storage, [], now);
+  writeSets(storage, [], now, "user-a");
   assert.equal(values.size, 0);
   const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); }, removeItem: () => { throw new Error("blocked"); } };
-  assert.deepEqual(readSets(blocked, now), []);
-  writeSets(blocked, [set], now);
+  assert.deepEqual(readSets(blocked, now, "user-a"), []);
+  writeSets(blocked, [set], now, "user-a");
   values.set("fitx:home-workout:today", "{not json");
-  assert.deepEqual(readSets(storage, now), []);
+  assert.deepEqual(readSets(storage, now, "user-a"), []);
+});
+
+test("another account signed in on the same tab never sees or saves the sets", () => {
+  const values = new Map<string, string>();
+  const storage = { getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => void values.set(k, v), removeItem: (k: string) => void values.delete(k) };
+  const now = new Date(2026, 10, 20, 9).getTime();
+  const set = setFromSummary(summary({}), "Push-up", now, "a")!;
+  writeSets(storage, [set], now, "user-a");
+  assert.deepEqual(readSets(storage, now, "user-b"), [], "member B does not get member A's sets");
+  assert.deepEqual(readSets(storage, now, null), [], "nobody signed in: nothing comes back");
+  assert.equal(readSets(storage, now, "user-a").length, 1);
+  // Sets written before the account was known, and sets stored before this change, are never read back.
+  writeSets(storage, [set], now, null);
+  assert.deepEqual(readSets(storage, now, "user-a"), []);
+  values.set("fitx:home-workout:today", JSON.stringify({ day: localDay(now), sets: [set] }));
+  assert.deepEqual(readSets(storage, now, "user-a"), []);
 });

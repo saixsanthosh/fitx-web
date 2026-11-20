@@ -12,6 +12,7 @@ import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { isEmailAddress } from "@/lib/auth/email-code";
 import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
@@ -56,6 +57,8 @@ export default function SignUpForm() {
     if (password !== confirm) return setError("Your passwords do not match.");
     const supabase = createClient();
     if (!supabase) return setError("Account access is temporarily unavailable. Please try again later.");
+    const wait = browserEmailCooldown().wait(address);
+    if (wait > 0) return setError(cooldownMessage(wait));
     setPending("password");
     try {
       const { data, error: authError } = await supabase.auth.signUp({
@@ -70,6 +73,8 @@ export default function SignUpForm() {
       }
       if (data.session) window.location.assign(await finishPasswordSignIn("/onboarding"));
       else {
+        // A confirmation email is on its way.
+        browserEmailCooldown().record(address);
         setSent(true);
         setPending(null);
       }

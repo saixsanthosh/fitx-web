@@ -153,12 +153,16 @@ export function shouldCountPoints(activity: { id: string | null; source: Activit
 
 /**
  * Why a file's save failed, in words for the person, and whether the files after it should stop
- * (they would fail the same way). The daily caps raise "... limit reached" (migration 20261118160000).
+ * (they would fail the same way). The daily caps raise "... limit reached" (migration 20261118160000), and the
+ * member's write budget "write limit reached ..." an hour or a day (20261121100040).
  */
 export function saveFailure(result: Exclude<DbResult<unknown>, { status: "ok" }>): { reason: string; stop: boolean } {
   if (result.status === "unavailable") return { reason: "Imports aren’t switched on yet.", stop: true };
   if (result.status === "rejected") return { reason: "FITX can’t keep this activity: it’s outside what an activity can hold.", stop: false };
   if (result.offline) return { reason: "You’re offline. Try again when you’re connected.", stop: true };
+  // The per-member write budget (migration 20261121100040): an hourly cap and a daily one.
+  if (/write limit reached[^\n]*\ban hour\b/i.test(result.message)) return { reason: "You’ve saved a lot to FITX in the last hour. Import the rest in an hour: files already imported are recognised.", stop: true };
+  if (/write limit reached/i.test(result.message)) return { reason: "You’ve saved a lot to FITX today. Import the rest tomorrow: files already imported are recognised.", stop: true };
   if (/gps data limit reached/i.test(result.message)) return { reason: "FITX has saved as many GPS points as it can today. Import the rest tomorrow: files already imported are recognised.", stop: true };
   if (/limit reached/i.test(result.message)) return { reason: "FITX adds at most 50 activities a day. Import the rest tomorrow: files already imported are recognised.", stop: true };
   return { reason: "It couldn’t be saved just now. Try again.", stop: false };

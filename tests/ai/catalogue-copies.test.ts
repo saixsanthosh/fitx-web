@@ -63,3 +63,19 @@ test("a bundled food Admin made FITX's own shows as a FITX catalogue food, witho
   assert.equal(usda.source, USDA_SOURCE);
   assert.equal(usda.sourceUrl, `https://fdc.nal.usda.gov/food-details/${idli.id}/nutrients`);
 });
+
+test("the coach credits a food Admin made FITX's own to the FITX catalogue, not to USDA", async () => {
+  const { FITX_CATALOGUE_SOURCE } = await import("@/lib/food/catalog-search");
+  const current = withCatalogueRows(bundled, copies([], { "2708346": { kcal: 140, source_data_type: null, value_basis: "estimated" } }));
+  const idli = current.find((food) => food.id === "2708346");
+  assert.ok(idli);
+  assert.equal(idli.source, FITX_CATALOGUE_SOURCE);
+  assert.equal(idli.dataType, null);
+  assert.doesNotMatch(idli.basis, /USDA/);
+  const untouched = current.find((food) => food.id !== "2708346" && food.dataType);
+  assert.equal(untouched?.source, "USDA FoodData Central");
+  const grounded = await groundFood(ask("idli"), { ...open, catalogue: current });
+  assert.ok(!isConflict(grounded));
+  assert.equal(grounded.item.source, FITX_CATALOGUE_SOURCE);
+  assert.equal(grounded.valueBasis, "estimated", "Admin's own value basis, not a USDA one");
+});

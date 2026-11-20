@@ -68,12 +68,25 @@ export function parsePlatformSettings(row: unknown): PlatformSettings {
   };
 }
 
-/** The pages and APIs each switch closes. `methods` limits an entry to those HTTP methods. */
+/**
+ * The pages and APIs each switch closes. `methods` limits an entry to those HTTP methods. A switch stops new
+ * use only: a member can still cancel a subscription, change or withdraw coach consent, delete coach history,
+ * and read, rename or delete saved activities while it is off.
+ */
 export const FEATURE_ROUTES: Record<FeatureKey, ReadonlyArray<{ path: string; methods?: readonly string[] }>> = {
-  ai_coach: [{ path: "/ai-coach" }, { path: "/api/coach" }],
+  // The page lands on /unavailable, which keeps the coach's data controls; /api/coach/{consent,data,status,threads} stay open.
+  ai_coach: [{ path: "/ai-coach" }, { path: "/api/coach/chat" }, { path: "/api/coach/swap" }, { path: "/api/coach/actions" }],
   home_workout: [{ path: "/home-workout" }],
-  activity: [{ path: "/activity" }],
-  subscriptions: [{ path: "/subscription" }, { path: "/api/billing/checkout" }],
+  // Recording and importing; the activity list and each saved activity stay open.
+  activity: [
+    { path: "/activity/record" },
+    { path: "/activity/walk" },
+    { path: "/activity/run" },
+    { path: "/activity/ride" },
+    { path: "/activity/import" },
+  ],
+  // New checkouts only: /subscription stays open (cancel, payments, refunds) and hides its plans while off.
+  subscriptions: [{ path: "/api/billing/checkout" }],
   support: [{ path: "/api/support", methods: ["POST"] }, { path: "/api/support/reply", methods: ["POST"] }],
 };
 

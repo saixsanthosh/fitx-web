@@ -15,6 +15,7 @@ export function CoachSettings({
   providers,
   onShareChange,
   onDeleted,
+  canTurnOn = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -25,11 +26,13 @@ export function CoachSettings({
   providers: ProviderNotice[];
   onShareChange: (shareData: boolean) => void;
   onDeleted: () => void;
+  /** false while the coach is paused: sharing can be turned off there, but turning it on waits for the coach's consent screen. */
+  canTurnOn?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [saving, setSaving] = useState(false);
   // Only accounts whose profile says 18 or over can share their data.
-  const mayShare = !minor && !ageMissing;
+  const mayShare = !minor && !ageMissing && (canTurnOn || shareData);
   const on = shareData && mayShare;
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");

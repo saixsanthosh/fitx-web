@@ -86,13 +86,19 @@ describe("proxy: features switched off in Admin", () => {
       ["/ai-coach/threads", "ai_coach"],
       ["/home-workout?exercise=squat", "home_workout"],
       ["/activity/record", "activity"],
-      ["/subscription", "subscriptions"],
+      ["/activity/import", "activity"],
     ]) {
       const response = await proxy(request(path));
       assert.equal(response.status, 200, path);
       assert.equal(rewrittenTo(response), `/unavailable?feature=${key}`, path);
       assert.equal(location(response), null, `${path} keeps its address`);
       assert.match(response.headers.get("cache-control") ?? "", /no-store/, path);
+    }
+    // Cancelling, saved activities and the coach's data controls stay reachable.
+    for (const path of ["/subscription", "/activity", "/activity/00000000-0000-4000-8000-000000000000"]) {
+      const response = await proxy(request(path));
+      assert.equal(rewrittenTo(response), null, path);
+      assert.equal(response.headers.get("x-middleware-next"), "1", path);
     }
     assert.equal(settingsReads, 1, "one settings read serves every request for a minute");
   });
@@ -101,7 +107,7 @@ describe("proxy: features switched off in Admin", () => {
     settings = switchedOff(...FEATURE_KEYS);
     for (const [path, method] of [
       ["/api/coach/chat", "POST"],
-      ["/api/coach/threads", "GET"],
+      ["/api/coach/swap", "POST"],
       ["/api/billing/checkout", "POST"],
       ["/api/support", "POST"],
       ["/api/support/reply", "POST"],
@@ -110,6 +116,15 @@ describe("proxy: features switched off in Admin", () => {
       assert.equal(response.status, 503, `${method} ${path}`);
       assert.deepEqual(await response.json(), { error: "feature_unavailable" }, `${method} ${path}`);
       assert.equal(rewrittenTo(response), null, `${method} ${path}`);
+    }
+    for (const [path, method] of [
+      ["/api/coach/consent", "DELETE"],
+      ["/api/coach/data", "DELETE"],
+      ["/api/coach/threads/abc", "DELETE"],
+    ]) {
+      const response = await proxy(request(path, { method }));
+      assert.notEqual(response.status, 503, `${method} ${path}`);
+      assert.equal(response.headers.get("x-middleware-next"), "1", `${method} ${path}`);
     }
     // Help messages switched off stop sending, not reading.
     const reading = await proxy(request("/api/support", { method: "GET" }));
@@ -141,7 +156,7 @@ describe("proxy: features switched off in Admin", () => {
 
   test("a rewrite keeps the refreshed session cookies, for the browser and for the page", async () => {
     settings = switchedOff("activity");
-    const response = await proxy(request("/activity", { expired: true }));
+    const response = await proxy(request("/activity/record", { expired: true }));
     assert.equal(rewrittenTo(response), "/unavailable?feature=activity");
     const refreshed = response.headers.getSetCookie().find((line) => line.startsWith(`${SESSION_COOKIE}=`));
     assert.ok(refreshed, "the refreshed session cookie is set on the rewrite");

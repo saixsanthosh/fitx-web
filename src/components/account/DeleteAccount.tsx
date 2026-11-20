@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { BRAND } from "@/config/brand";
 import { DELETE_CONFIRMATION, DELETE_STARTED_FOR_KEY, RECENT_SIGN_IN_MINUTES, type DeletionStatus } from "@/lib/account/deletion";
+import { forgetAccountInBrowser } from "@/lib/account/device-cleanup";
 import { recordingStore } from "@/lib/activity/local-store";
 import { signOutWithDeviceActivity } from "@/lib/auth/device-sign-out";
 import { createClient } from "@/lib/supabase/client";
@@ -200,6 +201,7 @@ export function DeleteAccount({
       setStep("deleted");
       // The server already ended the session; this clears what the browser still holds.
       await createClient()?.auth.signOut({ scope: "local" }).catch(() => undefined);
+      forgetAccountInBrowser({ deleted: true });
       return;
     }
     const { error: code } = ((await response.json().catch(() => ({}))) ?? {}) as { error?: string };

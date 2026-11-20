@@ -42,7 +42,9 @@ export function setFromSummary(summary: CoachSummary, exerciseName: string, ende
   };
 }
 
-const STORAGE_KEY = "fitx:home-workout:today";
+/** This tab's unsaved sets (src/lib/account/device-cleanup.ts removes it at sign-out). */
+export const HOME_WORKOUT_SETS_KEY = "fitx:home-workout:today";
+const STORAGE_KEY = HOME_WORKOUT_SETS_KEY;
 
 /** The local calendar day of an epoch time, "YYYY-MM-DD". */
 export function localDay(ms: number): string {
@@ -50,11 +52,14 @@ export function localDay(ms: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-/** Only today's sets survive: yesterday's unsaved sets are not carried into today's workout. */
-export function todaysSets(value: unknown, now: number): LoggedSet[] {
-  if (!value || typeof value !== "object") return [];
-  const stored = value as { day?: unknown; sets?: unknown };
-  if (stored.day !== localDay(now) || !Array.isArray(stored.sets)) return [];
+/**
+ * Only today's sets of this account survive: yesterday's unsaved sets are not carried into today's workout, and
+ * another account signed in on the same tab (a shared phone) never sees or saves them.
+ */
+export function todaysSets(value: unknown, now: number, userId: string | null): LoggedSet[] {
+  if (!value || typeof value !== "object" || !userId) return [];
+  const stored = value as { day?: unknown; userId?: unknown; sets?: unknown };
+  if (stored.day !== localDay(now) || stored.userId !== userId || !Array.isArray(stored.sets)) return [];
   return stored.sets.filter(isLoggedSet);
 }
 
@@ -66,21 +71,22 @@ function isLoggedSet(value: unknown): value is LoggedSet {
     && Number.isFinite(set.startedAt) && Number.isFinite(set.endedAt) && Array.isArray(set.repLog);
 }
 
-/** Reads today's sets from this tab's storage (empty when storage is blocked or holds another day). */
-export function readSets(storage: Pick<Storage, "getItem"> | null, now: number): LoggedSet[] {
+/** Reads today's sets from this tab's storage (empty when storage is blocked or holds another day or account). */
+export function readSets(storage: Pick<Storage, "getItem"> | null, now: number, userId: string | null): LoggedSet[] {
   try {
     const raw = storage?.getItem(STORAGE_KEY);
-    return raw ? todaysSets(JSON.parse(raw), now) : [];
+    return raw ? todaysSets(JSON.parse(raw), now, userId) : [];
   } catch {
     return [];
   }
 }
 
-export function writeSets(storage: Pick<Storage, "setItem" | "removeItem"> | null, sets: readonly LoggedSet[], now: number): void {
+/** Keeps the sets in this tab's storage under the account they belong to (null: not known yet, never read back). */
+export function writeSets(storage: Pick<Storage, "setItem" | "removeItem"> | null, sets: readonly LoggedSet[], now: number, userId: string | null): void {
   try {
     if (!storage) return;
     if (sets.length === 0) storage.removeItem(STORAGE_KEY);
-    else storage.setItem(STORAGE_KEY, JSON.stringify({ day: localDay(now), sets }));
+    else storage.setItem(STORAGE_KEY, JSON.stringify({ day: localDay(now), userId, sets }));
   } catch {
     // Blocked or full storage: the sets still live on this page until it closes.
   }

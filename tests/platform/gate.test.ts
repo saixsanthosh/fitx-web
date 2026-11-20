@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
-import { loadPlatformSettings, platformGate, resetPlatformSettingsCache } from "@/lib/platform/gate";
+import { loadPlatformSettings, platformGate, readPlatformSettingsForStaticPage, resetPlatformSettingsCache } from "@/lib/platform/gate";
 
 const realFetch = globalThis.fetch;
 const env = { url: process.env.NEXT_PUBLIC_SUPABASE_URL, key: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY };
@@ -75,4 +75,17 @@ test("settings read from the table say so (Help offers complaints only then)", a
   const loaded = await loadPlatformSettings();
   assert.equal(loaded.source, "database");
   assert.equal(loaded.settings.features.support, true);
+});
+
+test("the pricing page's cached read sees a switch and fails open", async () => {
+  let init: RequestInit | undefined;
+  globalThis.fetch = (async (_input: RequestInfo | URL, given?: RequestInit) => {
+    init = given;
+    return new Response(JSON.stringify([{ features: { subscriptions: false } }]), { status: 200 });
+  }) as typeof fetch;
+  assert.equal((await readPlatformSettingsForStaticPage()).features.subscriptions, false);
+  assert.equal(init?.cache, undefined, "no no-store, so the page stays prerendered");
+  assert.deepEqual((init as { next?: unknown } | undefined)?.next, { revalidate: 60 });
+  globalThis.fetch = (async () => { throw new Error("offline"); }) as typeof fetch;
+  assert.equal((await readPlatformSettingsForStaticPage()).features.subscriptions, true);
 });

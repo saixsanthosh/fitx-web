@@ -263,6 +263,15 @@ test("save failures: each daily cap says which one, and stops the files after it
   const rows = saveFailure({ status: "error", message: "activity limit reached: at most 50 activities a day", offline: false });
   assert.equal(rows.stop, true);
   assert.match(rows.reason, /50 activities a day/);
+  // The member's write budget (20261121100040) is not the 50-a-day cap: an hour, or tomorrow for the daily one.
+  const hourly = saveFailure({ status: "error", message: "write limit reached: at most 10000 rows and 50 MB an hour", offline: false });
+  assert.equal(hourly.stop, true);
+  assert.match(hourly.reason, /in an hour/);
+  assert.doesNotMatch(hourly.reason, /50 activities/);
+  const daily = saveFailure({ status: "error", message: "write limit reached: at most 50000 rows and 150 MB a day", offline: false });
+  assert.equal(daily.stop, true);
+  assert.match(daily.reason, /tomorrow/);
+  assert.doesNotMatch(daily.reason, /50 activities/);
   assert.deepEqual(saveFailure({ status: "error", message: "Request failed", offline: true }).stop, true);
   assert.deepEqual(saveFailure({ status: "rejected", message: "x" }).stop, false);
   assert.deepEqual(saveFailure({ status: "error", message: "boom", offline: false }), { reason: "It couldn’t be saved just now. Try again.", stop: false });

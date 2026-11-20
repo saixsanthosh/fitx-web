@@ -40,7 +40,8 @@ export type DbResult<T> =
 
 /**
  * Postgres errors that mean the row itself is unacceptable (a check, a size or a value limit):
- * retrying can't fix them. The daily caps raise 54000 instead, so those uploads are retried.
+ * retrying can't fix them. The daily caps and the hourly and daily write budget (20261121100040) raise 54000
+ * instead, so those uploads are retried.
  */
 const PERMANENT_CODES = new Set(["23514", "23502", "22001", "22003", "22P02", "P0001"]);
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import { loadPublicCatalog } from "@/lib/billing/catalog";
 import { formatInr, periodLabel } from "@/lib/billing/money";
+import { readPlatformSettingsForStaticPage } from "@/lib/platform/gate";
 import { publicPageMetadata } from "@/lib/seo";
 
 export const metadata = publicPageMetadata({
@@ -23,7 +24,10 @@ const FREE_FEATURES = [
 ];
 
 export default async function PricingPage() {
-  const catalog = await loadPublicCatalog();
+  const [listed, platform] = await Promise.all([loadPublicCatalog(), readPlatformSettingsForStaticPage()]);
+  // Subscriptions switched off in Admin: no plan is offered, as when none is on sale.
+  const paused = !platform.features.subscriptions;
+  const catalog = listed.open && paused ? ({ open: false, reason: "not_on_sale" } as const) : listed;
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
@@ -90,7 +94,7 @@ export default async function PricingPage() {
           <section className="fitx-panel flex flex-col p-6" aria-labelledby="plan-premium">
             <h2 id="plan-premium" className="text-sm font-semibold text-fitx-primary-text">FITX Premium</h2>
             <p className="mt-3 text-2xl font-semibold tracking-tight">
-              {catalog.reason === "not_configured" ? "Subscriptions open soon" : "Not on sale right now"}
+              {catalog.reason === "not_configured" ? "Subscriptions open soon" : paused ? "New subscriptions are paused" : "Not on sale right now"}
             </p>
             <p className="mt-3 text-sm leading-6 text-fitx-text-secondary">
               Prices and what each plan includes appear here before you pay.

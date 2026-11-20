@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { readPlatformSettings } from "@/lib/platform/gate";
 import { createClient } from "@/lib/supabase/server";
 import { checkoutAllowedFor, logBillingUnavailable, readBillingConfig } from "./config";
 import { isMissingBillingSchema, PLAN_COLUMNS, providerPlanId, toPlanView, type PlanRow } from "./db";
@@ -26,6 +27,8 @@ export type SubscriptionPageModel =
       state: "ready";
       /** Billing is configured and this account may start a checkout. */
       checkoutOpen: boolean;
+      /** Subscriptions are switched off in Admin: no new checkouts, while cancelling and the history stay. */
+      newSubscriptionsPaused: boolean;
       mode: BillingMode | null;
       plans: PlanView[];
       current: SubscriptionView | null;
@@ -137,9 +140,10 @@ export async function loadSubscriptionPage(): Promise<SubscriptionPageModel> {
   const config = readBillingConfig();
   if (!config.ok) logBillingUnavailable(config.reason);
   const mode: BillingMode | null = config.ok ? config.config.mode : null;
-  const checkoutOpen = config.ok && checkoutAllowedFor(config.config, user.email);
+  const [reads, platform] = await Promise.all([readOwnBilling(supabase, user), readPlatformSettings()]);
+  const newSubscriptionsPaused = !platform.features.subscriptions;
+  const checkoutOpen = config.ok && !newSubscriptionsPaused && checkoutAllowedFor(config.config, user.email);
 
-  const reads = await readOwnBilling(supabase, user);
   const failures = [reads.subscriptions.error, reads.payments.error, reads.refunds.error, reads.premium.error, reads.plans.error].filter(Boolean);
   if (failures.some(isMissingBillingSchema)) return { state: "not_installed" };
   if (failures.length) {
@@ -193,6 +197,7 @@ export async function loadSubscriptionPage(): Promise<SubscriptionPageModel> {
   return {
     state: "ready",
     checkoutOpen: checkoutOpen && plans.length > 0,
+    newSubscriptionsPaused,
     mode,
     plans,
     current: pickCurrentSubscription(sameMode),

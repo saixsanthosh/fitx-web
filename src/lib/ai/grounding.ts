@@ -34,8 +34,8 @@ export type CustomFoodPayload = {
   source_ref: string | null;
 };
 
-/** The Nutrition v2 vocabulary for custom_foods.value_basis that coach foods use. */
-export type ValueBasis = "lab_analysed" | "compiled" | "recipe_calculated" | "label" | "ai_suggested";
+/** The Nutrition v2 vocabulary for custom_foods.value_basis that coach foods use ("estimated": a FITX catalogue food's own). */
+export type ValueBasis = "lab_analysed" | "compiled" | "recipe_calculated" | "label" | "ai_suggested" | "estimated";
 
 export type GroundedFood = {
   item: Omit<CoachFoodItem, "key" | "actionId">;
@@ -162,6 +162,7 @@ function per100Values(per100: Macros) {
 
 /** USDA data types and package labels in the Nutrition v2 value_basis words. */
 function valueBasisOf(match: CatalogueFood): ValueBasis {
+  if (match.valueBasis === "lab_analysed" || match.valueBasis === "compiled" || match.valueBasis === "recipe_calculated" || match.valueBasis === "label" || match.valueBasis === "estimated") return match.valueBasis;
   if (match.source === "Open Food Facts" || match.dataType === "Branded") return "label";
   if (match.dataType === "Foundation") return "lab_analysed";
   if (match.dataType === "SR Legacy") return "compiled";

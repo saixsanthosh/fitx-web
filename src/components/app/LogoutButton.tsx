@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LogOut } from "lucide-react";
+import { forgetAccountInBrowser } from "@/lib/account/device-cleanup";
 import { AUTH_HINT_COOKIE } from "@/lib/auth/cookies";
 import { signOutWithDeviceActivity } from "@/lib/auth/device-sign-out";
 import { createClient } from "@/lib/supabase/client";
@@ -39,6 +40,7 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
       setError("We couldn’t sign out your devices. Check your connection and try again.");
       return;
     }
+    forgetAccountInBrowser();
     document.cookie = `${AUTH_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
     window.location.replace("/signin?signed_out=1");
   }

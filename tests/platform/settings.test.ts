@@ -53,7 +53,10 @@ test("each feature closes its pages and APIs, and nothing else", () => {
   assert.equal(featureForPath("/api/coach/chat", "POST"), "ai_coach");
   assert.equal(featureForPath("/home-workout?exercise=x".split("?")[0]), "home_workout");
   assert.equal(featureForPath("/activity/import"), "activity");
-  assert.equal(featureForPath("/subscription"), "subscriptions");
+  assert.equal(featureForPath("/activity/record"), "activity");
+  assert.equal(featureForPath("/activity/run"), "activity");
+  assert.equal(featureForPath("/api/coach/swap", "POST"), "ai_coach");
+  assert.equal(featureForPath("/api/coach/actions/abc", "POST"), "ai_coach");
   assert.equal(featureForPath("/api/billing/checkout", "POST"), "subscriptions");
   assert.equal(featureForPath("/api/billing/webhook", "POST"), null, "Razorpay's webhook is never closed");
   assert.equal(featureForPath("/api/support", "POST"), "support");
@@ -66,6 +69,22 @@ test("each feature closes its pages and APIs, and nothing else", () => {
   assert.deepEqual(Object.keys(FEATURE_NAMES), [...FEATURE_KEYS]);
   assert.equal(isFeatureKey("ai_coach"), true);
   assert.equal(isFeatureKey("payments"), false);
+});
+
+test("a switch stops new use only: cancelling, coach data controls and saved activities stay open", () => {
+  // The only Cancel button, the payments and the refunds are on /subscription; Razorpay keeps charging otherwise.
+  assert.equal(featureForPath("/subscription"), null);
+  assert.equal(featureForPath("/api/billing/cancel", "POST"), null);
+  // Withdrawing consent and deleting coach history (Coach settings on the paused page).
+  assert.equal(featureForPath("/api/coach/consent", "POST"), null);
+  assert.equal(featureForPath("/api/coach/consent", "DELETE"), null);
+  assert.equal(featureForPath("/api/coach/data", "DELETE"), null);
+  assert.equal(featureForPath("/api/coach/status"), null);
+  assert.equal(featureForPath("/api/coach/threads/abc", "DELETE"), null);
+  // Saved walks, runs and rides can still be read, renamed and deleted.
+  assert.equal(featureForPath("/activity"), null);
+  assert.equal(featureForPath("/activity/00000000-0000-4000-8000-000000000000"), null);
+  assert.equal(featureForPath("/activity/recorded"), null, "a prefix of a closed path is not closed");
 });
 
 test("the app, Admin and the database agree on the features and the default contact details", () => {

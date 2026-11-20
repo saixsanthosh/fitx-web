@@ -301,7 +301,9 @@ const reverseLunge: ExerciseRule = {
     { id: "torso_lean", text: "Keep your chest up, shoulders over your hips.", speech: "Chest up", when: [{ metric: "torso", op: ">=", value: 30 }], sustainMs: 400 },
   ],
   smoothing: { minCutoff: 1, beta: 0.03 },
-  libraryIds: ["free-exercise-db-Dumbbell_Rear_Lunge"],
+  // The library has only a dumbbell rear lunge: a bodyweight set from Home workout saves under its own name instead.
+  // The name below still offers the camera on that exercise in a gym workout (the movement is the same).
+  libraryIds: [],
   names: ["reverse lunge", "reverse lunges", "rear lunge", "rear lunges", "backward lunge", "backward lunges", "dumbbell rear lunge"],
 };
 

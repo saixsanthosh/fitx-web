@@ -1,7 +1,8 @@
 import "server-only";
 import { inferFoodState, rankFoods } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodState } from "@/lib/domain/food-query";
-import type { RankableFood } from "@/lib/food/catalog-search";
+import { FITX_CATALOGUE_SOURCE, type RankableFood } from "@/lib/food/catalog-search";
+import type { ValueBasis } from "@/lib/food/types";
 
 /**
  * The same local food data the Nutrition search uses (src/app/api/foods/search/route.ts): FITX's
@@ -22,13 +23,16 @@ export type CatalogueFood = {
   protein: number;
   carbs: number;
   fat: number;
-  source: "USDA FoodData Central" | "Open Food Facts";
+  /** "FITX food catalogue" once Admin added the food or changed its values (it has no USDA record then). */
+  source: "USDA FoodData Central" | "Open Food Facts" | typeof FITX_CATALOGUE_SOURCE;
   dataType: string | null;
   /** What the values are, in the words the Nutrition page shows. */
   basis: string;
   state: FoodState | null;
   portions: FoodPortion[];
   aliases?: string[];
+  /** Set for a FITX catalogue food: what its values are (a USDA food's follow from its data type). */
+  valueBasis?: ValueBasis;
 };
 
 type StapleFile = {
@@ -88,7 +92,9 @@ export function withCatalogueRows(catalogue: readonly CatalogueFood[], copies: R
   return catalogue.flatMap((food) => {
     const row = copies.get(food.id);
     if (!row) return [];
-    const dataType = row.dataType ?? food.dataType;
+    // A food Admin made FITX's own has no USDA data type: it is credited to the FITX catalogue, never to USDA.
+    const own = row.source === FITX_CATALOGUE_SOURCE;
+    const dataType = own ? null : row.dataType ?? food.dataType;
     return [{
       ...food,
       name: row.name,
@@ -96,8 +102,10 @@ export function withCatalogueRows(catalogue: readonly CatalogueFood[], copies: R
       protein: row.protein,
       carbs: row.carbs,
       fat: row.fat,
+      source: own ? FITX_CATALOGUE_SOURCE : food.source,
       dataType,
-      basis: (dataType && BASIS[dataType]) || food.basis,
+      basis: own ? row.basis : (dataType && BASIS[dataType]) || food.basis,
+      ...(own ? { valueBasis: row.valueBasis } : {}),
       state: row.state ?? food.state,
       portions: row.portions ?? [],
       aliases: [...new Set([...(row.aliases ?? []), ...(food.aliases ?? [])])],

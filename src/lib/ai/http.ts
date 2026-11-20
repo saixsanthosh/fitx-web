@@ -64,21 +64,6 @@ export function coachDeps(gate: CoachGate, signal?: AbortSignal): CoachDeps {
   };
 }
 
-/** Reads a JSON body of at most `maxBytes`, or null when it is missing, too big or not JSON. */
-export async function readJsonBody(request: Request, maxBytes: number): Promise<Record<string, unknown> | null> {
-  const declared = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maxBytes) return null;
-  if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) return null;
-  try {
-    const text = await request.text();
-    if (text.length > maxBytes) return null;
-    const value = JSON.parse(text) as unknown;
-    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
 export function jsonResponse(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
 }

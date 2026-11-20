@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { recordHref } from "@/app/(dashboard)/workouts/history/_lib/session-record";
 import { FormCoach } from "@/components/form-coach/FormCoach";
@@ -40,16 +40,29 @@ export function HomeWorkoutApp() {
   /** The number under Today of the set just finished, or null when nothing was counted. */
   const [lastLogged, setLastLogged] = useState<number | null>(null);
 
-  // Today's unsaved sets come back after a reload (this tab only).
+  /** The signed-in account the tab's sets belong to (null until known). */
+  const owner = useRef<string | null>(null);
+
+  // Today's unsaved sets of this account come back after a reload (this tab only).
   useEffect(() => {
-    const stored = readSets(session(), Date.now());
-    if (stored.length) void Promise.resolve().then(() => setSets(stored));
+    let live = true;
+    void (async () => {
+      const { data } = (await createClient()?.auth.getSession()) ?? { data: { session: null } };
+      const userId = data.session?.user.id ?? null;
+      if (!live || !userId) return;
+      owner.current = userId;
+      const stored = readSets(session(), Date.now(), userId);
+      if (stored.length) setSets((current) => (current.length ? current : stored));
+    })().catch(() => undefined);
+    return () => {
+      live = false;
+    };
   }, []);
 
   const update = useCallback((next: (current: LoggedSet[]) => LoggedSet[]) => {
     setSets((current) => {
       const value = next(current);
-      writeSets(session(), value, Date.now());
+      writeSets(session(), value, Date.now(), owner.current);
       return value;
     });
   }, []);

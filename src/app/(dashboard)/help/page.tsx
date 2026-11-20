@@ -55,14 +55,18 @@ export default async function HelpPage({ searchParams }: { searchParams: Promise
   const rows = (requests.data ?? []) as RequestRow[];
 
   let messages: MessageRow[] = [];
+  let messagesFailed = false;
   if (rows.length) {
     const result = await supabase
       .from("support_messages")
       .select("id,request_id,author_kind,body,created_at")
       .in("request_id", rows.map((row) => row.id))
       .order("created_at", { ascending: true });
+    messagesFailed = Boolean(result.error);
     messages = (result.data ?? []) as MessageRow[];
   }
+  // A failed read is never shown as "no messages" or as a conversation without its replies.
+  const loadFailed = (Boolean(requests.error) && available) || messagesFailed;
 
   const threads: SupportThreadView[] = rows.map((row) => ({
     id: row.id,
@@ -93,8 +97,8 @@ export default async function HelpPage({ searchParams }: { searchParams: Promise
           <Contact email={site.supportEmail} instagram={site.instagramUrl} />
         </div>
         <div className="space-y-4">
-          {requests.error && available && <p className="fitx-alert fitx-alert-danger">Your earlier messages could not be loaded right now. Please try again later.</p>}
-          {threads.length ? <SupportThreads threads={threads} canReply={open} /> : (
+          {loadFailed ? <p className="fitx-alert fitx-alert-danger" role="alert">Your earlier messages could not be loaded right now. Please try again later.</p>
+            : threads.length ? <SupportThreads threads={threads} canReply={open} /> : (
             <section className="rounded-2xl border border-dashed border-fitx-border p-6 text-center">
               <h2 className="text-base font-semibold text-fitx-text">No messages yet</h2>
               <p className="mt-1 text-sm text-fitx-text-secondary">Replies from the team show here.</p>

@@ -81,6 +81,9 @@ test("workout exercises map to camera rules by library id or by name", () => {
   assert.equal(cameraRuleFor({ name: "Air Squats" })?.id, "bodyweight_squat");
   assert.equal(cameraRuleFor({ id: "free-exercise-db-Bodyweight_Squat" })?.id, "bodyweight_squat");
   assert.equal(cameraRuleFor({ name: "Reverse lunge" })?.id, "reverse_lunge");
+  // Bodyweight reverse lunges are not saved as the dumbbell exercise; the camera still counts that one by name.
+  assert.deepEqual(getExerciseRule("reverse_lunge")?.libraryIds, []);
+  assert.equal(cameraRuleFor({ id: "free-exercise-db-Dumbbell_Rear_Lunge", name: "Dumbbell Rear Lunge" })?.id, "reverse_lunge");
   assert.equal(cameraRuleFor({ name: "Static lunge" })?.id, "split_squat");
   assert.equal(cameraRuleFor({ name: "Mountain Climbers" })?.id, "mountain_climber");
   assert.equal(cameraRuleFor({ id: "free-exercise-db-Mountain_Climbers" })?.id, "mountain_climber");

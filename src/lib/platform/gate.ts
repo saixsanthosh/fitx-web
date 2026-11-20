@@ -16,13 +16,13 @@ export function resetPlatformSettingsCache(): void {
   pending = null;
 }
 
-async function fetchSettings(): Promise<Loaded> {
+async function fetchSettings(caching: RequestInit = { cache: "no-store" }): Promise<Loaded> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) return { settings: PLATFORM_DEFAULTS, source: "defaults" };
   const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/platform_settings?id=eq.1&select=features,maintenance,site`, {
     headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: "application/json" },
-    cache: "no-store",
+    ...caching,
     signal: AbortSignal.timeout(READ_TIMEOUT_MS),
   });
   // A missing table (before the migration) or any other refusal means the defaults: fail open.
@@ -58,6 +58,18 @@ export async function loadPlatformSettings(): Promise<Loaded> {
 /** The settings alone (see loadPlatformSettings). */
 export async function readPlatformSettings(): Promise<PlatformSettings> {
   return (await loadPlatformSettings()).settings;
+}
+
+/**
+ * For a prerendered page (the public pricing page, rebuilt every few minutes): the settings through Next's data
+ * cache, at most a minute old, so reading them does not make the page render on every request. Never throws.
+ */
+export async function readPlatformSettingsForStaticPage(): Promise<PlatformSettings> {
+  try {
+    return (await fetchSettings({ next: { revalidate: PLATFORM_CACHE_MS / 1000 } })).settings;
+  } catch {
+    return PLATFORM_DEFAULTS;
+  }
 }
 
 /**

@@ -146,7 +146,8 @@ export interface UnfinishedSaves {
   write(ids: readonly string[]): void;
 }
 
-const UNFINISHED_KEY = "fitx:home-workout:unfinished-save";
+/** Removed at sign-out with the unsaved sets (src/lib/account/device-cleanup.ts). */
+export const UNFINISHED_KEY = "fitx:home-workout:unfinished-save";
 /** Used when the tab's storage is blocked: the ids still last as long as the page. */
 let unfinishedInMemory: string[] = [];
 

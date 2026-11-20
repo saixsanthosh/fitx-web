@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { RESEND_SECONDS, isCompleteCode, sendCodeProblem, verifyCodeProblem } from "@/lib/auth/email-code";
 import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
@@ -47,6 +48,12 @@ export function useEmailCode(next: () => string | null) {
     if (busy.current) return null;
     const supabase = createClient();
     if (!supabase) return UNAVAILABLE;
+    // This browser's own email limit survives a reload, Back or another address (src/lib/auth/send-cooldown.ts).
+    const wait = browserEmailCooldown().wait(address);
+    if (wait > 0) {
+      holdResend(wait);
+      return cooldownMessage(wait);
+    }
     busy.current = true;
     setSending(true);
     setError("");
@@ -63,6 +70,7 @@ export function useEmailCode(next: () => string | null) {
         holdResend(problem.retryAfter);
         setNotice("A code was sent a moment ago. Use that one, or wait to ask again.");
       } else {
+        browserEmailCooldown().record(address);
         holdResend(RESEND_SECONDS);
         if (again) setNotice("New code sent.");
       }
