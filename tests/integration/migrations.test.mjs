@@ -93,6 +93,14 @@ const FIXTURES = readdirSync(FIXTURES_DIR).filter((name) => name.endsWith(".sql"
 const FIRST_PENDING = "20261115100000";
 const SEPTEMBER = MIGRATIONS.filter((name) => name < FIRST_PENDING);
 const PENDING = MIGRATIONS.filter((name) => name >= FIRST_PENDING);
+/**
+ * The newest file production has applied since its copy was made (2026-11-20; tests/integration/applied-migrations
+ * .test.mjs pins those files). The runbook's first sittings applied the pending files up to it and recorded them under
+ * their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest.
+ */
+const LAST_APPLIED = "20261120100000";
+const APPLIED_SINCE = PENDING.filter((name) => name.slice(0, 14) <= LAST_APPLIED);
+const THIS_SITTING = PENDING.filter((name) => name.slice(0, 14) > LAST_APPLIED);
 const FOOD_PARTS = PENDING.filter((name) => /_fitx_food_catalog_seed_part_\d+\.sql$/.test(name));
 /** Adds search words to six foods from the first food part, so it moves with the parts. */
 const RAJMA = "20261118200000_fitx_food_catalog_rajma_keywords.sql";
@@ -557,13 +565,12 @@ const START_2_LIST = [...blockOf("Start 2").sql.matchAll(/\('(\d{14})', '[a-z]+'
 // runs, in order: the rows, or a function of (rows, { cron, cronAvailable }) giving what the rows must be. Every other
 // query must give exactly what its Expect line says. The copy has no member rows, so counts of them are 0.
 const RUNBOOK_PINNED = {
-  "Start 1": [PRODUCTION_ROWS, (rows, { cron }) =>
+  // Before #42: production's rows and #1 to #41 under their own numbers.
+  "Start 1": [byVersion([...PRODUCTION_ROWS, ...APPLIED_SINCE.map(historyRow)]), (rows, { cron }) =>
     // After section 5; #27's undo needs pg_cron, so without it its file keeps its row.
     byVersion([...PRODUCTION_ROWS, ...[...KEPT_BY_SECTION_5, ...(cron ? [] : [27])].map((number) => historyRow(PENDING[number - 1]))])],
-  "Start 2": [
-    [{ file: "20261115110000", object: "workout_sets.duration_seconds" }, { file: "20261118180000", object: "fitx_admin_members" }],
-    START_2_LIST,
-  ],
+  // Before #42 its Expect line holds ("no rows"); after the last file (section 6.1) it lists every row.
+  "Start 2": [undefined, START_2_LIST],
   // The local cluster's postgres is a superuser; production's is not.
   "Start 3": [[{ applying_role: "postgres", rolsuper: true, rolbypassrls: true, owner_of_existing_tables: "postgres" }]],
   // pg_cron is listed where it is installed; pg_trgm is listed, and here it is not installed before #17.
@@ -625,10 +632,11 @@ const runbookNotRun = ({ cron }) => ({
 });
 
 /**
- * Production's migration history, then what applying the 37 files and the runbook's section 6.3 do to it: the
+ * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #41): the
  * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
- * Record queries, then History 0 to 2. Start 1 and Start 8 read production's 17 rows first. `ask` runs a runbook
- * query and keeps its result; returns whether History 1 ran.
+ * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 58 rows, the
+ * connector records #42 to #45 under their times, then History 0 to 2. `ask` runs a runbook query and keeps its
+ * result; returns whether History 1 ran both times.
  */
 /** The day after the newest pending file's date (yyyymmdd), the simulated day the connector applies them. */
 const APPLY_DAY = (() => {
@@ -644,20 +652,25 @@ create table supabase_migrations.schema_migrations (
   version text primary key, statements text[], name text, created_by text, idempotency_key text, rollback text[]);
 insert into supabase_migrations.schema_migrations (version, name) values
   ${PRODUCTION_HISTORY.map(([version, name]) => `('${version}', '${name}')`).join(",\n  ")};`);
-  ask(blockOf("Start 1"), "before #1");
-  ask(blockOf("Start 8"), "before #1");
   const inSqlEditor = (name) => name.startsWith("20261118130010_") || FOOD_PARTS.includes(name);
-  PENDING.forEach((name, index) => {
+  const record = (name) => {
+    const index = PENDING.indexOf(name);
     const { version, name: shortName } = historyRow(name);
     // The apply day's clock, a minute per file from 10:00 UTC on the day after the newest file: never one of the
     // files' own numbers.
     const appliedAt = `${APPLY_DAY}10${String(index).padStart(2, "0")}00`;
     if (inSqlEditor(name)) ask(blockOf(`Record ${version}`), `after #${index + 1}`);
     else pg.exec(`insert into supabase_migrations.schema_migrations (version, name) values ('${appliedAt}', '${shortName}');`);
-  });
-  ask(blockOf("History 0"), "after #37");
+  };
+  APPLIED_SINCE.forEach(record);
+  const earlier = pg.run(blockOf("History 1").sql);
+  ask(blockOf("Start 1"), `before #${APPLIED_SINCE.length + 1}`);
+  ask(blockOf("Start 8"), `before #${APPLIED_SINCE.length + 1}`);
+  THIS_SITTING.forEach(record);
+  ask(blockOf("History 0"), `after #${PENDING.length}`);
   const history1 = pg.run(blockOf("History 1").sql);
   ask(blockOf("History 2"), "after History 1");
+  if (!earlier.ok) return `after the earlier sittings: ${errorText(earlier.stderr)}`;
   return history1.ok ? "applied" : errorText(history1.stderr);
 }
 
@@ -1118,11 +1131,13 @@ describe("every pending migration on a copy of production's database", { skip },
     runbook.catalogue.today = rowDigests(pg, catalogue);
     // Section 1 on the day: the Start queries (Start 1 and 8 read the history table, which this copy only gets
     // with the history steps below), and what they and the Before queries for #1 and #2 catch, rolled back.
-    for (const block of RUNBOOK_BLOCKS) if (/^Start \d+$/.test(block.key) && !["Start 1", "Start 8"].includes(block.key)) ask(block, "before #1");
+    // Start 2 is this sitting's, before #42.
+    for (const block of RUNBOOK_BLOCKS) if (/^Start \d+$/.test(block.key) && !["Start 1", "Start 2", "Start 8"].includes(block.key)) ask(block, "before #1");
     runbook.dayOf = whatTheDayOfQueriesCatch(pg);
     // Each file with its Before queries first and its Checks and Smoke after; the optional backup copy before #12.
     run = applyInOrder(pg, PENDING, cron, {
       beforeFile: (name) => {
+        if (name === THIS_SITTING[0]) ask(blockOf("Start 2"), `before ${number(name)}`);
         for (const block of RUNBOOK_BLOCKS) if (block.key === `Before ${name.slice(0, 14)}`) ask(block, `before ${number(name)}`);
         if (name.startsWith("20261118130010_")) runbook.backup = pg.run(blockOf("Backup 20261118130010").sql);
       },
@@ -1346,7 +1361,7 @@ describe("every pending migration on a copy of production's database", { skip },
     ], "the fix takes the barcode off the archived food only, and experience 2.0's rule comes back");
   });
 
-  test("History 1 runs once the files are recorded, next to production's 17 rows", (t) => {
+  test("History 1 runs once the files of each sitting are recorded, next to production's 17 rows", (t) => {
     if (run.failure) return t.skip(notChecked());
     assert.equal(runbook.history1, "applied", "History 1 gives every pending file its own number (Start 1, History 0 and 2 are compared above)");
   });

@@ -5,13 +5,17 @@ time. It is written for the FITX owner. You do not need to know SQL. "The sessio
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **What is pending:** the 45 files from `20261115100000` to `20261121100040` in `supabase/migrations` on
-  the branch `claude/train`. That folder is the source of truth. Production already has the 14 files from
-  September 2026 and none of these, plus three changes that were applied to it by hand and have no file in
-  that folder (section 1.8). Five of the 45 files meet what those three made; they are written for it, and
-  their summaries say what they do on production.
-- **Older runbooks:** `docs/runbooks/phase1-database.md` covered the first five files for release 2. This
-  runbook includes them, so use this one. `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
+- **Where production stands (2026-11-20):** it has the 14 files from September 2026, the three changes applied
+  to it by hand that have no file in `supabase/migrations` (section 1.8), and #1 to #41 of section 2
+  (`20261115100000` to `20261120100000`), applied on 2026-11-17, 2026-11-18 and 2026-11-20 and recorded under
+  their own numbers: 58 rows in its history. Those 41 are done; never apply one again.
+- **What is pending:** the four files #42 to #45, `20261121100030` to `20261121100040`, in `supabase/migrations`
+  on `master` once the redesign is merged (until then on the branch `claude/redesign`). That folder is the
+  source of truth. Sections 2 and 3 still list all 45 files, so each summary and Check stays next to its file.
+- **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #42, #43, #44 and #45 in that order
+  (section 3), then section 6.3 and 6.1. Start 5 to 10 belong to the first sitting, before #1; they are kept as
+  its record and need not be run again.
+- **Other runbook:** `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
 
 ## 0. How each step works
 
@@ -36,22 +40,23 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only these 45 files, only from `claude/train`. Never a copy from another branch or worktree, never
-  the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from `claude/train`), and
-  never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
+- Only the four pending files, #42 to #45, and only from `master` (or `claude/redesign` before the merge).
+  Never #1 to #41 again: production has them, and #7 must never run a second time. Never a copy from another
+  branch or worktree, never the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from the
+  repository), and never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
   production already has (section 1.8).
 - Never run a September file again. `20260924162506` would put back its old profile rules and functions,
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Do all 45 in one sitting if you can, then deploy the new app (section 6.4) the same
-  day. If you need two sittings, stop after #11 and do #12 to #45 on the day you deploy: #12 changes muscle
-  names that the live app's automatic workout builder still uses. The five food parts and #37 may also wait
-  until after the deploy (section 2.1).
-- The live app keeps working throughout. Only three files change something it uses: #1 (it then saves pauses
-  with the workout, see #1), #9 (goal totals, see #9) and #12 (above). On production #2 also adds range rules to
-  fields the live app already saves (section 1.8); the live app keeps within them. The new app checks for each
-  file and works without the ones not applied yet.
+- Pick a quiet time. Apply #42 to #45 in one sitting, then redeploy Admin and the app (section 6.4) the same
+  day. Admin refuses every sign-in until #42 is applied.
+- The live app keeps working throughout. #42 to #44 add only what Admin uses (and the app's feature switches and
+  notices, which stay on and empty until Admin changes them); #45 takes away rights the app does not use and adds
+  limits far above normal use. The new app checks for each file and works without the ones not applied yet.
+- #42 (45 KB), #43 (43 KB) and #44 (72 KB) are larger than the files the connector took reliably. The session may
+  send them through the SQL editor (section 0.2) instead; it then records each one with the same Record query as
+  #12, with that file's number and name.
 
 ### 0.2 The six large files: SQL editor
 
@@ -75,7 +80,7 @@ connector reliably. For each of them:
 
 ### 1.1 Take or confirm a backup
 
-Do this on the day, before #1.
+Do this on the day, before the first file of the sitting (#42).
 
 - Supabase Dashboard → Database → Backups. If it lists daily backups, note the time of the newest one. If it
   lists none (the Free plan has none), make your own copy as below.
@@ -95,53 +100,23 @@ Do this on the day, before #1.
 ### 1.2 What is already applied
 
 ```sql
--- Start 1: the migration history. Expect: 17 rows, from 20260924162506 initial_fitx_schema to 20261116093902 fitx_admin_control_plane
+-- Start 1: the migration history. Expect: 58 rows, from 20260924162506 initial_fitx_schema to 20261120100000 fitx_onboarding_v3
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
-Expected rows: `20260924162506`, `20260924164105`, `20260924170604`, `20260924171527`, `20260924174525`, then
-the nine `free_exercise_db_part_01` to `_09` rows from `20260930180637` to `20260930180717`, then the three
-changes applied by hand (section 1.8): `20261002172610 fitx_experience_2_0`, `20261002172706
-fitx_share_access_and_index` and `20261116093902 fitx_admin_control_plane`. If there are other rows, or the
-numbers differ from the file names, stop and compare them with section 2 first.
+Expected rows, in version order: the 14 September files (`20260924162506` to `20260930180717`), the three
+changes applied by hand (section 1.8: `20261002172610 fitx_experience_2_0`, `20261002172706
+fitx_share_access_and_index` and `20261116093902 fitx_admin_control_plane`, which comes between #2 and #3), and #1
+to #41 of section 2, each under its file's number and name (History 1 ran after each earlier sitting). The last
+row is `20261120100000 fitx_onboarding_v3`. If there are other rows, a row with a time instead of a file's
+number, or a row for #42 to #45, stop and compare them with section 2 first.
 
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the 45 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
+-- Start 2: changes from the four pending files that are already there. Expect: no rows
 select m.file, m.object
 from (values
-  ('20261115100000', 'column', 'workout_sessions.active_duration_seconds'),
-  ('20261115110000', 'column', 'workout_sets.duration_seconds'),
-  ('20261117090000', 'column', 'profiles.intro_completed_at'),
-  ('20261117100000', 'policy', 'profiles.profiles_update_own'),
-  ('20261117110000', 'table', 'fitx_rate_limits'),
-  ('20261118100000', 'column', 'user_preferences.theme'),
-  ('20261118110000', 'column', 'user_preferences.diet_type'),
-  ('20261118120000', 'column', 'planner_events.local_date'),
-  ('20261118120001', 'column', 'goals.period'),
-  ('20261118120002', 'column', 'user_preferences.dashboard_layout'),
-  ('20261118130000', 'table', 'equipment'),
-  ('20261118130020', 'table', 'exercise_media'),
-  ('20261118130030', 'table', 'training_programmes'),
-  ('20261118130050', 'function', 'fitx_save_workout_plan(jsonb,jsonb)'),
-  ('20261118140000', 'table', 'food_catalog'),
-  ('20261118140001', 'table', 'meal_templates'),
-  ('20261118140002', 'function', 'search_foods(text,text[],integer)'),
-  ('20261118150000', 'table', 'ai_coach_threads'),
-  ('20261118160000', 'table', 'activities'),
-  ('20261118170008', 'column', 'workout_sets.rep_source'),
-  ('20261118180000', 'table', 'fitx_admin_members'),
-  ('20261118180001', 'function', 'fitx_admin_actor_can(uuid,text)'),
-  ('20261118180002', 'function', 'fitx_admin_log_event(uuid,text,text,text,jsonb)'),
-  ('20261118180003', 'function', 'fitx_admin_metrics()'),
-  ('20261118180004', 'function', 'fitx_admin_search_users(text,integer,integer)'),
-  ('20261118180005', 'table', 'support_requests'),
-  ('20261118180006', 'table', 'announcements'),
-  ('20261118190000', 'table', 'billing_plans'),
-  ('20261119100000', 'column', 'activities.source'),
-  ('20261119100010', 'table', 'exercise_notes'),
-  ('20261120100000', 'column', 'profiles.date_of_birth'),
   ('20261121100030', 'table', 'admin_operators'),
   ('20261121100033', 'table', 'platform_settings'),
   ('20261121100036', 'function', 'fitx_admin_op_report(uuid,integer)'),
@@ -158,10 +133,9 @@ end
 order by m.file;
 ```
 
-Each row means that change is already in the database without its file being in the history. The two
-expected rows come from the changes applied by hand (section 1.8): experience 2.0 added
-`workout_sets.duration_seconds` (with the other fields #2 adds), and the old Admin draft added
-`fitx_admin_members`. #2 and #29 are written for that, so go on. Any other row: stop and tell the session.
+Each row would mean that change is already in the database without its file being in the history: stop and
+tell the session. (Before #1, on 2026-11-17, this query listed all 45 files and showed the two that production's
+hand-applied changes had made, section 1.8; #2 and #29 were written for them.)
 
 ### 1.4 What the Admin files need (Phase 10 checks)
 
@@ -188,6 +162,8 @@ select has_table_privilege(current_user, 'auth.sessions', 'DELETE') as can_end_s
   may be in read-only mode, and a file cannot replace a function that another role owns.
 
 ### 1.5 Extensions and search path
+
+First sitting only (before #17 and #27, both applied); nothing in #42 to #45 needs them.
 
 ```sql
 -- Start 5: the two extensions the files use. Expect: two rows, pg_cron and pg_trgm (installed or not)
@@ -228,9 +204,11 @@ where table_schema = 'supabase_migrations' and table_name = 'schema_migrations' 
 ```
 
 The "Record" queries for the large files write `version` and `name` only. If another column is not
-nullable, tell the session before #12.
+nullable, tell the session before a file goes through the SQL editor.
 
 ### 1.8 Three changes production has that are not in the files
+
+First sitting only: Start 9 and Start 10 describe production before #1 and are kept as its record.
 
 Production's history (Start 1) has three rows that no file in `supabase/migrations` matches. They were
 applied by hand, outside this repository. Exact copies, checked against the history, are in
@@ -261,7 +239,7 @@ also has an event trigger, `ensure_rls`, that switches row level security on for
 before the first migration. Every file switches it on itself, so the trigger changes nothing here.)
 
 ```sql
--- Start 9: what the three changes made, before #1. Expect: 7, 20, 4, 2, 1, 3, 1
+-- Start 9: what the three changes made, before #1. Expect (before #1, as on 2026-11-17): 7, 20, 4, 2, 1, 3, 1
 select
   (select count(*) from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' and relname in
      ('exercise_favorites', 'food_favorites', 'outdoor_activities', 'activity_shares', 'user_release_reads',
@@ -1336,15 +1314,19 @@ key, which every browser has, straight against the database:
   on its four unused tables (section 1.8). Only the server key reaches them; nothing in them is deleted.
 - `workout_sessions` leaves the Realtime broadcast. Nothing in FITX listens to it, and Realtime sends deletions without
   checking who may see them, so any visitor could watch members' workouts being deleted.
-- A member's private photo folder (profile photo and food photos) takes at most 1,000 files and 250 MB, and 100 uploads
-  an hour. The browser uploads there directly, so one account could otherwise fill the project's storage.
+- A member's private photo folder (profile photo and food photos) holds at most 1,000 files and 250 MB, and at most 100
+  files in it may be under an hour old. The browser uploads there directly, so one account could otherwise fill the
+  project's storage. It counts the files that are there: a deleted file no longer counts, so this limits what is
+  stored, not how often a script uploads and deletes.
 - Each member can write at most 10,000 rows and 50 MB an hour, and 50,000 rows and 150 MB in 24 hours, to the tables
   members write directly (workouts, meals, To-Dos, activities, the coach and the rest). A busy day is a few thousand
-  rows and a few MB. The count is kept in a new table, `fitx_member_write_budget` (two days of hourly totals, server key
-  only); past the limit the write is refused with "write limit reached". Writes by the server, Admin and sign-up are
+  rows and a few MB. The count is kept in a new table, `fitx_member_write_budget` (hourly totals, server key only;
+  hours over two days old are deleted, for every member, at any member's first write of an hour); past the limit the
+  write is refused with "write limit reached". Writes by the server, Admin and sign-up are
   not counted. Help requests and replies keep their own limits (#34).
-- A member can join only a published programme. Before, a member who knew a draft programme's id could join it and
-  read its unpublished days.
+- A member can join only a published programme, and can bring back a left or completed enrolment only while its
+  programme is published. Before, a member who knew a draft programme's id could join it, or set an old enrolment
+  back to active, and read its unpublished days. Resuming a paused enrolment stays allowed.
 
 It changes no row, and a second run changes nothing.
 
@@ -1908,7 +1890,7 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 Before #45 it listed experience 2.0's `get_activity_share`, which #45 locks down (section 1.8). Any row: tell the
 session.
 
-Then run Start 2 again: now it lists all 35 rows.
+Then run Start 2 again: now it lists all four rows.
 
 The ten tables in Final 2 are reached only by database functions or the server key, which is why they have
 no policy. Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
@@ -1927,7 +1909,9 @@ The connector records each file under the time it ran, not under the file's numb
 the repository already carry the numbers production recorded. The three changes of section 1.8 have their own
 numbers and no file; the queries below leave their rows alone. One of them, the old Admin draft, has the same
 name as #29, `fitx_admin_control_plane`, which is why they leave those three out. Give each new row its file's
-number once, after the last file. It writes to the history table only.
+number once, after the last file. It writes to the history table only. #1 to #41 already carry their numbers
+(History 1 ran after each earlier sitting), so in this sitting it changes only the rows of #42 to #45 that the
+connector recorded under a time: four rows at most.
 
 ```sql
 -- History 0: files recorded twice. Expect: no rows
@@ -1991,8 +1975,8 @@ tried here.
 
 ### 6.4 Deploy the new app
 
-Set the variables in section 7 first. Then ship the new app (the `claude/train` code) to production as
-planned. If the food parts wait (section 2.1), deploy after #36 and apply #20 to #24 and #37 afterwards. Both Vercel projects build from the same repository: the FITX site (`fitnessx`) and Admin
+Set the variables in section 7 first. Then ship the new app (the redesign, `claude/redesign` merged into
+`master`) to production as planned. If the food parts wait (section 2.1), deploy after #36 and apply #20 to #24 and #37 afterwards. Both Vercel projects build from the same repository: the FITX site (`fitnessx`) and Admin
 (`admin`). If Admin's build is skipped because of its path filter, redeploy it as in `admin/README.md`,
 "Automatic deployments and path filters". Apply #42 to #44 before Admin is redeployed: without #42, Admin refuses
 every sign-in.
@@ -2027,7 +2011,7 @@ contains their values.
 | Admin (#29 to #35, #42 to #44) | `admin` | Domain `fitnessx-admin.vercel.app` | Vercel → admin project → Settings → Domains → Add, for Production. If the name is taken, pick another free `.vercel.app` name and use it everywhere below. |
 | Admin | `admin` | `ADMIN_SITE_URL` | `https://fitnessx-admin.vercel.app` (it replaces `https://admin-one-blond.vercel.app`). |
 | Admin | `admin` | `SUPABASE_SECRET_KEY` | The same kind of key as above; you can create a separate one named `fitx-admin`. Sensitive, Production only. |
-| Admin (#42) | `admin` | `FITX_ADMIN_USERNAME` | The root operator's username, lower case (`saixsanthosh`). Production only. |
+| Admin (#42) | `admin` | `FITX_ADMIN_USERNAME` | The root operator's username, in lower case. Production only. |
 | Admin (#42) | `admin` | `FITX_ADMIN_PASSWORD_HASH` | The single `scrypt:` line that `cd admin && npm run admin:hash` prints on your own computer after you type the password twice. Never the password itself. Sensitive, Production only. A new hash ends every open Admin session. |
 | Admin (#42) | `admin` | Delete `FITX_ADMIN_ALLOWED_EMAILS` | No longer read: Admin signs in with a username and password. |
 | Admin | `admin` | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Check they are already there. |
