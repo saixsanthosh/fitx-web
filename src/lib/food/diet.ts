@@ -4,7 +4,7 @@
  * Null means FITX can't tell, never "vegetarian": an ingredient can be a product whose contents its name does not
  * show ("Candies, marshmallows" has gelatin).
  *
- * The catalogue importer (scripts/import-fdc.mjs, through fdc-import.ts) and the built-in food list
+ * The catalogue importer (scripts/food/import-fdc.mjs, through fdc-import.ts) and the built-in food list
  * (catalog-search.ts) both use these rules, so a food carries the same label in either. Pure, no runtime imports.
  */
 import type { DietType } from "@/lib/food/types";

@@ -1,4 +1,4 @@
-/* The FITX body map (BodyMap.tsx). Theme tokens only (scripts/check-raw-colors.mjs): the figure follows the light,
+/* The FITX body map (BodyMap.tsx). Theme tokens only (scripts/checks/check-raw-colors.mjs): the figure follows the light,
    dark, system and inverse themes because every colour below is a token or a mix of tokens.
    The body is a neutral base; muscle plates sit on it and the base-coloured stroke around each plate draws the
    even gaps between them. */

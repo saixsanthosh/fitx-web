@@ -1,4 +1,4 @@
-/* Home widgets. Theme tokens only (scripts/check-raw-colors.mjs). Cards are container-query hosts so
+/* Home widgets. Theme tokens only (scripts/checks/check-raw-colors.mjs). Cards are container-query hosts so
    each widget adapts to its own width: full width on phones, a half column on tablet and desktop. */
 
 .card { container-type: inline-size; display: flex; min-width: 0; height: 100%; flex-direction: column; border: 1px solid var(--fitx-border); border-radius: 16px; background: var(--fitx-card-bg); padding: 16px 18px 18px; box-shadow: 0 10px 28px color-mix(in srgb, var(--fitx-scrim) 4.5%, transparent); }

@@ -1,4 +1,4 @@
-/* The AI coach. Theme tokens only (scripts/check-raw-colors.mjs). Calm: one focused column, quiet chrome. */
+/* The AI coach. Theme tokens only (scripts/checks/check-raw-colors.mjs). Calm: one focused column, quiet chrome. */
 .layout { display: grid; min-width: 0; gap: 24px; }
 .rail { display: none; }
 .chat { display: flex; min-width: 0; min-height: calc(100dvh - 220px); flex-direction: column; width: 100%; max-width: 760px; margin: 0 auto; }

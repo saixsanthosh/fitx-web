@@ -1,4 +1,4 @@
-/* Progress. Theme tokens only (scripts/check-raw-colors.mjs). Mobile first: one column, two from 1024 px. */
+/* Progress. Theme tokens only (scripts/checks/check-raw-colors.mjs). Mobile first: one column, two from 1024 px. */
 .page { min-width: 0; max-width: 1120px; margin: 0 auto; }
 .sections { display: grid; gap: var(--fitx-space-block, 24px); }
 

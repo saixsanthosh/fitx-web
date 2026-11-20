@@ -1,4 +1,4 @@
-/* The programme day strip (ProgrammeDayStrip.tsx). Theme tokens only (scripts/check-raw-colors.mjs).
+/* The programme day strip (ProgrammeDayStrip.tsx). Theme tokens only (scripts/checks/check-raw-colors.mjs).
    Done days use the success colour, today a primary ring, rest days a quiet surface with a moon, days not
    planned yet a dashed edge. A missed day stays neutral: it is never shown as an error. */
 

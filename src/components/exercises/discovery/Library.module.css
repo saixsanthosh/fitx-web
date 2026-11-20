@@ -1,5 +1,5 @@
 /* Exercise library motion (ExerciseResultCard, the results grid). Transform and opacity only; nothing moves under
-   reduced motion. Theme tokens only (scripts/check-raw-colors.mjs). */
+   reduced motion. Theme tokens only (scripts/checks/check-raw-colors.mjs). */
 
 .card {
   --rise-delay: 0ms;

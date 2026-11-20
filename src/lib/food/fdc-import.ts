@@ -1,6 +1,6 @@
 /**
  * Turns USDA FoodData Central (FDC) API records into FITX food catalogue rows (public.food_catalog and
- * public.food_portions). Pure functions: scripts/import-fdc.mjs reads the saved API responses and writes the
+ * public.food_portions). Pure functions: scripts/food/import-fdc.mjs reads the saved API responses and writes the
  * seed migrations. Every number comes from FDC; this file only chooses, cleans and labels.
  *
  * FDC data is public domain (CC0 1.0). Suggested citation: U.S. Department of Agriculture, Agricultural

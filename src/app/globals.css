@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 /*
- * FITX colour tokens. Components use these instead of hex/rgb values; scripts/check-raw-colors.mjs
- * enforces that outside this file and src/components/brand, and scripts/check-contrast.mjs checks
+ * FITX colour tokens. Components use these instead of hex/rgb values; scripts/checks/check-raw-colors.mjs
+ * enforces that outside this file and src/components/brand, and scripts/checks/check-contrast.mjs checks
  * every text/background pairing in light, dark, system-dark and the inverse band.
  *
  * Surfaces  --fitx-bg (page), --fitx-surface and --fitx-card-bg (cards, fields), --fitx-surface-variant

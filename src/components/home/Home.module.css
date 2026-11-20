@@ -1,4 +1,4 @@
-/* Home: the Today hero, the To-Do and Goals panels. Theme tokens only (scripts/check-raw-colors.mjs). */
+/* Home: the Today hero, the To-Do and Goals panels. Theme tokens only (scripts/checks/check-raw-colors.mjs). */
 
 /* Hero */
 .hero { container-type: inline-size; position: relative; min-width: 0; border: 1px solid var(--fitx-border); border-radius: 24px; background: var(--fitx-card-bg); padding: 10px 14px 20px 20px; box-shadow: 0 18px 44px color-mix(in srgb, var(--fitx-scrim) 5%, transparent); }
