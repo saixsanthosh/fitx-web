@@ -89,15 +89,18 @@ export function TrainingPanel({
     <section aria-labelledby="training-title" className={styles.panel}>
       <div className={styles.panelHead}>
         <h2 id="training-title" className={styles.panelTitle}><Dumbbell size={17} aria-hidden="true" />Training</h2>
-        <span className={styles.panelNote}>Last {weeks.length} weeks</span>
+        <span className={styles.panelNote}>{weeks.length === 1 ? "This week" : `Last ${weeks.length} weeks`}</span>
       </div>
 
       <dl className={styles.facts}>
-        <div>
-          <dt>Weeks trained</dt>
-          <dd>{consistency.trainedWeeks}<small>of {consistency.weeks}</small></dd>
-        </div>
-        {consistency.plan !== null && consistency.planWeeks !== null ? (
+        {/* Counted from the first finished week since the member joined; none yet in their first week. */}
+        {consistency.weeks > 0 ? (
+          <div>
+            <dt>Weeks trained</dt>
+            <dd>{consistency.trainedWeeks}<small>of {consistency.weeks}</small></dd>
+          </div>
+        ) : null}
+        {consistency.weeks > 0 && consistency.plan !== null && consistency.planWeeks !== null ? (
           <div>
             <dt>Hit your {consistency.plan} a week</dt>
             <dd>{consistency.planWeeks}<small>{consistency.planWeeks === 1 ? "week" : "weeks"}</small></dd>

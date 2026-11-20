@@ -4,7 +4,8 @@
  * and the newest workouts for the history list.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDays, mondayOf } from "@/lib/domain/day-keys";
+import { localDateKey } from "@/lib/domain/dates";
+import { addDays, isDateKey, mondayOf } from "@/lib/domain/day-keys";
 import type { MealTotals } from "@/lib/domain/meal-totals";
 import type { TrendActivity } from "@/lib/domain/trends";
 import { loadMuscleHistory, type LoggedSession } from "@/lib/training/muscle-history";
@@ -135,6 +136,38 @@ export type Consistency = {
   workouts: number;
 };
 
+const dayOfIso = (iso: unknown): string | null => {
+  if (typeof iso !== "string" || !iso) return null;
+  const time = Date.parse(iso);
+  return Number.isFinite(time) ? localDateKey(new Date(time)) : null;
+};
+
+/**
+ * The first day the trends can speak for: the day the account was made, or an earlier day with something logged
+ * (an imported activity or a back-dated workout), on the browser's calendar. Null when neither is known.
+ */
+export function firstTrackedDay(
+  joinedAt: string | null | undefined,
+  data: { sessions: ReadonlyArray<{ started_at: string }>; activities: ReadonlyArray<{ startedAt: string }> | null; foodDays: ReadonlyMap<string, unknown> },
+): string | null {
+  const days = [
+    dayOfIso(joinedAt),
+    ...data.sessions.map((session) => dayOfIso(session.started_at)),
+    ...(data.activities ?? []).map((activity) => dayOfIso(activity.startedAt)),
+    ...[...data.foodDays.keys()].filter(isDateKey),
+  ].filter((day): day is string => day !== null);
+  return days.length ? days.reduce((first, day) => (day < first ? day : first)) : null;
+}
+
+/**
+ * The weeks from the one that holds `from` on: weeks before the member joined are unknown, not weeks without
+ * training, so they are neither counted nor drawn. The current (last) week always stays.
+ */
+export function weeksFrom<T extends { weekStart: string }>(weeks: readonly T[], from: string | null): T[] {
+  if (!from) return [...weeks];
+  return weeks.filter((week, index) => index === weeks.length - 1 || addDays(week.weekStart, 6) >= from);
+}
+
 export function trainingConsistency(weeks: ReadonlyArray<{ workouts: number; inProgress: boolean }>, plan: number | null): Consistency {
   const finished = weeks.filter((week) => !week.inProgress);
   const validPlan = plan !== null && Number.isInteger(plan) && plan >= 1 && plan <= 7 ? plan : null;
@@ -176,9 +209,13 @@ export function weightSummary(rows: readonly BodyMetricRow[], today: string, ran
   return { points, latest, changeKg: points.length >= 2 ? Math.round((points.at(-1)!.kg - points[0].kg) * 10) / 10 : null };
 }
 
-export type MeasurementLine = { name: string; latest: number; date: string; changeCm: number | null; unit: "cm" | "%" };
+/** `since`: the date of the oldest value the change starts from (null without a change). */
+export type MeasurementLine = { name: string; latest: number; date: string; changeCm: number | null; since: string | null; unit: "cm" | "%" };
 
-/** The newest value of each tape measurement (and body fat) ever logged, with the change since its first one. */
+/**
+ * The newest value of each tape measurement (and body fat) in the rows, with the change since the oldest one there.
+ * The page reads a limited number of rows, so it names that oldest date rather than calling it the first.
+ */
 export function latestMeasurements(rows: readonly BodyMetricRow[]): MeasurementLine[] {
   const series = new Map<string, Array<{ date: string; value: number }>>();
   const add = (name: string, date: string, value: unknown) => {
@@ -196,6 +233,6 @@ export function latestMeasurements(rows: readonly BodyMetricRow[]): MeasurementL
     // Rows arrive newest first: the first entry is the latest, the last the oldest.
     const latest = list[0];
     const oldest = list.at(-1)!;
-    return { name, latest: latest.value, date: latest.date, changeCm: list.length > 1 ? Math.round((latest.value - oldest.value) * 10) / 10 : null, unit: name === "body_fat" ? "%" : "cm" } as MeasurementLine;
+    return { name, latest: latest.value, date: latest.date, changeCm: list.length > 1 ? Math.round((latest.value - oldest.value) * 10) / 10 : null, since: list.length > 1 ? oldest.date : null, unit: name === "body_fat" ? "%" : "cm" } as MeasurementLine;
   }).sort((a, b) => (a.name === "body_fat" ? -1 : b.name === "body_fat" ? 1 : a.name.localeCompare(b.name)));
 }

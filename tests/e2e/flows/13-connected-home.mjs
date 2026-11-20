@@ -1,7 +1,7 @@
 // Flow 13: the connected experience. A member with a finished workout, an abandoned one, a run and food with an
 // unknown protein value opens Home: the Today ring leads and says what its totals leave out; Today's plan and
 // Muscles this week, added in Customise, count the run and only the finished workout's muscles. Progress shows this week against last week,
-// Focus next and the trends; /progress/muscles lists the share of the work, and choosing a muscle shows the
+// Focus next and the trends, and a measurement logged there in pounds is saved in kg and becomes the profile weight; /progress/muscles lists the share of the work, and choosing a muscle shows the
 // workout behind it with a link to its record. Nothing is counted from the abandoned workout.
 import { signInUi, textOf } from "./common.mjs";
 
@@ -90,6 +90,42 @@ export const flow = {
       t.expect(await page.getByRole("link", { name: /Muscle map/ }).count() > 0, "Progress links to the muscle map");
       t.expect(await page.getByText("Calories a logged day").count() === 0, "food averages stay on Nutrition, not repeated on Progress");
       await t.checkpoint("progress trends");
+    });
+
+    await t.step("Log measurement: a weigh-in in pounds and a waist size, saved in kg and made the profile weight", async () => {
+      await standin.sql(`update public.user_preferences set weight_unit = 'lb' where user_id = ${user}`);
+      await t.goto("/progress", { label: "progress in lb" });
+      const body = page.locator("section[aria-labelledby='body-title']");
+      const open = body.getByRole("button", { name: "Log measurement" });
+      await open.waitFor({ timeout: 20000 });
+      await body.getByText(/\blb\b/).first().waitFor({ timeout: 20000 });
+      await open.click();
+      const sheet = page.getByRole("dialog", { name: "Log measurement" });
+      await sheet.waitFor({ timeout: 10000 });
+      await sheet.getByLabel("Weight (lb)").fill("140");
+      await sheet.getByLabel("Measurement", { exact: true }).selectOption("waist");
+      await sheet.getByLabel("Size (cm)").fill("81.5");
+      await t.checkpoint("log measurement sheet");
+      await sheet.getByRole("button", { name: "Save", exact: true }).click();
+      await sheet.waitFor({ state: "hidden", timeout: 15000 });
+      await page.waitForFunction(() => document.activeElement?.textContent?.includes("Log measurement"), null, { timeout: 5000 }).catch(() => undefined);
+      const focused = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
+      t.expect(/Log measurement/.test(focused), "focus returns to Log measurement when the sheet closes", { focused });
+      const saved = await standin.one(`select b.weight::text weight, b.measurements->>'waist' waist, p.weight::text profile_weight,
+          (select count(*) from public.body_metrics x where x.user_id = p.id)::int rows
+        from public.profiles p join public.body_metrics b on b.user_id = p.id
+        where p.id = ${user} and b.note is distinct from 'Starting weight' order by b.created_at desc limit 1`);
+      t.note("saved measurement", saved);
+      t.expect(Number(saved?.weight) === 63.5, "140 lb is saved as 63.5 kg", saved);
+      t.expect(Number(saved?.waist) === 81.5, "the waist size is saved in cm", saved);
+      t.expect(Number(saved?.profile_weight) === 63.5, "the weigh-in becomes the profile weight", saved);
+      t.expect(Number(saved?.rows) === 2, "one new row next to the starting weigh-in", saved);
+      await body.getByText("140.0").first().waitFor({ timeout: 15000 });
+      const text = await textOf(body);
+      t.note("body section", text.slice(0, 400));
+      t.expect(/140\.0\s*lb/.test(text), "the latest weight shows in pounds", text);
+      t.expect(/Waist\s*81\.5 cm/i.test(text), "the waist size is listed", text);
+      await t.checkpoint("progress after logging");
     });
 
     await t.step("Muscle analytics: share of the work, and the workout behind a muscle", async () => {

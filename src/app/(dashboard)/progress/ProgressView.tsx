@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { InsightList } from "@/components/widgets/InsightList";
 import { useGoalsData, useResource, useToday, useTodaySummary } from "@/components/widgets/useHomeData";
 import { WidgetError } from "@/components/widgets/WidgetCard";
-import { loadAllTimeTotals, loadRecentWorkouts, loadTrendRows, trainingConsistency, TREND_WEEKS } from "@/lib/data/progress";
+import { firstTrackedDay, loadAllTimeTotals, loadRecentWorkouts, loadTrendRows, trainingConsistency, TREND_WEEKS, weeksFrom } from "@/lib/data/progress";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import { improveNext, proteinTargetFrom } from "@/lib/domain/insights";
 import { todayTargets } from "@/lib/domain/today";
@@ -58,18 +58,20 @@ function ProgressContent({ today }: { today: string }) {
   const goals = useGoalsData(today);
   // The days-a-week answer from setup, only when the member has saved one.
   const weeklyPlan = plan?.hasPreferences ? plan.preferences.workouts_per_week : null;
+  const joinedAt = plan?.profile?.created_at ?? null;
 
   const derived = useMemo(() => {
     if (!trends.data) return null;
     const data = { sessions: trends.data.sessions, activities: trends.data.activities, foodDays: trends.data.foodDays };
-    const weeks = weeklyTrends(data, today, TREND_WEEKS);
+    // Weeks before the account (or anything logged) are unknown, not untrained: they are left out.
+    const weeks = weeksFrom(weeklyTrends(data, today, TREND_WEEKS), firstTrackedDay(joinedAt, data));
     return {
       week: weekSoFar(data, today),
       weeks,
       consistency: trainingConsistency(weeks, weeklyPlan),
       muscles: summariseMuscles(trends.data.sessions, musclePeriodRange("week", keyToLocalDate(today))),
     };
-  }, [trends.data, today, weeklyPlan]);
+  }, [trends.data, today, weeklyPlan, joinedAt]);
 
   const insights = useMemo(() => {
     if (!trends.data || (!summary.data && summary.status !== "error")) return null;

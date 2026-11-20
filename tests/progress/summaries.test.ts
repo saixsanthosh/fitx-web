@@ -1,7 +1,8 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { latestMeasurements, trainingConsistency, weightSummary, type BodyMetricRow } from "@/lib/data/progress";
+import { firstTrackedDay, latestMeasurements, trainingConsistency, weeksFrom, weightSummary, type BodyMetricRow } from "@/lib/data/progress";
+import { weeklyTrends } from "@/lib/domain/trends";
 
 const row = (date: string, weight: number | null, extra: Partial<BodyMetricRow> = {}): BodyMetricRow => ({ id: `${date}-${weight}`, date, weight, body_fat: null, measurements: {}, ...extra });
 
@@ -13,6 +14,33 @@ describe("training consistency", () => {
   test("without a plan there is no plan count, not a zero", () => {
     assert.equal(trainingConsistency([{ workouts: 1, inProgress: false }], null).planWeeks, null);
     assert.equal(trainingConsistency([{ workouts: 1, inProgress: false }], 9).plan, null, "an impossible plan is ignored");
+  });
+});
+
+describe("weeks before the member joined", () => {
+  // Friday 20 November 2026; the account was made on Wednesday 11 November, local time.
+  const today = "2026-11-20";
+  const session = (startedAt: string) => ({ id: startedAt, name: "Upper", status: "completed", started_at: startedAt, completed_at: startedAt, exercises: [] });
+  const local = (key: string, hour = 12) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)), hour).toISOString();
+
+  test("are neither counted nor drawn: a member who joined last week has one finished week, not eleven", () => {
+    const data = { sessions: [session(local("2026-11-12")), session(local("2026-11-13")), session(local("2026-11-19"))], activities: [], foodDays: new Map() };
+    const all = weeklyTrends(data, today, 12);
+    assert.equal(all.length, 12);
+    const from = firstTrackedDay(local("2026-11-11", 9), data);
+    assert.equal(from, "2026-11-11");
+    const weeks = weeksFrom(all, from);
+    assert.deepEqual(weeks.map((week) => week.weekStart), ["2026-11-09", "2026-11-16"]);
+    assert.deepEqual(trainingConsistency(weeks, 4), { weeks: 1, trainedWeeks: 1, planWeeks: 0, plan: 4, workouts: 2 });
+  });
+
+  test("an earlier logged day (an imported run) counts from that day; nothing known keeps every week", () => {
+    const data = { sessions: [], activities: [{ startedAt: local("2026-10-01"), distanceM: 5000, movingSeconds: 1800 }], foodDays: new Map([["2026-10-20", {}]]) };
+    assert.equal(firstTrackedDay(local("2026-11-11"), data), "2026-10-01");
+    assert.equal(firstTrackedDay(null, { sessions: [], activities: null, foodDays: new Map() }), null);
+    const all = weeklyTrends({ sessions: [], activities: [], foodDays: new Map() }, today, 12);
+    assert.equal(weeksFrom(all, null).length, 12);
+    assert.deepEqual(weeksFrom(all, "2026-11-19").map((week) => week.inProgress), [true], "joined this week: only this week, still running");
   });
 });
 
@@ -35,9 +63,9 @@ describe("measurements", () => {
   test("the newest of each, with the change since the first, only for what was logged", () => {
     const rows = [row("2026-11-20", null, { measurements: { waist: 82 } }), row("2026-11-01", 70, { body_fat: 18, measurements: { waist: 84.5, arm: 33 } })];
     assert.deepEqual(latestMeasurements(rows), [
-      { name: "body_fat", latest: 18, date: "2026-11-01", changeCm: null, unit: "%" },
-      { name: "arm", latest: 33, date: "2026-11-01", changeCm: null, unit: "cm" },
-      { name: "waist", latest: 82, date: "2026-11-20", changeCm: -2.5, unit: "cm" },
+      { name: "body_fat", latest: 18, date: "2026-11-01", changeCm: null, since: null, unit: "%" },
+      { name: "arm", latest: 33, date: "2026-11-01", changeCm: null, since: null, unit: "cm" },
+      { name: "waist", latest: 82, date: "2026-11-20", changeCm: -2.5, since: "2026-11-01", unit: "cm" },
     ]);
     assert.deepEqual(latestMeasurements([row("2026-11-20", 70)]), [], "a weigh-in alone is no measurement");
   });

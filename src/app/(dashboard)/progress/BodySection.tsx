@@ -9,6 +9,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
 import { latestMeasurements, weightSummary, type BodyMetricRow } from "@/lib/data/progress";
 import { localDateKey } from "@/lib/domain/dates";
+import { addDays } from "@/lib/domain/day-keys";
 import { notifyUserContextChanged, syncProfileWeight } from "@/lib/domain/user-context";
 import { WEIGHT_RANGE_KG, weightIn, weightText, weightToKg, weightUnitOf } from "@/lib/domain/weight-display";
 import styles from "./Progress.module.css";
@@ -20,9 +21,13 @@ const RANGES: ReadonlyArray<{ value: Range; label: string }> = [
   { value: "365", label: "1 yr" },
   { value: "0", label: "All" },
 ];
-const RANGE_WORDS: Record<Range, string> = { "30": "in 30 days", "90": "in 90 days", "365": "in a year", "0": "since your first weigh-in" };
+const RANGE_WORDS: Record<Exclude<Range, "0">, string> = { "30": "in 30 days", "90": "in 90 days", "365": "in a year" };
+/** Body rows read, newest first. Older rows are not loaded, so a change is named by the date it starts from. */
+const BODY_ROWS = 365;
 const MEASUREMENTS = ["waist", "chest", "hips", "arm", "thigh", "neck"];
 const dayLabel = (key: string, options: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" }) => new Date(`${key}T12:00:00`).toLocaleDateString(undefined, options);
+/** "since 3 Jan", with the year when it is not this year's. */
+const sinceLabel = (key: string, today: string) => `since ${dayLabel(key, key.slice(0, 4) === today.slice(0, 4) ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" })}`;
 const signed = (value: number, digits = 1) => `${value > 0 ? "+" : value < 0 ? "−" : "±"}${Math.abs(value).toFixed(digits)}`;
 
 /** Weight trend and the newest of each measurement, in the member's unit, with the form to log them in a sheet. */
@@ -38,7 +43,7 @@ export function BodySection() {
     try {
       const { db, userId } = await getSession();
       const result = await db.from("body_metrics").select("id,date,weight,body_fat,measurements").eq("user_id", userId)
-        .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(365);
+        .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(BODY_ROWS);
       if (result.error) throw result.error;
       setMetrics((result.data ?? []) as BodyMetricRow[]);
       setError("");
@@ -52,6 +57,12 @@ export function BodySection() {
   const everWeighed = useMemo(() => weightSummary(metrics ?? [], today, 0).latest, [metrics, today]);
   const measures = useMemo(() => latestMeasurements(metrics ?? []), [metrics]);
   const lastWeight = everWeighed?.kg ?? null;
+  // "All" starts at the oldest weigh-in loaded, which is the first only when every row was read; a range whose
+  // start is older than the oldest row loaded is cut short. Either way the change names the day it starts from.
+  const capped = (metrics?.length ?? 0) >= BODY_ROWS;
+  const oldestLoaded = metrics?.at(-1)?.date ?? null;
+  const cutShort = capped && oldestLoaded !== null && range !== "0" && oldestLoaded > addDays(today, -Number(range));
+  const changeWords = range === "0" || cutShort ? (weight.points[0] ? sinceLabel(weight.points[0].date, today) : "") : RANGE_WORDS[range];
   const lastBodyFat = measures.find((line) => line.name === "body_fat")?.latest ?? null;
 
   return (
@@ -78,7 +89,7 @@ export function BodySection() {
                       <p className={styles.weightNow}>{weightText(everWeighed.kg, unit)}<small>{unit}</small></p>
                       <p className={styles.weightMeta}>
                         {weight.changeKg !== null
-                          ? <><span className={styles.change}>{signed(weightIn(weight.changeKg, unit))} {unit}</span> {RANGE_WORDS[range]}</>
+                          ? <><span className={styles.change}>{signed(weightIn(weight.changeKg, unit))} {unit}</span> {changeWords}</>
                           : `Logged ${dayLabel(everWeighed.date, { day: "numeric", month: "short", year: "numeric" })}`}
                       </p>
                     </div>
@@ -105,7 +116,7 @@ export function BodySection() {
                       <li key={line.name}>
                         <span>{line.name === "body_fat" ? "Body fat" : line.name.replaceAll("_", " ")}</span>
                         <strong>{line.latest.toFixed(1)} {line.unit}</strong>
-                        <small>{line.changeCm !== null ? `${signed(line.changeCm)} since first` : dayLabel(line.date)}</small>
+                        <small>{line.changeCm !== null && line.since ? `${signed(line.changeCm)} ${sinceLabel(line.since, today)}` : dayLabel(line.date)}</small>
                       </li>
                     ))}
                   </ul>
