@@ -371,7 +371,7 @@ export function OnboardingFlow() {
                     <Readout label="Where" value={optionLabel(ONBOARDING_LOCATION_OPTIONS, form.location) ?? <NotGiven />} />
                     <Readout label="Days a week" value={String(form.days)} />
                     <Readout label="Level" value={EXPERIENCE_TILES.find((tile) => tile.value === form.experience)?.label ?? <NotGiven />} />
-                    <Readout label="Equipment" value={visibleKit.length ? `${visibleKit.length} items` : "Bodyweight"} />
+                    <Readout label="Equipment" value={visibleKit.length ? `${visibleKit.length} ${visibleKit.length === 1 ? "item" : "items"}` : "Bodyweight"} />
                   </dl>
                 </div>
               )}
@@ -429,7 +429,7 @@ export function OnboardingFlow() {
                   <Block title="Habits">
                     <ChoiceTiles legend="Meals per day" options={MEAL_TILES} value={form.meals} onChange={(value) => update("meals", value)} columns="grid-cols-4" variant="number" />
                     {v3 && <ChoiceTiles legend="Food preference" options={SOURCE_TILES} value={form.foodSource} onChange={(value) => update("foodSource", value)} columns="grid-cols-3" />}
-                    {v3 && <ChoiceTiles legend="Nutrition goal" options={FOCUS_TILES} value={form.nutritionFocus} onChange={(value) => update("nutritionFocus", value)} columns="grid-cols-3" />}
+                    {v3 && <ChoiceTiles legend="Nutrition goal" hint="Shapes coach meal plans, not your daily targets." options={FOCUS_TILES} value={form.nutritionFocus} onChange={(value) => update("nutritionFocus", value)} columns="grid-cols-3" />}
                   </Block>
                 </>}
 

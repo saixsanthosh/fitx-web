@@ -18,6 +18,15 @@ export function parseSportFilter(value: unknown): SportFilter {
   return isSport(raw) ? raw : "all";
 }
 
+/**
+ * Where the statistics stand: "ready" once there are rows to count, "error" when the request for
+ * them failed, otherwise still "loading". Only "ready" may show a figure or say nothing was logged.
+ */
+export function figuresStatus(rows: readonly unknown[] | null, failed: boolean): "loading" | "ready" | "error" {
+  if (rows) return "ready";
+  return failed ? "error" : "loading";
+}
+
 export function matchesFilter(row: Pick<ActivitySummary, "sport">, filter: SportFilter): boolean {
   return filter === "all" || row.sport === filter;
 }

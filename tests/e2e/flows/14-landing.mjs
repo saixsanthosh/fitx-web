@@ -64,6 +64,47 @@ export const flow = {
       t.expect(bottom.card > 0.99 && end.card > 0.99, "the plan card shows once the scene is under way", { bottom, end });
     });
 
+    if (size === "phone") {
+      await t.step("on short phones the pinned scene still fits: nothing is cut off at the bottom", async () => {
+        const original = page.viewportSize();
+        // Safari's small viewport (bars showing): about 660 px on a standard iPhone, about 548 px on an iPhone SE.
+        for (const viewport of [{ width: 390, height: 660 }, { width: 375, height: 548 }]) {
+          await page.setViewportSize(viewport);
+          await scrollToFraction(page, "#scenes", 0.34);
+          const fit = await page.evaluate(() => {
+            const scene = document.querySelector("#scenes");
+            const stage = scene?.firstElementChild?.getBoundingClientRect();
+            const box = (selector) => {
+              const rect = scene?.querySelector(selector)?.getBoundingClientRect();
+              return rect ? { top: Math.round(rect.top), bottom: Math.round(rect.bottom) } : null;
+            };
+            const caption = scene?.querySelector("[data-scene-cue]")?.closest("div")?.getBoundingClientRect();
+            const card = scene?.querySelector('[aria-label="Example plan in FITX"]');
+            const panel = card?.closest("article")?.getBoundingClientRect();
+            const cardRect = card?.getBoundingClientRect();
+            // The knee read-out (SVG text) must not sit under the caption: hidden is fine, overlapping is not.
+            const angleRect = scene?.querySelector("svg text")?.getBoundingClientRect();
+            const angle = angleRect && angleRect.width > 0 ? { top: Math.round(angleRect.top), bottom: Math.round(angleRect.bottom) } : null;
+            return {
+              angle,
+              stage: stage ? { top: Math.round(stage.top), bottom: Math.round(stage.bottom) } : null,
+              caption: caption ? { top: Math.round(caption.top), bottom: Math.round(caption.bottom) } : null,
+              reps: box("[data-scene-reps]"),
+              card: cardRect && panel ? { bottom: Math.round(cardRect.bottom), panelBottom: Math.round(panel.bottom) } : null,
+            };
+          });
+          t.note(`scene fit at ${viewport.width}×${viewport.height}`, fit);
+          const inside = (item) => item && fit.stage && item.top >= fit.stage.top - 1 && item.bottom <= fit.stage.bottom + 1;
+          t.expect(inside(fit.caption), `the caption sits inside the stage at ${viewport.width}×${viewport.height}`, fit);
+          t.expect(inside(fit.reps), `the rep count sits inside the stage at ${viewport.width}×${viewport.height}`, fit);
+          t.expect(fit.card && fit.card.bottom <= fit.card.panelBottom + 1, `the plan card sits inside its panel at ${viewport.width}×${viewport.height}`, fit);
+          t.expect(!fit.angle || !fit.caption || fit.angle.bottom <= fit.caption.top + 1, `the knee read-out stays clear of the caption at ${viewport.width}×${viewport.height}`, fit);
+          await t.checkpoint(`scenes short ${viewport.height}`, { fullPage: false, settle: false });
+        }
+        if (original) await page.setViewportSize(original);
+      });
+    }
+
     await t.step("the Home workout features reveal as they scroll in", async () => {
       const list = page.getByRole("heading", { name: "A coach that watches." });
       await list.scrollIntoViewIfNeeded();

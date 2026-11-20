@@ -15,6 +15,13 @@ function along(metres, bearingDeg = 40) {
   return { latitude: lat, longitude: lon };
 }
 
+/** True when the whole control (button and its word) is inside the viewport without scrolling. */
+async function onScreen(page, locator) {
+  const box = await locator.boundingBox();
+  const height = page.viewportSize()?.height ?? 0;
+  return Boolean(box) && box.y >= 0 && box.y + box.height <= height;
+}
+
 async function walk(cdp, page, fromMetres, seconds, speed = 3) {
   let metres = fromMetres;
   for (let i = 0; i < seconds; i += 1) {
@@ -72,6 +79,9 @@ export const flow = {
       await t.checkpoint("recorder ready", { fullPage: false });
       await start.click();
       await page.getByRole("button", { name: "Pause" }).waitFor({ timeout: 15000 });
+      // Mid-run, Pause and Finish are reachable without scrolling, on a phone too.
+      t.expect(await onScreen(page, page.getByRole("button", { name: "Pause" })), "Pause should be on screen right after Start", page.viewportSize());
+      t.expect(await onScreen(page, page.getByRole("button", { name: "Finish", exact: true }).first()), "Finish should be on screen while recording", page.viewportSize());
     });
 
     let metres = 0;
@@ -84,6 +94,7 @@ export const flow = {
       await t.checkpoint("recording", { fullPage: false, settle: false });
       await page.getByRole("button", { name: "Pause" }).click();
       await page.getByRole("button", { name: "Resume" }).waitFor({ timeout: 10000 });
+      t.expect(await onScreen(page, page.getByRole("button", { name: "Resume" })), "Resume should be on screen while paused", page.viewportSize());
       // Positions while paused must not add distance; the walk "jumps" ahead as if carried.
       metres = await walk(cdp, page, metres, 4, 3);
       const pausedStats = await textOf(page.getByRole("region", { name: "Live statistics" })).catch(() => "");
@@ -142,6 +153,13 @@ export const flow = {
       // Personal bests still name the walk; the list of activities must not.
       const feed = page.locator("section[aria-labelledby=feed-title]");
       t.expect((await feed.getByText("Cubbon Park evening walk").count()) === 0, "a walk is not listed under runs");
+      // Going back to Activity from the menu clears the filter, in the list as well as the address.
+      await Promise.all([
+        page.waitForURL((url) => url.pathname === "/activity" && !url.searchParams.has("sport"), { timeout: 15000 }),
+        page.getByRole("navigation", { name: "Main navigation" }).filter({ visible: true }).first().getByRole("link", { name: /Activity/ }).click(),
+      ]);
+      await feed.getByText("Cubbon Park evening walk").first().waitFor({ timeout: 15000 });
+      t.expect(await page.getByRole("radiogroup", { name: "Show" }).getByRole("radio", { name: "All", exact: true }).isChecked(), "the Show control reads All again");
       await page.getByRole("radiogroup", { name: "Show" }).getByText("Walks", { exact: true }).click();
       await feed.getByText("Cubbon Park evening walk").first().waitFor({ timeout: 15000 });
       await t.goto("/activity/walk", { label: "walk page" });
@@ -149,6 +167,7 @@ export const flow = {
       const stats = await textOf(page.getByRole("region", { name: "Walk statistics" }));
       t.note("walk statistics", stats);
       t.expect(/This week/.test(stats) && /All time/.test(stats) && /Average pace/.test(stats), "the walk page shows walking figures", stats);
+      t.expect(/Time walking/.test(stats) && !/0\.0 h/.test(stats) && !/Not logged/.test(stats), "a recorded walk's time and figures are never shown as zero or unlogged", stats);
       await t.checkpoint("walk page", { fullPage: true });
       await t.goto(`/activity/${activityId}`, { label: "activity detail again" });
       await page.getByRole("heading", { name: "Cubbon Park evening walk" }).waitFor({ timeout: 15000 });

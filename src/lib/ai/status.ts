@@ -65,7 +65,7 @@ export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
     `Age, sex, height, weight trend and target weight${facts.age ? "" : " (age not set yet)"}`,
     `Goal (${facts.goal.replace(/_/g, " ")}), activity level, experience and training setup (${facts.location}, ${facts.equipment.slice(0, 4).join(", ")}${facts.equipment.length > 4 ? "…" : ""}; level, days a week, session length and split)`,
     `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitations : "none added yet"}`,
-    `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, cuisines and foods you avoid`,
+    `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, where your meals come from, your nutrition goal, cuisines and foods you avoid`,
     "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",
     "The last 4 weeks of workouts, your personal records and active goals, and how many workouts and other planner items you have in the next 7 days",
   ];

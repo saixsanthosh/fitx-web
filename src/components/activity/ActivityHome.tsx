@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, CloudOff, FileUp, Play, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
@@ -8,7 +9,7 @@ import { Stagger, StaggerItem } from "@/components/motion";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
-import { weekBySport, type SportFilter } from "@/lib/activity/feed";
+import { parseSportFilter, weekBySport, type SportFilter } from "@/lib/activity/feed";
 import { formatActivityDate, formatDistance } from "@/lib/activity/format";
 import { clearDeviceActivityData } from "@/lib/activity/device-recordings";
 import { recordingStore } from "@/lib/activity/local-store";
@@ -31,10 +32,15 @@ const FILTERS = [
   ...SPORTS.map((sport) => ({ value: sport, label: SPORT_PLURAL[sport] })),
 ];
 
-export function ActivityHome({ initialFilter = "all" }: { initialFilter?: SportFilter }) {
+export function ActivityHome() {
   const account = useActivityAccount();
   const userId = account.status === "ready" ? account.userId : null;
-  const [filter, setFilter] = useState<SportFilter>(initialFilter);
+  // The filter lives in the address (?sport=), so going to plain /activity (the nav, a back link) shows everything again.
+  // A choice shows at once and holds only until the router reports the new address.
+  const addressFilter = parseSportFilter(useSearchParams().get("sport") ?? undefined);
+  const [picked, setPicked] = useState<SportFilter | null>(null);
+  if (picked !== null && picked === addressFilter) setPicked(null);
+  const filter = picked ?? addressFilter;
   const feed = useActivityFeed(userId, filter);
   const [syncing, setSyncing] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
@@ -43,13 +49,12 @@ export function ActivityHome({ initialFilter = "all" }: { initialFilter?: SportF
   const deleteAllTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   function chooseFilter(next: SportFilter) {
-    setFilter(next);
-    try {
-      const url = new URL(window.location.href);
-      if (next === "all") url.searchParams.delete("sport");
-      else url.searchParams.set("sport", next);
-      window.history.replaceState(window.history.state, "", url);
-    } catch { /* The address is a convenience only. */ }
+    setPicked(next === addressFilter ? null : next);
+    const url = new URL(window.location.href);
+    if (next === "all") url.searchParams.delete("sport");
+    else url.searchParams.set("sport", next);
+    // No state of our own: Next's router then takes the new address, so useSearchParams follows it.
+    window.history.replaceState(null, "", url);
   }
 
   async function syncNow() {

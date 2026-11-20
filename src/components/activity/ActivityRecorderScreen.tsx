@@ -448,7 +448,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                 follow
                 className={cn(
                   "w-full [--fitx-map-inset-bottom:28px] [--fitx-map-inset-top:52px] lg:h-[calc(100dvh-200px)] lg:min-h-[520px] lg:[--fitx-map-inset-bottom:0px]",
-                  live ? "h-[42dvh] min-h-60" : "h-[50dvh] min-h-72",
+                  live ? "h-[32dvh] min-h-48" : "h-[50dvh] min-h-72",
                 )}
                 label={recording ? "Map of your route so far" : "Map of your current position"}
               />
@@ -514,7 +514,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
           )}
 
           {live && stats && (
-            <section className="rounded-t-3xl border border-fitx-border bg-fitx-card p-5 shadow-lg sm:p-6 lg:rounded-3xl lg:shadow-none" aria-label="Live statistics">
+            <section className="rounded-t-3xl border border-fitx-border bg-fitx-card px-5 pt-5 shadow-lg sm:px-6 sm:pt-6 lg:rounded-3xl lg:pb-6 lg:shadow-none" aria-label="Live statistics">
               <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-fitx-border lg:hidden" aria-hidden="true" />
               <Stat label="Distance" value={kmValue(stats.distanceM)} unit="km" size="hero" />
               <div className="mt-5 grid grid-cols-2 gap-4 border-t border-fitx-divider pt-4">
@@ -541,37 +541,40 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                 {stats.gaps.length > 0 && <span className="rounded-full bg-fitx-surface-variant px-2.5 py-1">{stats.gaps.length} gap{stats.gaps.length === 1 ? "" : "s"} · {formatDuration(stats.gapSeconds)} not tracked</span>}
               </div>
 
-              {confirm === "finish" ? (
-                <div className="mt-5 rounded-2xl border border-fitx-border bg-fitx-surface-variant p-4" role="alertdialog" aria-labelledby="finish-question">
-                  <p id="finish-question" className="text-sm font-semibold text-fitx-text">Finish and save this {SPORT_NOUN[activeSport]}?</p>
-                  {shortRecording && <p className="mt-1 text-xs text-fitx-text-secondary">Almost no distance was recorded. You can still save it, or discard it.</p>}
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep going</button>
-                    <button type="button" onClick={() => void finish()} disabled={saving} className="fitx-button min-h-12"><Flag size={16} aria-hidden="true" />{saving ? "Saving…" : "Finish"}</button>
+              {/* Phones: the controls stay pinned to the bottom of the screen, so Pause and Finish never need a scroll mid-run. */}
+              <div className="sticky bottom-0 z-[5] -mx-5 mt-4 border-t border-fitx-divider bg-fitx-card px-5 pb-[max(env(safe-area-inset-bottom),16px)] pt-3 sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
+                {confirm === "finish" ? (
+                  <div className="mt-1 rounded-2xl border border-fitx-border bg-fitx-surface-variant p-4" role="alertdialog" aria-labelledby="finish-question">
+                    <p id="finish-question" className="text-sm font-semibold text-fitx-text">Finish and save this {SPORT_NOUN[activeSport]}?</p>
+                    {shortRecording && <p className="mt-1 text-xs text-fitx-text-secondary">Almost no distance was recorded. You can still save it, or discard it.</p>}
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep going</button>
+                      <button type="button" onClick={() => void finish()} disabled={saving} className="fitx-button min-h-12"><Flag size={16} aria-hidden="true" />{saving ? "Saving…" : "Finish"}</button>
+                    </div>
                   </div>
-                </div>
-              ) : confirm === "discard" ? (
-                <div className="mt-5 rounded-2xl border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-question">
-                  <p id="discard-question" className="text-sm font-semibold text-fitx-danger">Discard this {SPORT_NOUN[activeSport]}? It can’t be recovered.</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
-                    <button type="button" onClick={() => void discard()} className="fitx-button fitx-button-danger min-h-12"><Trash2 size={16} aria-hidden="true" />Discard</button>
+                ) : confirm === "discard" ? (
+                  <div className="mt-1 rounded-2xl border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-question">
+                    <p id="discard-question" className="text-sm font-semibold text-fitx-danger">Discard this {SPORT_NOUN[activeSport]}? It can’t be recovered.</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
+                      <button type="button" onClick={() => void discard()} className="fitx-button fitx-button-danger min-h-12"><Trash2 size={16} aria-hidden="true" />Discard</button>
+                    </div>
                   </div>
-                </div>
-              ) : phase === "recording" ? (
-                <div className="mt-6 flex items-end justify-center gap-10">
-                  <RoundButton label="Pause" icon={<Pause size={30} aria-hidden="true" />} onClick={pause} />
-                  <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
-                </div>
-              ) : phase === "paused" ? (
-                <div className="mt-6 flex items-end justify-center gap-6 sm:gap-8">
-                  <RoundButton label="Discard" icon={<Trash2 size={22} aria-hidden="true" />} onClick={() => setConfirm("discard")} tone="quiet" size="medium" buttonRef={discardTriggerRef} />
-                  <RoundButton label="Resume" icon={<Play size={30} aria-hidden="true" />} onClick={resume} />
-                  <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
-                </div>
-              ) : (
-                !unsaved && <p className="mt-5 text-sm text-fitx-text-secondary" role="status">Saving your {SPORT_NOUN[activeSport]}…</p>
-              )}
+                ) : phase === "recording" ? (
+                  <div className="mt-2 flex items-end justify-center gap-10">
+                    <RoundButton label="Pause" icon={<Pause size={30} aria-hidden="true" />} onClick={pause} />
+                    <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
+                  </div>
+                ) : phase === "paused" ? (
+                  <div className="mt-2 flex items-end justify-center gap-6 sm:gap-8">
+                    <RoundButton label="Discard" icon={<Trash2 size={22} aria-hidden="true" />} onClick={() => setConfirm("discard")} tone="quiet" size="medium" buttonRef={discardTriggerRef} />
+                    <RoundButton label="Resume" icon={<Play size={30} aria-hidden="true" />} onClick={resume} />
+                    <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
+                  </div>
+                ) : (
+                  !unsaved && <p className="mt-1 text-sm text-fitx-text-secondary" role="status">Saving your {SPORT_NOUN[activeSport]}…</p>
+                )}
+              </div>
             </section>
           )}
 

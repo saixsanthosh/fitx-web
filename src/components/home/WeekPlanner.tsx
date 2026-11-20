@@ -26,11 +26,11 @@ const KIND_NAME: Partial<Record<TodoItem["kind"], string>> = { workout: "Workout
  * The week plan (the former Planner and the Goals page's Week tab), shown in a sheet on Home: a day strip for
  * the week, then the chosen day's To-Dos and scheduled items, to tick, edit, start or add to.
  */
-export function WeekPlanner({ today }: { today: string }) {
+export function WeekPlanner({ today, onChanged }: { today: string; /** Runs after every saved change, so Home's own To-Do list and goals catch up. */ onChanged?: () => void }) {
   const [monday, setMonday] = useState(() => mondayOf(today));
   const [selected, setSelected] = useState(today);
   const days = weekKeys(monday);
-  const todos = useTodos({ from: days[0], to: days[6] });
+  const todos = useTodos({ from: days[0], to: days[6], onChanged });
   const [editor, setEditor] = useState<{ mode: "add" | "edit"; draft: TodoDraft; item?: TodoItem; key: number } | null>(null);
   const groups = groupByDay(todos.items, days);
   const progress = todoProgress(todos.items);

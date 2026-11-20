@@ -355,6 +355,19 @@ export async function ensureProfileRow(supabase: SupabaseClient, userId: string)
 }
 
 /** Updates the user's profile row, creating it first if it turns out to be missing. */
+/**
+ * The member's birth date (YYYY-MM-DD), or null when none is set, the column is not there yet (before
+ * migration #41) or the read fails; callers then keep the stored age.
+ */
+export async function loadBirthDate(supabase: SupabaseClient, userId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.from("profiles").select("date_of_birth").eq("id", userId).maybeSingle();
+    return error ? null : normalizeBirthDate((data as Row | null)?.date_of_birth);
+  } catch {
+    return null;
+  }
+}
+
 export async function updateProfileRow(supabase: SupabaseClient, userId: string, patch: Row): Promise<{ error: WriteError }> {
   const payload = { ...patch, updated_at: new Date().toISOString() };
   const first = await supabase.from("profiles").update(payload).eq("id", userId).select("id");

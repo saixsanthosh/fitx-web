@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SportFilter } from "@/lib/activity/feed";
+import { figuresStatus, type SportFilter } from "@/lib/activity/feed";
 import { busyRecordings, reconcileRecordings, type LocksLike } from "@/lib/activity/device-recordings";
 import { recordingStore, type StoredRecording } from "@/lib/activity/local-store";
 import { listActivities, listActivitySummaries, viewFromRecord, type ActivitySummary, type ActivityView } from "@/lib/activity/repository";
@@ -39,6 +39,8 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const [sessions, setSessions] = useState<Sessions>({ status: "loading", items: [], more: false });
   const [recentStrength, setRecentStrength] = useState<StrengthSession[] | null>(null);
   const [stats, setStats] = useState<{ rows: ActivitySummary[]; complete: boolean } | null>(null);
+  // Why the statistics couldn't be read, so a page never mistakes "still loading" or "failed" for "nothing logged".
+  const [statsFailure, setStatsFailure] = useState<{ offline: boolean } | null>(null);
   const [local, setLocal] = useState<StoredRecording[]>([]);
   const [now, setNow] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -85,6 +87,7 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
       loadHistory(uid, filterRef.current),
     ]);
     setStats(summaries.status === "ok" ? summaries.data : null);
+    setStatsFailure(summaries.status === "ok" ? null : { offline: summaries.status === "error" && summaries.offline });
     setRecentStrength(recent.status === "ok" ? recent.data : null);
   }, [loadHistory]);
 
@@ -143,6 +146,7 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
 
   return {
     history, sessions, recentStrength, statRows, statsComplete: stats?.complete ?? true, now, unfinished,
+    statsStatus: figuresStatus(statRows, statsFailure !== null), statsOffline: statsFailure?.offline ?? false,
     unfinishedElsewhere: Boolean(unfinished && recordingElsewhere.has(unfinished.clientId)),
     waiting, timeline, loadMore, loadingMore, reload: load,
   };

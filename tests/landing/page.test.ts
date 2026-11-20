@@ -56,6 +56,26 @@ test("the scenes and features keep the required promises", () => {
   assert.match(features, /Not medical advice|not medical advice/);
 });
 
+test("the Home workout features claim only what the shipped Home workout does", () => {
+  // The copy, without the source comments (which may name features still to come).
+  const features = read("src/components/landing/HomeWorkoutFeatures.tsx").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const coachDirs = ["src/components/form-coach/", "src/components/home-workout/"].filter((dir) => existsSync(new URL(dir, ROOT)));
+  const coach = coachDirs.flatMap((dir) => readdirSync(new URL(dir, ROOT)).filter((f) => /\.tsx?$/.test(f)).map((f) => read(`${dir}${f}`))).join("\n");
+  assert.ok(coach.length > 0, "the Home workout code is found");
+  // A claim on the left needs the code on the right before the landing page may make it.
+  const claims: Array<[RegExp, RegExp, string]> = [
+    [/\b(fe)?male\b|choose (a|the) voice/i, /getVoices\s*\(/, "a voice choice"],
+    [/\bfigure\b|\bmirrors you\b|beside the demo/i, /demo|figure/i, "a live figure beside a demo"],
+    [/\bspoken\b|\bvoice\b/i, /speechSynthesis/, "spoken cues"],
+    [/range meter/i, /meter/, "a range meter"],
+  ];
+  for (const [claim, evidence, what] of claims) {
+    if (claim.test(features)) assert.match(coach, evidence, `the landing page claims ${what}, which Home workout does not have yet`);
+  }
+  assert.match(read("src/lib/pose/landmarks.ts"), /LANDMARK_COUNT = 33\b/, "33 body points");
+  assert.match(features, /33 body points/);
+});
+
 test("the home page still mounts the visitor intro film", () => {
   assert.match(read("src/app/(marketing)/page.tsx"), /<CinematicIntro \/>/);
 });

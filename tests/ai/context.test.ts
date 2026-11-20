@@ -105,6 +105,19 @@ describe("coach context", () => {
     assert.deepEqual([teen.facts.minor, teen.facts.adult], [true, false]);
   });
 
+  test("the age comes from the birth date on the member's own date, not the stored age a birthday has outdated", () => {
+    // Stored age 17 from the last profile save; the 18th birthday is today in India (17 November), not yet in UTC.
+    const profile = { age: 17, date_of_birth: "2008-11-17", gender: "female", height: 160, weight: 50 };
+    const india = buildCoachContext(sources({ profile }) as never, NOW);
+    assert.deepEqual([india.facts.age, india.facts.minor, india.facts.adult], [18, false, true]);
+    assert.ok(india.facts.target, "an adult gets a nutrition estimate");
+    const utc = buildCoachContext(sources({ profile, preferences: { ...sources().preferences, timezone: "UTC" } }) as never, NOW);
+    assert.deepEqual([utc.facts.age, utc.facts.minor], [17, true]);
+    // Without a birth date (or before migration #41) the stored age stands.
+    const stored = buildCoachContext(sources({ profile: { age: 17, gender: "female", height: 160, weight: 50 } }) as never, NOW);
+    assert.equal(stored.facts.age, 17);
+  });
+
   test("members under 18 get no targets and their data is not put in the prompt", () => {
     const minor = buildCoachContext(sources({ profile: { age: 16, gender: "female", height: 160, weight: 50 } }) as never, NOW);
     assert.equal(minor.facts.minor, true);
@@ -184,6 +197,46 @@ describe("onboarding v2 fields", () => {
     assert.deepEqual(normalizePreferences({ dietary_preferences: ["Pescatarian", "Low carb"] }).values.food_rules.sort(), ["low_carb", "pescatarian"]);
     assert.deepEqual(older.facts.diet, ["pescatarian"]);
     assert.equal((older.summary.food_preferences as Record<string, unknown>).prefers_low_carb, true);
+  });
+});
+
+describe("onboarding v3 food answers", () => {
+  test("food preference and nutrition goal reach the coach's summary and meal-plan rules", () => {
+    const base = sources();
+    const preferences = { ...(base.preferences as Record<string, unknown>), food_source: "outside", nutrition_focus: "high_protein" };
+    const context = buildCoachContext({ ...base, preferences } as never, NOW);
+    assert.equal(context.facts.foodSource, "outside");
+    assert.equal(context.facts.nutritionFocus, "high_protein");
+    const food = context.summary.food_preferences as Record<string, unknown>;
+    assert.equal(food.meals_from, "mostly outside food");
+    assert.equal(food.nutrition_focus, "high protein");
+    const prompt = mealPlanSystemPrompt({ context, facts: context.facts, sharesData: true, mealsPerDay: 3, budgetNote: null });
+    assert.match(prompt, /mostly eats outside food/);
+    assert.match(prompt, /protein source in every meal, within the calorie target/);
+    assert.ok(prompt.includes(`about ${context.facts.target!.calories} kcal`), "the target stays the same: the goal shapes the plan only");
+  });
+
+  test("a balanced diet and home cooking each change the meal-plan rules", () => {
+    const base = sources();
+    const preferences = { ...(base.preferences as Record<string, unknown>), food_source: "home", nutrition_focus: "balanced" };
+    const context = buildCoachContext({ ...base, preferences } as never, NOW);
+    const prompt = mealPlanSystemPrompt({ context, facts: context.facts, sharesData: true, mealsPerDay: 3, budgetNote: null });
+    assert.match(prompt, /mostly eats home-cooked food/);
+    assert.match(prompt, /balanced diet/);
+    assert.equal((context.summary.food_preferences as Record<string, unknown>).meals_from, "mostly home-cooked");
+  });
+
+  test("no answer, “No specific preference” or an unknown value sends nothing", () => {
+    for (const extra of [{}, { food_source: null, nutrition_focus: "none" }, { food_source: "canteen", nutrition_focus: "keto" }]) {
+      const base = sources();
+      const context = buildCoachContext({ ...base, preferences: { ...(base.preferences as Record<string, unknown>), ...extra } } as never, NOW);
+      assert.equal(context.facts.foodSource, null);
+      assert.equal(context.facts.nutritionFocus, null);
+      const food = context.summary.food_preferences as Record<string, unknown>;
+      assert.ok(!("meals_from" in food) && !("nutrition_focus" in food), JSON.stringify(extra));
+      const prompt = mealPlanSystemPrompt({ context, facts: context.facts, sharesData: true, mealsPerDay: 3, budgetNote: null });
+      assert.doesNotMatch(prompt, /mostly eats|wants high-protein|wants a balanced/);
+    }
   });
 });
 
@@ -297,7 +350,7 @@ describe("privacy page", () => {
 
   test("the AI coach section names every part of the summary “Use my FITX data” sends, not just examples", () => {
     const base = sources();
-    const preferences = { ...(base.preferences as Record<string, unknown>), limitations: ["knee"], cuisines: ["south_indian"], food_dislikes: ["Bitter gourd"], food_rules: ["low_carb"] };
+    const preferences = { ...(base.preferences as Record<string, unknown>), limitations: ["knee"], cuisines: ["south_indian"], food_dislikes: ["Bitter gourd"], food_rules: ["low_carb"], food_source: "home", nutrition_focus: "high_protein" };
     const context = buildCoachContext({ ...base, preferences } as never, NOW);
     const coach = section("AI coach");
     // Each field the summary sends and the words that name it on the page. A new field fails here until the page names it.
@@ -312,6 +365,7 @@ describe("privacy page", () => {
       "food_preferences.diet": /\byour diet and food rules\b/, "food_preferences.allergies": /\ballergies\b/, "food_preferences.meals_per_day": /\bmeals a day\b/,
       "food_preferences.budget": /\bfood budget\b/, "food_preferences.cuisines": /\bcuisines\b/, "food_preferences.dislikes": /\bfoods you avoid\b/,
       "food_preferences.prefers_low_carb": /\bfood rules\b/,
+      "food_preferences.meals_from": /\bwhere your meals come from\b/, "food_preferences.nutrition_focus": /\byour nutrition goal\b/,
       daily_targets: /\byour daily targets\b/, nutrition: /\bthe last 7 days of food you logged\b/, my_custom_foods: /\bnames of foods you saved\b/,
       weight_trend: /\brecent weight change\b/, training_last_28_days: /\b4 weeks of workouts\b/, personal_records: /\bpersonal records\b/,
       active_goals: /\bactive goals and their progress\b/,
@@ -501,9 +555,11 @@ describe("privacy page", () => {
 
     // Profile can empty these fields and lists, and always keeps a goal and an activity level.
     const profile = read("app/(dashboard)/profile/ProfileSections.tsx");
-    for (const [guard, field] of [["age", "age"], ["draft.heightCm", "heightCm"], ["draft.targetWeightKg", "targetWeightKg"], ["budget", "monthlyBudget"]]) {
+    for (const [guard, field] of [["typedAge", "age"], ["draft.heightCm", "heightCm"], ["draft.targetWeightKg", "targetWeightKg"], ["budget", "monthlyBudget"]]) {
       assert.match(profile, new RegExp(`if \\(${guard.replace(".", "\\.")} !== null && [^\\n]*found\\.${field} = [^;]*or leave it empty`), `${field} may be left empty`);
     }
+    // Once the birth date column exists, age comes from the date of birth, which may be cleared too (clearing it clears the age).
+    assert.match(profile, /<BirthDateField [^\n]*required=\{false\} \/>/, "the date of birth may be left empty");
     assert.match(profile, /onClear=\{\(\) => set\("diet", null\)\} clearLabel="Clear your diet"/);
     assert.match(profile, /onClear=\{\(\) => set\("budgetLevel", null\)\} clearLabel="Clear your budget level"/);
     for (const legend of ["Food allergies or intolerances", "Cuisines you enjoy", "Injuries or areas to go easy on", "Food rules you follow"]) assert.match(profile, new RegExp(`<ChipGroup legend="${legend}"`), legend);
@@ -606,7 +662,7 @@ describe("privacy wording elsewhere", () => {
   test("the consent list names every part of the summary, injuries and limitations included", async () => {
     const { sharedSummaryLines } = await import("@/lib/ai/status");
     const base = sources();
-    const preferences = { ...(base.preferences as Record<string, unknown>), limitations: ["lower_back", "knee"], cuisines: ["south_indian"], food_dislikes: ["Bitter gourd"], food_rules: ["low_carb"] };
+    const preferences = { ...(base.preferences as Record<string, unknown>), limitations: ["lower_back", "knee"], cuisines: ["south_indian"], food_dislikes: ["Bitter gourd"], food_rules: ["low_carb"], food_source: "both", nutrition_focus: "balanced" };
     const context = buildCoachContext({ ...base, preferences } as never, NOW);
     const text = sharedSummaryLines(context).join("\n");
     assert.match(text, /^Injuries or limitations: lower back, knee$/m);
@@ -623,6 +679,7 @@ describe("privacy wording elsewhere", () => {
       "food_preferences.diet": /\bDiet: /, "food_preferences.allergies": /\ballergies: /, "food_preferences.meals_per_day": /\bmeals a day\b/,
       "food_preferences.budget": /\bfood budget: /, "food_preferences.cuisines": /\bcuisines\b/, "food_preferences.dislikes": /\bfoods you avoid\b/,
       "food_preferences.prefers_low_carb": /\bDiet: /,
+      "food_preferences.meals_from": /\bwhere your meals come from\b/, "food_preferences.nutrition_focus": /\byour nutrition goal\b/,
       daily_targets: /\byour daily targets\b/, nutrition: /\bfood you logged\b/, my_custom_foods: /\bnames of foods you saved\b/, weight_trend: /\bweight trend\b/,
       training_last_28_days: /\b4 weeks of workouts\b/, personal_records: /\bpersonal records\b/, active_goals: /\bactive goals\b/,
       "next_7_days.planned_workouts": /\bhow many workouts and other planner items you have in the next 7 days\b/,

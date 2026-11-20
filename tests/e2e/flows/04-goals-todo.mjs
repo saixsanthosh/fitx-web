@@ -1,7 +1,8 @@
 // Flow 4: Goals and To-Do, both on Home. The old Goals addresses land on Home; a daily (protein), a weekly
 // (workouts) and a long-term (weight) goal are created there; a To-Do linked to a saved workout is started from
 // its Start link and the workout finished, which ticks the To-Do; logged food, the finished workout and a new
-// weigh-in move the three goals; the week plan opens from Home; widgets added, moved and hidden in Customise stay
+// weigh-in move the three goals; the week plan opens from Home, and what is added and ticked there shows on Home's
+// To-Do list when it closes; widgets added, moved and hidden in Customise stay
 // arranged after a reload.
 import { kolkataDate, signInUi } from "./common.mjs";
 
@@ -124,6 +125,35 @@ export const flow = {
       const event = await standin.one(`select status, completed_at from public.planner_events where id = '${t.eventId}'`);
       t.expect(event?.status === "completed", "the planner item should be completed", event);
       await t.checkpoint("to-do ticked");
+    });
+
+    await t.step("an item added and ticked in the week sheet shows on Home's To-Do list once the sheet closes", async () => {
+      await t.goto("/dashboard?panel=todo", { label: "week sheet edits" });
+      const panel = page.locator("#home-todo");
+      await panel.getByRole("checkbox", { name: /^Evening push-ups: / }).waitFor({ timeout: 15000 });
+      await panel.getByRole("button", { name: "Week" }).click();
+      const week = page.getByRole("dialog", { name: "Week" });
+      await week.getByRole("group", { name: "Choose a day" }).waitFor({ timeout: 15000 });
+      await week.getByRole("button", { name: /^Add to / }).click();
+      const editor = page.getByRole("dialog", { name: "Add to your day" });
+      await editor.getByLabel("What").fill("Evening stretch");
+      await editor.getByRole("button", { name: "Add", exact: true }).click();
+      await editor.waitFor({ state: "detached", timeout: 15000 });
+      const inSheet = week.getByRole("checkbox", { name: /^Evening stretch: / });
+      await inSheet.waitFor({ timeout: 15000 });
+      await inSheet.check();
+      await week.getByRole("checkbox", { name: "Evening stretch: done" }).waitFor({ timeout: 15000 });
+      await t.settle(1000);
+      await week.getByRole("button", { name: "Close" }).click();
+      await week.waitFor({ state: "hidden", timeout: 10000 });
+      const onHome = panel.getByRole("checkbox", { name: /^Evening stretch: / });
+      await onHome.waitFor({ timeout: 15000 });
+      const ticked = await onHome.isChecked();
+      const event = await standin.one(`select status from public.planner_events where user_id = '${account.id}' and title = 'Evening stretch'`);
+      t.note("week sheet item", { ticked, event });
+      t.expect(event?.status === "completed", "the item ticked in the week sheet should be saved as done", event);
+      t.expect(ticked, "Home's To-Do list should show the week sheet's new, ticked item without a reload");
+      await t.checkpoint("to-do after the week sheet", { fullPage: false });
     });
 
     await t.step("logged food moves the daily protein goal", async () => {

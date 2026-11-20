@@ -491,7 +491,7 @@ export default function WorkoutsPage() {
 
   function generateAuto(target: TrainingContext, dayIndex: number, seed: number) {
     const programme = autoProgramme(target);
-    if (!programme?.days.length) return { rows: [] as PlannedExercise[], note: "", programme, title: "Personalized workout" };
+    if (!programme?.days.length) return { rows: [] as PlannedExercise[], note: "", programme, title: "Personalised workout" };
     const day = programme.days[dayIndex % programme.days.length];
     const generated = generateDay(day.slots, {
       catalog, owned: ownedFor(target), level, seed: `${localDateKey()}:${programme.id}:${day.key}:${seed}`, context: target,
@@ -532,7 +532,7 @@ export default function WorkoutsPage() {
   function openCreator(nextMode: BuilderMode, target: TrainingContext = context, areas: readonly FocusArea[] = []) {
     setMode(nextMode);
     setEditingPlanId(null); setEditingProgrammeDay(false);
-    setTitle(nextMode === "auto" ? "Personalized workout" : "Custom workout");
+    setTitle(nextMode === "auto" ? "Personalised workout" : "Custom workout");
     setPlanNotes("");
     setSplit(preferences.workout_split || "full_body");
     setPlanLocation(target === "home" ? "home" : "gym");

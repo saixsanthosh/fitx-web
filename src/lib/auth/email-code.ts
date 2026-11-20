@@ -1,7 +1,10 @@
 /**
  * Signing in with a one-time code sent by e-mail (Supabase `signInWithOtp` then `verifyOtp` with type "email").
- * Free on every Supabase plan. The e-mail template ("Magic link" in Supabase Auth → Email templates) must
- * include {{ .Token }} for the code to reach the user; with only {{ .ConfirmationURL }} it sends a link.
+ * Free on every Supabase plan. The hosted project's e-mail templates must include {{ .Token }} for the code to
+ * reach the member: "Magic link" for an existing account and "Confirm signup" for a new address (sign-up uses
+ * shouldCreateUser). With only {{ .ConfirmationURL }} they send a link, which the code screen also accepts.
+ * The project's Email OTP length must stay 6 (CODE_LENGTH). Owner steps: docs/runbooks/platform-database.md,
+ * section 7 ("Email code sign-in").
  *
  * Pure helpers only, shared by the sign-in and sign-up pages and their tests.
  */

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { barScale, matchesFilter, parseSportFilter, recentWeeks, sportSummary, weekBySport, weekDays } from "@/lib/activity/feed";
+import { barScale, figuresStatus, matchesFilter, parseSportFilter, recentWeeks, sportSummary, weekBySport, weekDays } from "@/lib/activity/feed";
 import type { ActivitySummary } from "@/lib/activity/repository";
 import type { Sport } from "@/lib/activity/types";
 
@@ -100,4 +100,12 @@ test("a sport with nothing recorded has zero distance but no average (shown as a
 test("the sport launchers show this week's distance per sport", () => {
   const rows = [row("run", at(2026, 10, 17), 5000, 1500), row("run", at(2026, 10, 18), 2000, 600), row("ride", at(2026, 10, 10), 20000, 3600)];
   assert.deepEqual(weekBySport(rows, NOW), { walk: 0, run: 7000, ride: 0 });
+});
+
+test("statistics are loading or failed, not 'nothing logged', until rows arrive", () => {
+  assert.equal(figuresStatus(null, false), "loading");
+  assert.equal(figuresStatus(null, true), "error");
+  assert.equal(figuresStatus([], false), "ready");
+  // Rows on this device still count when the server request failed.
+  assert.equal(figuresStatus([row("walk", NOW, 1000, 600)], true), "ready");
 });

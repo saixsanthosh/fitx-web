@@ -43,6 +43,21 @@ export const GOALS_BEFORE_PROFILE_V2: readonly Goal[] = ["muscle_gain", "fat_los
 /** Goals the database accepted before migration 20261120100000 (onboarding v3) added maintain_weight. */
 export const GOALS_BEFORE_ONBOARDING_V3: readonly Goal[] = ["muscle_gain", "weight_gain", "fat_loss", "weight_loss", "general_fitness", "strength", "endurance"];
 export const DEFAULT_GOAL: Goal = "general_fitness";
+/** Goals the database cannot store yet, given which goal-widening migrations it has. */
+export function goalsAwaitingMigration(schema: { preferencesV2: boolean; onboardingV3: boolean }, offered: readonly Goal[] = GOALS): Goal[] {
+  const allowed = !schema.preferencesV2 ? GOALS_BEFORE_PROFILE_V2 : !schema.onboardingV3 ? GOALS_BEFORE_ONBOARDING_V3 : null;
+  return allowed ? offered.filter((goal) => !allowed.includes(goal)) : [];
+}
+/** "Weight gain and weight loss arrive with the next FITX update.", or undefined when none wait. */
+export function goalsAwaitingMigrationHint(goals: readonly Goal[]): string | undefined {
+  if (!goals.length) return undefined;
+  const labels = goals.map((goal, index) => {
+    const label = optionLabel(GOAL_OPTIONS, goal) ?? goal;
+    return index === 0 ? label : label.toLowerCase();
+  });
+  const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+  return `${list} ${goals.length === 1 ? "arrives" : "arrive"} with the next FITX update.`;
+}
 /** The five goals setup offers, in the owner's order (Profile offers every goal). */
 export const ONBOARDING_GOALS: readonly Goal[] = ["muscle_gain", "weight_loss", "strength", "general_fitness", "maintain_weight"];
 
@@ -431,6 +446,47 @@ export function ageFromBirthDate(birthDate: unknown, today: Date = new Date()): 
   const [ty, tm, td] = [today.getFullYear(), today.getMonth() + 1, today.getDate()];
   const age = ty - year - (tm < month || (tm === month && td < day) ? 1 : 0);
   return age >= 0 ? age : null;
+}
+
+/**
+ * The age to use for a profile row on `today` (a Date, or a YYYY-MM-DD day key such as the member's local date):
+ * the one its birth date gives, else the stored profiles.age. The database refreshes profiles.age from the birth
+ * date only when the row is saved, so after a birthday the stored age lags; reading the birth date keeps Home,
+ * Nutrition, Profile and the AI coach on the same age. Null when neither is known (never 0).
+ */
+export function profileAge(row: { age?: unknown; date_of_birth?: unknown } | null | undefined, today: Date | string = new Date()): number | null {
+  if (!row) return null;
+  const parts = typeof today === "string" ? dateParts(today) : null;
+  const day = typeof today === "string" ? (parts ? new Date(parts[0], parts[1] - 1, parts[2]) : null) : today;
+  const fromBirthDate = day ? ageFromBirthDate(row.date_of_birth, day) : null;
+  if (fromBirthDate !== null) return fromBirthDate;
+  if (row.age === null || row.age === undefined || row.age === "") return null;
+  const stored = Number(row.age);
+  return Number.isFinite(stored) ? stored : null;
+}
+
+/**
+ * The Profile edit for a member's birth date. Once profiles.date_of_birth exists, the database sets profiles.age
+ * from it on every save (profiles_age_from_birth_date), so Profile edits the birth date and never the age alone.
+ * `stored` is the profile as normalizeProfile returns it; `typed` is the date field's YYYY-MM-DD, or "" when
+ * cleared. Clearing a birth date clears the age it gave, rather than leaving one nobody can change. `age` is the
+ * age after the save.
+ */
+export function birthDateEdit(
+  stored: { age: number | null; date_of_birth: string | null },
+  typed: string,
+  today: Date = new Date(),
+): { error: string | null; patch: { date_of_birth?: string | null; age?: number | null }; age: number | null } {
+  const value = typed.trim();
+  if (!value) {
+    return stored.date_of_birth ? { error: null, patch: { date_of_birth: null, age: null }, age: null } : { error: null, patch: {}, age: stored.age };
+  }
+  const birthDate = normalizeBirthDate(value);
+  const age = ageFromBirthDate(birthDate, today);
+  if (!birthDate || age === null) return { error: "Enter a real date, not in the future.", patch: {}, age: stored.age };
+  if (!inRange(age, AGE_RANGE)) return { error: `FITX is for ages ${AGE_RANGE.min} to ${AGE_RANGE.max}.`, patch: {}, age: stored.age };
+  if (birthDate === stored.date_of_birth) return { error: null, patch: {}, age };
+  return { error: null, patch: { date_of_birth: birthDate, age }, age };
 }
 
 /** The earliest and latest birth dates setup accepts on `today`: ages AGE_RANGE.min to AGE_RANGE.max. */

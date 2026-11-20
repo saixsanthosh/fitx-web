@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanTitle, defaultTitle, formatDistance, formatDuration, formatDurationWords, formatPace, formatSpeed, kmValue, paceValue, speedValue } from "@/lib/activity/format";
+import { cleanTitle, defaultTitle, durationFigure, formatDistance, formatDuration, formatDurationWords, formatPace, formatSpeed, kmValue, paceValue, speedValue } from "@/lib/activity/format";
 import { cardStats, fitRoute } from "@/lib/activity/share-card";
 import { groupByWeek, startOfWeek, weekLabel } from "@/lib/activity/weeks";
 import { ORIGIN, legs } from "./support/tracks";
@@ -73,4 +73,25 @@ test("share stats: pace for walks and runs, speed for rides, climb whenever reco
   assert.deepEqual(cardStats({ ...base, sport: "ride", kcal: null }).map((s) => s.label), ["Avg speed", "Moving time", "Climb (GPS)"]);
   assert.deepEqual(cardStats({ ...base, sport: "walk", kcal: null, elevationGainM: null }).map((s) => s.label), ["Moving time", "Avg pace"]);
   assert.equal(cardStats({ ...base, sport: "run" })[0].value, "5:00");
+});
+
+test("a time total as a tile figure never reads as zero when time was recorded", () => {
+  const shown = (seconds: number) => {
+    const figure = durationFigure(seconds);
+    return `${figure.format(figure.value)} ${figure.unit}`;
+  };
+  // 43 s of walking was shown as "0.0 h" before.
+  assert.equal(shown(43), "43 s");
+  assert.equal(shown(0.4), "1 s");
+  assert.equal(shown(59), "59 s");
+  assert.equal(shown(60), "1 min");
+  assert.equal(shown(750), "13 min");
+  assert.equal(shown(3569), "59 min");
+  assert.equal(shown(3600), "1.0 h");
+  assert.equal(shown(5400), "1.5 h");
+  for (const seconds of [0.2, 1, 30, 59.4, 59.5, 61, 179, 600, 3569, 3570, 7200]) {
+    const figure = durationFigure(seconds);
+    assert.ok(Number(figure.format(figure.value)) > 0, `${seconds} s should not show as 0`);
+  }
+  assert.equal(durationFigure(0).value, 0);
 });

@@ -25,11 +25,25 @@ test("the summary comes from one database call (plus the Nutrition targets and t
   const result = await loadTodaySummary(db(stub), USER, DAY, "Asia/Kolkata");
   assert.equal(result.source, "database");
   assert.equal(result.summary.nutrition.calories, 900);
-  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets"]);
+  // profiles: the birth date only, so the age follows a birthday (the summary's stored age lags until a save).
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles"]);
+  assert.ok(used(stub.callsTo("profiles")[0], "select", "date_of_birth"));
   assert.deepEqual(stub.calls[0].args, { p_local_date: DAY, p_tz: "Asia/Kolkata" });
   assert.ok(used(stub.callsTo("meals")[0], "eq", "date", DAY));
   assert.deepEqual(result.food?.protein, { sum: 40, known: 1, missing: 1 }, "the unknown protein is counted as missing, not as 0 g");
   assert.equal(result.food?.estimated, 1);
+});
+
+test("the age comes from the birth date on the member's day; without one, or before migration #41, the stored age stands", async () => {
+  const summary = { local_date: DAY, profile: { age: 17, gender: "female", height: 160, weight: 50 } };
+  const withBirthDate = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: summary } : call.name === "profiles" ? { data: { date_of_birth: "2008-11-18" } } : undefined));
+  assert.equal((await loadTodaySummary(db(withBirthDate), USER, DAY, null)).summary.profile.age, 18, "an 18th birthday today counts at once");
+  const dayBefore = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: summary } : call.name === "profiles" ? { data: { date_of_birth: "2008-11-19" } } : undefined));
+  assert.equal((await loadTodaySummary(db(dayBefore), USER, DAY, null)).summary.profile.age, 17);
+  const noColumn = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: summary } : call.name === "profiles" ? { error: { code: "42703", message: "column profiles.date_of_birth does not exist" } } : undefined));
+  assert.equal((await loadTodaySummary(db(noColumn), USER, DAY, null)).summary.profile.age, 17);
+  const noAge = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: { local_date: DAY, profile: {} } } : call.name === "profiles" ? { data: { date_of_birth: null } } : undefined));
+  assert.equal((await loadTodaySummary(db(noAge), USER, DAY, null)).summary.profile.age, null, "an unknown age stays unknown, never 0");
 });
 
 test("today's entries failing to load leaves the sums standing and the checks unknown", async () => {
@@ -64,7 +78,8 @@ test("any other summary failure is reported, not hidden behind the fallback", as
   const stub = new StubDb(() => ({ error: { code: "57014", message: "timeout" } }));
   await assert.rejects(loadTodaySummary(db(stub), USER, DAY, null), DataError);
   assert.equal(stub.callsTo("fitx_today_summary").length, 1);
-  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets"], "no fallback queries ran");
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles"], "no fallback queries ran");
+  assert.deepEqual(stub.callsTo("profiles").map((call) => used(call, "select", "date_of_birth")), [true], "profiles was read only for the birth date, not by the fallback");
 });
 
 test("layout: default when none is saved, read-only when the column is missing", async () => {

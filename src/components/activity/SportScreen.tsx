@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { m } from "framer-motion";
-import { ChevronLeft, Play } from "lucide-react";
+import { ChevronLeft, Play, RefreshCw } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { EASE } from "@/components/motion";
 import { StatRow, StatTile } from "@/components/ui/StatTile";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { sportSummary } from "@/lib/activity/feed";
-import { paceValue } from "@/lib/activity/format";
+import { durationFigure, paceValue } from "@/lib/activity/format";
 import { personalBests } from "@/lib/activity/stats";
 import type { Sport } from "@/lib/activity/types";
 import { AccountError } from "./AccountError";
@@ -73,22 +73,36 @@ export function SportScreen({ sport }: { sport: Sport }) {
   const summary = feed.statRows && feed.now !== null ? sportSummary(feed.statRows, sport, feed.now) : null;
   const known = summary !== null;
   const longest = summary?.bests.longest ? summary.bests.longest.value / 1000 : null;
+  const walking = known && summary.movingSeconds > 0 ? durationFigure(summary.movingSeconds) : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 sm:space-y-10">
       <Hero sport={sport} />
 
-      <section aria-label={`${SPORT_LABEL[sport]} statistics`}>
-        <StatRow>
-          <StatTile label="This week" value={known ? summary.weekDistanceM / 1000 : null} unit="km" format={km} hint={known ? `${summary.weekCount} ${summary.weekCount === 1 ? SPORT_NOUN[sport] : SPORT_PLURAL[sport].toLowerCase()}` : undefined} />
-          <StatTile label="All time" value={known ? summary.distanceM / 1000 : null} unit="km" format={km} hint={known ? `${summary.count} ${summary.count === 1 ? SPORT_NOUN[sport] : SPORT_PLURAL[sport].toLowerCase()}` : undefined} />
-          {sport === "ride"
-            ? <StatTile label="Average speed" value={summary?.avgSpeedMps != null ? summary.avgSpeedMps * 3.6 : null} unit="km/h" format={(n) => n.toFixed(1)} />
-            : <StatTile label="Average pace" value={summary?.avgPaceSecondsPerKm ?? null} unit="/km" format={(n) => paceValue(n)} />}
-          {sport === "walk"
-            ? <StatTile label="Time walking" value={known && summary.movingSeconds > 0 ? summary.movingSeconds / 3600 : null} unit="h" format={(n) => n.toFixed(1)} />
-            : <StatTile label={sport === "run" ? "Longest run" : "Longest ride"} value={longest} unit="km" format={km} />}
-        </StatRow>
+      <section aria-label={`${SPORT_LABEL[sport]} statistics`} aria-busy={feed.statsStatus === "loading" || undefined}>
+        {/* Figures only once they are known: never "Not logged" while loading or after a failed request. */}
+        {feed.statsStatus === "error" ? (
+          <div role="alert" className="fitx-alert fitx-alert-danger flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span>{feed.statsOffline ? "You’re offline. Your figures will load when you’re back online." : "Your figures couldn’t load right now."}</span>
+            {userId && <button type="button" onClick={() => void feed.reload(userId)} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />Try again</button>}
+          </div>
+        ) : !known ? (
+          <StatRow>
+            <span className="sr-only">Loading your figures…</span>
+            {[0, 1, 2, 3].map((i) => <div key={i} aria-hidden="true" className="h-[102px] rounded-2xl border border-fitx-border bg-fitx-surface-variant motion-safe:animate-pulse sm:h-[110px]" />)}
+          </StatRow>
+        ) : (
+          <StatRow>
+            <StatTile label="This week" value={known ? summary.weekDistanceM / 1000 : null} unit="km" format={km} hint={known ? `${summary.weekCount} ${summary.weekCount === 1 ? SPORT_NOUN[sport] : SPORT_PLURAL[sport].toLowerCase()}` : undefined} />
+            <StatTile label="All time" value={known ? summary.distanceM / 1000 : null} unit="km" format={km} hint={known ? `${summary.count} ${summary.count === 1 ? SPORT_NOUN[sport] : SPORT_PLURAL[sport].toLowerCase()}` : undefined} />
+            {sport === "ride"
+              ? <StatTile label="Average speed" value={summary?.avgSpeedMps != null ? summary.avgSpeedMps * 3.6 : null} unit="km/h" format={(n) => n.toFixed(1)} />
+              : <StatTile label="Average pace" value={summary?.avgPaceSecondsPerKm ?? null} unit="/km" format={(n) => paceValue(n)} />}
+            {sport === "walk"
+              ? <StatTile label="Time walking" value={walking?.value ?? null} unit={walking?.unit} format={walking?.format} />
+              : <StatTile label={sport === "run" ? "Longest run" : "Longest ride"} value={longest} unit="km" format={km} />}
+          </StatRow>
+        )}
       </section>
 
       {feed.statRows && <PersonalBestsPanel bests={personalBests(feed.statRows)} only={sport} />}

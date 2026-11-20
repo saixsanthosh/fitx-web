@@ -46,6 +46,17 @@ export function chatSystemPrompt(input: PromptInput): string {
   ].join("\n");
 }
 
+/** Onboarding's "Food preference" and "Nutrition goal" as meal-plan rules. The targets above stay the limit. */
+const FOOD_SOURCE_RULE: Record<NonNullable<MemberFacts["foodSource"]>, string> = {
+  home: "The member mostly eats home-cooked food: plan dishes they can cook at home.",
+  outside: "The member mostly eats outside food: plan dishes a canteen, restaurant or tiffin service commonly sells, with realistic portions.",
+  both: "The member eats home-cooked and outside food: mix dishes they can cook with ones they can buy ready.",
+};
+const NUTRITION_FOCUS_RULE: Record<NonNullable<MemberFacts["nutritionFocus"]>, string> = {
+  high_protein: "The member wants high-protein eating: put a protein source in every meal, within the calorie target.",
+  balanced: "The member wants a balanced diet: cover vegetables, a protein source and whole grains or pulses across the day.",
+};
+
 export function mealPlanSystemPrompt(input: PromptInput & { facts: MemberFacts; mealsPerDay: number | null; budgetNote: string | null }): string {
   const { facts } = input;
   const target = facts.target;
@@ -59,6 +70,8 @@ export function mealPlanSystemPrompt(input: PromptInput & { facts: MemberFacts; 
     `- Diet: ${describeDiet(facts.diet)}. Allergies: ${describeAllergies(facts.allergies)}. Never include a food or ingredient that breaks these (for dairy that includes ghee, paneer, curd and butter; for peanuts, groundnut oil and chutney).`,
     `- Budget: ${input.budgetNote ? "the member gives one in their request; keep the day within it" : facts.budget ?? "not given; prefer low-cost everyday foods"}. Prefer cheap, easy-to-find staples, and mark each item's cost level honestly.`,
     "- Use simple foods the member can buy and cook. When foods they often log fit the plan, use them.",
+    ...(facts.foodSource ? [`- ${FOOD_SOURCE_RULE[facts.foodSource]}`] : []),
+    ...(facts.nutritionFocus ? [`- ${NUTRITION_FOCUS_RULE[facts.nutritionFocus]}`] : []),
     "- Quantities: grams for loose foods (150 g cooked rice), pieces for countable foods (3 idli, 2 roti), ml for drinks.",
     "- \"search\" is 1 to 4 plain words naming the food the way a nutrition database would: \"cooked white rice\", \"idli\", \"dal\", \"boiled egg\", \"curd\", \"banana\".",
     "- Give your best estimate of grams, kcal, protein, carbs and fat for each item's quantity. FITX checks every item against its own food data and labels anything it cannot verify as an estimate.",

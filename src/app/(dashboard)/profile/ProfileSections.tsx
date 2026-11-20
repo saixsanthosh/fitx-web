@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { Dumbbell, Ruler, Salad, X } from "lucide-react";
-import { ChipGroup, ChoiceGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
+import { BirthDateField, ChipGroup, ChoiceGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
 import { EquipmentPicker } from "@/components/workouts/EquipmentPicker";
 import {
   ACTIVITY_OPTIONS,
@@ -14,8 +14,8 @@ import {
   DIET_OPTIONS,
   EXPERIENCE_OPTIONS,
   FOOD_RULE_OPTIONS,
+  FOOD_SOURCE_OPTIONS,
   GOAL_OPTIONS,
-  GOALS_BEFORE_PROFILE_V2,
   HEIGHT_RANGE_CM,
   LIMITATION_OPTIONS,
   LOCATION_OPTIONS,
@@ -24,15 +24,19 @@ import {
   MAX_LIMITATION_LENGTH,
   MEALS_PER_DAY,
   MONTHLY_BUDGET_RANGE,
+  NUTRITION_FOCUS_OPTIONS,
   SESSION_LENGTHS,
   SEX_OPTIONS,
   SPLIT_OPTIONS,
   WATER_RANGE_ML,
   WEIGHT_RANGE_KG,
+  birthDateEdit,
   commitDraft,
   formatHeight,
   formatRupees,
   formatWeight,
+  goalsAwaitingMigration,
+  goalsAwaitingMigrationHint,
   inRange,
   joinKnown,
   joinLimitations,
@@ -48,9 +52,11 @@ import {
   type DietType,
   type Experience,
   type FoodRule,
+  type FoodSource,
   type Goal,
   type HeightUnit,
   type LimitationKey,
+  type NutritionFocus,
   type Sex,
   type TrainingLocation,
   type WeightUnit,
@@ -88,6 +94,8 @@ const INJURY_NOTE = "Auto workouts don’t avoid these yet, so skip or swap any 
 
 type BodyDraft = {
   age: string;
+  /** YYYY-MM-DD, or "" (used instead of age once profiles.date_of_birth exists). */
+  birthDate: string;
   gender: Sex | null;
   heightCm: number | null;
   weightKg: number | null;
@@ -102,6 +110,7 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
   const { profile, preferences: prefs } = data;
   const original: BodyDraft = {
     age: profile?.age == null ? "" : String(profile.age),
+    birthDate: profile?.date_of_birth ?? "",
     gender: profile?.gender ?? null,
     heightCm: profile?.height ?? null,
     weightKg: data.currentWeightKg,
@@ -122,6 +131,9 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
     setError("");
   };
   const v2 = data.schema.preferencesV2;
+  // With a birth date column the database keeps age equal to the birth date's, so the birth date is what's edited.
+  const byBirthDate = data.schema.onboardingV3;
+  const unavailableGoals = goalsAwaitingMigration(data.schema);
 
   const start = () => {
     setDraft(original);
@@ -134,8 +146,11 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
     event.preventDefault();
     const found: Record<string, string> = {};
     // Age and height may be removed (the targets then need them again); weight comes from weigh-ins.
-    const age = draft.age.trim() ? Number(draft.age) : null;
-    if (age !== null && (!Number.isInteger(age) || !inRange(age, AGE_RANGE))) found.age = `Enter a whole number from ${AGE_RANGE.min} to ${AGE_RANGE.max}, or leave it empty.`;
+    const birth = birthDateEdit({ age: profile?.age ?? null, date_of_birth: profile?.date_of_birth ?? null }, draft.birthDate);
+    const typedAge = draft.age.trim() ? Number(draft.age) : null;
+    const age = byBirthDate ? birth.age : typedAge;
+    if (byBirthDate && birth.error) found.birthDate = birth.error;
+    if (typedAge !== null && !byBirthDate && (!Number.isInteger(typedAge) || !inRange(typedAge, AGE_RANGE))) found.age = `Enter a whole number from ${AGE_RANGE.min} to ${AGE_RANGE.max}, or leave it empty.`;
     if (draft.heightCm !== null && !inRange(draft.heightCm, HEIGHT_RANGE_CM)) found.heightCm = "Enter a height between 90 and 250 cm (2 ft 11 in to 8 ft 2 in), or leave it empty.";
     if (!inRange(draft.weightKg, WEIGHT_RANGE_KG)) found.weightKg = "Enter a weight between 30 and 500 kg (66 to 1,102 lb).";
     if (draft.targetWeightKg !== null && !inRange(draft.targetWeightKg, WEIGHT_RANGE_KG)) found.targetWeightKg = "Enter a target between 30 and 500 kg, or leave it empty.";
@@ -147,10 +162,13 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
     const supabase = createClient();
     if (!supabase) return setError(WRITE_FAILED);
 
-    const profilePatch = changedFields(
-      { age: profile?.age ?? null, gender: profile?.gender ?? null, height: profile?.height ?? null, target_weight: profile?.target_weight ?? null },
-      { age, gender: draft.gender, height: draft.heightCm, target_weight: draft.targetWeightKg },
-    );
+    const profilePatch = {
+      ...changedFields(
+        { gender: profile?.gender ?? null, height: profile?.height ?? null, target_weight: profile?.target_weight ?? null },
+        { gender: draft.gender, height: draft.heightCm, target_weight: draft.targetWeightKg },
+      ),
+      ...(byBirthDate ? birth.patch : changedFields({ age: profile?.age ?? null }, { age: typedAge })),
+    };
     const prefsPatch = changedFields(
       { primary_goal: prefs.primary_goal, activity_level: prefs.activity_level, height_unit: prefs.height_unit, weight_unit: prefs.weight_unit },
       { primary_goal: draft.goal, activity_level: draft.activity, height_unit: draft.heightUnit, weight_unit: draft.weightUnit },
@@ -188,6 +206,7 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
       {!editing ? (
         <DetailList>
           <Detail label="Age">{profile?.age != null ? `${profile.age} years` : <NotSet />}</Detail>
+          {byBirthDate && <Detail label="Date of birth">{profile?.date_of_birth ? formatBirthDate(profile.date_of_birth) : <NotSet />}</Detail>}
           <Detail label="Sex for the calorie formula">{optionLabel(SEX_OPTIONS, profile?.gender) ?? <NotSet />}</Detail>
           <Detail label="Height">{formatHeight(profile?.height, prefs.height_unit) ?? <NotSet />}</Detail>
           <Detail label="Current weight">
@@ -203,7 +222,14 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
           <div className="space-y-6">
             <p className="text-xs leading-5 text-fitx-text-secondary">Your daily targets need your age and height. You can leave them empty, but FITX then can’t calculate targets.</p>
             <div className="grid gap-5 sm:grid-cols-2">
-              <TextField label="Age" value={draft.age} onChange={(value) => set("age", value.replace(/[^\d]/g, ""))} error={errors.age} inputMode="numeric" suffix="years" maxLength={3} />
+              {byBirthDate ? (
+                <div>
+                  <BirthDateField value={draft.birthDate} onChange={(value) => set("birthDate", value)} error={errors.birthDate} required={false} />
+                  {!profile?.date_of_birth && profile?.age != null && <p className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">Age on file: {profile.age} years. Add your date of birth to keep it up to date.</p>}
+                </div>
+              ) : (
+                <TextField label="Age" value={draft.age} onChange={(value) => set("age", value.replace(/[^\d]/g, ""))} error={errors.age} inputMode="numeric" suffix="years" maxLength={3} />
+              )}
             </div>
             <ChoiceGroup legend="Sex for the calorie formula" options={SEX_OPTIONS} value={draft.gender} onChange={(value) => set("gender", value)} columns="grid-cols-1 sm:grid-cols-3" showHints={false} />
             <div className="grid gap-5 lg:grid-cols-2">
@@ -216,8 +242,8 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
               options={GOAL_OPTIONS}
               value={draft.goal}
               onChange={(value) => set("goal", value)}
-              disabledValues={v2 ? [] : GOAL_OPTIONS.map((option) => option.value).filter((goal) => !GOALS_BEFORE_PROFILE_V2.includes(goal))}
-              hint={v2 ? undefined : "Weight gain and weight loss arrive with the next FITX update."}
+              disabledValues={unavailableGoals}
+              hint={goalsAwaitingMigrationHint(unavailableGoals)}
             />
             <ChoiceGroup legend="Daily activity, outside workouts too" options={ACTIVITY_OPTIONS} value={draft.activity} onChange={(value) => set("activity", value)} columns="grid-cols-1 sm:grid-cols-2" />
           </div>
@@ -226,6 +252,11 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
       )}
     </SectionCard>
   );
+}
+
+/** A stored YYYY-MM-DD birth date for display, read as a calendar date (no time zone shift). */
+function formatBirthDate(value: string): string {
+  return new Date(`${value}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 // ─── Diet ────────────────────────────────────────────────────────────────────────────────────────
@@ -241,14 +272,21 @@ type DietDraft = {
   dislikes: string[];
   budgetLevel: BudgetLevel | null;
   monthlyBudget: string;
+  foodSource: FoodSource | null;
+  nutritionFocus: NutritionFocus | null;
   /** Typed into a tag field but not added yet; saved with the section. */
   allergyDraft: string;
   dislikeDraft: string;
 };
 
+/** It guides the coach's meal plans and leaves FITX's targets alone (onboarding says the same). */
+const NUTRITION_GOAL_HINT = "Shapes coach meal plans, not your daily targets.";
+
 export function DietSection({ data, editing, onEdit, onClose, onSaved }: SectionProps) {
   const prefs = data.preferences;
   const v2 = data.schema.preferencesV2;
+  // Onboarding v3's food preference and nutrition goal save with the v2 columns' tier, so they need both.
+  const v3 = v2 && data.schema.onboardingV3;
   const allergies = splitAllergies(prefs.allergies);
   const original: DietDraft = {
     diet: prefs.diet_type,
@@ -261,6 +299,8 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     dislikes: prefs.food_dislikes,
     budgetLevel: prefs.food_budget_level,
     monthlyBudget: prefs.monthly_food_budget_inr == null ? "" : String(prefs.monthly_food_budget_inr),
+    foodSource: prefs.food_source,
+    nutritionFocus: prefs.nutrition_focus,
     allergyDraft: "",
     dislikeDraft: "",
   };
@@ -301,6 +341,7 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     const before = {
       diet_type: prefs.diet_type, allergies: prefs.allergies, meals_per_day: prefs.meals_per_day, daily_water_goal_ml: prefs.daily_water_goal_ml,
       food_rules: prefs.food_rules, cuisines: prefs.cuisines, food_dislikes: prefs.food_dislikes, food_budget_level: prefs.food_budget_level, monthly_food_budget_inr: prefs.monthly_food_budget_inr,
+      ...(v3 ? { food_source: prefs.food_source, nutrition_focus: prefs.nutrition_focus } : {}),
     };
     // Text still in a tag field counts as an entry.
     const customAllergies = commitDraft(draft.customAllergies, draft.allergyDraft);
@@ -308,6 +349,7 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     const after = {
       diet_type: draft.diet, allergies: joinKnown(draft.allergies, customAllergies), meals_per_day: draft.meals, daily_water_goal_ml: Math.round(water),
       food_rules: draft.foodRules, cuisines: draft.cuisines, food_dislikes: dislikes, food_budget_level: draft.budgetLevel, monthly_food_budget_inr: budget,
+      ...(v3 ? { food_source: draft.foodSource, nutrition_focus: draft.nutritionFocus } : {}),
     };
     const patch: Record<string, unknown> = changedFields(before, after);
     if ("diet_type" in patch) patch.dietary_preferences = legacyDietaryPreferences(draft.diet, data.legacy.dietaryPreferences);
@@ -317,7 +359,7 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
     }
     setSaving(true);
     setError("");
-    const saved = await savePreferences(supabase, data.userId, patch, { v2 });
+    const saved = await savePreferences(supabase, data.userId, patch, { v2, v3 });
     if (saved.error) return failed(setSaving, setError);
     // The diet type is also kept in the original column, so only the other new answers can be pending.
     const pending = saved.skipped.filter((column) => column !== "diet_type");
@@ -344,6 +386,10 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
             <Detail label="Cuisines you enjoy" wide><ChipList items={labelsFor(CUISINE_OPTIONS, prefs.cuisines)} empty="No preference" /></Detail>
             <Detail label="Foods you don't eat" wide><ChipList items={prefs.food_dislikes} /></Detail>
           </>}
+          {v3 && <>
+            <Detail label="Food preference">{optionLabel(FOOD_SOURCE_OPTIONS, prefs.food_source) ?? <NotSet />}</Detail>
+            <Detail label="Nutrition goal">{optionLabel(NUTRITION_FOCUS_OPTIONS, prefs.nutrition_focus) ?? <NotSet />}</Detail>
+          </>}
         </DetailList>
       ) : (
         <form ref={formRef} noValidate onSubmit={(event) => void save(event)}>
@@ -361,6 +407,10 @@ export function DietSection({ data, editing, onEdit, onClose, onSaved }: Section
               <ChipGroup legend="Food rules you follow" options={FOOD_RULE_OPTIONS} values={draft.foodRules} onChange={(values) => set("foodRules", values)} />
               <ChipGroup legend="Cuisines you enjoy" options={CUISINE_OPTIONS} values={draft.cuisines} onChange={(values) => set("cuisines", values)} />
               <TagInput legend="Foods you don't eat" hint="Dislikes count too." values={draft.dislikes} onChange={(values) => set("dislikes", values)} draft={draft.dislikeDraft} onDraftChange={(value) => set("dislikeDraft", value)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />
+              {v3 && <>
+                <ChoiceGroup legend="Food preference" options={FOOD_SOURCE_OPTIONS} value={draft.foodSource} onChange={(value) => set("foodSource", value)} columns="grid-cols-1 sm:grid-cols-3" onClear={() => set("foodSource", null)} clearLabel="Clear your food preference" />
+                <ChoiceGroup legend="Nutrition goal" hint={NUTRITION_GOAL_HINT} options={NUTRITION_FOCUS_OPTIONS} value={draft.nutritionFocus} onChange={(value) => set("nutritionFocus", value)} columns="grid-cols-1 sm:grid-cols-3" onClear={() => set("nutritionFocus", null)} clearLabel="Clear your nutrition goal" />
+              </>}
             </> : <p className="text-xs leading-5 text-fitx-text-secondary">Food budget, cuisines and food rules arrive with the next FITX update.</p>}
           </div>
           <EditActions saving={saving} onCancel={onClose} error={error} />

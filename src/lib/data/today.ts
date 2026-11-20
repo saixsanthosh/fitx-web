@@ -10,7 +10,8 @@ import { addDays, mondayOf } from "@/lib/domain/day-keys";
 import { readLayout, serializeLayout, type LayoutItem, type WidgetId } from "@/lib/domain/dashboard-layout";
 import { MEAL_VALUE_COLUMNS, mealTotals, type MealTotals, type MealValueRow } from "@/lib/domain/meal-totals";
 import { parseTodaySummary, summaryFromRows, type TodaySummary } from "@/lib/domain/today";
-import { logWeighIn } from "@/lib/domain/user-context";
+import { profileAge } from "@/lib/domain/profile-options";
+import { loadBirthDate, logWeighIn } from "@/lib/domain/user-context";
 import { DataError, isMissingColumnError, isMissingFunctionError, isMissingSchemaError } from "./missing-schema";
 
 export type Db = SupabaseClient;
@@ -48,18 +49,28 @@ async function loadDayFood(db: Db, userId: string, localDate: string): Promise<M
 
 export async function loadTodaySummary(db: Db, userId: string, localDate: string, timeZone = browserTimeZone()): Promise<SummaryResult> {
   // The targets the user set in Nutrition; null when there are none or the table is not there yet.
-  const [rpc, targets, food] = await Promise.all([
+  const [rpc, targets, food, birthDate] = await Promise.all([
     db.rpc("fitx_today_summary", { p_local_date: localDate, p_tz: timeZone }),
     loadTargets(db, userId).catch(() => null),
     loadDayFood(db, userId, localDate).catch(() => null),
+    loadBirthDate(db, userId),
   ]);
   if (!rpc.error) {
     const summary = parseTodaySummary(rpc.data);
-    if (summary) return { summary: { ...summary, targets }, source: "database", food };
+    if (summary) return { summary: { ...withBirthDateAge(summary, birthDate, localDate), targets }, source: "database", food };
     throw new DataError("Today's summary came back empty.");
   }
   if (!isMissingFunctionError(rpc.error)) throw new DataError("Today's summary could not be loaded.", rpc.error);
-  return { summary: { ...(await summaryInBrowser(db, userId, localDate, timeZone)), targets }, source: "browser", food };
+  return { summary: { ...withBirthDateAge(await summaryInBrowser(db, userId, localDate, timeZone), birthDate, localDate), targets }, source: "browser", food };
+}
+
+/**
+ * The summary with the age the birth date gives on the member's day. profiles.age (which the summary reads) is
+ * only refreshed when the profile is saved, so after a birthday it lags; with no birth date the stored age stands.
+ */
+export function withBirthDateAge(summary: TodaySummary, birthDate: string | null, localDate: string): TodaySummary {
+  const age = profileAge({ age: summary.profile.age, date_of_birth: birthDate }, localDate);
+  return age === summary.profile.age ? summary : { ...summary, profile: { ...summary.profile, age } };
 }
 
 /** Phase 1 databases: the same numbers from individual queries (no row cap on the day's logs). */
