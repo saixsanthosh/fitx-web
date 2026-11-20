@@ -65,9 +65,8 @@ Admin: from `admin/`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run 
 
 - `docs/runbooks/platform-database.md`: every pending database change, its check query and undo, and the Vercel variables for each project.
 - `docs/runbooks/billing-razorpay.md`: turning on Razorpay subscriptions.
-- `docs/runbooks/phase1-database.md`: the earlier release 2 runbook, now covered by the platform runbook.
 - `admin/README.md`: the Admin owner checklist, roles, migrations and deployment.
-- `src/lib/ai/README.md`: the AI coach providers and switches.
+- `docs/runbooks/ai-coach.md`: the AI coach providers and switches.
 
 ## Environment variables
 

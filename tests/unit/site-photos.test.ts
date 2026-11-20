@@ -40,3 +40,13 @@ test("the sign-in pages' photo is decorative and drops out when it can't load", 
   assert.match(image, /onError=\{\(\) => setFailed\(true\)\}/);
   assert.match(image, /alt=""/);
 });
+
+test("a member's photo that can't load falls back to the icon, in the header menu and on Profile", () => {
+  // Google pictures are external links and stored photos use expiring signed links; either can fail.
+  const menu = read("components/layout/AccountMenu.tsx");
+  assert.match(menu, /onError=\{\(\) => setFailedSrc\(src\)\}/);
+  assert.match(menu, /if \(src && src !== failedSrc\)/);
+  const profile = read("app/(dashboard)/profile/ProfileView.tsx");
+  assert.match(profile, /onError=\{\(\) => setFailedAvatar\(avatarUrl\)\}/);
+  assert.match(profile, /avatarUrl && avatarUrl !== failedAvatar \? <Image/);
+});

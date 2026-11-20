@@ -168,6 +168,8 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
   const goal = optionLabel(GOAL_OPTIONS, data.preferences.primary_goal);
   const experience = optionLabel(EXPERIENCE_OPTIONS, data.preferences.fitness_level);
   const storedAvatar = data.profile?.avatar ?? null;
+  // A photo that fails to load (an external Google picture, an expired link) shows the placeholder instead.
+  const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
   // A photo uploaded to FITX (not the Google picture, which is only a link) can be downloaded.
   const uploadedPhoto = Boolean(storedAvatar && storedAvatar.startsWith(`${data.userId}/`));
 
@@ -262,7 +264,7 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-7">
         <div className="relative h-24 w-24 shrink-0 sm:h-28 sm:w-28">
           <div className="grid h-full w-full place-items-center overflow-hidden rounded-full border border-fitx-border bg-fitx-surface-variant text-fitx-text-secondary">
-            {avatarUrl ? <Image src={avatarUrl} alt="Your profile photo" width={112} height={112} unoptimized className="h-full w-full object-cover" /> : <UserRound size={36} aria-hidden="true" />}
+            {avatarUrl && avatarUrl !== failedAvatar ? <Image src={avatarUrl} alt="Your profile photo" width={112} height={112} unoptimized onError={() => setFailedAvatar(avatarUrl)} className="h-full w-full object-cover" /> : <UserRound size={36} aria-hidden="true" />}
           </div>
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => void uploadPhoto(event)} />
           <button type="button" onClick={() => fileInput.current?.click()} disabled={busy === "photo"} aria-label={storedAvatar ? "Change photo" : "Add photo"}

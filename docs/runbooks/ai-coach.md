@@ -1,6 +1,6 @@
-# FITX AI (server-only)
+# FITX AI coach (server-only)
 
-Every AI feature in FITX goes through this folder. Each module starts with `import "server-only"`, so
+Every AI feature in FITX goes through `src/lib/ai/`; file names below without a folder are in it. Each module starts with `import "server-only"`, so
 none of it (and no key) can reach the browser. Providers are called with plain `fetch`; there is no SDK.
 
 ## How a request flows

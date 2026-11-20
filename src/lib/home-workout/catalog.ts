@@ -42,9 +42,9 @@ export interface HomeExercise {
 
 type Meta = Omit<HomeExercise, "id" | "rule">;
 
-// The generated superman photo (HOMEWORKOUT2_MEDIA.superman) lifts only the chest and arms, the fault
-// the camera flags as "Legs up", so its card is drawn from the demonstration until a correct image exists.
-// Three more tries with a tighter prompt (2026-11-20) came back as a push-up, a floating plank and a push-up again.
+// Superman has no photo: the first generated one lifted only the chest and arms (the fault the camera
+// flags as "Legs up"), and three more tries with a tighter prompt (2026-11-20) came back as a push-up, a
+// floating plank and a push-up again. Its card is drawn from the demonstration until a correct image exists.
 const META: Record<ExerciseId, Meta> = {
   push_up: { group: "upper", equipment: null, works: "Chest, triceps, core", cues: ["Hands under shoulders", "Body in one line", "Chest to fist height"], poster: HOMEWORKOUT1_MEDIA["push-up"], angle: { side: "near", joints: ["shoulder", "elbow", "wrist"] } },
   bodyweight_squat: { group: "legs", equipment: null, works: "Quads, glutes", cues: ["Feet shoulder-width", "Sit your hips back", "Chest up"], poster: HOMEWORKOUT1_MEDIA.squat, angle: { side: "near", joints: ["hip", "knee", "ankle"] } },

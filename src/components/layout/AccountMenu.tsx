@@ -9,8 +9,11 @@ import { ACCOUNT_NAV } from "@/config/navigation";
 import type { AccountSummary } from "./useAccountSummary";
 
 export function AccountAvatar({ summary, size = 36 }: { summary: AccountSummary | null; size?: number }) {
-  if (summary?.avatarUrl) {
-    return <Image src={summary.avatarUrl} alt="" width={size} height={size} unoptimized className="shrink-0 rounded-full border border-fitx-border object-cover" style={{ width: size, height: size }} />;
+  // A photo that fails to load (an external Google picture, an expired link) falls back to the icon.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const src = summary?.avatarUrl;
+  if (src && src !== failedSrc) {
+    return <Image src={src} alt="" width={size} height={size} unoptimized onError={() => setFailedSrc(src)} className="shrink-0 rounded-full border border-fitx-border object-cover" style={{ width: size, height: size }} />;
   }
   return (
     <span className="grid shrink-0 place-items-center rounded-full border border-fitx-border bg-fitx-surface-variant text-fitx-text-secondary" style={{ width: size, height: size }}>
