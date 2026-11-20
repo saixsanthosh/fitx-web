@@ -72,15 +72,19 @@ export function ExerciseHeader({ exercise, summary, cameraRuleId, saved, onToggl
               </Link>
             )}
             {saved !== null && (
-              <button
-                type="button"
-                onClick={onToggleSaved}
-                aria-pressed={saved}
-                aria-label={saved ? `Remove ${exercise.name} from saved exercises` : `Save ${exercise.name}`}
-                className="fitx-button fitx-button-secondary hidden sm:inline-flex"
-              >
-                {saved ? <BookmarkCheck size={16} aria-hidden="true" className="text-fitx-primary" /> : <Bookmark size={16} aria-hidden="true" />}{saved ? "Saved" : "Save"}
-              </button>
+              // The wrapper hides it on phones (the round button by the title saves there): .fitx-button's own
+              // display would beat a `hidden` class on the button itself.
+              <span className="hidden sm:contents">
+                <button
+                  type="button"
+                  onClick={onToggleSaved}
+                  aria-pressed={saved}
+                  aria-label={saved ? `Remove ${exercise.name} from saved exercises` : `Save ${exercise.name}`}
+                  className="fitx-button fitx-button-secondary"
+                >
+                  {saved ? <BookmarkCheck size={16} aria-hidden="true" className="text-fitx-primary" /> : <Bookmark size={16} aria-hidden="true" />}{saved ? "Saved" : "Save"}
+                </button>
+              </span>
             )}
           </div>
         </div>
