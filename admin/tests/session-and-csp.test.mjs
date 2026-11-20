@@ -50,6 +50,12 @@ test("the session cookie is __Host-, httpOnly, Secure, SameSite=Strict, Path=/, 
   assert.equal("domain" in policy.sessionCookieOptions(), false, "__Host- cookies carry no Domain");
 });
 
+test("the cookie is removed with the same flags it was set with, or browsers keep a __Host- cookie", () => {
+  const expired = policy.expiredSessionCookieOptions();
+  assert.deepEqual({ ...expired, expires: expired.expires.getTime() }, { httpOnly: true, secure: true, sameSite: "strict", path: "/", maxAge: 0, expires: 0 });
+  assert.equal("domain" in expired, false);
+});
+
 test("session tokens are 32 random bytes in base64url, stored only as their SHA-256", () => {
   const tokens = new Set(Array.from({ length: 50 }, () => sessions.newSessionToken()));
   assert.equal(tokens.size, 50);

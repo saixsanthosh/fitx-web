@@ -15,6 +15,7 @@ export const CORE_AUDIT_ACTIONS = {
   operator_updated: { label: "Operator changed", group: "Access", source: "database" },
   operator_password_reset: { label: "Operator password reset", group: "Access", source: "database" },
   operator_password_changed: { label: "Own password changed", group: "Access", source: "database" },
+  operator_password_change_failed: { label: "Own password change refused", group: "Access", source: "server" },
   admin_sign_in: { label: "Signed in to Admin with Google", group: "Sign-in", source: "server" },
   admin_sign_in_denied: { label: "Google sign-in to Admin refused", group: "Sign-in", source: "server" },
   admin_signed_out: { label: "Signed out of Admin", group: "Sign-in", source: "server" },

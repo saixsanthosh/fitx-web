@@ -12,6 +12,7 @@ import {
   ADMIN_SESSION_TOKEN_BYTES,
   clipUserAgent,
   evaluateSessionRow,
+  expiredSessionCookieOptions,
   isSessionToken,
   sessionCookieOptions,
   shouldTouchSession,
@@ -177,7 +178,8 @@ export async function readSessionOperator(): Promise<SessionOperator | null> {
 export async function revokeCurrentSession(reason: string): Promise<{ sessionId: string; operatorId: string } | null> {
   const store = await cookies();
   const token = store.get(ADMIN_SESSION_COOKIE)?.value;
-  store.delete(ADMIN_SESSION_COOKIE);
+  // Not store.delete(name): that sends no Secure flag, so browsers keep a __Host- cookie.
+  store.set(ADMIN_SESSION_COOKIE, "", expiredSessionCookieOptions());
   if (!isSessionToken(token)) return null;
   const admin = createAdminSupabase();
   if (!admin) return null;

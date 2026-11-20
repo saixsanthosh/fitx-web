@@ -1,8 +1,9 @@
 import "server-only";
 import { hasPermission, requireAdmin, type AdminOperator } from "@/lib/admin-auth";
-import { createAdminSession, revokeOperatorSessions, rootCredentials } from "@/lib/admin-session";
+import { createAdminSession, revokeCurrentSession, revokeOperatorSessions, rootCredentials } from "@/lib/admin-session";
+import { logAdminEvent } from "@/lib/audit";
 import { logServerError } from "@/lib/log";
-import { clientIpKey } from "@/lib/login-guard";
+import { checkLoginAllowed, clientIpKey, recordLoginResult } from "@/lib/login-guard";
 import { hashPassword, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, verifyPassword } from "@/lib/password";
 import { isAdminRole, type AdminRole } from "@/lib/roles";
 import { isMissingSchema, isPermissionError } from "@/lib/schema";
@@ -30,6 +31,7 @@ export type OperatorError =
   | "weak_password"
   | "same_password"
   | "wrong_password"
+  | "locked"
   | "not_found"
   | "root_protected"
   | "self"
@@ -155,22 +157,41 @@ export async function resetOperatorPassword(actor: AdminOperator, id: string, pa
   return { ok: true };
 }
 
+/** signedIn is false when the password changed but this browser's new session could not be made. */
+export type OwnPasswordResult = { ok: true; signedIn: boolean } | { ok: false; error: OperatorError };
+
 /**
- * Changes your own password after checking the current one. Every session of yours ends, then this
- * browser gets a fresh one, so you stay signed in here only. The root's password lives in the
- * environment (npm run admin:hash), so the root cannot change it here. Server Actions only (it sets
- * the session cookie).
+ * Changes your own password after checking the current one. Wrong current passwords count against
+ * this username's sign-in limits (LOGIN_LIMITS) and are audited, so a borrowed session cannot guess
+ * without limit. Every session of yours ends, then this browser gets a fresh one, so you stay signed
+ * in here only. The root's password lives in the environment (npm run admin:hash), so the root
+ * cannot change it here. Server Actions only (it sets the session cookie).
  */
-export async function changeOwnPassword(actor: AdminOperator, current: unknown, next: unknown, context: { headers: Headers }): Promise<OperatorResult> {
+export async function changeOwnPassword(actor: AdminOperator, current: unknown, next: unknown, context: { headers: Headers }): Promise<OwnPasswordResult> {
   if (actor.isRoot) return { ok: false, error: "root_protected" };
   const weak = passwordProblem(next);
   if (weak) return { ok: false, error: weak };
   if (typeof current !== "string" || current === next) return { ok: false, error: typeof current !== "string" ? "wrong_password" : "same_password" };
   const admin = createAdminSupabase();
   if (!admin) return { ok: false, error: "unavailable" };
+  const ipKey = clientIpKey(context.headers);
+  const allowed = await checkLoginAllowed(actor.username, ipKey);
+  if (allowed === "locked" || allowed === "ip_limited") return { ok: false, error: "locked" };
+  if (allowed !== "ok") return { ok: false, error: "unavailable" };
+
   const row = await admin.from("admin_operators").select("password_hash").eq("id", actor.id).maybeSingle<{ password_hash: string | null }>();
-  if (row.error || !row.data) return { ok: false, error: row.error ? refusal("operators.own_lookup", row.error) : "not_found" };
-  if (!(await verifyPassword(current, row.data.password_hash))) return { ok: false, error: "wrong_password" };
+  if (row.error || !row.data) {
+    await recordLoginResult(actor.username, ipKey, false);
+    return { ok: false, error: row.error ? refusal("operators.own_lookup", row.error) : "not_found" };
+  }
+  if (!(await verifyPassword(current, row.data.password_hash))) {
+    const recorded = await recordLoginResult(actor.username, ipKey, false);
+    const locked = recorded === "locked_now";
+    await logAdminEvent({ actor: { id: actor.id }, action: "operator_password_change_failed", resourceType: "admin_operator", resourceId: actor.id, details: { username: actor.username, locked } });
+    if (locked) await logAdminEvent({ actor: null, action: "admin_login_locked", resourceType: "admin_operator", resourceId: actor.id, details: { username: actor.username } });
+    return { ok: false, error: locked ? "locked" : "wrong_password" };
+  }
+  await recordLoginResult(actor.username, ipKey, true);
 
   const { error } = await admin.rpc("fitx_admin_op_set_operator_password", {
     p_operator_id: actor.id,
@@ -181,11 +202,11 @@ export async function changeOwnPassword(actor: AdminOperator, current: unknown, 
   if (error) return { ok: false, error: refusal("operators.change_password", error) };
   // The database already ended every session; this makes sure, then signs this browser in again.
   await revokeOperatorSessions(actor.id, "password_changed");
-  const session = await createAdminSession(actor.id, {
-    ipKey: clientIpKey(context.headers),
-    userAgent: context.headers.get("user-agent"),
-  });
-  return session.ok ? { ok: true } : { ok: false, error: "failed" };
+  const session = await createAdminSession(actor.id, { ipKey, userAgent: context.headers.get("user-agent") });
+  if (session.ok) return { ok: true, signedIn: true };
+  // The password did change. Clear this browser's ended cookie so /login shows the form.
+  await revokeCurrentSession("password_changed");
+  return { ok: true, signedIn: false };
 }
 
 /** True when the root's environment variables are set and well formed (values never shown). */

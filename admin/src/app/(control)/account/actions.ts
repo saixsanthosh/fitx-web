@@ -11,5 +11,7 @@ export async function changePassword(formData: FormData) {
   const next = formData.get("next_password");
   if (next !== formData.get("confirm_password")) redirect("/account?state=mismatch");
   const result = await changeOwnPassword(actor, formData.get("current_password"), next, { headers: await headers() });
+  // The password changed but this browser could not be signed in again: say so on /login.
+  if (result.ok && !result.signedIn) redirect("/login?state=password_changed");
   redirect(`/account?state=${result.ok ? "changed" : result.error}`);
 }

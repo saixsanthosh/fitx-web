@@ -70,6 +70,15 @@ test("an operator with a temporary password reaches only /account", async () => 
   assert.ok((await outcome(auth.requireAdmin())).value, "the account page itself needs only a session");
 });
 
+test("the 403 page signs out to switch account, since /login sends a signed-in operator back to Admin", async () => {
+  const page = await readFile(new URL("../src/app/forbidden.tsx", import.meta.url), "utf8");
+  assert.match(page, /import \{ signOut \} from "@\/app\/login\/actions"/);
+  assert.match(page, /<form action=\{signOut\}>[^]*type="submit"/);
+  assert.doesNotMatch(page, /href="\/login"/, "a plain link to /login only bounces back to /overview");
+  const login = await readFile(new URL("../src/app/login/page.tsx", import.meta.url), "utf8");
+  assert.match(login, /if \(operator\) redirect\(/, "the reason the link would not work");
+});
+
 test("Route Handlers that change data need a same-origin Origin header", () => {
   assert.equal(isSameOrigin("https://admin.example", ["https://admin.example"]), true);
   assert.equal(isSameOrigin(null, ["https://admin.example"]), false);

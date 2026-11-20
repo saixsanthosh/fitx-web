@@ -13,6 +13,7 @@ const notices: Record<string, { tone: "success" | "error"; text: string }> = {
   changed: { tone: "success", text: "Password changed. Your other sessions have ended." },
   mismatch: { tone: "error", text: "The new passwords do not match." },
   wrong_password: { tone: "error", text: "Your current password is not right." },
+  locked: { tone: "error", text: "Too many wrong passwords. Wait 15 minutes and try again." },
   weak_password: { tone: "error", text: `Use at least ${MIN_PASSWORD_LENGTH} characters.` },
   same_password: { tone: "error", text: "Choose a new password." },
   root_protected: { tone: "error", text: "The owner password is changed with npm run admin:hash." },

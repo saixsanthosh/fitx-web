@@ -57,6 +57,14 @@ export function sessionCookieOptions() {
   };
 }
 
+/**
+ * Settings that remove the session cookie. A __Host- cookie is only replaced when the new one is
+ * Secure with Path=/ too, so this keeps every flag of sessionCookieOptions() and expires it now.
+ */
+export function expiredSessionCookieOptions() {
+  return { ...sessionCookieOptions(), maxAge: 0, expires: new Date(0) };
+}
+
 /** The user agent as stored: at most 300 characters, control characters removed. */
 export function clipUserAgent(value: string | null | undefined): string | null {
   if (!value) return null;

@@ -228,11 +228,17 @@ test("before migration 20261121100030 the check fails and sign-in is refused (fa
   assert.equal(rpcCalls("fitx_admin_op_root_sign_in").length, 0);
 });
 
-test("sign out ends the session row, deletes the cookie, audits and goes to /login", async () => {
+test("sign out ends the session row, expires the cookie with its Secure flags, audits and goes to /login", async () => {
   fake.cookies.set("__Host-fitx_admin", "A".repeat(43));
   fake.handler = (call) => (call.table === "admin_web_sessions" ? { data: [{ id: "s1", operator_id: "o1" }], error: null } : { data: 1, error: null });
   await assert.rejects(actions.signOut(), (error) => error.url === "/login");
-  assert.ok(fake.cookieWrites.some((write) => write.name === "__Host-fitx_admin" && write.deleted));
+  const cleared = fake.cookieWrites.find((write) => write.name === "__Host-fitx_admin");
+  assert.equal(cleared?.value, "", "the cookie is emptied");
+  assert.equal(cleared.options.secure, true, "a __Host- cookie is only replaced by a Secure one");
+  assert.equal(cleared.options.path, "/");
+  assert.equal(cleared.options.maxAge, 0);
+  assert.equal(cleared.options.expires.getTime(), 0);
+  assert.equal(fake.cookies.get("__Host-fitx_admin"), "");
   const update = tableCalls("admin_web_sessions")[0];
   assert.ok(update.ops.some(([op, column]) => op === "eq" && column === "token_hash"));
   assert.deepEqual(auditActions(), ["admin_signed_out"]);
