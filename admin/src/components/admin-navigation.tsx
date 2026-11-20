@@ -204,12 +204,15 @@ export function SectionTitle() {
     return () => animation.cancel();
   }, [key]);
 
+  const label = section?.label ?? (pathname === "/account" ? "Your account" : null);
   return (
     <span className={styles.sectionTitle} aria-hidden="true">
-      <span ref={ref} className={styles.sectionTitleInner}>
-        <span className={styles.sectionTitleNumber}>{section?.number ?? "··"}</span>
-        <span>{section?.label ?? "Your account"}</span>
-      </span>
+      {label && (
+        <span ref={ref} className={styles.sectionTitleInner}>
+          {section && <span className={styles.sectionTitleNumber}>{section.number}</span>}
+          <span>{label}</span>
+        </span>
+      )}
     </span>
   );
 }

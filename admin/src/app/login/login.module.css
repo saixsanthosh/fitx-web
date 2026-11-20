@@ -6,18 +6,21 @@
   min-height: 100vh;
   min-height: 100svh;
   grid-template-rows: auto 1fr;
-  background: var(--paper);
+  background: var(--on-stage);
 }
 
 /* Stage ------------------------------------------------------------------------------------------ */
 
 .stage {
+  /* The stage stays dark in both themes: the darker of the two page colours, with the lighter on it. */
+  --stage: var(--ink);
+  --on-stage: var(--paper);
   position: relative;
   display: grid;
   min-height: 236px;
   overflow: hidden;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--stage);
+  color: var(--on-stage);
   isolation: isolate;
 }
 
@@ -47,7 +50,7 @@
   bottom: 14px;
   left: 16px;
   margin: 0;
-  color: color-mix(in srgb, var(--paper) 64%, transparent);
+  color: color-mix(in srgb, var(--on-stage) 64%, transparent);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.22em;
@@ -62,12 +65,12 @@
 }
 
 .grid line {
-  stroke: color-mix(in srgb, var(--paper) 7%, transparent);
+  stroke: color-mix(in srgb, var(--on-stage) 7%, transparent);
   stroke-width: 1;
 }
 
 .ticks line {
-  stroke: color-mix(in srgb, var(--paper) 30%, transparent);
+  stroke: color-mix(in srgb, var(--on-stage) 30%, transparent);
   stroke-width: 1.4;
 }
 
@@ -78,10 +81,10 @@
   fill: none;
   stroke-linecap: round;
 }
-.ringOuter { stroke: color-mix(in srgb, var(--paper) 22%, transparent); stroke-width: 1; }
-.ringInner { stroke: color-mix(in srgb, var(--paper) 16%, transparent); stroke-width: 1; stroke-dasharray: 0.012 0.02; }
+.ringOuter { stroke: color-mix(in srgb, var(--on-stage) 22%, transparent); stroke-width: 1; }
+.ringInner { stroke: color-mix(in srgb, var(--on-stage) 16%, transparent); stroke-width: 1; stroke-dasharray: 0.012 0.02; }
 .arcA { stroke: var(--coral); stroke-width: 3; stroke-dasharray: 0.34 0.66; }
-.arcB { stroke: color-mix(in srgb, var(--paper) 70%, transparent); stroke-width: 1.6; stroke-dasharray: 0.18 0.07 0.4 0.35; }
+.arcB { stroke: color-mix(in srgb, var(--on-stage) 70%, transparent); stroke-width: 1.6; stroke-dasharray: 0.18 0.07 0.4 0.35; }
 .core circle { fill: var(--coral); }
 
 .pulseLine,
@@ -90,13 +93,14 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.pulseLine { stroke: color-mix(in srgb, var(--paper) 55%, transparent); stroke-width: 2; }
+.pulseLine { stroke: color-mix(in srgb, var(--on-stage) 55%, transparent); stroke-width: 2; }
 .pulseScan { stroke: var(--coral); stroke-width: 3.2; stroke-dasharray: 0 1; }
 
-.bar { fill: color-mix(in srgb, var(--paper) 18%, transparent); }
+.bars { display: none; }
+.bar { fill: color-mix(in srgb, var(--on-stage) 18%, transparent); }
 .bars g:nth-child(6) .bar { fill: var(--coral); }
 .barLabel {
-  fill: color-mix(in srgb, var(--paper) 46%, transparent);
+  fill: color-mix(in srgb, var(--on-stage) 46%, transparent);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -111,17 +115,23 @@
   width: 44px;
   height: 44px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--paper) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--on-stage) 22%, transparent);
   border-radius: 50%;
-  background: color-mix(in srgb, var(--ink) 70%, transparent);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--stage) 70%, transparent);
+  color: var(--on-stage);
   cursor: pointer;
 }
-.pause:hover { border-color: color-mix(in srgb, var(--paper) 50%, transparent); }
+.pause:hover { border-color: color-mix(in srgb, var(--on-stage) 50%, transparent); }
 .pause:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   .pause { display: none; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .stage { --stage: var(--paper); --on-stage: var(--ink); }
+  .page { background: var(--surface); }
+  .field input { background: var(--paper); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -283,6 +293,7 @@
 
 @media (min-width: 768px) {
   .stage { min-height: 320px; }
+  .bars { display: inline; }
   .stageBrand { top: 24px; left: 28px; }
   .stageLine { bottom: 22px; left: 28px; }
   .pause { right: 20px; bottom: 14px; }

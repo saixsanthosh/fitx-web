@@ -2,6 +2,9 @@
    a top bar with a menu dialog; from 1024 px a fixed section rail. */
 
 .shell {
+  /* The rail and the menu stay dark in both themes: the darker page colour, with the lighter on it. */
+  --stage: var(--ink);
+  --on-stage: var(--paper);
   min-height: 100vh;
   min-height: 100svh;
   background: var(--paper);
@@ -30,7 +33,7 @@
   align-items: center;
   gap: 12px;
   min-height: 44px;
-  color: var(--paper);
+  color: var(--on-stage);
   text-decoration: none;
 }
 .brandMark {
@@ -38,9 +41,9 @@
   width: 40px;
   height: 40px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--paper) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--on-stage) 22%, transparent);
   border-radius: 11px;
-  color: var(--paper);
+  color: var(--on-stage);
 }
 .brandWord {
   display: grid;
@@ -89,7 +92,7 @@
   align-items: center;
   gap: 10px;
   padding-top: 16px;
-  border-top: 1px solid color-mix(in srgb, var(--paper) 14%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--on-stage) 14%, transparent);
 }
 .operatorAvatar {
   display: grid;
@@ -103,8 +106,8 @@
   font-weight: 800;
 }
 .operatorText { display: grid; min-width: 0; gap: 2px; }
-.operatorText strong { overflow: hidden; color: var(--paper); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.operatorText small { color: color-mix(in srgb, var(--paper) 62%, transparent); font-size: 11px; }
+.operatorText strong { overflow: hidden; color: var(--on-stage); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.operatorText small { color: color-mix(in srgb, var(--on-stage) 62%, transparent); font-size: 11px; }
 
 /* Section list (rail and menu dialog) -------------------------------------------------------------- */
 
@@ -142,17 +145,17 @@
   gap: 12px;
   padding: 0 12px;
   border-radius: 10px;
-  color: color-mix(in srgb, var(--paper) 72%, transparent);
+  color: color-mix(in srgb, var(--on-stage) 72%, transparent);
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
   transition: color 160ms ease;
 }
-.sectionLink:hover { color: var(--paper); }
+.sectionLink:hover { color: var(--on-stage); }
 .sectionLink:focus-visible { outline: 2px solid var(--coral); outline-offset: 1px; }
-[data-active="true"] > .sectionLink { color: var(--paper); }
+[data-active="true"] > .sectionLink { color: var(--on-stage); }
 .sectionNumber {
-  color: color-mix(in srgb, var(--paper) 40%, transparent);
+  color: color-mix(in srgb, var(--on-stage) 40%, transparent);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -174,13 +177,13 @@
   align-items: center;
   padding: 0 10px;
   border-radius: 8px;
-  color: color-mix(in srgb, var(--paper) 62%, transparent);
+  color: color-mix(in srgb, var(--on-stage) 62%, transparent);
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
 }
-.subLink:hover { color: var(--paper); }
-.subLink[aria-current="page"] { color: var(--paper); box-shadow: inset 2px 0 0 var(--coral); }
+.subLink:hover { color: var(--on-stage); }
+.subLink[aria-current="page"] { color: var(--on-stage); box-shadow: inset 2px 0 0 var(--coral); }
 .subLink:focus-visible { outline: 2px solid var(--coral); outline-offset: 1px; }
 
 /* Column, top bar and page ------------------------------------------------------------------------- */
@@ -281,7 +284,7 @@
   background: transparent;
   overscroll-behavior: contain;
 }
-.drawer::backdrop { background: color-mix(in srgb, var(--ink) 48%, transparent); }
+.drawer::backdrop { background: color-mix(in srgb, var(--stage) 60%, transparent); }
 .drawerPanel {
   display: flex;
   width: min(86vw, 340px);
@@ -290,12 +293,12 @@
   gap: 12px;
   overflow-y: auto;
   padding: 12px 12px 24px;
-  background: var(--ink);
+  background: var(--stage);
 }
 .drawerTop { display: flex; align-items: center; justify-content: space-between; padding: 0 0 8px 12px; }
-.drawerTitle { color: var(--paper); font-size: 13px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
-.drawerTop .iconButton { color: var(--paper); }
-.drawerTop .iconButton:hover { border-color: color-mix(in srgb, var(--paper) 24%, transparent); background: transparent; }
+.drawerTitle { color: var(--on-stage); font-size: 13px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+.drawerTop .iconButton { color: var(--on-stage); }
+.drawerTop .iconButton:hover { border-color: color-mix(in srgb, var(--on-stage) 24%, transparent); background: transparent; }
 
 @media (min-width: 640px) {
   .signOut span { display: inline; }
@@ -322,7 +325,7 @@
     width: 264px;
     flex-direction: column;
     padding: 24px 18px 18px;
-    background: var(--ink);
+    background: var(--stage);
   }
   .column { margin-left: 264px; }
   .menuButton,
@@ -334,6 +337,13 @@
 
 @media (min-width: 1440px) {
   .main { padding: 36px 48px 80px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .shell { --stage: var(--paper); --on-stage: var(--ink); }
+  .rail { border-right: 1px solid var(--line); }
+  .drawerPanel { border-right: 1px solid var(--line); }
+  .drawer::backdrop { background: color-mix(in srgb, var(--stage) 70%, transparent); }
 }
 
 @keyframes trace { to { stroke-dashoffset: 0; } }

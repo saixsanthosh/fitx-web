@@ -49,7 +49,7 @@ export function LoginStage() {
           <path className={styles.pulseLine} pathLength={1} d="M40 280H196L214 248L236 318L258 214L280 340L300 280H560" />
           <path className={styles.pulseScan} pathLength={1} d="M40 280H196L214 248L236 318L258 214L280 340L300 280H560" />
         </g>
-        <g className={styles.bars} transform="translate(120 560)">
+        <g className={styles.bars} transform="translate(120 515)">
           {BARS.map((height, index) => (
             <g key={index} transform={`translate(${index * 38} 0)`}>
               <rect className={styles.bar} x={0} y={-90 * height} width={22} height={90 * height} rx={3} />
