@@ -186,7 +186,7 @@ test("plays the account's one-time film on the first app page and consumes the c
 });
 
 test("plays it on the first page of any app section, the newer ones included", () => {
-  for (const path of ["/activity", "/activity/1b4e28ba-2fa1-41d2-883f-0016d3cca427", "/ai-coach", "/form-coach", "/workouts", "/exercises/bench_press"]) {
+  for (const path of ["/activity", "/activity/1b4e28ba-2fa1-41d2-883f-0016d3cca427", "/ai-coach", "/home-workout", "/form-coach", "/workouts", "/exercises/bench_press"]) {
     const { attrs, cookieWrites } = run({ path, cookie: "fitx_intro=play" });
     assert.equal(attrs.get("data-fitx-intro"), "pending", path);
     assert.equal(attrs.get("data-fitx-intro-gate"), "account", path);
@@ -223,6 +223,7 @@ test("focus screens get no brand loader either", () => {
 
 test("?intro= replays the film on the newer sections, but not on a focus screen", () => {
   assert.equal(run({ path: "/ai-coach", search: "?intro=live", cookie: "fitx_intro=seen" }).attrs.get("data-fitx-intro-gate"), "replay");
+  assert.equal(run({ path: "/home-workout", search: "?intro=play", cookie: "fitx_intro=seen" }).attrs.get("data-fitx-intro-gate"), "replay");
   assert.equal(run({ path: "/activity/record", search: "?intro=live", cookie: "fitx_intro=seen" }).attrs.get("data-fitx-intro"), undefined);
 });
 

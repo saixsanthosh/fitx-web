@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateNutritionTargets } from "@/lib/domain/nutrition";
-import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, normalizeDietType, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
+import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, normalizeDietType, profileAge, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { isCountedSession, loadLibraryMuscles, regionsTrained, summariseMuscles, type LoggedSession } from "@/lib/training/muscle-history";
@@ -103,8 +103,20 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     }
   };
 
+  /** The profile, with the birth date once migration #41 has added it (the age is worked out from it). */
+  const profileRow = async () => {
+    const columns = "age, gender, height, weight, target_weight, experience";
+    try {
+      const newer = await supabase.from("profiles").select(`${columns}, date_of_birth`).eq("id", userId).maybeSingle();
+      if (!newer.error || !isMissingColumnError(newer.error)) return one(Promise.resolve(newer));
+    } catch {
+      return null;
+    }
+    return one(supabase.from("profiles").select(columns).eq("id", userId).maybeSingle());
+  };
+
   const basics = Promise.all([
-    one(supabase.from("profiles").select("age, gender, height, weight, target_weight, experience").eq("id", userId).maybeSingle()),
+    profileRow(),
     one(supabase.from("user_preferences").select("*").eq("user_id", userId).maybeSingle()),
   ]);
   if (!options.full) {
@@ -194,7 +206,8 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const timeZone = validTimeZone(text(prefs.timezone)) ?? "UTC";
   const today = localDate(now, timeZone);
 
-  const age = integer(profile.age, 13, 100);
+  // From the birth date on the member's own date: the stored age is only refreshed when the profile is saved.
+  const age = integer(profileAge(profile, today), 13, 100);
   const minor = age !== null && age < 18;
   const adult = age !== null && age >= 18;
   const sex = profile.gender === "male" || profile.gender === "female" ? profile.gender : null;

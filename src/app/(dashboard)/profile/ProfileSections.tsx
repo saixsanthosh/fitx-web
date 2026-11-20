@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { Dumbbell, Ruler, Salad, X } from "lucide-react";
-import { ChipGroup, ChoiceGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
+import { BirthDateField, ChipGroup, ChoiceGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
 import { EquipmentPicker } from "@/components/workouts/EquipmentPicker";
 import {
   ACTIVITY_OPTIONS,
@@ -30,6 +30,7 @@ import {
   SPLIT_OPTIONS,
   WATER_RANGE_ML,
   WEIGHT_RANGE_KG,
+  birthDateEdit,
   commitDraft,
   formatHeight,
   formatRupees,
@@ -93,6 +94,8 @@ const INJURY_NOTE = "Auto workouts don’t avoid these yet, so skip or swap any 
 
 type BodyDraft = {
   age: string;
+  /** YYYY-MM-DD, or "" (used instead of age once profiles.date_of_birth exists). */
+  birthDate: string;
   gender: Sex | null;
   heightCm: number | null;
   weightKg: number | null;
@@ -107,6 +110,7 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
   const { profile, preferences: prefs } = data;
   const original: BodyDraft = {
     age: profile?.age == null ? "" : String(profile.age),
+    birthDate: profile?.date_of_birth ?? "",
     gender: profile?.gender ?? null,
     heightCm: profile?.height ?? null,
     weightKg: data.currentWeightKg,
@@ -127,6 +131,8 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
     setError("");
   };
   const v2 = data.schema.preferencesV2;
+  // With a birth date column the database keeps age equal to the birth date's, so the birth date is what's edited.
+  const byBirthDate = data.schema.onboardingV3;
   const unavailableGoals = goalsAwaitingMigration(data.schema);
 
   const start = () => {
@@ -140,8 +146,11 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
     event.preventDefault();
     const found: Record<string, string> = {};
     // Age and height may be removed (the targets then need them again); weight comes from weigh-ins.
-    const age = draft.age.trim() ? Number(draft.age) : null;
-    if (age !== null && (!Number.isInteger(age) || !inRange(age, AGE_RANGE))) found.age = `Enter a whole number from ${AGE_RANGE.min} to ${AGE_RANGE.max}, or leave it empty.`;
+    const birth = birthDateEdit({ age: profile?.age ?? null, date_of_birth: profile?.date_of_birth ?? null }, draft.birthDate);
+    const typedAge = draft.age.trim() ? Number(draft.age) : null;
+    const age = byBirthDate ? birth.age : typedAge;
+    if (byBirthDate && birth.error) found.birthDate = birth.error;
+    if (typedAge !== null && !byBirthDate && (!Number.isInteger(typedAge) || !inRange(typedAge, AGE_RANGE))) found.age = `Enter a whole number from ${AGE_RANGE.min} to ${AGE_RANGE.max}, or leave it empty.`;
     if (draft.heightCm !== null && !inRange(draft.heightCm, HEIGHT_RANGE_CM)) found.heightCm = "Enter a height between 90 and 250 cm (2 ft 11 in to 8 ft 2 in), or leave it empty.";
     if (!inRange(draft.weightKg, WEIGHT_RANGE_KG)) found.weightKg = "Enter a weight between 30 and 500 kg (66 to 1,102 lb).";
     if (draft.targetWeightKg !== null && !inRange(draft.targetWeightKg, WEIGHT_RANGE_KG)) found.targetWeightKg = "Enter a target between 30 and 500 kg, or leave it empty.";
@@ -153,10 +162,13 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
     const supabase = createClient();
     if (!supabase) return setError(WRITE_FAILED);
 
-    const profilePatch = changedFields(
-      { age: profile?.age ?? null, gender: profile?.gender ?? null, height: profile?.height ?? null, target_weight: profile?.target_weight ?? null },
-      { age, gender: draft.gender, height: draft.heightCm, target_weight: draft.targetWeightKg },
-    );
+    const profilePatch = {
+      ...changedFields(
+        { gender: profile?.gender ?? null, height: profile?.height ?? null, target_weight: profile?.target_weight ?? null },
+        { gender: draft.gender, height: draft.heightCm, target_weight: draft.targetWeightKg },
+      ),
+      ...(byBirthDate ? birth.patch : changedFields({ age: profile?.age ?? null }, { age: typedAge })),
+    };
     const prefsPatch = changedFields(
       { primary_goal: prefs.primary_goal, activity_level: prefs.activity_level, height_unit: prefs.height_unit, weight_unit: prefs.weight_unit },
       { primary_goal: draft.goal, activity_level: draft.activity, height_unit: draft.heightUnit, weight_unit: draft.weightUnit },
@@ -194,6 +206,7 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
       {!editing ? (
         <DetailList>
           <Detail label="Age">{profile?.age != null ? `${profile.age} years` : <NotSet />}</Detail>
+          {byBirthDate && <Detail label="Date of birth">{profile?.date_of_birth ? formatBirthDate(profile.date_of_birth) : <NotSet />}</Detail>}
           <Detail label="Sex for the calorie formula">{optionLabel(SEX_OPTIONS, profile?.gender) ?? <NotSet />}</Detail>
           <Detail label="Height">{formatHeight(profile?.height, prefs.height_unit) ?? <NotSet />}</Detail>
           <Detail label="Current weight">
@@ -209,7 +222,14 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
           <div className="space-y-6">
             <p className="text-xs leading-5 text-fitx-text-secondary">Your daily targets need your age and height. You can leave them empty, but FITX then can’t calculate targets.</p>
             <div className="grid gap-5 sm:grid-cols-2">
-              <TextField label="Age" value={draft.age} onChange={(value) => set("age", value.replace(/[^\d]/g, ""))} error={errors.age} inputMode="numeric" suffix="years" maxLength={3} />
+              {byBirthDate ? (
+                <div>
+                  <BirthDateField value={draft.birthDate} onChange={(value) => set("birthDate", value)} error={errors.birthDate} required={false} />
+                  {!profile?.date_of_birth && profile?.age != null && <p className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">Age on file: {profile.age} years. Add your date of birth to keep it up to date.</p>}
+                </div>
+              ) : (
+                <TextField label="Age" value={draft.age} onChange={(value) => set("age", value.replace(/[^\d]/g, ""))} error={errors.age} inputMode="numeric" suffix="years" maxLength={3} />
+              )}
             </div>
             <ChoiceGroup legend="Sex for the calorie formula" options={SEX_OPTIONS} value={draft.gender} onChange={(value) => set("gender", value)} columns="grid-cols-1 sm:grid-cols-3" showHints={false} />
             <div className="grid gap-5 lg:grid-cols-2">
@@ -232,6 +252,11 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
       )}
     </SectionCard>
   );
+}
+
+/** A stored YYYY-MM-DD birth date for display, read as a calendar date (no time zone shift). */
+function formatBirthDate(value: string): string {
+  return new Date(`${value}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 // ─── Diet ────────────────────────────────────────────────────────────────────────────────────────

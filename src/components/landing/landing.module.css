@@ -372,6 +372,28 @@
   font-size: .6875rem;
 }
 
+/* Short screens. With motion the stage is pinned at exactly 100svh (the small viewport, browser bars showing:
+   about 660 px on a standard iPhone, about 550 px on an iPhone SE), so the panels must shrink to fit rather than
+   push the woman's caption off the bottom. Reduced motion keeps the roomier layout: its stage grows instead. */
+@media (prefers-reduced-motion: no-preference) and (max-height: 760px) {
+  .sceneStage { grid-template-rows: auto minmax(0, 1fr); }
+  .panels { grid-template-rows: minmax(0, .8fr) minmax(0, 1.2fr); }
+  .panel { min-height: 0; }
+}
+@media (prefers-reduced-motion: no-preference) and (max-height: 760px) and (max-width: 767px) {
+  .sceneStage { gap: 8px; padding-top: calc(var(--header) + 8px); padding-bottom: 12px; }
+  .sceneHead .stageEyebrow { display: none; }
+  .panels { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .planCard { right: 8px; bottom: 8px; width: min(200px, 60%); padding: 10px; }
+  .planBar { margin: 6px 0 4px; }
+  .planRow { min-height: 22px; }
+  .reps { top: 40px; }
+  .reps strong { font-size: 1.875rem; }
+  .phoneTag { left: 8px; bottom: 56px; }
+  .caption { left: 8px; right: 8px; bottom: 8px; min-height: 40px; padding: 6px 10px; }
+  .captionText { font-size: .9375rem; }
+}
+
 @media (min-width: 768px) {
   .sceneStage { gap: 18px; padding: calc(var(--header) + 20px) max(var(--gutter), calc((100% - var(--fitx-container)) / 2)) 24px; }
   .panels { grid-template-rows: none; grid-template-columns: 1fr 1fr; gap: 16px; }

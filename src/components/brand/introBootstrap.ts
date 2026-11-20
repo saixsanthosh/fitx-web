@@ -84,7 +84,7 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
       var path = window.location.pathname;
       var section = path.split("/")[1] || "";
       var focus = path.indexOf("/workouts/active") === 0 || path.indexOf("/activity/record") === 0;
-      var app = ["dashboard", "workouts", "nutrition", "activity", "ai-coach", "progress", "goals", "planner", "profile", "settings", "exercises", "form-coach"].indexOf(section) !== -1 && !focus;
+      var app = ["dashboard", "workouts", "nutrition", "activity", "ai-coach", "progress", "goals", "planner", "profile", "settings", "exercises", "home-workout", "form-coach"].indexOf(section) !== -1 && !focus;
       return { path: path, focus: focus, app: app };
     };
     var signedIn = cookie("fitx_auth") === "1";

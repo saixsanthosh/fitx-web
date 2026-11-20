@@ -105,6 +105,19 @@ describe("coach context", () => {
     assert.deepEqual([teen.facts.minor, teen.facts.adult], [true, false]);
   });
 
+  test("the age comes from the birth date on the member's own date, not the stored age a birthday has outdated", () => {
+    // Stored age 17 from the last profile save; the 18th birthday is today in India (17 November), not yet in UTC.
+    const profile = { age: 17, date_of_birth: "2008-11-17", gender: "female", height: 160, weight: 50 };
+    const india = buildCoachContext(sources({ profile }) as never, NOW);
+    assert.deepEqual([india.facts.age, india.facts.minor, india.facts.adult], [18, false, true]);
+    assert.ok(india.facts.target, "an adult gets a nutrition estimate");
+    const utc = buildCoachContext(sources({ profile, preferences: { ...sources().preferences, timezone: "UTC" } }) as never, NOW);
+    assert.deepEqual([utc.facts.age, utc.facts.minor], [17, true]);
+    // Without a birth date (or before migration #41) the stored age stands.
+    const stored = buildCoachContext(sources({ profile: { age: 17, gender: "female", height: 160, weight: 50 } }) as never, NOW);
+    assert.equal(stored.facts.age, 17);
+  });
+
   test("members under 18 get no targets and their data is not put in the prompt", () => {
     const minor = buildCoachContext(sources({ profile: { age: 16, gender: "female", height: 160, weight: 50 } }) as never, NOW);
     assert.equal(minor.facts.minor, true);
@@ -542,9 +555,11 @@ describe("privacy page", () => {
 
     // Profile can empty these fields and lists, and always keeps a goal and an activity level.
     const profile = read("app/(dashboard)/profile/ProfileSections.tsx");
-    for (const [guard, field] of [["age", "age"], ["draft.heightCm", "heightCm"], ["draft.targetWeightKg", "targetWeightKg"], ["budget", "monthlyBudget"]]) {
+    for (const [guard, field] of [["typedAge", "age"], ["draft.heightCm", "heightCm"], ["draft.targetWeightKg", "targetWeightKg"], ["budget", "monthlyBudget"]]) {
       assert.match(profile, new RegExp(`if \\(${guard.replace(".", "\\.")} !== null && [^\\n]*found\\.${field} = [^;]*or leave it empty`), `${field} may be left empty`);
     }
+    // Once the birth date column exists, age comes from the date of birth, which may be cleared too (clearing it clears the age).
+    assert.match(profile, /<BirthDateField [^\n]*required=\{false\} \/>/, "the date of birth may be left empty");
     assert.match(profile, /onClear=\{\(\) => set\("diet", null\)\} clearLabel="Clear your diet"/);
     assert.match(profile, /onClear=\{\(\) => set\("budgetLevel", null\)\} clearLabel="Clear your budget level"/);
     for (const legend of ["Food allergies or intolerances", "Cuisines you enjoy", "Injuries or areas to go easy on", "Food rules you follow"]) assert.match(profile, new RegExp(`<ChipGroup legend="${legend}"`), legend);

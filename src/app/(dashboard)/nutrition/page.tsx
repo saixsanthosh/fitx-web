@@ -29,6 +29,8 @@ import { createClient } from "@/lib/supabase/client";
 import { loadGoals } from "@/lib/data/goals";
 import { dailyGoalFor, type GoalView } from "@/lib/domain/goals";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
+import { profileAge } from "@/lib/domain/profile-options";
+import { loadBirthDate } from "@/lib/domain/user-context";
 import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { checkSectionName, mealForTime, mealSections } from "@/lib/domain/meal-time";
@@ -162,7 +164,7 @@ export default function NutritionPage() {
     setUserId(uid);
     const caps = await detectCapabilities(supabase);
     setCapabilities(caps);
-    const [mealResult, waterResult, profileResult, prefsResult, custom, targets, savedTemplates, goalViews] = await Promise.all([
+    const [mealResult, waterResult, profileResult, prefsResult, custom, targets, savedTemplates, goalViews, birthDate] = await Promise.all([
       supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", uid).eq("date", dateKey).order("created_at", { ascending: true }),
       supabase.from("water_logs").select("amount_ml").eq("user_id", uid).eq("local_date", dateKey),
       supabase.from("profiles").select("age,gender,height,weight").eq("id", uid).maybeSingle(),
@@ -172,6 +174,8 @@ export default function NutritionPage() {
       caps.templates ? loadTemplates(supabase, uid) : Promise.resolve([]),
       // Daily calorie and protein goals come first, as on Home, so both pages show the same "kcal left".
       loadGoals(supabase, uid, dateKey).then((result) => result.goals).catch(() => null),
+      // The stored age is only refreshed when the profile is saved; the birth date keeps it right after a birthday.
+      loadBirthDate(supabase, uid),
     ]);
     const failure = [mealResult.error, waterResult.error, profileResult.error, prefsResult.error].find(Boolean) ?? (custom.error ? new Error("custom foods") : null);
     if (failure) setError("Your nutrition data could not be loaded. Please try again.");
@@ -180,7 +184,8 @@ export default function NutritionPage() {
       setWaterMl(((waterResult.data || []) as Array<{ amount_ml: number }>).reduce((sum: number, row) => sum + Number(row.amount_ml || 0), 0));
       const prefs = prefsResult.data as Prefs | null;
       setWaterGoal(prefs?.daily_water_goal_ml && prefs.daily_water_goal_ml > 0 ? prefs.daily_water_goal_ml : null);
-      setEstimated(estimateNutritionTargets((profileResult.data || {}) as Profile, prefs?.activity_level, prefs?.primary_goal));
+      const profile = (profileResult.data || {}) as Profile;
+      setEstimated(estimateNutritionTargets({ ...profile, age: profileAge({ age: profile.age, date_of_birth: birthDate }) }, prefs?.activity_level, prefs?.primary_goal));
       if (!dietFilterSet.current) { dietFilterSet.current = true; setDietFilter(dietFilterFor(prefs?.dietary_preferences)); }
       setCustomRows(custom.rows);
       if (caps.customFoodsV2) setPhotoUrls(await signedPhotoUrls(supabase, custom.rows.map((row) => row.image_path ?? "")));

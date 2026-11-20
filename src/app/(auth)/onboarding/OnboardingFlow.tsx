@@ -371,7 +371,7 @@ export function OnboardingFlow() {
                     <Readout label="Where" value={optionLabel(ONBOARDING_LOCATION_OPTIONS, form.location) ?? <NotGiven />} />
                     <Readout label="Days a week" value={String(form.days)} />
                     <Readout label="Level" value={EXPERIENCE_TILES.find((tile) => tile.value === form.experience)?.label ?? <NotGiven />} />
-                    <Readout label="Equipment" value={visibleKit.length ? `${visibleKit.length} items` : "Bodyweight"} />
+                    <Readout label="Equipment" value={visibleKit.length ? `${visibleKit.length} ${visibleKit.length === 1 ? "item" : "items"}` : "Bodyweight"} />
                   </dl>
                 </div>
               )}

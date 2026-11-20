@@ -31,7 +31,7 @@ export function EmailCodeStep({ flow }: { flow: EmailCode }) {
   return (
     <>
       <h1 className={s.title}>Check your email</h1>
-      <p className={s.lead}>Code sent to <strong>{email}</strong></p>
+      <p className={s.lead}>Code sent to <strong>{email}</strong>. Or tap the link in the email.</p>
       <form className={s.form} onSubmit={submit} noValidate>
         <CodeField
           ref={input}

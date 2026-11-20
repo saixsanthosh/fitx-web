@@ -13,6 +13,8 @@ import {
   activityForBand,
   ageFromBirthDate,
   birthDateBounds,
+  birthDateEdit,
+  profileAge,
   normalizeBirthDate,
   onboardingMeals,
   DIET_OPTIONS,
@@ -228,5 +230,59 @@ describe("setup v3 vocabulary", () => {
     assert.equal(min, "1925-11-20");
     assert.equal(ageFromBirthDate(min, today), AGE_RANGE.max);
     assert.equal(ageFromBirthDate("1925-11-19", today), AGE_RANGE.max + 1);
+  });
+});
+
+describe("birthDateEdit (Profile, once profiles.date_of_birth exists)", () => {
+  const today = new Date(2026, 10, 20);
+  const withBirthDate = { age: 29, date_of_birth: "1997-03-14" };
+
+  test("an account with a birth date edits the birth date, and the age follows it", () => {
+    assert.deepEqual(birthDateEdit(withBirthDate, "1996-03-14", today), { error: null, patch: { date_of_birth: "1996-03-14", age: 30 }, age: 30 });
+  });
+
+  test("an unchanged birth date saves nothing", () => {
+    assert.deepEqual(birthDateEdit(withBirthDate, "1997-03-14", today), { error: null, patch: {}, age: 29 });
+  });
+
+  test("never sends an age on its own, which the database trigger would overwrite", () => {
+    for (const typed of ["", "1996-03-14", "1997-03-14", "2001-01-01"]) {
+      const { patch } = birthDateEdit(withBirthDate, typed, today);
+      if ("age" in patch) assert.ok("date_of_birth" in patch, typed);
+    }
+  });
+
+  test("clearing a birth date clears the age it gave", () => {
+    assert.deepEqual(birthDateEdit(withBirthDate, "", today), { error: null, patch: { date_of_birth: null, age: null }, age: null });
+  });
+
+  test("an account with only an age keeps it until a birth date is added", () => {
+    assert.deepEqual(birthDateEdit({ age: 41, date_of_birth: null }, "", today), { error: null, patch: {}, age: 41 });
+    assert.deepEqual(birthDateEdit({ age: null, date_of_birth: null }, "", today), { error: null, patch: {}, age: null });
+  });
+
+  test("future, unreal and out-of-range dates are refused without a patch", () => {
+    assert.match(birthDateEdit(withBirthDate, "2027-01-01", today).error ?? "", /real date/);
+    assert.match(birthDateEdit(withBirthDate, "1997-02-30", today).error ?? "", /real date/);
+    assert.match(birthDateEdit(withBirthDate, "2020-01-01", today).error ?? "", new RegExp(`ages ${AGE_RANGE.min} to ${AGE_RANGE.max}`));
+    assert.deepEqual(birthDateEdit(withBirthDate, "2020-01-01", today).patch, {});
+  });
+});
+
+describe("profileAge (Home, Nutrition and the AI coach read the birth date, not the stored age)", () => {
+  test("the birth date wins over a stored age a birthday has outdated", () => {
+    const row = { age: 17, date_of_birth: "2008-11-20" };
+    assert.equal(profileAge(row, "2026-11-20"), 18);
+    assert.equal(profileAge(row, "2026-11-19"), 17);
+    assert.equal(profileAge(row, new Date(2026, 10, 20)), 18);
+  });
+
+  test("without a birth date the stored age stands, and unknown stays unknown", () => {
+    assert.equal(profileAge({ age: 41 }, "2026-11-20"), 41);
+    assert.equal(profileAge({ age: "41", date_of_birth: null }, "2026-11-20"), 41);
+    assert.equal(profileAge({ age: null, date_of_birth: null }, "2026-11-20"), null);
+    assert.equal(profileAge({ age: "" }, "2026-11-20"), null);
+    assert.equal(profileAge(null), null);
+    assert.equal(profileAge({ age: 30, date_of_birth: "not a date" }, "2026-11-20"), 30);
   });
 });

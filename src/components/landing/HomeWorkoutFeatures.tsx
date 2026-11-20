@@ -32,10 +32,10 @@ const GLYPHS: Record<string, ReactNode> = {
       <path {...stroke} d="M7 11h6M15 11h2M7 14.5h3M12 14.5h5" />
     </svg>
   ),
-  figure: (
+  range: (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle {...stroke} cx="13" cy="4.5" r="1.8" />
-      <path {...stroke} d="m12.5 7.5-1.5 6 3.5 2.5 1 4.5M11 13.5 7 17l-2 3M12.5 7.5 16 10.5l3-.5M12.5 7.5 9 9l-2 2.5" />
+      <rect {...stroke} x="9" y="3" width="6" height="18" rx="3" />
+      <path {...stroke} d="M12 11v7M4 7h2M4 12h2M4 17h2" />
     </svg>
   ),
   device: (
@@ -46,12 +46,14 @@ const GLYPHS: Record<string, ReactNode> = {
   ),
 };
 
+// Only what the shipped Home workout does today (tests/landing/page.test.ts holds this list to the code). The
+// voice choice and the live figure beside the demo are wave-2 work: add them here when they ship.
 const FEATURES = [
   { glyph: "points", title: "33 body points", text: "Tracks your joints live through the camera." },
   { glyph: "reps", title: "Counts every rep", text: "Reps add up as you move, no tapping." },
-  { glyph: "voice", title: "Spoken cues", text: "Short corrections in a male or female voice." },
-  { glyph: "captions", title: "Big captions", text: "Readable with the phone across the room." },
-  { glyph: "figure", title: "Live figure", text: "A moving figure mirrors you beside the demo." },
+  { glyph: "voice", title: "Spoken cues", text: "Optional voice counts and corrections." },
+  { glyph: "captions", title: "On-screen cues", text: "Every correction is shown as well as spoken." },
+  { glyph: "range", title: "Range meter", text: "A bar shows how far each rep goes." },
   { glyph: "device", title: "Stays on your device", text: "Video is never uploaded or recorded." },
 ] as const;
 

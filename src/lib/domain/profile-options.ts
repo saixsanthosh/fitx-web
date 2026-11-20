@@ -448,6 +448,47 @@ export function ageFromBirthDate(birthDate: unknown, today: Date = new Date()): 
   return age >= 0 ? age : null;
 }
 
+/**
+ * The age to use for a profile row on `today` (a Date, or a YYYY-MM-DD day key such as the member's local date):
+ * the one its birth date gives, else the stored profiles.age. The database refreshes profiles.age from the birth
+ * date only when the row is saved, so after a birthday the stored age lags; reading the birth date keeps Home,
+ * Nutrition, Profile and the AI coach on the same age. Null when neither is known (never 0).
+ */
+export function profileAge(row: { age?: unknown; date_of_birth?: unknown } | null | undefined, today: Date | string = new Date()): number | null {
+  if (!row) return null;
+  const parts = typeof today === "string" ? dateParts(today) : null;
+  const day = typeof today === "string" ? (parts ? new Date(parts[0], parts[1] - 1, parts[2]) : null) : today;
+  const fromBirthDate = day ? ageFromBirthDate(row.date_of_birth, day) : null;
+  if (fromBirthDate !== null) return fromBirthDate;
+  if (row.age === null || row.age === undefined || row.age === "") return null;
+  const stored = Number(row.age);
+  return Number.isFinite(stored) ? stored : null;
+}
+
+/**
+ * The Profile edit for a member's birth date. Once profiles.date_of_birth exists, the database sets profiles.age
+ * from it on every save (profiles_age_from_birth_date), so Profile edits the birth date and never the age alone.
+ * `stored` is the profile as normalizeProfile returns it; `typed` is the date field's YYYY-MM-DD, or "" when
+ * cleared. Clearing a birth date clears the age it gave, rather than leaving one nobody can change. `age` is the
+ * age after the save.
+ */
+export function birthDateEdit(
+  stored: { age: number | null; date_of_birth: string | null },
+  typed: string,
+  today: Date = new Date(),
+): { error: string | null; patch: { date_of_birth?: string | null; age?: number | null }; age: number | null } {
+  const value = typed.trim();
+  if (!value) {
+    return stored.date_of_birth ? { error: null, patch: { date_of_birth: null, age: null }, age: null } : { error: null, patch: {}, age: stored.age };
+  }
+  const birthDate = normalizeBirthDate(value);
+  const age = ageFromBirthDate(birthDate, today);
+  if (!birthDate || age === null) return { error: "Enter a real date, not in the future.", patch: {}, age: stored.age };
+  if (!inRange(age, AGE_RANGE)) return { error: `FITX is for ages ${AGE_RANGE.min} to ${AGE_RANGE.max}.`, patch: {}, age: stored.age };
+  if (birthDate === stored.date_of_birth) return { error: null, patch: {}, age };
+  return { error: null, patch: { date_of_birth: birthDate, age }, age };
+}
+
 /** The earliest and latest birth dates setup accepts on `today`: ages AGE_RANGE.min to AGE_RANGE.max. */
 export function birthDateBounds(today: Date = new Date()): { min: string; max: string } {
   const iso = (year: number) => `${String(year).padStart(4, "0")}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
