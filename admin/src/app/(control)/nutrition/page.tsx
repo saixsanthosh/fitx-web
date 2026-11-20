@@ -4,7 +4,7 @@ import { Plus, Search } from "lucide-react";
 import { CategoryRename } from "@/components/content/category-rename";
 import { SubmitButton } from "@/components/content/confirm-submit";
 import { ContentHeader, ContentTabs, DataState, Empty, Pager, Pill, Section, StateNotice, contentStyles as styles, formatCount } from "@/components/content/kit";
-import { hasPermission, requireAdmin } from "@/lib/admin-auth";
+import { requireAdmin } from "@/lib/admin-auth";
 import { CONTENT_MIGRATION } from "@/lib/content/errors";
 import { DIET_LABELS } from "@/lib/content/vocabulary";
 import { FOOD_PAGE_SIZE, NO_CATEGORY, getFoodCategories, listFoods, parseFoodFilters, type FoodFilters, type FoodRow } from "@/lib/data/foods";
@@ -14,7 +14,7 @@ import { renameFoodCategory, setFoodActive } from "./actions";
 export const metadata: Metadata = { title: "Nutrition" };
 
 type Params = Record<string, string | string[] | undefined>;
-type Tab = "foods" | "categories" | "plans";
+type Tab = "foods" | "categories";
 
 const NOTICES = {
   shown: { text: "Food shown in food search.", good: true },
@@ -127,10 +127,12 @@ async function FoodsTab({ filters, categories }: { filters: FoodFilters; categor
 }
 
 export default async function NutritionPage({ searchParams }: { searchParams: Promise<Params> }) {
-  const operator = await requireAdmin("nutrition.manage");
+  await requireAdmin("nutrition.manage");
   const params = await searchParams;
   const tabParam = firstParam(params.tab);
-  const tab: Tab = tabParam === "categories" || tabParam === "plans" ? tabParam : "foods";
+  // FITX has no shared meal-plan catalogue (each member's plan is their own), so Nutrition has two tabs; an old link
+  // to the removed plans tab opens the food database.
+  const tab: Tab = tabParam === "categories" ? tabParam : "foods";
   const filters = parseFoodFilters(params);
   const categoryResult = await getFoodCategories();
   const categories = categoryResult.state === "ready" ? categoryResult.categories : [];
@@ -151,7 +153,6 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
         items={[
           { href: "/nutrition", label: "Food database", count: totalFoods, current: tab === "foods" },
           { href: "/nutrition?tab=categories", label: "Categories", count: categoryResult.state === "ready" ? named.length : null, current: tab === "categories" },
-          { href: "/nutrition?tab=plans", label: "Meal plans", current: tab === "plans" },
         ]}
       />
       {tab === "foods" && <FoodsTab filters={filters} categories={named} />}
@@ -178,14 +179,6 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
             </Section>
           </div>
         ))}
-      {tab === "plans" && (
-        <div className={`${styles.panel} ${styles.panelPad}`}>
-          <Empty title="No meal plans in the database">
-            <p>Members build their own saved meals and day routines, which only they can see. Their counts are in Reports.</p>
-            {hasPermission(operator, "reports.view") && <Link className={styles.buttonQuiet} href="/reports#nutrition">Open Reports</Link>}
-          </Empty>
-        </div>
-      )}
     </div>
   );
 }
