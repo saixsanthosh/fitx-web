@@ -82,7 +82,11 @@ export const flow = {
             const card = scene?.querySelector('[aria-label="Example plan in FITX"]');
             const panel = card?.closest("article")?.getBoundingClientRect();
             const cardRect = card?.getBoundingClientRect();
+            // The knee read-out (SVG text) must not sit under the caption: hidden is fine, overlapping is not.
+            const angleRect = scene?.querySelector("svg text")?.getBoundingClientRect();
+            const angle = angleRect && angleRect.width > 0 ? { top: Math.round(angleRect.top), bottom: Math.round(angleRect.bottom) } : null;
             return {
+              angle,
               stage: stage ? { top: Math.round(stage.top), bottom: Math.round(stage.bottom) } : null,
               caption: caption ? { top: Math.round(caption.top), bottom: Math.round(caption.bottom) } : null,
               reps: box("[data-scene-reps]"),
@@ -94,6 +98,7 @@ export const flow = {
           t.expect(inside(fit.caption), `the caption sits inside the stage at ${viewport.width}×${viewport.height}`, fit);
           t.expect(inside(fit.reps), `the rep count sits inside the stage at ${viewport.width}×${viewport.height}`, fit);
           t.expect(fit.card && fit.card.bottom <= fit.card.panelBottom + 1, `the plan card sits inside its panel at ${viewport.width}×${viewport.height}`, fit);
+          t.expect(!fit.angle || !fit.caption || fit.angle.bottom <= fit.caption.top + 1, `the knee read-out stays clear of the caption at ${viewport.width}×${viewport.height}`, fit);
           await t.checkpoint(`scenes short ${viewport.height}`, { fullPage: false, settle: false });
         }
         if (original) await page.setViewportSize(original);

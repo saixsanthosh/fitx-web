@@ -392,6 +392,9 @@
   .phoneTag { left: 8px; bottom: 56px; }
   .caption { left: 8px; right: 8px; bottom: 8px; min-height: 40px; padding: 6px 10px; }
   .captionText { font-size: .9375rem; }
+  /* No room for the knee read-out beside the caption here: the arc shows the knee, and the label keeps clear of the bones. */
+  .angleText { display: none; }
+  .panelLabel { text-shadow: 0 1px 8px color-mix(in srgb, var(--fitx-stage) 85%, transparent); }
 }
 
 @media (min-width: 768px) {
