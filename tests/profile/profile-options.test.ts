@@ -18,6 +18,8 @@ import {
   DIET_OPTIONS,
   GOAL_OPTIONS,
   GOALS_BEFORE_PROFILE_V2,
+  goalsAwaitingMigration,
+  goalsAwaitingMigrationHint,
   cmToFeetInches,
   commitDraft,
   feetInchesToCm,
@@ -179,6 +181,16 @@ describe("setup v3 vocabulary", () => {
     assert.deepEqual(ONBOARDING_GOALS.map((goal) => optionLabel(GOAL_OPTIONS, goal)), ["Muscle gain", "Weight loss", "Strength", "General fitness", "Maintain weight"]);
     assert.ok(!GOALS_BEFORE_ONBOARDING_V3.includes("maintain_weight"));
     for (const goal of GOALS_BEFORE_PROFILE_V2) assert.ok(GOALS_BEFORE_ONBOARDING_V3.includes(goal));
+  });
+
+  test("Profile greys out goals the database can't store yet, Maintain weight included before onboarding v3", () => {
+    assert.deepEqual(goalsAwaitingMigration({ preferencesV2: false, onboardingV3: false }), ["weight_gain", "weight_loss", "maintain_weight"]);
+    assert.deepEqual(goalsAwaitingMigration({ preferencesV2: true, onboardingV3: false }), ["maintain_weight"]);
+    assert.deepEqual(goalsAwaitingMigration({ preferencesV2: true, onboardingV3: true }), []);
+    assert.deepEqual(goalsAwaitingMigration({ preferencesV2: true, onboardingV3: false }, ONBOARDING_GOALS), ["maintain_weight"]);
+    assert.equal(goalsAwaitingMigrationHint(["maintain_weight"]), "Maintain weight arrives with the next FITX update.");
+    assert.equal(goalsAwaitingMigrationHint(["weight_gain", "weight_loss", "maintain_weight"]), "Weight gain, weight loss and maintain weight arrive with the next FITX update.");
+    assert.equal(goalsAwaitingMigrationHint([]), undefined);
   });
 
   test("gender reads Male, Female, Prefer not to say; diets include Eggetarian; meals 2 to 5+", () => {

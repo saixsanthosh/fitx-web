@@ -43,6 +43,21 @@ export const GOALS_BEFORE_PROFILE_V2: readonly Goal[] = ["muscle_gain", "fat_los
 /** Goals the database accepted before migration 20261120100000 (onboarding v3) added maintain_weight. */
 export const GOALS_BEFORE_ONBOARDING_V3: readonly Goal[] = ["muscle_gain", "weight_gain", "fat_loss", "weight_loss", "general_fitness", "strength", "endurance"];
 export const DEFAULT_GOAL: Goal = "general_fitness";
+/** Goals the database cannot store yet, given which goal-widening migrations it has. */
+export function goalsAwaitingMigration(schema: { preferencesV2: boolean; onboardingV3: boolean }, offered: readonly Goal[] = GOALS): Goal[] {
+  const allowed = !schema.preferencesV2 ? GOALS_BEFORE_PROFILE_V2 : !schema.onboardingV3 ? GOALS_BEFORE_ONBOARDING_V3 : null;
+  return allowed ? offered.filter((goal) => !allowed.includes(goal)) : [];
+}
+/** "Weight gain and weight loss arrive with the next FITX update.", or undefined when none wait. */
+export function goalsAwaitingMigrationHint(goals: readonly Goal[]): string | undefined {
+  if (!goals.length) return undefined;
+  const labels = goals.map((goal, index) => {
+    const label = optionLabel(GOAL_OPTIONS, goal) ?? goal;
+    return index === 0 ? label : label.toLowerCase();
+  });
+  const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+  return `${list} ${goals.length === 1 ? "arrives" : "arrive"} with the next FITX update.`;
+}
 /** The five goals setup offers, in the owner's order (Profile offers every goal). */
 export const ONBOARDING_GOALS: readonly Goal[] = ["muscle_gain", "weight_loss", "strength", "general_fitness", "maintain_weight"];
 

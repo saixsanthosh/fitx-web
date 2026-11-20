@@ -15,7 +15,6 @@ import {
   EXPERIENCE_OPTIONS,
   FOOD_RULE_OPTIONS,
   GOAL_OPTIONS,
-  GOALS_BEFORE_PROFILE_V2,
   HEIGHT_RANGE_CM,
   LIMITATION_OPTIONS,
   LOCATION_OPTIONS,
@@ -33,6 +32,8 @@ import {
   formatHeight,
   formatRupees,
   formatWeight,
+  goalsAwaitingMigration,
+  goalsAwaitingMigrationHint,
   inRange,
   joinKnown,
   joinLimitations,
@@ -122,6 +123,7 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
     setError("");
   };
   const v2 = data.schema.preferencesV2;
+  const unavailableGoals = goalsAwaitingMigration(data.schema);
 
   const start = () => {
     setDraft(original);
@@ -216,8 +218,8 @@ export function BodySection({ data, editing, onEdit, onClose, onSaved }: Section
               options={GOAL_OPTIONS}
               value={draft.goal}
               onChange={(value) => set("goal", value)}
-              disabledValues={v2 ? [] : GOAL_OPTIONS.map((option) => option.value).filter((goal) => !GOALS_BEFORE_PROFILE_V2.includes(goal))}
-              hint={v2 ? undefined : "Weight gain and weight loss arrive with the next FITX update."}
+              disabledValues={unavailableGoals}
+              hint={goalsAwaitingMigrationHint(unavailableGoals)}
             />
             <ChoiceGroup legend="Daily activity, outside workouts too" options={ACTIVITY_OPTIONS} value={draft.activity} onChange={(value) => set("activity", value)} columns="grid-cols-1 sm:grid-cols-2" />
           </div>

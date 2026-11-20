@@ -109,6 +109,13 @@ function Home({ date }: { date: string }) {
     pending.current = setTimeout(() => { reloadSummary(); reloadGoals(); reloadPlan(); }, 500);
   }, [reloadSummary, reloadGoals, reloadPlan]);
   useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
+  // The week sheet keeps its own copy of the To-Dos: a change saved there reloads Home's To-Do list (behind the
+  // sheet, so it is current on close) and the goals that count To-Dos.
+  const [todoVersion, setTodoVersion] = useState(0);
+  const weekChanged = useCallback(() => {
+    setTodoVersion((version) => version + 1);
+    refreshSoon();
+  }, [refreshSoon]);
   useRefreshOnReturn(refreshAll);
 
   const name = summary.data?.summary.profile.name?.split(" ")[0] ?? null;
@@ -141,7 +148,7 @@ function Home({ date }: { date: string }) {
       <HomeHero summary={summary} goals={goals} corner={customise} />
 
       <div className={styles.panels}>
-        <TodoPanel date={date} goals={goals} onChanged={refreshSoon} onOpenWeek={() => setWeekOpen(true)} />
+        <TodoPanel key={todoVersion} date={date} goals={goals} onChanged={refreshSoon} onOpenWeek={() => setWeekOpen(true)} />
         <GoalsPanel date={date} goals={goals} summary={summary} request={goalRequest} />
       </div>
 
@@ -171,7 +178,7 @@ function Home({ date }: { date: string }) {
       />
 
       <Sheet open={weekOpen} onClose={closeWeek} title="Week">
-        <WeekPlanner today={date} />
+        <WeekPlanner today={date} onChanged={weekChanged} />
       </Sheet>
     </div>
   );
