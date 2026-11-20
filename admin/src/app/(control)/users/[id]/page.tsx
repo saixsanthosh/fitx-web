@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Notice, Panel, consoleStyles as ui } from "@/components/console/ui";
-import { methodLabels, METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
+import { formatPhone, methodLabels, METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
 import styles from "@/components/users/users.module.css";
 import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -64,7 +64,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
   const suspended = isSuspended(person.bannedUntil);
   const resetEnabled = process.env.FITX_ADMIN_PASSWORD_RESET_EMAILS === "on";
   const message = notice ? notices[notice] : undefined;
-  const title = person.email ?? person.phone ?? "No email or phone";
+  const title = person.email ?? formatPhone(person.phone) ?? "No email or phone";
   const plan = subscriptionLabel(person.subscriptionStatus, person.premium);
 
   return (
@@ -86,7 +86,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
         <Panel title="Sign-in" flush>
           <dl className="detail-list detail-panel">
             <Field label="Email">{person.email ?? dash}</Field>
-            <Field label="Phone">{person.phone ? `+${person.phone.replace(/^\+/, "")}` : dash}</Field>
+            <Field label="Phone">{formatPhone(person.phone) ?? dash}</Field>
             <Field label="Methods">{methodLabels(person.providers).join(", ") || dash}</Field>
             <Field label="Confirmed">{person.emailConfirmedAt ? formatIstDateTime(person.emailConfirmedAt) : person.phoneConfirmedAt ? formatIstDateTime(person.phoneConfirmedAt) : "Not confirmed"}</Field>
             <Field label="Joined">{formatIstDateTime(person.createdAt) ?? dash}</Field>

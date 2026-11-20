@@ -83,3 +83,10 @@ export function selectedIds(values: unknown[]): string[] {
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return [...new Set(values.filter((value): value is string => typeof value === "string" && UUID.test(value)).map((value) => value.toLowerCase()))];
 }
+
+/** A phone number as Auth stores it (digits, no plus) for display: "+919812345678". */
+export function formatPhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/[^0-9]/g, "");
+  return digits ? `+${digits}` : null;
+}

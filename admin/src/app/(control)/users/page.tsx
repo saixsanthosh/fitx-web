@@ -17,6 +17,7 @@ import {
   SIGN_IN_METHODS,
   METHOD_LABELS,
   subscriptionLabel,
+  formatPhone,
 } from "@/components/users/people-filters";
 import { SelectAll, SelectionCount } from "@/components/users/select-all";
 import styles from "@/components/users/users.module.css";
@@ -111,14 +112,15 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                   {result.people.map((person) => {
                     const suspended = isSuspended(person.bannedUntil);
                     const plan = subscriptionLabel(person.subscriptionStatus, person.premium);
-                    const name = person.email ?? person.phone ?? "No email or phone";
+                    const phone = formatPhone(person.phone);
+                    const name = person.email ?? phone ?? "No email or phone";
                     return (
                       <tr key={person.id}>
                         {bulk && <td className={styles.check}><label className={styles.checkLabel}><input type="checkbox" name="ids" value={person.id} form="bulk-users" aria-label={`Select ${name}`} /></label></td>}
                         <td>
                           <Link className="user-cell row-link" href={`/users/${person.id}`}>
                             <span className="user-initial" aria-hidden="true">{(person.displayName ?? name).slice(0, 1).toUpperCase()}</span>
-                            <span><strong>{name}</strong><small className="table-subline">{[person.displayName, person.email && person.phone ? person.phone : null, person.adminRole ? `Old Admin team · ${ROLE_LABELS[person.adminRole]}` : null].filter(Boolean).join(" · ") || " "}</small></span>
+                            <span><strong>{name}</strong><small className="table-subline">{[person.displayName, person.email && phone ? phone : null, person.adminRole ? `Old Admin team · ${ROLE_LABELS[person.adminRole]}` : null].filter(Boolean).join(" · ") || " "}</small></span>
                           </Link>
                         </td>
                         <td><span className={styles.methods}>{methodLabels(person.providers).map((label) => <span key={label} className={styles.method}>{label}</span>)}{!person.providers.length && "–"}</span></td>

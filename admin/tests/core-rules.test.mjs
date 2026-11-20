@@ -114,3 +114,10 @@ test("theme and support vocabulary", () => {
   assert.equal(support.isSupportCategory("complaint"), true);
   assert.equal(support.isSupportCategory("billing"), false);
 });
+
+test("users: phone numbers read with a plus", () => {
+  assert.equal(people.formatPhone("919812345678"), "+919812345678");
+  assert.equal(people.formatPhone("+91 98123"), "+9198123");
+  assert.equal(people.formatPhone(""), null);
+  assert.equal(people.formatPhone(null), null);
+});

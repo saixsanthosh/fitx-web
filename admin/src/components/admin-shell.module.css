@@ -364,3 +364,4 @@
 .drawerTheme fieldset { border-color: color-mix(in srgb, var(--on-stage) 16%, transparent); background: color-mix(in srgb, var(--on-stage) 6%, transparent); }
 .drawerTheme label { color: color-mix(in srgb, var(--on-stage) 72%, transparent); }
 .drawerTheme label:has(input:checked) { color: var(--ink); }
+.drawerPanel [data-active="true"] > .sectionLink { background: color-mix(in srgb, var(--coral) 18%, transparent); }

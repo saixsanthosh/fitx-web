@@ -75,9 +75,9 @@ export default async function OverviewPage() {
                 {Array.from({ length: 17 }, (_, index) => <line key={`v${index}`} x1={index * 50} y1={0} x2={index * 50} y2={360} />)}
                 {Array.from({ length: 8 }, (_, index) => <line key={`h${index}`} x1={0} y1={index * 50} x2={800} y2={index * 50} />)}
               </g>
-              <circle className={ui.heroRing} cx={690} cy={70} r={150} />
-              <circle className={ui.heroRing} cx={690} cy={70} r={110} />
-              <circle className={ui.heroArc} cx={690} cy={70} r={130} pathLength={1} transform="rotate(-90 690 70)" />
+              <circle className={ui.heroRing} cx={620} cy={180} r={160} />
+              <circle className={ui.heroRing} cx={620} cy={180} r={104} />
+              <circle className={ui.heroArc} cx={620} cy={180} r={132} pathLength={1} transform="rotate(-90 620 180)" />
             </svg>
             <div>
               <p className={ui.heroLabel} id="hero-title"><span className={ui.live} aria-hidden="true" />Registered users</p>

@@ -82,7 +82,7 @@ export function BarChart({ title, points, tone = "coral", unit = "" }: { title: 
         <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${title}: ${total.toLocaleString("en-IN")}${unit} over ${points.length} days`}>
           <g className={styles.grow}>
             {bars.map((bar, index) => (
-              <rect key={points[index].label + index} className={`${styles.barRect}${index === bars.length - 1 ? ` ${styles.barLast}` : ""}`} x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx={Math.min(3, bar.width / 2)}>
+              <rect key={points[index].label + index} className={`${styles.barRect}${index === bars.length - 1 ? ` ${styles.barLast}` : ""}${points[index].value === 0 ? ` ${styles.barZero}` : ""}`} x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx={Math.min(3, bar.width / 2)}>
                 <title>{`${points[index].label}: ${points[index].value.toLocaleString("en-IN")}${unit}`}</title>
               </rect>
             ))}
