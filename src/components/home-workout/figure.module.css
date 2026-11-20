@@ -1,0 +1,64 @@
+/* The drawn figure. Colours come from the surrounding theme scope (stage cards use .fitx-inverse). */
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.floor {
+  stroke: color-mix(in srgb, var(--fitx-text) 22%, transparent);
+  stroke-width: 1.5;
+}
+.shadow {
+  fill: color-mix(in srgb, var(--fitx-scrim) 55%, transparent);
+}
+.limb,
+.torso,
+.neck {
+  fill: none;
+  stroke: var(--fitx-text);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.limb { stroke-width: 11; }
+.torso { stroke-width: 15; fill: var(--fitx-text); }
+.neck { stroke-width: 9; }
+.far .limb { stroke: color-mix(in srgb, var(--fitx-text) 38%, transparent); stroke-width: 10; }
+.head { fill: var(--fitx-text); }
+.joint {
+  fill: var(--fitx-bg);
+  stroke: var(--fitx-primary);
+  stroke-width: 2.5;
+}
+.ghost {
+  fill: none;
+  stroke: color-mix(in srgb, var(--fitx-primary) 55%, transparent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 1 7;
+}
+.arc {
+  fill: color-mix(in srgb, var(--fitx-primary) 16%, transparent);
+  stroke: var(--fitx-primary);
+  stroke-width: 2.5;
+}
+.angle {
+  fill: var(--fitx-primary);
+  font: 700 17px/1 var(--font-heading, inherit);
+  letter-spacing: -0.02em;
+  paint-order: stroke;
+  stroke: var(--fitx-bg);
+  stroke-width: 4;
+}
+.weight {
+  stroke: var(--fitx-primary);
+  stroke-width: 7;
+  stroke-linecap: round;
+}
+.wall {
+  stroke: color-mix(in srgb, var(--fitx-text) 30%, transparent);
+  stroke-width: 4;
+}
+.hidden { opacity: 0; }
+.dim { opacity: 0.18; transition: opacity 0.3s ease; }
+.live { opacity: 1; transition: opacity 0.3s ease; }

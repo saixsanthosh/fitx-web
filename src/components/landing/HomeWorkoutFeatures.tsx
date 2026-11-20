@@ -21,6 +21,13 @@ const GLYPHS: Record<string, ReactNode> = {
       <path {...stroke} d="M10 10.5 12 9v6" />
     </svg>
   ),
+  demo: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="4.5" r="1.8" fill="currentColor" />
+      <path {...stroke} d="M12 7.5v5.5m0 0-3.5 3 1 4.5m2.5-7.5 3.5 3-1 4.5M8 10h8" />
+      <path {...stroke} strokeDasharray="1.5 2.5" d="M4.5 15a8 8 0 0 1 2-8M19.5 15a8 8 0 0 0-2-8" />
+    </svg>
+  ),
   voice: (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path {...stroke} d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" />
@@ -46,14 +53,14 @@ const GLYPHS: Record<string, ReactNode> = {
   ),
 };
 
-// Only what the shipped Home workout does today (tests/landing/page.test.ts holds this list to the code). The
-// voice choice and the live figure beside the demo are wave-2 work: add them here when they ship.
+// Only what the shipped Home workout does today (tests/landing/page.test.ts holds this list to the code,
+// the exercise count included).
 const FEATURES = [
-  { glyph: "points", title: "33 body points", text: "Tracks your joints live through the camera." },
-  { glyph: "reps", title: "Counts every rep", text: "Reps add up as you move, no tapping." },
-  { glyph: "voice", title: "Spoken cues", text: "Optional voice counts and corrections." },
-  { glyph: "captions", title: "On-screen cues", text: "Every correction is shown as well as spoken." },
-  { glyph: "range", title: "Range meter", text: "A bar shows how far each rep goes." },
+  { glyph: "demo", title: "14 exercises", text: "Each opens with a drawn demonstration." },
+  { glyph: "points", title: "33 body points", text: "A live figure follows your joints." },
+  { glyph: "reps", title: "Counts every rep", text: "Reps and holds count as you move." },
+  { glyph: "voice", title: "Your choice of voice", text: "Female or male cues, or none." },
+  { glyph: "captions", title: "Big captions", text: "Every cue on screen, readable from afar." },
   { glyph: "device", title: "Stays on your device", text: "Video is never uploaded or recorded." },
 ] as const;
 

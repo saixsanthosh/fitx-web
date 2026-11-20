@@ -76,6 +76,15 @@ test("the Home workout features claim only what the shipped Home workout does", 
   assert.match(features, /33 body points/);
 });
 
+test("the Home workout exercise count on the landing page is the page's own", async () => {
+  const { EXERCISE_RULES } = await import("@/lib/form-rules/catalog");
+  const features = read("src/components/landing/HomeWorkoutFeatures.tsx");
+  const claimed = features.match(/title: "(\d+) exercises"/)?.[1];
+  assert.ok(claimed, "the features name how many exercises there are");
+  assert.equal(Number(claimed), EXERCISE_RULES.length, "the landing page's count follows the Home workout catalogue");
+  assert.match(read("src/lib/home-workout/catalog.ts"), /HOME_EXERCISES[^\n]*= EXERCISE_RULES\.map/, "every camera rule is a Home workout exercise");
+});
+
 test("the home page still mounts the visitor intro film", () => {
   assert.match(read("src/app/(marketing)/page.tsx"), /<CinematicIntro \/>/);
 });

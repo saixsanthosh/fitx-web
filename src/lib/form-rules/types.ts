@@ -5,8 +5,13 @@
  */
 import type { Joint } from "@/lib/pose/landmarks";
 
-/** Exercise ids match public.exercise_library ids. */
-export type ExerciseId = "push_up" | "bodyweight_squat" | "split_squat" | "glute_bridge" | "plank" | "jumping_jack";
+/**
+ * Camera exercise ids. The first six match public.exercise_library ids; the others have no starter
+ * library row, so `libraryIds` lists the imported rows they count (if any).
+ */
+export type ExerciseId =
+  | "push_up" | "bodyweight_squat" | "split_squat" | "glute_bridge" | "plank" | "jumping_jack"
+  | "reverse_lunge" | "high_knees" | "mountain_climber" | "side_plank" | "wall_sit" | "superman" | "shoulder_press" | "biceps_curl";
 
 /**
  * Which body side a measurement uses.
@@ -30,7 +35,12 @@ export type MetricSpec =
   /** How far `upper` sits above `lower`, as a fraction of the lower → upper distance (1 = straight above). */
   | { kind: "rise"; lower: Joint; upper: Joint; side: SideMode }
   /** Horizontal gap between the left and right `joint`, as a multiple of the gap between the left and right `reference`. */
-  | { kind: "spread"; joint: Joint; reference: Joint };
+  | { kind: "spread"; joint: Joint; reference: Joint }
+  /**
+   * How far `point` sits above `base`, as a fraction of the `scale` segment's length (negative when
+   * below): a knee lifted to hip height reads about 0, a standing knee about -0.9 of the torso.
+   */
+  | { kind: "level"; point: Joint; base: Joint; scale: readonly [Joint, Joint]; side: SideMode };
 
 export interface Condition {
   metric: string;

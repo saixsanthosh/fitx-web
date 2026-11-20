@@ -5,8 +5,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import type { CoachSnapshot } from "@/lib/form-rules/session";
 import type { ExerciseRule } from "@/lib/form-rules/types";
 import type { CoachStage, FrameSize } from "./coach-machine";
+import { CoachVoice as CoachVoiceForPreview } from "./voice";
 import { CoachMachine } from "./coach-machine";
-import { readVoicePreference, speechSupported, writeVoicePreference } from "./voice";
+import type { LiveFigureHandle } from "@/components/home-workout/LiveFigure";
+import type { VoiceGender } from "./voice";
+import { pickVoice, readVoiceGender, readVoicePreference, speechSupported, writeVoiceGender, writeVoicePreference } from "./voice";
 
 export type { CoachStage, FrameSize } from "./coach-machine";
 
@@ -22,7 +25,17 @@ export interface FormCoachController {
   notice: string | null;
   /** Latest message for screen readers. */
   announcement: string;
-  voice: { supported: boolean; enabled: boolean; setEnabled(on: boolean): void };
+  voice: {
+    supported: boolean;
+    enabled: boolean;
+    gender: VoiceGender;
+    /** False when this device has no voice of the chosen gender (a pitched default is used). */
+    matched: boolean;
+    setEnabled(on: boolean): void;
+    setGender(gender: VoiceGender): void;
+    /** Says a short line in the chosen voice, to hear it before starting. */
+    preview(): void;
+  };
   start(rule: ExerciseRule): void;
   resume(): void;
   finish(): void;
@@ -40,19 +53,37 @@ const subscribeVoice = (onChange: () => void) => {
   };
 };
 const subscribeNothing = () => () => undefined;
+const subscribeVoices = (onChange: () => void) => {
+  if (!speechSupported()) return () => undefined;
+  const synth = window.speechSynthesis;
+  synth.addEventListener?.("voiceschanged", onChange);
+  window.addEventListener(VOICE_EVENT, onChange);
+  return () => {
+    synth.removeEventListener?.("voiceschanged", onChange);
+    window.removeEventListener(VOICE_EVENT, onChange);
+  };
+};
+const readMatched = () => {
+  if (!speechSupported()) return true;
+  const voices = window.speechSynthesis.getVoices();
+  // Voices load late in some browsers: say nothing until they have arrived.
+  return voices.length === 0 || pickVoice(voices, readVoiceGender(), document.documentElement.lang || "en-GB").matched;
+};
 
 /** The elements the camera loop draws into. Kept apart from the controller's values, which render. */
 export interface CoachRefs {
   video: RefObject<HTMLVideoElement | null>;
   canvas: RefObject<HTMLCanvasElement | null>;
   meter: RefObject<HTMLDivElement | null>;
+  figure: RefObject<LiveFigureHandle | null>;
 }
 
 export function useCoachRefs(): CoachRefs {
   const video = useRef<HTMLVideoElement | null>(null);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const meter = useRef<HTMLDivElement | null>(null);
-  return useMemo(() => ({ video, canvas, meter }), []);
+  const figure = useRef<LiveFigureHandle | null>(null);
+  return useMemo(() => ({ video, canvas, meter, figure }), []);
 }
 
 export function useFormCoach(refs: CoachRefs): FormCoachController {
@@ -66,6 +97,8 @@ export function useFormCoach(refs: CoachRefs): FormCoachController {
   const [announcement, setAnnouncement] = useState("");
   const voiceEnabled = useSyncExternalStore(subscribeVoice, readVoicePreference, () => false);
   const voiceSupported = useSyncExternalStore(subscribeNothing, speechSupported, () => false);
+  const voiceGender = useSyncExternalStore(subscribeVoice, readVoiceGender, () => "female" as VoiceGender);
+  const voiceMatched = useSyncExternalStore(subscribeVoices, readMatched, () => true);
 
   /** The runtime is created on first use, from an event handler, never during render. */
   const machine = useCallback(() => {
@@ -80,6 +113,7 @@ export function useFormCoach(refs: CoachRefs): FormCoachController {
       video: () => refs.video.current,
       canvas: () => refs.canvas.current,
       meter: () => refs.meter.current,
+      pose: (points, aspect, mirrored, side) => refs.figure.current?.update(points, aspect, mirrored, side),
     });
     return machineRef.current;
   }, [refs]);
@@ -114,6 +148,16 @@ export function useFormCoach(refs: CoachRefs): FormCoachController {
     }
   }, []);
 
+  const setVoiceGender = useCallback((gender: VoiceGender) => {
+    writeVoiceGender(gender);
+    window.dispatchEvent(new Event(VOICE_EVENT));
+    if (machineRef.current) machineRef.current.voice.gender = gender;
+  }, []);
+
+  const previewVoice = useCallback(() => {
+    new CoachVoiceForPreview(false, readVoiceGender()).preview("Ready when you are");
+  }, []);
+
   return {
     stage,
     snapshot,
@@ -122,8 +166,8 @@ export function useFormCoach(refs: CoachRefs): FormCoachController {
     cameraCount,
     notice,
     announcement,
-    voice: { supported: voiceSupported, enabled: voiceEnabled, setEnabled: setVoiceEnabled },
-    start: (rule) => void machine().start(rule, voiceEnabled),
+    voice: { supported: voiceSupported, enabled: voiceEnabled, gender: voiceGender, matched: voiceMatched, setEnabled: setVoiceEnabled, setGender: setVoiceGender, preview: previewVoice },
+    start: (rule) => void machine().start(rule, voiceEnabled, voiceGender),
     resume: () => void machine().resume(),
     finish: () => machine().finish(),
     switchCamera: () => void machine().switchCamera(),
