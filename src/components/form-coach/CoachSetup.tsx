@@ -45,7 +45,7 @@ export function CoachSetup({ rule, coach, context, onChangeExercise, actionRef }
   return (
     <section aria-labelledby={`coach-${rule.id}-title`} className="grid gap-5 lg:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)] lg:gap-8">
       {/* The demonstration: a dark stage in every theme. */}
-      <div className="fitx-inverse relative overflow-hidden rounded-3xl bg-fitx-bg text-fitx-text lg:sticky lg:top-6 lg:self-start">
+      <div className="fitx-inverse relative overflow-hidden rounded-3xl border border-fitx-border bg-fitx-bg text-fitx-text lg:sticky lg:top-6 lg:self-start">
         <div className="aspect-[4/3] w-full">
           {exercise && <DemoPlayer exercise={exercise} />}
         </div>

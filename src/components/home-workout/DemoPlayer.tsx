@@ -31,7 +31,7 @@ function turnaroundIndex(exercise: HomeExercise): number {
  */
 export function DemoPlayer({ exercise, size = "lg", paused: pausedOutside, className }: DemoPlayerProps) {
   const demo = DEMONSTRATIONS[exercise.id];
-  const box = useMemo(() => demoBounds(demo, 4 / 3, size === "lg" ? 30 : 24, size === "lg" ? 400 : 340), [demo, size]);
+  const box = useMemo(() => demoBounds(demo, 4 / 3, size === "lg" ? 26 : 24, size === "lg" ? 320 : 300), [demo, size]);
   const ghost = useMemo(() => {
     const frame = demo.keyframes[turnaroundIndex(exercise)];
     return place(demo, frame.pose, frame.at ?? demo.at);
