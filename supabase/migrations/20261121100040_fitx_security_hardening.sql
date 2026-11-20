@@ -9,16 +9,20 @@
 --   2. workout_sessions leaves the supabase_realtime publication. Nothing subscribes to it, and Realtime
 --      sends DELETE events without row level security, so any visitor with the publishable key could
 --      watch members' workouts being deleted (their ids and times).
---   3. A member's private photo folder (fitx-user-media/<uid>/) takes at most 1,000 files, 250 MB and 100
---      uploads an hour. The browser uploads there directly with the member's own key, so without a limit
---      in the database one account could fill the project's storage, which every member shares.
+--   3. A member's private photo folder (fitx-user-media/<uid>/) holds at most 1,000 files and 250 MB, and
+--      at most 100 of the files in it may be under an hour old. The browser uploads there directly with the
+--      member's own key, so without a limit in the database one account could fill the project's storage,
+--      which every member shares. Files the member deleted are not counted (storage keeps no record of
+--      them), so this limits what is stored, not how often a script can upload and delete.
 --   4. Each member may write at most 10,000 rows and 50 MB an hour, and 50,000 rows and 150 MB in 24
 --      hours, to the tables members write directly with their own key (counted per statement, inserts and
 --      updates). Without it one account could fill the database for everyone with a script. Normal use is
 --      far below it (a heavy day is a few thousand rows and a few MB). Writes by the server key, Admin and
 --      sign-up are not counted.
---   5. A member can join only a published programme. The foreign key check ignores row level security, so
---      a member could enrol in a draft programme by its id and then read its unpublished days.
+--   5. A member can join only a published programme, and can bring back a left or completed enrolment only
+--      while its programme is published. The foreign key check ignores row level security, so a member could
+--      enrol in a draft programme by its id, or set an old enrolment back to active, and then read its
+--      unpublished days.
 --
 -- Additive and safe to run again: create or replace, guarded blocks, idempotent revoke and grant. It
 -- deletes no row and changes no column. The app and Admin work the same before and after it.
@@ -58,8 +62,9 @@ end $do$;
 -- 3. Members' photo folder: a storage limit -----------------------------------------------------------------
 
 -- Whether the signed-in member may upload one more file to fitx-user-media: fewer than 1,000 files and
--- 250 MB in their folder, and fewer than 100 uploads in the last hour. The app keeps one profile photo and
--- one photo per own food there, each replacing the last. Runs as its owner so it counts the whole folder.
+-- 250 MB in their folder, and fewer than 100 of those files added in the last hour. It counts the files
+-- that are there now: a file the member deleted no longer counts. The app keeps one profile photo and one
+-- photo per own food there, each replacing the last. Runs as its owner so it counts the whole folder.
 create or replace function public.fitx_user_media_upload_allowed()
 returns boolean
 language sql
@@ -94,8 +99,9 @@ create policy fitx_media_insert_quota on storage.objects as restrictive for inse
 
 -- 4. Members' direct writes: an hourly and daily budget -----------------------------------------------------
 
--- Rows and bytes each member wrote, per hour. Read and written only by fitx_member_write_budget(); kept two
--- days. Row level security on and no policy: members cannot read or reset their own budget.
+-- Rows and bytes each member wrote, per hour. Read and written only by fitx_member_write_budget(); hours
+-- over two days old are deleted by the trigger (below), for every member. Row level security on and no
+-- policy: members cannot read or reset their own budget.
 create table if not exists public.fitx_member_write_budget (
   user_id uuid not null references auth.users (id) on delete cascade,
   window_start timestamptz not null,
@@ -104,16 +110,21 @@ create table if not exists public.fitx_member_write_budget (
   primary key (user_id, window_start)
 );
 
+-- For the clean-up of old hours across every member.
+create index if not exists fitx_member_write_budget_window_idx on public.fitx_member_write_budget (window_start);
+
 alter table public.fitx_member_write_budget enable row level security;
 revoke all on table public.fitx_member_write_budget from public, anon, authenticated, service_role;
 grant select on table public.fitx_member_write_budget to service_role;
 
 comment on table public.fitx_member_write_budget is
-  'Rows and bytes each member wrote per hour to the tables members write with their own key; kept two days (20261121100040).';
+  'Rows and bytes each member wrote per hour to the tables members write with their own key; hours over two days old are deleted (20261121100040).';
 
 -- After each insert or update statement by a signed-in member: adds the statement's rows and their size to
 -- this hour, and stops the statement (nothing of it stays) past 10,000 rows or 50 MB in the hour, or 50,000
 -- rows or 150 MB in the last 24 hours. Statements without a member (the server key, Admin, sign-up) pass.
+-- A member's first write of each hour also deletes up to 1,000 hours over two days old, any member's,
+-- skipping rows another write holds, so the totals of members who stopped writing go too.
 create or replace function public.fitx_member_write_budget()
 returns trigger
 language plpgsql
@@ -151,7 +162,15 @@ begin
   from public.fitx_member_write_budget b
   where b.user_id = v_uid and b.window_start > v_window - interval '1 day';
 
-  delete from public.fitx_member_write_budget b where b.user_id = v_uid and b.window_start < v_window - interval '2 days';
+  if v_hour_rows = v_rows then
+    delete from public.fitx_member_write_budget b
+    where (b.user_id, b.window_start) in (
+      select o.user_id, o.window_start from public.fitx_member_write_budget o
+      where o.window_start < v_window - interval '2 days'
+      order by o.window_start
+      limit 1000
+      for update skip locked);
+  end if;
 
   if v_hour_rows > 10000 or v_hour_bytes > 50 * 1024 * 1024 then
     raise exception using errcode = '54000', message = 'write limit reached: at most 10000 rows and 50 MB an hour',
@@ -196,9 +215,10 @@ end $do$;
 
 -- 5. Programme enrolments: published programmes only --------------------------------------------------------
 
--- A member's new enrolment, or one moved to another programme, must name a published programme. Runs as the
--- member, who sees published programmes only. A paused enrolment can still be resumed after its programme
--- goes back to draft, as before; the server key and Admin are not checked.
+-- A member's new enrolment, one moved to another programme, and a left or completed one set back to active or
+-- paused must name a published programme. Runs as the member, who sees published programmes only. A paused
+-- enrolment can still be resumed after its programme goes back to draft, as before; the server key and Admin
+-- are not checked.
 create or replace function public.fitx_programme_enrolment_published()
 returns trigger
 language plpgsql
@@ -206,7 +226,8 @@ set search_path = ''
 as $function$
 begin
   if (select auth.uid()) is not null
-     and (tg_op = 'INSERT' or new.programme_id is distinct from old.programme_id)
+     and (tg_op = 'INSERT' or new.programme_id is distinct from old.programme_id
+          or (old.status in ('left', 'completed') and new.status in ('active', 'paused')))
      and not exists (select 1 from public.training_programmes p where p.id = new.programme_id and p.status = 'published') then
     raise exception using errcode = '23514', message = 'programme_not_published';
   end if;
@@ -215,5 +236,5 @@ end $function$;
 
 revoke all on function public.fitx_programme_enrolment_published() from public, anon, authenticated;
 
-create or replace trigger programme_enrolments_published before insert or update of programme_id on public.programme_enrolments
+create or replace trigger programme_enrolments_published before insert or update of programme_id, status on public.programme_enrolments
   for each row execute function public.fitx_programme_enrolment_published();
