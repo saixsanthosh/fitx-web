@@ -69,7 +69,7 @@ function Growth({ report }: { report: Report }) {
 function ActiveUsers({ report }: { report: Report }) {
   const sticky = stickiness(report.daily);
   return (
-    <Section title="Active users" id="active" note="Logged a workout, set, meal, water, measurement or goal. Signing in alone does not count.">
+    <Section title="Active users" id="active" note="Logged a workout, set, meal, water, measurement, goal, walk, run or ride. Signing in alone does not count.">
       <Stats label="Active users">
         <Stat label="Today" value={latest(report.daily, "dau")} />
         <Stat label="Last 7 days" value={latest(report.daily, "wau")} />

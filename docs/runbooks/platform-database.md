@@ -369,7 +369,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 29 | `20261118180000_fitx_admin_control_plane` | Admin team list, audit log, first Admin functions. | Additive; on production drops the old draft's link to accounts · yes | Start 3: `rolbypassrls` = `t` | Admin sign-in | On production the draft's tables are there already (1.8). First super-admin after #35 and the Admin deploy (section 6.5). |
 | 30 | `20261118180001_fitx_admin_roles` | Five Admin roles and one permission check. | Widens a rule, replaces 2 functions · yes | #29 | Roles, access by email | |
 | 31 | `20261118180002_fitx_admin_audit_log` | The audit log becomes permanent and append-only. | Takes privileges away, permanent · yes | #29 | Audit screen, People actions | Cannot be undone, by design. |
-| 32 | `20261118180003_fitx_admin_metrics` | Exact metrics and daily trends (counts only). | Additive · yes | #29 | Admin Overview and Reports | |
+| 32 | `20261118180003_fitx_admin_metrics` | Exact metrics and daily trends (counts only); a walk, run or ride counts as activity. | Additive · yes | #26, #29 | Admin Overview and Reports | |
 | 33 | `20261118180004_fitx_admin_people` | People search and "Sign out everywhere". | Additive · yes | #29, #30; Start 4 for "Sign out everywhere" | People screen | |
 | 34 | `20261118180005_fitx_support` | Help requests and replies, with limits; support queue. | Additive · yes | #29, #30 | /help form, support queue | |
 | 35 | `20261118180006_fitx_announcements` | Announcements and dismissals. | Additive · yes | #29, #30 | Announcement banner | |
@@ -380,8 +380,8 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 40 | `20261119100020_fitx_exercise_favorites` | Adopts experience 2.0's saved-exercises table (owner only) as a file. | Additive · yes | #11 | Saved exercises in the account, on every device and in "Download my data" | On production it changes nothing (1.8). Until it is applied on a new project, saved exercises stay on the device. |
 | 41 | `20261120100000_fitx_onboarding_v3` | Date of birth (age follows it), the maintain-weight goal, where meals come from and the nutrition goal. | Additive · yes | #4, #7 | The three setup pages: date of birth, Maintain weight, food preference and nutrition goal | Until it is applied setup asks the date of birth but saves only the age, offers Maintain weight greyed out and leaves out food preference and nutrition goal. |
 | 42 | `20261121100030_fitx_admin_v2` | Username and password sign-in for Admin operators, database sessions, sign-in limits, operator versions of every Admin write function. | Additive · yes | #29 to #35 | Admin /login and every Admin write | Until it is applied Admin refuses every sign-in and logs the missing migration; the FITX app is unaffected. Replaces the role table of #30 (21 permissions). |
-| 43 | `20261121100033_fitx_admin_ops` | Platform settings (feature switches, maintenance notice, website information), notices to chosen accounts, the Complaint category and unread tracking for Help requests, account search v2, Dashboard and Security summaries. | Additive · yes | #42; #34 and #35 | Admin Settings, Notifications, Support inbox and Security; the app's /unavailable page, notices and maintenance banner | Until it is applied the app keeps every feature on, and those Admin screens say they need this update. Before an undo, move complaint rows to another category (section 5). |
-| 44 | `20261121100036_fitx_admin_content` | No table. Type and size limits on `exercise-media`, a public `food-media` bucket, operator functions to edit exercises and their media, publish programmes, edit foods, portions, photos and categories, add and edit subscription plans (never prices), and read report counts. | Additive · yes | #42; #13, #14, #17 and #36 | Admin Workouts, Nutrition, Subscriptions and Reports | Before it is applied those screens say they need this update; Admin Overview is unaffected. Its `food-media` bucket is deleted in Dashboard → Storage, not with SQL. |
+| 43 | `20261121100033_fitx_admin_ops` | Platform settings (feature switches, maintenance notice, website information), notices to chosen accounts, the Complaint category and unread tracking for Help requests, account search v2, Dashboard and Security summaries. | Additive · marks older Help requests read · yes | #42; #34, #35 and #36 | Admin Settings, Notifications, Support inbox and Security; the app's /unavailable page, notices and maintenance banner | Until it is applied the app keeps every feature on, and those Admin screens say they need this update. Before an undo, move complaint rows to another category (section 5). |
+| 44 | `20261121100036_fitx_admin_content` | No table. Type and size limits on `exercise-media`, a public `food-media` bucket, operator functions to edit exercises and their media, publish programmes, edit foods, portions, photos and categories, add and edit subscription plans (never prices), and read report counts. | Additive · yes | #42; #13, #14, #17, #26 and #36 | Admin Workouts, Nutrition, Subscriptions and Reports | Before it is applied those screens say they need this update; Admin Overview is unaffected. Its `food-media` bucket is deleted in Dashboard → Storage, not with SQL. |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1076,7 +1076,8 @@ select has_table_privilege('service_role', 'public.fitx_admin_audit_logs', 'UPDA
 ### #32 `20261118180003_fitx_admin_metrics`
 
 Adds Admin's metrics (accounts, sign-ins, active members, workouts and meals) and daily trends by India time.
-Counts only, server key only.
+A member is active when they saved a workout, set, meal, water entry, body measurement, goal progress entry or a
+walk, run or ride (#26) in the window. Counts only, server key only.
 
 ```sql
 -- Check 20261118180003: expect two rows, fitx_admin_daily_trends and fitx_admin_metrics, each t, f, t
@@ -1287,9 +1288,12 @@ website information (support email, Instagram). Members and visitors may read it
 every feature on when it cannot read it. `member_notifications` holds notices sent to chosen accounts: each member
 reads and dismisses only their own, sees neither who sent them nor the batch, and the database stamps the dismissal
 itself. Help requests gain a Complaint category and staff unread tracking (`staff_seen_at`, `staff_unread`, both
-hidden from members). Adds the Admin account search v2, a lookup of pasted recipient emails in one call, the
-Dashboard extras and the Security summary. Every function
-is for the server key only. It adds one settings row with everything on and changes no other row.
+hidden from members). Help requests already there when the column first appears count as read when they are
+resolved or closed or support wrote the newest message; the rest start unread. Adds the Admin account search v2, a
+lookup of pasted recipient emails in one call, the Dashboard extras (Ever subscribed counts only accounts that paid
+for a live subscription at least once) and the Security summary. Every function is for the server key only. It
+adds one settings row with everything on, sets `staff_seen_at` on those older Help requests (once: a second run
+changes nothing) and changes no other row.
 
 ```sql
 -- Check 20261121100033: expect 1, t, 11, t, t
@@ -1307,9 +1311,11 @@ on the public `exercise-media` bucket (JPEG, PNG, WebP and AVIF photos, MP4 and 
 a public `food-media` bucket with the same kind of limits. No storage policy: only the Admin server uploads, through
 one-time signed upload URLs. Adds 16 functions for the server key only: edit exercises (a new one starts hidden;
 delete only an Admin-made one that nothing uses) and their photos and videos, publish programmes or move them back
-to draft, edit foods, their portions, photos and categories, add and edit subscription plans (prices and plan ids
-already set never change: Razorpay fixes them), and report counts. Each checks the operator's role and writes one
-audit row. It changes no row.
+to draft, edit foods (changing the values of a USDA food makes it a FITX food: source `fitx_admin`, licence `FITX`,
+no USDA id or data type, and never lab analysed or compiled), their portions, photos and categories, add and edit
+subscription plans (prices and plan ids already set never change: Razorpay fixes them), and report counts (a walk,
+run or ride makes an account active, as on the Dashboard). Each checks the operator's role and writes one audit row.
+It changes no row.
 
 ```sql
 -- Check 20261121100036: expect 16, 2

@@ -259,6 +259,53 @@ begin
 end $$;
 \echo ok foods: created hidden, values per 100 g checked, portions replaced, photos only from the food-media upload folder, categories renamed
 
+-- A USDA food whose values an operator changes stops naming USDA: its numbers are FITX's own now.
+do $$
+declare
+  editor uuid := (select id::uuid from content_ids where name = 'editor');
+  usda public.food_catalog%rowtype;
+  body jsonb;
+  after_row public.food_catalog%rowtype;
+begin
+  select * into usda from public.food_catalog
+  where source = 'usda_fdc' and value_basis = 'lab_analysed' and source_ref is not null and source_data_type is not null
+  order by id limit 1;
+  if not found then raise exception 'no seeded USDA Foundation food to edit'; end if;
+  body := jsonb_build_object('name', usda.name, 'aliases', to_jsonb(usda.aliases), 'keywords', to_jsonb(usda.keywords),
+    'category', usda.category, 'cuisine', usda.cuisine, 'diet_type', usda.diet_type, 'state', usda.state,
+    'kcal', usda.kcal, 'protein_g', usda.protein_g, 'carbs_g', usda.carbs_g, 'fat_g', usda.fat_g, 'fiber_g', usda.fiber_g,
+    'sugar_g', usda.sugar_g, 'sodium_mg', usda.sodium_mg, 'value_basis', usda.value_basis, 'attribution', usda.attribution);
+
+  perform public.fitx_admin_op_save_food(editor, usda.id, body || jsonb_build_object('category', 'Check USDA rename'));
+  select * into after_row from public.food_catalog where id = usda.id;
+  if after_row.source <> 'usda_fdc' or after_row.source_ref is distinct from usda.source_ref
+     or after_row.source_data_type is distinct from usda.source_data_type or after_row.licence is distinct from usda.licence then
+    raise exception 'a change that keeps the values kept the USDA source: %', row_to_json(after_row);
+  end if;
+
+  begin
+    perform public.fitx_admin_op_save_food(editor, usda.id, body || jsonb_build_object('protein_g', usda.protein_g + 1));
+    raise exception 'changed values kept the lab analysed basis';
+  exception when sqlstate '22023' then null; end;
+  if (select protein_g from public.food_catalog where id = usda.id) <> usda.protein_g then raise exception 'a refused change was saved'; end if;
+
+  perform public.fitx_admin_op_save_food(editor, usda.id, body || jsonb_build_object('protein_g', usda.protein_g + 1, 'value_basis', 'estimated'));
+  select * into after_row from public.food_catalog where id = usda.id;
+  if after_row.source <> 'fitx_admin' or after_row.source_ref is not null or after_row.source_data_type is not null
+     or after_row.source_version is not null or after_row.licence <> 'FITX' or after_row.value_basis <> 'estimated'
+     or after_row.protein_g <> usda.protein_g + 1 then
+    raise exception 'changed values still name the USDA source: %', row_to_json(after_row);
+  end if;
+  if not (select details -> 'changed' ? 'source' from public.fitx_admin_audit_logs
+          where action = 'food_updated' and resource_id = usda.id order by id desc limit 1) then
+    raise exception 'the audit row does not say the source changed';
+  end if;
+  update public.food_catalog set category = usda.category, protein_g = usda.protein_g, value_basis = usda.value_basis, source = usda.source,
+    source_ref = usda.source_ref, source_data_type = usda.source_data_type, source_version = usda.source_version, licence = usda.licence
+  where id = usda.id;
+end $$;
+\echo ok a USDA food keeps its source until its values change, then becomes a FITX food that is never lab analysed
+
 -- Subscription plans -----------------------------------------------------------------------------------------
 do $$
 declare
@@ -360,6 +407,39 @@ begin
   end if;
 end $$;
 \echo ok reports: role-checked, 7 to 365 days, growth, active users, workouts, nutrition and live revenue are counts with no member text
+
+-- A member who only records walks, runs or rides counts as active in Reports and on the Overview.
+do $$
+declare
+  viewer uuid := (select id::uuid from content_ids where name = 'viewer');
+  walker uuid := '00000000-0000-4000-8000-0000000003c3';
+  report_before jsonb;
+  report_after jsonb;
+  metrics_before jsonb;
+  metrics_after jsonb;
+  trend_before integer;
+  trend_after integer;
+begin
+  insert into auth.users (id, email, email_confirmed_at, created_at) values (walker, 'report-walker@example.com', now(), now() - interval '40 days');
+  report_before := public.fitx_admin_op_report(viewer, 30);
+  metrics_before := public.fitx_admin_metrics();
+  select active_accounts into trend_before from public.fitx_admin_daily_trends(7) order by day desc limit 1;
+  insert into public.activities (user_id, client_id, sport, title, started_at, ended_at, elapsed_seconds, moving_seconds, distance_m)
+  values (walker, gen_random_uuid(), 'walk', 'Check walk', now() - interval '30 minutes', now(), 1800, 1700, 2100);
+  report_after := public.fitx_admin_op_report(viewer, 30);
+  metrics_after := public.fitx_admin_metrics();
+  select active_accounts into trend_after from public.fitx_admin_daily_trends(7) order by day desc limit 1;
+  if (report_after #>> '{daily,29,dau}')::int - (report_before #>> '{daily,29,dau}')::int <> 1
+     or (report_after #>> '{daily,29,mau}')::int - (report_before #>> '{daily,29,mau}')::int <> 1 then
+    raise exception 'reports leave out activities: before % after %', report_before -> 'daily' -> 29, report_after -> 'daily' -> 29;
+  end if;
+  if (metrics_after ->> 'active_24h')::int - (metrics_before ->> 'active_24h')::int <> 1
+     or (metrics_after ->> 'active_30d')::int - (metrics_before ->> 'active_30d')::int <> 1
+     or trend_after - trend_before <> 1 then
+    raise exception 'overview leaves out activities: % % to % %', metrics_before ->> 'active_24h', trend_before, metrics_after ->> 'active_24h', trend_after;
+  end if;
+end $$;
+\echo ok a walk, run or ride makes a member active in Reports and the Overview counts
 
 do $$
 begin

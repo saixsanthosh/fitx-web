@@ -19,10 +19,11 @@ export const metadata: Metadata = { title: "Dashboard" };
 
 const DEFINITIONS = [
   ["Registered", "Sign-ups that are not deleted or anonymous. Old Admin team accounts are left out."],
-  ["Active", "Logged a workout, set, meal, water, body measurement or goal progress in the window."],
+  ["Active", "Logged a workout, set, meal, water, body measurement, goal progress, walk, run or ride in the window."],
   ["Signed in", "A fresh sign-in in the window. Staying signed in does not count."],
   ["New", "Accounts created in the window."],
   ["Premium", "A live Razorpay subscription with paid access now."],
+  ["Ever subscribed", "Paid for a live subscription at least once. Opening checkout alone does not count."],
 ] as const;
 
 const LEGACY_TILES = [

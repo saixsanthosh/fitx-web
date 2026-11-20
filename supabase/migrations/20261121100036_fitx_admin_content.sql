@@ -442,7 +442,9 @@ $function$;
 -- Foods ------------------------------------------------------------------------------------------------
 
 -- Creates a food (p_food_id null; id "fitx-<name>", source fitx_admin) or updates one. Values are per 100 g.
--- Field rules match admin/src/lib/content/food-input.ts. Returns the id.
+-- Field rules match admin/src/lib/content/food-input.ts. Returns the id. Changing the nutrition values of a food
+-- from another source (USDA FoodData Central) makes them FITX's own: the row becomes source fitx_admin with
+-- licence FITX and no source id, data type or version, and its basis cannot stay lab analysed or compiled.
 create or replace function public.fitx_admin_op_save_food(p_operator_id uuid, p_food_id text, p_food jsonb)
 returns text
 language plpgsql
@@ -464,6 +466,7 @@ declare
   v_state text := nullif(pg_catalog.btrim(coalesce(v ->> 'state', '')), '');
   v_basis text := pg_catalog.btrim(coalesce(v ->> 'value_basis', ''));
   v_attribution text := nullif(pg_catalog.btrim(coalesce(v ->> 'attribution', '')), '');
+  now_own boolean := false;
   v_kcal numeric;
   v_protein numeric;
   v_carbs numeric;
@@ -563,10 +566,24 @@ begin
   if pg_catalog.cardinality(changed) = 0 then
     return p_food_id;
   end if;
+  -- New values on another source's food are no longer that source's numbers.
+  if old_row.source is distinct from 'fitx_admin' and changed && array['macros', 'other_nutrients']::text[] then
+    if v_basis in ('lab_analysed', 'compiled') then
+      raise exception using errcode = '22023',
+        message = 'Changed values are no longer the source''s. Choose Calculated from a recipe, Label or Estimate';
+    end if;
+    now_own := true;
+    changed := pg_catalog.array_append(changed, 'source'::text);
+  end if;
   update public.food_catalog set
     name = v_name, aliases = v_aliases, keywords = v_keywords, category = v_category, cuisine = v_cuisine, diet_type = v_diet,
     state = v_state, kcal = v_kcal, protein_g = v_protein, carbs_g = v_carbs, fat_g = v_fat, fiber_g = v_fiber, sugar_g = v_sugar,
-    sodium_mg = v_sodium, value_basis = v_basis, attribution = v_attribution
+    sodium_mg = v_sodium, value_basis = v_basis, attribution = v_attribution,
+    source = case when now_own then 'fitx_admin' else source end,
+    source_ref = case when now_own then null else source_ref end,
+    source_data_type = case when now_own then null else source_data_type end,
+    source_version = case when now_own then null else source_version end,
+    licence = case when now_own then 'FITX' else licence end
   where id = p_food_id;
   perform public.fitx_admin_op_log_event(p_operator_id, 'food_updated', 'food', p_food_id,
     pg_catalog.jsonb_build_object('changed', pg_catalog.to_jsonb(changed)));
@@ -872,9 +889,9 @@ $function$;
 -- Reports ------------------------------------------------------------------------------------------------
 
 -- Everything the Reports screen shows, for the last p_days IST days (7 to 365, default 90) and the last 12
--- IST months. Accounts and "active" follow fitx_admin_metrics: Auth accounts that are not deleted, not
--- anonymous and not Admin team members; active means a workout, set, meal, water entry, body measurement or
--- goal progress entry that day. Counts and sums only; revenue is live-mode Razorpay records only.
+-- IST months. Accounts and "active" follow fitx_admin_metrics (20261118180003): Auth accounts
+-- that are not deleted, not anonymous and not Admin team members; active means a workout, set, meal, water
+-- entry, body measurement, goal progress entry or walk, run or ride saved that day. Counts and sums only; revenue is live-mode Razorpay records only.
 create or replace function public.fitx_admin_op_report(p_operator_id uuid, p_days integer default 90)
 returns jsonb
 language plpgsql
@@ -916,6 +933,7 @@ begin
     union all select user_id, created_at from public.water_logs where created_at >= window_start
     union all select user_id, created_at from public.body_metrics where created_at >= window_start
     union all select user_id, created_at from public.goal_progress_entries where created_at >= window_start
+    union all select user_id, created_at from public.activities where created_at >= window_start
   ),
   active_days as (
     select distinct act.user_id, (act.created_at at time zone 'Asia/Kolkata')::date as day

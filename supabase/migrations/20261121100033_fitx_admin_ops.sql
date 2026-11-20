@@ -360,7 +360,28 @@ $do$;
 
 -- When an operator last read the request. Unread: never read, or a message arrived after. Members cannot
 -- read this column (the support tables use column grants).
-alter table public.support_requests add column if not exists staff_seen_at timestamptz;
+-- Requests already there when the column is first added count as read when they are resolved or closed, or
+-- when support wrote the newest message; the rest stay unread. Only that first run backfills: a re-run, or a
+-- request read since, is left alone.
+do $do$
+declare
+  first_run boolean := not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'support_requests' and column_name = 'staff_seen_at'
+  );
+begin
+  alter table public.support_requests add column if not exists staff_seen_at timestamptz;
+  if first_run then
+    update public.support_requests r
+    set staff_seen_at = r.last_message_at
+    where r.status in ('resolved', 'closed')
+       or (select m.author_kind from public.support_messages m
+           where m.request_id = r.id
+           order by m.created_at desc, m.id desc
+           limit 1) = 'staff';
+  end if;
+end
+$do$;
 -- The same rule as a column, so the Admin inbox can filter on it.
 alter table public.support_requests add column if not exists staff_unread boolean
   generated always as (staff_seen_at is null or last_message_at > staff_seen_at) stored;
@@ -536,8 +557,8 @@ as $function$
 $function$;
 
 -- Counts for the Overview next to fitx_admin_metrics, over the same accounts (not deleted, not anonymous,
--- not old Admin team members): suspended now, accounts per sign-in method, the latest live subscription's
--- status per account, and accounts with premium access now.
+-- not old Admin team members): suspended now, accounts per sign-in method, the latest paid-for live
+-- subscription's status per account (accounts that never paid are left out), and accounts with premium access now.
 create or replace function public.fitx_admin_overview_extras()
 returns jsonb
 language sql
@@ -564,11 +585,15 @@ as $function$
     ) m
     where m.method is not null
   ),
+  -- Each account's newest live subscription that was ever paid for (a captured payment, refunded or not), so
+  -- a checkout that was opened and never paid does not count as a subscriber.
   latest as (
     select distinct on (s.user_id) s.user_id, s.status
     from public.billing_subscriptions s
     join accounts a on a.id = s.user_id
     where s.mode = 'live' and s.abandoned_at is null
+      and exists (select 1 from public.billing_payments p
+                  where p.subscription_id = s.id and p.mode = 'live' and p.status in ('captured', 'refunded'))
     order by s.user_id, s.created_at desc
   )
   select pg_catalog.jsonb_build_object(

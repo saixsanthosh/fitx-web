@@ -5,7 +5,8 @@
 -- * Signed in during a window: the account's most recent fresh sign-in (Auth last_sign_in_at) falls in
 --   the window. Token refreshes do not count, so people who stay signed in are undercounted.
 -- * Active during a window: the account recorded at least one workout session, workout set, meal,
---   water entry, body measurement or goal progress entry in the window (by the row's created_at).
+--   water entry, body measurement, goal progress entry or activity (a walk, run or ride, recorded or
+--   imported) in the window (by the row's created_at). Needs 20261118160000 (activities).
 --   Signing in alone does not make an account active.
 -- * Days are calendar days in India Standard Time (Asia/Kolkata).
 -- Both functions return counts only and are executable by service_role only.
@@ -36,6 +37,8 @@ as $function$
     select user_id, created_at from public.body_metrics where created_at >= now() - interval '30 days'
     union all
     select user_id, created_at from public.goal_progress_entries where created_at >= now() - interval '30 days'
+    union all
+    select user_id, created_at from public.activities where created_at >= now() - interval '30 days'
   ),
   last_activity as (
     select a.user_id, max(a.created_at) as at
@@ -116,6 +119,8 @@ as $function$
     select user_id, created_at from public.body_metrics where created_at >= (select start_at from since)
     union all
     select user_id, created_at from public.goal_progress_entries where created_at >= (select start_at from since)
+    union all
+    select user_id, created_at from public.activities where created_at >= (select start_at from since)
   ),
   new_daily as (
     select (a.created_at at time zone 'Asia/Kolkata')::date as day, count(*) as n
