@@ -1,90 +1,59 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { Activity, Dumbbell, Utensils } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, ChevronRight, Dumbbell } from "lucide-react";
 import { BarSeries, type BarDatum } from "@/components/charts/BarSeries";
-import { Sparkline } from "@/components/charts/Sparkline";
-import { StatStrip, type Stat } from "@/components/training/StatStrip";
 import { formatDurationWords } from "@/lib/activity/format";
+import type { AllTimeTotals, Consistency, RecentWorkout } from "@/lib/data/progress";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
-import type { PeriodNumbers, WeekSoFar, WeekTrend } from "@/lib/domain/trends";
+import type { WeekSoFar, WeekTrend } from "@/lib/domain/trends";
 import styles from "./Progress.module.css";
 
 export type SourceState = "ok" | "unavailable" | "error";
 
 const number = (value: number, digits = 0) => value.toLocaleString(undefined, { maximumFractionDigits: digits });
 const km = (metres: number) => number(metres / 1000, 1);
-const minutes = (seconds: number) => Math.round(seconds / 60);
 const dayMonth = (key: string) => keyToLocalDate(key).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+const dateLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
-/** The comparison's name: the section says it covers the same days of last week, so the stats stay short. */
-function sameDays(week: WeekSoFar): string {
-  return week.days === 1 ? "Last Monday" : "Last week";
-}
+type Cell = { label: string; value: string | null; unit?: string; versus: string };
 
-const activityProblem = (state: SourceState) => (state === "unavailable" ? "Activity tracking isn't set up yet" : "Couldn't load activities");
-
-/** "This week so far" against the same days of last week: counts compared fairly while the week runs. */
-export function WeekBand({ week, activities, foodError }: { week: WeekSoFar; activities: SourceState; foodError: boolean }) {
+/**
+ * "This week so far" against the same days of last week: four numbers, no more. An unknown value shows a dash,
+ * never 0; activities that could not be read say so.
+ */
+export function WeekBand({ week, activities }: { week: WeekSoFar; activities: SourceState }) {
   const now = week.current;
   const then = week.previous;
-  const label = sameDays(week);
+  const label = week.days === 1 ? "Last Monday" : "Last week";
   const versus = (value: string | null) => `${label}: ${value ?? "—"}`;
   const activityKnown = activities === "ok" && now.distanceM !== null && now.movingSeconds !== null;
-  const food = (current: PeriodNumbers["calories"], previous: PeriodNumbers["calories"], unit: string): Pick<Stat, "value" | "note"> => {
-    if (foodError) return { value: null, note: "Couldn't load your food log" };
-    const days = `${current.days} logged ${current.days === 1 ? "day" : "days"}`;
-    const missing = current.missingEntries ? ` · ${current.missingEntries} ${current.missingEntries === 1 ? "food" : "foods"} without a value left out` : "";
-    return {
-      value: current.average === null ? null : number(current.average),
-      note: current.average === null ? `No food logged with this value · ${versus(previous.average === null ? null : `${number(previous.average)} ${unit}`)}` : `${days}${missing} · ${versus(previous.average === null ? null : `${number(previous.average)} ${unit}`)}`,
-    };
-  };
-  const stats: Stat[] = [
-    { label: "Workouts", value: now.workouts, note: versus(String(then.workouts)) },
-    { label: "Completed sets", value: now.sets, note: versus(String(then.sets)) },
-    {
-      label: "Volume",
-      value: now.volumeKg === null ? null : number(now.volumeKg),
-      unit: "kg",
-      note: now.volumeKg === null ? `${now.sets ? "No weighted sets" : "Nothing lifted yet"} · ${versus(then.volumeKg === null ? null : `${number(then.volumeKg)} kg`)}` : versus(then.volumeKg === null ? null : `${number(then.volumeKg)} kg`),
-    },
-    {
-      label: "Distance",
-      value: activityKnown ? km(now.distanceM!) : null,
-      unit: "km",
-      note: activityKnown ? versus(then.distanceM === null ? null : `${km(then.distanceM)} km`) : activityProblem(activities),
-    },
-    {
-      label: "Moving time",
-      value: activityKnown ? formatDurationWords(now.movingSeconds!) : null,
-      note: activityKnown ? versus(then.movingSeconds === null ? null : formatDurationWords(then.movingSeconds)) : activityProblem(activities),
-    },
-    { label: "Calories", unit: "kcal a day", ...food(now.calories, then.calories, "kcal") },
-    { label: "Protein", unit: "g a day", ...food(now.protein, then.protein, "g") },
+  const activityNote = activities === "unavailable" ? "Activity isn't set up yet" : "Couldn't load activities";
+  const cells: Cell[] = [
+    { label: "Workouts", value: number(now.workouts), versus: versus(number(then.workouts)) },
+    { label: "Volume", value: now.volumeKg === null ? null : number(now.volumeKg), unit: "kg", versus: versus(then.volumeKg === null ? null : `${number(then.volumeKg)} kg`) },
+    { label: "Distance", value: activityKnown ? km(now.distanceM!) : null, unit: "km", versus: activityKnown ? versus(then.distanceM === null ? null : `${km(then.distanceM)} km`) : activityNote },
+    { label: "Moving time", value: activityKnown ? formatDurationWords(now.movingSeconds!) : null, versus: activityKnown ? versus(then.movingSeconds === null ? null : formatDurationWords(then.movingSeconds)) : activityNote },
   ];
-  return <StatStrip stats={stats} label="This week so far" />;
-}
-
-function Panel({ title, icon, description, children }: { title: string; icon: ReactNode; description?: ReactNode; children: ReactNode }) {
   return (
-    <section className={`fitx-panel ${styles.chartPanel}`} aria-label={title}>
-      <header className={styles.chartHeader}>
-        <span className={styles.chartIcon} aria-hidden="true">{icon}</span>
-        <div className="min-w-0">
-          <h3 className={styles.chartTitle}>{title}</h3>
-          {description ? <p className={styles.chartDescription}>{description}</p> : null}
+    <dl aria-label="This week so far" className={styles.band}>
+      {cells.map((cell) => (
+        <div key={cell.label} className={styles.bandCell}>
+          <dt>{cell.label}</dt>
+          <dd>
+            <span className={styles.bandValue}>
+              {cell.value === null ? <><span aria-hidden="true">—</span><span className="sr-only">Not known</span></> : cell.value}
+              {cell.value !== null && cell.unit ? <span className={styles.bandUnit}>{cell.unit}</span> : null}
+            </span>
+            <span className={styles.bandVersus}>{cell.versus}</span>
+          </dd>
         </div>
-      </header>
-      {children}
-    </section>
+      ))}
+    </dl>
   );
 }
 
-/**
- * One bar per week. The axis names a month under the first week that starts in it (a narrow column has room
- * for a month, not a date); the full date is in each bar's text summary.
- */
+/** One bar per Monday-to-Sunday week; the axis names a month under the first week that starts in it. */
 function bars(weeks: readonly WeekTrend[], value: (week: WeekTrend) => number | null): BarDatum[] {
   const months = weeks.map((week) => keyToLocalDate(week.weekStart).getMonth());
   return weeks.map((week, index) => {
@@ -98,67 +67,93 @@ function bars(weeks: readonly WeekTrend[], value: (week: WeekTrend) => number | 
   });
 }
 
-function Chart({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * Training: how regularly (weeks trained, against the member's own days-a-week plan), how much (volume), the
+ * newest workouts with a link to each record, and the exact all-time count.
+ */
+export function TrainingPanel({
+  weeks,
+  consistency,
+  recent,
+  recentError,
+  totals,
+}: {
+  weeks: readonly WeekTrend[];
+  consistency: Consistency;
+  recent: RecentWorkout[] | null;
+  recentError: string;
+  totals: AllTimeTotals | null;
+}) {
+  const anyTraining = weeks.some((week) => week.workouts > 0);
   return (
-    <div className={styles.chart}>
-      <p className={styles.chartLabel}>{title}</p>
-      {children}
-    </div>
-  );
-}
+    <section aria-labelledby="training-title" className={styles.panel}>
+      <div className={styles.panelHead}>
+        <h2 id="training-title" className={styles.panelTitle}><Dumbbell size={17} aria-hidden="true" />Training</h2>
+        <span className={styles.panelNote}>Last {weeks.length} weeks</span>
+      </div>
 
-/** Twelve weeks of training, activity and food, each week Monday to Sunday (this week so far in a lighter bar). */
-export function TrendCharts({ weeks, activities, foodError }: { weeks: readonly WeekTrend[]; activities: SourceState; foodError: boolean }) {
-  const loggedDays = weeks.reduce((sum, week) => sum + week.loggedDays, 0);
-  const days = weeks.reduce((sum, week) => sum + Math.round((keyToLocalDate(week.to).getTime() - keyToLocalDate(week.from).getTime()) / 86_400_000) + 1, 0);
-  const missingProtein = weeks.reduce((sum, week) => sum + week.protein.missingEntries, 0);
-  return (
-    <div className={styles.chartGrid}>
-      <Panel title="Training" icon={<Dumbbell size={16} />} description="Finished workouts and the sets you ticked. Volume is weight × reps of weighted lifts.">
-        <Chart title="Workouts a week">
-          <BarSeries data={bars(weeks, (week) => week.workouts)} label="Workouts a week, last 12 weeks" format={(value) => number(value)} showValues={weeks.length <= 8} maxLabels={weeks.length} emptyText="No workouts yet" />
-        </Chart>
-        <Chart title="Completed sets a week">
-          <BarSeries data={bars(weeks, (week) => week.sets)} label="Completed sets a week, last 12 weeks" format={(value) => number(value)} maxLabels={weeks.length} emptyText="No sets yet" />
-        </Chart>
-        <Chart title="Volume a week (kg)">
+      <dl className={styles.facts}>
+        <div>
+          <dt>Weeks trained</dt>
+          <dd>{consistency.trainedWeeks}<small>of {consistency.weeks}</small></dd>
+        </div>
+        {consistency.plan !== null && consistency.planWeeks !== null ? (
+          <div>
+            <dt>Hit your {consistency.plan} a week</dt>
+            <dd>{consistency.planWeeks}<small>{consistency.planWeeks === 1 ? "week" : "weeks"}</small></dd>
+          </div>
+        ) : null}
+        <div>
+          <dt>All time</dt>
+          <dd>{totals ? number(totals.workouts) : "—"}<small>workouts</small></dd>
+        </div>
+      </dl>
+
+      <div className={styles.chart}>
+        <p className={styles.chartLabel}>Workouts a week</p>
+        <BarSeries data={bars(weeks, (week) => week.workouts)} label={`Workouts a week, last ${weeks.length} weeks`} format={(value) => number(value)} showValues={weeks.length <= 8} maxLabels={weeks.length} emptyText="No workouts yet" height={104} />
+      </div>
+      {anyTraining ? (
+        <div className={styles.chart}>
+          <p className={styles.chartLabel}>Volume a week (kg)</p>
           {/* A week with no weighted sets lifted 0 kg: a real zero here, unlike an unknown value. */}
-          <BarSeries data={bars(weeks, (week) => week.volumeKg ?? 0)} label="Volume a week in kilograms, last 12 weeks" format={(value) => `${number(value)} kg`} maxLabels={weeks.length} emptyText="Nothing lifted yet" />
-        </Chart>
-      </Panel>
-      <Panel title="Activity" icon={<Activity size={16} />} description="Walks, runs and rides you recorded, by the week they started.">
-        {activities === "ok" ? (
+          <BarSeries data={bars(weeks, (week) => week.volumeKg ?? 0)} label={`Volume a week in kilograms, last ${weeks.length} weeks`} format={(value) => `${number(value)} kg`} maxLabels={weeks.length} emptyText="Nothing lifted yet" height={88} />
+        </div>
+      ) : null}
+
+      <div className={styles.divider} aria-hidden="true" />
+
+      <div className="grid gap-1">
+        <h3 className={styles.chartLabel}>Recent workouts</h3>
+        {recentError ? (
+          <p role="alert" className="fitx-alert fitx-alert-danger">{recentError}</p>
+        ) : !recent ? (
+          <div className={styles.loading} aria-busy="true" aria-label="Loading your recent workouts" />
+        ) : recent.length ? (
           <>
-            <Chart title="Distance a week (km)">
-              <BarSeries data={bars(weeks, (week) => (week.distanceM === null ? null : week.distanceM / 1000))} label="Distance a week in kilometres, last 12 weeks" format={(value) => `${number(value, 1)} km`} maxLabels={weeks.length} emptyText="No activities yet" />
-            </Chart>
-            <Chart title="Moving time a week (min)">
-              <BarSeries data={bars(weeks, (week) => (week.movingSeconds === null ? null : minutes(week.movingSeconds)))} label="Moving time a week in minutes, last 12 weeks" format={(value) => `${number(value)} min`} maxLabels={weeks.length} emptyText="No activities yet" />
-            </Chart>
+            <ul className={styles.recentList}>
+              {recent.slice(0, 3).map((workout) => (
+                <li key={workout.id}>
+                  <Link href={`/workouts/history/${workout.id}`} className={styles.recentRow}>
+                    <span className={styles.recentText}>
+                      <strong>{workout.name}</strong>
+                      <span>{dateLabel(workout.startedAt)}{workout.trainingSeconds !== null ? ` · ${formatDurationWords(workout.trainingSeconds)}` : ""}</span>
+                    </span>
+                    <span className={styles.recentVolume}>{workout.volumeKg === null ? <span aria-label="No weighted sets">—</span> : `${number(workout.volumeKg)} kg`}</span>
+                    <ChevronRight size={16} aria-hidden="true" className={styles.muted} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <Link href="/workouts/history" className={styles.textLink}>All workouts<ArrowRight size={14} aria-hidden="true" /></Link>
           </>
         ) : (
-          <p className={styles.chartProblem}>{activities === "unavailable" ? "Activity tracking isn't set up on this database yet, so there's nothing to chart." : "Your activities couldn't be loaded. Try again in a moment."}</p>
+          <div className={styles.empty}>
+            <strong>No finished workouts yet</strong>
+            <Link href="/workouts" className="fitx-button fitx-button-secondary">Start a workout</Link>
+          </div>
         )}
-      </Panel>
-      <Panel
-        title="Food"
-        icon={<Utensils size={16} />}
-        description={foodError ? undefined : `Averages per logged day; days with nothing logged are left out. You logged food on ${loggedDays} of the last ${days} days.`}
-      >
-        {foodError ? (
-          <p className={styles.chartProblem}>Your food log couldn&apos;t be loaded. Try again in a moment.</p>
-        ) : (
-          <>
-            <Chart title="Calories a logged day">
-              <Sparkline values={weeks.map((week) => week.calories.average)} label="Average calories a logged day, by week" format={(value) => `${number(value)} kcal`} startLabel={dayMonth(weeks[0].weekStart)} endLabel="This week" showRange emptyText="No food logged yet" />
-            </Chart>
-            <Chart title="Protein a logged day">
-              <Sparkline values={weeks.map((week) => week.protein.average)} label="Average protein a logged day, by week" format={(value) => `${number(value)} g`} startLabel={dayMonth(weeks[0].weekStart)} endLabel="This week" showRange emptyText="No protein values logged yet" />
-            </Chart>
-            {missingProtein > 0 && <p className={styles.chartNote}>{missingProtein} {missingProtein === 1 ? "food has" : "foods have"} no protein value and {missingProtein === 1 ? "is" : "are"} left out of the protein averages.</p>}
-          </>
-        )}
-      </Panel>
-    </div>
+      </div>
+    </section>
   );
 }

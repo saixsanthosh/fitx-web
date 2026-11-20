@@ -88,14 +88,41 @@ describe("configuration and the free-only guard", () => {
     assert.ok(mock.calls.length < candidatesFor("meal_plan", readAiConfig(KEYS), { personalData: true }).length, `stopped after ${mock.calls.length} calls`);
   });
 
-  test("Ollama is used only for a local URL, and never on Vercel", () => {
-    assert.ok(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2" }).ollama);
-    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "https://my-tunnel.example.com", OLLAMA_MODEL: "llama3.2" }).ollama, null);
-    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2", VERCEL_ENV: "production" }).ollama, null);
-    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2", VERCEL_ENV: "preview" }).ollama, null);
-    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2", VERCEL: "1" }).ollama, null);
+  test("Ollama: an https server anywhere, localhost only outside Vercel, and nothing else", () => {
+    const model = { OLLAMA_MODEL: "llama3.2" };
+    assert.deepEqual(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", ...model }).ollama, { baseUrl: "http://127.0.0.1:11434/v1", model: "llama3.2", kind: "local" });
+    assert.deepEqual(readAiConfig({ OLLAMA_BASE_URL: "https://ollama.example.com/", ...model, VERCEL_ENV: "production" }).ollama, { baseUrl: "https://ollama.example.com/v1", model: "llama3.2", kind: "remote" });
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "https://ollama.example.com/v1", ...model }).ollama?.baseUrl, "https://ollama.example.com/v1");
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://ollama.example.com", ...model }).ollama, null, "plain http to another host is refused");
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://192.168.1.20:11434", ...model }).ollama, null, "a LAN address needs https too");
+    for (const vercel of [{ VERCEL_ENV: "production" }, { VERCEL_ENV: "preview" }, { VERCEL: "1" }]) {
+      assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", ...model, ...vercel }).ollama, null, "localhost is never this computer on Vercel");
+    }
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "https://user:secret@ollama.example.com", ...model }).ollama, null, "no credentials in the address");
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "https://ollama.example.com/?key=x", ...model }).ollama, null, "no query");
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "ftp://ollama.example.com", ...model }).ollama, null);
+    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "not a url", ...model }).ollama, null);
     assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://localhost:11434", OLLAMA_MODEL: "" }).ollama, null, "a model name is required");
-    assert.equal(readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2" }).ollama?.baseUrl, "http://127.0.0.1:11434/v1");
+  });
+
+  test("Ollama comes last, after every free hosted provider, and gets a short timeout", async () => {
+    const config = readAiConfig({ ...KEYS, OLLAMA_BASE_URL: "https://ollama.example.com", OLLAMA_MODEL: "llama3.2" });
+    const order = candidatesFor("chat", config).map((candidate) => candidate.provider);
+    assert.equal(order.at(-1), "ollama");
+    assert.equal(order.filter((provider) => provider === "ollama").length, 1);
+    const { PROVIDER_TIMEOUTS } = await import("@/lib/ai/router");
+    assert.ok(PROVIDER_TIMEOUTS.ollama && PROVIDER_TIMEOUTS.ollama.firstTokenMs <= 10_000 && PROVIDER_TIMEOUTS.ollama.attemptMs <= 30_000);
+    // A hanging Ollama server gives up at its own limit, not the turn's.
+    const mock = mockFetch(() => ({ hang: true }));
+    const ai = createAiRouter({ config: readAiConfig({ OLLAMA_BASE_URL: "http://127.0.0.1:11434", OLLAMA_MODEL: "llama3.2" }), fetch: mock.fetch, cooldowns: createCooldownStore(), log: quiet });
+    const started = Date.now();
+    PROVIDER_TIMEOUTS.ollama = { firstTokenMs: 50, attemptMs: 80 };
+    try {
+      await assert.rejects(ai.stream(chatRequest, { onDelta: quiet, onReset: quiet, deadlineMs: 60_000 }), (error: unknown) => error instanceof AiUnavailableError);
+    } finally {
+      PROVIDER_TIMEOUTS.ollama = { firstTokenMs: 10_000, attemptMs: 25_000 };
+    }
+    assert.ok(Date.now() - started < 5_000, "stopped at the Ollama limit");
   });
 });
 

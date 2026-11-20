@@ -907,3 +907,63 @@ test("no real provider was called", () => {
   assert.ok(providers.calls.every((call) => !call.headers.authorization || /test-/.test(call.headers.authorization)));
   assert.equal(openAiText("x").json !== undefined, true);
 });
+
+describe("GET /api/coach/status: providers and quick prompts", () => {
+  type Prompt = { id: string; source: string; context: string; text: string; mode: string };
+  const promptsOf = async () => ((await (await status.GET(request("/api/coach/status", { method: "GET" }))).json()) as { quickPrompts: Prompt[] }).quickPrompts;
+  const istToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
+  test("names each connected service without a key, a URL or a model setting", async () => {
+    setKeys({ ...KEYS, OLLAMA_BASE_URL: "https://ollama.private-owner.example", OLLAMA_MODEL: "llama3.2" });
+    try {
+      seedMember();
+      const response = await status.GET(request("/api/coach/status", { method: "GET" }));
+      const text = await response.text();
+      const body = JSON.parse(text) as { providers: Array<{ id: string; name: string }> };
+      assert.deepEqual(body.providers.map((provider) => provider.id), ["gemini", "groq", "openrouter", "ollama"]);
+      assert.equal(body.providers.find((provider) => provider.id === "ollama")?.name, "Ollama (FITX's own server)");
+      for (const secret of [...Object.values(KEYS), "private-owner", "llama3.2", "/v1", "https://"]) assert.ok(!text.includes(secret), `the status never carries ${secret}`);
+    } finally {
+      delete process.env.OLLAMA_BASE_URL;
+      delete process.env.OLLAMA_MODEL;
+    }
+  });
+
+  test("with “Use my FITX data”, prompts come from today's food, training, activity and goals", async () => {
+    seedMember();
+    db.rows("meals").length = 0;
+    db.rows("meals").push({ user_id: MEMBER, date: istToday(), meal: "Breakfast", food_name: "Upma", calories: 250, protein: 5, carbs: 45, fat: 6 });
+    db.rows("workout_sessions").push({ user_id: MEMBER, name: "Upper strength", status: "completed", started_at: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+    db.rows("activities").push({ user_id: MEMBER, sport: "run", distance_m: 5200, started_at: new Date(Date.now() - 86_400_000).toISOString() });
+    consentTo(MEMBER, true);
+    const prompts = await promptsOf();
+    assert.deepEqual(prompts.map((prompt) => prompt.source), ["food", "training", "activity", "setup"]);
+    const [food, training, activity] = prompts;
+    assert.match(food.context, /^Today · 250 of [\d,]+ kcal$/);
+    assert.match(food.text, /^I have about [\d,]+ kcal and \d+ g protein left today\. What should I eat\?$/);
+    assert.equal(training.text, "Plan my next workout after “Upper strength”.");
+    assert.equal(training.mode, "workout_plan");
+    assert.equal(activity.text, "I ran 5.2 km this week. How should I fit it around my training?");
+    assert.ok(!JSON.stringify(prompts).includes("Private Name") && !JSON.stringify(prompts).includes("@"), "no name or email");
+  });
+
+  test("an unknown calorie value is never counted as 0", async () => {
+    seedMember();
+    db.rows("meals").length = 0;
+    db.rows("meals").push({ user_id: MEMBER, date: istToday(), meal: "Lunch", food_name: "Packaged wrap", calories: null, protein: null, carbs: null, fat: 12 });
+    consentTo(MEMBER, true);
+    const [food] = await promptsOf();
+    assert.equal(food.context, "Today · 1 food logged");
+    assert.equal(food.text, "What should I eat for the rest of today?");
+  });
+
+  test("Questions only and under-18 accounts get no prompts built from their data", async () => {
+    seedMember();
+    consentTo(MEMBER, false);
+    assert.deepEqual(await promptsOf(), []);
+    db.reset();
+    seedMember(MEMBER, 16);
+    consentTo(MEMBER, true);
+    assert.deepEqual(await promptsOf(), []);
+  });
+});

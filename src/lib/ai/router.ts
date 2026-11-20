@@ -56,6 +56,19 @@ export type JsonResult<T> = { value: T; provider: ProviderId; model: string; usa
 const DEFAULT_RETRY_MS = 2 * 60_000;
 const MIN_ATTEMPT_MS = 2_500;
 
+/**
+ * Shorter limits for providers that may be slow or switched off: Ollama runs on a machine the owner keeps, so a
+ * sleeping or busy server costs at most these few seconds before the coach says it is at capacity.
+ */
+export const PROVIDER_TIMEOUTS: Partial<Record<ProviderId, { firstTokenMs: number; attemptMs: number }>> = {
+  ollama: { firstTokenMs: 10_000, attemptMs: 25_000 },
+};
+
+function capped(provider: ProviderId, kind: "firstTokenMs" | "attemptMs", ms: number) {
+  const cap = PROVIDER_TIMEOUTS[provider]?.[kind];
+  return cap ? Math.min(cap, ms) : ms;
+}
+
 export function createAiRouter(deps: RouterDeps) {
   const fetcher: FetchLike = deps.fetch ?? ((input, init) => fetch(input, init));
   const now = deps.now ?? Date.now;
@@ -133,7 +146,7 @@ export function createAiRouter(deps: RouterDeps) {
     async json<T>(request: AiRequest, parse: (value: unknown) => T | null, options: JsonOptions = {}): Promise<JsonResult<T>> {
       const attemptTimeout = options.attemptTimeoutMs ?? 30_000;
       const { result, candidate, attempts } = await attemptAll(request, options.signal, options.deadlineMs ?? 55_000, async (adapter, chosen, signal, budget) => {
-        const timed = combine(signal, Math.min(attemptTimeout, budget));
+        const timed = combine(signal, capped(chosen.provider, "attemptMs", Math.min(attemptTimeout, budget)));
         const reply = await adapter.generate({ model: chosen.model, request, signal: timed, fetch: fetcher });
         const value = parse(parseJsonText(reply.text));
         if (value === null || value === undefined) throw new ProviderError("invalid_response", "answer did not match the expected format");
@@ -149,8 +162,8 @@ export function createAiRouter(deps: RouterDeps) {
       const { result, candidate, attempts } = await attemptAll(request, options.signal, options.deadlineMs ?? 55_000, async (adapter, chosen, signal, budget) => {
         const controller = new AbortController();
         const timed = AbortSignal.any([signal, controller.signal]);
-        const firstToken = setTimeout(() => controller.abort(new DOMException("No first token in time", "TimeoutError")), Math.min(firstTokenTimeout, budget));
-        const whole = setTimeout(() => controller.abort(new DOMException("Answer took too long", "TimeoutError")), Math.min(attemptTimeout, budget));
+        const firstToken = setTimeout(() => controller.abort(new DOMException("No first token in time", "TimeoutError")), capped(chosen.provider, "firstTokenMs", Math.min(firstTokenTimeout, budget)));
+        const whole = setTimeout(() => controller.abort(new DOMException("Answer took too long", "TimeoutError")), capped(chosen.provider, "attemptMs", Math.min(attemptTimeout, budget)));
         let startedAnswer = false;
         try {
           return await adapter.stream({

@@ -1,8 +1,9 @@
 import "server-only";
 import { hasAnyProvider, type AiConfig } from "./config";
-import { buildCoachContext, loadContextSources, type CoachContext } from "./context";
+import { buildCoachContext, loadContextSources, type CoachContext, type ContextSources } from "./context";
 import { describeAllergies, describeDiet } from "./diet-rules";
-import { PROVIDER_LABELS, canSendMemberData, configuredProviders } from "./registry";
+import { buildQuickPrompts, loadPromptSignals, type QuickPrompt } from "./quick-prompts";
+import { canSendMemberData, configuredProviders, providerLabel } from "./registry";
 import * as store from "./store";
 import type { CoachQuota, CoachThreadSummary, ProviderId } from "./types";
 
@@ -13,6 +14,7 @@ import type { CoachQuota, CoachThreadSummary, ProviderId } from "./types";
 
 export type CoachState = "paused" | "not_configured" | "not_available" | "consent" | "ready";
 
+/** A connected AI service as the member sees it: a name and its data use. Never a key, a URL or a model setting. */
 export type ProviderNotice = { id: ProviderId; name: string; dataUse: string };
 
 export type CoachStatus = {
@@ -31,6 +33,8 @@ export type CoachStatus = {
   memberDataAvailable: boolean;
   quotas: CoachQuota[];
   threads: CoachThreadSummary[];
+  /** Starting points written from the member's own data; empty unless "Use my FITX data" is on (see quick-prompts.ts). */
+  quickPrompts: QuickPrompt[];
 };
 
 /** Each provider's data use, from its own terms as checked on 2026-11-16. The owner should re-check them. */
@@ -40,6 +44,8 @@ const DATA_USE: Record<ProviderId, string> = {
   openrouter: "OpenRouter passes the request to a free model. FITX asks it to use only providers that don't collect prompts.",
   ollama: "Runs on this computer for development. Nothing leaves the machine.",
 };
+/** Ollama on an https server the owner runs (OLLAMA_BASE_URL). */
+const OLLAMA_REMOTE = "Runs on a server the FITX owner runs, not an outside AI company. FITX sends no name, email or account ID.";
 /** Gemini while the owner keeps member data away from it (the default). */
 const GEMINI_QUESTIONS_ONLY =
   "Gets only “Questions only” requests, never the summary of your FITX data or FITX's eating-disorder note: on Google's free tier, Google may use prompts and replies to improve its products, and people at Google may read them. FITX sends no name, email or account ID.";
@@ -47,8 +53,8 @@ const GEMINI_QUESTIONS_ONLY =
 export function providerNotices(config: AiConfig): ProviderNotice[] {
   return configuredProviders(config).map((id) => ({
     id,
-    name: PROVIDER_LABELS[id],
-    dataUse: id === "gemini" && !config.geminiWithMemberData ? GEMINI_QUESTIONS_ONLY : DATA_USE[id],
+    name: providerLabel(id, config),
+    dataUse: id === "gemini" && !config.geminiWithMemberData ? GEMINI_QUESTIONS_ONLY : id === "ollama" && config.ollama?.kind === "remote" ? OLLAMA_REMOTE : DATA_USE[id],
   }));
 }
 
@@ -65,7 +71,7 @@ export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
     `Age, sex, height, weight trend and target weight${facts.age ? "" : " (age not set yet)"}`,
     `Goal (${facts.goal.replace(/_/g, " ")}), activity level, experience and training setup (${facts.location}, ${facts.equipment.slice(0, 4).join(", ")}${facts.equipment.length > 4 ? "…" : ""}; level, days a week, session length and split)`,
     `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitations : "none added yet"}`,
-    `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, cuisines and foods you avoid`,
+    `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, ${facts.foodHabitsShared ? "where your meals come from, your nutrition goal, " : ""}cuisines and foods you avoid`,
     "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",
     "The last 4 weeks of workouts, your personal records and active goals, and how many workouts and other planner items you have in the next 7 days",
   ];
@@ -82,6 +88,7 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     memberDataAvailable: canSendMemberData(config),
     quotas: [],
     threads: [],
+    quickPrompts: [],
   };
   if (!config.enabled) return { ...base, state: "paused", ...(await storedCoachData(db, userId, now)) };
   if (!hasAnyProvider(config)) return { ...base, state: "not_configured", ...(await storedCoachData(db, userId, now)) };
@@ -97,11 +104,32 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     // Agreeing to "Use my FITX data" does not carry over once the profile says under 18 or loses its age: the
     // member sees the consent screen again, and agreeing there starts the history afresh.
     if (!consent || store.needsNewConsent(consent, facts.adult)) return { ...base, state: "consent", ...age, sharedSummary };
-    const [quotas, threads] = await Promise.all([store.quotaStatus(db), store.listThreads(db, userId)]);
-    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads };
+    const sharing = consent.shareData && facts.adult && base.memberDataAvailable;
+    const [quotas, threads, quickPrompts] = await Promise.all([
+      store.quotaStatus(db),
+      store.listThreads(db, userId),
+      sharing ? personalPrompts(db, userId, sources, now) : Promise.resolve([]),
+    ]);
+    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts };
   } catch (error) {
     if (error instanceof store.CoachStoreError && error.code === "not_available") return { ...base, state: "not_available", ...age };
     throw error;
+  }
+}
+
+/**
+ * The quick prompts for a member who shares their data. The targets use the latest weigh-in, as Home and
+ * Nutrition do. Any failure just means no personal prompts: the page then offers general ones.
+ */
+async function personalPrompts(db: store.Db, userId: string, sources: ContextSources, now: Date): Promise<QuickPrompt[]> {
+  try {
+    const { data } = await db.from("body_metrics").select("date, weight").eq("user_id", userId).not("weight", "is", null)
+      .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1);
+    const weighIns = Array.isArray(data) ? (data as ContextSources["weighIns"]) : [];
+    const context = buildCoachContext({ ...sources, weighIns }, now);
+    return buildQuickPrompts(context, await loadPromptSignals(db, userId, context, now), { plansAllowed: true });
+  } catch {
+    return [];
   }
 }
 

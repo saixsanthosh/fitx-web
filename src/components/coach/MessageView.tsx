@@ -1,18 +1,19 @@
 "use client";
 
-import { HeartHandshake, Info, Sparkles } from "lucide-react";
+import { HeartHandshake, Info } from "lucide-react";
 import type { CoachMessageView } from "@/lib/ai/types";
 import type { ActionState } from "./ActionButton";
 import { MealPlanCard, type PlanActions } from "./MealPlanCard";
 import { RichText } from "./RichText";
 import { WorkoutPlanCard } from "./WorkoutPlanCard";
+import styles from "./Coach.module.css";
 
 /** One message: the member's words, a coach reply (text or a checked plan), or FITX's own safety note. */
 export function MessageView({ message, actions }: { message: CoachMessageView; actions: PlanActions & { stateOf: (id: string | null) => ActionState } }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-fitx-surface-variant px-4 py-2.5 text-[15px] leading-6 text-fitx-text">{message.content}</p>
+        <p className={styles.user}>{message.content}</p>
       </div>
     );
   }
@@ -31,9 +32,9 @@ export function MessageView({ message, actions }: { message: CoachMessageView; a
   const plan = message.data?.plan;
   const notes = message.data?.notes ?? [];
   return (
-    <div className="space-y-3">
-      <p className="flex items-center gap-1.5 text-xs font-medium text-fitx-text-secondary">
-        <Sparkles size={14} aria-hidden="true" className="text-fitx-primary" />
+    <div className={styles.reply}>
+      <p className={styles.replyMeta}>
+        <span aria-hidden="true" className={styles.mark}>FX</span>
         FITX Coach{message.provider ? <span className="font-normal"> · answered by {message.provider}</span> : null}
       </p>
       {plan?.kind === "meal_plan" ? (

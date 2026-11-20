@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { History, Loader2, MessageSquarePlus, Settings2, X } from "lucide-react";
+import { Dumbbell, Footprints, History, Loader2, MessageCircle, MessageSquarePlus, Settings2, Target, UserRound, Utensils, X } from "lucide-react";
 import { useHydrated } from "@/components/ui/use-hydrated";
+import type { QuickPrompt } from "@/lib/ai/quick-prompts";
 import type { CoachState, CoachStatus } from "@/lib/ai/status";
+import { cn } from "@/lib/utils";
 import type { CoachActionView, CoachMessageView, CoachQuota, CoachStreamEvent, CoachSwap, CoachThreadSummary } from "@/lib/ai/types";
 import type { ActionState } from "./ActionButton";
 import { CoachRequestError, applyAction, deleteThread, fetchStatus, fetchThread, requestSwap, sendTurn } from "./coach-client";
@@ -16,6 +18,7 @@ import { formatResetTime } from "./format";
 import type { PlanActions } from "./MealPlanCard";
 import { MessageView } from "./MessageView";
 import { RichText } from "./RichText";
+import styles from "./Coach.module.css";
 
 type Pending = { task: ComposerMode; status: string | null; text: string };
 type Problem = { message: string; retryAt?: string };
@@ -257,6 +260,8 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
         // Replies written from the member's data are not sent again once sharing is off (the server leaves
         // them out), so the next message starts a new conversation rather than seeming to continue this one.
         if (!share) { setMode("chat"); newConversation(); }
+        // Prompts written from the member's data appear once sharing is on (and go once it is off).
+        void fetchStatus().then((fresh) => setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts }))).catch(() => {});
         setAnnouncement(share
           ? "The coach can now use your FITX data."
           : "Questions only: the coach no longer gets your logs or profile, only your questions and what its safety rules need, such as the lowest daily calories it may suggest. Your next message starts a new conversation.");
@@ -303,6 +308,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
           void fetchStatus().then((fresh) => {
             setQuotas(fresh.quotas);
             setThreads(fresh.threads);
+            setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts }));
           }).catch(() => {});
         }}
       />
@@ -313,55 +319,82 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   const planQuota = quotas.find((quota) => quota.kind === "plan");
   const activeQuota = mode === "chat" ? chatQuota : planQuota;
   const quotaHint = activeQuota ? quotaText(activeQuota, mode === "chat" ? "messages" : "plans", hydrated ? formatResetTime(activeQuota.resetsAt) : null) : null;
-  const suggestions = status.minor
-    ? ["What should I eat before sports practice?", "How can I get stronger safely?", "How much sleep do I need?"]
-    : plansAllowed
-      ? ["How did my eating look this week?", "Am I getting enough protein for my goal?", "What should I focus on in training this week?"]
-      : ["How much protein do I need a day?", "How do I eat well on a tight budget?", "What's a good beginner training split?"];
+  // Prompts written from the member's own data when they share it; general ones otherwise.
+  const prompts: StarterPrompt[] = plansAllowed && status.quickPrompts.length
+    ? status.quickPrompts
+    : (status.minor ? MINOR_PROMPTS : GENERAL_PROMPTS).map((text, index) => ({ id: `general-${index}`, source: "general" as const, context: "Ask anything", text, mode: "chat" as const }));
+
+  function choosePrompt(prompt: StarterPrompt) {
+    setMode(prompt.mode !== "chat" && plansAllowed ? prompt.mode : "chat");
+    setDraft(prompt.text);
+    setFocusKey((key) => key + 1);
+  }
 
   const list = (
     <ConversationList threads={threads} activeId={threadId} onOpen={(id) => void openThread(id)} onNew={newConversation} onDelete={(thread) => void removeThread(thread)} busy={busy} />
   );
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-      <div className="min-w-0">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <p className="text-sm text-fitx-text-secondary">
+    <div className={styles.layout}>
+      <aside className={styles.rail} aria-label="Conversations and limits">
+        <div className={styles.railInner}>
+          <div className={styles.railList}>{list}</div>
+          {(chatQuota || planQuota) && (
+            <div className={styles.limits}>
+              <h2 className={styles.limitsTitle}>Last 24 hours</h2>
+              {chatQuota && <QuotaLine label="Messages" quota={chatQuota} />}
+              {planQuota && <QuotaLine label="Plans" quota={planQuota} />}
+            </div>
+          )}
+        </div>
+      </aside>
+
+      <div className={styles.chat}>
+        <div className={styles.bar}>
+          <p className={styles.mode}>
+            <span aria-hidden="true" className={cn(styles.dot, plansAllowed && styles.dotOn)} />
             {plansAllowed ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
           </p>
-          <div className="flex items-center gap-1">
+          <div className={styles.tools}>
             <button type="button" onClick={() => setHistoryOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text lg:hidden">
               <History size={17} aria-hidden="true" /> History
             </button>
             <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text lg:hidden">
               <MessageSquarePlus size={18} aria-hidden="true" />
             </button>
-            <button type="button" onClick={() => setSettingsOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
-              <Settings2 size={17} aria-hidden="true" /> <span className="hidden sm:inline">Coach settings</span><span className="sr-only sm:hidden">Coach settings</span>
+            <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Coach settings" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
+              <Settings2 size={18} aria-hidden="true" />
             </button>
           </div>
         </div>
 
-        <section aria-label="Conversation" aria-busy={busy || loadingThread} className="min-h-[46vh] space-y-6 pb-6">
+        <section aria-label="Conversation" aria-busy={busy || loadingThread} className={styles.thread}>
           {loadingThread ? (
-            <p className="flex items-center gap-2 py-10 text-sm text-fitx-text-secondary"><Loader2 size={16} aria-hidden="true" className="animate-spin" /> Opening conversation…</p>
+            <p className={styles.thinking}><Loader2 size={16} aria-hidden="true" className="animate-spin" /> Opening conversation…</p>
           ) : messages.length === 0 && !pending ? (
-            <div className="py-6 sm:py-10">
-              <h2 className="text-xl font-semibold tracking-[-.02em] text-fitx-text">What can I help with?</h2>
-              <p className="mt-1.5 max-w-lg text-sm leading-6 text-fitx-text-secondary">
-                {plansAllowed
-                  ? "Ask a question, or use Plan my meals and Plan a workout for plans checked against FITX's food data and exercise library."
-                  : "Ask a question about training, food or recovery."}
-              </p>
-              <ul className="mt-5 grid gap-2 sm:grid-cols-3">
-                {suggestions.map((suggestion) => (
-                  <li key={suggestion}>
-                    <button type="button" onClick={() => { setMode("chat"); setDraft(suggestion); setFocusKey((key) => key + 1); }} className="min-h-11 w-full rounded-xl border border-fitx-border bg-fitx-card px-3.5 py-3 text-left text-sm leading-5 text-fitx-text transition-colors hover:border-fitx-primary hover:bg-fitx-hover">
-                      {suggestion}
-                    </button>
-                  </li>
-                ))}
+            <div className={styles.hello}>
+              <div>
+                <h2 className={styles.helloTitle}>What can I help with?</h2>
+                {status.providers.length > 0 && (
+                  <p className={styles.services}>
+                    <span className={styles.service}><span aria-hidden="true" className={cn(styles.dot, styles.dotOn)} />{status.providers.length === 1 ? "1 AI service ready" : `${status.providers.length} AI services ready`}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{status.providers.map((provider) => provider.name).join(", ")}</span>
+                  </p>
+                )}
+              </div>
+              <ul className={styles.prompts} aria-label="Suggested questions">
+                {prompts.map((prompt) => {
+                  const Icon = PROMPT_ICONS[prompt.source];
+                  return (
+                    <li key={prompt.id}>
+                      <button type="button" onClick={() => choosePrompt(prompt)} className={styles.prompt}>
+                        <span className={styles.promptContext}><Icon size={14} aria-hidden="true" /><span>{prompt.context}</span></span>
+                        <span className={styles.promptText}>{prompt.text}</span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : (
@@ -373,18 +406,16 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
           )}
 
           {pending && (
-            <div className="space-y-2" aria-live="polite">
-              {pending.status && (
-                <p className="flex items-center gap-2 text-sm text-fitx-text-secondary">
-                  <Loader2 size={16} aria-hidden="true" className="animate-spin" />
-                  {pending.status}…
+            <div className="grid gap-2.5" aria-live="polite">
+              <p className={styles.replyMeta}><span aria-hidden="true" className={styles.mark}>FX</span>FITX Coach</p>
+              {pending.text ? (
+                <div><RichText text={pending.text} /><span aria-hidden="true" className={styles.caret} /></div>
+              ) : (
+                <p className={styles.thinking}>
+                  <span aria-hidden="true" className={styles.dots}><span /><span /><span /></span>
+                  {pending.status ? `${pending.status}…` : "Thinking…"}
                 </p>
               )}
-              {pending.text ? (
-                <RichText text={pending.text} />
-              ) : !pending.status ? (
-                <p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Loader2 size={16} aria-hidden="true" className="animate-spin" /> The coach is thinking…</p>
-              ) : null}
             </div>
           )}
 
@@ -398,7 +429,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
           <div ref={end} className="scroll-mb-48" />
         </section>
 
-        <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+76px)] z-20 bg-gradient-to-t from-fitx-bg from-70% to-transparent pb-1 pt-4 lg:bottom-4">
+        <div className={styles.composerDock}>
           <Composer
             draft={draft}
             onDraft={setDraft}
@@ -417,20 +448,6 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
         </div>
       </div>
 
-      <aside className="hidden lg:block">
-        <div className="sticky top-[92px] space-y-4">
-          <div className="fitx-panel max-h-[calc(100dvh-220px)] overflow-y-auto p-3">{list}</div>
-          {(chatQuota || planQuota) && (
-            <div className="fitx-panel p-4 text-sm">
-              <h2 className="text-xs font-semibold uppercase tracking-[.1em] text-fitx-text-secondary">Last 24 hours</h2>
-              {chatQuota && <QuotaLine label="Messages" quota={chatQuota} />}
-              {planQuota && <QuotaLine label="Plans" quota={planQuota} />}
-              <p className="mt-3 text-xs leading-5 text-fitx-text-secondary">The coach runs on free AI services, so each account has a limit over any 24 hours.</p>
-            </div>
-          )}
-        </div>
-      </aside>
-
       <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)}>{list}</HistoryDrawer>
 
       {settings}
@@ -438,6 +455,14 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
     </div>
   );
 }
+
+type StarterPrompt = Omit<QuickPrompt, "source"> & { source: QuickPrompt["source"] | "general" };
+
+const GENERAL_PROMPTS = ["How much protein do I need a day?", "How do I eat well on a tight budget?", "What's a good beginner training split?", "How do I warm up before lifting?"];
+const MINOR_PROMPTS = ["What should I eat before sports practice?", "How can I get stronger safely?", "How much sleep do I need?"];
+const PROMPT_ICONS: Record<StarterPrompt["source"], typeof Utensils> = {
+  food: Utensils, training: Dumbbell, activity: Footprints, goal: Target, setup: UserRound, general: MessageCircle,
+};
 
 /** The composer's limit line. The limit counts the last 24 hours, so a used-up limit frees one request at a time. */
 function quotaText(quota: CoachQuota, noun: "messages" | "plans", nextAt: string | null) {

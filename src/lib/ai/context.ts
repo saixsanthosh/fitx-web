@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { estimateNutritionTargets } from "@/lib/domain/nutrition";
-import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, normalizeDietType } from "@/lib/domain/profile-options";
+import { FOOD_SOURCE_OPTIONS, LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, NUTRITION_FOCUS_OPTIONS, normalizeDietType } from "@/lib/domain/profile-options";
+import { normalizePreferences, normalizeProfile, targetsFor } from "@/lib/domain/user-context";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { isCountedSession, loadLibraryMuscles, regionsTrained, summariseMuscles, type LoggedSession } from "@/lib/training/muscle-history";
@@ -57,6 +57,12 @@ export type MemberFacts = {
   sessionMinutes: number;
   split: string;
   recentMuscles: string[];
+  /** Whether the summary carries where meals come from and the nutrition goal (FOOD_HABITS_IN_SUMMARY). */
+  foodHabitsShared: boolean;
+  /** "Home-cooked", "Outside food" or "Both", when answered. */
+  foodSource: string | null;
+  /** "High protein", "Balanced diet" or "No specific preference", when answered. */
+  nutritionGoal: string | null;
 };
 
 export type CoachContext = { facts: MemberFacts; summary: Record<string, unknown> };
@@ -99,8 +105,23 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     }
   };
 
+  /** The newer single-row query, or the older one when the database does not have its column yet. */
+  const oneWithFallback = async (newer: () => PromiseLike<{ data: unknown; error: unknown }>, older: () => PromiseLike<{ data: unknown; error: unknown }>) => {
+    try {
+      const result = await newer();
+      if (!result.error) return one(Promise.resolve(result));
+      return isMissingColumnError(result.error) ? one(older()) : null;
+    } catch {
+      return null;
+    }
+  };
+
   const basics = Promise.all([
-    one(supabase.from("profiles").select("age, gender, height, weight, target_weight, experience").eq("id", userId).maybeSingle()),
+    // The birth date (onboarding v3) keeps the age current; before that migration the stored age is used.
+    oneWithFallback(
+      () => supabase.from("profiles").select("age, date_of_birth, gender, height, weight, target_weight, experience").eq("id", userId).maybeSingle(),
+      () => supabase.from("profiles").select("age, gender, height, weight, target_weight, experience").eq("id", userId).maybeSingle(),
+    ),
     one(supabase.from("user_preferences").select("*").eq("user_id", userId).maybeSingle()),
   ]);
   if (!options.full) {
@@ -184,13 +205,27 @@ async function recentMusclesFrom(supabase: Db, userId: string, sessions: Array<{
   return regionsTrained(summariseMuscles(logged, { start: new Date(since), end: null }));
 }
 
-export function buildCoachContext(sources: ContextSources, now = new Date()): CoachContext {
+/**
+ * Where meals come from and the nutrition goal (onboarding v3) go to the coach only once the privacy page's AI
+ * coach section names them ("where your meals come from" and "your nutrition goal"): turn this on with that edit.
+ * Until then they shape the quick prompts on the coach page and, through the daily targets, the protein target.
+ */
+export const FOOD_HABITS_IN_SUMMARY = false;
+
+const labelOf = (options: readonly { value: string; label: string }[], value: string | null) => options.find((option) => option.value === value)?.label ?? null;
+
+export function buildCoachContext(sources: ContextSources, now = new Date(), options: { foodHabits?: boolean } = {}): CoachContext {
   const prefs = sources.preferences ?? {};
   const profile = sources.profile ?? {};
   const timeZone = validTimeZone(text(prefs.timezone)) ?? "UTC";
   const today = localDate(now, timeZone);
+  // Profile's own readers (user-context.ts): the age comes from the birth date when there is one, on the
+  // member's own calendar day, so it is right on their birthday.
+  const memberProfile = normalizeProfile(sources.profile, new Date(`${today}T12:00:00`));
+  const memberPrefs = normalizePreferences(sources.preferences).values;
+  const answered = (key: string) => prefs[key] !== null && prefs[key] !== undefined && prefs[key] !== "";
 
-  const age = integer(profile.age, 13, 100);
+  const age = integer(memberProfile?.age ?? null, 13, 100);
   const minor = age !== null && age < 18;
   const adult = age !== null && age >= 18;
   const sex = profile.gender === "male" || profile.gender === "female" ? profile.gender : null;
@@ -201,8 +236,8 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const goal = text(prefs.primary_goal) ?? "general_fitness";
   const activity = text(prefs.activity_level) ?? "moderate";
   const floor = calorieFloor(sex);
-  // The shared target rules (they also cover weight_gain and weight_loss once onboarding v2 lands).
-  const estimated = minor ? null : estimateNutritionTargets({ age, gender: sex, height, weight }, activity, goal);
+  // The shared target rules, as Home and Nutrition work them out (targetsFor: goal, activity and nutrition goal).
+  const estimated = minor || !memberProfile ? null : targetsFor({ ...memberProfile, age, gender: sex, height }, memberPrefs, weight);
   const target = estimated ? { ...estimated, calories: Math.max(estimated.calories, floor) } : null;
 
   // Onboarding v2 keeps the diet in diet_type plus food_rules. The first onboarding's labels
@@ -215,6 +250,9 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
   const allergies = allergyRulesFrom([...list(prefs.allergies), ...list(prefs.other_allergies)]);
   const budget = budgetText(prefs);
   const equipment = [...new Set(list(prefs.equipment).map((item) => normalizeEquipment(String(item))).filter(Boolean))].slice(0, 20);
+  const foodHabits = options.foodHabits ?? FOOD_HABITS_IN_SUMMARY;
+  const foodSource = answered("food_source") ? labelOf(FOOD_SOURCE_OPTIONS, memberPrefs.food_source) : null;
+  const nutritionGoal = answered("nutrition_focus") ? labelOf(NUTRITION_FOCUS_OPTIONS, memberPrefs.nutrition_focus) : null;
 
   const facts: MemberFacts = {
     age,
@@ -235,6 +273,9 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
     sessionMinutes: integer(prefs.session_duration_minutes, 15, 180) ?? 45,
     split: text(prefs.workout_split) ?? "full_body",
     recentMuscles: sources.recentMuscles.slice(0, 12),
+    foodHabitsShared: foodHabits,
+    foodSource,
+    nutritionGoal,
   };
 
   const summary: Record<string, unknown> = {
@@ -267,6 +308,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
       cuisines: shortList(prefs.cuisines, 6, 30).map(humanize),
       dislikes: shortList(prefs.food_dislikes ?? prefs.disliked_foods, 10, 30),
       prefers_low_carb: list(prefs.food_rules).includes("low_carb") || legacyRules.some((item) => /low.?carb/i.test(String(item))) || null,
+      ...(foodHabits ? { food_source: foodSource, nutrition_goal: nutritionGoal } : {}),
     }),
     daily_targets: target ? { ...target, basis: "FITX estimate from age, height, weight, sex, activity and goal" } : null,
     nutrition: nutritionSummary(sources.meals, today),
@@ -287,7 +329,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
       .map((goalRow) => compact({
         title: cleanText(goalRow.title, 80),
         category: cleanText(goalRow.category, 20),
-        progress: `${round1(Number(goalRow.current_value ?? 0))} of ${round1(Number(goalRow.target_value ?? 0))}${goalRow.unit ? ` ${cleanText(goalRow.unit, 12)}` : ""}`,
+        progress: goalProgressText(goalRow),
         due: dateOnly(goalRow.due_on),
       })),
     next_7_days: {
@@ -296,6 +338,14 @@ export function buildCoachContext(sources: ContextSources, now = new Date()): Co
     },
   };
   return { facts, summary };
+}
+
+/** "1 of 4 kg"; an unknown value is said to be unknown, never counted as 0. */
+function goalProgressText(goal: ContextSources["goals"][number]): string | null {
+  const known = (value: unknown) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+  if (!known(goal.target_value)) return null;
+  const unit = goal.unit ? ` ${cleanText(goal.unit, 12) ?? ""}`.trimEnd() : "";
+  return `${known(goal.current_value) ? round1(Number(goal.current_value)) : "unknown"} of ${round1(Number(goal.target_value))}${unit}`;
 }
 
 function nutritionSummary(meals: ContextSources["meals"], today: string) {
@@ -320,6 +370,8 @@ function nutritionSummary(meals: ContextSources["meals"], today: string) {
       }
     : null;
   const todayTotal = byDay.get(today);
+  // A food logged without a calorie or protein value is left out of the totals, and the summary says how many.
+  const missing = (field: "calories" | "protein") => inWeek.filter((meal) => meal[field] === null || meal[field] === undefined).length;
   const counts = new Map<string, number>();
   for (const meal of inWeek) {
     const name = cleanText(meal.food_name, 40);
@@ -331,7 +383,9 @@ function nutritionSummary(meals: ContextSources["meals"], today: string) {
     by_day: logged.map(([date, day]) => ({ date, kcal: Math.round(day.calories), protein_g: round1(day.protein) })),
     today: todayTotal
       ? { kcal: Math.round(todayTotal.calories), protein_g: round1(todayTotal.protein), carbs_g: round1(todayTotal.carbs), fat_g: round1(todayTotal.fat), items_logged: inWeek.filter((meal) => meal.date === today).length }
-      : { kcal: 0, items_logged: 0 },
+      : { items_logged: 0 },
+    ...(missing("calories") ? { foods_without_calories: missing("calories") } : {}),
+    ...(missing("protein") ? { foods_without_protein: missing("protein") } : {}),
     most_logged_foods: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name]) => name),
   };
 }

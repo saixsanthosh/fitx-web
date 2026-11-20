@@ -54,7 +54,7 @@ export function ConsentPanel({
           <p className="text-xs font-semibold uppercase tracking-[.14em] text-fitx-primary-text">FITX Coach</p>
           <h2 id="coach-consent-title" className="mt-2 text-[24px] font-bold leading-tight tracking-[-.03em] text-fitx-text sm:text-[28px]">Coaching built on your own numbers</h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-fitx-text-secondary">
-            The coach uses free AI services to answer your questions. FITX checks every food it suggests against its nutrition data, and every exercise against its exercise library.
+            Free AI services answer. FITX checks every food against its nutrition data and every exercise against its library.
           </p>
           <ul className="mt-5 grid gap-3 sm:grid-cols-3">
             {[

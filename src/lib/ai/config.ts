@@ -17,8 +17,10 @@ import type { ProviderId } from "./types";
  *   AI_GEMINI_MODELS, AI_GROQ_MODELS, AI_OPENROUTER_MODELS
  *                        optional comma-separated model lists that replace the defaults in registry.ts.
  *   OLLAMA_BASE_URL, OLLAMA_MODEL
- *                        local development only: an Ollama server on this machine (http://127.0.0.1:11434).
- *                        Ignored on Vercel (any environment) and for any host other than localhost.
+ *                        optional: an Ollama server the owner runs. An https:// address works everywhere; a
+ *                        localhost address (http://127.0.0.1:11434) only outside Vercel, for development. Any
+ *                        other address is ignored. Only ever read from the server's environment: never from a
+ *                        member, a request or the database.
  */
 export type AiConfig = {
   enabled: boolean;
@@ -27,7 +29,8 @@ export type AiConfig = {
   geminiWithMemberData: boolean;
   keys: Partial<Record<ProviderId, string>>;
   models: Partial<Record<ProviderId, string[]>>;
-  ollama: { baseUrl: string; model: string } | null;
+  /** "local": this computer (development); "remote": an https server the owner runs. */
+  ollama: { baseUrl: string; model: string; kind: "local" | "remote" } | null;
   /** Sent to OpenRouter as the HTTP-Referer it asks apps to identify themselves with. */
   siteUrl: string;
 };
@@ -63,7 +66,7 @@ export function readAiConfig(env: Env = process.env): AiConfig {
     geminiWithMemberData: ON.has((env.AI_GEMINI_WITH_MEMBER_DATA ?? "").trim().toLowerCase()),
     keys,
     models,
-    ollama: localOllama(env),
+    ollama: ollamaFrom(env),
     siteUrl: siteUrl(env),
   };
 }
@@ -81,23 +84,38 @@ function modelList(value: string | undefined) {
     .slice(0, 6);
 }
 
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
 /**
- * Ollama runs on a developer's own machine. A Vercel function cannot reach that machine ("localhost"
- * there is the function itself), so on Vercel it is always ignored, and only a localhost URL is used.
+ * Ollama is optional and comes only from the server's own environment. An https:// address (a server the owner
+ * runs and keeps private) is used anywhere. A localhost address is the developer's own machine, which a Vercel
+ * function cannot reach ("localhost" there is the function itself), so it is used only outside Vercel. Plain
+ * http to any other host, addresses with a user name or password, a query or a fragment are refused.
  */
-function localOllama(env: Env) {
+function ollamaFrom(env: Env): AiConfig["ollama"] {
   const raw = (env.OLLAMA_BASE_URL ?? "").trim();
-  if (!raw || env.VERCEL || env.VERCEL_ENV) return null;
+  if (!raw) return null;
+  const model = (env.OLLAMA_MODEL ?? "").trim();
+  if (!/^[A-Za-z0-9._:/-]{1,120}$/.test(model)) return null;
+  let url: URL;
   try {
-    const url = new URL(raw);
-    if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^https?:$/.test(url.protocol)) return null;
-    const path = url.pathname.replace(/\/+$/, "");
-    const model = (env.OLLAMA_MODEL ?? "").trim();
-    if (!/^[A-Za-z0-9._:/-]{1,120}$/.test(model)) return null;
-    return { baseUrl: `${url.origin}${path.endsWith("/v1") ? path : `${path}/v1`}`, model };
+    url = new URL(raw);
   } catch {
     return null;
   }
+  if (url.username || url.password || url.search || url.hash) return null;
+  const local = LOCAL_HOSTS.has(url.hostname);
+  const onVercel = Boolean(env.VERCEL || env.VERCEL_ENV);
+  let kind: "local" | "remote";
+  if (local) {
+    if (onVercel || !/^https?:$/.test(url.protocol)) return null;
+    kind = "local";
+  } else {
+    if (url.protocol !== "https:") return null;
+    kind = "remote";
+  }
+  const path = url.pathname.replace(/\/+$/, "");
+  return { baseUrl: `${url.origin}${path.endsWith("/v1") ? path : `${path}/v1`}`, model, kind };
 }
 
 function siteUrl(env: Env) {

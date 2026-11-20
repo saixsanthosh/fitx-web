@@ -263,13 +263,26 @@ export function normalizePreferences(row: Row | null | undefined): { values: Pre
   };
 }
 
-/** Daily targets from the profile, the latest weight and the goal (null until the body details exist). */
+/**
+ * calculateNutritionTargets with its fourth argument, the nutrition goal ("High protein" raises protein to the top
+ * of the goal's range). Typed here so this compiles whether or not that argument has landed in nutrition.ts yet;
+ * until it has, the extra argument is ignored and the standard target is used.
+ */
+const calculateWithFocus: (
+  profile: Parameters<typeof calculateNutritionTargets>[0],
+  activityLevel?: string | null,
+  goal?: string | null,
+  focus?: NutritionFocus | null,
+) => NutritionTargets | null = calculateNutritionTargets;
+
+/** Daily targets from the profile, the latest weight, the goal and the nutrition goal (null until the body details exist). */
 export function targetsFor(profile: ProfileValues | null, preferences: PreferenceValues, weightKg: number | null) {
   if (!profile) return null;
-  return calculateNutritionTargets(
+  return calculateWithFocus(
     { age: profile.age, gender: profile.gender, height: profile.height, weight: weightKg },
     preferences.activity_level,
     preferences.primary_goal,
+    preferences.nutrition_focus,
   );
 }
 
