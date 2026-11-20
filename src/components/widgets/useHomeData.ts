@@ -227,12 +227,15 @@ export function useDashboardLayout() {
           const result = await saveDashboardLayout(db, userId, next);
           if (result === "unavailable") { canSave.current = false; setSave("unavailable"); break; }
           saved.current = next;
-          setSave("saved");
+          // A change made while this request ran is sent next; until then the panel keeps "Saving…".
+          if (wanted.current && sameLayout(next, wanted.current)) setSave("saved");
         } catch {
           setSave("error");
           break;
         }
       }
+      // A change that put the arrangement back as it was saved needs no request.
+      if (wanted.current && saved.current && sameLayout(saved.current, wanted.current)) setSave((current) => (current === "saving" ? "saved" : current));
     } finally {
       saving.current = false;
     }
@@ -241,7 +244,6 @@ export function useDashboardLayout() {
   useEffect(() => {
     if (state.status !== "ready" || !items.length) return;
     wanted.current = items;
-    if (saved.current && sameLayout(saved.current, items)) return;
     const timer = setTimeout(() => void flush(), 450);
     return () => clearTimeout(timer);
   }, [items, flush, state.status]);
@@ -249,7 +251,14 @@ export function useDashboardLayout() {
   // Leaving Home within the short wait still saves the last change.
   useEffect(() => () => { void flush(); }, [flush]);
 
-  const act = useCallback((action: LayoutAction) => dispatch(action), []);
+  // "Saved" only while the database has what is on screen: a change shows "Saving…" from the moment it is
+  // made, not only once the short wait ends, so a reload in between never follows a "Saved".
+  // An action that changes nothing (Move up at the top) never reaches the effect, so a flush settles it too.
+  const act = useCallback((action: LayoutAction) => {
+    if (canSave.current) setSave((current) => (current === "unavailable" ? current : "saving"));
+    dispatch(action);
+    setTimeout(() => void flush(), 500);
+  }, [flush]);
 
   /**
    * Answers the new-widgets hint once: "add" shows them (the layout then saves as usual); "dismiss" saves the
