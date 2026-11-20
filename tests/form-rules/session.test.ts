@@ -56,8 +56,10 @@ test("a paused plank keeps its time and adds nothing while paused", () => {
 test("the summary holds only counts and cue labels, never body positions", () => {
   const plan: RepPlan = { from: 170, depths: [80, 125, 80], repMs: 1500 };
   const result = play(createCoachSession(pushUpRule), sequence(planDuration(plan), (t) => pushUp(repValueAt(plan, t))));
-  assert.deepEqual(Object.keys(result.summary).sort(), ["activeSeconds", "cleanReps", "cues", "exerciseId", "holdSeconds", "kind", "partials", "positionSeconds", "reps", "unclearSeconds"]);
+  assert.deepEqual(Object.keys(result.summary).sort(), ["activeSeconds", "cleanReps", "cues", "exerciseId", "holdSeconds", "kind", "partials", "positionSeconds", "repLog", "reps", "unclearSeconds"]);
   assert.deepEqual(result.summary.cues.map((cue) => Object.keys(cue).sort()), [["count", "id", "text"]]);
+  // Form per rep: whether each counted rep was clean, and the cue ids raised during it.
+  assert.deepEqual(result.summary.repLog, [{ clean: true, cues: [] }, { clean: true, cues: [] }]);
   const json = JSON.stringify(result.summary);
   assert.doesNotMatch(json, /"(x|y|z|visibility|points|landmarks)"/);
   assert.equal(result.summary.reps, 2);

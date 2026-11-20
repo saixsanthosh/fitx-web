@@ -73,6 +73,8 @@ export interface CoachSummary {
   unclearSeconds: number;
   /** Form cues raised, most frequent first. */
   cues: Array<{ id: string; text: string; count: number }>;
+  /** Every counted rep in order: clean, or the ids of the cues raised during it (holds: empty). */
+  repLog: Array<{ clean: boolean; cues: string[] }>;
 }
 
 export interface CoachSessionOptions {
@@ -115,7 +117,7 @@ export const SIDEWAYS_HINT = "Stand the phone on its side. If the screen doesn't
  * Smoothing works in these units, so one setting suits every measurement: angles in degrees,
  * ratios in hundredths. (A foot-spread ratio moving 8/s must lag as little as an angle moving 500°/s.)
  */
-const SMOOTHING_UNIT: Record<MetricSpec["kind"], number> = { angle: 1, tilt: 1, lineOffset: 0.01, rise: 0.01, spread: 0.01 };
+const SMOOTHING_UNIT: Record<MetricSpec["kind"], number> = { angle: 1, tilt: 1, lineOffset: 0.01, rise: 0.01, spread: 0.01, level: 0.01 };
 
 const PART: Record<Joint, string> = {
   ear: "head", shoulder: "shoulders", elbow: "elbows", wrist: "hands", hip: "hips", knee: "knees", ankle: "feet", heel: "feet", foot: "feet",
@@ -156,6 +158,7 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
   let maxProgress = 0;
   let lowestOnReturn = 1;
   let repFaults = new Set<string>();
+  const repLog: Array<{ clean: boolean; cues: string[] }> = [];
   let postureLostSince: number | null = null;
 
   // Hold state.
@@ -324,6 +327,7 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
           reps += 1;
           const clean = repFaults.size === 0;
           if (clean) cleanReps += 1;
+          repLog.push({ clean, cues: [...repFaults] });
           events.push({ type: "rep", reps, clean });
         }
         phase = "start";
@@ -463,6 +467,7 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
       cues: [...cueCounts.entries()]
         .map(([id, count]) => ({ id, text: texts.get(id) ?? id, count }))
         .sort((a, b) => b.count - a.count),
+      repLog: repLog.map((rep) => ({ clean: rep.clean, cues: [...rep.cues] })),
     };
   }
 

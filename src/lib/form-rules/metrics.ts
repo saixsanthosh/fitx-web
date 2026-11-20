@@ -130,6 +130,16 @@ function measure(spec: MetricSpec, side: Side, seen: (joint: Joint, side: Side) 
         const upper = seen(spec.upper, s);
         return lower && upper ? finite(riseAbove(lower, upper, distance(lower, upper))) : undefined;
       }
+      case "level": {
+        const point = seen(spec.point, s);
+        const base = seen(spec.base, s);
+        const from = seen(spec.scale[0], s);
+        const to = seen(spec.scale[1], s);
+        if (!point || !base || !from || !to) return undefined;
+        const length = distance(from, to);
+        // A scale segment seen end-on says nothing about size.
+        return length > 0.01 ? finite(riseAbove(base, point, length)) : undefined;
+      }
     }
   };
   if (spec.side === "visible") return one(side);

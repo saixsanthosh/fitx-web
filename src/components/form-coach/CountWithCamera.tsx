@@ -82,7 +82,7 @@ function CameraCountSheet({ rule, target, setLabel, onClose, onUse }: { rule: Ex
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown} className="fixed inset-0 z-[65] overflow-y-auto bg-fitx-bg text-fitx-text">
-      <div className="mx-auto w-full max-w-3xl px-4 pb-10 pt-[max(env(safe-area-inset-top),16px)] sm:px-6 sm:pt-8">
+      <div className="mx-auto w-full max-w-6xl px-4 pb-10 pt-[max(env(safe-area-inset-top),16px)] sm:px-6 sm:pt-8">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id={titleId} className="text-lg font-semibold tracking-tight">Count with camera</h2>
           <button ref={closeButton} type="button" onClick={onClose} aria-label="Close without using a count" className="grid h-11 w-11 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary transition-colors hover:bg-fitx-hover hover:text-fitx-text">

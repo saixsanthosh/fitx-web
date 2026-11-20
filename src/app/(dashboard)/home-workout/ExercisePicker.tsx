@@ -1,44 +1,71 @@
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
-import { ExerciseGlyph } from "@/components/form-coach/ExerciseGlyph";
-import { EXERCISE_RULES } from "@/lib/form-rules/catalog";
-import { HOME_WORKOUT } from "@/config/routes";
+"use client";
 
-/** The six exercises the camera can coach. Plain links, so it renders on the server too. */
+import Image from "next/image";
+import Link from "next/link";
+import { useState } from "react";
+import { ArrowUpRight } from "lucide-react";
+import { ExerciseGlyph } from "@/components/form-coach/ExerciseGlyph";
+import { Chip, ChipGroup } from "@/components/ui/Chip";
+import { HOME_WORKOUT } from "@/config/routes";
+import type { ExerciseGroup } from "@/lib/home-workout/catalog";
+import { exerciseFacts, GROUP_LABELS, GROUP_ORDER, HOME_EXERCISES } from "@/lib/home-workout/catalog";
+import styles from "./home-workout.module.css";
+
+type Filter = ExerciseGroup | "all";
+
+/** Every camera exercise as a poster card, filterable by body area. Plain links, so the exercise is in the address. */
 export function ExercisePicker() {
+  const [filter, setFilter] = useState<Filter>("all");
+  const shown = HOME_EXERCISES.filter((exercise) => filter === "all" || exercise.group === filter);
+
   return (
-    <section aria-labelledby="coach-pick-title">
-      <h2 id="coach-pick-title" className="text-sm font-semibold text-fitx-text">Choose an exercise</h2>
-      <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {EXERCISE_RULES.map((rule) => (
-          <li key={rule.id}>
-            <Link
-              href={`${HOME_WORKOUT}?exercise=${rule.id}`}
-              scroll={false}
-              className="fitx-panel group flex h-full items-start gap-4 p-4 hover:border-fitx-primary/50 focus-visible:border-fitx-primary/60"
-            >
-              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-fitx-surface-variant text-fitx-primary">
-                <ExerciseGlyph id={rule.id} className="h-10 w-10" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-base font-semibold tracking-tight text-fitx-text">{rule.name}</span>
-                  <ChevronRight size={17} className="shrink-0 text-fitx-text-disabled transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+    <section id="exercises" aria-labelledby="coach-pick-title" className="scroll-mt-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <h2 id="coach-pick-title" className="font-heading text-2xl font-bold tracking-[-.03em] text-fitx-text">Exercises</h2>
+        <ChipGroup label="Show exercises for">
+          {(["all", ...GROUP_ORDER] as const).map((value) => (
+            <Chip key={value} selected={filter === value} onClick={() => setFilter(value)}>
+              {value === "all" ? "All" : GROUP_LABELS[value]}
+            </Chip>
+          ))}
+        </ChipGroup>
+      </div>
+      <ul className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">
+        {shown.map((exercise, index) => {
+          const facts = exerciseFacts(exercise.rule);
+          return (
+            <li key={exercise.id}>
+              <Link href={`${HOME_WORKOUT}?exercise=${exercise.id}`} className={`${styles.card} fitx-inverse aspect-[4/5] text-fitx-text`}>
+                <Image
+                  src={exercise.poster.src}
+                  alt=""
+                  fill
+                  sizes="(min-width: 1280px) 22vw, (min-width: 768px) 30vw, 46vw"
+                  placeholder="blur"
+                  blurDataURL={exercise.poster.blurDataURL}
+                  priority={index < 2}
+                  className="object-cover"
+                />
+                <span className={styles.shade} aria-hidden="true" />
+                <span className={`${styles.glyph} absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-fitx-bg/70 text-fitx-text backdrop-blur-sm`} aria-hidden="true">
+                  <ArrowUpRight size={18} />
                 </span>
-                <span className="mt-1 flex flex-wrap gap-1.5">
-                  <Chip>{rule.view === "side" ? "Side-on to camera" : "Facing camera"}</Chip>
-                  <Chip>{rule.motion.kind === "hold" ? "Timed hold" : "Rep count"}</Chip>
+                <span className="absolute inset-x-0 bottom-0 flex items-end gap-2.5 p-3 sm:p-4">
+                  <span className="hidden h-11 w-11 shrink-0 place-items-center rounded-xl border border-fitx-border bg-fitx-bg/60 backdrop-blur-sm sm:grid" aria-hidden="true">
+                    <ExerciseGlyph id={exercise.id} className="h-8 w-8" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block font-heading text-base font-bold leading-tight tracking-tight sm:text-lg">{exercise.rule.name}</span>
+                    <span className="mt-0.5 block truncate text-xs text-fitx-text-secondary">
+                      {facts.counting} · {exercise.equipment ?? facts.facing}
+                    </span>
+                  </span>
                 </span>
-                <span className="mt-2 block text-sm leading-6 text-fitx-text-secondary">{rule.checks}</span>
-              </span>
-            </Link>
-          </li>
-        ))}
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
-}
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return <span className="rounded-full bg-fitx-surface-variant px-2 py-0.5 text-[11px] font-medium text-fitx-text-secondary">{children}</span>;
 }

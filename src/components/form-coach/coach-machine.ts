@@ -18,6 +18,8 @@ import type { CaptureProfile, ModelVariant, PerformanceAdvice } from "@/lib/pose
 import { FrameGovernor, initialProfile, readDeviceHints } from "@/lib/pose/performance";
 import type { FrameSize } from "./video-size";
 import { videoSize, watchVideoSize } from "./video-size";
+import { captionFor, isSpokenWait, SPEAK_WAITING_AFTER_MS } from "@/lib/home-workout/captions";
+import type { VoiceGender } from "./voice";
 import { CoachVoice } from "./voice";
 
 export type { FrameSize } from "./video-size";
@@ -43,6 +45,8 @@ export interface CoachUi {
   video(): HTMLVideoElement | null;
   canvas(): HTMLCanvasElement | null;
   meter(): HTMLElement | null;
+  /** Each analysed frame's landmarks, for the live figure (never stored or sent anywhere). */
+  pose?(points: readonly PosePoint[] | null, aspect: number, mirrored: boolean, side: Side | null): void;
 }
 
 type VideoWithFrames = HTMLVideoElement & {
@@ -75,6 +79,9 @@ interface Run {
   swapping: boolean;
   /** Counting has run at least once, so this run holds counts worth keeping. */
   everRan: boolean;
+  mirrored: boolean;
+  /** The waiting instruction on screen, since when, and whether it has been said. */
+  wait: { headline: string; since: number; spoken: boolean };
 }
 
 const SLOW_DEVICE_NOTICE = "This device is analysing the camera slowly, so quick reps may be missed. Good light and closing other apps help.";
@@ -123,10 +130,11 @@ export class CoachMachine {
     this.voice = new CoachVoice(false);
   }
 
-  async start(rule: ExerciseRule, voice: boolean): Promise<void> {
+  async start(rule: ExerciseRule, voice: boolean, gender: VoiceGender = this.voice.gender): Promise<void> {
     this.stopAll();
     const generation = ++this.generation;
     this.voice.enabled = voice;
+    this.voice.gender = gender;
     this.voice.prime();
     const profile = initialProfile(readDeviceHints());
     const run: Run = {
@@ -152,6 +160,8 @@ export class CoachMachine {
       stopWatchingSize: null,
       swapping: false,
       everRan: false,
+      mirrored: true,
+      wait: { headline: "", since: 0, spoken: false },
     };
     this.run = run;
     this.ui.setSnapshot(null);
@@ -292,7 +302,8 @@ export class CoachMachine {
     if (settings?.deviceId) run.deviceId = settings.deviceId;
     if (settings?.facingMode === "environment" || settings?.facingMode === "user") run.facing = settings.facingMode;
     // Selfie cameras (and desktop webcams, which report no facing) are shown mirrored, like a mirror.
-    this.ui.setMirrored(settings?.facingMode !== "environment");
+    run.mirrored = settings?.facingMode !== "environment";
+    this.ui.setMirrored(run.mirrored);
     track?.addEventListener("ended", () => {
       if (this.run === run && run.stream === stream && this.stage === "running") this.pause(run, "camera-ended");
     });
@@ -425,6 +436,7 @@ export class CoachMachine {
     run.governor.record(now, done - now);
     const snapshot = run.session.update({ t: timestamp, points, aspect: video.videoWidth / video.videoHeight });
     this.draw(run, video, points, snapshot.side);
+    this.ui.pose?.(points, video.videoWidth / video.videoHeight, run.mirrored, snapshot.side);
     const meter = this.ui.meter();
     if (meter) meter.style.transform = `scaleY(${snapshot.progress ?? 0})`;
     this.react(run, snapshot);
@@ -460,6 +472,18 @@ export class CoachMachine {
         this.voice.cue("Rep not counted");
         this.ui.announce("Lost sight of you, so that rep wasn't counted.");
       }
+    }
+    // Waiting instructions ("Step into view", "Move back") are said once they have lasted a moment,
+    // so the voice says what the caption shows.
+    const caption = captionFor(snapshot);
+    if (isSpokenWait(caption)) {
+      if (caption.headline !== run.wait.headline) run.wait = { headline: caption.headline, since: snapshot.t, spoken: false };
+      else if (!run.wait.spoken && snapshot.t - run.wait.since >= SPEAK_WAITING_AFTER_MS) {
+        run.wait.spoken = true;
+        this.voice.cue(caption.headline);
+      }
+    } else {
+      run.wait = { headline: "", since: snapshot.t, spoken: false };
     }
     if (run.rule.motion.kind === "hold") {
       const tens = Math.floor(snapshot.holdMs / 10_000);
@@ -591,6 +615,7 @@ export class CoachMachine {
     }
     const canvas = this.ui.canvas();
     canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    this.ui.pose?.(null, 1, run.mirrored, null);
   }
 
   private async holdWakeLock(run: Run) {

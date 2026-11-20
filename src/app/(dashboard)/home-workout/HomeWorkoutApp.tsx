@@ -1,0 +1,123 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { recordHref } from "@/app/(dashboard)/workouts/history/_lib/session-record";
+import { FormCoach } from "@/components/form-coach/FormCoach";
+import { HOME_WORKOUT } from "@/config/routes";
+import type { CoachSummary } from "@/lib/form-rules/session";
+import { homeExercise } from "@/lib/home-workout/catalog";
+import type { LoggedSet } from "@/lib/home-workout/log";
+import { readSets, setFromSummary, writeSets } from "@/lib/home-workout/log";
+import type { SaveDb } from "@/lib/home-workout/save";
+import { buildWorkoutRecord, saveWorkoutRecord } from "@/lib/home-workout/save";
+import { createClient } from "@/lib/supabase/client";
+import { ExercisePicker } from "./ExercisePicker";
+import { HomeFacts } from "./HomeFacts";
+import { HomeWorkoutHero } from "./HomeWorkoutHero";
+import type { SaveState } from "./TodaySets";
+import { TodaySets } from "./TodaySets";
+
+const session = () => {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Home workout: the exercise list, or one exercise (kept in the address, so it can be linked to)
+ * from its demonstration to the camera and its results. Finished sets collect under Today until
+ * they are saved to workout history.
+ */
+export function HomeWorkoutApp() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const exercise = homeExercise(params.get("exercise"));
+  const [sets, setSets] = useState<LoggedSet[]>([]);
+  const [save, setSave] = useState<SaveState>({ status: "idle" });
+  /** The number under Today of the set just finished, or null when nothing was counted. */
+  const [lastLogged, setLastLogged] = useState<number | null>(null);
+
+  // Today's unsaved sets come back after a reload (this tab only).
+  useEffect(() => {
+    const stored = readSets(session(), Date.now());
+    if (stored.length) void Promise.resolve().then(() => setSets(stored));
+  }, []);
+
+  const update = useCallback((next: (current: LoggedSet[]) => LoggedSet[]) => {
+    setSets((current) => {
+      const value = next(current);
+      writeSets(session(), value, Date.now());
+      return value;
+    });
+  }, []);
+
+  const onFinished = useCallback((summary: CoachSummary) => {
+    const rule = homeExercise(summary.exerciseId);
+    if (!rule) return;
+    const now = Date.now();
+    const set = setFromSummary(summary, rule.rule.name, now, `${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`);
+    if (!set) {
+      setLastLogged(null);
+      return;
+    }
+    setSave({ status: "idle" });
+    update((current) => {
+      setLastLogged(current.length + 1);
+      return [...current, set];
+    });
+  }, [update]);
+
+  const onSave = async () => {
+    const record = buildWorkoutRecord(sets, (id) => homeExercise(id)?.rule.libraryIds[0] ?? null);
+    if (!record) return;
+    const db = createClient();
+    if (!db) {
+      setSave({ status: "error", message: "Saving isn’t available right now." });
+      return;
+    }
+    setSave({ status: "saving" });
+    const { data } = await db.auth.getUser();
+    if (!data.user) {
+      setSave({ status: "error", message: "Sign in again to save your workout." });
+      return;
+    }
+    const outcome = await saveWorkoutRecord(db as unknown as SaveDb, data.user.id, record);
+    if (!outcome.ok) {
+      setSave({ status: "error", message: outcome.message });
+      return;
+    }
+    update(() => []);
+    setSave({ status: "saved", href: recordHref(outcome.sessionId) });
+  };
+
+  const today = <TodaySets sets={sets} save={save} onSave={() => void onSave()} onRemove={(id) => update((current) => current.filter((set) => set.id !== id))} />;
+
+  if (!exercise) {
+    return (
+      <div className="space-y-6 sm:space-y-8">
+        <HomeWorkoutHero />
+        <HomeFacts />
+        {today}
+        <ExercisePicker />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <h1 className="sr-only">Home workout</h1>
+      <FormCoach
+        key={exercise.id}
+        rule={exercise.rule}
+        mode="practice"
+        onChangeExercise={() => router.push(HOME_WORKOUT, { scroll: true })}
+        onFinished={onFinished}
+        setNote={lastLogged ? `Kept under Today as set ${lastLogged}. Save the workout when you’re done.` : null}
+      />
+      {today}
+    </div>
+  );
+}

@@ -7,8 +7,12 @@ import type { Condition, PhaseSpec } from "@/lib/form-rules/types";
 
 const MIGRATIONS = path.resolve(import.meta.dirname, "../../supabase/migrations");
 
-test("the six camera exercises are listed in order", () => {
-  assert.deepEqual(EXERCISE_RULES.map((rule) => rule.id), ["push_up", "bodyweight_squat", "split_squat", "glute_bridge", "plank", "jumping_jack"]);
+test("the fourteen camera exercises are listed in order", () => {
+  assert.deepEqual(EXERCISE_RULES.map((rule) => rule.id), [
+    "push_up", "bodyweight_squat", "split_squat", "glute_bridge", "plank", "jumping_jack",
+    "reverse_lunge", "high_knees", "mountain_climber", "side_plank", "wall_sit", "superman", "shoulder_press", "biceps_curl",
+  ]);
+  assert.equal(new Set(EXERCISE_RULES.map((rule) => rule.id)).size, EXERCISE_RULES.length);
 });
 
 test("every condition, cue and progress bar reads a metric the rule defines", () => {
@@ -76,7 +80,17 @@ test("workout exercises map to camera rules by library id or by name", () => {
   assert.equal(cameraRuleFor({ name: "push ups" })?.id, "push_up");
   assert.equal(cameraRuleFor({ name: "Air Squats" })?.id, "bodyweight_squat");
   assert.equal(cameraRuleFor({ id: "free-exercise-db-Bodyweight_Squat" })?.id, "bodyweight_squat");
-  assert.equal(cameraRuleFor({ name: "Reverse lunge" })?.id, "split_squat");
+  assert.equal(cameraRuleFor({ name: "Reverse lunge" })?.id, "reverse_lunge");
+  assert.equal(cameraRuleFor({ name: "Static lunge" })?.id, "split_squat");
+  assert.equal(cameraRuleFor({ name: "Mountain Climbers" })?.id, "mountain_climber");
+  assert.equal(cameraRuleFor({ id: "free-exercise-db-Mountain_Climbers" })?.id, "mountain_climber");
+  assert.equal(cameraRuleFor({ name: "High knees" })?.id, "high_knees");
+  assert.equal(cameraRuleFor({ name: "Side plank" })?.id, "side_plank");
+  assert.equal(cameraRuleFor({ name: "Wall sit" })?.id, "wall_sit");
+  assert.equal(cameraRuleFor({ name: "Superman" })?.id, "superman");
+  assert.equal(cameraRuleFor({ id: "dumbbell_shoulder_press", name: "Dumbbell Shoulder Press" })?.id, "shoulder_press");
+  assert.equal(cameraRuleFor({ id: "biceps_curl", name: "Biceps Curl" })?.id, "biceps_curl");
+  assert.equal(cameraRuleFor({ name: "Dumbbell Bicep Curl" })?.id, "biceps_curl");
   assert.equal(cameraRuleFor({ id: "free-exercise-db-Butt_Lift_Bridge", name: "Butt Lift (Bridge)" })?.id, "glute_bridge");
   assert.equal(cameraRuleFor({ id: "plank", name: "Front Plank" })?.id, "plank");
   assert.equal(cameraRuleFor({ name: "Star jumps" })?.id, "jumping_jack");

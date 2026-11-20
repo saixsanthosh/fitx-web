@@ -1,5 +1,5 @@
 /**
- * Camera form coach: on-device rep counting and posture cues for six bodyweight exercises.
+ * Camera form coach: on-device rep counting and posture cues for the Home workout exercises.
  *
  * For a live workout, mount <CountWithCamera> beside a set; it renders only for exercises the
  * camera can count (see cameraRuleFor) and hands back a confirmed count, never video or images.

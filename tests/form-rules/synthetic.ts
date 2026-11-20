@@ -9,6 +9,7 @@
 import type { PoseFrame, PosePoint } from "@/lib/pose/landmarks";
 import { LANDMARK, LANDMARK_COUNT } from "@/lib/pose/landmarks";
 import type { CoachEvent, CoachSession, CoachSnapshot } from "@/lib/form-rules/session";
+import type { FigurePoints, FigureView } from "@/lib/home-workout/figure";
 
 export interface Vec {
   x: number;
@@ -399,3 +400,38 @@ export function play(session: CoachSession, frames: readonly PoseFrame[]) {
 
 export const count = (events: readonly CoachEvent[], type: CoachEvent["type"]) => events.filter((event) => event.type === type).length;
 export const cueIds = (events: readonly CoachEvent[]) => events.flatMap((event) => (event.type === "cue" ? [event.cue.id] : []));
+
+// ---------------------------------------------------------------------------------------------
+// Bodies from the Home workout figure (src/lib/home-workout/figure.ts), for the newer exercises.
+
+/**
+ * The figure's stage (400 × 300 units) in an image of this aspect: its full height in a landscape
+ * picture, its middle 320 units across in a portrait one (where people stand, nearer the camera).
+ */
+export function fromFigure(points: FigurePoints, view: FigureView): (aspect: number) => Body {
+  return (aspect: number) => {
+    const k = Math.min((aspect * 300) / 320, 1) / 300;
+    const dx = (aspect - 400 * k) / 2;
+    const dy = (1 - 300 * k) / 2;
+    const at = (p: Vec): Vec => ({ x: p.x * k + dx, y: p.y * k + dy });
+    const limb = (side: FigurePoints["near"]): Limb => ({
+      nose: at(points.head), ear: at(points.head),
+      shoulder: at(side.shoulder), elbow: at(side.elbow), wrist: at(side.wrist),
+      hip: at(side.hip), knee: at(side.knee), ankle: at(side.ankle),
+      heel: at({ x: side.ankle.x, y: side.ankle.y + 4 }), foot: at(side.toe),
+    });
+    return { near: limb(points.near), far: limb(points.far), nearVisibility: 0.95, farVisibility: view === "front" ? 0.95 : 0.5 };
+  };
+}
+
+/** A figure pose written out as one frame of the given aspect. */
+export function figureFrame(points: FigurePoints, view: FigureView, t: number, options: FrameOptions = {}): PoseFrame {
+  const aspect = options.aspect ?? LANDSCAPE;
+  return frameOf(fromFigure(points, view)(aspect), t, { ...options, aspect });
+}
+
+/** Samples `pose(t)` (figure points) at `fps` for `durationMs`, like `sequence`. */
+export function figureSequence(durationMs: number, view: FigureView, pose: (t: number) => FigurePoints, options: SequenceOptions = {}): PoseFrame[] {
+  const aspect = options.aspect ?? LANDSCAPE;
+  return sequence(durationMs, (t) => fromFigure(pose(t), view)(aspect), { ...options, aspect });
+}
