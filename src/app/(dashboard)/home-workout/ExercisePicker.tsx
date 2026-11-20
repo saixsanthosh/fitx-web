@@ -36,16 +36,24 @@ export function ExercisePicker() {
           return (
             <li key={exercise.id}>
               <Link href={`${HOME_WORKOUT}?exercise=${exercise.id}`} className={`${styles.card} fitx-inverse aspect-[4/5] text-fitx-text`}>
-                <Image
-                  src={exercise.poster.src}
-                  alt=""
-                  fill
-                  sizes="(min-width: 1280px) 22vw, (min-width: 768px) 30vw, 46vw"
-                  placeholder="blur"
-                  blurDataURL={exercise.poster.blurDataURL}
-                  priority={index < 2}
-                  className="object-cover"
-                />
+                {exercise.poster ? (
+                  <Image
+                    src={exercise.poster.src}
+                    alt=""
+                    fill
+                    sizes="(min-width: 1280px) 22vw, (min-width: 768px) 30vw, 46vw"
+                    placeholder="blur"
+                    blurDataURL={exercise.poster.blurDataURL}
+                    priority={index < 2}
+                    className="object-cover"
+                  />
+                ) : (
+                  // No photo shows this move correctly: its demonstration's turnaround pose, drawn.
+                  <span className={styles.drawnPoster} aria-hidden="true">
+                    <span className={styles.floorLines} />
+                    <ExerciseGlyph id={exercise.id} className={styles.drawnFigure} />
+                  </span>
+                )}
                 <span className={styles.shade} aria-hidden="true" />
                 <span className={`${styles.glyph} absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-fitx-bg/70 text-fitx-text backdrop-blur-sm`} aria-hidden="true">
                   <ArrowUpRight size={18} />

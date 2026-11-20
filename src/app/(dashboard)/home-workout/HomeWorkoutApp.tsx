@@ -10,7 +10,7 @@ import { homeExercise } from "@/lib/home-workout/catalog";
 import type { LoggedSet } from "@/lib/home-workout/log";
 import { readSets, setFromSummary, writeSets } from "@/lib/home-workout/log";
 import type { SaveDb } from "@/lib/home-workout/save";
-import { buildWorkoutRecord, saveWorkoutRecord } from "@/lib/home-workout/save";
+import { buildWorkoutRecord, saveWorkoutRecord, tabUnfinishedSaves } from "@/lib/home-workout/save";
 import { createClient } from "@/lib/supabase/client";
 import { ExercisePicker } from "./ExercisePicker";
 import { HomeFacts } from "./HomeFacts";
@@ -84,12 +84,14 @@ export function HomeWorkoutApp() {
       setSave({ status: "error", message: "Sign in again to save your workout." });
       return;
     }
-    const outcome = await saveWorkoutRecord(db as unknown as SaveDb, data.user.id, record);
+    const outcome = await saveWorkoutRecord(db as unknown as SaveDb, data.user.id, record, tabUnfinishedSaves(session()));
     if (!outcome.ok) {
       setSave({ status: "error", message: outcome.message });
       return;
     }
     update(() => []);
+    // The set's "save the workout when you're done" note no longer applies.
+    setLastLogged(null);
     setSave({ status: "saved", href: recordHref(outcome.sessionId) });
   };
 

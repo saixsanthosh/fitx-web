@@ -16,6 +16,8 @@ interface DemoPlayerProps {
   size?: "lg" | "sm";
   /** Paused from outside (a reel with its own control); hides the built-in button. */
   paused?: boolean;
+  /** Draw at most this many frames a second (the live view, where the pose model needs the main thread). */
+  maxFps?: number;
   className?: string;
 }
 
@@ -29,7 +31,7 @@ function turnaroundIndex(exercise: HomeExercise): number {
  * visible and motion allowed; with reduced motion it shows the turnaround pose, still. A visible
  * button pauses it.
  */
-export function DemoPlayer({ exercise, size = "lg", paused: pausedOutside, className }: DemoPlayerProps) {
+export function DemoPlayer({ exercise, size = "lg", paused: pausedOutside, maxFps, className }: DemoPlayerProps) {
   const demo = DEMONSTRATIONS[exercise.id];
   const box = useMemo(() => demoBounds(demo, 4 / 3, size === "lg" ? 26 : 24, size === "lg" ? 320 : 300), [demo, size]);
   const ghost = useMemo(() => {
@@ -77,14 +79,20 @@ export function DemoPlayer({ exercise, size = "lg", paused: pausedOutside, class
     }
     let raf = 0;
     let origin: number | null = null;
+    let painted = -Infinity;
+    const gap = maxFps && maxFps > 0 ? 1000 / maxFps : 0;
     const tick = (now: number) => {
       origin ??= now;
-      paint(now - origin);
+      // A capped loop skips frames; the small tolerance keeps 24 fps from dropping to 20 on a 60 Hz screen.
+      if (now - painted >= gap - 2) {
+        painted = now;
+        paint(now - origin);
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [demo, exercise, playing]);
+  }, [demo, exercise, playing, maxFps]);
 
   return (
     <div ref={holder} className={cn("relative h-full w-full", className)}>
@@ -117,11 +125,18 @@ export function DemoPlayer({ exercise, size = "lg", paused: pausedOutside, class
             onClick={() => setPaused((value) => !value)}
             aria-label={paused ? "Play demonstration" : "Pause demonstration"}
             className={cn(
-              "pointer-events-auto grid shrink-0 place-items-center rounded-full border border-fitx-border bg-fitx-bg/70 text-fitx-text backdrop-blur-sm transition-colors hover:bg-fitx-hover",
-              large ? "h-11 w-11" : "h-11 w-11 scale-90",
+              "group pointer-events-auto grid h-11 w-11 shrink-0 place-items-center rounded-full",
+              large && "border border-fitx-border bg-fitx-bg/70 text-fitx-text backdrop-blur-sm transition-colors hover:bg-fitx-hover",
             )}
           >
-            {paused ? <Play size={16} aria-hidden="true" /> : <Pause size={16} aria-hidden="true" />}
+            {/* In the live view's small tile the disc is drawn smaller, but the button stays 44 px to tap. */}
+            {large ? (
+              paused ? <Play size={16} aria-hidden="true" /> : <Pause size={16} aria-hidden="true" />
+            ) : (
+              <span className="grid h-9 w-9 place-items-center rounded-full border border-fitx-border bg-fitx-bg/70 text-fitx-text backdrop-blur-sm transition-colors group-hover:bg-fitx-hover" aria-hidden="true">
+                {paused ? <Play size={14} /> : <Pause size={14} />}
+              </span>
+            )}
           </button>
         )}
       </div>

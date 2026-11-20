@@ -11,3 +11,56 @@
   from { opacity: 0.4; transform: scale(0.86); }
   to { opacity: 1; transform: none; }
 }
+
+/*
+ * A phone held sideways (about 844 x 390): the floor moves need it, and the stacked layout would
+ * leave the camera about 100 px tall. Here the camera and the "You" and "Demo" tiles sit side by
+ * side, the header and footer slim down, and the count and caption shrink to fit over the video.
+ * These rules sit outside Tailwind's layers, so they win over the utilities on the same elements.
+ */
+@media (orientation: landscape) and (max-height: 500px) {
+  .shortHeader {
+    padding-top: max(env(safe-area-inset-top), 6px);
+    padding-bottom: 4px;
+    padding-left: max(env(safe-area-inset-left), 16px);
+    padding-right: max(env(safe-area-inset-right), 16px);
+  }
+  .shortBody {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    padding-left: max(env(safe-area-inset-left), 8px);
+    padding-right: max(env(safe-area-inset-right), 8px);
+    padding-bottom: 0;
+  }
+  .shortAside {
+    display: flex;
+    width: clamp(140px, 24vw, 220px);
+    min-height: 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .shortTile {
+    height: auto;
+    min-height: 0;
+    flex: 1 1 0;
+  }
+  .shortPanel { display: none; }
+  .shortCaption { display: block; }
+  .shortCaption p:first-child { font-size: 1.35rem; }
+  .shortCaption p + p { margin-top: 4px; -webkit-line-clamp: 1; line-clamp: 1; }
+  .shortCaption > div { padding: 8px 12px; }
+  .shortCount {
+    min-width: 0;
+    padding: 6px 12px 8px;
+  }
+  .shortCount .shortValue { font-size: 2.75rem; }
+  .shortFooter {
+    padding-top: 4px;
+    padding-bottom: max(env(safe-area-inset-bottom), 8px);
+    padding-left: max(env(safe-area-inset-left), 16px);
+    padding-right: max(env(safe-area-inset-right), 16px);
+  }
+  .shortFooter > button,
+  .shortFooter > [role="radiogroup"] { height: 44px; min-height: 44px; }
+}

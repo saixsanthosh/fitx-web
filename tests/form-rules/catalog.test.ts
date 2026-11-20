@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { cameraRuleFor, EXERCISE_RULES, getExerciseRule, normaliseExerciseName } from "@/lib/form-rules/catalog";
+import { cameraFitsSet, cameraRuleFor, EXERCISE_RULES, getExerciseRule, normaliseExerciseName } from "@/lib/form-rules/catalog";
 import type { Condition, PhaseSpec } from "@/lib/form-rules/types";
 
 const MIGRATIONS = path.resolve(import.meta.dirname, "../../supabase/migrations");
@@ -108,6 +108,19 @@ test("exercises the camera can't judge well get no camera rule", () => {
   ]) {
     assert.equal(cameraRuleFor(exercise), null, exercise.name);
   }
+});
+
+test("the camera is offered only where its result fits the set: reps for rep sets, seconds for timed sets", () => {
+  // The library's Mountain Climbers is prescribed as 30 s: a rep count can't be logged against it.
+  const climber = cameraRuleFor({ id: "free-exercise-db-Mountain_Climbers", name: "Mountain Climbers" });
+  assert.ok(climber);
+  assert.equal(cameraFitsSet(climber, true), false, "no rep counting on a timed set");
+  assert.equal(cameraFitsSet(climber, false), true, "rep counting on a rep set");
+  const plank = getExerciseRule("plank");
+  assert.ok(plank);
+  assert.equal(cameraFitsSet(plank, true), true, "a hold fills a timed set");
+  assert.equal(cameraFitsSet(plank, false), false, "a hold's seconds have nowhere to go on a rep set");
+  for (const rule of EXERCISE_RULES) assert.notEqual(cameraFitsSet(rule, true), cameraFitsSet(rule, false), rule.id);
 });
 
 test("names are normalised the same way however they are written", () => {

@@ -84,7 +84,7 @@ interface Run {
   wait: { headline: string; since: number; spoken: boolean };
 }
 
-const SLOW_DEVICE_NOTICE = "This device is analysing the camera slowly, so quick reps may be missed. Good light and closing other apps help.";
+export const SLOW_DEVICE_NOTICE = "This device is analysing the camera slowly, so quick reps may be missed. Good light and closing other apps help.";
 const SLOW_CAMERA_NOTICE = "The camera is sending few pictures a second, which often means the room is dim, so quick reps may be missed. More light helps.";
 
 /** Landmarks the rule measures, drawn in the accent colour. */

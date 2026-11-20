@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fallbackPitch, pickVoice, readVoiceGender, voiceGenderOf, writeVoiceGender } from "@/components/form-coach/voice";
+import { fallbackPitch, isNoveltyVoice, pickVoice, readVoiceGender, voiceGenderOf, writeVoiceGender } from "@/components/form-coach/voice";
 
 const v = (name: string, lang: string, extra: { default?: boolean; localService?: boolean } = {}) => ({ name, lang, ...extra });
 
@@ -26,6 +26,37 @@ test("picks a British voice of the chosen gender first, then Indian, then any En
 test("prefers voices that run on the device", () => {
   const voices = [v("Google UK English Female", "en-GB", { localService: false }), v("Kate", "en-GB", { localService: true })];
   assert.equal(pickVoice(voices, "female").voice?.name, "Kate");
+});
+
+test("on an iPhone, Apple's Eloquence and novelty voices are never the coach", () => {
+  // iOS 17+ lists the Eloquence set for en-GB beside Daniel, often first; Samantha is en-US.
+  const uk = (name: string) => v(`${name} (English (United Kingdom))`, "en-GB", { localService: true });
+  const voices = [
+    uk("Eddy"), uk("Flo"), uk("Grandma"), uk("Grandpa"), uk("Reed"), uk("Rocko"), uk("Sandy"), uk("Shelley"),
+    v("Daniel", "en-GB", { localService: true, default: true }),
+    v("Fred", "en-US", { localService: true }), v("Junior", "en-US", { localService: true }), v("Kathy", "en-US", { localService: true }),
+    v("Ralph", "en-US", { localService: true }), v("Bad News", "en-US", { localService: true }), v("Zarvox", "en-US", { localService: true }),
+    v("Samantha", "en-US", { localService: true }),
+  ];
+  assert.deepEqual(pickVoice(voices, "female", "en"), { voice: voices.at(-1), matched: true }, "Samantha, not Flo, Grandma, Sandy or Shelley");
+  assert.equal(pickVoice(voices, "male", "en").voice?.name, "Daniel", "Daniel, not Eddy, Grandpa, Reed or Rocko");
+  for (const voice of voices.filter((item) => !["Daniel", "Samantha"].includes(item.name))) {
+    assert.ok(isNoveltyVoice(voice), voice.name);
+    assert.equal(voiceGenderOf(voice), null, voice.name);
+  }
+  // With only Daniel and the Eloquence set, "Female" uses Daniel at a higher pitch rather than Flo.
+  const picked = pickVoice([uk("Flo"), uk("Shelley"), v("Daniel", "en-GB")], "female");
+  assert.deepEqual([picked.voice?.name, picked.matched], ["Daniel", false]);
+  // A device with nothing else still speaks.
+  assert.equal(pickVoice([uk("Flo")], "female").voice?.name, "Flo (English (United Kingdom))");
+});
+
+test("enhanced, premium and Siri voices win over the compact ones in the same English", () => {
+  const voices = [v("Serena", "en-GB"), v("Serena (Premium)", "en-GB"), v("Kate (Enhanced)", "en-GB")];
+  assert.equal(pickVoice(voices, "female").voice?.name, "Serena (Premium)");
+  const male = [v("Daniel", "en-GB", { default: true }), v("Arthur (Enhanced)", "en-GB")];
+  assert.equal(pickVoice(male, "male").voice?.name, "Arthur (Enhanced)");
+  assert.equal(pickVoice([v("Samantha (Enhanced)", "en-US"), v("Martha", "en-GB")], "female").voice?.name, "Martha", "British English still comes first");
 });
 
 test("with no voice of that gender it falls back gracefully and says so", () => {

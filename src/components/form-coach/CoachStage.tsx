@@ -13,6 +13,7 @@ import { homeExercise } from "@/lib/home-workout/catalog";
 import { firstLoadMegabytes } from "@/lib/pose/assets";
 import { cn } from "@/lib/utils";
 import live from "@/components/home-workout/live.module.css";
+import { SLOW_DEVICE_NOTICE } from "./coach-machine";
 import { lockScroll } from "./scroll-lock";
 import type { CoachRefs, FormCoachController } from "./useFormCoach";
 
@@ -89,7 +90,7 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
       onKeyDown={onKeyDown}
       className="fitx-inverse fixed inset-0 z-[110] flex flex-col bg-fitx-bg text-fitx-text"
     >
-      <header className="flex items-center gap-3 px-4 pb-2 pt-[max(env(safe-area-inset-top),12px)] sm:px-6">
+      <header className={cn("flex items-center gap-3 px-4 pb-2 pt-[max(env(safe-area-inset-top),12px)] sm:px-6", live.shortHeader)}>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">{mode === "workout" ? "Camera count" : "Home workout"}</p>
           <h2 id={titleId} className="truncate font-heading text-base font-semibold tracking-tight sm:text-lg">{rule.name}</h2>
@@ -101,9 +102,10 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
       </header>
       {coach.notice && <p className="mx-4 mb-2 rounded-lg border border-fitx-border bg-fitx-surface px-3 py-2 text-xs leading-5 text-fitx-text-secondary sm:mx-6">{coach.notice}</p>}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 px-2 sm:px-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:gap-4 lg:pb-2 xl:grid-cols-[minmax(0,1fr)_440px]">
+      <div className={cn("flex min-h-0 flex-1 flex-col gap-2 px-2 sm:px-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:gap-4 lg:pb-2 xl:grid-cols-[minmax(0,1fr)_440px]", live.shortBody)}>
         {/* The camera. The count and messages sit on the camera area, over the video when it fills the
-            area and in the bars beside it when it doesn't (a landscape picture on an upright phone). */}
+            area and in the bars beside it when it doesn't (a landscape picture on an upright phone).
+            On a phone held sideways (the floor moves) the tiles move beside the camera instead of under it. */}
         <div className="relative min-h-0 flex-1">
           <div className="absolute inset-0 grid place-items-center [container-type:size]">
             <div className="relative overflow-hidden rounded-2xl bg-fitx-surface" style={frameStyle}>
@@ -128,7 +130,7 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
           </div>
           {running && <CountBlock rule={rule} snapshot={snapshot} target={mode === "workout" ? target : null} />}
           {running && (
-            <div className="pointer-events-none absolute inset-x-3 bottom-3 lg:hidden" aria-hidden="true">
+            <div className={cn("pointer-events-none absolute inset-x-3 bottom-3 lg:hidden", live.shortCaption)} aria-hidden="true">
               <CaptionText caption={caption} compact />
             </div>
           )}
@@ -147,23 +149,24 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
         </div>
 
         {/* You, the demonstration and the captions. */}
-        <aside aria-label="Coach" className="grid shrink-0 grid-cols-2 gap-2 lg:flex lg:min-h-0 lg:flex-col lg:gap-4">
-          <figure className="relative h-28 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface sm:h-36 lg:h-auto lg:min-h-0 lg:flex-1">
+        <aside aria-label="Coach" className={cn("grid shrink-0 grid-cols-2 gap-2 lg:flex lg:min-h-0 lg:flex-col lg:gap-4", live.shortAside)}>
+          <figure className={cn("relative h-28 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface sm:h-36 lg:h-auto lg:min-h-0 lg:flex-1", live.shortTile)}>
             <LiveFigure ref={figureRef} className="absolute inset-0" />
             <figcaption className="absolute left-2.5 top-2 text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary sm:left-3 sm:top-2.5">You</figcaption>
           </figure>
-          <figure className="relative h-28 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface sm:h-36 lg:h-auto lg:min-h-0 lg:flex-1">
-            {exercise && open && <DemoPlayer exercise={exercise} size="sm" className="absolute inset-0" />}
+          <figure className={cn("relative h-28 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface sm:h-36 lg:h-auto lg:min-h-0 lg:flex-1", live.shortTile)}>
+            {/* Capped well below the display rate, and slower still on a device already struggling, so the loop never takes frame time from the pose model. */}
+            {exercise && open && <DemoPlayer exercise={exercise} size="sm" maxFps={coach.notice === SLOW_DEVICE_NOTICE ? 8 : 24} className="absolute inset-0" />}
             <figcaption className="absolute left-2.5 top-2 text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary sm:left-3 sm:top-2.5">Demo</figcaption>
           </figure>
-          <div className="hidden min-h-[11rem] rounded-2xl border border-fitx-border bg-fitx-surface p-5 lg:block" aria-hidden="true">
+          <div className={cn("hidden min-h-[11rem] rounded-2xl border border-fitx-border bg-fitx-surface p-5 lg:block", live.shortPanel)} aria-hidden="true">
             <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">Coach</p>
             <div className="mt-2">{running ? <CaptionText caption={caption} /> : <p className="font-heading text-3xl font-bold tracking-tight text-fitx-text-secondary">{stage.name === "paused" ? "Paused" : "Starting"}</p>}</div>
           </div>
         </aside>
       </div>
 
-      <footer className="flex flex-wrap items-center gap-2 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-2 sm:px-6">
+      <footer className={cn("flex flex-wrap items-center gap-2 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-2 sm:px-6", live.shortFooter)}>
         {coach.voice.supported && (
           <>
             <button
@@ -260,9 +263,9 @@ function CountBlock({ rule, snapshot, target }: { rule: ExerciseRule; snapshot: 
   const hold = rule.motion.kind === "hold";
   const value = hold ? formatClock((snapshot?.holdMs ?? 0) / 1000) : String(snapshot?.reps ?? 0);
   return (
-    <div className="absolute left-3 top-3 min-w-28 rounded-2xl bg-fitx-bg/80 px-4 py-3 backdrop-blur-md sm:left-4 sm:top-4 sm:px-5 sm:py-4">
+    <div className={cn("absolute left-3 top-3 min-w-28 rounded-2xl bg-fitx-bg/80 px-4 py-3 backdrop-blur-md sm:left-4 sm:top-4 sm:px-5 sm:py-4", live.shortCount)}>
       <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">{hold ? "Good-form hold" : "Reps"}</p>
-      <p className="mt-1 font-heading text-6xl font-bold leading-none tracking-tight tabular-nums sm:text-7xl lg:text-8xl">
+      <p className={cn("mt-1 font-heading text-6xl font-bold leading-none tracking-tight tabular-nums sm:text-7xl lg:text-8xl", live.shortValue)}>
         <span key={value} className={cn("inline-block", live.countPop)}>{value}</span>
         {target ? <span className="ml-1 text-lg font-semibold text-fitx-text-secondary sm:text-xl">/ {hold ? formatClock(target) : target}</span> : null}
       </p>

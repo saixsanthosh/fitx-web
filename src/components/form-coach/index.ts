@@ -9,4 +9,4 @@ export type { CountWithCameraProps } from "./CountWithCamera";
 export { FormCoach } from "./FormCoach";
 export type { CameraCountResult } from "./FormCoach";
 export { ExerciseGlyph } from "./ExerciseGlyph";
-export { cameraRuleFor, EXERCISE_RULES } from "@/lib/form-rules/catalog";
+export { cameraFitsSet, cameraRuleFor, EXERCISE_RULES } from "@/lib/form-rules/catalog";

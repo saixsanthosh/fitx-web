@@ -31,13 +31,19 @@ export interface HomeExercise {
   works: string;
   /** Three short cues shown beside the demonstration. */
   cues: readonly [string, string, string];
-  poster: PosterImage;
+  /**
+   * The photo for its card, or null when no generated image shows the move correctly; the card then
+   * draws the demonstration's turnaround pose instead.
+   */
+  poster: PosterImage | null;
   /** The joint angle the demonstration labels: [outer, middle, outer] on one side. */
   angle: { side: SideKey; joints: readonly [Part, Part, Part] } | null;
 }
 
 type Meta = Omit<HomeExercise, "id" | "rule">;
 
+// The generated superman photo (HOMEWORKOUT2_MEDIA.superman) lifts only the chest and arms, the fault
+// the camera flags as "Legs up", so its card is drawn from the demonstration until a correct image exists.
 const META: Record<ExerciseId, Meta> = {
   push_up: { group: "upper", equipment: null, works: "Chest, triceps, core", cues: ["Hands under shoulders", "Body in one line", "Chest to fist height"], poster: HOMEWORKOUT1_MEDIA["push-up"], angle: { side: "near", joints: ["shoulder", "elbow", "wrist"] } },
   bodyweight_squat: { group: "legs", equipment: null, works: "Quads, glutes", cues: ["Feet shoulder-width", "Sit your hips back", "Chest up"], poster: HOMEWORKOUT1_MEDIA.squat, angle: { side: "near", joints: ["hip", "knee", "ankle"] } },
@@ -50,7 +56,7 @@ const META: Record<ExerciseId, Meta> = {
   mountain_climber: { group: "core", equipment: null, works: "Core, shoulders", cues: ["Hands under shoulders", "Knee in under your chest", "Hips level"], poster: HOMEWORKOUT2_MEDIA["mountain-climber"], angle: { side: "near", joints: ["shoulder", "hip", "knee"] } },
   side_plank: { group: "core", equipment: null, works: "Obliques, shoulders", cues: ["Elbow under shoulder", "Feet stacked", "Hips high, body straight"], poster: HOMEWORKOUT2_MEDIA["side-plank"], angle: { side: "near", joints: ["shoulder", "hip", "ankle"] } },
   wall_sit: { group: "legs", equipment: "A wall", works: "Quads", cues: ["Back flat on the wall", "Thighs level", "Knees over ankles"], poster: HOMEWORKOUT2_MEDIA["wall-sit"], angle: { side: "near", joints: ["hip", "knee", "ankle"] } },
-  superman: { group: "core", equipment: null, works: "Lower back, glutes", cues: ["Reach long", "Lift chest and legs together", "Eyes on the floor"], poster: HOMEWORKOUT2_MEDIA.superman, angle: null },
+  superman: { group: "core", equipment: null, works: "Lower back, glutes", cues: ["Reach long", "Lift chest and legs together", "Eyes on the floor"], poster: null, angle: null },
   shoulder_press: { group: "upper", equipment: "Light dumbbells", works: "Shoulders, triceps", cues: ["Weights at shoulder height", "Press straight up", "Ribs down"], poster: HOMEWORKOUT2_MEDIA["shoulder-press"], angle: { side: "near", joints: ["shoulder", "elbow", "wrist"] } },
   biceps_curl: { group: "upper", equipment: "Light dumbbells", works: "Biceps", cues: ["Elbows at your sides", "Curl to the shoulder", "Lower all the way"], poster: HOMEWORKOUT2_MEDIA["biceps-curl"], angle: { side: "near", joints: ["shoulder", "elbow", "wrist"] } },
 };

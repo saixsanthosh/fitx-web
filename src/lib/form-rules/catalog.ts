@@ -646,3 +646,12 @@ export function cameraRuleFor(exercise: { id?: string | null; name?: string | nu
   }
   return null;
 }
+
+/**
+ * Whether the camera's result fits the set it would fill: a rep count for a set logged in reps, a
+ * hold time for a set logged in seconds. A timed prescription (such as 30 s of mountain climbers)
+ * can't use a rep count, so a workout screen offers the camera only where this is true.
+ */
+export function cameraFitsSet(rule: Pick<ExerciseRule, "motion">, timedSet: boolean): boolean {
+  return rule.motion.kind === (timedSet ? "hold" : "reps");
+}

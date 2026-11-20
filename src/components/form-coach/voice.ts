@@ -63,10 +63,23 @@ export interface VoiceLike {
 }
 
 // "female" is tested first: it contains "male".
-const FEMALE_NAMES = /\b(female|woman|samantha|victoria|karen|moira|tessa|fiona|serena|zira|hazel|susan|libby|sonia|aria|jenny|veena|heera|kate|martha|catherine|allison|ava|nicky|kathy|vicki|amelie|anna|neerja|swara|natasha|clara|emma|olivia|maisie|isha|kalpana|lekha|shelley|sandy|flo|grandma)\b/i;
-const MALE_NAMES = /\b(male|man|daniel|alex|fred|oliver|arthur|george|ryan|guy|rishi|ravi|aaron|thomas|gordon|david|mark|james|william|lee|prabhat|madhur|hemant|tom|eddy|reed|rocko|ralph|albert|junior|grandpa|aditya|liam|noah)\b/i;
+const FEMALE_NAMES = /\b(female|woman|samantha|victoria|karen|moira|tessa|fiona|serena|zira|hazel|susan|libby|sonia|aria|jenny|veena|heera|kate|martha|catherine|allison|ava|nicky|amelie|anna|neerja|swara|natasha|clara|emma|olivia|maisie|isha|kalpana|lekha)\b/i;
+const MALE_NAMES = /\b(male|man|daniel|alex|oliver|arthur|george|ryan|guy|rishi|ravi|aaron|thomas|gordon|david|mark|james|william|lee|prabhat|madhur|hemant|tom|aditya|liam|noah)\b/i;
+/**
+ * Apple's Eloquence voices (listed for every English locale on iOS 17+ and macOS), its old
+ * MacinTalk voices and its novelty voices: robotic or comic, never a coach. They are never picked
+ * while any other voice exists.
+ */
+const NOVELTY_NAMES = /\b(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|albert|agnes|bruce|fred|junior|kathy|princess|ralph|vicki|bad news|good news|bahh|bells|boing|bubbles|cellos|deranged|hysterical|jester|organ|superstar|trinoids|whisper|wobble|zarvox)\b/i;
+/** Apple's enhanced, premium and Siri voices, and Microsoft's and Google's neural ones: the natural-sounding ones. */
+const NATURAL_NAMES = /\b(enhanced|premium|neural|natural|siri)\b/i;
+
+export function isNoveltyVoice(voice: VoiceLike): boolean {
+  return NOVELTY_NAMES.test(voice.name);
+}
 
 export function voiceGenderOf(voice: VoiceLike): VoiceGender | null {
+  if (isNoveltyVoice(voice)) return null;
   if (FEMALE_NAMES.test(voice.name)) return "female";
   if (MALE_NAMES.test(voice.name)) return "male";
   return null;
@@ -74,8 +87,9 @@ export function voiceGenderOf(voice: VoiceLike): VoiceGender | null {
 
 /**
  * The best English voice of the chosen gender: the page's own English first (en-GB), then Indian
- * and other English voices, voices on the device before network ones. `matched` is false when no
- * voice of that gender exists here, and the closest English voice is returned instead.
+ * and other English voices, voices on the device before network ones, and within those the
+ * natural-sounding (enhanced, premium, Siri) ones. Novelty voices come last of all. `matched` is
+ * false when no voice of that gender exists here, and the closest English voice is returned instead.
  */
 export function pickVoice<V extends VoiceLike>(voices: readonly V[], gender: VoiceGender, lang = "en-GB"): { voice: V | null; matched: boolean } {
   const english = voices.filter((voice) => /^en([-_]|$)/i.test(voice.lang));
@@ -88,14 +102,17 @@ export function pickVoice<V extends VoiceLike>(voices: readonly V[], gender: Voi
     else if (voiceLang === "en-gb" || voiceLang === "en-in") points += 6;
     else if (voiceLang.startsWith("en")) points += 4;
     if (voice.localService !== false) points += 2;
+    if (NATURAL_NAMES.test(voice.name)) points += 1.5;
     if (voice.default) points += 1;
     return points;
   };
   const ranked = [...pool].sort((a, b) => score(b) - score(a));
-  const match = ranked.find((voice) => voiceGenderOf(voice) === gender);
+  const usable = ranked.filter((voice) => !isNoveltyVoice(voice));
+  const match = usable.find((voice) => voiceGenderOf(voice) === gender);
   if (match) return { voice: match, matched: true };
-  // No named voice of that gender: take one not clearly of the other, else the best English one.
-  const neutral = ranked.find((voice) => voiceGenderOf(voice) === null) ?? ranked[0] ?? null;
+  // No named voice of that gender: take one not clearly of the other, else the best ordinary
+  // English one, and a novelty voice only when the device has nothing else.
+  const neutral = usable.find((voice) => voiceGenderOf(voice) === null) ?? usable[0] ?? ranked[0] ?? null;
   return { voice: neutral, matched: false };
 }
 

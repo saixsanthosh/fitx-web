@@ -4,8 +4,14 @@
  * set, each set labelled as counted by the camera. Only counts leave the device.
  *
  * If any step fails, the session written so far is deleted (its exercises and sets go with it), so
- * history never shows half a workout. Databases without the newer optional columns
- * (target_duration_seconds, duration_seconds, rep_source) still take rep sets.
+ * history never shows half a workout. A session whose clean-up could not run (the connection
+ * dropped, the tab reloaded) is remembered beside the unsaved sets in this tab and deleted before
+ * the next attempt writes anything, so a retry never leaves an empty session plus the real one.
+ * Databases without the newer optional columns (target_duration_seconds, duration_seconds,
+ * rep_source) still take rep sets.
+ *
+ * Known gap until the three inserts become one database transaction (an RPC the coordinator would
+ * apply): if the tab is closed for good mid-save, that tab's leftover session can't be cleaned up.
  */
 import { missingColumnFromError } from "@/lib/domain/schema-fallback";
 import type { LoggedSet } from "./log";
@@ -90,13 +96,16 @@ export function buildWorkoutRecord(sets: readonly LoggedSet[], libraryIdFor: (ex
 
   const startedAt = kept[0].startedAt;
   const endedAt = Math.max(...kept.map((set) => set.endedAt));
+  // Training time is the time measured in the sets themselves, not the span from the first set to
+  // the last: sets kept from 08:00 and 19:00 are not eleven hours of training.
+  const trainingMs = kept.reduce((total, set) => total + Math.max(0, set.endedAt - set.startedAt), 0);
   return {
     session: {
       name: HOME_WORKOUT_SESSION_NAME,
       status: "completed",
       started_at: new Date(startedAt).toISOString(),
       completed_at: new Date(endedAt).toISOString(),
-      duration_seconds: Math.max(0, Math.round((endedAt - startedAt) / 1000)),
+      duration_seconds: Math.max(0, Math.round(trainingMs / 1000)),
       total_volume: 0,
       notes: sessionNote(kept),
     },
@@ -131,14 +140,74 @@ export type SaveOutcome = { ok: true; sessionId: string } | { ok: false; message
 
 const FAILED = "Your workout couldn’t be saved. Check your connection and try again.";
 
-/** Writes the record. The sets are not cleared here: the page does that once this says ok. */
-export async function saveWorkoutRecord(db: SaveDb, userId: string, record: WorkoutRecord): Promise<SaveOutcome> {
+/** Sessions written by a save that failed and could not be deleted yet. */
+export interface UnfinishedSaves {
+  read(): string[];
+  write(ids: readonly string[]): void;
+}
+
+const UNFINISHED_KEY = "fitx:home-workout:unfinished-save";
+/** Used when the tab's storage is blocked: the ids still last as long as the page. */
+let unfinishedInMemory: string[] = [];
+
+/** The unfinished saves kept in this tab's storage, beside the unsaved sets they belong to. */
+export function tabUnfinishedSaves(storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null): UnfinishedSaves {
+  return {
+    read() {
+      try {
+        const raw = storage?.getItem(UNFINISHED_KEY);
+        const value: unknown = raw ? JSON.parse(raw) : unfinishedInMemory;
+        return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
+      } catch {
+        return [...unfinishedInMemory];
+      }
+    },
+    write(ids) {
+      unfinishedInMemory = [...ids];
+      try {
+        if (!storage) return;
+        if (ids.length === 0) storage.removeItem(UNFINISHED_KEY);
+        else storage.setItem(UNFINISHED_KEY, JSON.stringify(ids));
+      } catch {
+        // Blocked or full storage: the in-memory copy covers a retry on this page.
+      }
+    },
+  };
+}
+
+/** Deletes a session (its exercises and sets go with it), trying twice. True once it is gone. */
+async function removeSession(db: SaveDb, userId: string, sessionId: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const answer = await db.from("workout_sessions").delete().eq("id", sessionId).eq("user_id", userId);
+      if (!answer.error) return true;
+    } catch {
+      // A dropped connection can throw as well as answer with an error; try once more.
+    }
+  }
+  return false;
+}
+
+/**
+ * Writes the record. The sets are not cleared here: the page does that once this says ok. A
+ * session left over from an earlier failed attempt is deleted first; if that can't be done, nothing
+ * new is written.
+ */
+export async function saveWorkoutRecord(db: SaveDb, userId: string, record: WorkoutRecord, unfinished: UnfinishedSaves = tabUnfinishedSaves(null)): Promise<SaveOutcome> {
+  const forget = (id: string) => unfinished.write(unfinished.read().filter((item) => item !== id));
+  for (const leftover of unfinished.read()) {
+    if (!(await removeSession(db, userId, leftover))) return { ok: false, message: FAILED };
+    forget(leftover);
+  }
+
   const created = await db.from("workout_sessions").insert({ user_id: userId, ...record.session }).select("id").single();
   const sessionId = (created.data as { id?: string } | null)?.id;
   if (created.error || !sessionId) return { ok: false, message: FAILED };
+  // Remembered until the save finishes or its clean-up succeeds, so a reload mid-save can't strand it.
+  unfinished.write([...unfinished.read().filter((item) => item !== sessionId), sessionId]);
 
   const undo = async (message: string): Promise<SaveOutcome> => {
-    await db.from("workout_sessions").delete().eq("id", sessionId).eq("user_id", userId);
+    if (await removeSession(db, userId, sessionId)) forget(sessionId);
     return { ok: false, message };
   };
 
@@ -160,6 +229,7 @@ export async function saveWorkoutRecord(db: SaveDb, userId: string, record: Work
     const missing = missingColumnFromError(sets.error);
     return undo(missing?.column === "duration_seconds" ? "Timed holds can’t be saved to history yet. Remove them and save the rest." : FAILED);
   }
+  forget(sessionId);
   return { ok: true, sessionId };
 }
 

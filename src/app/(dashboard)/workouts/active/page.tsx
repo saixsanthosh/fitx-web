@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Check, ChevronLeft, ChevronRight, History, Info, Pause, Play, Plus, Smartphone, Square, Trophy, Volume2, VolumeX, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
-import { CountWithCamera, cameraRuleFor, type CameraCountResult } from "@/components/form-coach";
+import { CountWithCamera, cameraFitsSet, cameraRuleFor, type CameraCountResult } from "@/components/form-coach";
 import { ExerciseDemo } from "@/components/session/ExerciseDemo";
 import { RestDock } from "@/components/session/RestDock";
 import { SessionMuscles } from "@/components/session/SessionMuscles";
@@ -655,8 +655,10 @@ export default function ActiveWorkoutPage() {
   const currentSet = currentProgress?.current && currentExercise ? currentExercise.sets.find((set) => set.id === currentProgress.current!.id) ?? null : null;
   const target = currentExercise ? setTarget(currentExercise, currentSet) : null;
   const showDuration = Boolean(currentExercise && timedSetsSupported && isTimedPrescription(currentExercise));
-  // "Count with camera" for the six movements the form coach can count; a plank's seconds need timed sets.
-  const cameraRule = currentExercise ? cameraRuleFor({ id: currentExercise.exercise_id, name: currentExercise.name }) : null;
+  // "Count with camera" for the movements the camera can count, when its result fits the set: reps for a
+  // set logged in reps, a hold's seconds for a timed set (so never a rep count on 30 s of mountain climbers).
+  const cameraMatch = currentExercise ? cameraRuleFor({ id: currentExercise.exercise_id, name: currentExercise.name }) : null;
+  const cameraRule = cameraMatch && cameraFitsSet(cameraMatch, showDuration) ? cameraMatch : null;
   const timerHere = Boolean(setTimer && currentExercise && setTimer.exerciseId === currentExercise.id);
   const timerRemaining = setTimer ? Math.max(0, Math.ceil((setTimer.endsAt - now) / 1000)) : 0;
   const resting = restLeft > 0 && !paused;
@@ -764,7 +766,7 @@ export default function ActiveWorkoutPage() {
         <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => void addSet(currentExercise)} disabled={paused} className="fitx-button fitx-button-secondary min-h-11 px-3 text-sm"><Plus size={14} aria-hidden="true" />Add set</button>
-          {currentSet && cameraRule && (cameraRule.motion.kind === "reps" || timedSetsSupported) && <CountWithCamera
+          {currentSet && cameraRule && <CountWithCamera
             exercise={{ id: currentExercise.exercise_id, name: currentExercise.name }}
             target={cameraRule.motion.kind === "hold" ? currentExercise.target_duration_seconds : Math.round((currentExercise.reps_min + currentExercise.reps_max) / 2)}
             setLabel={`Set ${currentSet.set_number}`}
