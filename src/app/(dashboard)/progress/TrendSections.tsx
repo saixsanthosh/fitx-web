@@ -137,7 +137,7 @@ export function TrainingPanel({
                   <Link href={`/workouts/history/${workout.id}`} className={styles.recentRow}>
                     <span className={styles.recentText}>
                       <strong>{workout.name}</strong>
-                      <span>{dateLabel(workout.startedAt)}{workout.trainingSeconds !== null ? ` · ${formatDurationWords(workout.trainingSeconds)}` : ""}</span>
+                      <span>{dateLabel(workout.startedAt)}{workout.trainingSeconds !== null ? ` · ${workout.trainingSeconds < 60 ? "under 1 min" : formatDurationWords(workout.trainingSeconds)}` : ""}</span>
                     </span>
                     <span className={styles.recentVolume}>{workout.volumeKg === null ? <span aria-label="No weighted sets">—</span> : `${number(workout.volumeKg)} kg`}</span>
                     <ChevronRight size={16} aria-hidden="true" className={styles.muted} />

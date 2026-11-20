@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { BicepsFlexed, Compass } from "lucide-react";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
-import { Reveal } from "@/components/motion";
 import { getSession } from "@/components/tasks/session";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { InsightList } from "@/components/widgets/InsightList";
@@ -121,7 +120,7 @@ function ProgressContent({ today }: { today: string }) {
       </section>
 
       <div className={styles.columns}>
-        <Reveal y={12}>
+        <div className="min-w-0">
           {derived ? (
             <TrainingPanel
               weeks={derived.weeks}
@@ -131,14 +130,14 @@ function ProgressContent({ today }: { today: string }) {
               totals={totals.data}
             />
           ) : trendError ?? <div className={`${styles.loading} ${styles.loadingTall}`} aria-busy="true" aria-label="Loading your training" />}
-        </Reveal>
+        </div>
         <div className={styles.sections}>
-          <Reveal y={12} delay={0.05}><BodySection /></Reveal>
-          <Reveal y={12} delay={0.1}><MuscleMapLink summary={derived?.muscles ?? null} /></Reveal>
+          <BodySection />
+          <MuscleMapLink summary={derived?.muscles ?? null} />
         </div>
       </div>
 
-      <Reveal y={12}><RecordsSection /></Reveal>
+      <RecordsSection />
     </div>
   );
 }

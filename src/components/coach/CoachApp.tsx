@@ -322,7 +322,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   // Prompts written from the member's own data when they share it; general ones otherwise.
   const prompts: StarterPrompt[] = plansAllowed && status.quickPrompts.length
     ? status.quickPrompts
-    : (status.minor ? MINOR_PROMPTS : GENERAL_PROMPTS).map((text, index) => ({ id: `general-${index}`, source: "general" as const, context: "Ask anything", text, mode: "chat" as const }));
+    : (status.minor ? MINOR_PROMPTS : GENERAL_PROMPTS).map(([source, context, text], index) => ({ id: `general-${index}`, source, context, text, mode: "chat" as const }));
 
   function choosePrompt(prompt: StarterPrompt) {
     setMode(prompt.mode !== "chat" && plansAllowed ? prompt.mode : "chat");
@@ -458,8 +458,18 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
 
 type StarterPrompt = Omit<QuickPrompt, "source"> & { source: QuickPrompt["source"] | "general" };
 
-const GENERAL_PROMPTS = ["How much protein do I need a day?", "How do I eat well on a tight budget?", "What's a good beginner training split?", "How do I warm up before lifting?"];
-const MINOR_PROMPTS = ["What should I eat before sports practice?", "How can I get stronger safely?", "How much sleep do I need?"];
+type GeneralPrompt = [StarterPrompt["source"], string, string];
+const GENERAL_PROMPTS: GeneralPrompt[] = [
+  ["food", "Protein", "How much protein do I need a day?"],
+  ["food", "Budget", "How do I eat well on a tight budget?"],
+  ["training", "Training", "What's a good beginner training split?"],
+  ["training", "Warm-up", "How do I warm up before lifting?"],
+];
+const MINOR_PROMPTS: GeneralPrompt[] = [
+  ["food", "Food", "What should I eat before sports practice?"],
+  ["training", "Strength", "How can I get stronger safely?"],
+  ["general", "Recovery", "How much sleep do I need?"],
+];
 const PROMPT_ICONS: Record<StarterPrompt["source"], typeof Utensils> = {
   food: Utensils, training: Dumbbell, activity: Footprints, goal: Target, setup: UserRound, general: MessageCircle,
 };
