@@ -304,3 +304,41 @@ export function parsePage(value: unknown): number {
   const n = typeof value === "string" && /^\d{1,4}$/.test(value) ? Number(value) : 1;
   return Math.min(Math.max(n, 1), 1000);
 }
+
+// Plans as Admin edits them ----------------------------------------------------------------------
+
+export type PlanDetail = PlanRow & {
+  description: string | null;
+  features: string[];
+  sortOrder: number;
+  razorpayPlanIdTest: string | null;
+  razorpayPlanIdLive: string | null;
+};
+
+/** A billing_plans row with its description, features and Razorpay plan ids (ids are not secret). */
+export function parsePlanDetail(data: unknown): PlanDetail | null {
+  if (!isRecord(data)) return null;
+  const [base] = parsePlans([data]);
+  if (!base.code) return null;
+  return {
+    ...base,
+    description: text(data.description),
+    features: Array.isArray(data.features) ? data.features.filter((item): item is string => typeof item === "string" && item.trim() !== "") : [],
+    sortOrder: typeof data.sort_order === "number" && Number.isInteger(data.sort_order) ? data.sort_order : 0,
+    razorpayPlanIdTest: text(data.razorpay_plan_id_test),
+    razorpayPlanIdLive: text(data.razorpay_plan_id_live),
+  };
+}
+
+/**
+ * Refunds are issued in the Razorpay Dashboard (Admin holds no Razorpay key and never moves money); this is
+ * the payment's page there. Razorpay then reports the refund by webhook and it appears in the ledger.
+ */
+export function razorpayPaymentUrl(providerPaymentId: string): string | null {
+  return /^pay_[A-Za-z0-9]{1,60}$/.test(providerPaymentId) ? `https://dashboard.razorpay.com/app/payments/${providerPaymentId}` : null;
+}
+
+/** A captured payment with something left to refund. */
+export function canRefund(row: Pick<PaymentRow, "status" | "amountPaise" | "refundedPaise">): boolean {
+  return row.status === "captured" && row.refundedPaise < row.amountPaise;
+}
