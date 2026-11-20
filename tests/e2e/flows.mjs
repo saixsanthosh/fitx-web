@@ -11,7 +11,8 @@
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { FlowSession, launchChrome, loadPlaywright } from "./support/browser.mjs";
+import { CspFlowSession } from "./csp-watch.mjs";
+import { launchChrome, loadPlaywright } from "./support/browser.mjs";
 import { Standin } from "./support/standin-client.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -26,96 +27,6 @@ const CHROME = process.env.E2E_CHROME ?? "/Applications/Google Chrome.app/Conten
 const sizes = (args.sizes ?? "phone,desktop").split(",");
 const schemes = (args.schemes ?? "light").split(",");
 const only = args.flows ? args.flows.split(",") : null;
-
-/** Runs in every page before its own scripts: reports each CSP violation to the console for CspFlowSession. */
-function watchCspViolations() {
-  const report = (event) => {
-    try {
-      console.debug(`[e2e-csp] ${JSON.stringify({
-        directive: event.effectiveDirective || event.violatedDirective || "",
-        blocked: String(event.blockedURI || "").slice(0, 300),
-        disposition: event.disposition || "",
-        source: String(event.sourceFile || "").slice(0, 200),
-        line: event.lineNumber || 0,
-        sample: String(event.sample || "").slice(0, 120),
-        page: String(location.href).slice(0, 300),
-      })}`);
-    } catch {
-      // Reporting is best effort; Chrome's own console report is the backstop.
-    }
-  };
-  window.addEventListener("securitypolicyviolation", report, true);
-}
-
-/** Chrome's console text for a CSP violation, enforced ("… violates the following Content Security Policy directive …",
- * an error) or report-only (the same text as info). */
-const CSP_CONSOLE = /violates the following Content Security Policy directive|Refused to .*Content Security Policy/i;
-const baseDirective = (name) => String(name).split(" ")[0].replace(/-(elem|attr)$/, "");
-
-/** A FlowSession that also collects every CSP violation on every page (and its workers) of its context. */
-class CspFlowSession extends FlowSession {
-  constructor(options) {
-    super(options);
-    this.cspViolations = [];
-  }
-
-  async open(options) {
-    const page = await super.open(options);
-    // Added before the first navigation, so it runs in this page and in every page the flow opens later.
-    await this.context.addInitScript(watchCspViolations);
-    this.context.on("page", (other) => { if (other !== this.page) this.watchCsp(other); });
-    return page;
-  }
-
-  instrument(page) {
-    super.instrument(page);
-    this.watchCsp(page);
-  }
-
-  watchCsp(page) {
-    const fromConsole = (message, via) => {
-      const text = message.text();
-      if (text.startsWith("[e2e-csp] ")) {
-        try {
-          this.cspViolations.push({ ...JSON.parse(text.slice(10)), via: "event", label: this.label });
-        } catch {
-          this.cspViolations.push({ directive: "unknown", blocked: text.slice(10, 300), via: "event", label: this.label, page: page.url() });
-        }
-      } else if (["error", "warning", "info"].includes(message.type()) && CSP_CONSOLE.test(text)) {
-        this.cspViolations.push({
-          directive: /directive:? ["']([a-z-]+)/i.exec(text)?.[1] ?? "unknown",
-          blocked: /^(?:Loading|Connecting to|Framing|Refused to \w+(?: the \w+)?) (?:the \w+ )?'([^']+)'/.exec(text)?.[1] ?? "",
-          disposition: message.type() === "info" ? "report" : "enforce",
-          text: text.slice(0, 400), via, label: this.label, page: page.url(),
-        });
-      }
-    };
-    page.on("console", (message) => fromConsole(message, "console"));
-    // Workers get no init script; Chrome's own report of a violation inside one is the only signal.
-    page.on("worker", (worker) => worker.on?.("console", (message) => fromConsole(message, `worker ${worker.url().slice(0, 160)}`)));
-  }
-
-  /** One failed step listing every violation. Chrome's console report of a violation the page event already gave is left out. */
-  recordCspViolations() {
-    const events = this.cspViolations.filter((violation) => violation.via === "event");
-    const covered = new Set(events.map((violation) => `${violation.page}|${baseDirective(violation.directive)}`));
-    const unique = new Map();
-    for (const violation of [...events, ...this.cspViolations.filter((item) => item.via !== "event")]) {
-      if (violation.via !== "event" && covered.has(`${violation.page}|${baseDirective(violation.directive)}`)) continue;
-      const key = `${violation.via}|${violation.directive}|${violation.blocked}|${violation.page}`;
-      if (!unique.has(key)) unique.set(key, violation);
-    }
-    const list = [...unique.values()];
-    if (!list.length) return list;
-    this.steps.push({
-      name: "no Content-Security-Policy violations",
-      status: "fail",
-      ms: 0,
-      error: list.map((violation) => `${violation.disposition === "report" ? "[report-only] " : ""}${violation.directive} blocked ${violation.blocked || "(inline)"} on ${violation.page} (${violation.label})`).join("\n").slice(0, 1200),
-    });
-    return list;
-  }
-}
 
 mkdirSync(OUT, { recursive: true });
 const standin = Standin.fromFile(STANDIN_FILE);
