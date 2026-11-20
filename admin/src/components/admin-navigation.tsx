@@ -194,8 +194,13 @@ export function SectionTitle() {
   const section = sectionForPath(pathname);
   const ref = useRef<HTMLSpanElement>(null);
   const key = section?.number ?? "account";
+  const firstRender = useRef(true);
 
   useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
     if (!ref.current || prefersReducedMotion()) return;
     const animation = ref.current.animate(
       [{ opacity: 0, transform: "translate3d(0, 60%, 0)" }, { opacity: 1, transform: "translate3d(0, 0, 0)" }],

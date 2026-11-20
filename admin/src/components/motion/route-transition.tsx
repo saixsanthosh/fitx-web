@@ -20,8 +20,14 @@ export function RouteTransition({ children }: { children: React.ReactNode }) {
   const section = sectionOf(pathname);
   const pageRef = useRef<HTMLDivElement>(null);
   const sweepRef = useRef<HTMLSpanElement>(null);
+  const firstRender = useRef(true);
 
   useEffect(() => {
+    // The first page arrives already painted by the server; only later section changes move.
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
     if (prefersReducedMotion()) return;
     const animations = [
       pageRef.current?.animate(
