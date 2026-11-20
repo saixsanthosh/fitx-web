@@ -13,6 +13,7 @@ const LEFT_OUT: Record<string, string> = {
   ai_coach_usage_events: "request times for the coach's 24-hour limit, removed after 7 days by the member's next coach request (after 24 hours by “Delete my coach data”); members cannot read the table",
   fitx_rate_limits: "food search counters, removed after 2 days by the member's next search; members cannot read the table",
   fitx_admin_members: "FITX Admin staff roles, not member data",
+  fitx_member_write_budget: "hourly counts of the rows and bytes a member wrote, for the write limit; kept two days and removed by the member's next write; members cannot read the table",
 };
 
 const DIR = path.resolve(process.cwd(), "supabase/migrations");
