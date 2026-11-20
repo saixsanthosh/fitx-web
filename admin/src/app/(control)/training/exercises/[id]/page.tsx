@@ -33,14 +33,12 @@ function MediaCard({ item, exerciseId }: { item: ExerciseMediaItem; exerciseId: 
   return (
     <li className={styles.mediaCard}>
       <div className={styles.mediaFrame}>
-        <span className={styles.mediaBadge}>{isVideo ? "Video" : `Photo ${item.position + 1}`}</span>
-        {item.url ? (
-          isVideo ? (
-            <video src={item.url} muted loop playsInline controls preload="metadata" aria-label={item.alt || "Demonstration video"} />
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element -- FITX's own Storage copy, sized by its frame
-            <img src={item.url} alt={item.alt} loading="lazy" width={item.width ?? 400} height={item.height ?? 300} />
-          )
+        <span className={styles.mediaBadge}>{isVideo ? "Video" : `Photo ${item.position + 1}`}{!item.url && item.previewUrl ? " · Original" : ""}</span>
+        {item.url && isVideo ? (
+          <video src={item.url} muted loop playsInline controls preload="metadata" aria-label={item.alt || "Demonstration video"} />
+        ) : item.previewUrl && !isVideo ? (
+          // eslint-disable-next-line @next/next/no-img-element -- FITX's Storage copy or the catalogue original, sized by its frame
+          <img src={item.previewUrl} alt={item.alt} loading="lazy" referrerPolicy="no-referrer" width={item.width ?? 400} height={item.height ?? 300} />
         ) : (
           <span>Original only, not yet copied to FITX storage</span>
         )}

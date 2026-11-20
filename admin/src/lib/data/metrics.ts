@@ -84,12 +84,7 @@ export async function getPlatformMetrics(): Promise<MetricsResult> {
   return counts ? { state: "legacy", metrics: counts } : { state: "query_failed" };
 }
 
-export async function getDailyTrends(days: number): Promise<TrendsResult> {
-  await requireAdmin("reports.view");
-  return readDailyTrends(days);
-}
-
-/** The same daily counts for the Dashboard, which every role with overview.view opens. */
+/** Daily counts for the Dashboard, which every role with overview.view opens (Reports reads its own, data/reports.ts). */
 export async function getOverviewTrends(days: number): Promise<TrendsResult> {
   await requireAdmin("overview.view");
   return readDailyTrends(days);

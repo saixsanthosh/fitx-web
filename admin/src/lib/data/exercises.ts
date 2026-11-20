@@ -1,6 +1,7 @@
 import "server-only";
 import { requireAdmin } from "@/lib/admin-auth";
 import { isContentMigrationMissing } from "@/lib/content/errors";
+import { catalogueImageUrl } from "@/lib/csp";
 import { EXERCISE_MEDIA_BUCKET } from "@/lib/content/media-rules";
 import { publicUrlFor } from "@/lib/content/storage";
 import { EQUIPMENT_KEYS, EXERCISE_CATEGORIES, MUSCLE_GROUPS } from "@/lib/content/vocabulary";
@@ -131,6 +132,8 @@ export type ExerciseMediaItem = {
   url: string | null;
   /** Where the file is when Admin cannot show it (an original that has not been copied to FITX storage). */
   sourceUrl: string | null;
+  /** What Admin shows: the FITX Storage copy, else a catalogue photo's original on GitHub (allowed by the CSP). */
+  previewUrl: string | null;
   uploaded: boolean;
   alt: string;
   attribution: string;
@@ -169,6 +172,7 @@ export async function getExercise(id: string) {
       position: Number(row.position) || 0,
       url: mirrored && path ? publicUrlFor(EXERCISE_MEDIA_BUCKET, path) : null,
       sourceUrl: typeof row.source_url === "string" ? row.source_url : null,
+      previewUrl: mirrored && path ? publicUrlFor(EXERCISE_MEDIA_BUCKET, path) : row.kind === "video_loop" ? null : catalogueImageUrl(row.source_url),
       uploaded: Boolean(path?.startsWith("admin/")),
       alt: typeof row.alt === "string" ? row.alt : "",
       attribution: typeof row.attribution === "string" ? row.attribution : "",

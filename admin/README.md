@@ -7,11 +7,13 @@ Sign-in is a username and password (no Google). The owner's account is the **roo
 ## Owner checklist
 
 1. **Make the password hash on your own computer.** `cd admin && npm run admin:hash`, type the password twice (nothing shows as you type), and copy the single line it prints. It starts `scrypt:`. Never paste the password itself anywhere, and never commit the hash.
-2. **Set the variables.** Vercel, project **admin**, Settings, Environment Variables, **Production** only, both marked **Sensitive**: `FITX_ADMIN_USERNAME` = your username (lower case) and `FITX_ADMIN_PASSWORD_HASH` = the line from step 1. Keep `SUPABASE_SECRET_KEY`, `ADMIN_SITE_URL`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Delete `FITX_ADMIN_ALLOWED_EMAILS`: it is no longer read.
-3. **Apply the database update** `supabase/migrations/20261121100030_fitx_admin_v2.sql` (after the Phase 10 files listed in [Database migrations](#database-migrations)). Until it is applied, Admin refuses every sign-in and logs which migration is missing.
-4. **Redeploy Admin** and sign in at `/login`.
+2. **Set the variables.** Vercel, project **admin**, Settings, Environment Variables, **Production** only, both marked **Sensitive**: `FITX_ADMIN_USERNAME` = your username (lower case, `saixsanthosh`) and `FITX_ADMIN_PASSWORD_HASH` = the line from step 1. Keep `SUPABASE_SECRET_KEY`, `ADMIN_SITE_URL`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Delete `FITX_ADMIN_ALLOWED_EMAILS`: it is no longer read.
+3. **Give the OK to apply the three Admin database updates** before Admin is redeployed: `20261121100030_fitx_admin_v2`, `20261121100033_fitx_admin_ops` and `20261121100036_fitx_admin_content` (#42 to #44 in `docs/runbooks/platform-database.md`; the coordinator applies them, in that order, after the Phase 10 files listed in [Database migrations](#database-migrations)). Until `20261121100030` is applied, Admin refuses every sign-in and logs which migration is missing; until the other two are, the sections that need them say so.
+4. **Redeploy Admin** and sign in at `/login`. After five wrong tries a username is locked for 15 minutes; wait it out.
 5. **Add operators** in Admin and security, Access control. Each gets a temporary password from you and chooses their own at first sign-in.
 6. Optional: remove the old Admin `/auth/callback` entry from the Supabase Redirect URLs.
+7. Optional, project **fitnessx** (not admin): `OLLAMA_BASE_URL` (an `https://` address of an Ollama server you run and keep private) and `OLLAMA_MODEL`. Leave both unset to use only the free hosted AI providers.
+8. Optional, after `20261121100036` is applied: run `scripts/catalog/mirror-media.mjs` so catalogue photos are served from FITX Storage. Until then Workouts previews them from the catalogue's GitHub source.
 
 To change your password later, repeat steps 1, 2 and 4: every open Admin session ends, because each session remembers which password hash it signed in with.
 
@@ -57,12 +59,15 @@ The table lives in two places that a test keeps identical: `src/lib/roles.ts` an
 
 ## Database migrations
 
-All files are in the root `supabase/migrations/` folder, applied in file-name order; each runs safely more than once. The Phase 10 files `20261118180000` to `20261118180006` made the Admin tables, the append-only audit log, metrics, people search, support and announcements. `20261121100030_fitx_admin_v2.sql` adds:
+All files are in the root `supabase/migrations/` folder, applied in file-name order; each runs safely more than once. The Phase 10 files `20261118180000` to `20261118180006` made the Admin tables, the append-only audit log, metrics, people search, support and announcements. The three Admin files below are #42 to #44 in `docs/runbooks/platform-database.md`, which has each one's Check query, expected result and undo.
 
-- `admin_operators`, `admin_web_sessions` and `admin_login_attempts`, with row-level security on and no policy, so only the server key and the database functions reach them;
-- the sign-in limit functions `fitx_admin_login_check` and `fitx_admin_login_record`;
-- `fitx_admin_op_can`, `fitx_admin_op_log_event` and an operator version (`fitx_admin_op_*`) of every Admin write function;
-- operator columns on the audit log, support requests and messages, and announcements. The older functions, `fitx_admin_members` and all audit history stay.
+1. `20261121100030_fitx_admin_v2.sql` (#42):
+   - `admin_operators`, `admin_web_sessions` and `admin_login_attempts`, with row-level security on and no policy, so only the server key and the database functions reach them;
+   - the sign-in limit functions `fitx_admin_login_check` and `fitx_admin_login_record`;
+   - `fitx_admin_op_can`, `fitx_admin_op_log_event` and an operator version (`fitx_admin_op_*`) of every Admin write function;
+   - operator columns on the audit log, support requests and messages, and announcements. The older functions, `fitx_admin_members` and all audit history stay.
+2. `20261121100033_fitx_admin_ops.sql` (#43): `platform_settings` (one row of feature switches, the maintenance notice and website information; members and visitors may read it, operators write it through `fitx_admin_op_save_platform_settings`), `member_notifications` (notices to chosen accounts; each member reads and dismisses only their own), the support Complaint category and unread tracking, account search v2, the Dashboard extras and the Security summary.
+3. `20261121100036_fitx_admin_content.sql` (#44): no new table. Type and size limits on the `exercise-media` bucket, a public `food-media` bucket, and the operator functions behind Workouts, Nutrition, Subscriptions (plans; never prices) and Reports.
 
 ## Environment variables
 
@@ -88,7 +93,7 @@ Set these in a local `.env.local` or in the **admin Vercel project only**. `.env
 3. **Sessions** (`src/lib/admin-session.ts`). A successful sign-in creates a new random 32-byte token in the `__Host-fitx_admin` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/`). The database keeps only the token's SHA-256. A session ends 12 hours after sign-in, after 60 minutes without use, on sign-out, when its operator is switched off, or when the password changes.
 4. **Every request is checked.** Every page, data helper, Server Action and Route Handler calls `requireAdmin(permission)` (`src/lib/admin-auth.ts`): no session goes to `/login`, a role without the permission gets the 403 page, and an operator with a temporary password goes to `/account`. The layout is never the only guard. The proxy only sends requests without the cookie to `/login`; it does no database work.
 5. **Database.** Admin reads and writes only on the server with the service key (`src/lib/supabase/admin.ts`). Every write goes through a `fitx_admin_op_*` function that checks the operator's role in Postgres and writes its audit row in the same transaction. All of them are executable by `service_role` only and pin `search_path`.
-6. **Browser.** Every response carries a Content-Security-Policy with a fresh nonce: scripts only from Admin itself, no inline styles or eval in production, no framing, forms post only to Admin. Images, video and uploads may also use the Supabase project.
+6. **Browser.** Every response carries a Content-Security-Policy with a fresh nonce: scripts only from Admin itself, no inline styles or eval in production, no framing, forms post only to Admin. Images, video and uploads may also use the Supabase project, and images the exercise catalogue's GitHub source (`raw.githubusercontent.com/yuhonas/free-exercise-db/`).
 7. Failed checks are written to the server logs as `[fitx-admin]` lines; emails, IDs, tokens and keys are masked.
 
 ## Password reset emails

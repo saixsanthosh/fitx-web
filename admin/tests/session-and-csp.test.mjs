@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { fake, resetFakes, SESSION_STUBS, setTestEnv, tableCalls } from "./helpers/fakes.mjs";
 
 const policy = await importTypeScriptModule("src/lib/session-policy.ts");
-const { buildAdminCsp, createNonce, originOf } = await importTypeScriptModule("src/lib/csp.ts");
+const { buildAdminCsp, catalogueImageUrl, createNonce, EXERCISE_CATALOGUE_IMAGES, originOf } = await importTypeScriptModule("src/lib/csp.ts");
 const { csvCell, toCsv } = await importTypeScriptModule("src/lib/csv.ts");
 const { hashPassword } = await importTypeScriptModule("src/lib/password.ts");
 
@@ -173,7 +173,9 @@ test("the Admin CSP uses the nonce, blocks framing and inline code, and allows S
   assert.match(csp, /object-src 'none'/);
   assert.match(csp, /base-uri 'self'/);
   assert.match(csp, /form-action 'self'(;|$)/);
-  assert.match(csp, /img-src 'self' data: blob: https:\/\/demo\.supabase\.co(;|$)/);
+  // Images also from the exercise catalogue's pinned GitHub source (originals not yet in FITX Storage), nothing else there.
+  assert.match(csp, /img-src 'self' data: blob: https:\/\/demo\.supabase\.co https:\/\/raw\.githubusercontent\.com\/yuhonas\/free-exercise-db\/(;|$)/);
+  assert.equal(csp.match(/githubusercontent/g)?.length, 1, "GitHub only in img-src");
   assert.match(csp, /media-src 'self' blob: https:\/\/demo\.supabase\.co(;|$)/);
   assert.match(csp, /connect-src 'self' https:\/\/demo\.supabase\.co(;|$)/);
   assert.doesNotMatch(csp, /google/);
@@ -188,6 +190,22 @@ test("development relaxes only what React's dev tools need, and plain HTTP skips
   assert.match(csp, /form-action 'self'(;|$)/);
   assert.match(csp, /connect-src 'self'(;|$)/);
   assert.doesNotMatch(csp, /upgrade-insecure-requests/);
+});
+
+test("only catalogue photos on the pinned GitHub source are previewed from outside FITX Storage", () => {
+  const photo = `${EXERCISE_CATALOGUE_IMAGES}f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/exercises/Pushups/0.jpg`;
+  assert.equal(catalogueImageUrl(photo), photo);
+  for (const other of [
+    "https://raw.githubusercontent.com/someone-else/repo/main/a.jpg",
+    `${EXERCISE_CATALOGUE_IMAGES}main/exercises/../../../x.jpg`,
+    `${EXERCISE_CATALOGUE_IMAGES}main/exercises/Pushups/0.svg`,
+    `${EXERCISE_CATALOGUE_IMAGES}main/a b.jpg`,
+    `http://raw.githubusercontent.com/yuhonas/free-exercise-db/main/a.jpg`,
+    null,
+    42,
+  ]) {
+    assert.equal(catalogueImageUrl(other), null, String(other));
+  }
 });
 
 test("nonces are fresh base64 values and origins are parsed safely", () => {
