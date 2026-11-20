@@ -1,7 +1,7 @@
-// Saves the USDA FoodData Central search pages that scripts/import-fdc.mjs reads, resuming where it stopped.
+// Saves the USDA FoodData Central search pages that scripts/food/import-fdc.mjs reads, resuming where it stopped.
 //
-//   USDA_API_KEY=<api.data.gov key> node scripts/import-fdc-fetch.mjs <dir>
-//   node --import ./tests/setup/hooks.mjs scripts/import-fdc.mjs <dir> --append
+//   USDA_API_KEY=<api.data.gov key> node scripts/food/import-fdc-fetch.mjs <dir>
+//   node --import ./tests/setup/hooks.mjs scripts/food/import-fdc.mjs <dir> --append
 //
 // Fetches every Survey (FNDDS) and Foundation page (200 foods each, by FDC id) into <dir> as fndds-pN.json and
 // foundation-pN.json, skipping pages already saved there. With a free key (https://api.data.gov/signup/, 1,000
@@ -18,7 +18,7 @@ const PAGE_SIZE = 200;
 
 const dir = process.argv[2];
 if (!dir) {
-  console.error("usage: USDA_API_KEY=<key> node scripts/import-fdc-fetch.mjs <dir>");
+  console.error("usage: USDA_API_KEY=<key> node scripts/food/import-fdc-fetch.mjs <dir>");
   process.exit(2);
 }
 const key = process.env.USDA_API_KEY?.trim() || "DEMO_KEY";

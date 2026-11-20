@@ -1,13 +1,13 @@
 # FITX Admin
 
-FITX Admin is a private operations console that lives in `/admin` of the `saixsanthosh/fitx-web` repository. It is a separate Next.js application and a separate Vercel project, `admin`. The FITX customer website stays at the repository root in its own Vercel project, `fitnessx` (https://fitnessx.vercel.app).
+FITX Admin is a private operations console that lives in `admin/` of the FITX repository. It is a separate Next.js application and a separate Vercel project, `admin`. The FITX customer website stays at the repository root in its own Vercel project, `fitnessx` (https://fitnessx.vercel.app).
 
 Sign-in is a username and password (no Google). The owner's account is the **root operator**: its username and a scrypt hash of its password live only in the Admin project's environment. Other operators are added in Admin by a super-admin.
 
 ## Owner checklist
 
 1. **Make the password hash on your own computer.** `cd admin && npm run admin:hash`, type the password twice (nothing shows as you type), and copy the single line it prints. It starts `scrypt:`. Never paste the password itself anywhere, and never commit the hash.
-2. **Set the variables.** Vercel, project **admin**, Settings, Environment Variables, **Production** only, both marked **Sensitive**: `FITX_ADMIN_USERNAME` = your username (lower case, `saixsanthosh`) and `FITX_ADMIN_PASSWORD_HASH` = the line from step 1. Keep `SUPABASE_SECRET_KEY`, `ADMIN_SITE_URL`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Delete `FITX_ADMIN_ALLOWED_EMAILS`: it is no longer read.
+2. **Set the variables.** Vercel, project **admin**, Settings, Environment Variables, **Production** only, both marked **Sensitive**: `FITX_ADMIN_USERNAME` = your username in lower case and `FITX_ADMIN_PASSWORD_HASH` = the line from step 1. Keep `SUPABASE_SECRET_KEY`, `ADMIN_SITE_URL`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Delete `FITX_ADMIN_ALLOWED_EMAILS`: it is no longer read.
 3. **Give the OK to apply the three Admin database updates** before Admin is redeployed: `20261121100030_fitx_admin_v2`, `20261121100033_fitx_admin_ops` and `20261121100036_fitx_admin_content` (#42 to #44 in `docs/runbooks/platform-database.md`; the coordinator applies them, in that order, after the Phase 10 files listed in [Database migrations](#database-migrations)). Until `20261121100030` is applied, Admin refuses every sign-in and logs which migration is missing; until the other two are, the sections that need them say so.
 4. **Redeploy Admin** and sign in at `/login`. After five wrong tries a username is locked for 15 minutes; wait it out.
 5. **Add operators** in Admin and security, Access control. Each gets a temporary password from you and chooses their own at first sign-in.
@@ -142,7 +142,7 @@ npm run dev         # local server on port 3100
 npm run admin:hash  # make FITX_ADMIN_PASSWORD_HASH
 npm run lint        # ESLint
 npm run typecheck   # TypeScript
-npm test            # node --test: passwords, sign-in limits and actions, sessions and cookies, roles parity with SQL, CSP, audit
+npm test            # node --test: sign-in, sessions, roles parity with SQL, CSP, audit, section actions and rules
 npm run build       # production Next.js build
 ```
 
@@ -191,10 +191,9 @@ Skipped builds appear as "Canceled" in Vercel. They still count toward Vercel's 
 
 ## Maintenance
 
-- Review every new database function for RLS, `search_path`, role checks, least privilege, and audit coverage. Keep the role table in `src/lib/roles.ts` and migration `20261118180001` identical (a test compares them).
+- Review every new database function for RLS, `search_path`, role checks, least privilege, and audit coverage. Keep the role table in `src/lib/roles.ts` and the newest `fitx_admin_role_permissions` (migration `20261121100030`) identical (`tests/roles.test.mjs` compares them).
 - Apply only reviewed migrations; never disable existing FITX RLS policies.
 - Keep user health and activity details out of Admin lists, account pages and analytics.
-- Add billing, the food catalogue and exercise editing only after their authoritative source and permissions are defined.
 - Re-run lint, TypeScript, tests, and the production build after changes. When shared paths or the repository layout change, update `scripts/deploy-filter.mjs` and its tests.
 - The root `npm test` also runs `tests/deploy-filter.test.mjs` and `tests/vercel-ignore.test.mjs` without Admin's dependencies installed. Keep the filter scripts and those two test files limited to Node built-ins and `git`; a test enforces this.
 - Never commit `.env.local`, Vercel project linkage files, secrets, generated user exports, or screenshots containing personal data.
