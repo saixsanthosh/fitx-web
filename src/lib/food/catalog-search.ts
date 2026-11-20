@@ -12,6 +12,11 @@ import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-
 
 export const USDA_SOURCE = "USDA FoodData Central";
 export const CUSTOM_SOURCE = "FITX custom food";
+/**
+ * A catalogue food FITX itself holds the values of: one Admin added, or a USDA food whose values Admin changed
+ * (fitx_admin_op_save_food in 20261121100036 then clears its USDA data type). It has no FoodData Central record.
+ */
+export const FITX_CATALOGUE_SOURCE = "FITX food catalogue";
 
 /** A result plus what ranking needs: names it answers to exactly, and words that only help find it. */
 export type RankableFood = FoodResult & { aliases?: string[]; keywords?: string[] };
@@ -152,7 +157,10 @@ const DIETS = new Set(["vegan", "veg", "egg", "non_veg"]);
 const BASES = new Set(["lab_analysed", "compiled", "recipe_calculated", "label", "user_entered", "ai_suggested", "estimated"]);
 const UNITS = new Set(["piece", "slice", "serving", "cup", "tbsp", "tsp", "ml", "l", "floz", "katori", "bowl", "plate", "glass"]);
 
-/** A public.search_foods row as a result. */
+/**
+ * A public.search_foods row as a result. A catalogue row with a USDA data type is a FoodData Central food, linked
+ * to its record; one without is a FITX catalogue food (every seeded USDA row has a data type), with no link.
+ */
 export function searchRowToFood(row: Row): RankableFood {
   if (row.kind === "custom") return customRowToFood({
     id: row.id, name: row.name, brand: row.brand, serving_size: row.serving_size, serving_grams: row.serving_grams,
@@ -171,7 +179,8 @@ export function searchRowToFood(row: Row): RankableFood {
     }));
   const valueBasis = (BASES.has(String(row.value_basis)) ? row.value_basis : basisForDataType(text(row.source_data_type))) as ValueBasis;
   const image = text(row.image_url);
-  return usdaFood({
+  const dataType = text(row.source_data_type);
+  const food = usdaFood({
     id: String(row.id),
     name: String(row.name),
     calories: num(row.kcal) ?? 0,
@@ -181,7 +190,7 @@ export function searchRowToFood(row: Row): RankableFood {
     fiber: num(row.fiber_g),
     sugar: num(row.sugar_g),
     sodiumMg: num(row.sodium_mg),
-    dataType: text(row.source_data_type),
+    dataType,
     valueBasis,
     basis: basisInfo(valueBasis).label,
     state: row.state === "raw" || row.state === "cooked" ? row.state : null,
@@ -196,6 +205,7 @@ export function searchRowToFood(row: Row): RankableFood {
     recentCount: num(row.recent_count) ?? 0,
     suggestion: row.fuzzy === true,
   });
+  return dataType ? food : { ...food, source: FITX_CATALOGUE_SOURCE, sourceUrl: null };
 }
 
 /** A custom_foods row (values per 100 g, a saved serving) as a result. */

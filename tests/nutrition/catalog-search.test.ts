@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { customRowToFood, localFoodsFrom, publicFood, rankAndPick, searchRowToFood, stemsFor, type RankableFood } from "@/lib/food/catalog-search";
+import { readdirSync, readFileSync } from "node:fs";
+import { customRowToFood, FITX_CATALOGUE_SOURCE, localFoodsFrom, publicFood, rankAndPick, searchRowToFood, stemsFor, USDA_SOURCE, type RankableFood } from "@/lib/food/catalog-search";
 import { parseFoodQuery } from "@/lib/domain/food-query";
 
 const read = (file: string) => JSON.parse(readFileSync(new URL(`../../src/data/${file}`, import.meta.url), "utf8"));
@@ -38,6 +38,40 @@ test("catalogue rows from search_foods become results with portions and labels",
   assert.deepEqual(food.portions, [{ label: "1 item", unit: "piece", grams: 38, countDefault: true, estimate: true }], "grams are not a portion unit");
   assert.equal(food.sourceUrl, "https://fdc.nal.usda.gov/food-details/2708346/nutrients");
   assert.equal("aliases" in publicFood(food), false, "ranking-only fields stay on the server");
+});
+
+test("a catalogue row without a USDA data type is a FITX catalogue food, with no FoodData Central link", () => {
+  const row = {
+    kind: "catalog", id: "2708346", name: "Idli", aliases: [], keywords: [], kcal: 140, protein_g: 6, carbs_g: 25, fat_g: 0.4,
+    fiber_g: null, sugar_g: null, sodium_mg: null, value_basis: "estimated", state: "cooked", diet_type: "vegan", portions: [], recent_count: 0, fuzzy: false,
+  };
+  // What fitx_admin_op_save_food (20261121100036) leaves when Admin changes a USDA food's values: no data type.
+  const edited = searchRowToFood({ ...row, source_data_type: null });
+  assert.equal(edited.source, FITX_CATALOGUE_SOURCE);
+  assert.equal(edited.sourceUrl, null, "no FoodData Central record holds these values");
+  assert.equal(edited.dataType, null);
+  assert.equal(edited.calories, 140);
+  assert.equal(edited.valueBasis, "estimated");
+  assert.equal(searchRowToFood({ ...row, source_data_type: "  " }).source, FITX_CATALOGUE_SOURCE, "a blank data type is none");
+  const usda = searchRowToFood({ ...row, source_data_type: "Survey (FNDDS)" });
+  assert.equal(usda.source, USDA_SOURCE);
+  assert.equal(usda.sourceUrl, "https://fdc.nal.usda.gov/food-details/2708346/nutrients");
+});
+
+test("every food the seed parts add has a USDA data type, so only Admin's own foods read as FITX catalogue foods", () => {
+  const dir = new URL("../../supabase/migrations/", import.meta.url);
+  const parts = readdirSync(dir).filter((name) => /_fitx_food_catalog_seed_part_\d+\.sql$/.test(name)).sort();
+  assert.equal(parts.length, 5);
+  let foods = 0;
+  for (const part of parts) {
+    const json = readFileSync(new URL(part, dir), "utf8").match(/\$fitx\$(\[[^]*?\])\$fitx\$/)?.[1];
+    assert.ok(json, `${part} has its food list`);
+    const rows = JSON.parse(json) as Array<{ id: string; dt?: unknown }>;
+    const without = rows.filter((food) => !["Foundation", "SR Legacy", "Survey (FNDDS)"].includes(String(food.dt))).map((food) => food.id);
+    assert.deepEqual(without, [], `${part}: foods without a USDA data type`);
+    foods += rows.length;
+  }
+  assert.equal(foods, 2302, "the 595, 417, 425, 435 and 430 foods of the five parts");
 });
 
 test("custom foods keep their saved serving, origin and value basis", () => {

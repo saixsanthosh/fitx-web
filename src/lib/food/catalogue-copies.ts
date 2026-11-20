@@ -13,7 +13,10 @@ const COLUMNS = "id,name,aliases,keywords,category,diet_type,state,kcal,protein_
 
 type PortionRow = { label?: unknown; unit?: unknown; grams?: unknown; is_default?: unknown; is_estimate?: unknown; sort_order?: unknown };
 
-/** A food_catalog row with its food_portions, in the shape search_foods returns. */
+/**
+ * A food_catalog row with its food_portions, in the shape search_foods returns. A row Admin has made FITX's own (no
+ * USDA data type) comes back as a FITX catalogue food without a FoodData Central link, like in search.
+ */
 export function catalogueRowToFood(row: Record<string, unknown>): RankableFood {
   const portions = (Array.isArray(row.food_portions) ? (row.food_portions as PortionRow[]) : [])
     .slice()

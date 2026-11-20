@@ -111,6 +111,7 @@ const NO_POLICY_BY_DESIGN = {
   admin_operators: "Admin operators and their scrypt hashes; read by service_role (bypasses RLS) and written only by the security definer fitx_admin_op_* functions (20261121100030)",
   admin_web_sessions: "Admin sessions (token hashes only); read and written by service_role from the Admin server (20261121100030)",
   admin_login_attempts: "Admin sign-in attempts (hashed username and IP keys); written only by the security definer fitx_admin_login_* functions, read by service_role (20261121100030)",
+  fitx_member_write_budget: "each member's hourly write totals; written only by the security definer fitx_member_write_budget() trigger, so members cannot read or reset them, read by service_role (20261121100040)",
 };
 
 // Migrations that cannot safely be applied a second time: the error they stop at, or the changes they
@@ -218,8 +219,8 @@ const PRODUCTION_LEFTOVERS = [
   {
     what:
       "the tables food_favorites, outdoor_activities, activity_shares and user_release_reads, with their " +
-      "columns, keys, checks, indexes and owner-only policies: signed-in members can write their own rows, and signed-out " +
-      "visitors hold every table privilege, but no policy lets them reach a row",
+      "columns, keys, checks, indexes and owner-only policies; until 20261121100040 signed-in members could write their own rows " +
+      "and signed-out visitors held every table privilege (no policy let them reach a row); it takes every right from both",
     keys: new RegExp(
       `^((relation|column|constraint|policy|trigger|rows) public\\.(${LEFTOVER_TABLES.join("|")})(\\.|$)|index public\\.(${LEFTOVER_TABLES.join("|")})_)`,
     ),
@@ -227,8 +228,8 @@ const PRODUCTION_LEFTOVERS = [
   },
   {
     what:
-      "get_activity_share(text): runs as its owner and signed-out visitors can call it (the runbook's Final 3 lists it); it " +
-      "returns the route coordinates saved in activity_shares for a share token",
+      "get_activity_share(text): runs as its owner and returns the route coordinates saved in activity_shares for a share " +
+      "token; signed-out visitors could call it until 20261121100040 took that right away",
     keys: /^function public\.get_activity_share\(p_token text\)$/,
     names: ["get_activity_share"],
   },
@@ -613,7 +614,7 @@ const RUNBOOK_PINNED = {
     ["2707381", "Kidney beans, from dried, no added fat"], ["2707382", "Kidney beans, from canned, fat added"],
   ].map(([id, name]) => ({ id, name, has_rajma: true }))],
   "Final 2": [["admin_login_attempts", "admin_operators", "admin_web_sessions", "ai_coach_limits", "ai_coach_usage_events", "billing_provider_events",
-    "billing_reconciliation_runs", "fitx_admin_audit_logs", "fitx_rate_limits"].map((relname) => ({ relname }))],
+    "billing_reconciliation_runs", "fitx_admin_audit_logs", "fitx_member_write_budget", "fitx_rate_limits"].map((relname) => ({ relname }))],
   "History 2": [byVersion([...PRODUCTION_ROWS, ...PENDING.map(historyRow)])],
 };
 
@@ -1213,7 +1214,7 @@ describe("every pending migration on a copy of production's database", { skip },
     assert.ok(problems.length === 0, problems.join("\n"));
   });
 
-  test("the pending migrations leave those leftovers as they found them, apart from checking experience 2.0's three workout checks", (t) => {
+  test("the pending migrations leave those leftovers as they found them, apart from checking experience 2.0's three workout checks and 20261121100040's lock-down", (t) => {
     if (run.failure) return t.skip(notChecked());
     /** Each leftover object, keyed "<section> <key>". */
     const leftovers = (snapshot) => Object.fromEntries(Object.entries(snapshot).flatMap(([section, objects]) =>
@@ -1223,16 +1224,28 @@ describe("every pending migration on a copy of production's database", { skip },
     const end = leftovers(ends.production.snapshot);
     // 20261115110000 validates those three: the definition loses its NOT VALID and the check is marked validated.
     const validated = (a, b) => a?.validated === false && b?.validated === true && a.definition === `${b.definition} NOT VALID`;
+    // 20261121100040 takes the API roles' rights away: from the four tables both lose every privilege, and signed-out
+    // visitors lose get_activity_share. Nothing else about them may change, and no other right may go or come.
+    const lockedDown = (object, a, b) => {
+      const roles = object.startsWith("relation ") ? ["anon", "authenticated"] : object.startsWith("function ") ? ["anon"] : [];
+      if (!roles.length || !a?.acl || !b) return false;
+      const ofRoles = (entry) => roles.some((role) => entry.startsWith(`${role}=`));
+      return roles.every((role) => a.acl.some((entry) => entry.startsWith(`${role}=`)))
+        && same({ ...a, acl: a.acl.filter((entry) => !ofRoles(entry)) }, b);
+    };
     const moved = [];
     let checked = 0;
+    let locked = 0;
     for (const object of [...new Set([...Object.keys(before), ...Object.keys(end)])].sort()) {
       if (!(object in end)) moved.push(`${object}: removed`);
       else if (!(object in before)) moved.push(`${object}: added`);
       else if (validated(before[object], end[object])) checked += 1;
+      else if (lockedDown(object, before[object], end[object])) locked += 1;
       else if (!same(before[object], end[object])) moved.push(`${object}: ${describeChange(before[object], end[object])}`);
     }
-    assert.deepEqual(moved, [], "the leftovers are the owner's to decide about: no pending migration may change them");
+    assert.deepEqual(moved, [], "the leftovers are the owner's to decide about: no pending migration may change them beyond the lock-down");
     assert.equal(checked, 3, "the three checks experience 2.0 added NOT VALID are validated");
+    assert.equal(locked, 5, "20261121100040 locks down the four tables and get_activity_share");
     t.diagnostic(`${Object.keys(before).length} leftover objects compared`);
   });
 

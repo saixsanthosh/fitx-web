@@ -43,3 +43,23 @@ test("the coach grounds foods on the catalogue's current values and never on a f
   assert.ok(!isConflict(rice));
   assert.notEqual(rice.sourceRef, "2708408");
 });
+
+test("a bundled food Admin made FITX's own shows as a FITX catalogue food, without its FoodData Central link", async () => {
+  const { FITX_CATALOGUE_SOURCE, USDA_SOURCE, localFoodsFrom } = await import("@/lib/food/catalog-search");
+  const { withCatalogueCopies } = await import("@/lib/food/catalogue-copies");
+  const local = localFoodsFrom(read("fitx-staples.json"), read("usda-foundation-foods.json")).staples;
+  const idli = local.find((food) => food.id === "2708346");
+  assert.ok(idli);
+  const rows = new Map([[idli.id, catalogueRowToFood({
+    id: idli.id, name: "Idli", aliases: [], keywords: [], state: "cooked", kcal: 140, protein_g: 6, carbs_g: 25, fat_g: 0.4, value_basis: "estimated",
+    source_data_type: null, food_portions: [],
+  })]]);
+  const [shown] = withCatalogueCopies([idli], rows);
+  assert.equal(shown.source, FITX_CATALOGUE_SOURCE);
+  assert.equal(shown.sourceUrl, null);
+  assert.equal(shown.calories, 140);
+  assert.ok((idli.aliases ?? []).length > 0 && (idli.aliases ?? []).every((alias) => shown.aliases?.includes(alias)), "the bundled everyday names stay");
+  const usda = catalogueRowToFood({ id: idli.id, name: "Idli", kcal: 128, protein_g: 6, carbs_g: 25, fat_g: 0.4, source_data_type: "Survey (FNDDS)", food_portions: [] });
+  assert.equal(usda.source, USDA_SOURCE);
+  assert.equal(usda.sourceUrl, `https://fdc.nal.usda.gov/food-details/${idli.id}/nutrients`);
+});
