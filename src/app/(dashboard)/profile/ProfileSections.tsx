@@ -292,7 +292,7 @@ export function GoalSection({ data, editing, notice, onEdit, onClose, onSaved }:
               disabledValues={unavailable}
               hint={unavailable.length ? `${unavailable.map((value) => optionLabel(GOAL_OPTIONS, value)).join(", ")} arrive with the next FITX update.` : undefined}
             />
-            <ChoiceGroup legend="Daily activity" hint="Outside workouts too." options={ACTIVITY_OPTIONS} value={activity} onChange={(value) => { setActivity(value); setError(""); }} columns="grid-cols-1 sm:grid-cols-2" />
+            <ChoiceGroup legend="Daily activity, outside workouts too" options={ACTIVITY_OPTIONS} value={activity} onChange={(value) => { setActivity(value); setError(""); }} columns="grid-cols-1 sm:grid-cols-2" />
           </div>
           <EditActions saving={saving} onCancel={onClose} error={error} />
         </form>
@@ -597,7 +597,7 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
         <form ref={formRef} noValidate onSubmit={(event) => void save(event)}>
           <div className="space-y-7">
             <ChoiceGroup legend="Diet" options={dietOptions} value={draft.diet} onChange={(value) => set("diet", value)} onClear={() => set("diet", null)} clearLabel="Clear your diet" />
-            <ChipGroup legend="Allergies" options={ALLERGY_OPTIONS} values={draft.allergies} onChange={(values) => set("allergies", values)} />
+            <ChipGroup legend="Food allergies or intolerances" options={ALLERGY_OPTIONS} values={draft.allergies} onChange={(values) => set("allergies", values)} />
             <TagInput legend="Other allergies" values={draft.customAllergies} onChange={(values) => set("customAllergies", values)} draft={draft.allergyDraft} onDraftChange={(value) => set("allergyDraft", value)} addLabel="Add allergy" placeholder="For example kiwi" />
             {v2 && <TagInput legend="Foods avoided" values={draft.dislikes} onChange={(values) => set("dislikes", values)} draft={draft.dislikeDraft} onDraftChange={(value) => set("dislikeDraft", value)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />}
             <ChoiceGroup legend="Meals a day" options={mealOptions} value={draft.meals} onChange={(value) => set("meals", value)} columns="grid-cols-4 sm:grid-cols-5" showHints={false} compact />
@@ -613,7 +613,7 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
                   <TextField label="Daily water" value={draft.water} onChange={(value) => set("water", value.replace(/[^\d]/g, ""))} error={errors.water} inputMode="numeric" suffix="ml" maxLength={5} required />
                 </div>
                 {v2 ? <>
-                  <ChipGroup legend="Food rules" options={FOOD_RULE_OPTIONS} values={draft.foodRules} onChange={(values) => set("foodRules", values)} />
+                  <ChipGroup legend="Food rules you follow" options={FOOD_RULE_OPTIONS} values={draft.foodRules} onChange={(values) => set("foodRules", values)} />
                   <ChipGroup legend="Cuisines you enjoy" options={CUISINE_OPTIONS} values={draft.cuisines} onChange={(values) => set("cuisines", values)} />
                   <ChoiceGroup legend="Food budget" options={BUDGET_LEVEL_OPTIONS} value={draft.budgetLevel} onChange={(value) => set("budgetLevel", value)} columns="grid-cols-1 sm:grid-cols-3" onClear={() => set("budgetLevel", null)} clearLabel="Clear your budget level" />
                   <div className="max-w-xs">
@@ -637,23 +637,24 @@ export function LimitsSection({ data, editing, notice, onEdit, onClose, onSaved 
   const v2 = data.schema.preferencesV2;
   const v3 = data.schema.onboardingV3;
   const stored = splitLimitations(prefs.limitations);
-  const [keys, setKeys] = useState<LimitationKey[]>(stored.keys);
-  const [custom, setCustom] = useState<string[]>(stored.custom);
-  const [typed, setTyped] = useState("");
+  const original: { limitations: LimitationKey[]; customLimitations: string[]; limitationDraft: string } = { limitations: stored.keys, customLimitations: stored.custom, limitationDraft: "" };
+  const [draft, setDraft] = useState(original);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const set = <K extends keyof typeof original>(key: K, value: (typeof original)[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+    setError("");
+  };
 
   const start = () => {
-    setKeys(stored.keys);
-    setCustom(stored.custom);
-    setTyped("");
+    setDraft(original);
     setError("");
     onEdit();
   };
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    const next = joinLimitations(keys, commitDraft(custom, typed, { max: MAX_CUSTOM_LIMITATIONS, maxLength: MAX_LIMITATION_LENGTH }));
+    const next = joinLimitations(draft.limitations, commitDraft(draft.customLimitations, draft.limitationDraft, { max: MAX_CUSTOM_LIMITATIONS, maxLength: MAX_LIMITATION_LENGTH }));
     const patch = changedFields({ limitations: prefs.limitations }, { limitations: next });
     if (!Object.keys(patch).length) {
       onClose();
@@ -682,8 +683,8 @@ export function LimitsSection({ data, editing, notice, onEdit, onClose, onSaved 
       ) : (
         <form noValidate onSubmit={(event) => void save(event)}>
           <div className="space-y-7">
-            <ChipGroup legend="Areas to go easy on" options={LIMITATION_OPTIONS} values={keys} onChange={(values) => { setKeys(values); setError(""); }} />
-            <TagInput legend="Anything else" values={custom} onChange={(values) => { setCustom(values); setError(""); }} draft={typed} onDraftChange={setTyped} addLabel="Add limitation" placeholder="Describe it briefly" maxLength={MAX_LIMITATION_LENGTH} max={MAX_CUSTOM_LIMITATIONS} />
+            <ChipGroup legend="Injuries or areas to go easy on" options={LIMITATION_OPTIONS} values={draft.limitations} onChange={(values) => set("limitations", values)} />
+            <TagInput legend="Anything else" values={draft.customLimitations} onChange={(values) => set("customLimitations", values)} draft={draft.limitationDraft} onDraftChange={(value) => set("limitationDraft", value)} addLabel="Add limitation" placeholder="Describe it briefly" maxLength={MAX_LIMITATION_LENGTH} max={MAX_CUSTOM_LIMITATIONS} />
           </div>
           <EditActions saving={saving} onCancel={onClose} error={error} />
         </form>

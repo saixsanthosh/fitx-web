@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Download } from "lucide-react";
+import { Cookie, Download } from "lucide-react";
 import { DeleteAccount } from "@/components/account/DeleteAccount";
 import { countRecords, exportAccountData, exportFileName, ExportError } from "@/lib/account/export";
 import { createClient } from "@/lib/supabase/client";
-import { SettingsGroup } from "./SettingsParts";
+import { SettingsGroup, SettingsLink } from "./SettingsParts";
 
 /**
  * Settings → "Your data": download everything FITX stores for the account (read in the browser under
@@ -14,7 +14,8 @@ import { SettingsGroup } from "./SettingsParts";
  */
 export function SettingsData() {
   return (
-    <SettingsGroup id="settings-your-data" sectionId="your-data" title="Privacy and data">
+    <SettingsGroup id="settings-your-data" sectionId="your-data" title="Your data">
+      <SettingsLink href="/cookies" icon={Cookie} label="Cookies and analytics" />
       <DownloadData />
       <DeleteAccount />
     </SettingsGroup>

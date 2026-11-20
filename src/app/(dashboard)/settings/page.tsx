@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CircleHelp, Cookie, CreditCard, Sparkles, UserRound, Watch } from "lucide-react";
+import { CircleHelp, CreditCard, Sparkles, UserRound, Watch } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SettingsAccount } from "./SettingsAccount";
 import { SettingsAppearance } from "./SettingsAppearance";
@@ -28,7 +28,6 @@ export default function SettingsPage() {
         </SettingsGroup>
         <SettingsGroup id="settings-elsewhere" title="More">
           <SettingsLink href="/subscription" icon={CreditCard} label="Subscription" />
-          <SettingsLink href="/cookies" icon={Cookie} label="Cookies and analytics" />
           <SettingsLink href="/help" icon={CircleHelp} label="Help and feedback" />
         </SettingsGroup>
       </div>
