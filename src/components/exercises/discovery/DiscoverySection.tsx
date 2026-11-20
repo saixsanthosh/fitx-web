@@ -19,7 +19,7 @@ export function DiscoverySection({ id, title, summary, open, onToggle, actions, 
   return (
     <section aria-labelledby={titleId} className="fitx-panel min-w-0 p-3.5 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <h2 id={titleId} className="m-0 min-w-0 flex-1 text-lg font-semibold tracking-tight text-fitx-text">{title}</h2>
+        <h2 id={titleId} className="m-0 min-w-fit flex-1 font-heading text-lg font-semibold tracking-[-.02em] text-fitx-text">{title}</h2>
         <div className="flex flex-wrap items-center gap-2">
           {actions}
           <button type="button" aria-expanded={open} aria-controls={contentId} onClick={onToggle}

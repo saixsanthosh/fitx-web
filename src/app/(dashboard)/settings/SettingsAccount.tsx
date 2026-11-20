@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { UserIdentity, UserResponse } from "@supabase/supabase-js";
 import { LogoutButton } from "@/components/app/LogoutButton";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { SettingsGroup, SettingsRow } from "./SettingsParts";
 
 type Account = { email: string | null; methods: string[] };
 
 const METHOD_NAMES: Record<string, string> = { google: "Google", email: "Email and password", apple: "Apple" };
 
-export function SettingsAccount() {
+/** Account: e-mail, sign-in methods, the Profile link, and signing out here or everywhere. */
+export function SettingsAccount({ profile }: { profile?: ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null);
   const [failed, setFailed] = useState(!isSupabaseConfigured);
 
@@ -28,25 +30,26 @@ export function SettingsAccount() {
   }, []);
 
   return (
-    <section className="fitx-panel p-5" aria-labelledby="settings-account">
-      <h2 id="settings-account" className="text-base font-semibold text-fitx-text">Account</h2>
+    <SettingsGroup id="settings-account" title="Account">
       {account ? (
-        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-[9rem_1fr]">
-          <dt className="text-fitx-text-secondary">Email</dt>
-          <dd className="break-all text-fitx-text">{account.email ?? "Not set"}</dd>
-          <dt className="text-fitx-text-secondary">Signs in with</dt>
-          <dd className="text-fitx-text">{account.methods.join(", ")}</dd>
-        </dl>
+        <>
+          <SettingsRow label="Email"><span className="break-all text-fitx-text">{account.email ?? "Not set"}</span></SettingsRow>
+          <SettingsRow label="Sign-in methods">
+            <span className="flex flex-wrap gap-1.5 sm:justify-end">
+              {account.methods.map((method) => <span key={method} className="rounded-full border border-fitx-border bg-fitx-surface-variant px-2.5 py-1 text-xs font-medium text-fitx-text">{method}</span>)}
+            </span>
+          </SettingsRow>
+        </>
       ) : (
-        <p className="mt-3 text-sm text-fitx-text-secondary" role={failed ? "alert" : "status"}>
-          {failed ? "We couldn’t load your account details. Check your connection and reload." : "Loading your account…"}
+        <p className="m-0 py-4 text-sm text-fitx-text-secondary" role={failed ? "alert" : "status"}>
+          {failed ? "Your account details could not be loaded. Reload to try again." : "Loading your account…"}
         </p>
       )}
-      <div className="mt-5 flex flex-wrap items-start gap-x-8 gap-y-2 border-t border-fitx-divider pt-4">
+      {profile}
+      <div className="flex flex-wrap items-center gap-x-6 py-2">
         <LogoutButton />
-        <LogoutButton scope="global" />
+        <LogoutButton scope="global" label="Sign out everywhere" />
       </div>
-      <p className="mt-2 text-xs leading-5 text-fitx-text-secondary">“Log out” signs out this device only. “Sign out of all devices” also ends FITX sessions on your other phones and computers.</p>
-    </section>
+    </SettingsGroup>
   );
 }

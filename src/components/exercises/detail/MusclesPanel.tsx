@@ -55,14 +55,14 @@ export function MusclesPanel({ exercise, equipment, level, preferredContext, alt
       <section aria-labelledby="exercise-muscles-heading" className="grid grid-cols-1 items-start gap-6 md:grid-cols-2">
         <div className="fitx-panel grid justify-items-center p-4">
           {regions.primary.length || regions.secondary.length ? (
-            <BodyMap title={`Muscles ${exercise.name} works`} primary={regions.primary} secondary={regions.secondary} legend size="lg" />
+            <BodyMap title={`Muscles ${exercise.name} works`} primary={regions.primary} secondary={regions.secondary} legend size="lg" reveal />
           ) : (
             <p className="m-0 py-8 text-center text-sm text-fitx-text-secondary">This exercise’s muscles aren’t drawn on the body map.</p>
           )}
         </div>
         <div className="min-w-0">
           <h2 id="exercise-muscles-heading" className="text-base font-semibold text-fitx-text">Muscles worked</h2>
-          <p className="mt-1 text-sm text-fitx-text-secondary">Muscle group: {group}. Open a muscle to see more exercises for it.</p>
+          <p className="mt-1 text-sm text-fitx-text-secondary">{group}</p>
           {rows.primary.length > 0 && (
             <>
               <h3 className="mt-4 text-xs font-semibold uppercase tracking-[.1em] text-fitx-text-secondary">Primary</h3>

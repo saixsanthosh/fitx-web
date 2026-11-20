@@ -429,7 +429,7 @@ export function OnboardingFlow() {
                   <Block title="Habits">
                     <ChoiceTiles legend="Meals per day" options={MEAL_TILES} value={form.meals} onChange={(value) => update("meals", value)} columns="grid-cols-4" variant="number" />
                     {v3 && <ChoiceTiles legend="Food preference" options={SOURCE_TILES} value={form.foodSource} onChange={(value) => update("foodSource", value)} columns="grid-cols-3" />}
-                    {v3 && <ChoiceTiles legend="Nutrition goal" hint="Shapes coach meal plans, not your daily targets." options={FOCUS_TILES} value={form.nutritionFocus} onChange={(value) => update("nutritionFocus", value)} columns="grid-cols-3" />}
+                    {v3 && <ChoiceTiles legend="Nutrition goal" hint="High protein raises your daily protein target." options={FOCUS_TILES} value={form.nutritionFocus} onChange={(value) => update("nutritionFocus", value)} columns="grid-cols-3" />}
                   </Block>
                 </>}
 

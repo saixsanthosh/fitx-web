@@ -8,6 +8,12 @@ const kg = (value: number) => Math.abs(value).toFixed(1);
  * never explain the same number differently. It always describes the number actually shown.
  */
 export function targetReason(targets: NutritionTargets): string {
+  const base = calorieReason(targets);
+  // proteinFocus is missing on targets made before it existed; only an explicit "high" adds the clause.
+  return targets.proteinFocus === "high" ? `${base} Protein set high, at up to ${targets.proteinPerKg.toFixed(1)} g per kg.` : base;
+}
+
+function calorieReason(targets: NutritionTargets): string {
   if (targets.youthMaintenance) return "Under 18, FITX keeps you at maintenance rather than setting a calorie deficit.";
   if (targets.maintenanceBelowFloor) {
     return "Your maintenance is already under FITX’s safe minimum for a calorie deficit, so your target stays at maintenance and no weekly loss is planned. Ask a doctor or dietitian before eating less.";

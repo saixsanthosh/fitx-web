@@ -58,6 +58,21 @@ export function goalsAwaitingMigrationHint(goals: readonly Goal[]): string | und
   const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
   return `${list} ${goals.length === 1 ? "arrives" : "arrive"} with the next FITX update.`;
 }
+
+/** Goals Profile shows but this database cannot store yet: before profile v2 only five, before onboarding v3 all but Maintain weight. */
+export function unavailableProfileGoals(schema: { preferencesV2: boolean; onboardingV3: boolean }): Goal[] {
+  return goalsAwaitingMigration(schema);
+}
+
+/**
+ * Number choices for an edit form: the standard ones, plus the stored value when it is not among them (an older
+ * answer such as 1 training day or 6 meals), so saving an untouched form never changes it. Sorted, no repeats.
+ */
+export function choicesKeeping(standard: readonly { value: number; label: string }[], current: number): { value: number; label: string }[] {
+  const list = [...standard];
+  if (Number.isFinite(current) && !list.some((option) => option.value === current)) list.push({ value: current, label: String(current) });
+  return list.sort((a, b) => a.value - b.value);
+}
 /** The five goals setup offers, in the owner's order (Profile offers every goal). */
 export const ONBOARDING_GOALS: readonly Goal[] = ["muscle_gain", "weight_loss", "strength", "general_fitness", "maintain_weight"];
 

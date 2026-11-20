@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, PersonStanding } from "lucide-react";
 import { BodyMap } from "@/components/anatomy/BodyMap";
-import { PageHeading } from "@/components/app/PageHeading";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { localDateKey } from "@/lib/domain/dates";
 import { createClient } from "@/lib/supabase/client";
 import { BODY_REGIONS, REGIONS, regionInView, type RegionKey } from "@/lib/training/anatomy";
@@ -136,7 +136,7 @@ export default function BrowseByMusclePage() {
   return (
     <div className="space-y-5">
       <Link href={backHref} className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Exercise library</Link>
-      <PageHeading title="Browse by muscle" description="Choose a muscle on the body or from the list to see what it does, the exercises and workouts that train it, and your own training." />
+      <PageHeader title="Browse by muscle" className="mb-0 sm:mb-2" />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:grid-rows-[auto_1fr] lg:items-start">
         <section aria-labelledby="map-title" className="fitx-panel grid min-w-0 gap-3 p-4 sm:p-5 lg:col-start-1 lg:row-start-1">
@@ -152,12 +152,11 @@ export default function BrowseByMusclePage() {
             </div>
           </div>
           <div className="flex justify-center md:hidden">
-            <BodyMap title={`Muscle map, ${view} of the body`} view={view} selected={region} onSelect={select} size="lg" />
+            <BodyMap title={`Muscle map, ${view} of the body`} view={view} selected={region} onSelect={select} size="lg" reveal />
           </div>
           <div className="hidden justify-center md:flex">
-            <BodyMap title="Muscle map, front and back" view="both" selected={region} onSelect={select} size="lg" />
+            <BodyMap title="Muscle map, front and back" view="both" selected={region} onSelect={select} size="lg" reveal />
           </div>
-          <p className="m-0 text-center text-xs leading-5 text-fitx-text-secondary">Tap or press Enter on a muscle. The list below has the same choices.</p>
         </section>
 
         <section id="muscle-details" aria-label={region ? `${REGIONS[region].label}: details` : "Muscle details"} className="fitx-panel min-w-0 scroll-mt-24 p-4 sm:p-5 lg:col-start-2 lg:row-span-2 lg:row-start-1">
@@ -167,7 +166,7 @@ export default function BrowseByMusclePage() {
             <div className="grid justify-items-center gap-2 py-10 text-center">
               <PersonStanding size={28} aria-hidden="true" className="text-fitx-text-secondary" />
               <h2 className="m-0 text-base font-semibold">Choose a muscle</h2>
-              <p className="m-0 max-w-sm text-sm leading-6 text-fitx-text-secondary">Pick one on the body map or from the list to see what it does, exercises and workouts for it, and the sets you have done.</p>
+              <p className="m-0 max-w-sm text-sm leading-6 text-fitx-text-secondary">Tap the map or the list.</p>
             </div>
           )}
           {catalogue.status === "error" && (
@@ -178,7 +177,7 @@ export default function BrowseByMusclePage() {
         <section aria-labelledby="list-title" className="fitx-panel grid min-w-0 gap-3 p-4 sm:p-5 lg:col-start-1 lg:row-start-2">
           <h2 id="list-title" className="m-0 text-base font-semibold">All muscles</h2>
           <RegionList selected={region} onSelect={select} sets={weekSets} />
-          {weekSets && <p className="m-0 text-xs text-fitx-text-secondary">Set counts are your direct sets this week.</p>}
+          {weekSets && <p className="m-0 text-xs text-fitx-text-secondary">Your direct sets this week</p>}
         </section>
       </div>
       <p className="sr-only" role="status" aria-live="polite">{region ? `${REGIONS[region].label} selected` : ""}</p>

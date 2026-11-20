@@ -1,4 +1,5 @@
-// Flow 8: Settings. The account section, a theme choice saved to the account (kept after reload and adopted by
+// Flow 8: Settings and Profile. Profile edits the date of birth in place (the age follows it) and the nutrition
+// goal, where High protein raises the protein target; then Settings: the account section, a theme choice saved to the account (kept after reload and adopted by
 // a second device), the Help link, "Download my data" (every table FITX exports, the new ones included, plus the
 // list of uploaded images), Log out, and "Delete my account": a session older than 15 minutes is asked to sign in
 // again, then typing DELETE removes the login, every row and the uploaded files.
@@ -23,7 +24,7 @@ async function seedExportData(standin, id) {
 
 export const flow = {
   id: "08-settings",
-  title: "Settings: theme, Help, export, log out, delete account",
+  title: "Profile edits; Settings: theme, Help, export, log out, delete account",
   schemes: () => ["light"],
   async run(t, { standin, appUrl, outDir }) {
     const page = await t.open();
@@ -41,7 +42,39 @@ export const flow = {
       await t.checkpoint("settings");
     });
 
+    await t.step("Profile: the date of birth and the nutrition goal are edited in place; High protein raises protein", async () => {
+      await t.goto("/profile", { label: "profile" });
+      await page.getByRole("heading", { level: 1, name: "Sana Qureshi" }).waitFor({ timeout: 20000 });
+      const targets = page.locator("section[aria-labelledby=targets-title]");
+      // Fat loss, 72 kg: 2.0 g per kg is 144 g; High protein's 2.2 g per kg is 158 g.
+      await targets.getByText("144 g").waitFor({ timeout: 15000 });
+      await t.checkpoint("profile");
+
+      const body = page.locator("section#body");
+      await body.getByRole("button", { name: "Edit body" }).click();
+      await body.getByLabel("Date of birth").fill("1995-03-14");
+      await body.getByRole("button", { name: "Save", exact: true }).click();
+      await body.getByRole("status").filter({ hasText: "Saved" }).waitFor({ timeout: 15000 });
+      await body.getByText("14 March 1995").waitFor();
+      const born = await standin.one(`select date_of_birth::text dob, age from public.profiles where id = '${account.id}'`);
+      t.expect(born?.dob === "1995-03-14", "the date of birth is stored", born);
+      const expectedAge = await standin.one(`select extract(year from age(current_date, date '1995-03-14'))::int n`);
+      t.expect(Number(born?.age) === Number(expectedAge?.n), "the age follows the date of birth", { born, expectedAge });
+
+      const food = page.locator("section#food");
+      await food.getByRole("button", { name: "Edit food" }).click();
+      await food.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Nutrition goal" }) }).locator("label").filter({ hasText: "High protein" }).click();
+      await food.getByRole("button", { name: "Save", exact: true }).click();
+      await food.getByRole("status").filter({ hasText: "protein target updated" }).waitFor({ timeout: 15000 });
+      const prefs = await standin.one(`select nutrition_focus from public.user_preferences where user_id = '${account.id}'`);
+      t.expect(prefs?.nutrition_focus === "high_protein", "the nutrition goal is stored", prefs);
+      await targets.getByText("158 g").waitFor({ timeout: 15000 });
+      t.expect(/Protein set high/.test(await textOf(targets)), "the target explains the higher protein");
+      await t.checkpoint("profile with high protein");
+    });
+
     await t.step("a theme choice is saved to the account and kept after reload", async () => {
+      await t.goto("/settings", { label: "settings theme" });
       await page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Theme" }) }).locator("label").filter({ hasText: "Dark" }).click();
       await page.getByText("Saved. Your other devices will use it too.").waitFor({ timeout: 15000 });
       t.expect((await page.evaluate(() => document.documentElement.getAttribute("data-theme"))) === "dark", "the page should switch to dark at once");
@@ -68,6 +101,12 @@ export const flow = {
         t.page = first;
         await other.close();
       }
+    });
+
+    await t.step("Profile in the dark theme", async () => {
+      await t.goto("/profile", { label: "profile in dark" });
+      await page.locator("section[aria-labelledby=targets-title]").getByText("158 g").waitFor({ timeout: 20000 });
+      await t.checkpoint("profile in dark");
     });
 
     await t.step("Help and feedback opens from Settings", async () => {

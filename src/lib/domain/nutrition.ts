@@ -196,7 +196,25 @@ export type NutritionTargets = FoodMacros & {
   weeklyChangeKg: number;
   /** The body weight the targets were calculated from (kg). */
   weightKg: number;
+  /** "high" when the member's nutrition goal is High protein (the top of FITX's range for the goal), else "standard". */
+  proteinFocus: "high" | "standard";
 };
+
+/** The nutrition goal from setup and Profile (`user_preferences.nutrition_focus`); only `high_protein` changes the targets. */
+export type NutritionFocus = "high_protein" | "balanced" | "none";
+
+/** Protein in g per kg for High protein: the top of FITX's range for the goal, never above HIGH_PROTEIN_MAX_PER_KG. */
+const HIGH_PROTEIN_PER_KG: Record<string, number> = { muscle_gain: 2.2, strength: 2.2, fat_loss: 2.2, weight_loss: 2.2 };
+const HIGH_PROTEIN_DEFAULT_PER_KG = 2.0;
+export const HIGH_PROTEIN_MAX_PER_KG = 2.2;
+
+/** Protein per kg for a goal and nutrition focus: the goal's standard amount, or the high-protein amount (never lower). */
+export function proteinPerKgFor(goal: string | null | undefined, focus?: NutritionFocus | string | null): number {
+  const standard = (GOAL_RULES[goal ?? ""] ?? GOAL_RULES.general_fitness).proteinPerKg;
+  if (focus !== "high_protein") return standard;
+  const high = Math.min(HIGH_PROTEIN_MAX_PER_KG, HIGH_PROTEIN_PER_KG[goal ?? ""] ?? HIGH_PROTEIN_DEFAULT_PER_KG);
+  return Math.max(standard, high);
+}
 
 const ACTIVITY_FACTORS: Record<string, number> = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9 };
 
@@ -230,6 +248,7 @@ export function calculateNutritionTargets(
   profile: TargetProfile,
   activityLevel: string | null = "moderate",
   goal: string | null = "general_fitness",
+  focus: NutritionFocus | string | null = null,
 ): NutritionTargets | null {
   const age = Number(profile.age);
   const height = Number(profile.height);
@@ -265,8 +284,10 @@ export function calculateNutritionTargets(
   adjustment = calories - maintenance;
 
   const referenceWeight = Math.min(weight, PROTEIN_REFERENCE_BMI * (height / 100) ** 2);
+  // High protein raises protein to the top of the goal's range; carbs absorb the change (fat stays the same).
+  const proteinPerKg = proteinPerKgFor(goal, focus);
   // Protein stays at or below 40% of calories, even on the lowest targets.
-  const protein = Math.round(Math.min(referenceWeight * rules.proteinPerKg, (calories * 0.4) / 4));
+  const protein = Math.round(Math.min(referenceWeight * proteinPerKg, (calories * 0.4) / 4));
   const fat = Math.round((calories * 0.27) / 9);
   const carbs = Math.max(0, Math.round((calories - protein * 4 - fat * 9) / 4));
   const rule: TargetRule = adjustment < 0 ? "deficit" : adjustment > 0 ? "surplus" : "maintenance";
@@ -283,15 +304,16 @@ export function calculateNutritionTargets(
     floorApplied,
     maintenanceBelowFloor,
     youthMaintenance,
-    proteinPerKg: rules.proteinPerKg,
+    proteinPerKg,
     weeklyChangeKg: Math.round(((adjustment * 7) / KCAL_PER_KG) * 100) / 100 || 0,
     weightKg: weight,
+    proteinFocus: focus === "high_protein" ? "high" : "standard",
   };
 }
 
 /** Daily calorie and macro targets (see calculateNutritionTargets for the rules and the reasoning). */
-export function estimateNutritionTargets(profile: TargetProfile, activityLevel = "moderate", goal = "general_fitness"): FoodMacros | null {
-  return calculateNutritionTargets(profile, activityLevel, goal);
+export function estimateNutritionTargets(profile: TargetProfile, activityLevel = "moderate", goal = "general_fitness", focus: NutritionFocus | string | null = null): FoodMacros | null {
+  return calculateNutritionTargets(profile, activityLevel, goal, focus);
 }
 
 export function goalPercent(current: number, target: number) {
