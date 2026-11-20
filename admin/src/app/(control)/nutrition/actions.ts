@@ -103,7 +103,8 @@ export async function finishFoodImageUpload(input: { ownerId: string; kind: Medi
     if (!["22023", "42501"].includes(error.code ?? "")) logServerError("nutrition.food_image", error);
     return { ok: false as const, message: contentErrorMessage(error) };
   }
-  await removeOldPhoto(data);
+  // A repeated finish for the same upload returns this same photo: it is in use, so it stays.
+  if (data !== checked.url) await removeOldPhoto(data);
   refreshNutrition(input.ownerId);
   return { ok: true as const };
 }

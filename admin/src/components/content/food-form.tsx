@@ -7,6 +7,7 @@ import { DIET_LABELS, DIET_TYPES, VALUE_BASES, VALUE_BASIS_LABELS } from "@/lib/
 import styles from "./content.module.css";
 import { ChoiceField, SelectField, TextAreaField, TextField, ToggleField } from "./fields";
 import { FormFooter } from "./form-footer";
+import { keepTyped } from "./keep-typed";
 
 export type FoodInitial = {
   name: string;
@@ -52,7 +53,7 @@ export function FoodForm({ action, initial, creating, categories }: { action: (s
   };
 
   return (
-    <form ref={formRef} action={formAction} className={styles.form} noValidate onChange={recheck}>
+    <form ref={formRef} action={formAction} onSubmit={keepTyped(formAction)} className={styles.form} noValidate onChange={recheck}>
       <fieldset className={styles.fieldset}>
         <legend className={styles.legend}>Food</legend>
         <TextField name="name" label="Name" defaultValue={initial.name} error={errors.name} maxLength={200} required />

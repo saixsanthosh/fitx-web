@@ -15,6 +15,7 @@ import {
 import styles from "./content.module.css";
 import { ChoiceField, SelectField, TextAreaField, TextField, ToggleField } from "./fields";
 import { FormFooter } from "./form-footer";
+import { keepTyped } from "./keep-typed";
 
 export type ExerciseInitial = {
   name: string;
@@ -51,7 +52,7 @@ export function ExerciseForm({ action, initial, creating }: { action: (state: Fo
   const errors = state.fieldErrors ?? {};
   const patterns = [...new Set([...MOVEMENT_PATTERNS, initial.movement_pattern].filter(Boolean))].map((value) => ({ value, label: humanise(value) }));
   return (
-    <form ref={formRef} action={formAction} className={styles.form} noValidate>
+    <form ref={formRef} action={formAction} onSubmit={keepTyped(formAction)} className={styles.form} noValidate>
       <fieldset className={styles.fieldset}>
         <legend className={styles.legend}>Basics</legend>
         <TextField name="name" label="Name" defaultValue={initial.name} error={errors.name} maxLength={120} required />

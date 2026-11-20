@@ -144,3 +144,20 @@ export function parsePortionsForm(form: FormLike): PortionsParse {
   if (result.length > MAX_PORTIONS) return { ok: false, message: `At most ${MAX_PORTIONS} portions.` };
   return { ok: true, value: result };
 }
+
+/** A saved portion as the editor shows it (grams as typed text). */
+export type SavedPortion = { label: string; unit: string; grams: string; measured: boolean };
+export type PortionDraft = SavedPortion & { key: string };
+
+/**
+ * The editor's rows for the saved portions. Each `generation` gets keys of its own, so when the saved
+ * set changes (after a save) every field is built again from what the database now holds.
+ */
+export function portionDrafts(saved: readonly SavedPortion[], generation: number): PortionDraft[] {
+  return saved.map((portion, index) => ({ ...portion, key: `${generation}-${index}` }));
+}
+
+/** Changes whenever the saved portions or the default do. */
+export function portionsSignature(saved: readonly SavedPortion[], defaultIndex: number): string {
+  return JSON.stringify([defaultIndex, saved.map(({ label, unit, grams, measured }) => [label, unit, grams, measured])]);
+}

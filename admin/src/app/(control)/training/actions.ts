@@ -118,8 +118,9 @@ export async function finishExerciseUpload(input: { ownerId: string; kind: Media
     p_height: dimension(input.height),
   });
   if (error) {
-    await removeFiles(EXERCISE_MEDIA_BUCKET, [input.path]);
-    if (!["22023", "FXC03", "42501"].includes(error.code ?? "")) logServerError("training.add_media", error);
+    // 23505: this path is already recorded, so the file is in use and stays.
+    if (error.code !== "23505") await removeFiles(EXERCISE_MEDIA_BUCKET, [input.path]);
+    if (!["22023", "FXC03", "42501", "23505"].includes(error.code ?? "")) logServerError("training.add_media", error);
     return { ok: false as const, message: contentErrorMessage(error) };
   }
   refreshTraining(input.ownerId);

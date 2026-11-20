@@ -1,7 +1,7 @@
 // The Reports data: checks what fitx_admin_op_report returns, sums it and writes the CSV exports.
 // Imports only the CSV writer. A value that is not a count makes the whole report unreadable rather
 // than turning into 0; the one value that may be unknown (average workout length) stays null.
-import { toCsv } from "../csv";
+import { csvNumber, toCsv } from "../csv";
 
 export const REPORT_RANGES = [30, 90, 180, 365] as const;
 export type ReportRange = (typeof REPORT_RANGES)[number];
@@ -208,7 +208,8 @@ const DAILY_HEADERS: Record<DailyKey, string> = {
   activities_recorded: "Walks, runs and rides recorded",
 };
 
-const rupees = (paise: number) => (paise / 100).toFixed(2);
+/** Rupees with two decimals, kept a number in the CSV (a negative net month must still add up). */
+const rupees = (paise: number) => csvNumber(paise / 100, 2);
 
 export function reportCsv(report: Report, kind: ExportKind): string {
   if (kind === "daily") {

@@ -7,7 +7,7 @@ import { fake, resetFakes, SESSION_STUBS, setTestEnv, tableCalls } from "./helpe
 
 const policy = await importTypeScriptModule("src/lib/session-policy.ts");
 const { buildAdminCsp, catalogueImageUrl, createNonce, EXERCISE_CATALOGUE_IMAGES, originOf } = await importTypeScriptModule("src/lib/csp.ts");
-const { csvCell, toCsv } = await importTypeScriptModule("src/lib/csv.ts");
+const { csvCell, csvNumber, toCsv } = await importTypeScriptModule("src/lib/csv.ts");
 const { hashPassword } = await importTypeScriptModule("src/lib/password.ts");
 
 // Made-up names and passwords only.
@@ -228,6 +228,13 @@ test("CSV cells are quoted and spreadsheet formulas are neutralised", () => {
   assert.equal(csvCell("plain"), "plain");
   assert.equal(csvCell('say "hi", then go'), '"say ""hi"", then go"');
   assert.equal(csvCell("=HYPERLINK(\"x\")"), '"\'=HYPERLINK(""x"")"');
+  // Typed numbers stay numbers, so a negative amount can still be added up; text that starts with
+  // a minus is guarded as before.
+  assert.equal(csvCell(-3), "-3");
+  assert.equal(csvCell(csvNumber(-499)), "-499.00");
+  assert.equal(csvCell(csvNumber(Number.NaN)), "");
+  assert.equal(csvCell({ csvNumber: "=1+2" }), "", "only digits pass as a number");
+  assert.equal(csvCell("-499.00"), "'-499.00");
   for (const value of ["+1", "-2", "@cmd", "\tx"]) assert.ok(csvCell(value).replace(/^"/, "").startsWith("'"), value);
   assert.equal(csvCell(null), "");
   assert.equal(csvCell({ before: { role: "admin" } }), '"{""before"":{""role"":""admin""}}"');

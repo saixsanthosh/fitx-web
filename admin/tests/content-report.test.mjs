@@ -88,6 +88,10 @@ test("CSV exports hold aggregates, guard against spreadsheet formulas and use ru
   assert.doesNotMatch(nutrition, /\r\n=HYPERLINK/);
   const monthly = report.reportCsv(parsed, "monthly");
   assert.match(monthly, /2026-11,3,1,0,1,0,199\.00,0\.00,199\.00/);
+  // A month with a refund and no capture: the net stays a number a spreadsheet can add up.
+  const refundOnly = report.parseReport({ ...sample(), monthly: [{ month: "2026-10", new_accounts: 0, subscriptions_started: 0, cancellations: 0, payments_captured: 0, payments_failed: 0, captured_paise: 0, refunded_paise: 49900 }] });
+  assert.match(report.reportCsv(refundOnly, "monthly"), /\r\n2026-10,0,0,0,0,0,0\.00,499\.00,-499\.00\r\n/);
+  assert.doesNotMatch(report.reportCsv(refundOnly, "monthly"), /'-499/);
   assert.match(report.reportCsv(parsed, "exercises"), /Barbell Bench Press,bench_press,2,2/);
   assert.equal(report.isExportKind("daily"), true);
   assert.equal(report.isExportKind("__proto__"), false);

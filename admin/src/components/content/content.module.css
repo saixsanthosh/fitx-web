@@ -527,6 +527,7 @@
 /* Tables (reports and billing) ------------------------------------------------------------------------------ */
 
 .tableWrap {
+  position: relative;
   width: 100%;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -896,6 +897,7 @@
 }
 
 .drop {
+  position: relative;
   display: grid;
   justify-items: center;
   gap: 8px;
@@ -913,8 +915,15 @@
   background: var(--coral-pale);
 }
 .drop strong { color: var(--ink); font-size: 14px; }
+/* The file input is hidden, so its keyboard focus is drawn on the drop zone around it. */
+.drop:has(.fileInput:focus-visible) {
+  outline: 2px solid var(--coral);
+  outline-offset: 2px;
+}
 .fileInput {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   opacity: 0;
@@ -1114,6 +1123,8 @@ a.vocabItem:hover { border-color: var(--ink-soft); }
 
 .srOnly {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;

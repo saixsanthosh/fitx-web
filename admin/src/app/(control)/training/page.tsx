@@ -152,7 +152,7 @@ async function ProgrammesTab({ enrolments }: { enrolments: Record<string, number
   return (
     <div className={styles.section}>
       <p className={styles.hint}>
-        Days and exercises are written in the app code (src/data/programmes) and reach the database through a generated migration. Here you choose which ones members can start.
+        Days and exercises come with the app. Here you choose which programmes members can start.
       </p>
       {result.programmes.length ? (
         result.programmes.map((programme) => (
@@ -232,7 +232,7 @@ function LibraryTab({ counts }: { counts: Awaited<ReturnType<typeof getTrainingC
   return (
     <div className={styles.page}>
       <p className={styles.hint}>
-        These lists are fixed keys in the app (src/lib/training/taxonomy.ts): members&apos; equipment, programmes and filters store them. Assign them on each exercise; new keys need an app change and a migration.
+        These lists come with the app, and members&apos; equipment, programmes and filters use them. Assign them on each exercise.
       </p>
       <Section title="Muscle groups">
         <VocabularyGrid entries={MUSCLE_GROUPS.map((group) => entry(c.muscle_groups, group, MUSCLE_GROUP_LABELS[group]))} hrefFor={(key) => `/training?group=${key}`} />

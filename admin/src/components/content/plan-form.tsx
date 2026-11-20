@@ -5,6 +5,7 @@ import { IDLE, type FormState } from "@/lib/content/form";
 import styles from "./content.module.css";
 import { ChoiceField, TextAreaField, TextField, ToggleField } from "./fields";
 import { FormFooter } from "./form-footer";
+import { keepTyped } from "./keep-typed";
 
 export type PlanInitial = {
   code: string;
@@ -23,7 +24,7 @@ export function PlanForm({ action, initial, creating }: { action: (state: FormSt
   const formRef = useRef<HTMLFormElement>(null);
   const errors = state.fieldErrors ?? {};
   return (
-    <form ref={formRef} action={formAction} className={styles.form} noValidate>
+    <form ref={formRef} action={formAction} onSubmit={keepTyped(formAction)} className={styles.form} noValidate>
       <fieldset className={styles.fieldset}>
         <legend className={styles.legend}>Plan</legend>
         {creating ? (

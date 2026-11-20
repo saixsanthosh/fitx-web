@@ -7,7 +7,8 @@ import styles from "./content.module.css";
 
 /**
  * A submit button for something that cannot be undone: the first press asks, the second sends. It
- * goes back to asking after 6 seconds or when focus leaves it.
+ * goes back to asking after 6 seconds or when focus leaves it. The two buttons have their own keys, so
+ * React never turns the button being pressed into a submit button mid-click.
  */
 export function ConfirmSubmit({ label, confirmLabel, tone = "danger", small }: { label: string; confirmLabel: string; tone?: "danger" | "quiet"; small?: boolean }) {
   const { pending } = useFormStatus();
@@ -24,10 +25,13 @@ export function ConfirmSubmit({ label, confirmLabel, tone = "danger", small }: {
   if (!asking) {
     return (
       <button
+        key="ask"
         type="button"
         className={className}
         disabled={pending}
-        onClick={() => {
+        onClick={(event) => {
+          // The asking press never sends: the confirm button is a new element, and this click is cancelled.
+          event.preventDefault();
           setAsking(true);
           timer.current = setTimeout(() => setAsking(false), 6000);
         }}
@@ -37,7 +41,7 @@ export function ConfirmSubmit({ label, confirmLabel, tone = "danger", small }: {
     );
   }
   return (
-    <button type="submit" className={`${styles.buttonDanger} ${small ? styles.small : ""}`} disabled={pending} aria-live="polite" onBlur={() => !pending && setAsking(false)} ref={confirmRef}>
+    <button key="confirm" type="submit" className={`${styles.buttonDanger} ${small ? styles.small : ""}`} disabled={pending} aria-live="polite" onBlur={() => !pending && setAsking(false)} ref={confirmRef}>
       {pending && <LoaderCircle aria-hidden="true" className="spin" size={15} />}
       {confirmLabel}
     </button>

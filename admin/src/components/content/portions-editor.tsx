@@ -2,38 +2,49 @@
 
 import { useActionState, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { MAX_PORTIONS } from "@/lib/content/food-input";
+import { MAX_PORTIONS, portionDrafts, portionsSignature, type PortionDraft, type SavedPortion } from "@/lib/content/food-input";
 import { IDLE, type FormState } from "@/lib/content/form";
 import { PORTION_UNITS, PORTION_UNIT_LABELS } from "@/lib/content/vocabulary";
 import styles from "./content.module.css";
 import { FormFooter } from "./form-footer";
+import { keepTyped } from "./keep-typed";
 
-export type PortionDraft = { key: number; label: string; unit: string; grams: string; measured: boolean };
+export type { PortionDraft };
 
 /**
  * Household portions ("1 idli", "1 katori"): what a member picks instead of grams. The default is what a
  * bare count uses ("3 idlis" is 3 of it). Average measures are shown to members as estimates.
  */
-export function PortionsEditor({ action, initial, initialDefault }: { action: (state: FormState, form: FormData) => Promise<FormState>; initial: Omit<PortionDraft, "key">[]; initialDefault: number }) {
+export function PortionsEditor({ action, initial, initialDefault }: { action: (state: FormState, form: FormData) => Promise<FormState>; initial: SavedPortion[]; initialDefault: number }) {
   const [state, formAction, pending] = useActionState(action, IDLE);
   const formRef = useRef<HTMLFormElement>(null);
-  const nextKey = useRef(initial.length);
-  const [rows, setRows] = useState<PortionDraft[]>(() => initial.map((row, key) => ({ ...row, key })));
-  const [defaultKey, setDefaultKey] = useState<number | null>(initialDefault >= 0 ? initialDefault : null);
+  const nextKey = useRef(0);
+  const seedDefault = (generation: number) => (initialDefault >= 0 && initialDefault < initial.length ? `${generation}-${initialDefault}` : null);
+  const signature = portionsSignature(initial, initialDefault);
+  const [seed, setSeed] = useState({ signature, generation: 0 });
+  const [rows, setRows] = useState<PortionDraft[]>(() => portionDrafts(initial, 0));
+  const [defaultKey, setDefaultKey] = useState<string | null>(() => seedDefault(0));
+  // After a save the page sends the stored portions again: show those, with fresh fields.
+  if (seed.signature !== signature) {
+    const generation = seed.generation + 1;
+    setSeed({ signature, generation });
+    setRows(portionDrafts(initial, generation));
+    setDefaultKey(seedDefault(generation));
+  }
 
   const add = () => {
     if (rows.length >= MAX_PORTIONS) return;
-    const key = nextKey.current++;
+    const key = `new-${nextKey.current++}`;
     setRows([...rows, { key, label: "", unit: "piece", grams: "", measured: false }]);
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLInputElement>(`#portion-label-${key}`)?.focus());
   };
-  const remove = (key: number) => {
+  const remove = (key: string) => {
     setRows(rows.filter((row) => row.key !== key));
     if (defaultKey === key) setDefaultKey(null);
   };
 
   return (
-    <form ref={formRef} action={formAction} className={styles.form}>
+    <form ref={formRef} action={formAction} onSubmit={keepTyped(formAction)} className={styles.form}>
       <div className={styles.fieldset}>
         {rows.length === 0 && <p className={styles.hint}>No portions yet. Members then log this food in grams.</p>}
         {rows.map((row, index) => (

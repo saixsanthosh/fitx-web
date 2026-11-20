@@ -14,7 +14,9 @@ export async function GET(request: Request) {
   const days = parseRange(url.searchParams.get("days"));
   const result = await getReport(days);
   if (result.state !== "ready") return new Response("The report could not be loaded", { status: 503, headers: { "cache-control": "no-store" } });
-  await logAdminEvent({ actor, action: "report_exported", resourceType: "report", resourceId: kind, details: { kind, days } });
+  // No audit row, no file.
+  const logged = await logAdminEvent({ actor, action: "report_exported", resourceType: "report", resourceId: kind, details: { kind, days } });
+  if (!logged.ok) return new Response("The export could not be recorded", { status: 503, headers: { "cache-control": "no-store" } });
   const name = `fitx-${kind}-${result.report.to || "report"}-${days}d.csv`;
   return new Response(`\uFEFF${reportCsv(result.report, kind)}`, {
     headers: {

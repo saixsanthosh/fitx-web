@@ -114,6 +114,19 @@ test("uploads: only into the exercise's own folder, checked first, refused files
   assert.deepEqual(fake.storage.at(-1), ["remove", "exercise-media", ["admin/bench_press/still-AbCdEf123456.jpg"]]);
 });
 
+test("a repeated finish for a file that is already recorded leaves that file in place", async () => {
+  fake.handler = (call) => (call.rpc === "fitx_admin_op_add_exercise_media" ? { data: null, error: { code: "23505", message: "This file is already recorded" } } : { data: null, error: null });
+  const again = await training.finishExerciseUpload({ ownerId: "bench_press", kind: "still", path: "admin/bench_press/still-AbCdEf123456.jpg", alt: "", attribution: "FITX", license: "x", width: null, height: null });
+  assert.equal(again.ok, false);
+  assert.equal(fake.storage.some(([step]) => step === "remove"), false);
+
+  const url = "https://example-project.supabase.co/storage/v1/object/public/food-media/admin/2706538/photo-AbCdEf123456.jpg";
+  fake.handler = (call) => (call.rpc === "fitx_admin_op_set_food_image" ? { data: url, error: null } : { data: null, error: null });
+  const photo = await nutrition.finishFoodImageUpload({ ownerId: "2706538", kind: "food_photo", path: "admin/2706538/photo-AbCdEf123456.jpg", alt: "", attribution: "Photo: FITX", license: "FITX own work" });
+  assert.equal(photo.ok, true);
+  assert.equal(fake.storage.some(([step]) => step === "remove"), false, "the photo now shown is not deleted");
+});
+
 test("deleting an exercise removes its uploaded files only after the database agreed", async () => {
   fake.handler = () => ({ data: null, error: { code: "FXC01", message: "in use" } });
   const inUse = await outcome(training.deleteExercise(form([["exerciseId", "fitx-squat"]])));
@@ -170,6 +183,21 @@ test("the CSV export answers unknown reports with 400 and audits each export", a
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(rpcCalls("fitx_admin_op_report")[0].args.p_days, 365);
   assert.deepEqual(rpcCalls("fitx_admin_op_log_event")[0].args.p_details, { kind: "monthly", days: 365 });
+});
+
+test("no CSV leaves without its audit row", async () => {
+  const report = {
+    generated_at: "", days: 90, from: "2026-08-23", to: "2026-11-20", accounts_total: 1, accounts_before: 0, daily: [],
+    workouts: { completed: 0, abandoned: 0, members: 0, avg_minutes: null, top_exercises: [], activities_by_sport: {}, programme_enrolments_active: 0, programme_enrolments_started: 0 },
+    nutrition: { meals: 0, members: 0, barcode_meals: 0, by_source: [], by_slot: {}, custom_foods_created: 0, saved_meals_created: 0, routines_created: 0, water_entries: 0 },
+    subscriptions: { by_status: {}, paying_now: 0 }, monthly: [],
+  };
+  fake.handler = (call) => (call.rpc === "fitx_admin_op_report" ? { data: report, error: null } : { data: null, error: { code: "57014", message: "canceling statement due to lock timeout" } });
+  const response = await exportRoute.GET(new Request("https://admin.example/reports/export?kind=daily"));
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("content-disposition"), null);
+  assert.doesNotMatch(await response.text(), /Day \(IST\)/);
 });
 
 test("every content page and action asks for its section's permission", async () => {
