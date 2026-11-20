@@ -6,8 +6,11 @@
  * The project's Email OTP length must stay 6 (CODE_LENGTH). Owner steps: docs/runbooks/platform-database.md,
  * section 7 ("Email code sign-in").
  *
- * Pure helpers only, shared by the sign-in and sign-up pages and their tests.
+ * Pure helpers only, shared by the sign-in and sign-up pages and their tests. A suspended account (Supabase's
+ * user_banned, set by FITX Admin) is told so wherever sign-in fails.
  */
+
+import { isSuspendedError, SUSPENDED_MESSAGE } from "@/lib/platform/account-status";
 
 export const CODE_LENGTH = 6;
 
@@ -52,6 +55,7 @@ export type SendCodeProblem = { message: string; retryAfter: number | null };
 
 /** What to tell someone whose code request failed, and how long to wait when Supabase said so. */
 export function sendCodeProblem(error: AuthErrorLike): SendCodeProblem {
+  if (isSuspendedError(error)) return { message: SUSPENDED_MESSAGE, retryAfter: null };
   const code = error?.code ?? "";
   const message = error?.message ?? "";
   const retryAfter = retryAfterSeconds(message);
@@ -75,6 +79,7 @@ export function sendCodeProblem(error: AuthErrorLike): SendCodeProblem {
 
 /** What to tell someone whose code did not verify. */
 export function verifyCodeProblem(error: AuthErrorLike): string {
+  if (isSuspendedError(error)) return SUSPENDED_MESSAGE;
   const code = error?.code ?? "";
   const message = error?.message ?? "";
   if (error?.status === 429 || code === "over_request_rate_limit" || /rate limit|too many/i.test(message)) {
@@ -84,4 +89,13 @@ export function verifyCodeProblem(error: AuthErrorLike): string {
     return "That code is wrong or has expired. Check it, or send a new one.";
   }
   return "We couldn’t check that code. Please try again.";
+}
+
+/** What to tell someone whose email and password sign-in failed. */
+export function passwordSignInProblem(error: AuthErrorLike): string {
+  if (isSuspendedError(error)) return SUSPENDED_MESSAGE;
+  const message = error?.message ?? "";
+  if (/email not confirmed/i.test(message)) return "Confirm your email address first, or sign in with a code.";
+  if (/invalid login credentials/i.test(message)) return "That email and password don’t match. Try again, or use a code.";
+  return "We couldn’t sign you in. Please try again.";
 }

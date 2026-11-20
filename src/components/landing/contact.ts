@@ -2,8 +2,8 @@ import { BRAND } from "@/config/brand";
 
 /** The settings the landing page's contact block reads, in the order they win. */
 export const CONTACT_SETTINGS = {
-  instagram: ["NEXT_PUBLIC_FITX_INSTAGRAM_URL", "BRAND.instagramUrl (src/config/brand.ts)"],
-  email: ["NEXT_PUBLIC_FITX_CONTACT_EMAIL", "BRAND.supportEmail (src/config/brand.ts)"],
+  instagram: ["Admin, Settings, Website information (Instagram)", "NEXT_PUBLIC_FITX_INSTAGRAM_URL", "BRAND.instagramUrl (src/config/brand.ts)"],
+  email: ["Admin, Settings, Website information (support email)", "NEXT_PUBLIC_FITX_CONTACT_EMAIL", "BRAND.supportEmail (src/config/brand.ts)"],
 } as const;
 
 export type LandingContact = {
@@ -13,7 +13,9 @@ export type LandingContact = {
   missing: string[];
 };
 
-type Source = { env?: Record<string, string | undefined>; brand?: { instagramUrl?: string | null; supportEmail?: string | null } };
+type ContactValues = { instagramUrl?: string | null; supportEmail?: string | null };
+/** `site` is what was saved in FITX Admin (platform_settings.site), null where nothing was. */
+type Source = { site?: ContactValues | null; env?: Record<string, string | undefined>; brand?: ContactValues };
 
 /** An instagram.com profile address and its handle, or null. Nothing else is accepted. */
 export function instagramProfile(value: string | null | undefined): { url: string; handle: string } | null {
@@ -34,12 +36,13 @@ export function emailAddress(value: string | null | undefined): string | null {
 }
 
 /**
- * The owner's Instagram and e-mail for the end of the landing page: the NEXT_PUBLIC_ variables first, then the
- * brand config. Nothing is invented: an unset or malformed value hides that part and is listed in `missing`.
+ * The owner's Instagram and e-mail for the end of the landing page and the public footer: what was saved in
+ * Admin's website information first, then the NEXT_PUBLIC_ variables, then the brand config. Nothing is
+ * invented: an unset or malformed value hides that part and is listed in `missing`.
  */
-export function landingContact({ env = process.env, brand = BRAND }: Source = {}): LandingContact {
-  const instagram = instagramProfile(env.NEXT_PUBLIC_FITX_INSTAGRAM_URL) ?? instagramProfile(brand.instagramUrl);
-  const email = emailAddress(env.NEXT_PUBLIC_FITX_CONTACT_EMAIL) ?? emailAddress(brand.supportEmail);
+export function landingContact({ site = null, env = process.env, brand = BRAND }: Source = {}): LandingContact {
+  const instagram = instagramProfile(site?.instagramUrl) ?? instagramProfile(env.NEXT_PUBLIC_FITX_INSTAGRAM_URL) ?? instagramProfile(brand.instagramUrl);
+  const email = emailAddress(site?.supportEmail) ?? emailAddress(env.NEXT_PUBLIC_FITX_CONTACT_EMAIL) ?? emailAddress(brand.supportEmail);
   const missing: string[] = [];
   if (!instagram) missing.push(CONTACT_SETTINGS.instagram.join(" or "));
   if (!email) missing.push(CONTACT_SETTINGS.email.join(" or "));

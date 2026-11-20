@@ -93,6 +93,12 @@ describe("admin ops migration", { skip }, () => {
     assert.equal(pg.json(`select to_json(count(*)) from public.member_notifications`, asA), 1);
     assert.equal(pg.json(`select to_json(count(*)) from public.member_notifications`, asB), 0);
     assert.match(errorOf(`select created_by_operator_id from public.member_notifications`, asA), /permission denied/);
+    // The account data export asks for the member's own rows by user_id, with the columns members may read.
+    const exported = pg.json(`select to_json(array(select row_to_json(n) from (select id, user_id, title, body, tone, link_url, link_label, created_at, dismissed_at from public.member_notifications where user_id = '${A}' order by id) n))`, asA);
+    assert.equal(exported.length, 1);
+    assert.equal(exported[0].title, "Your plan changed");
+    assert.equal(pg.json(`select to_json(count(*)) from public.member_notifications where user_id = '${C}'`, asA), 0, "another member's notices stay hidden");
+    assert.match(errorOf(`select batch_id from public.member_notifications`, asA), /permission denied/);
     assert.match(errorOf(`update public.member_notifications set title = 'Changed'`, asA), /permission denied/);
 
     pg.exec(`update public.member_notifications set dismissed_at = '2000-01-01T00:00:00Z'`, asB);

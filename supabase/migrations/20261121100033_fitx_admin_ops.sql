@@ -177,7 +177,8 @@ create index if not exists member_notifications_operator_idx on public.member_no
 
 alter table public.member_notifications enable row level security;
 revoke all on table public.member_notifications from public, anon, authenticated, service_role;
-grant select (id, title, body, tone, link_url, link_label, created_at, dismissed_at) on table public.member_notifications to authenticated;
+-- user_id too, so the account data export (src/lib/account/export.ts) can ask for the member's own rows.
+grant select (id, user_id, title, body, tone, link_url, link_label, created_at, dismissed_at) on table public.member_notifications to authenticated;
 grant update (dismissed_at) on table public.member_notifications to authenticated;
 grant select on table public.member_notifications to service_role;
 

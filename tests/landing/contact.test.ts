@@ -44,6 +44,24 @@ test("the block hides itself when nothing is set, and the footer reads the same 
   const block = readFileSync(new URL("../../src/components/landing/ContactBlock.tsx", import.meta.url), "utf8");
   assert.match(block, /if \(!contact\.instagram && !contact\.email\) return null;/);
   const footer = readFileSync(new URL("../../src/components/layout/PublicFooter.tsx", import.meta.url), "utf8");
-  assert.match(footer, /landingContact\(\)/);
+  const page = readFileSync(new URL("../../src/app/(marketing)/page.tsx", import.meta.url), "utf8");
+  // Both read the one cached source (site-contact.ts), which ends in landingContact.
+  assert.match(footer, /await publicContact\(\)/);
+  assert.match(page, /await publicContact\(\)/);
   assert.doesNotMatch(footer, /BRAND\.(instagramUrl|supportEmail)/, "no second source of truth");
+  assert.doesNotMatch(page, /BRAND\.(instagramUrl|supportEmail)/, "no second source of truth");
+});
+
+test("what was saved in Admin wins over the NEXT_PUBLIC_ variables and the brand config", () => {
+  const brand = { instagramUrl: "https://www.instagram.com/fitx.example/", supportEmail: "hello@example.com" };
+  const env = { NEXT_PUBLIC_FITX_INSTAGRAM_URL: "https://instagram.com/env_handle", NEXT_PUBLIC_FITX_CONTACT_EMAIL: "env@example.com" };
+  const saved = landingContact({ site: { instagramUrl: "https://instagram.com/admin_handle", supportEmail: "admin@example.com" }, env, brand });
+  assert.equal(saved.instagram?.handle, "admin_handle");
+  assert.equal(saved.email, "admin@example.com");
+  // Nothing saved, or a malformed value, falls through to the next source.
+  const unsaved = landingContact({ site: { instagramUrl: null, supportEmail: "not an address" }, env, brand });
+  assert.equal(unsaved.instagram?.handle, "env_handle");
+  assert.equal(unsaved.email, "env@example.com");
+  assert.equal(landingContact({ site: null, env: {}, brand }).email, "hello@example.com");
+  assert.match(landingContact({ site: null, env: {}, brand: {} }).missing[0], /^Admin, Settings, Website information/);
 });

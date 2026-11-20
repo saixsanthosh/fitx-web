@@ -60,6 +60,14 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
     columns: "id,user_id,category,subject,body,status,created_at,updated_at,last_message_at,support_messages(id,author_kind,body,created_at)",
   },
   { table: "announcement_dismissals", label: "Dismissed announcements", owner: "user_id", order: "announcement_id" },
+  // Notices sent to this account from FITX Admin; members may read only these columns (not who sent them).
+  {
+    table: "member_notifications",
+    label: "Notices sent to you",
+    owner: "user_id",
+    order: "id",
+    columns: "id,user_id,title,body,tone,link_url,link_label,created_at,dismissed_at",
+  },
   { table: "billing_subscriptions", label: "Subscriptions", owner: "user_id", order: "id" },
   { table: "billing_payments", label: "Payments", owner: "user_id", order: "id" },
   { table: "billing_refunds", label: "Refunds", owner: "user_id", order: "id" },
