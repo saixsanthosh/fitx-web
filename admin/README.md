@@ -9,7 +9,7 @@ Sign-in is a username and password (no Google). The owner's account is the **roo
 1. **Make the password hash on your own computer.** `cd admin && npm run admin:hash`, type the password twice (nothing shows as you type), and copy the single line it prints. It starts `scrypt:`. Never paste the password itself anywhere, and never commit the hash.
 2. **Set the variables.** Vercel, project **admin**, Settings, Environment Variables, **Production** only, both marked **Sensitive**: `FITX_ADMIN_USERNAME` = your username in lower case and `FITX_ADMIN_PASSWORD_HASH` = the line from step 1. Keep `SUPABASE_SECRET_KEY`, `ADMIN_SITE_URL`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Delete `FITX_ADMIN_ALLOWED_EMAILS`: it is no longer read.
 3. **Give the OK to apply the three Admin database updates** before Admin is redeployed: `20261121100030_fitx_admin_v2`, `20261121100033_fitx_admin_ops` and `20261121100036_fitx_admin_content` (#42 to #44 in `docs/runbooks/platform-database.md`; the coordinator applies them, in that order, after the Phase 10 files listed in [Database migrations](#database-migrations)). Until `20261121100030` is applied, Admin refuses every sign-in and logs which migration is missing; until the other two are, the sections that need them say so.
-4. **Redeploy Admin** and sign in at `/login`. After five wrong tries a username is locked for 15 minutes; wait it out.
+4. **Redeploy Admin** and sign in at `/login`. Five wrong passwords from one network address lock that username on that address for 15 minutes (another network still works); 50 from any addresses lock it everywhere for 5 minutes. Wait it out, or set a new `FITX_ADMIN_PASSWORD_HASH` and redeploy, which clears every per-address lock.
 5. **Add operators** in Admin and security, Access control. Each gets a temporary password from you and chooses their own at first sign-in.
 6. Optional: remove the old Admin `/auth/callback` entry from the Supabase Redirect URLs.
 7. Optional, project **fitnessx** (not admin): `OLLAMA_BASE_URL` (an `https://` address of an Ollama server you run and keep private) and `OLLAMA_MODEL`. Leave both unset to use only the free hosted AI providers.
@@ -26,7 +26,7 @@ Every refusal shows the same message on purpose, so the page never says which pa
 | `FITX_ADMIN_USERNAME or FITX_ADMIN_PASSWORD_HASH is missing or malformed` | Steps 1 and 2: the hash must be the whole `scrypt:` line. Redeploy after changing a variable. |
 | `SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) is not set` | The server key is Production-only, so Preview deployments show this on purpose. |
 | `sign-in is refused until migration 20261121100030_fitx_admin_v2 is applied` | Step 3. |
-| nothing new | Five wrong passwords for one username lock it for 15 minutes, and one network address gets at most 20 attempts in 15 minutes. Wait it out. |
+| nothing new | Five wrong passwords from one network address lock that username on that address for 15 minutes (another network still works); 50 from any addresses lock it everywhere for 5 minutes; one network address gets at most 20 attempts in 15 minutes. Wait it out, or set a new `FITX_ADMIN_PASSWORD_HASH` and redeploy, which clears every per-address lock. |
 
 ## What Admin does
 

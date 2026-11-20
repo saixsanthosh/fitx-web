@@ -30,6 +30,13 @@ test("the limits match fitx_admin_login_limits() in the migration", () => {
   assert.deepEqual({ ...guard.LOGIN_LIMITS }, { userFailures: 5, userWindowMinutes: 15, lockMinutes: 15, ipAttempts: 20, ipWindowMinutes: 15 });
 });
 
+test("the lock across every address matches fitx_admin_login_username_limits() in the migration", () => {
+  const json = v2Sql.match(/fitx_admin_login_username_limits\(\)[\s\S]*?select '(\{[^']+\})'::jsonb/)?.[1];
+  assert.ok(json, "fitx_admin_login_username_limits() not found");
+  assert.deepEqual(JSON.parse(json), { ...guard.USERNAME_LOGIN_LIMITS });
+  assert.deepEqual({ ...guard.USERNAME_LOGIN_LIMITS }, { usernameFailures: 50, usernameWindowMinutes: 15, usernameLockMinutes: 5 });
+});
+
 test("one message for every failure", () => {
   assert.equal(guard.LOGIN_FAILURE_MESSAGE, "Those sign-in details did not work. Wait a few minutes and try again.");
 });

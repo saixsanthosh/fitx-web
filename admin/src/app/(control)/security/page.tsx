@@ -52,7 +52,7 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="page-stack">
-      <PageHead eyebrow="Admin and security" title="Security" meta={`${LOGIN_LIMITS.userFailures} wrong passwords lock a username for ${LOGIN_LIMITS.lockMinutes} minutes`} />
+      <PageHead eyebrow="Admin and security" title="Security" meta={`${LOGIN_LIMITS.userFailures} wrong passwords lock a username on that address for ${LOGIN_LIMITS.lockMinutes} minutes`} />
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
 
       {data ? (
@@ -70,7 +70,7 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
             </div>
           </Panel>
           {data.locked.length > 0 && (
-            <Panel title="Locked operators" hint="The lock lifts by itself" className={ui.onScroll}>
+            <Panel title="Locked operators" hint="Locked from one or more addresses; the lock lifts by itself" className={ui.onScroll}>
               <ul className="settings-list">
                 {data.locked.map((lock) => <li key={lock.operatorId} className="settings-row"><span><strong>{lock.username}</strong><small>Until {formatIstDateTime(lock.lockedUntil)}</small></span><span className="status-pill status-danger"><i />{minutesLeft(lock.lockedUntil)} min left</span></li>)}
               </ul>

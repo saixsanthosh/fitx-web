@@ -8,11 +8,17 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 
 /**
  * Sign-in limits, mirrored in fitx_admin_login_limits() (20261121100030_fitx_admin_v2): 5 failures for
- * one username in 15 minutes lock it for 15 minutes from the fifth (the root too); at most 20 attempts
- * of any kind per client IP in 15 minutes. Attempts during a lock are refused without checking the
- * password and do not extend it.
+ * one username from one client IP in 15 minutes lock that username on that IP for 15 minutes from the
+ * fifth (the root too), so another network still works; at most 20 attempts of any kind per client IP
+ * in 15 minutes. Attempts during a lock are refused without checking the password and do not extend it.
  */
 export const LOGIN_LIMITS = { userFailures: 5, userWindowMinutes: 15, lockMinutes: 15, ipAttempts: 20, ipWindowMinutes: 15 } as const;
+
+/**
+ * The lock across every IP, mirrored in fitx_admin_login_username_limits(): 50 failures for one username
+ * from any IPs in 15 minutes lock it on every IP for 5 minutes from the fiftieth.
+ */
+export const USERNAME_LOGIN_LIMITS = { usernameFailures: 50, usernameWindowMinutes: 15, usernameLockMinutes: 5 } as const;
 
 /** The only failure text the sign-in page ever shows, whatever the cause. */
 export const LOGIN_FAILURE_MESSAGE = "Those sign-in details did not work. Wait a few minutes and try again.";

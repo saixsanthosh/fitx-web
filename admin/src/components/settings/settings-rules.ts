@@ -9,10 +9,10 @@ export const FEATURE_KEYS = ["ai_coach", "home_workout", "activity", "subscripti
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 export const FEATURE_LABELS: Record<FeatureKey, { label: string; hint: string }> = {
-  ai_coach: { label: "AI coach", hint: "Chat page and its API" },
+  ai_coach: { label: "AI coach", hint: "New coach chats; members keep their data controls" },
   home_workout: { label: "Home workout", hint: "Camera workouts at home" },
-  activity: { label: "Activity", hint: "Walk, run and ride tracking" },
-  subscriptions: { label: "Subscriptions", hint: "Plans page and new checkouts" },
+  activity: { label: "Activity", hint: "Recording and imports; saved activities stay" },
+  subscriptions: { label: "Subscriptions", hint: "New checkouts; members can still cancel" },
   support: { label: "Help messages", hint: "New messages and replies from Help" },
 };
 
