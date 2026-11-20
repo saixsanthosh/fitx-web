@@ -3,19 +3,19 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { logServerError } from "@/lib/log";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import {
+  parsePlanDetail,
+  type PlanDetail,
   parseOverview,
   parsePayments,
-  parsePlans,
   parseRefunds,
   parseSubscribers,
   type BillingMode,
   type BillingOverview,
   type PaymentFilter,
   type PaymentRow,
-  type PlanRow,
   type RefundRow,
   type SubscriberRow,
-} from "./format";
+} from "@/app/(control)/billing/format";
 
 export const BILLING_PAGE_SIZE = 25;
 
@@ -26,7 +26,7 @@ export type BillingPageData =
       subscribers: { rows: SubscriberRow[]; total: number };
       payments: { rows: PaymentRow[]; total: number };
       refunds: { rows: RefundRow[]; total: number };
-      plans: PlanRow[];
+      plans: PlanDetail[];
     }
   | { state: "service_key_missing" | "migration_pending" | "query_failed" };
 
@@ -70,7 +70,7 @@ export async function loadBillingPage({
     supabase.rpc("billing_admin_refunds", { p_mode: mode, p_limit: BILLING_PAGE_SIZE, p_offset: 0 }),
     supabase
       .from("billing_plans")
-      .select("code,name,amount_paise,billing_period,billing_interval,is_active,razorpay_plan_id_test,razorpay_plan_id_live,sort_order")
+      .select(PLAN_COLUMNS)
       .order("sort_order")
       .order("amount_paise"),
   ]);
@@ -91,6 +91,34 @@ export async function loadBillingPage({
     subscribers: parseSubscribers(subscribers.data),
     payments: parsePayments(payments.data),
     refunds: parseRefunds(refunds.data),
-    plans: parsePlans(plans.data),
+    plans: (Array.isArray(plans.data) ? plans.data : []).map(parsePlanDetail).filter((plan): plan is PlanDetail => plan !== null),
   };
+}
+
+const PLAN_COLUMNS = "code,name,description,features,amount_paise,billing_period,billing_interval,is_active,razorpay_plan_id_test,razorpay_plan_id_live,sort_order";
+
+/** Every plan with its features, for the plan list and editor. */
+export async function loadPlans(): Promise<{ state: "ready"; plans: PlanDetail[] } | { state: "service_key_missing" | "migration_pending" | "query_failed" }> {
+  await requireAdmin("billing.view");
+  const supabase = createAdminSupabase();
+  if (!supabase) return { state: "service_key_missing" };
+  const { data, error } = await supabase.from("billing_plans").select(PLAN_COLUMNS).order("sort_order").order("amount_paise");
+  if (error) {
+    logServerError("data.billing_plans", error);
+    return { state: isMissingBillingSchema(error.code) ? "migration_pending" : "query_failed" };
+  }
+  return { state: "ready", plans: (data ?? []).map(parsePlanDetail).filter((plan): plan is PlanDetail => plan !== null) };
+}
+
+export async function loadPlan(code: string): Promise<{ state: "ready"; plan: PlanDetail } | { state: "not_found" | "service_key_missing" | "migration_pending" | "query_failed" }> {
+  await requireAdmin("billing.view");
+  const supabase = createAdminSupabase();
+  if (!supabase) return { state: "service_key_missing" };
+  const { data, error } = await supabase.from("billing_plans").select(PLAN_COLUMNS).eq("code", code).maybeSingle();
+  if (error) {
+    logServerError("data.billing_plan", error);
+    return { state: isMissingBillingSchema(error.code) ? "migration_pending" : "query_failed" };
+  }
+  const plan = parsePlanDetail(data);
+  return plan ? { state: "ready", plan } : { state: "not_found" };
 }
