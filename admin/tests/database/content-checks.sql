@@ -369,4 +369,53 @@ begin
   end if;
 end $$;
 \echo ok content audit rows hold codes and counts only
+
+-- The runbook's Check query for 20261121100036 gives what it states (expect 16, 2).
+do $$
+declare
+  functions integer;
+  buckets integer;
+begin
+  select (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('fitx_admin_op_save_exercise',
+            'fitx_admin_op_delete_exercise', 'fitx_admin_op_add_exercise_media', 'fitx_admin_op_remove_exercise_media',
+            'fitx_admin_op_set_programme_status', 'fitx_admin_op_training_counts', 'fitx_admin_op_save_food', 'fitx_admin_op_set_food_active',
+            'fitx_admin_op_set_food_portions', 'fitx_admin_op_set_food_image', 'fitx_admin_op_rename_food_category',
+            'fitx_admin_op_food_categories', 'fitx_admin_op_save_billing_plan', 'fitx_admin_op_report', 'fitx_admin_content_text_array',
+            'fitx_admin_content_slug')),
+         (select count(*) from storage.buckets where id in ('exercise-media', 'food-media') and public and file_size_limit is not null)
+  into functions, buckets;
+  if functions <> 16 or buckets <> 2 then raise exception 'runbook check: % functions, % buckets', functions, buckets; end if;
+end $$;
+\echo ok the runbook check query gives 16, 2
+
+-- The runbook's Undo SQL runs cleanly and leaves the catalogue and the exercise-media bucket as before
+-- (tried inside a transaction that is rolled back).
+begin;
+drop function if exists public.fitx_admin_op_report(uuid, integer);
+drop function if exists public.fitx_admin_op_save_billing_plan(uuid, text, jsonb);
+drop function if exists public.fitx_admin_op_food_categories(uuid);
+drop function if exists public.fitx_admin_op_rename_food_category(uuid, text, text);
+drop function if exists public.fitx_admin_op_set_food_image(uuid, text, text, text, text);
+drop function if exists public.fitx_admin_op_set_food_portions(uuid, text, jsonb);
+drop function if exists public.fitx_admin_op_set_food_active(uuid, text, boolean);
+drop function if exists public.fitx_admin_op_save_food(uuid, text, jsonb);
+drop function if exists public.fitx_admin_op_training_counts(uuid);
+drop function if exists public.fitx_admin_op_set_programme_status(uuid, text, text);
+drop function if exists public.fitx_admin_op_remove_exercise_media(uuid, uuid);
+drop function if exists public.fitx_admin_op_add_exercise_media(uuid, text, text, text, text, text, text, integer, integer);
+drop function if exists public.fitx_admin_op_delete_exercise(uuid, text);
+drop function if exists public.fitx_admin_op_save_exercise(uuid, text, jsonb);
+drop function if exists public.fitx_admin_content_slug(text);
+drop function if exists public.fitx_admin_content_text_array(jsonb);
+update storage.buckets set file_size_limit = null, allowed_mime_types = null where id = 'exercise-media';
+do $$
+begin
+  if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and (proname like 'fitx_admin_content\_%' or proname in ('fitx_admin_op_report', 'fitx_admin_op_save_food'))) then
+    raise exception 'undo left content functions behind';
+  end if;
+  if not exists (select 1 from pg_proc where proname = 'fitx_admin_op_set_exercise_active') then raise exception 'undo removed an admin-v2 function'; end if;
+  if (select file_size_limit from storage.buckets where id = 'exercise-media') is not null then raise exception 'undo keeps the bucket limits'; end if;
+end $$;
+rollback;
+\echo ok the runbook undo drops only the content functions and the bucket limits
 \echo ALL ADMIN CONTENT DATABASE CHECKS PASSED
