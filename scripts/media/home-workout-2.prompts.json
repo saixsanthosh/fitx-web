@@ -1,0 +1,59 @@
+{
+  "set": "home-workout-2",
+  "style": "Photoreal editorial fitness photograph in a minimal, dark home studio: matte charcoal wall and floor, one soft key light from the front and a single warm terracotta (#C44933) rim light from behind on one side, deep soft shadows, gentle film grain, true-to-life skin texture, calm and premium. The whole body is in frame with generous empty space around it, the floor line low in the frame, shot at hip height with a 50mm lens. Textbook exercise form. Colour palette: charcoal, warm off-white skin highlights and the single terracotta accent. No text, letters, numbers, logos, brand marks, watermarks, mirrors, screens or signage anywhere; clothing and equipment are plain and unbranded. Not a real or famous person.",
+  "people": {
+    "man": "an Indian man in his late twenties, short dark hair, neatly trimmed beard, athletic build, plain charcoal t-shirt, black training shorts, barefoot",
+    "woman": "an Indian woman in her late twenties, dark hair tied in a low bun, fit build, plain terracotta sports top, black leggings, barefoot"
+  },
+  "images": [
+    {
+      "id": "high-knees",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man facing the camera driving one knee up to hip height",
+      "prompt": "{man} facing the camera doing high knees on the spot: one knee driven up to hip height, the opposite arm swinging forward, standing tall on the ball of the other foot, a faint motion blur."
+    },
+    {
+      "id": "mountain-climber",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman in a high plank pulling one knee in under her chest",
+      "prompt": "Exactly side-on view of {woman} mid-stride in a mountain climber, the running plank: her hands are planted under her shoulders with straight arms, one leg is fully extended behind her, and her other leg is sharply bent with that knee tucked deep under her chest, the foot off the floor just behind her hands. The two legs make a clear scissor shape. Flat back, hips level."
+    },
+    {
+      "id": "side-plank",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man facing the camera in a side plank, body in one straight line",
+      "prompt": "{man} facing the camera in a forearm side plank on a dark mat: supporting elbow under the shoulder, feet stacked, hips lifted so his body forms one straight line, top hand resting on his hip."
+    },
+    {
+      "id": "wall-sit",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman holding a wall sit with her thighs level with the floor",
+      "prompt": "Side-on view of {woman} holding a wall sit against a plain dark wall: back flat against the wall, thighs level with the floor, knees over the ankles, hands resting on her thighs."
+    },
+    {
+      "id": "superman",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man lying face down lifting his chest and arms off the mat",
+      "prompt": "Photographed from floor level, exactly side-on: {man} lies on his belly on a dark mat in the prone superman back extension. His stomach and hips rest on the mat; his straight arms point forward beyond his head, and his upper chest, arms and straight legs float a little above the mat, so the body forms a shallow curve like a rocking chair. Nothing but his stomach and hips touches the floor: his hands and feet are in the air."
+    },
+    {
+      "id": "shoulder-press",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman facing the camera pressing two small dumbbells overhead",
+      "prompt": "{woman} facing the camera, standing tall, pressing a pair of small plain dark dumbbells straight overhead, arms nearly straight, ribs down."
+    },
+    {
+      "id": "biceps-curl",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man curling a small dumbbell with his elbow at his side",
+      "prompt": "Side-on view of {man} standing tall doing a biceps curl with a pair of small plain dark dumbbells: elbows pinned at his sides, forearms curled up towards the shoulders."
+    }
+  ]
+}

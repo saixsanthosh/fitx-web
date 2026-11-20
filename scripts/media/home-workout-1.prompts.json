@@ -1,0 +1,59 @@
+{
+  "set": "home-workout-1",
+  "style": "Photoreal editorial fitness photograph in a minimal, dark home studio: matte charcoal wall and floor, one soft key light from the front and a single warm terracotta (#C44933) rim light from behind on one side, deep soft shadows, gentle film grain, true-to-life skin texture, calm and premium. The whole body is in frame with generous empty space around it, the floor line low in the frame, shot at hip height with a 50mm lens. Textbook exercise form. Colour palette: charcoal, warm off-white skin highlights and the single terracotta accent. No text, letters, numbers, logos, brand marks, watermarks, mirrors, screens or signage anywhere; clothing and equipment are plain and unbranded. Not a real or famous person.",
+  "people": {
+    "man": "an Indian man in his late twenties, short dark hair, neatly trimmed beard, athletic build, plain charcoal t-shirt, black training shorts, barefoot",
+    "woman": "an Indian woman in her late twenties, dark hair tied in a low bun, fit build, plain terracotta sports top, black leggings, barefoot"
+  },
+  "images": [
+    {
+      "id": "push-up",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man at the bottom of a push-up, body in one straight line",
+      "prompt": "Side-on view of {man} at the bottom of a push-up on a dark exercise mat: hands under the shoulders, elbows bent to about ninety degrees, chest a few centimetres above the floor, body in one straight line from head to heels."
+    },
+    {
+      "id": "squat",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman at the bottom of a bodyweight squat, thighs level with the floor",
+      "prompt": "Side-on view of {woman} at the bottom of a bodyweight squat: thighs level with the floor, heels down, chest up, arms reaching forward for balance."
+    },
+    {
+      "id": "split-squat",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man at the bottom of a split squat, back knee just above the floor",
+      "prompt": "Exactly side-on view of {man} at the bottom of a split squat in a long staggered stance, one long stride between his feet: the front foot flat on the floor ahead, the back foot far behind resting on the ball of the foot, both knees bent to about ninety degrees, the back knee hovering just above the floor, the front thigh level with the floor, torso tall and upright, hands on hips. His two feet are clearly far apart front to back."
+    },
+    {
+      "id": "glute-bridge",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman holding the top of a glute bridge, knees, hips and shoulders in line",
+      "prompt": "Side-on view of {woman} doing a glute bridge on a dark mat: lying on her back, knees bent, feet flat, hips lifted so knees, hips and shoulders form one straight line, arms flat on the floor."
+    },
+    {
+      "id": "plank",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man holding a plank, body in one straight line",
+      "prompt": "Side-on view of {man} holding a forearm plank on a dark mat: elbows under the shoulders, body in one straight line from head to heels, gaze to the floor."
+    },
+    {
+      "id": "jumping-jack",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman facing the camera with her arms overhead mid jumping jack",
+      "prompt": "{woman} facing the camera mid jumping jack: arms straight overhead, feet landed wide apart, light on her toes, a faint motion blur on the hands."
+    },
+    {
+      "id": "reverse-lunge",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman at the bottom of a reverse lunge, torso upright",
+      "prompt": "Side-on view of {woman} at the bottom of a reverse lunge: she has stepped one foot back, both knees bent to about ninety degrees, back knee just above the floor, torso upright, hands on hips."
+    }
+  ]
+}
