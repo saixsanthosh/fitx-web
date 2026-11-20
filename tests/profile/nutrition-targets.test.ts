@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { CALORIE_FLOORS, calculateNutritionTargets, estimateNutritionTargets, MINIMUM_CALORIES } from "@/lib/domain/nutrition";
+import { CALORIE_FLOORS, HIGH_PROTEIN_MAX_PER_KG, calculateNutritionTargets, estimateNutritionTargets, MINIMUM_CALORIES, proteinPerKgFor } from "@/lib/domain/nutrition";
 
 const woman = { age: 30, gender: "female", height: 160, weight: 60 };
 const man = { age: 28, gender: "male", height: 178, weight: 78 };
@@ -108,5 +108,54 @@ describe("daily targets", () => {
     const macros = estimateNutritionTargets(man, "moderate", "fat_loss")!;
     assert.equal(macros.calories, calculateNutritionTargets(man, "moderate", "fat_loss")!.calories);
     assert.equal(estimateNutritionTargets({}), null);
+  });
+
+  test("High protein uses the top of the goal's range: 2.2 g/kg for muscle, strength and loss goals, 2.0 otherwise", () => {
+    assert.equal(proteinPerKgFor("muscle_gain", "high_protein"), 2.2);
+    assert.equal(proteinPerKgFor("strength", "high_protein"), 2.2);
+    assert.equal(proteinPerKgFor("fat_loss", "high_protein"), 2.2);
+    assert.equal(proteinPerKgFor("weight_loss", "high_protein"), 2.2);
+    for (const goal of ["general_fitness", "endurance", "weight_gain", "maintain_weight", "unknown_goal"]) assert.equal(proteinPerKgFor(goal, "high_protein"), 2.0, goal);
+    for (const goal of ["muscle_gain", "weight_gain", "fat_loss", "weight_loss", "general_fitness", "strength", "endurance", "maintain_weight"]) {
+      assert.ok(proteinPerKgFor(goal, "high_protein") <= HIGH_PROTEIN_MAX_PER_KG, goal);
+      assert.ok(proteinPerKgFor(goal, "high_protein") >= proteinPerKgFor(goal, null), goal);
+    }
+  });
+
+  test("High protein raises protein against the same reference weight; carbs absorb it and calories and fat stay", () => {
+    for (const goal of ["muscle_gain", "fat_loss", "general_fitness", "maintain_weight"]) {
+      const standard = calculateNutritionTargets(man, "moderate", goal)!;
+      const high = calculateNutritionTargets(man, "moderate", goal, "high_protein")!;
+      assert.equal(high.calories, standard.calories, goal);
+      assert.equal(high.fat, standard.fat, goal);
+      assert.ok(high.protein > standard.protein, `${goal}: ${high.protein} vs ${standard.protein}`);
+      assert.ok(high.carbs < standard.carbs, goal);
+      assert.equal(high.proteinFocus, "high");
+      assert.equal(standard.proteinFocus, "standard");
+    }
+    // 78 kg man, muscle gain: 1.8 g/kg = 140 g standard, 2.2 g/kg = 172 g high.
+    assert.equal(calculateNutritionTargets(man, "moderate", "muscle_gain")!.protein, 140);
+    assert.equal(calculateNutritionTargets(man, "moderate", "muscle_gain", "high_protein")!.protein, 172);
+    // The protein reference weight still caps very heavy bodies (BMI 27.5 at 178 cm is 87.1 kg).
+    const heavy = calculateNutritionTargets({ ...man, weight: 140 }, "moderate", "strength", "high_protein")!;
+    assert.equal(heavy.protein, Math.round(27.5 * 1.78 ** 2 * 2.2));
+  });
+
+  test("High protein stays under 40% of calories", () => {
+    const small = calculateNutritionTargets({ age: 60, gender: "female", height: 150, weight: 48 }, "sedentary", "weight_loss", "high_protein")!;
+    assert.ok(small.protein * 4 <= small.calories * 0.4 + 2, `${small.protein} g of ${small.calories} kcal`);
+  });
+
+  test("balanced, no preference and no answer keep the standard target", () => {
+    const standard = calculateNutritionTargets(man, "moderate", "fat_loss")!;
+    for (const focus of ["balanced", "none", null, undefined]) {
+      const targets = calculateNutritionTargets(man, "moderate", "fat_loss", focus)!;
+      assert.equal(targets.protein, standard.protein, String(focus));
+      assert.equal(targets.proteinFocus, "standard");
+    }
+  });
+
+  test("estimateNutritionTargets passes the focus through", () => {
+    assert.equal(estimateNutritionTargets(man, "moderate", "muscle_gain", "high_protein")!.protein, 172);
   });
 });

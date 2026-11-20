@@ -25,4 +25,11 @@ describe("how the target was set", () => {
     assert.equal(targetReason(calculateNutritionTargets(man, "moderate", "general_fitness")!), "Set at maintenance, to keep your weight steady.");
     assert.match(targetReason(calculateNutritionTargets({ age: 16, gender: "female", height: 162, weight: 70 }, "moderate", "fat_loss")!), /Under 18/);
   });
+
+  test("adds one short clause for High protein, and nothing otherwise", () => {
+    const man = { age: 28, gender: "male", height: 178, weight: 78 };
+    const high = targetReason(calculateNutritionTargets(man, "moderate", "muscle_gain", "high_protein")!);
+    assert.match(high, /^About 272 kcal over maintenance, roughly 0\.3 kg a week\. Protein set high, at up to 2\.2 g per kg\.$/);
+    assert.doesNotMatch(targetReason(calculateNutritionTargets(man, "moderate", "muscle_gain", "balanced")!), /Protein/);
+  });
 });
