@@ -957,6 +957,42 @@ describe("GET /api/coach/status: providers and quick prompts", () => {
     assert.equal(food.text, "What should I eat for the rest of today?");
   });
 
+  test("an automatic goal's stored 0 is not its progress; a long-term goal logged by hand shows its total", async () => {
+    seedMember();
+    db.rows("goals").push(
+      { user_id: MEMBER, title: "4 workouts a week", category: "consistency", metric: "workouts_completed", period: "weekly", status: "active", target_value: 4, current_value: 0, unit: "workouts", due_on: "2026-12-01" },
+      { user_id: MEMBER, title: "Read 10 books", category: "personal", metric: "manual", period: "long_term", status: "active", target_value: 10, current_value: 3, unit: "books", due_on: "2027-06-01" },
+    );
+    consentTo(MEMBER, true);
+    const goal = (await promptsOf()).find((prompt) => prompt.source === "goal")!;
+    assert.equal(goal.context, "Goal · active", "never “0 of 4 workouts”");
+    assert.equal(goal.text, "How do I reach my goal “4 workouts a week” by 1 Dec?");
+    db.rows("goals").splice(0, 1);
+    assert.equal((await promptsOf()).find((prompt) => prompt.source === "goal")?.context, "Goal · 3 of 10 books");
+  });
+
+  test("for 30 days after the eating-disorder note, no prompt is about food, calories or weight", async () => {
+    seedMember();
+    db.rows("meals").length = 0;
+    db.rows("meals").push({ user_id: MEMBER, date: istToday(), meal: "Breakfast", food_name: "Upma", calories: 250, protein: 5, carbs: 45, fat: 6 });
+    db.rows("goals").push(
+      { user_id: MEMBER, title: "Reach 55 kg", category: "body", metric: "body_weight_kg", period: "long_term", status: "active", target_value: 55, current_value: 0, unit: "kg", due_on: "2026-12-01" },
+      { user_id: MEMBER, title: "Read 10 books", category: "personal", metric: "manual", period: "long_term", status: "active", target_value: 10, current_value: 3, unit: "books", due_on: "2027-06-01" },
+    );
+    db.rows("ai_coach_safety_notes").push({ id: "33333333-3333-4333-8333-333333333333", user_id: MEMBER, topic: "eating_disorder", created_at: new Date(Date.now() - 5 * 86_400_000).toISOString() });
+    consentTo(MEMBER, true);
+    const prompts = await promptsOf();
+    const all = JSON.stringify(prompts);
+    assert.ok(prompts.length > 0, "training and setup prompts stay");
+    assert.ok(prompts.every((prompt) => prompt.source !== "food" && prompt.id !== "food-answers" && prompt.mode !== "meal_plan"), all);
+    assert.doesNotMatch(all, /kcal|calorie|protein|55 kg|Reach 55|\d+ of \d+/i);
+    assert.equal(prompts.find((prompt) => prompt.source === "goal")?.context, "Goal · active", "a goal names no number in those 30 days");
+
+    // After the 30 days the food prompts come back.
+    db.rows("ai_coach_safety_notes")[0].created_at = new Date(Date.now() - 31 * 86_400_000).toISOString();
+    assert.equal((await promptsOf())[0].source, "food");
+  });
+
   test("Questions only and under-18 accounts get no prompts built from their data", async () => {
     seedMember();
     consentTo(MEMBER, false);

@@ -50,7 +50,7 @@ function sources(overrides: Record<string, unknown> = {}) {
     ],
     recentMuscles: ["chest", "quadriceps"],
     records: [{ exercise_name: "Goblet Squat", best_weight_kg: 20, best_reps: 10, estimated_one_rep_max: 26.7, achieved_at: "2026-11-15T13:40:00Z" }],
-    goals: [{ title: "Lose 4 kg by March", category: "body", target_value: 4, current_value: 1, unit: "kg", due_on: "2027-03-01" }],
+    goals: [{ title: "Lose 4 kg by March", category: "body", metric: "manual", period: "long_term", target_value: 4, current_value: 1, unit: "kg", due_on: "2027-03-01" }],
     planner: [{ event_type: "workout", starts_at: "2026-11-18T12:00:00Z" }],
     ...overrides,
   };
@@ -424,6 +424,13 @@ describe("privacy page", () => {
       const order = candidatesFor(task, config, { personalData: true }).map((candidate) => candidate.provider);
       assert.equal(order.at(-1), "ollama", `${task}: Ollama is tried last, member data included`);
     }
+    // The sentence on where member data goes names the Ollama server too, in both of Gemini's settings, and only when one is set.
+    const { geminiRouting } = await import("@/lib/ai/disclosure");
+    const optedIn = readAiConfig({ GROQ_API_KEY: "groq-test", AI_GEMINI_WITH_MEMBER_DATA: "true", OLLAMA_BASE_URL: "https://ollama.example.com", OLLAMA_MODEL: "llama3.2", VERCEL_ENV: "production" });
+    assert.ok(config.ollama && optedIn.ollama);
+    assert.match(geminiRouting(config), /\bgo to Groq or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
+    assert.match(geminiRouting(optedIn), /\bmay go to Gemini, Groq or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
+    assert.doesNotMatch(geminiRouting(readAiConfig({ GROQ_API_KEY: "groq-test" })), /Ollama/);
     const coach = section("AI coach");
     assert.match(coach, /\ban Ollama server run by FITX’s owner, when one is set up\b/);
     assert.match(coach, /\btried last, after those services, and can get any coach request\b/);
@@ -760,5 +767,25 @@ describe("onboarding answers through Profile's readers", () => {
     assert.equal((summary.active_goals as Array<Record<string, unknown>>)[0].progress, "unknown of 60 kg");
     const empty = buildCoachContext({ ...base, meals: [] } as never, NOW);
     assert.deepEqual((empty.summary.nutrition as Record<string, unknown>).today, { items_logged: 0 }, "nothing logged today is not 0 kcal");
+  });
+
+  test("a goal's stored value is its progress only for a long-term goal logged by hand", () => {
+    const base = sources();
+    // goals v2 keeps current_value only for manual goals; automatic and per-period goals keep the default 0.
+    const goals = [
+      { title: "4 workouts a week", category: "consistency", metric: "workouts_completed", period: "weekly", target_value: 4, current_value: 0, unit: "workouts", due_on: null },
+      { title: "Read 10 books", category: "personal", metric: "manual", period: "long_term", target_value: 10, current_value: 3, unit: "books", due_on: null },
+      { title: "Stretch daily", category: "personal", metric: "manual", period: "daily", target_value: 1, current_value: 12, unit: "times", due_on: null },
+      { title: "Run 50 km", category: "fitness", metric: "manual", period: "long_term", target_value: 50, current_value: 0, unit: "km (activities)", due_on: null },
+      { title: "Old goal", category: "personal", target_value: 5, current_value: 2, unit: "kg", due_on: null },
+    ];
+    const { summary } = buildCoachContext({ ...base, goals } as never, NOW);
+    assert.deepEqual((summary.active_goals as Array<Record<string, unknown>>).map((goal) => goal.progress), [
+      "unknown of 4 workouts a week",
+      "3 of 10 books",
+      "unknown of 1 times a day",
+      "unknown of 50",
+      "unknown of 5 kg",
+    ]);
   });
 });

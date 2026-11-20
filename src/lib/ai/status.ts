@@ -4,6 +4,7 @@ import { buildCoachContext, loadContextSources, type CoachContext, type ContextS
 import { describeAllergies, describeDiet } from "./diet-rules";
 import { buildQuickPrompts, loadPromptSignals, type QuickPrompt } from "./quick-prompts";
 import { canSendMemberData, configuredProviders, providerLabel } from "./registry";
+import { CARE_DAYS } from "./safety";
 import * as store from "./store";
 import type { CoachQuota, CoachThreadSummary, ProviderId } from "./types";
 
@@ -119,15 +120,18 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
 
 /**
  * The quick prompts for a member who shares their data. The targets use the latest weigh-in, as Home and
- * Nutrition do. Any failure just means no personal prompts: the page then offers general ones.
+ * Nutrition do. For 30 days after FITX's eating-disorder note they leave out food, calories and weight, as the
+ * coach does (runCoachTurn). Any failure, that check's included, just means no personal prompts: the page then
+ * offers general ones.
  */
 async function personalPrompts(db: store.Db, userId: string, sources: ContextSources, now: Date): Promise<QuickPrompt[]> {
   try {
+    const careMode = await store.hasRecentSafetyNote(db, userId, "eating_disorder", CARE_DAYS);
     const { data } = await db.from("body_metrics").select("date, weight").eq("user_id", userId).not("weight", "is", null)
       .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1);
     const weighIns = Array.isArray(data) ? (data as ContextSources["weighIns"]) : [];
     const context = buildCoachContext({ ...sources, weighIns }, now);
-    return buildQuickPrompts(context, await loadPromptSignals(db, userId, context, now), { plansAllowed: true });
+    return buildQuickPrompts(context, await loadPromptSignals(db, userId, context, now), { plansAllowed: true, careMode });
   } catch {
     return [];
   }

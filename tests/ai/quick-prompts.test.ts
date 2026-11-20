@@ -51,6 +51,25 @@ describe("quick prompts", () => {
     assert.equal(food.context, "Your food · High protein, Vegetarian");
   });
 
+  test("care mode: no food, calorie or weight prompt, no meal plan and no goal number", () => {
+    const ctx = context({ diet_type: "vegetarian", nutrition_focus: "high_protein" });
+    const signals = {
+      todayFoods: [],
+      lastWorkout: null,
+      activities: [{ sport: "walk", distanceM: 3000 }],
+      goals: [
+        { title: "Reach 55 kg", metric: "body_weight_kg", category: "body", targetValue: 55, currentValue: null, unit: "kg", dueOn: null },
+        { title: "Read 10 books", metric: "manual", category: "personal", targetValue: 10, currentValue: 3, unit: "books", dueOn: null },
+      ],
+    };
+    assert.equal(buildQuickPrompts(ctx, signals, { plansAllowed: true })[0].mode, "meal_plan", "outside care mode the meal plan leads");
+    const care = buildQuickPrompts(ctx, signals, { plansAllowed: true, careMode: true });
+    assert.deepEqual(care.map((prompt) => prompt.id), ["training-start", "activity-week", "goal", "setup"]);
+    assert.equal(care.find((prompt) => prompt.id === "goal")!.context, "Goal · active");
+    assert.match(care.find((prompt) => prompt.id === "goal")!.text, /Read 10 books/);
+    assert.doesNotMatch(JSON.stringify(care), /kcal|protein|snack|55 kg|\d+ of \d+/i);
+  });
+
   test("at most four, no plan prompts when plans are off, and none for under-18s", () => {
     const busy = { todayFoods: [{ calories: 300, protein: 10 }], lastWorkout: { name: "Legs", startedAt: "2026-11-15T12:00:00Z" }, activities: [{ sport: "walk", distanceM: 3000 }], goals: [{ title: "Squat 60 kg", targetValue: 60, currentValue: 40, unit: "kg", dueOn: null }] };
     assert.equal(buildQuickPrompts(context(), busy, { plansAllowed: true }).length, MAX_QUICK_PROMPTS);

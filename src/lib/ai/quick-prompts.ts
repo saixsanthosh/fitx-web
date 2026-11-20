@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { CoachContext } from "./context";
+import { storedGoalProgress, type CoachContext } from "./context";
+import { clientMetricForUnit } from "@/lib/domain/goals";
 import { FOOD_SOURCE_OPTIONS, optionLabel } from "@/lib/domain/profile-options";
 import { describeAllergies } from "./diet-rules";
 import { cleanText } from "./validate";
@@ -10,6 +11,8 @@ import { cleanText } from "./validate";
  * targets, the last workout, this week's walks, runs and rides, an active goal, and the setup answers. Each one
  * is shown only when its data is there, and never states an unknown value or counts it as 0. Built only for
  * members who chose "Use my FITX data": a chip fills the message box, so what it says is what would be sent.
+ * In the 30 days after FITX's eating-disorder note (careMode) no prompt is about food, calories or body weight,
+ * as the coach then makes no meal plans and gives no calorie targets (coach.ts).
  */
 
 export type QuickPromptSource = "food" | "training" | "activity" | "goal" | "setup";
@@ -30,7 +33,8 @@ export type PromptSignals = {
   lastWorkout: { name: string; startedAt: string } | null;
   /** The last 7 days of activities, or null when they could not be read (or Activity is not set up). */
   activities: Array<{ sport: string; distanceM: number | null }> | null;
-  goals: Array<{ title: string; targetValue: number | null; currentValue: number | null; unit: string | null; dueOn: string | null }>;
+  /** currentValue is the goal's progress only where the table keeps it (storedGoalProgress); otherwise null. */
+  goals: Array<{ title: string; metric?: string | null; category?: string | null; targetValue: number | null; currentValue: number | null; unit: string | null; dueOn: string | null }>;
 };
 
 export const MAX_QUICK_PROMPTS = 4;
@@ -146,10 +150,14 @@ function activityPrompt(activities: PromptSignals["activities"]): QuickPrompt | 
   return { id: "activity-week", source: "activity", context, text, mode: "chat" };
 }
 
-function goalPrompt(goals: PromptSignals["goals"]): QuickPrompt | null {
-  const goal = goals.find((item) => item.title);
+/** Goals about food or body weight, which care mode leaves out. */
+const FOOD_OR_WEIGHT_METRICS = new Set(["calories_kcal", "protein_g", "water_ml", "body_weight_kg"]);
+const FOOD_OR_WEIGHT_CATEGORIES = new Set(["nutrition", "body"]);
+
+function goalPrompt(goals: PromptSignals["goals"], careMode: boolean): QuickPrompt | null {
+  const goal = goals.find((item) => item.title && !(careMode && (FOOD_OR_WEIGHT_METRICS.has(item.metric ?? "") || FOOD_OR_WEIGHT_CATEGORIES.has(item.category ?? ""))));
   if (!goal) return null;
-  const progress = known(goal.currentValue) && known(goal.targetValue) ? `${oneDecimal(goal.currentValue)} of ${oneDecimal(goal.targetValue)}${goal.unit ? ` ${goal.unit}` : ""}` : null;
+  const progress = !careMode && known(goal.currentValue) && known(goal.targetValue) ? `${oneDecimal(goal.currentValue)} of ${oneDecimal(goal.targetValue)}${goal.unit ? ` ${goal.unit}` : ""}` : null;
   return {
     id: "goal",
     source: "goal",
@@ -195,19 +203,27 @@ function setupPrompt({ facts, summary }: CoachContext): QuickPrompt | null {
   };
 }
 
-/** Up to four prompts, most timely first: today's food, training, this week's activity, a goal, then setup answers. */
-export function buildQuickPrompts(context: CoachContext, signals: PromptSignals, options: { plansAllowed: boolean }): QuickPrompt[] {
+/**
+ * Up to four prompts, most timely first: today's food, training, this week's activity, a goal, then setup answers.
+ * `careMode`: FITX showed its eating-disorder note in the last 30 days (CARE_DAYS), so the food prompts, the food
+ * answers and food or weight goals are left out, and no goal names a number.
+ */
+export function buildQuickPrompts(context: CoachContext, signals: PromptSignals, options: { plansAllowed: boolean; careMode?: boolean }): QuickPrompt[] {
   if (context.facts.minor) return [];
+  const careMode = options.careMode === true;
   const all = [
-    foodPrompt(context, signals.todayFoods),
+    careMode ? null : foodPrompt(context, signals.todayFoods),
     trainingPrompt(context, signals.lastWorkout),
     activityPrompt(signals.activities),
-    goalPrompt(signals.goals),
-    foodAnswersPrompt(context),
+    goalPrompt(signals.goals, careMode),
+    careMode ? null : foodAnswersPrompt(context),
     setupPrompt(context),
   ].filter((prompt): prompt is QuickPrompt => prompt !== null);
-  // Plans need "Use my FITX data" and an adult profile; otherwise a plan prompt would only be refused.
-  return all.filter((prompt) => options.plansAllowed || prompt.mode === "chat").slice(0, MAX_QUICK_PROMPTS);
+  // Plans need "Use my FITX data" and an adult profile; otherwise a plan prompt would only be refused. Care mode
+  // refuses meal plans (planBlock in coach.ts).
+  return all
+    .filter((prompt) => (options.plansAllowed || prompt.mode === "chat") && !(careMode && prompt.mode === "meal_plan"))
+    .slice(0, MAX_QUICK_PROMPTS);
 }
 
 /**
@@ -225,11 +241,13 @@ export async function loadPromptSignals(db: Db, userId: string, context: CoachCo
       return null;
     }
   };
+  const goalQuery = (columns: string) => db.from("goals").select(columns).eq("user_id", userId).eq("status", "active").order("due_on", { ascending: true, nullsFirst: false }).limit(3);
   const [foods, workouts, activities, goals] = await Promise.all([
     rows(db.from("meals").select("calories, protein").eq("user_id", userId).eq("date", today).limit(200)),
     rows(db.from("workout_sessions").select("name, started_at").eq("user_id", userId).eq("status", "completed").order("started_at", { ascending: false }).limit(1)),
     rows(db.from("activities").select("sport, distance_m").eq("user_id", userId).gte("started_at", weekAgo).limit(100)),
-    rows(db.from("goals").select("title, target_value, current_value, unit, due_on").eq("user_id", userId).eq("status", "active").order("due_on", { ascending: true, nullsFirst: false }).limit(3)),
+    // Without goals v2 (no metric or period) the goal is still offered, with no number (storedGoalProgress).
+    rows(goalQuery("title, category, metric, period, target_value, current_value, unit, due_on")).then((found) => found ?? rows(goalQuery("title, category, target_value, current_value, unit, due_on"))),
   ]);
   const last = workouts?.[0];
   const lastName = cleanText(last?.name, 48);
@@ -239,7 +257,11 @@ export async function loadPromptSignals(db: Db, userId: string, context: CoachCo
     activities: activities ? activities.map((row) => ({ sport: typeof row.sport === "string" ? row.sport : "", distanceM: numeric(row.distance_m) })) : null,
     goals: (goals ?? []).flatMap((row) => {
       const title = cleanText(row.title, 60);
-      return title ? [{ title, targetValue: numeric(row.target_value), currentValue: numeric(row.current_value), unit: cleanText(row.unit, 12), dueOn: typeof row.due_on === "string" ? row.due_on.slice(0, 10) : null }] : [];
+      const metric = typeof row.metric === "string" ? row.metric : null;
+      const category = typeof row.category === "string" ? row.category : null;
+      // A distance or active-minutes goal is stored with a reserved unit ("km (activities)"): not a unit to show.
+      const unit = clientMetricForUnit(row.unit) === null ? cleanText(row.unit, 12) : null;
+      return title ? [{ title, metric, category, targetValue: numeric(row.target_value), currentValue: storedGoalProgress(row as Parameters<typeof storedGoalProgress>[0]), unit, dueOn: typeof row.due_on === "string" ? row.due_on.slice(0, 10) : null }] : [];
     }),
   };
 }

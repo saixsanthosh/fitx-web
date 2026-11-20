@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, NUTRITION_FOCUS_OPTIONS, normalizeDietType, optionLabel, profileAge, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
 import { normalizePreferences, normalizeProfile, targetsFor } from "@/lib/domain/user-context";
+import { clientMetricForUnit } from "@/lib/domain/goals";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { isCountedSession, loadLibraryMuscles, regionsTrained, summariseMuscles, type LoggedSession } from "@/lib/training/muscle-history";
@@ -27,7 +28,8 @@ export type ContextSources = {
   sessions: Array<{ started_at: string; status: string; duration_seconds: number | null; total_volume: number | null }>;
   recentMuscles: string[];
   records: Array<{ exercise_name: string | null; best_weight_kg: number | null; best_reps: number | null; estimated_one_rep_max: number | null; achieved_at: string | null }>;
-  goals: Array<{ title: string | null; category: string | null; target_value: number | null; current_value: number | null; unit: string | null; due_on: string | null }>;
+  /** metric and period are there on a database with goals v2; see storedGoalProgress for what current_value means. */
+  goals: Array<{ title: string | null; category: string | null; metric?: string | null; period?: string | null; target_value: number | null; current_value: number | null; unit: string | null; due_on: string | null }>;
   // starts_at is null for an untimed To-Do (Planner v2); local_date is its calendar day.
   planner: Array<{ event_type: string | null; starts_at: string | null; local_date?: string | null }>;
 };
@@ -148,8 +150,10 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     rows<ContextSources["records"][number]>(
       supabase.from("personal_records").select("exercise_name, best_weight_kg, best_reps, estimated_one_rep_max, achieved_at").eq("user_id", userId).order("estimated_one_rep_max", { ascending: false }).limit(8),
     ),
-    rows<ContextSources["goals"][number]>(
-      supabase.from("goals").select("title, category, target_value, current_value, unit, due_on").eq("user_id", userId).eq("status", "active").order("due_on", { ascending: true, nullsFirst: false }).limit(6),
+    withFallback<ContextSources["goals"][number]>(
+      // Without goals v2 (no metric or period) a goal's stored value is never read as its progress.
+      () => supabase.from("goals").select("title, category, metric, period, target_value, current_value, unit, due_on").eq("user_id", userId).eq("status", "active").order("due_on", { ascending: true, nullsFirst: false }).limit(6),
+      () => supabase.from("goals").select("title, category, target_value, current_value, unit, due_on").eq("user_id", userId).eq("status", "active").order("due_on", { ascending: true, nullsFirst: false }).limit(6),
     ),
     withFallback<ContextSources["planner"][number]>(
       // Planner v2 puts every item on a calendar day (local_date), so untimed To-Dos count too.
@@ -343,12 +347,28 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
   return { facts, summary };
 }
 
-/** "1 of 4 kg"; an unknown value is said to be unknown, never counted as 0. */
+const knownNumber = (value: unknown) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+
+/**
+ * A goal's progress as the goals table stores it, or null when that column is not its progress. In goals v2
+ * (20261118120001) current_value is kept only for a goal the member logs by hand, as a lifetime total (baseline
+ * plus entries), so it is the progress only of a long-term one. Automatic goals (workouts, food, water, weight,
+ * To-Dos), distance and active-minutes goals (manual with a reserved unit) and daily or weekly goals are measured
+ * per period by fitx_goal_progress (data/goals.ts), and their column keeps its default 0: never their progress.
+ */
+export function storedGoalProgress(goal: { metric?: unknown; period?: unknown; unit?: unknown; current_value: unknown }): number | null {
+  if (goal.metric !== "manual" || goal.period !== "long_term" || clientMetricForUnit(goal.unit) !== null) return null;
+  return knownNumber(goal.current_value) ? Number(goal.current_value) : null;
+}
+
+const PERIOD_WORDS: Record<string, string> = { daily: " a day", weekly: " a week" };
+
+/** "1 of 4 kg", "unknown of 4 workouts a week"; an unknown value is said to be unknown, never counted as 0. */
 function goalProgressText(goal: ContextSources["goals"][number]): string | null {
-  const known = (value: unknown) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
-  if (!known(goal.target_value)) return null;
-  const unit = goal.unit ? ` ${cleanText(goal.unit, 12) ?? ""}`.trimEnd() : "";
-  return `${known(goal.current_value) ? round1(Number(goal.current_value)) : "unknown"} of ${round1(Number(goal.target_value))}${unit}`;
+  if (!knownNumber(goal.target_value)) return null;
+  const unit = goal.unit && clientMetricForUnit(goal.unit) === null ? ` ${cleanText(goal.unit, 12) ?? ""}`.trimEnd() : "";
+  const progress = storedGoalProgress(goal);
+  return `${progress !== null ? round1(progress) : "unknown"} of ${round1(Number(goal.target_value))}${unit}${PERIOD_WORDS[String(goal.period)] ?? ""}`;
 }
 
 function nutritionSummary(meals: ContextSources["meals"], today: string) {
