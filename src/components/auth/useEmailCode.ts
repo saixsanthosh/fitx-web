@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 
 const UNAVAILABLE = "Account access is temporarily unavailable. Please try again later.";
 const OFFLINE = "We couldn’t connect to FITX. Check your connection and try again.";
+const CODE_SENT_MOMENTS_AGO = "A code was sent a moment ago. Use that one, or wait to ask again.";
 
 /**
  * Sign-in with a 6-digit code sent by e-mail. `send` asks Supabase for the code (creating the account on
@@ -49,10 +50,18 @@ export function useEmailCode(next: () => string | null) {
     const supabase = createClient();
     if (!supabase) return UNAVAILABLE;
     // This browser's own email limit survives a reload, Back or another address (src/lib/auth/send-cooldown.ts).
-    const wait = browserEmailCooldown().wait(address);
+    const cooldown = browserEmailCooldown();
+    const wait = cooldown.wait(address);
     if (wait > 0) {
       holdResend(wait);
-      return cooldownMessage(wait);
+      if (!cooldown.sentRecently(address)) return cooldownMessage(wait);
+      // Asked again within a minute (Change email, Back or a reload): the code already sent still works.
+      setError("");
+      setNotice(CODE_SENT_MOMENTS_AGO);
+      setEmail(address);
+      setCode("");
+      setStep("code");
+      return null;
     }
     busy.current = true;
     setSending(true);
@@ -68,7 +77,7 @@ export function useEmailCode(next: () => string | null) {
         if (problem.retryAfter === null) return problem.message;
         // A code went out moments ago (a second tap, or a reload): that one still works.
         holdResend(problem.retryAfter);
-        setNotice("A code was sent a moment ago. Use that one, or wait to ask again.");
+        setNotice(CODE_SENT_MOMENTS_AGO);
       } else {
         browserEmailCooldown().record(address);
         holdResend(RESEND_SECONDS);

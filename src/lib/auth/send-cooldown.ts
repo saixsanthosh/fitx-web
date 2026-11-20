@@ -47,6 +47,12 @@ export function secondsUntilNextSend(sends: readonly EmailSend[], address: strin
   return wait > 0 ? Math.ceil(wait / 1000) : 0;
 }
 
+/** True when an email went to `address` in the last minute, so the code or link it carried is still on its way. */
+export function sentToRecently(sends: readonly EmailSend[], address: string, now: number): boolean {
+  const key = addressKey(address);
+  return sends.some((send) => send.address === key && send.at > now - SAME_ADDRESS_SECONDS * 1000);
+}
+
 /** The list after recording a send to `address` at `now`. */
 export function withSend(sends: readonly EmailSend[], address: string, now: number): EmailSend[] {
   return recentSends([...sends, { at: now, address: addressKey(address) }], now);
@@ -63,6 +69,8 @@ export type EmailCooldown = {
   wait(address: string): number;
   /** Call once Supabase accepted the request (an email is on its way). */
   record(address: string): void;
+  /** True when this browser sent `address` an email in the last minute. */
+  sentRecently(address: string): boolean;
 };
 
 /** The cooldown over a storage (localStorage in the browser, anything with the same two methods in tests). */
@@ -92,6 +100,10 @@ export function createEmailCooldown(storage: Pick<Storage, "getItem" | "setItem"
     record(address) {
       const now = clock();
       write(withSend(read(now), address, now));
+    },
+    sentRecently(address) {
+      const now = clock();
+      return sentToRecently(read(now), address, now);
     },
   };
 }
