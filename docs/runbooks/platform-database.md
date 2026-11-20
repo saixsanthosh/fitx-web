@@ -1234,8 +1234,13 @@ select exists (select 1 from information_schema.columns where table_schema = 'pu
 
 Admin's own sign-in: a username and password, no Google. Adds three tables, `admin_operators`, `admin_web_sessions`
 and `admin_login_attempts`, with row level security forced and no policy, so only the server's secret key and the
-database functions reach them (members and visitors have no rights on them). Adds the sign-in limits (5 failures
-lock a username for 15 minutes; 20 attempts per network address in 15 minutes), `fitx_admin_op_can`,
+database functions reach them (members and visitors have no rights on them). Adds the sign-in limits: 5 failures
+from one network address lock that username on that address for 15 minutes; 50 failures from any addresses lock
+the username everywhere for 5 minutes; 20 attempts per network address in 15 minutes. The lock is per address
+because usernames are not secret: otherwise anyone could keep an operator, the owner too, out for good. Locked
+out? Wait, or sign in from another network; a new `FITX_ADMIN_PASSWORD_HASH` (section 7) and a redeploy also clear
+every address lock, because Admin makes the address keys with it. Adds
+`fitx_admin_op_can`,
 `fitx_admin_op_log_event` and an operator version (`fitx_admin_op_*`) of every Admin write function, all for the
 server key only. Adds operator columns to the audit log (`actor_operator_id`, `actor_username`), support requests and
 messages, and announcements; none is readable by members. Replaces the role table of #30 with 21 permissions. The
@@ -1545,7 +1550,8 @@ drop function if exists public.fitx_admin_op_mark_signed_in(uuid);
 drop function if exists public.fitx_admin_op_root_sign_in(text);
 drop function if exists public.fitx_admin_login_record(text, text, boolean);
 drop function if exists public.fitx_admin_login_check(text, text);
-drop function if exists public.fitx_admin_login_locked_until(text);
+drop function if exists public.fitx_admin_login_locked_until(text, text);
+drop function if exists public.fitx_admin_login_username_limits();
 drop function if exists public.fitx_admin_login_username_key(text);
 drop function if exists public.fitx_admin_login_limits();
 drop function if exists public.fitx_admin_op_log_event(uuid, text, text, text, jsonb);

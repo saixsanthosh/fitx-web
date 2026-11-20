@@ -217,11 +217,16 @@ begin
   if result <> 'ok' then raise exception 'fifth attempt is still checked: %', result; end if;
   result := public.fitx_admin_login_record('lock-a', 'ip-1', false);
   if result <> 'locked_now' then raise exception 'fifth failure should lock: %', result; end if;
-  result := public.fitx_admin_login_check('LOCK-A', 'ip-2');
-  if result <> 'locked' then raise exception 'locked for any IP and letter case: %', result; end if;
-  if not exists (select 1 from public.admin_login_attempts where username_key is null and ip_key = 'ip-2') then raise exception 'a refused attempt counts for its IP'; end if;
+  result := public.fitx_admin_login_check('LOCK-A', 'ip-1');
+  if result <> 'locked' then raise exception 'locked on that IP for any letter case: %', result; end if;
+  if not exists (select 1 from public.admin_login_attempts where username_key is null and ip_key = 'ip-1') then raise exception 'a refused attempt counts for its IP'; end if;
+  -- Usernames are not secret: one IP's failures must not keep the operator out everywhere.
+  result := public.fitx_admin_login_check('lock-a', 'ip-2');
+  if result <> 'ok' then raise exception 'another IP is not locked by one IP''s failures: %', result; end if;
+  if public.fitx_admin_login_record('lock-a', 'ip-2', true) <> 'recorded' then raise exception 'a success from another IP'; end if;
+  if public.fitx_admin_login_check('lock-a', 'ip-1') <> 'locked' then raise exception 'a success elsewhere does not lift the lock on ip-1'; end if;
 end $$;
-\echo ok five failures in 15 minutes lock the username; refused attempts are stored without it
+\echo ok five failures from one IP in 15 minutes lock the username on that IP only; refused attempts are stored without it
 
 do $$
 declare
@@ -235,7 +240,9 @@ begin
   select null, 'ip-3', false, now() - interval '1 minute' from generate_series(1, 5);
   ends := public.fitx_admin_login_locked_until(key);
   if ends is null or abs(extract(epoch from ends - (now() + interval '5 minutes'))) > 1 then raise exception 'lock ends 15 minutes after the fifth: %', ends; end if;
-  if public.fitx_admin_login_check('lock-b', 'ip-4') <> 'locked' then raise exception 'lock-b should be locked'; end if;
+  if public.fitx_admin_login_locked_until(key, 'ip-3') is distinct from ends then raise exception 'the lock is on ip-3'; end if;
+  if public.fitx_admin_login_locked_until(key, 'ip-4') is not null then raise exception 'no lock on ip-4'; end if;
+  if public.fitx_admin_login_check('lock-b', 'ip-3') <> 'locked' then raise exception 'lock-b should be locked on ip-3'; end if;
   if public.fitx_admin_login_locked_until(key) <> ends then raise exception 'a refused attempt extended the lock'; end if;
 end $$;
 do $$
@@ -245,8 +252,8 @@ begin
   -- The fifth failure was 15 minutes and a second ago: the lock is over.
   insert into public.admin_login_attempts (username_key, ip_key, succeeded, created_at)
   select key, 'ip-5', false, now() - interval '15 minutes 1 second' - (n * interval '1 minute') from generate_series(0, 4) n;
-  if public.fitx_admin_login_check('lock-c', 'ip-6') <> 'ok' then raise exception 'an expired lock still refused'; end if;
-  perform public.fitx_admin_login_record('lock-c', 'ip-6', true);
+  if public.fitx_admin_login_check('lock-c', 'ip-5') <> 'ok' then raise exception 'an expired lock still refused'; end if;
+  perform public.fitx_admin_login_record('lock-c', 'ip-5', true);
 end $$;
 do $$
 declare
@@ -263,6 +270,35 @@ begin
   if not exists (select 1 from public.admin_login_attempts where username_key = public.fitx_admin_login_username_key('lock-e') and succeeded) then raise exception 'success recorded'; end if;
 end $$;
 \echo ok the lock lasts 15 minutes from the fifth failure, never longer, and needs five inside the window
+
+do $$
+declare
+  key text := public.fitx_admin_login_username_key('lock-f');
+  ends timestamptz;
+begin
+  -- 49 failures in 10 minutes from 13 IPs, at most four from each, so no IP is locked; the fiftieth locks
+  -- the username on every IP for 5 minutes.
+  insert into public.admin_login_attempts (username_key, ip_key, succeeded, created_at)
+  select key, 'wide-' || (n % 13), false, now() - interval '10 minutes' + n * interval '5 seconds' from generate_series(1, 49) n;
+  if public.fitx_admin_login_locked_until(key) is not null then raise exception '49 spread failures must not lock'; end if;
+  if public.fitx_admin_login_check('lock-f', 'wide-new') <> 'ok' then raise exception 'the fiftieth attempt is still checked'; end if;
+  if public.fitx_admin_login_record('lock-f', 'wide-new', false) <> 'locked_now' then raise exception 'the fiftieth failure should lock the username'; end if;
+  ends := public.fitx_admin_login_locked_until(key, 'never-used');
+  if ends is null or abs(extract(epoch from ends - (now() + interval '5 minutes'))) > 1 then raise exception 'the username lock lasts 5 minutes: %', ends; end if;
+  if public.fitx_admin_login_check('LOCK-F', 'never-used') <> 'locked' then raise exception 'the username lock holds on every IP'; end if;
+  if public.fitx_admin_login_locked_until(key) <> ends then raise exception 'a refused attempt extended the username lock'; end if;
+end $$;
+do $$
+declare
+  key text := public.fitx_admin_login_username_key('lock-g');
+begin
+  -- The same 50, the last one 5 minutes and a second ago: that lock is over.
+  insert into public.admin_login_attempts (username_key, ip_key, succeeded, created_at)
+  select key, 'wide-' || (n % 13), false, now() - interval '5 minutes 1 second' - n * interval '10 seconds' from generate_series(0, 49) n;
+  if public.fitx_admin_login_check('lock-g', 'wide-new') <> 'ok' then raise exception 'an expired username lock still refused'; end if;
+  if public.fitx_admin_login_record('lock-g', 'wide-new', true) <> 'recorded' then raise exception 'lock-g success'; end if;
+end $$;
+\echo ok 50 failures from any IPs in 15 minutes lock the username everywhere for 5 minutes
 
 do $$
 declare

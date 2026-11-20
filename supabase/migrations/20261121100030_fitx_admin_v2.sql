@@ -201,8 +201,10 @@ $function$;
 -- Sign-in limits ---------------------------------------------------------------------------------------
 
 -- The limits, mirrored in admin/src/lib/login-guard.ts (LOGIN_LIMITS; admin/tests/login-guard.test.mjs
--- compares them): 5 failures for one username in 15 minutes lock it for 15 minutes from the fifth;
--- at most 20 attempts of any kind per client IP in 15 minutes.
+-- compares them): 5 failures for one username from one client IP in 15 minutes lock that username on
+-- that IP for 15 minutes from the fifth; at most 20 attempts of any kind per client IP in 15 minutes.
+-- The lock is per username and IP because usernames are not secret: a lock on the username alone would
+-- let anyone keep its operator (the root too) out for good with five wrong passwords every 15 minutes.
 create or replace function public.fitx_admin_login_limits()
 returns jsonb
 language sql
@@ -210,6 +212,18 @@ immutable
 set search_path = ''
 as $function$
   select '{"userFailures": 5, "userWindowMinutes": 15, "lockMinutes": 15, "ipAttempts": 20, "ipWindowMinutes": 15}'::jsonb;
+$function$;
+
+-- The limit for one username across every IP: 50 failures in 15 minutes lock it everywhere for 5 minutes
+-- from the fiftieth. With five per IP before the per-IP lock, that takes at least ten addresses; it slows
+-- a guessing run spread over many of them, and the short lock keeps the owner's wait short.
+create or replace function public.fitx_admin_login_username_limits()
+returns jsonb
+language sql
+immutable
+set search_path = ''
+as $function$
+  select '{"usernameFailures": 50, "usernameWindowMinutes": 15, "usernameLockMinutes": 5}'::jsonb;
 $function$;
 
 create or replace function public.fitx_admin_login_username_key(p_username text)
@@ -223,10 +237,14 @@ as $function$
     'hex');
 $function$;
 
--- When the username's current lock ends, or null when it is not locked. A lock starts at a failure
--- that is the fifth (or later) within 15 minutes, and lasts 15 minutes from it. Attempts refused
--- during a lock are stored without a username, so they never extend it.
-create or replace function public.fitx_admin_login_locked_until(p_username_key text)
+-- When the lock on this username from this IP ends, or null when there is none; with no IP, when the
+-- latest lock on the username from any IP ends (Admin's Security summary). Two locks count:
+--   * from one IP: a failure from it that is the fifth (or later) within 15 minutes starts a lock on
+--     that IP, lasting 15 minutes from it;
+--   * from every IP: a failure that is the fiftieth (or later) within 15 minutes, from any IPs, starts a
+--     lock on all of them, lasting 5 minutes from it.
+-- Attempts refused during a lock are stored without a username, so they never extend it.
+create or replace function public.fitx_admin_login_locked_until(p_username_key text, p_ip_key text default null)
 returns timestamptz
 language sql
 stable
@@ -236,21 +254,34 @@ as $function$
   with limits as (
     select (l ->> 'userFailures')::integer as failures,
            pg_catalog.make_interval(mins => (l ->> 'userWindowMinutes')::integer) as span,
-           pg_catalog.make_interval(mins => (l ->> 'lockMinutes')::integer) as lock_for
-    from (select public.fitx_admin_login_limits() as l) source
+           pg_catalog.make_interval(mins => (l ->> 'lockMinutes')::integer) as lock_for,
+           (w ->> 'usernameFailures')::integer as wide_failures,
+           pg_catalog.make_interval(mins => (w ->> 'usernameWindowMinutes')::integer) as wide_span,
+           pg_catalog.make_interval(mins => (w ->> 'usernameLockMinutes')::integer) as wide_lock_for
+    from (select public.fitx_admin_login_limits() as l, public.fitx_admin_login_username_limits() as w) source
   ),
   recent as (
-    select a.created_at
+    select a.created_at, a.ip_key
     from public.admin_login_attempts a, limits
     where a.username_key = p_username_key
       and a.succeeded is not true
-      and a.created_at > pg_catalog.now() - limits.span - limits.lock_for
+      and a.created_at > pg_catalog.now() - greatest(limits.span + limits.lock_for, limits.wide_span + limits.wide_lock_for)
+  ),
+  locks as (
+    select r.created_at + limits.lock_for as ends
+    from recent r, limits
+    where (p_ip_key is null or r.ip_key = p_ip_key)
+      and r.created_at + limits.lock_for > pg_catalog.now()
+      and (select pg_catalog.count(*) from recent r2
+           where r2.ip_key = r.ip_key and r2.created_at > r.created_at - limits.span and r2.created_at <= r.created_at) >= limits.failures
+    union all
+    select r.created_at + limits.wide_lock_for
+    from recent r, limits
+    where r.created_at + limits.wide_lock_for > pg_catalog.now()
+      and (select pg_catalog.count(*) from recent r2
+           where r2.created_at > r.created_at - limits.wide_span and r2.created_at <= r.created_at) >= limits.wide_failures
   )
-  select max(r.created_at + limits.lock_for)
-  from recent r, limits
-  where r.created_at + limits.lock_for > pg_catalog.now()
-    and (select pg_catalog.count(*) from recent r2
-         where r2.created_at > r.created_at - limits.span and r2.created_at <= r.created_at) >= limits.failures;
+  select max(l.ends) from locks l;
 $function$;
 
 -- Before a password is checked: 'ip_limited', 'locked' (refused without checking the password) or
@@ -278,7 +309,7 @@ begin
     return 'ip_limited';
   end if;
 
-  if public.fitx_admin_login_locked_until(v_key) is not null then
+  if public.fitx_admin_login_locked_until(v_key, v_ip) is not null then
     insert into public.admin_login_attempts (username_key, ip_key, succeeded) values (null, v_ip, false);
     return 'locked';
   end if;
@@ -326,9 +357,10 @@ begin
   delete from public.admin_web_sessions where created_at < pg_catalog.now() - interval '30 days';
 
   if not p_succeeded then
-    lock_ends := public.fitx_admin_login_locked_until(v_key);
+    lock_ends := public.fitx_admin_login_locked_until(v_key, v_ip);
     if lock_ends is not null
-       and lock_ends = attempt_at + pg_catalog.make_interval(mins => (public.fitx_admin_login_limits() ->> 'lockMinutes')::integer) then
+       and lock_ends in (attempt_at + pg_catalog.make_interval(mins => (public.fitx_admin_login_limits() ->> 'lockMinutes')::integer),
+                         attempt_at + pg_catalog.make_interval(mins => (public.fitx_admin_login_username_limits() ->> 'usernameLockMinutes')::integer)) then
       return 'locked_now';
     end if;
   end if;
@@ -822,7 +854,8 @@ revoke all on function public.fitx_admin_op_can(uuid, text) from public, anon, a
 revoke all on function public.fitx_admin_op_log_event(uuid, text, text, text, jsonb) from public, anon, authenticated;
 revoke all on function public.fitx_admin_login_limits() from public, anon, authenticated;
 revoke all on function public.fitx_admin_login_username_key(text) from public, anon, authenticated;
-revoke all on function public.fitx_admin_login_locked_until(text) from public, anon, authenticated;
+revoke all on function public.fitx_admin_login_username_limits() from public, anon, authenticated;
+revoke all on function public.fitx_admin_login_locked_until(text, text) from public, anon, authenticated;
 revoke all on function public.fitx_admin_login_check(text, text) from public, anon, authenticated;
 revoke all on function public.fitx_admin_login_record(text, text, boolean) from public, anon, authenticated;
 revoke all on function public.fitx_admin_op_root_sign_in(text) from public, anon, authenticated;
@@ -843,7 +876,8 @@ grant execute on function public.fitx_admin_op_can(uuid, text) to service_role;
 grant execute on function public.fitx_admin_op_log_event(uuid, text, text, text, jsonb) to service_role;
 grant execute on function public.fitx_admin_login_limits() to service_role;
 grant execute on function public.fitx_admin_login_username_key(text) to service_role;
-grant execute on function public.fitx_admin_login_locked_until(text) to service_role;
+grant execute on function public.fitx_admin_login_username_limits() to service_role;
+grant execute on function public.fitx_admin_login_locked_until(text, text) to service_role;
 grant execute on function public.fitx_admin_login_check(text, text) to service_role;
 grant execute on function public.fitx_admin_login_record(text, text, boolean) to service_role;
 grant execute on function public.fitx_admin_op_root_sign_in(text) to service_role;
