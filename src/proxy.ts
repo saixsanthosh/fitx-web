@@ -14,6 +14,7 @@ import {
 } from "@/lib/auth/cookies";
 import { openBeforeOnboarding } from "@/lib/auth/before-onboarding";
 import { safeNext } from "@/lib/auth/safe-next";
+import { isSuspendedError } from "@/lib/platform/account-status";
 import { platformGate } from "@/lib/platform/gate";
 import { canonicalOrigin } from "@/lib/site-url";
 import { isMissingColumnError } from "@/lib/supabase/errors";
@@ -141,26 +142,32 @@ async function routeRequest(request: NextRequest) {
     return finish(NextResponse.redirect(target.origin === request.nextUrl.origin ? target : new URL("/dashboard", request.url)));
   };
 
+  /** Signs this device out: the session cookies are cleared on the response and dropped from the request. */
+  const clearSessionCookies = () => {
+    const names = request.cookies.getAll().filter((cookie) => SESSION_COOKIE_RE.test(cookie.name)).map((cookie) => cookie.name);
+    for (const name of names) request.cookies.delete(name);
+    response = NextResponse.next({ request });
+    for (const name of names) response.cookies.set(name, "", { ...sessionCookieOptions(secure), maxAge: 0 });
+  };
+
   // An Auth outage must not hold every page for the client's full retry budget (~25 s).
   let userId: string | null = null;
+  /** getClaims checked an asymmetric (non-HS) token against the JWKS on this machine, without asking Auth. */
+  let checkedLocally = false;
   try {
-    const claims = await Promise.race([
-      supabase.auth.getClaims(),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), SESSION_CHECK_TIMEOUT_MS)),
-    ]);
+    const claims = await withTimeout(supabase.auth.getClaims());
     if (claims === null) return finish(response);
     const { data, error } = claims;
     userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
+    const alg = data?.header?.alg;
+    checkedLocally = Boolean(userId && data?.header?.kid && typeof alg === "string" && !alg.startsWith("HS"));
     if (!userId && error && (isAuthRetryableFetchError(error) || (typeof error.status === "number" && error.status >= 500))) {
       return finish(response);
     }
   } catch {
     // A session cookie that is not a session (edited, truncated or from another app): the device is signed out
     // instead of every page failing until the cookie is cleared by hand.
-    const unreadable = request.cookies.getAll().filter((cookie) => SESSION_COOKIE_RE.test(cookie.name)).map((cookie) => cookie.name);
-    for (const name of unreadable) request.cookies.delete(name);
-    response = NextResponse.next({ request });
-    for (const name of unreadable) response.cookies.set(name, "", { ...sessionCookieOptions(secure), maxAge: 0 });
+    clearSessionCookies();
   }
 
   const hinted = request.cookies.get(AUTH_HINT_COOKIE)?.value === "1";
@@ -191,6 +198,30 @@ async function routeRequest(request: NextRequest) {
   const isHome = pathname === "/";
   if (!isHome && !isPrivate(pathname) && !AUTH_ENTRY.has(pathname)) return finish(response);
 
+  // A token checked on this machine stays valid until it expires even after its session has ended in Auth (a
+  // suspension in FITX Admin, "Sign out everywhere"), while pages that ask Auth send the member to sign in. Sending
+  // the sign-in pages straight back would loop, so on those pages only (a signed-in visitor rarely opens them) Auth
+  // is asked first. HS-signed tokens were already checked with Auth by getClaims.
+  if (checkedLocally && AUTH_ENTRY.has(pathname)) {
+    const session = await confirmSession(supabase);
+    // Auth can't answer right now: show the page rather than risk a loop, and keep the session.
+    if (session === "unknown") return finish(response);
+    if (session !== "active") {
+      clearSessionCookies();
+      for (const name of [AUTH_HINT_COOKIE, ONBOARDED_COOKIE, INTRO_CHECKED_COOKIE]) {
+        if (request.cookies.has(name)) hints.push([name, "", hintCookieOptions(secure, { httpOnly: name !== AUTH_HINT_COOKIE, maxAge: 0 })]);
+      }
+      if (session === "suspended" && !(pathname === "/signin" && searchParams.get("error") === "suspended")) {
+        const target = new URL("/signin", request.url);
+        target.searchParams.set("error", "suspended");
+        const next = searchParams.get("next");
+        if (next) target.searchParams.set("next", safeNext(next));
+        return noStore(redirect(`${target.pathname}${target.search}`));
+      }
+      return noStore(finish(response));
+    }
+  }
+
   const onboarded = await readProfile(request, supabase, userId, hints, secure);
   if (onboarded === null) return finish(response);
   // An account still in setup may open onboarding and Help only (src/lib/auth/before-onboarding.ts).
@@ -202,6 +233,35 @@ async function routeRequest(request: NextRequest) {
   if (pathname === "/onboarding") return redirect("/dashboard");
   if (AUTH_ENTRY.has(pathname)) return redirect(safeNext(searchParams.get("next")));
   return finish(response);
+}
+
+/** The promise's result, or null when it takes longer than the session check may (SESSION_CHECK_TIMEOUT_MS). */
+function withTimeout<T>(promise: Promise<T>): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), SESSION_CHECK_TIMEOUT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Asks Auth whether the session behind the access token still exists: "suspended" for a banned account,
+ * "ended" for any other refusal (session_not_found and the like), "unknown" when Auth can't answer.
+ */
+async function confirmSession(supabase: SupabaseClient): Promise<"active" | "ended" | "suspended" | "unknown"> {
+  try {
+    const result = await withTimeout(supabase.auth.getUser());
+    if (result === null) return "unknown";
+    const { data, error } = result;
+    if (!error && data.user) return data.user.banned_until && Date.parse(data.user.banned_until) > Date.now() ? "suspended" : "active";
+    if (isSuspendedError(error)) return "suspended";
+    if (!error || isAuthRetryableFetchError(error) || typeof error.status !== "number" || error.status === 429 || error.status >= 500) return "unknown";
+    return "ended";
+  } catch {
+    return "unknown";
+  }
 }
 
 type ProfileRow = { onboarded?: boolean | null; intro_completed_at?: string | null } | null;

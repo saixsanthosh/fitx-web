@@ -36,6 +36,8 @@ function supabaseStorageHost() {
  *  - OpenFreeMap: the activity map's style, tiles, glyphs and sprites (fetched by maplibre).
  *  - Photos shown without the image optimiser: the pinned Free Exercise DB revision on GitHub and Open Food Facts
  *    product photos (the same hosts the server-side checks accept).
+ *  - Google profile photos: Google sign-in stores its avatar_url (lh3.googleusercontent.com) as profiles.avatar,
+ *    and the account menu and Profile show it as it is (unoptimised). Google serves them from lh3 to lh6.
  */
 const RAZORPAY = {
   script: ["https://checkout.razorpay.com"],
@@ -50,6 +52,7 @@ const PHOTO_HOSTS = [
   "https://static.openfoodfacts.org",
   "https://world.openfoodfacts.org",
 ];
+const GOOGLE_AVATAR_HOSTS = ["https://lh3.googleusercontent.com", "https://lh4.googleusercontent.com", "https://lh5.googleusercontent.com", "https://lh6.googleusercontent.com"];
 /** Vercel's toolbar and comments, injected on preview deployments only. */
 const VERCEL_LIVE = "https://vercel.live";
 
@@ -68,10 +71,13 @@ export function buildContentSecurityPolicy({ supabaseUrl, isDev = false, isPrevi
     ["default-src", ["'self'"]],
     // Next's inline bootstrap and page data scripts differ on every page and static pages carry no nonce, so inline
     // scripts are allowed; outside scripts are limited to Razorpay's loader. The pose model is WebAssembly.
+    // Known trade-off: an injected inline script would run (no sink exists today: the only raw HTML is the constant
+    // intro bootstrap and escaped JSON-LD). Closing it needs a per-request nonce with 'strict-dynamic' set in the
+    // proxy for the signed-in pages, which makes them dynamic, as Admin does (admin/src/lib/csp.ts).
     ["script-src", ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", ...(isDev ? ["'unsafe-eval'"] : []), ...RAZORPAY.script, ...preview]],
     // Server-rendered style attributes (React style props, motion start values).
     ["style-src", ["'self'", "'unsafe-inline'"]],
-    ["img-src", ["'self'", "data:", "blob:", supabase.http, ...PHOTO_HOSTS, ...RAZORPAY.img, ...preview]],
+    ["img-src", ["'self'", "data:", "blob:", supabase.http, ...PHOTO_HOSTS, ...GOOGLE_AVATAR_HOSTS, ...RAZORPAY.img, ...preview]],
     ["font-src", ["'self'", ...preview]],
     ["connect-src", ["'self'", supabase.http, supabase.ws, ...MAP_TILES, ...RAZORPAY.connect, ...preview]],
     ["media-src", ["'self'", "blob:", supabase.http]],

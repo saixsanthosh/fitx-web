@@ -31,6 +31,9 @@ test("the policy allows only what the app loads, and nothing that would make pag
   assert.ok(policy.get("img-src")?.includes("https://abcd.supabase.co"));
   assert.ok(policy.get("img-src")?.includes("blob:") && policy.get("img-src")?.includes("data:"));
   assert.ok(!policy.get("img-src")?.includes("https:"), "no blanket https: for images");
+  // Google sign-in members' profile photos (profiles.avatar keeps Google's avatar_url), shown unoptimised.
+  assert.ok(policy.get("img-src")?.includes("https://lh3.googleusercontent.com"), "Google profile photos load");
+  assert.ok(!policy.get("img-src")?.some((source) => source.includes("*.googleusercontent.com")), "only Google's avatar hosts, not all of googleusercontent.com");
   assert.deepEqual(policy.get("media-src"), ["'self'", "blob:", "https://abcd.supabase.co"]);
   assert.deepEqual(policy.get("frame-src"), ["https://api.razorpay.com", "https://checkout.razorpay.com"]);
   assert.deepEqual(policy.get("font-src"), ["'self'"]);
