@@ -152,6 +152,12 @@ const KNOWN_RERUN_PROBLEMS = {
       "run again it puts back its 16-permission role table; 20261121100030, run again after it, restores the 21-permission table " +
       "that fitx_admin_op_can uses",
   },
+  "20261118180003_fitx_admin_metrics.sql": {
+    changes: [/^changed function public\.fitx_admin_(metrics\(\)|daily_trends\(p_days integer\)): /],
+    reason:
+      "run again it puts back its Dashboard counts, which leave out walks, runs and rides (production has it applied, so the " +
+      "file stays as it is); 20261121100033, run again after it, restores the counts that include them",
+  },
 };
 
 // On a fresh database every migration creates what it declares. A later migration that finds a table,

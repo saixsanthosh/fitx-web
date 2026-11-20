@@ -369,7 +369,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 29 | `20261118180000_fitx_admin_control_plane` | Admin team list, audit log, first Admin functions. | Additive; on production drops the old draft's link to accounts · yes | Start 3: `rolbypassrls` = `t` | Admin sign-in | On production the draft's tables are there already (1.8). First super-admin after #35 and the Admin deploy (section 6.5). |
 | 30 | `20261118180001_fitx_admin_roles` | Five Admin roles and one permission check. | Widens a rule, replaces 2 functions · yes | #29 | Roles, access by email | |
 | 31 | `20261118180002_fitx_admin_audit_log` | The audit log becomes permanent and append-only. | Takes privileges away, permanent · yes | #29 | Audit screen, People actions | Cannot be undone, by design. |
-| 32 | `20261118180003_fitx_admin_metrics` | Exact metrics and daily trends (counts only); a walk, run or ride counts as activity. | Additive · yes | #26, #29 | Admin Overview and Reports | |
+| 32 | `20261118180003_fitx_admin_metrics` | Exact metrics and daily trends (counts only). | Additive · yes | #29 | Admin Overview and Reports | |
 | 33 | `20261118180004_fitx_admin_people` | People search and "Sign out everywhere". | Additive · yes | #29, #30; Start 4 for "Sign out everywhere" | People screen | |
 | 34 | `20261118180005_fitx_support` | Help requests and replies, with limits; support queue. | Additive · yes | #29, #30 | /help form, support queue | |
 | 35 | `20261118180006_fitx_announcements` | Announcements and dismissals. | Additive · yes | #29, #30 | Announcement banner | |
@@ -380,7 +380,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 40 | `20261119100020_fitx_exercise_favorites` | Adopts experience 2.0's saved-exercises table (owner only) as a file. | Additive · yes | #11 | Saved exercises in the account, on every device and in "Download my data" | On production it changes nothing (1.8). Until it is applied on a new project, saved exercises stay on the device. |
 | 41 | `20261120100000_fitx_onboarding_v3` | Date of birth (age follows it), the maintain-weight goal, where meals come from and the nutrition goal. | Additive · yes | #4, #7 | The three setup pages: date of birth, Maintain weight, food preference and nutrition goal | Until it is applied setup asks the date of birth but saves only the age, offers Maintain weight greyed out and leaves out food preference and nutrition goal. |
 | 42 | `20261121100030_fitx_admin_v2` | Username and password sign-in for Admin operators, database sessions, sign-in limits, operator versions of every Admin write function. | Additive · yes | #29 to #35 | Admin /login and every Admin write | Until it is applied Admin refuses every sign-in and logs the missing migration; the FITX app is unaffected. Replaces the role table of #30 (21 permissions). |
-| 43 | `20261121100033_fitx_admin_ops` | Platform settings (feature switches, maintenance notice, website information), notices to chosen accounts, the Complaint category and unread tracking for Help requests, account search v2, Dashboard and Security summaries. | Additive · marks older Help requests read · yes | #42; #34, #35 and #36 | Admin Settings, Notifications, Support inbox and Security; the app's /unavailable page, notices and maintenance banner | Until it is applied the app keeps every feature on, and those Admin screens say they need this update. Before an undo, move complaint rows to another category (section 5). |
+| 43 | `20261121100033_fitx_admin_ops` | Platform settings (feature switches, maintenance notice, website information), notices to chosen accounts, the Complaint category and unread tracking for Help requests, account search v2, Dashboard and Security summaries; the Dashboard's active counts and trend also count a walk, run or ride (it replaces #32's two functions). | Additive · marks older Help requests read · yes | #42; #26, #32, #34, #35 and #36 | Admin Settings, Notifications, Support inbox and Security; the app's /unavailable page, notices and maintenance banner | Until it is applied the app keeps every feature on, and those Admin screens say they need this update. Before an undo, move complaint rows to another category (section 5). |
 | 44 | `20261121100036_fitx_admin_content` | No table. Type and size limits on `exercise-media`, a public `food-media` bucket, operator functions to edit exercises and their media, publish programmes, edit foods, portions, photos and categories, add and edit subscription plans (never prices), and read report counts. | Additive · yes | #42; #13, #14, #17, #26 and #36 | Admin Workouts, Nutrition, Subscriptions and Reports | Before it is applied those screens say they need this update; Admin Overview is unaffected. Its `food-media` bucket is deleted in Dashboard → Storage, not with SQL. |
 
 ### 2.1 Allowed: the food parts last
@@ -1076,8 +1076,7 @@ select has_table_privilege('service_role', 'public.fitx_admin_audit_logs', 'UPDA
 ### #32 `20261118180003_fitx_admin_metrics`
 
 Adds Admin's metrics (accounts, sign-ins, active members, workouts and meals) and daily trends by India time.
-A member is active when they saved a workout, set, meal, water entry, body measurement, goal progress entry or a
-walk, run or ride (#26) in the window. Counts only, server key only.
+Counts only, server key only.
 
 ```sql
 -- Check 20261118180003: expect two rows, fitx_admin_daily_trends and fitx_admin_metrics, each t, f, t
@@ -1291,7 +1290,9 @@ itself. Help requests gain a Complaint category and staff unread tracking (`staf
 hidden from members). Help requests already there when the column first appears count as read when they are
 resolved or closed or support wrote the newest message; the rest start unread. Adds the Admin account search v2, a
 lookup of pasted recipient emails in one call, the Dashboard extras (Ever subscribed counts only accounts that paid
-for a live subscription at least once) and the Security summary. Every function is for the server key only. It
+for a live subscription at least once) and the Security summary. It also replaces #32's two Dashboard functions
+so that a walk, run or ride (#26) makes an account active, as in #44's report counts; #32's file stays as it was
+applied. Every function is for the server key only. It
 adds one settings row with everything on, sets `staff_seen_at` on those older Help requests (once: a second run
 changes nothing) and changes no other row.
 
@@ -1374,7 +1375,7 @@ feature off in the app is usually better than an undo.
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
 | 44 | SQL below, then delete the `food-media` bucket (and the photos in it) in Dashboard → Storage, not with SQL. Admin's Workouts, Nutrition, Subscriptions and Reports then say they need the update; exercises, foods and plans already saved stay. |
-| 43 | First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. Audit rows it wrote stay: the audit log is permanent. |
+| 43 | First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. The Dashboard's active counts keep counting walks, runs and rides; to count them as before, run #32's file again. Audit rows it wrote stay: the audit log is permanent. |
 | 42 | Undo #44 and #43 first. SQL below. Drops the operators, their sessions and sign-in attempts, the operator functions and the operator columns on support and announcements, and puts back the role table of #30; Admin then refuses every sign-in. The two audit columns `actor_operator_id` and `actor_username` stay, so the log keeps who did what. |
 | 41 | SQL below. Drops members' birth dates (their age stays as last saved), food preference and nutrition goal, and turns Maintain weight goals into General fitness, which has the same calorie target. |
 | 40 | Nothing to undo on production: the table came with experience 2.0 (1.8) and #40 changes nothing there; leave its history row. On a new project only, `drop table if exists public.exercise_favorites;` drops every member's saved exercises, and the app keeps new ones on the device again. |

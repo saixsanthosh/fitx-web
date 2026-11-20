@@ -1,12 +1,14 @@
 -- FITX Admin ops (wave 2, admin-core): platform settings read by the app, targeted notices to chosen
 -- accounts, the support inbox (a complaint category, unread tracking), account search with phone,
--- sign-in methods, status and plan filters, overview extras and the security summary.
+-- sign-in methods, status and plan filters, overview extras, the security summary, and Dashboard activity
+-- counts that include walks, runs and rides.
 --
 -- Additive and safe to run again. New tables have row level security on: platform_settings can be read
 -- by everyone (it holds only switches, a maintenance notice and public contact details) and written only
 -- through fitx_admin_op_save_platform_settings; member_notifications rows are read and dismissed only
 -- by the account they were sent to. Every function below is security definer with search_path '' and
--- is executable by service_role only. Nothing here reads profiles, workouts, meals or body data.
+-- is executable by service_role only. Apart from the Dashboard counts (numbers only, no rows), nothing here
+-- reads profiles, workouts, meals or body data.
 -- The app works before this runs: each screen detects the missing tables and functions.
 
 -- Wait at most 5 seconds for a table lock (the ALTER TABLEs below), then stop; nothing stays and it can be
@@ -677,6 +679,162 @@ as $function$
   );
 $function$;
 
+-- Dashboard activity counts --------------------------------------------------------------------------------
+
+-- A walk, run or ride (public.activities, 20261118160000; recorded or imported, by created_at) now makes an
+-- account active, as in the report counts of 20261121100036. These replace 20261118180003's two functions,
+-- which production already has, so that file stays as applied; everything else in them is unchanged:
+-- counts only, Admin team accounts left out, days in India Standard Time.
+create or replace function public.fitx_admin_metrics()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $function$
+  with accounts as (
+    select u.id, u.created_at, u.last_sign_in_at, u.email_confirmed_at
+    from auth.users u
+    where u.deleted_at is null
+      and not coalesce(u.is_anonymous, false)
+      and not exists (select 1 from public.fitx_admin_members m where m.user_id = u.id)
+  ),
+  activity as (
+    select user_id, created_at from public.workout_sessions where created_at >= now() - interval '30 days'
+    union all
+    select user_id, created_at from public.workout_sets where created_at >= now() - interval '30 days'
+    union all
+    select user_id, created_at from public.meals where created_at >= now() - interval '30 days'
+    union all
+    select user_id, created_at from public.water_logs where created_at >= now() - interval '30 days'
+    union all
+    select user_id, created_at from public.body_metrics where created_at >= now() - interval '30 days'
+    union all
+    select user_id, created_at from public.goal_progress_entries where created_at >= now() - interval '30 days'
+    union all
+    select user_id, created_at from public.activities where created_at >= now() - interval '30 days'
+  ),
+  last_activity as (
+    select a.user_id, max(a.created_at) as at
+    from activity a
+    join accounts on accounts.id = a.user_id
+    group by a.user_id
+  )
+  select jsonb_build_object(
+    'accounts', (select count(*) from accounts),
+    'confirmed_accounts', (select count(*) from accounts where email_confirmed_at is not null),
+    'new_accounts_7d', (select count(*) from accounts where created_at >= now() - interval '7 days'),
+    'new_accounts_30d', (select count(*) from accounts where created_at >= now() - interval '30 days'),
+    'signed_in_24h', (select count(*) from accounts where last_sign_in_at >= now() - interval '24 hours'),
+    'signed_in_7d', (select count(*) from accounts where last_sign_in_at >= now() - interval '7 days'),
+    'signed_in_30d', (select count(*) from accounts where last_sign_in_at >= now() - interval '30 days'),
+    'active_24h', (select count(*) from last_activity where at >= now() - interval '24 hours'),
+    'active_7d', (select count(*) from last_activity where at >= now() - interval '7 days'),
+    'active_30d', (select count(*) from last_activity),
+    'workouts_completed_7d', (
+      select count(*) from public.workout_sessions s join accounts on accounts.id = s.user_id
+      where s.status = 'completed' and s.started_at >= now() - interval '7 days'),
+    'workouts_completed_30d', (
+      select count(*) from public.workout_sessions s join accounts on accounts.id = s.user_id
+      where s.status = 'completed' and s.started_at >= now() - interval '30 days'),
+    'meals_logged_7d', (
+      select count(*) from public.meals ml join accounts on accounts.id = ml.user_id
+      where ml.created_at >= now() - interval '7 days'),
+    'meals_logged_30d', (
+      select count(*) from public.meals ml join accounts on accounts.id = ml.user_id
+      where ml.created_at >= now() - interval '30 days'),
+    'published_exercises', (select count(*) from public.exercise_library where is_active),
+    'admin_team_accounts', (select count(*) from public.fitx_admin_members),
+    'generated_at', now()
+  );
+$function$;
+
+-- One row per IST calendar day, oldest first, for the last p_days days (7 to 180, default 30).
+create or replace function public.fitx_admin_daily_trends(p_days integer default 30)
+returns table (
+  day date,
+  new_accounts integer,
+  active_accounts integer,
+  workouts_completed integer,
+  meals_logged integer
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $function$
+  with bounds as (
+    select least(greatest(coalesce(p_days, 30), 7), 180) as days,
+           (now() at time zone 'Asia/Kolkata')::date as today
+  ),
+  days as (
+    select generate_series(b.today - (b.days - 1), b.today, interval '1 day')::date as day
+    from bounds b
+  ),
+  since as (
+    select ((select min(day) from days)::timestamp at time zone 'Asia/Kolkata') as start_at
+  ),
+  accounts as (
+    select u.id, u.created_at
+    from auth.users u
+    where u.deleted_at is null
+      and not coalesce(u.is_anonymous, false)
+      and not exists (select 1 from public.fitx_admin_members m where m.user_id = u.id)
+  ),
+  activity as (
+    select user_id, created_at from public.workout_sessions where created_at >= (select start_at from since)
+    union all
+    select user_id, created_at from public.workout_sets where created_at >= (select start_at from since)
+    union all
+    select user_id, created_at from public.meals where created_at >= (select start_at from since)
+    union all
+    select user_id, created_at from public.water_logs where created_at >= (select start_at from since)
+    union all
+    select user_id, created_at from public.body_metrics where created_at >= (select start_at from since)
+    union all
+    select user_id, created_at from public.goal_progress_entries where created_at >= (select start_at from since)
+    union all
+    select user_id, created_at from public.activities where created_at >= (select start_at from since)
+  ),
+  new_daily as (
+    select (a.created_at at time zone 'Asia/Kolkata')::date as day, count(*) as n
+    from accounts a
+    where a.created_at >= (select start_at from since)
+    group by 1
+  ),
+  active_daily as (
+    select (act.created_at at time zone 'Asia/Kolkata')::date as day, count(distinct act.user_id) as n
+    from activity act
+    join accounts a on a.id = act.user_id
+    group by 1
+  ),
+  workouts_daily as (
+    select (s.started_at at time zone 'Asia/Kolkata')::date as day, count(*) as n
+    from public.workout_sessions s
+    join accounts a on a.id = s.user_id
+    where s.status = 'completed' and s.started_at >= (select start_at from since)
+    group by 1
+  ),
+  meals_daily as (
+    select (ml.created_at at time zone 'Asia/Kolkata')::date as day, count(*) as n
+    from public.meals ml
+    join accounts a on a.id = ml.user_id
+    where ml.created_at >= (select start_at from since)
+    group by 1
+  )
+  select d.day,
+         coalesce(nd.n, 0)::integer,
+         coalesce(ad.n, 0)::integer,
+         coalesce(wd.n, 0)::integer,
+         coalesce(md.n, 0)::integer
+  from days d
+  left join new_daily nd on nd.day = d.day
+  left join active_daily ad on ad.day = d.day
+  left join workouts_daily wd on wd.day = d.day
+  left join meals_daily md on md.day = d.day
+  order by d.day;
+$function$;
+
 -- Execute rights: service_role only -------------------------------------------------------------------------
 
 revoke all on function public.fitx_admin_op_save_platform_settings(uuid, jsonb, jsonb, jsonb, timestamptz) from public, anon, authenticated;
@@ -690,6 +848,8 @@ revoke all on function public.fitx_admin_support_inbox() from public, anon, auth
 revoke all on function public.fitx_admin_search_users_v2(text, text, text, text, integer, integer) from public, anon, authenticated;
 revoke all on function public.fitx_admin_overview_extras() from public, anon, authenticated;
 revoke all on function public.fitx_admin_security_overview() from public, anon, authenticated;
+revoke all on function public.fitx_admin_metrics() from public, anon, authenticated;
+revoke all on function public.fitx_admin_daily_trends(integer) from public, anon, authenticated;
 
 grant execute on function public.fitx_admin_op_save_platform_settings(uuid, jsonb, jsonb, jsonb, timestamptz) to service_role;
 grant execute on function public.fitx_admin_op_send_notifications(uuid, uuid[], text, text, text, text, text) to service_role;
@@ -700,3 +860,5 @@ grant execute on function public.fitx_admin_support_inbox() to service_role;
 grant execute on function public.fitx_admin_search_users_v2(text, text, text, text, integer, integer) to service_role;
 grant execute on function public.fitx_admin_overview_extras() to service_role;
 grant execute on function public.fitx_admin_security_overview() to service_role;
+grant execute on function public.fitx_admin_metrics() to service_role;
+grant execute on function public.fitx_admin_daily_trends(integer) to service_role;
