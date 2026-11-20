@@ -1,0 +1,26 @@
+.switches { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.switches legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 12px; font-weight: 650; }
+.toggle { position: relative; display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; transition: border-color 160ms ease; }
+.toggle:hover { border-color: var(--line-strong); }
+.toggle span { display: grid; gap: 2px; }
+.toggle strong { color: var(--ink); font-size: 14px; }
+.toggle small { color: var(--muted); font-size: 12px; }
+.toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.track { position: relative; flex: 0 0 44px; width: 44px; height: 26px; border-radius: 999px; background: var(--line-strong); transition: background 180ms ease; }
+.track::after { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 25%, transparent); content: ""; transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+.toggle:has(input:checked) .track { background: var(--green); }
+.toggle:has(input:checked) .track::after { transform: translateX(18px); }
+.toggle:has(input:focus-visible) { outline: 2px solid var(--coral); outline-offset: 2px; }
+.toggle:has(input:disabled) { cursor: not-allowed; opacity: .7; }
+.state { font-size: 12px; font-weight: 700; }
+.toggle:has(input:checked) .stateOff, .toggle:not(:has(input:checked)) .stateOn { display: none; }
+.stateOn { color: var(--green); }
+.stateOff { color: var(--muted); }
+.end { display: flex; align-items: center; gap: 12px; }
+.maintenance { display: grid; gap: 14px; }
+.maintenance:not(:has(input[name="maintenance_on"]:checked)) .maintenanceFields { opacity: .55; }
+.maintenanceFields { display: grid; gap: 14px; transition: opacity 180ms ease; }
+.fieldset { display: grid; gap: 14px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.saveBar { position: sticky; bottom: 12px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(10px); }
+.saveBar span { color: var(--muted); font-size: 12px; }
+@media (min-width: 768px) { .switches { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

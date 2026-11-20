@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import { Shield } from "lucide-react";
+import { Check, Minus } from "lucide-react";
+import { Notice, PageHead, Panel, consoleStyles as ui } from "@/components/console/ui";
+import { PERMISSION_LABELS } from "@/components/security/permission-labels";
 import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listOperators } from "@/lib/operators";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
-import { ADMIN_ROLES, can, ROLE_DESCRIPTIONS, ROLE_LABELS, type AdminRole } from "@/lib/roles";
+import { ADMIN_ROLES, can, PERMISSIONS, ROLE_DESCRIPTIONS, ROLE_LABELS, type AdminRole } from "@/lib/roles";
 import { firstParam } from "@/lib/search-params";
 import { formatIstDate } from "@/lib/time";
 import { addOperator, changeOperator, resetPassword } from "./actions";
@@ -44,11 +46,11 @@ export default async function AccessControlPage({ searchParams }: { searchParams
   const notice = state ? notices[state] : undefined;
 
   return <div className="page-stack">
-    <div className="page-heading-row"><div><p className="eyebrow">ADMIN AND SECURITY</p><h1>Access control</h1></div><span className="page-heading-icon"><Shield aria-hidden="true" size={20} /></span></div>
-    {notice && <p className={`inline-notice ${notice.tone === "success" ? "notice-success" : "notice-error"}`} role="status">{notice.text}</p>}
+    <PageHead eyebrow="Admin and security" title="Operators" meta={result.ok ? `${result.value.filter((operator) => operator.isActive).length} active · ${ADMIN_ROLES.length} roles` : undefined} />
+    {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
     {!result.ok ? <ModuleState state={result.error === "unavailable" ? "migration_pending" : "query_failed"} /> : <>
       {manage && <section className="table-panel">
-        <div className="table-heading"><div><h2>Add operator</h2><p>They change this temporary password at first sign-in.</p></div><span className="permission-chip">Super-admin</span></div>
+        <div className="table-heading"><div><h2>Add operator</h2><p>They change this temporary password at first sign-in.</p></div><span className="permission-chip">Super-admin only</span></div>
         <form action={addOperator} className="member-form">
           <label>Username<input autoComplete="off" name="username" required minLength={3} maxLength={32} pattern="[a-zA-Z0-9][a-zA-Z0-9._\-]{2,31}" /></label>
           <label>Role<RoleSelect defaultValue="support_agent" /></label>
@@ -86,10 +88,25 @@ export default async function AccessControlPage({ searchParams }: { searchParams
         </tbody></table></div>
       </section>
 
-      <section className="table-panel">
-        <div className="table-heading"><div><h2>Roles</h2></div></div>
-        <div className="settings-list">{ADMIN_ROLES.map((role) => <div className="settings-row" key={role}><span><strong>{ROLE_LABELS[role]}</strong><small>{ROLE_DESCRIPTIONS[role]}</small></span></div>)}</div>
-      </section>
+      <Panel title="Permissions" hint="What each role can do" flush className={ui.onScroll}>
+        <div className="table-scroll">
+          <table className={ui.matrix}>
+            <thead><tr><th scope="col">Permission</th>{ADMIN_ROLES.map((role) => <th scope="col" key={role} title={ROLE_DESCRIPTIONS[role]}>{ROLE_LABELS[role]}</th>)}</tr></thead>
+            <tbody>
+              {PERMISSIONS.map((permission) => (
+                <tr key={permission}>
+                  <td><strong>{PERMISSION_LABELS[permission] ?? permission}</strong></td>
+                  {ADMIN_ROLES.map((role) => (
+                    <td key={role}>{can(role, permission)
+                      ? <><Check className={ui.yes} aria-hidden="true" size={17} /><span className="sr-only">Yes</span></>
+                      : <><Minus className={ui.no} aria-hidden="true" size={15} /><span className="sr-only">No</span></>}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
     </>}
   </div>;
 }

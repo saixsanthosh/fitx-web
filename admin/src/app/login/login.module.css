@@ -6,15 +6,13 @@
   min-height: 100vh;
   min-height: 100svh;
   grid-template-rows: auto 1fr;
-  background: var(--on-stage);
+  background: var(--paper);
 }
 
 /* Stage ------------------------------------------------------------------------------------------ */
 
 .stage {
-  /* The stage stays dark in both themes: the darker of the two page colours, with the lighter on it. */
-  --stage: var(--ink);
-  --on-stage: var(--paper);
+  /* The stage stays dark in both themes (--stage and --on-stage in globals.css). */
   position: relative;
   display: grid;
   min-height: 236px;
@@ -126,12 +124,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pause { display: none; }
-}
-
-@media (prefers-color-scheme: dark) {
-  .stage { --stage: var(--paper); --on-stage: var(--ink); }
-  .page { background: var(--surface); }
-  .field input { background: var(--paper); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -274,7 +266,7 @@
   border: 1px solid var(--ink);
   border-radius: 12px;
   background: var(--ink);
-  color: var(--paper);
+  color: var(--surface);
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;

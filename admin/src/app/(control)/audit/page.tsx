@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Download } from "lucide-react";
+import { PageHead } from "@/components/console/ui";
 import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
 import {
@@ -27,10 +28,12 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   const filtered = Boolean(filters.action || filters.actor || filters.resourceType || filters.resourceId || filters.from || filters.to);
 
   return <div className="page-stack">
-    <div className="page-heading-row">
-      <div><p className="eyebrow">ACCOUNTABILITY</p><h1>Audit log</h1><p className="page-lede">Every privileged Admin action, sign-in and refusal. Rows can be added but never changed or deleted.</p></div>
-      {can(actor.role, "audit.export") && <a className="quiet-button" href={`/audit/export${auditFilterQuery(filters, { page: 1 })}`}><Download aria-hidden="true" size={16} />Export CSV</a>}
-    </div>
+    <PageHead
+      eyebrow="Admin and security"
+      title="Audit log"
+      meta="Append-only: rows are never changed or deleted"
+      actions={can(actor.role, "audit.export") ? <a className="quiet-button" href={`/audit/export${auditFilterQuery(filters, { page: 1 })}`}><Download aria-hidden="true" size={16} />Export CSV</a> : undefined}
+    />
     <form action="/audit" className="table-panel filter-grid" aria-label="Filter the audit log">
       <label>Action<select name="action" defaultValue={filters.action ?? ""}>
         <option value="">Any action</option>
@@ -44,7 +47,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       <div className="filter-actions"><button className="primary-button" type="submit">Filter</button>{filtered && <Link className="text-link" href="/audit">Clear</Link>}</div>
     </form>
     {result.state === "ready" ? <section className="table-panel">
-      <div className="table-heading"><div><h2>{filtered ? "Matching events" : "Recent events"}</h2><p>Newest first, {AUDIT_PAGE_SIZE} per page. Details show codes, counts and before → after values, never message text.{can(actor.role, "audit.export") ? ` Exports include up to ${AUDIT_EXPORT_LIMIT.toLocaleString("en-IN")} rows and are themselves recorded.` : ""}</p></div><span className="data-badge">{result.total.toLocaleString("en-IN")} events</span></div>
+      <div className="table-heading"><div><h2>{filtered ? "Matching events" : "Recent events"}</h2><p>Newest first, {AUDIT_PAGE_SIZE} a page.{can(actor.role, "audit.export") ? ` Exports hold up to ${AUDIT_EXPORT_LIMIT.toLocaleString("en-IN")} rows and are recorded too.` : ""}</p></div><span className="data-badge">{result.total.toLocaleString("en-IN")} events</span></div>
       {result.actorNote && <p className="table-note">{result.actorNote}</p>}
       {result.rows.length ? <div className="table-scroll"><table><thead><tr><th>Time (IST)</th><th>Action</th><th>Actor</th><th>Resource</th><th>Details</th></tr></thead><tbody>{result.rows.map((row) => <tr key={row.id}>
         <td>{formatIstDateTime(row.createdAt) ?? "—"}</td>

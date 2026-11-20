@@ -1,0 +1,18 @@
+.check { width: 44px; padding-right: 0; }
+.check input { width: 18px; height: 18px; accent-color: var(--coral); }
+.checkLabel { display: grid; width: 44px; height: 44px; place-items: center; margin: -8px 0; cursor: pointer; }
+.methods { display: flex; flex-wrap: wrap; gap: 4px; }
+.method { display: inline-flex; min-height: 24px; align-items: center; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-soft); font-size: 11px; font-weight: 650; }
+.bulk { display: grid; gap: 12px; padding: 16px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+.bulkHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink-soft); font-size: 13px; font-weight: 650; }
+.bulkRow { display: grid; gap: 10px; }
+.bulkRow input[type="text"] { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: 14px; }
+.bulkButtons { display: flex; flex-wrap: wrap; gap: 8px; }
+.profileHead { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.avatar { display: grid; width: 56px; height: 56px; flex: 0 0 56px; place-items: center; border-radius: 18px; background: var(--stage); color: var(--on-stage); font-size: 22px; font-weight: 800; }
+.identity { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.identity:last-child { border-bottom: 0; }
+.identity small { grid-column: 2; color: var(--muted); font-size: 12px; }
+@media (min-width: 768px) {
+  .bulkRow { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+}

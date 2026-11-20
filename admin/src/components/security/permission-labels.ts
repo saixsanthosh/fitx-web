@@ -1,0 +1,25 @@
+// Plain words for each Admin permission, in the order the permission matrix shows them. No imports.
+
+export const PERMISSION_LABELS: Record<string, string> = {
+  "overview.view": "See the dashboard",
+  "reports.view": "See reports",
+  "people.view": "Look up users",
+  "people.support": "Sign users out, reset passwords",
+  "people.suspend": "Suspend and restore users",
+  "people.delete": "Delete accounts",
+  "support.view": "Read support",
+  "support.reply": "Reply to support",
+  "content.manage": "Manage workouts",
+  "nutrition.manage": "Manage nutrition",
+  "announcements.manage": "Announce to everyone",
+  "notifications.send": "Send notices",
+  "billing.view": "See subscriptions",
+  "billing.manage": "Change plans and prices",
+  "audit.view": "Read the audit log",
+  "audit.export": "Export the audit log",
+  "security.view": "See security",
+  "access.view": "See operators",
+  "access.manage": "Add and change operators",
+  "settings.view": "See settings",
+  "settings.manage": "Change settings",
+};

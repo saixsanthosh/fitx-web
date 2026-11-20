@@ -49,6 +49,11 @@ export const CORE_AUDIT_ACTIONS = {
   announcement_unpublished: { label: "Announcement back to draft", group: "Announcements", source: "database" },
   announcement_archived: { label: "Announcement archived", group: "Announcements", source: "database" },
   audit_exported: { label: "Audit log exported", group: "Audit", source: "server" },
+  admin_sessions_revoked: { label: "All of an operator's sessions ended", group: "Sign-in", source: "server" },
+  users_bulk_suspended: { label: "Several accounts suspended", group: "People", source: "server" },
+  support_request_read: { label: "Help request read", group: "Support", source: "database" },
+  notification_sent: { label: "Notice sent to chosen accounts", group: "Notifications", source: "database" },
+  platform_settings_updated: { label: "Platform settings saved", group: "Settings", source: "database" },
 } as const satisfies Record<string, AuditActionEntry>;
 
-export const CORE_AUDIT_RESOURCE_TYPES = ["admin_session", "admin_member", "admin_operator", "user", "support_request", "announcement", "audit_log"] as const;
+export const CORE_AUDIT_RESOURCE_TYPES = ["admin_session", "admin_member", "admin_operator", "user", "support_request", "announcement", "audit_log", "notification_batch", "platform_settings"] as const;

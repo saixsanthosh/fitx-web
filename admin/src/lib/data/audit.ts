@@ -150,3 +150,31 @@ export async function exportAuditEvents(filters: AuditFilters): Promise<{ state:
   const emails = await emailsFor(collected.map((row) => row.actor_id as string | null));
   return { state: "ready", rows: toRows(collected, emails), total };
 }
+
+export type RecentAuditResult = { state: "ready"; rows: AuditRow[] } | { state: "service_key_missing" | "migration_pending" | "query_failed" };
+
+/**
+ * The newest audit rows, optionally only some actions: recent admin activity on the Dashboard (audit.view)
+ * and the Admin sign-in history on Security (security.view).
+ */
+export async function recentAuditEvents({ limit, actions, permission }: { limit: number; actions?: readonly string[]; permission: "audit.view" | "security.view" }): Promise<RecentAuditResult> {
+  await requireAdmin(permission);
+  const admin = createAdminSupabase();
+  if (!admin) return { state: "service_key_missing" };
+  let query = admin
+    .from("fitx_admin_audit_logs")
+    .select("id,actor_id,actor_operator_id,actor_username,action,resource_type,resource_id,details,created_at")
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(Math.min(Math.max(Math.trunc(limit) || 1, 1), 100));
+  if (actions?.length) query = query.in("action", [...actions]);
+  const { data, error } = await query;
+  if (error) {
+    if (isMissingTable(error)) return { state: "migration_pending" };
+    logServerError("data.audit_recent", error);
+    return { state: "query_failed" };
+  }
+  const rows = data ?? [];
+  const emails = await emailsFor(rows.map((row) => row.actor_id as string | null));
+  return { state: "ready", rows: toRows(rows, emails) };
+}

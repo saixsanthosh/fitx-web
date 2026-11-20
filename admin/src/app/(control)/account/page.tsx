@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { KeyRound } from "lucide-react";
+import { Notice, PageHead, Panel } from "@/components/console/ui";
 import { PendingButton } from "@/components/pending-button";
 import { requireAdmin } from "@/lib/admin-auth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
@@ -25,12 +25,11 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const operator = await requireAdmin();
   const state = firstParam((await searchParams).state);
   const notice = state ? notices[state] : undefined;
-  return <div className="page-stack">
-    <div className="page-heading-row"><div><p className="eyebrow">{ROLE_LABELS[operator.role]}</p><h1>{operator.username}</h1></div><span className="page-heading-icon"><KeyRound aria-hidden="true" size={20} /></span></div>
-    {notice && <p className={`inline-notice ${notice.tone === "success" ? "notice-success" : "notice-error"}`} role="status">{notice.text}</p>}
-    {operator.mustChangePassword && <p className="inline-notice notice-error" role="status">Choose your own password to continue.</p>}
-    {operator.isRoot ? <section className="report-note module-explanation"><h2>Owner password</h2><p>Make a new hash with npm run admin:hash, set FITX_ADMIN_PASSWORD_HASH in Vercel and redeploy. Every open session ends.</p></section> : <section className="table-panel">
-      <div className="table-heading"><div><h2>Change password</h2></div></div>
+  return <div className="page-stack narrow-stack">
+    <PageHead eyebrow={ROLE_LABELS[operator.role]} title={operator.username} meta="Your account" />
+    {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
+    {operator.mustChangePassword && <Notice tone="error">Choose your own password to continue.</Notice>}
+    {operator.isRoot ? <section className="report-note module-explanation"><h2>Owner password</h2><p>Make a new hash with npm run admin:hash, set FITX_ADMIN_PASSWORD_HASH in Vercel and redeploy. Every open session ends.</p></section> : <Panel title="Change password" hint={`At least ${MIN_PASSWORD_LENGTH} characters`} flush>
       <form action={changePassword} className="member-form">
         <input type="text" name="username" autoComplete="username" value={operator.username} readOnly hidden />
         <label>Current password<input type="password" name="current_password" autoComplete="current-password" required maxLength={256} /></label>
@@ -38,6 +37,6 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         <label>Repeat new password<input type="password" name="confirm_password" autoComplete="new-password" required minLength={MIN_PASSWORD_LENGTH} maxLength={256} /></label>
         <PendingButton className="primary-button" pendingLabel="Saving">Change password</PendingButton>
       </form>
-    </section>}
+    </Panel>}
   </div>;
 }

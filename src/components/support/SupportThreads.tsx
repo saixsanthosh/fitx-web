@@ -91,13 +91,13 @@ function Thread({ thread, canReply }: { thread: SupportThreadView; canReply: boo
   const [sent, setSent] = useState<SupportMessageView[]>([]);
   const { status, messages } = withSentReplies(thread, sent);
   return (
-    <details className="fitx-panel p-4" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
+    <details className="fitx-panel p-4 sm:p-5" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="flex min-h-11 cursor-pointer flex-wrap items-center justify-between gap-2">
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold text-fitx-text">{thread.subject}</span>
           <span className="block text-xs text-fitx-text-secondary">{SUPPORT_CATEGORY_LABELS[thread.category]} · <When value={thread.createdAt} /></span>
         </span>
-        <span className="rounded-full border border-fitx-border px-2.5 py-1 text-xs font-medium text-fitx-text-secondary">{SUPPORT_STATUS_LABELS[status] ?? status}</span>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${status === "waiting_on_user" ? "border-fitx-primary bg-fitx-surface-variant text-fitx-primary-text" : "border-fitx-border text-fitx-text-secondary"}`}>{SUPPORT_STATUS_LABELS[status] ?? status}</span>
       </summary>
       <ol className="mt-4 space-y-3 border-t border-fitx-divider pt-4">
         <li>
@@ -105,7 +105,7 @@ function Thread({ thread, canReply }: { thread: SupportThreadView; canReply: boo
           <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fitx-text">{thread.body}</p>
         </li>
         {messages.map((message) => (
-          <li key={message.id} className={message.fromTeam ? "rounded-lg border border-fitx-border bg-fitx-surface-variant p-3" : ""}>
+          <li key={message.id} className={message.fromTeam ? "rounded-xl border-l-4 border-fitx-primary bg-fitx-surface-variant p-3" : ""}>
             <p className="text-xs font-semibold text-fitx-text-secondary">{message.fromTeam ? "FITX team" : "You"} · <When value={message.createdAt} /></p>
             <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fitx-text">{message.body}</p>
           </li>

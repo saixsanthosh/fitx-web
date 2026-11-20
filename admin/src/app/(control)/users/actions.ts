@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin, type AdminOperator } from "@/lib/admin-auth";
 import { logAdminEvent } from "@/lib/audit";
+import { BULK_SUSPEND_MAX, selectedIds } from "@/components/users/people-filters";
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
 import { isMissingFunction, isMissingTable, isPermissionError } from "@/lib/schema";
@@ -245,4 +246,63 @@ export async function deleteAccount(formData: FormData) {
   await logAdminEvent({ actor, action: "user_deleted", resourceType: "user", resourceId: id, details: { reason, files_removed: filesRemoved } });
   revalidatePath("/users");
   redirect("/users?notice=deleted");
+}
+
+/** Where a bulk action returns: the Users list with the filters it had. */
+function listReturn(formData: FormData): string {
+  const value = formData.get("return");
+  return typeof value === "string" && /^\/users(\?[^\s]*)?$/.test(value) && !value.startsWith("//") ? value : "/users";
+}
+
+function withNotice(path: string, notice: string, extra: Record<string, string> = {}): string {
+  const url = new URL(path, "https://admin.invalid");
+  url.searchParams.set("notice", notice);
+  for (const [key, value] of Object.entries(extra)) url.searchParams.set(key, value);
+  return `${url.pathname}${url.search}`;
+}
+
+/**
+ * Suspends up to 50 selected accounts with one reason, after the confirmation box is ticked: each is banned
+ * in Supabase Auth and signed out everywhere, with its own audit rows, then one row records the batch.
+ */
+export async function suspendSelected(formData: FormData) {
+  const actor = await requireAdmin("people.suspend");
+  const back = listReturn(formData);
+  const ids = selectedIds(formData.getAll("ids"));
+  if (!ids.length) redirect(withNotice(back, "none_selected"));
+  if (ids.length > BULK_SUSPEND_MAX) redirect(withNotice(back, "too_many"));
+  const reason = readReason(formData);
+  if (!reason) redirect(withNotice(back, "reason_required"));
+  if (formData.get("confirm") !== "yes") redirect(withNotice(back, "confirm_needed"));
+  const admin = createAdminSupabase();
+  if (!admin) redirect(withNotice(back, "configuration"));
+
+  let suspended = 0;
+  let failed = 0;
+  for (const id of ids) {
+    const intent = await logAdminEvent({ actor, action: "user_suspend_requested", resourceType: "user", resourceId: id, details: { reason, bulk: true } });
+    if (!intent.ok) redirect(withNotice(back, intent.reason === "migration_pending" ? "audit_migration" : "audit_failed", { count: String(suspended) }));
+    const { error } = await admin.auth.admin.updateUserById(id, { ban_duration: SUSPEND_DURATION });
+    if (error) {
+      failed += 1;
+      logServerError("people.bulk_suspend", error);
+      await logAdminEvent({ actor, action: "user_suspend_failed", resourceType: "user", resourceId: id, details: { reason, bulk: true, error: error.code ?? error.status ?? null } });
+      continue;
+    }
+    const revoked = await admin.rpc("fitx_admin_op_revoke_user_sessions", { p_operator_id: actor.id, p_user_id: id, p_reason: `Suspended: ${reason}` });
+    if (revoked.error && !isMissingFunction(revoked.error)) logServerError("people.bulk_suspend_sessions", revoked.error);
+    await logAdminEvent({ actor, action: "user_suspended", resourceType: "user", resourceId: id, details: { reason, bulk: true, sessions_revoked: revoked.error ? null : revoked.data } });
+    suspended += 1;
+  }
+  await logAdminEvent({ actor, action: "users_bulk_suspended", resourceType: "user", details: { reason, selected: ids.length, suspended, failed } });
+  revalidatePath("/users");
+  redirect(withNotice(back, failed ? "bulk_partial" : "bulk_suspended", { count: String(suspended) }));
+}
+
+/** Opens Notifications with the selected accounts as recipients. */
+export async function noticeSelected(formData: FormData) {
+  await requireAdmin("notifications.send");
+  const ids = selectedIds(formData.getAll("ids")).slice(0, 500);
+  if (!ids.length) redirect(withNotice(listReturn(formData), "none_selected"));
+  redirect(`/notifications?to=${ids.join(",")}`);
 }

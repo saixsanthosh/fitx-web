@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { KeyRound, LogOut } from "lucide-react";
 import { signOut } from "@/app/login/actions";
-import { AdminNavigation, MobileMenu, SectionTitle } from "@/components/admin-navigation";
+import { AdminNavigation, MobileMenu, SectionTitle, type SectionCounts } from "@/components/admin-navigation";
 import { FitxMark } from "@/components/fitx-mark";
 import { RouteTransition } from "@/components/motion/route-transition";
+import type { AdminTheme } from "@/components/theme/theme";
+import { ThemeSwitch } from "@/components/theme/theme-switch";
 import { ROLE_LABELS, type AdminRole } from "@/lib/roles";
 import styles from "./admin-shell.module.css";
 
 /** The console frame: the section rail (a menu dialog below 1024 px), the top bar and the page. */
-export function AdminShell({ children, username, role, pages }: { children: React.ReactNode; username: string; role: AdminRole; pages: readonly string[] }) {
+export function AdminShell({ children, username, role, pages, counts, theme }: { children: React.ReactNode; username: string; role: AdminRole; pages: readonly string[]; counts?: SectionCounts; theme: AdminTheme }) {
   const home = pages[0] ?? "/account";
   return (
     <div className={styles.shell}>
@@ -21,7 +23,7 @@ export function AdminShell({ children, username, role, pages }: { children: Reac
         <svg className={styles.pulse} viewBox="0 0 200 24" aria-hidden="true" focusable="false">
           <path pathLength={1} d="M0 12H62L70 4L80 20L90 2L100 22L108 12H200" />
         </svg>
-        <AdminNavigation allowed={pages} />
+        <AdminNavigation allowed={pages} counts={counts} />
         <div className={styles.railFoot}>
           <span className={styles.operatorAvatar} aria-hidden="true">{username.slice(0, 1).toUpperCase()}</span>
           <span className={styles.operatorText}><strong>{username}</strong><small>{ROLE_LABELS[role]}</small></span>
@@ -30,10 +32,11 @@ export function AdminShell({ children, username, role, pages }: { children: Reac
 
       <div className={styles.column}>
         <header className={styles.topbar}>
-          <MobileMenu allowed={pages} />
+          <MobileMenu allowed={pages} counts={counts} theme={theme} />
           <Link href={home} className={styles.topBrand} aria-label="FITX Admin home"><FitxMark size={24} /></Link>
           <SectionTitle />
           <div className={styles.topActions}>
+            <span className={styles.themeSlot}><ThemeSwitch initial={theme} /></span>
             <span className={styles.topOperator}><strong>{username}</strong><small>{ROLE_LABELS[role]}</small></span>
             <Link href="/account" className={styles.iconButton} aria-label="Your account" title="Your account"><KeyRound aria-hidden="true" size={18} /></Link>
             <form action={signOut}>

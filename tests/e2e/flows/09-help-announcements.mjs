@@ -1,6 +1,9 @@
 // Flow 9: Help. Send a support request and see it in "Your messages"; a staff reply (written through SQL the way
 // the Admin reply function writes it) shows in the thread and the member answers. An announcement published
 // through SQL shows in the app's banner, can be dismissed, and stays dismissed after a reload. A draft never shows.
+// What FITX Admin sends (written through SQL as its functions write it): a maintenance notice from Settings shows
+// under its own name and hides for the tab, and a notice sent to this account shows until dismissed. Help offers
+// complaints once the database takes them.
 import { signInUi, textOf } from "./common.mjs";
 
 export const flow = {
@@ -16,6 +19,7 @@ export const flow = {
       await this.steps(t, { standin, account, subject, page, state: { requestId } });
     } finally {
       await standin.sql(`delete from public.announcements where title in ('Planned maintenance tonight', 'Draft that must not show')`).catch(() => undefined);
+      await standin.sql(`update public.platform_settings set maintenance = null where id = 1`).catch(() => undefined);
     }
   },
 
@@ -25,6 +29,9 @@ export const flow = {
       await t.goto("/help", { label: "help" });
       await t.checkpoint("help page");
       const form = page.locator("form[aria-labelledby=help-form-title]");
+      const categories = await form.getByLabel("What is it about?").locator("option").evaluateAll((options) => options.map((option) => option.value));
+      t.note("categories", categories);
+      t.expect(categories.includes("complaint"), "Help should offer complaints once the database takes them", categories);
       await form.getByLabel("What is it about?").selectOption("problem");
       await form.getByLabel("Subject").fill(subject);
       await form.getByLabel("Message").fill("The rest timer stops when I lock my phone during a workout. I expected it to keep counting.");
@@ -118,6 +125,39 @@ export const flow = {
       await t.goto("/workouts", { label: "after dismissing" });
       t.expect((await page.getByRole("region", { name: "Announcement" }).count()) === 0, "the banner should stay dismissed on other pages and after reload");
       await t.checkpoint("after dismissing the announcement");
+    });
+
+    await t.step("a maintenance notice and a notice to this account show under their own names", async () => {
+      await standin.sql(`update public.platform_settings set maintenance = '{"title": "Planned upgrade tonight", "body": "FITX may be slow from 1 am IST.", "startsAt": null, "endsAt": null}'::jsonb where id = 1;
+        insert into public.member_notifications (batch_id, user_id, title, body, tone, link_url, link_label)
+        values (gen_random_uuid(), '${account.id}', 'Your plan changed', 'We moved your rest day to Sunday.', 'success', '/workouts', 'Open workouts');`);
+      await t.goto("/dashboard", { label: "dashboard with notices" });
+      const maintenance = page.getByRole("region", { name: "Maintenance" });
+      await maintenance.waitFor({ timeout: 15000 });
+      t.expect(/Planned upgrade tonight/.test(await textOf(maintenance)), "the maintenance notice should show");
+      const message = page.getByRole("region", { name: "Message from FITX" });
+      await message.waitFor({ timeout: 15000 });
+      t.expect(/Your plan changed/.test(await textOf(message)), "the notice sent to this account should show");
+      t.expect((await page.getByRole("region", { name: "Announcement" }).count()) === 0, "the dismissed announcement stays hidden");
+      await t.checkpoint("maintenance and personal notice");
+    });
+
+    await t.step("dismissing the notice sticks; hiding maintenance lasts for the tab", async () => {
+      await page.getByRole("button", { name: "Dismiss message" }).click();
+      await page.getByRole("region", { name: "Message from FITX" }).waitFor({ state: "detached", timeout: 10000 });
+      let stored = null;
+      for (let i = 0; i < 20 && !stored; i += 1) {
+        stored = await standin.one(`select dismissed_at from public.member_notifications where user_id = '${account.id}' and dismissed_at is not null`);
+        if (!stored) await page.waitForTimeout(250);
+      }
+      t.expect(Boolean(stored), "the dismissal should be stored on the notice");
+      await page.getByRole("button", { name: "Hide maintenance notice" }).click();
+      await page.getByRole("region", { name: "Maintenance" }).waitFor({ state: "detached", timeout: 10000 });
+      await t.goto("/workouts", { label: "after hiding notices" });
+      await page.waitForTimeout(1500);
+      t.expect((await page.getByRole("region", { name: "Message from FITX" }).count()) === 0, "a dismissed notice should not come back");
+      t.expect((await page.getByRole("region", { name: "Maintenance" }).count()) === 0, "a hidden maintenance notice stays hidden in this tab");
+      await t.checkpoint("after hiding the notices");
     });
   },
 };

@@ -19,6 +19,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { EASE_OUT, prefersReducedMotion } from "@/components/motion/reduced-motion";
+import { ThemeSwitch } from "@/components/theme/theme-switch";
+import type { AdminTheme } from "@/components/theme/theme";
 import { isActiveRoute, sectionForPath, visibleSections, type AdminSection, type VisibleSection } from "./admin-sections";
 import styles from "./admin-shell.module.css";
 
@@ -45,7 +47,10 @@ const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : us
  * The ten sections, numbered. A marker glides to the active section (Web Animations API, transform
  * only); sub-pages of the active section open beneath it. The server checks every page again.
  */
-function SectionList({ sections, onNavigate, idPrefix }: { sections: VisibleSection[]; onNavigate?: () => void; idPrefix: string }) {
+/** Unread or waiting counts by section route, shown as a badge (for example, Support). */
+export type SectionCounts = Readonly<Record<string, number>>;
+
+function SectionList({ sections, onNavigate, idPrefix, counts = {} }: { sections: VisibleSection[]; onNavigate?: () => void; idPrefix: string; counts?: SectionCounts }) {
   const pathname = usePathname();
   const listRef = useRef<HTMLDivElement>(null);
   const markerRef = useRef<HTMLSpanElement>(null);
@@ -85,6 +90,7 @@ function SectionList({ sections, onNavigate, idPrefix }: { sections: VisibleSect
         const Icon = ICONS[section.icon];
         const active = isSectionActive(pathname, section);
         const subId = `${idPrefix}-${section.number}`;
+        const count = section.visibleRoutes.reduce((sum, route) => sum + (counts[route.href] ?? 0), 0);
         return (
           <li key={section.number} data-active={active}>
             <Link
@@ -97,6 +103,7 @@ function SectionList({ sections, onNavigate, idPrefix }: { sections: VisibleSect
               <span className={styles.sectionNumber} aria-hidden="true">{section.number}</span>
               <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
               <span className={styles.sectionLabel}>{section.label}</span>
+              {count > 0 && <span className={styles.count}><span aria-hidden="true">{count > 99 ? "99+" : count}</span><span className="sr-only">, {count} unread</span></span>}
             </Link>
             {active && section.visibleRoutes.length > 1 && (
               <ul className={styles.subRoutes} id={subId} aria-label={section.label}>
@@ -119,13 +126,13 @@ function SectionList({ sections, onNavigate, idPrefix }: { sections: VisibleSect
 }
 
 /** The rail on wide screens. */
-export function AdminNavigation({ allowed }: { allowed: readonly string[] }) {
+export function AdminNavigation({ allowed, counts }: { allowed: readonly string[]; counts?: SectionCounts }) {
   const sections = visibleSections(allowed);
-  return <nav aria-label="Sections" className={styles.railNav}><SectionList sections={sections} idPrefix="rail" /></nav>;
+  return <nav aria-label="Sections" className={styles.railNav}><SectionList sections={sections} idPrefix="rail" counts={counts} /></nav>;
 }
 
 /** The phone and tablet menu: a modal dialog (focus stays inside, Escape closes) that slides in. */
-export function MobileMenu({ allowed }: { allowed: readonly string[] }) {
+export function MobileMenu({ allowed, counts, theme }: { allowed: readonly string[]; counts?: SectionCounts; theme: AdminTheme }) {
   const sections = visibleSections(allowed);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -181,7 +188,8 @@ export function MobileMenu({ allowed }: { allowed: readonly string[] }) {
             <span className={styles.drawerTitle}>FITX Admin</span>
             <button type="button" className={styles.iconButton} onClick={close} aria-label="Close menu"><X aria-hidden="true" size={20} /></button>
           </div>
-          <nav aria-label="Sections"><SectionList sections={sections} onNavigate={close} idPrefix="drawer" /></nav>
+          <nav aria-label="Sections"><SectionList sections={sections} onNavigate={close} idPrefix="drawer" counts={counts} /></nav>
+          <div className={styles.drawerTheme}><ThemeSwitch initial={theme} /></div>
         </div>
       </dialog>
     </>

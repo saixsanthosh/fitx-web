@@ -4,8 +4,9 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { logAdminEvent, type AuditWrite } from "@/lib/audit";
 import { logServerError } from "@/lib/log";
 import { isAdminRole, type AdminRole } from "@/lib/roles";
-import { isMissingFunction } from "@/lib/schema";
+import { isMissingFunction, isMissingTable } from "@/lib/schema";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import type { PeopleFilters } from "@/components/users/people-filters";
 
 export const PEOPLE_PAGE_SIZE = 25;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20,6 +21,14 @@ export type PersonSummary = {
   bannedUntil: string | null;
   providers: string[];
   adminRole: AdminRole | null;
+  /** From Auth, when the account has one (phone sign-in). */
+  phone?: string | null;
+  /** The name from sign-in (Google or the sign-up form). */
+  displayName?: string | null;
+  /** The latest live Razorpay subscription's status; null when there is none. */
+  subscriptionStatus?: string | null;
+  /** Premium access now; null when it could not be read (shown as an en dash, never as Free). */
+  premium?: boolean | null;
 };
 
 export type PeopleResult =
@@ -33,16 +42,31 @@ export type PeopleResult =
       hasNext: boolean;
       /** False until migration 20261118180004 is applied: the list then pages through Auth without search. */
       searchAvailable: boolean;
+      /** False until migration 20261121100033 is applied: status, method and plan filters wait for it. */
+      filtersAvailable: boolean;
       /** Whether this view was written to the audit log; the page says so either way. */
       viewLogged: AuditWrite;
     }
   | { state: "service_key_missing" | "query_failed" };
 
+export type PersonIdentity = { provider: string; createdAt: string | null; lastSignInAt: string | null };
+
+/** The profile summary Admin may show: no body, meal or workout data. null when it could not be read. */
+export type ProfileSummary = { name: string | null; goal: string | null; experience: string | null; setUp: boolean | null; profileCreatedAt: string | null };
+
+export type SubscriptionSummary = { status: string; mode: string; createdAt: string; paidUntil: string | null };
+
 export type PersonDetail = PersonSummary & {
   displayName: string | null;
+  phone: string | null;
+  phoneConfirmedAt: string | null;
   hasPasswordSignIn: boolean;
   hasAuthenticator: boolean;
   adminActive: boolean | null;
+  identities: PersonIdentity[];
+  profile: ProfileSummary | null;
+  /** Newest first, live and test; null when billing could not be read. */
+  subscriptions: SubscriptionSummary[] | null;
 };
 
 export function isUuid(value: unknown): value is string {
@@ -71,6 +95,76 @@ function summaryFromAuthUser(user: User): PersonSummary {
     bannedUntil: user.banned_until ?? null,
     providers: providersOf(user),
     adminRole: null,
+  };
+}
+
+/** Mirrors billing_grants_access: paid up, with three days' grace while Razorpay retries. */
+export function grantsAccess(status: string, paidUntil: string | null, now = Date.now()): boolean {
+  if (!paidUntil) return false;
+  const until = Date.parse(paidUntil);
+  if (!Number.isFinite(until)) return false;
+  const grace = status === "active" || status === "pending" ? 3 * 86_400_000 : 0;
+  return now < until + grace;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+/** Accounts matching the Users filters, through fitx_admin_search_users_v2, else the older search. */
+export async function searchPeopleFiltered(filters: PeopleFilters): Promise<PeopleResult> {
+  const actor = await requireAdmin("people.view");
+  const admin = createAdminSupabase();
+  if (!admin) return { state: "service_key_missing" };
+  const page = filters.page;
+  const { data, error } = await admin.rpc("fitx_admin_search_users_v2", {
+    p_query: filters.q || null,
+    p_status: filters.status,
+    p_method: filters.method,
+    p_plan: filters.plan,
+    p_limit: PEOPLE_PAGE_SIZE,
+    p_offset: (page - 1) * PEOPLE_PAGE_SIZE,
+  });
+  if (error) {
+    if (isMissingFunction(error)) {
+      const older = await searchPeople(filters.q, page);
+      return older.state === "ready" ? { ...older, filtersAvailable: false } : older;
+    }
+    logServerError("data.search_users_v2", error);
+    return { state: "query_failed" };
+  }
+  const rows = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+  const total = rows.length ? Number(rows[0].total_count) : 0;
+  const people: PersonSummary[] = rows.map((row) => ({
+    id: String(row.user_id),
+    email: text(row.email),
+    phone: text(row.phone),
+    displayName: text(row.display_name),
+    createdAt: String(row.created_at),
+    lastSignInAt: text(row.last_sign_in_at),
+    emailConfirmedAt: text(row.email_confirmed_at) ?? text(row.phone_confirmed_at),
+    bannedUntil: text(row.banned_until),
+    providers: Array.isArray(row.providers) ? row.providers.filter((value): value is string => typeof value === "string") : [],
+    adminRole: isAdminRole(row.admin_role) ? row.admin_role : null,
+    subscriptionStatus: text(row.subscription_status),
+    premium: typeof row.premium === "boolean" ? row.premium : null,
+  }));
+  const viewLogged = await logAdminEvent({
+    actor,
+    action: "users_listed",
+    resourceType: "user",
+    details: { page, searched: Boolean(filters.q), status: filters.status, method: filters.method, plan: filters.plan, results: people.length },
+  });
+  return {
+    state: "ready",
+    people,
+    query: filters.q,
+    page,
+    total: Number.isFinite(total) ? total : null,
+    hasNext: Number.isFinite(total) && page * PEOPLE_PAGE_SIZE < total,
+    searchAvailable: true,
+    filtersAvailable: true,
+    viewLogged,
   };
 }
 
@@ -110,6 +204,7 @@ export async function searchPeople(rawQuery: string, rawPage: number): Promise<P
       total: Number.isFinite(total) ? total : null,
       hasNext: Number.isFinite(total) && page * PEOPLE_PAGE_SIZE < total,
       searchAvailable: true,
+      filtersAvailable: false,
     };
   } else if (isMissingFunction(error)) {
     // Until the People migration is applied: page through Auth accounts, newest page order as Auth returns it.
@@ -126,6 +221,7 @@ export async function searchPeople(rawQuery: string, rawPage: number): Promise<P
       total: null,
       hasNext: listed.data.users.length === PEOPLE_PAGE_SIZE,
       searchAvailable: false,
+      filtersAvailable: false,
     };
   } else {
     logServerError("data.search_users", error);
@@ -165,15 +261,64 @@ export async function getPerson(id: string): Promise<PersonResult> {
   const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
   const displayName = [metadata.full_name, metadata.name].find((value): value is string => typeof value === "string" && value.trim() !== "") ?? null;
   const summary = summaryFromAuthUser(user);
+  const [profile, subscriptions] = await Promise.all([readProfileSummary(admin, id), readSubscriptions(admin, id)]);
   const person: PersonDetail = {
     ...summary,
     adminRole: member && isAdminRole(member.role) ? member.role : null,
     adminActive: member ? Boolean(member.is_active) : null,
     displayName,
+    phone: user.phone ? user.phone : null,
+    phoneConfirmedAt: user.phone_confirmed_at ?? null,
     hasPasswordSignIn: summary.providers.includes("email"),
     hasAuthenticator: (user.factors ?? []).some((factor) => factor.status === "verified"),
+    identities: (user.identities ?? []).map((identity) => ({ provider: identity.provider, createdAt: identity.created_at ?? null, lastSignInAt: identity.last_sign_in_at ?? null })),
+    profile,
+    subscriptions,
+    subscriptionStatus: subscriptions?.find((row) => row.mode === "live")?.status ?? null,
+    premium: subscriptions ? subscriptions.some((row) => row.mode === "live" && grantsAccess(row.status, row.paidUntil)) : null,
   };
 
   const viewLogged = await logAdminEvent({ actor, action: "user_viewed", resourceType: "user", resourceId: id });
   return { state: "ready", person, viewLogged };
+}
+
+type AdminClient = NonNullable<ReturnType<typeof createAdminSupabase>>;
+
+/** Name, goal, experience and whether set-up is done. Never body, meal or workout data. */
+async function readProfileSummary(admin: AdminClient, id: string): Promise<ProfileSummary | null> {
+  const [profile, preferences] = await Promise.all([
+    admin.from("profiles").select("name,onboarded,created_at").eq("id", id).maybeSingle(),
+    admin.from("user_preferences").select("primary_goal,fitness_level").eq("user_id", id).maybeSingle(),
+  ]);
+  if (profile.error || preferences.error) {
+    if (profile.error && !isMissingTable(profile.error)) logServerError("data.person_profile", profile.error);
+    if (preferences.error && !isMissingTable(preferences.error)) logServerError("data.person_preferences", preferences.error);
+    if (profile.error && preferences.error) return null;
+  }
+  const p = (profile.data ?? null) as { name?: unknown; onboarded?: unknown; created_at?: unknown } | null;
+  const q = (preferences.data ?? null) as { primary_goal?: unknown; fitness_level?: unknown } | null;
+  return {
+    name: text(p?.name),
+    goal: text(q?.primary_goal),
+    experience: text(q?.fitness_level),
+    setUp: p ? Boolean(p.onboarded) : null,
+    profileCreatedAt: text(p?.created_at),
+  };
+}
+
+async function readSubscriptions(admin: AdminClient, id: string): Promise<SubscriptionSummary[] | null> {
+  const { data, error } = await admin
+    .from("billing_subscriptions")
+    .select("status,mode,created_at,paid_until,abandoned_at")
+    .eq("user_id", id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    logServerError("data.person_billing", error);
+    return null;
+  }
+  return (data ?? [])
+    .filter((row) => !row.abandoned_at)
+    .map((row) => ({ status: String(row.status), mode: String(row.mode), createdAt: String(row.created_at), paidUntil: text(row.paid_until) }));
 }

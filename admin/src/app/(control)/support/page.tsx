@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CircleHelp } from "lucide-react";
+import { Notice, PageHead, consoleStyles as ui } from "@/components/console/ui";
 import { ModuleState } from "@/components/module-state";
+import styles from "@/components/support/support.module.css";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listSupportRequests, parseSupportFilters, type SupportFilters } from "@/lib/data/support";
 import { MIGRATIONS } from "@/lib/schema";
 import {
   SUPPORT_CATEGORIES,
-  SUPPORT_CATEGORY_LABELS,
+  SUPPORT_CATEGORY_SHORT,
   SUPPORT_PRIORITY_LABELS,
   SUPPORT_STATUS_LABELS,
   SUPPORT_STATUSES,
@@ -24,9 +25,14 @@ function queueLink(filters: SupportFilters, overrides: Partial<SupportFilters>) 
   if (merged.status !== "active") query.set("status", merged.status);
   if (merged.category) query.set("category", merged.category);
   if (merged.mine) query.set("mine", "1");
+  if (merged.unread) query.set("unread", "1");
   if (merged.page > 1) query.set("page", String(merged.page));
   const text = query.toString();
   return `/support${text ? `?${text}` : ""}`;
+}
+
+function statusTone(status: string) {
+  return status === "open" ? "status-danger" : status === "waiting_on_user" ? "status-warn" : status === "resolved" || status === "closed" ? "status-neutral" : "status-good";
 }
 
 export default async function SupportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -34,35 +40,66 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const filters = parseSupportFilters(params);
   const result = await listSupportRequests(filters);
+  const waiting = result.state === "ready" ? ACTIVE.reduce((sum, status) => sum + (result.counts[status] ?? 0), 0) : null;
 
   return (
     <div className="page-stack">
-      <div className="page-heading-row"><div><p className="eyebrow">CUSTOMER CARE</p><h1>Support</h1><p className="page-lede">Help requests and feedback sent from the Help page in the FITX app. Replies appear to the person on that page.</p></div><span className="page-heading-icon"><CircleHelp aria-hidden="true" size={20} /></span></div>
-      {params.notice === "not_found" && <p className="inline-notice notice-error" role="status">That request no longer exists.</p>}
+      <PageHead
+        eyebrow="Support"
+        title="Inbox"
+        meta={result.state === "ready" ? `${result.inbox.unread === null ? "" : `${result.inbox.unread.toLocaleString("en-IN")} unread · `}${(waiting ?? 0).toLocaleString("en-IN")} need attention` : undefined}
+      />
+      {params.notice === "not_found" && <Notice tone="error">That request no longer exists.</Notice>}
       {result.state === "ready" ? (
-        <section className="table-panel" aria-label="Support queue">
-          <nav className="filter-tabs" aria-label="Status">
-            <Link aria-current={filters.status === "active" ? "page" : undefined} href={queueLink(filters, { status: "active", page: 1 })}>Needs attention <b>{ACTIVE.reduce((sum, status) => sum + (result.counts[status] ?? 0), 0)}</b></Link>
-            {SUPPORT_STATUSES.map((status) => <Link key={status} aria-current={filters.status === status ? "page" : undefined} href={queueLink(filters, { status, page: 1 })}>{SUPPORT_STATUS_LABELS[status]} <b>{result.counts[status] ?? 0}</b></Link>)}
-            <Link aria-current={filters.status === "all" ? "page" : undefined} href={queueLink(filters, { status: "all", page: 1 })}>All</Link>
+        <section className="table-panel" aria-label="Support inbox">
+          <nav className={styles.tabs} aria-label="Category">
+            <Link className={styles.tab} aria-current={!filters.category ? "page" : undefined} href={queueLink(filters, { category: null, page: 1 })}>All</Link>
+            {SUPPORT_CATEGORIES.map((category) => {
+              const unread = result.inbox.unreadByCategory?.[category] ?? 0;
+              return (
+                <Link key={category} className={styles.tab} aria-current={filters.category === category ? "page" : undefined} href={queueLink(filters, { category, page: 1 })}>
+                  {SUPPORT_CATEGORY_SHORT[category]}
+                  {unread > 0 && <span className={styles.badge}><span aria-hidden="true">{unread}</span><span className="sr-only">{unread} unread</span></span>}
+                </Link>
+              );
+            })}
           </nav>
-          <form action="/support" className="filter-bar">
-            {filters.status !== "active" && <input type="hidden" name="status" value={filters.status} />}
-            <label>Category<select name="category" defaultValue={filters.category ?? ""}><option value="">Any</option>{SUPPORT_CATEGORIES.map((category) => <option key={category} value={category}>{SUPPORT_CATEGORY_LABELS[category]}</option>)}</select></label>
-            <label className="check-label"><input type="checkbox" name="mine" value="1" defaultChecked={filters.mine} />Assigned to me</label>
-            <button className="quiet-button" type="submit">Apply</button>
-          </form>
-          {result.rows.length ? <div className="table-scroll"><table><thead><tr><th>Request</th><th>From</th><th>Status</th><th>Priority</th><th>Assigned to</th><th>Last message (IST)</th></tr></thead><tbody>
-            {result.rows.map((row) => <tr key={row.id}>
-              <td><Link className="row-link" href={`/support/${row.id}`}><strong>{row.subject}</strong><small className="table-subline">{SUPPORT_CATEGORY_LABELS[row.category]}</small></Link></td>
-              <td>{row.requesterEmail ?? <span className="mono-cell">{row.requesterId.slice(0, 8)}</span>}</td>
-              <td><span className={`status-pill ${row.status === "open" ? "status-danger" : row.status === "resolved" || row.status === "closed" ? "status-neutral" : "status-good"}`}><i />{SUPPORT_STATUS_LABELS[row.status]}</span></td>
-              <td>{SUPPORT_PRIORITY_LABELS[row.priority]}</td>
-              <td>{row.assigneeLabel ?? "—"}</td>
-              <td>{formatIstDateTime(row.lastMessageAt) ?? "—"}</td>
-            </tr>)}
-          </tbody></table></div> : <div className="empty-state"><h3>No requests here</h3><p>Nothing matches these filters.</p></div>}
-          <div className="table-footer"><span>{result.total.toLocaleString("en-IN")} requests</span><div className="pagination-actions">{filters.page > 1 && <Link className="quiet-button" href={queueLink(filters, { page: filters.page - 1 })}>Previous</Link>}{result.hasNext && <Link className="quiet-button" href={queueLink(filters, { page: filters.page + 1 })}>Next</Link>}</div></div>
+          <nav className="filter-tabs" aria-label="Status">
+            <Link aria-current={filters.status === "active" && !filters.unread ? "page" : undefined} href={queueLink(filters, { status: "active", unread: false, page: 1 })}>Needs attention <b>{waiting}</b></Link>
+            {result.inbox.unread !== null && <Link aria-current={filters.unread ? "page" : undefined} href={queueLink(filters, { status: "all", unread: true, page: 1 })}>Unread <b>{result.inbox.unread}</b></Link>}
+            {SUPPORT_STATUSES.map((status) => <Link key={status} aria-current={filters.status === status && !filters.unread ? "page" : undefined} href={queueLink(filters, { status, unread: false, page: 1 })}>{SUPPORT_STATUS_LABELS[status]} <b>{result.counts[status] ?? 0}</b></Link>)}
+            <Link aria-current={filters.status === "all" && !filters.unread ? "page" : undefined} href={queueLink(filters, { status: "all", unread: false, page: 1 })}>All</Link>
+            <Link aria-current={filters.mine ? "page" : undefined} href={queueLink(filters, { mine: !filters.mine, page: 1 })}>Assigned to me</Link>
+          </nav>
+          {result.rows.length ? (
+            <ul className={`${styles.list} ${ui.stagger}`}>
+              {result.rows.map((row) => (
+                <li key={row.id} className={`${styles.item}${row.unread ? ` ${styles.unread}` : ""}`}>
+                  <Link className={styles.link} href={`/support/${row.id}`}>
+                    <span className={styles.dot} aria-hidden="true" />
+                    <span className={styles.top}>
+                      <span className={styles.subject}>{row.unread && <span className="sr-only">Unread: </span>}{row.subject}</span>
+                      <time className={styles.when} dateTime={row.lastMessageAt}>{formatIstDateTime(row.lastMessageAt) ?? ""}</time>
+                    </span>
+                    <span className={styles.meta}>
+                      <span className={`status-pill ${row.category === "complaint" ? styles.complaint : "status-neutral"}`}>{SUPPORT_CATEGORY_SHORT[row.category] ?? row.category}</span>
+                      <span className={`status-pill ${statusTone(row.status)}`}><i />{SUPPORT_STATUS_LABELS[row.status]}</span>
+                      <span>{row.requesterEmail ?? row.requesterId.slice(0, 8)}</span>
+                      {row.priority !== "normal" && <span>{SUPPORT_PRIORITY_LABELS[row.priority]} priority</span>}
+                      {row.assigneeLabel && <span>· {row.assigneeLabel}</span>}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : <div className="empty-state"><h3>Nothing here</h3><p>No requests match.</p></div>}
+          <div className="table-footer">
+            <span>{result.total.toLocaleString("en-IN")} requests</span>
+            <div className="pagination-actions">
+              {filters.page > 1 && <Link className="quiet-button" href={queueLink(filters, { page: filters.page - 1 })}>Previous</Link>}
+              {result.hasNext && <Link className="quiet-button" href={queueLink(filters, { page: filters.page + 1 })}>Next</Link>}
+            </div>
+          </div>
         </section>
       ) : <ModuleState state={result.state} migration={MIGRATIONS.support} />}
     </div>

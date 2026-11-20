@@ -2,9 +2,7 @@
    a top bar with a menu dialog; from 1024 px a fixed section rail. */
 
 .shell {
-  /* The rail and the menu stay dark in both themes: the darker page colour, with the lighter on it. */
-  --stage: var(--ink);
-  --on-stage: var(--paper);
+  /* The rail and the menu stay dark in both themes (--stage and --on-stage in globals.css). */
   min-height: 100vh;
   min-height: 100svh;
   background: var(--paper);
@@ -339,11 +337,30 @@
   .main { padding: 36px 48px 80px; }
 }
 
-@media (prefers-color-scheme: dark) {
-  .shell { --stage: var(--paper); --on-stage: var(--ink); }
-  .rail { border-right: 1px solid var(--line); }
-  .drawerPanel { border-right: 1px solid var(--line); }
-  .drawer::backdrop { background: color-mix(in srgb, var(--stage) 70%, transparent); }
+/* A hairline keeps the rail apart from the page when both are dark. */
+.rail, .drawerPanel { border-right: 1px solid color-mix(in srgb, var(--on-stage) 8%, transparent); }
+
+/* Unread counts beside a section (Support). */
+.count {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--coral);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
 }
+.sectionLink:has(.count) { grid-template-columns: 22px 18px minmax(0, 1fr) auto; }
+.themeSlot { display: none; }
+@media (min-width: 640px) { .themeSlot { display: block; } }
 
 @keyframes trace { to { stroke-dashoffset: 0; } }
+.drawerTheme { margin-top: auto; padding: 12px; }
+.drawerTheme fieldset { border-color: color-mix(in srgb, var(--on-stage) 16%, transparent); background: color-mix(in srgb, var(--on-stage) 6%, transparent); }
+.drawerTheme label { color: color-mix(in srgb, var(--on-stage) 72%, transparent); }
+.drawerTheme label:has(input:checked) { color: var(--ink); }

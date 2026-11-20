@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, MessagesSquare } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { ModuleState } from "@/components/module-state";
 import { PendingButton } from "@/components/pending-button";
 import { requireAdmin } from "@/lib/admin-auth";
-import { getSupportThread } from "@/lib/data/support";
+import { getSupportThread, markSupportRead } from "@/lib/data/support";
 import { can } from "@/lib/roles";
 import { MIGRATIONS } from "@/lib/schema";
 import {
@@ -40,17 +40,19 @@ export default async function SupportRequestPage({ params, searchParams }: { par
   const { notice } = await searchParams;
   const result = await getSupportThread(id);
   if (result.state === "not_found") notFound();
-  const back = <Link href="/support" className="text-link back-link"><ArrowLeft aria-hidden="true" size={15} />Support queue</Link>;
+  const back = <Link href="/support" className="text-link back-link"><ArrowLeft aria-hidden="true" size={15} />Inbox</Link>;
   if (result.state !== "ready") return <div className="page-stack">{back}<ModuleState state={result.state} migration={MIGRATIONS.support} /></div>;
 
   const thread = result.thread;
+  // Opening the request marks it read (the database audits it when it was unread).
+  await markSupportRead(thread.id);
   const message = notice ? notices[notice] : undefined;
   const mayReply = can(actor.role, "support.reply");
 
   return (
     <div className="page-stack">
       {back}
-      <div className="page-heading-row"><div><p className="eyebrow">{SUPPORT_CATEGORY_LABELS[thread.category].toUpperCase()}</p><h1 className="break-anywhere">{thread.subject}</h1><p className="page-lede">From {thread.requesterEmail ?? "an account"} · {formatIstDateTime(thread.createdAt)}{thread.pagePath ? ` · sent from ${thread.pagePath}` : ""}</p></div><span className="page-heading-icon"><MessagesSquare aria-hidden="true" size={20} /></span></div>
+      <div className="page-heading-row"><div><p className="eyebrow">{SUPPORT_CATEGORY_LABELS[thread.category] ?? thread.category}</p><h1 className="break-anywhere">{thread.subject}</h1><p className="page-lede">From {thread.requesterEmail ?? "an account"} · {formatIstDateTime(thread.createdAt)}{thread.pagePath ? ` · sent from ${thread.pagePath}` : ""}</p></div></div>
       {message && <p className={`inline-notice ${message.tone === "success" ? "notice-success" : "notice-error"}`} role="status">{message.text}</p>}
 
       <div className="thread-layout">
