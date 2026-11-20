@@ -132,12 +132,17 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
     setError("");
   };
 
-  const start = () => {
-    setDraft(original);
-    setErrors({});
-    setError("");
-    onEdit();
-  };
+  // The form can be opened from the section's Edit button or from the targets card's "Add body details", so every
+  // opening starts from the saved values with no errors, never from a cancelled draft.
+  const [openedFor, setOpenedFor] = useState(editing);
+  if (openedFor !== editing) {
+    setOpenedFor(editing);
+    if (editing) {
+      setDraft(original);
+      setErrors({});
+      setError("");
+    }
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -196,7 +201,7 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
   }
 
   return (
-    <SectionCard id="body" title="Body" icon={<Ruler size={18} />} editing={editing} onEdit={start} canEdit notice={notice}>
+    <SectionCard id="body" title="Body" icon={<Ruler size={18} />} editing={editing} onEdit={onEdit} canEdit notice={notice}>
       {!editing ? (
         <DetailList>
           {v3 && (profile?.date_of_birth || profile?.age == null) ? (
