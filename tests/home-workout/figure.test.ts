@@ -26,6 +26,8 @@ test("the anchor joint stays where the demonstration puts it, and the drawing's 
     const box = demoBounds(demo);
     assert.ok(Math.abs(box.width / box.height - 4 / 3) < 1e-9, `${id}: 4:3 frame`);
     assert.ok(box.y + box.height >= FLOOR_Y, `${id}: the floor is in the frame`);
+    const page = demoBounds(demo, 4 / 3, 30, 400);
+    assert.ok(page.width >= 400 - 1e-9 && page.width >= box.width, `${id}: never zoomed past the minimum width`);
     for (let t = 0; t < loop; t += loop / 17) {
       const frame = sampleDemo(demo, t);
       if (!demo.keyframes.some((keyframe) => keyframe.at)) {

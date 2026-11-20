@@ -51,7 +51,7 @@ export function HomeWorkoutHero() {
               <dd className="mt-1 font-heading text-2xl font-bold">2</dd>
             </div>
           </dl>
-          <a href="#exercises" className="fitx-button mt-7 hidden w-fit md:inline-flex">
+          <a href="#exercises" className="fitx-button mt-7 w-fit">
             <ArrowDown size={17} aria-hidden="true" />
             Choose an exercise
           </a>

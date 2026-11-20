@@ -59,12 +59,12 @@ export const flow = {
         t.note("coach voice", "this browser has no speech synthesis, so the voice choice is not shown");
         return;
       }
-      for (const name of ["Female", "Male", "Off"]) t.expect((await voice.getByRole("radio", { name }).count()) === 1, `the voice choice should offer ${name}`);
-      await voice.getByRole("radio", { name: "Male" }).click();
-      t.expect((await voice.getByRole("radio", { name: "Male" }).getAttribute("aria-checked")) === "true", "Male should be chosen");
+      for (const name of ["Female", "Male", "Off"]) t.expect((await voice.getByRole("radio", { name, exact: true }).count()) === 1, `the voice choice should offer ${name}`);
+      await voice.getByRole("radio", { name: "Male", exact: true }).click();
+      t.expect((await voice.getByRole("radio", { name: "Male", exact: true }).getAttribute("aria-checked")) === "true", "Male should be chosen");
       await page.reload();
       await page.getByText("Set up your camera").waitFor();
-      const after = page.getByRole("radiogroup", { name: "Coach voice" }).getByRole("radio", { name: "Male" });
+      const after = page.getByRole("radiogroup", { name: "Coach voice" }).getByRole("radio", { name: "Male", exact: true });
       t.expect((await after.getAttribute("aria-checked")) === "true", "the Male voice should be remembered after a reload");
     });
 

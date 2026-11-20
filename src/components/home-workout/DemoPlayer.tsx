@@ -31,7 +31,7 @@ function turnaroundIndex(exercise: HomeExercise): number {
  */
 export function DemoPlayer({ exercise, size = "lg", paused: pausedOutside, className }: DemoPlayerProps) {
   const demo = DEMONSTRATIONS[exercise.id];
-  const box = useMemo(() => demoBounds(demo), [demo]);
+  const box = useMemo(() => demoBounds(demo, 4 / 3, size === "lg" ? 30 : 24, size === "lg" ? 400 : 340), [demo, size]);
   const ghost = useMemo(() => {
     const frame = demo.keyframes[turnaroundIndex(exercise)];
     return place(demo, frame.pose, frame.at ?? demo.at);
@@ -88,15 +88,18 @@ export function DemoPlayer({ exercise, size = "lg", paused: pausedOutside, class
 
   return (
     <div ref={holder} className={cn("relative h-full w-full", className)}>
-      <FigureSvg
-        ref={figure}
-        box={box}
-        angle={large ? exercise.angle : null}
-        ghost={large ? ghost : null}
-        weights={exercise.equipment === "Light dumbbells"}
-        wallX={exercise.id === "wall_sit" ? demo.at.x - 64 - 12 : null}
-        label={`How to do a ${exercise.rule.name.toLowerCase()}`}
-      />
+      {/* The figure stands clear of the caption bar on the page; in the live view it fills its corner. */}
+      <div className={large ? "absolute inset-x-0 bottom-20 top-0 sm:bottom-24" : "absolute inset-0"}>
+        <FigureSvg
+          ref={figure}
+          box={box}
+          angle={large ? exercise.angle : null}
+          ghost={large ? ghost : null}
+          weights={exercise.equipment === "Light dumbbells"}
+          wallX={exercise.id === "wall_sit" ? demo.at.x - 64 - 12 : null}
+          label={`How to do a ${exercise.rule.name.toLowerCase()}`}
+        />
+      </div>
       <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3", large ? "p-4 sm:p-5" : "p-2")}>
         <span className="min-w-0">
           {large && (

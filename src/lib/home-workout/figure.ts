@@ -226,7 +226,7 @@ export interface Box {
  * The box a demonstration needs over its whole loop, padded and widened to `aspect`, with the
  * floor kept in view: the drawing's viewBox, so overhead arms are never cut off.
  */
-export function demoBounds(demo: Demonstration, aspect = STAGE.width / STAGE.height, padding = 22): Box {
+export function demoBounds(demo: Demonstration, aspect = STAGE.width / STAGE.height, padding = 22, minWidth = 0): Box {
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
@@ -246,6 +246,11 @@ export function demoBounds(demo: Demonstration, aspect = STAGE.width / STAGE.hei
   let y = minY - padding;
   let width = maxX - minX + padding * 2;
   let height = maxY - minY + padding * 2;
+  // Never zoom in past `minWidth`, so a small move is not blown up (and every figure keeps its weight).
+  if (width < minWidth) {
+    x -= (minWidth - width) / 2;
+    width = minWidth;
+  }
   if (width / height < aspect) {
     const grown = height * aspect;
     x -= (grown - width) / 2;
