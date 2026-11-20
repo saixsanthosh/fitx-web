@@ -17,7 +17,9 @@
 //     account keeps its ID on the log (tried right after that file and after the last migration);
 //   * on production, only 20261118180000 meets Admin objects that already exist: the draft's two tables and
 //     their two indexes;
-//   * the Admin files can be applied a second time on both without errors or changes;
+//   * the Admin files can be applied a second time on both without errors or changes, apart from
+//     KNOWN_RERUN_CHANGE: 20261118180001 puts back its role table, and 20261121100030, run again after
+//     them, must give back exactly the database the first pass ended with;
 //   * the Phase 10 database checks (admin/tests/database/phase10-checks.sql) pass on both;
 //   * on production, while a request holds the accounts table, 20261118180000 gives up after about 3 seconds
 //     and leaves nothing, rather than queue every sign-in behind its lock, and applies once the table is free.
@@ -65,6 +67,17 @@ const KNOWN_DIFFERENCES = {
       "it creates these two only when they are missing, so production keeps the draft's copies, which differ from its " +
       "own only in indentation; 20261118180001 replaces both on every database",
   },
+};
+
+// What a second run of the Admin files may change, and why: exactly one function, back to the definition the file
+// gave it the first time; the later file named here, run again after them, must restore everything.
+const KNOWN_RERUN_CHANGE = {
+  from: ADMIN.find((name) => name.startsWith("20261118180001_")),
+  function: "fitx_admin_role_permissions(text)",
+  restoredBy: MIGRATIONS.find((name) => name.startsWith("20261121100030_")),
+  reason:
+    "20261118180001 run again puts back its 16-permission role table, and the later Phase 10 files leave it so; " +
+    "20261121100030, run again after it, restores the 21-permission table that fitx_admin_op_can uses",
 };
 
 const list = (names) => `array[${names.map((name) => `'${name}'`).join(", ")}]::text[]`;
@@ -251,11 +264,16 @@ function build(pg, { production }) {
   state.end = pg.json(SNAPSHOT);
   state.actorAtEnd = deleteAnAuditActor(pg);
 
-  // The Admin files a second time, in order: each must apply and change nothing.
+  // The Admin files a second time, in order: each must apply and change nothing but the known re-run change below.
   state.rerun = {};
   for (const name of ADMIN) {
     const result = pg.runFile(path.join(MIGRATIONS_DIR, name), { singleTransaction: true });
-    state.rerun[name] = result.ok ? { ok: true, changes: diff(state.end, pg.json(SNAPSHOT)) } : { ok: false, error: errorText(result.stderr) };
+    state.rerun[name] = result.ok ? { ok: true, snapshot: pg.json(SNAPSHOT) } : { ok: false, error: errorText(result.stderr) };
+  }
+  // Then the file that replaced the role table, a second time: it must put everything back as it was.
+  if (KNOWN_RERUN_CHANGE.restoredBy) {
+    const result = pg.runFile(path.join(MIGRATIONS_DIR, KNOWN_RERUN_CHANGE.restoredBy), { singleTransaction: true });
+    state.restored = result.ok ? { ok: true, changes: diff(state.end, pg.json(SNAPSHOT)) } : { ok: false, error: errorText(result.stderr) };
   }
 
   const checks = pg.runFile(PHASE10_CHECKS);
@@ -377,11 +395,28 @@ describe("the Admin migrations on a fresh database and on production's schema", 
   test("the Admin files can be applied a second time on both databases without errors or changes", (t) => {
     if (failed().length) return t.skip(`not checked: ${failed().join(", ")} failed`);
     const problems = [];
+    const { from, restoredBy, reason } = KNOWN_RERUN_CHANGE;
     for (const db of ["fresh", "production"]) {
+      const { end, after: afterFile } = state[db];
+      // From the known file on, the one function is back to its definition right after that file the first time.
+      const expected = structuredClone(end);
+      if (restoredBy) expected.function[KNOWN_RERUN_CHANGE.function] = afterFile[from].function[KNOWN_RERUN_CHANGE.function];
+      let shown = false;
       for (const [name, result] of Object.entries(state[db].rerun)) {
-        if (!result.ok) problems.push(`${db}: ${name} fails when applied a second time:\n${indent(result.error)}`);
-        else if (result.changes.length) problems.push(`${db}: ${name} changes the database when applied a second time:\n${indent(result.changes.join("\n"))}`);
+        if (!result.ok) {
+          problems.push(`${db}: ${name} fails when applied a second time:\n${indent(result.error)}`);
+          continue;
+        }
+        const changes = diff(name >= from ? expected : end, result.snapshot);
+        if (changes.length) problems.push(`${db}: ${name} changes the database when applied a second time:\n${indent(changes.join("\n"))}`);
+        if (name >= from && diff(end, result.snapshot).length) shown = true;
       }
+      if (!restoredBy) continue;
+      if (!shown) problems.push(`${db}: ${from} no longer shows its known re-run change: remove KNOWN_RERUN_CHANGE`);
+      else t.diagnostic(`known: ${db}: from ${from}, a second run changes only ${KNOWN_RERUN_CHANGE.function}: ${reason}`);
+      const restored = state[db].restored;
+      if (!restored.ok) problems.push(`${db}: ${restoredBy} fails when applied a second time:\n${indent(restored.error)}`);
+      else if (restored.changes.length) problems.push(`${db}: after ${restoredBy} a second time, the Admin objects still differ:\n${indent(restored.changes.join("\n"))}`);
     }
     assert.ok(problems.length === 0, problems.join("\n"));
   });

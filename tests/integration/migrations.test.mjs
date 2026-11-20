@@ -108,6 +108,9 @@ const NO_POLICY_BY_DESIGN = {
   fitx_admin_audit_logs: "Admin audit log, row level security forced; read and appended by service_role (which bypasses RLS) and the security definer Admin functions (20261118180000, 20261118180002)",
   billing_provider_events: "Razorpay event log; read by service_role only and written by billing_apply_event() (20261118190000)",
   billing_reconciliation_runs: "nightly Razorpay reconciliation results; read by service_role only and written by billing_record_reconciliation() (20261118190000)",
+  admin_operators: "Admin operators and their scrypt hashes; read by service_role (bypasses RLS) and written only by the security definer fitx_admin_op_* functions (20261121100030)",
+  admin_web_sessions: "Admin sessions (token hashes only); read and written by service_role from the Admin server (20261121100030)",
+  admin_login_attempts: "Admin sign-in attempts (hashed username and IP keys); written only by the security definer fitx_admin_login_* functions, read by service_role (20261121100030)",
 };
 
 // Migrations that cannot safely be applied a second time: the error they stop at, or the changes they
@@ -142,6 +145,12 @@ const KNOWN_RERUN_PROBLEMS = {
     reason:
       "run again it puts back its seven-goal rule, without 20261120100000's maintain_weight (the runbook says not to run it " +
       "again after a success); 20261120100000, run again after it, restores the eight-goal rule",
+  },
+  "20261118180001_fitx_admin_roles.sql": {
+    changes: [/^changed function public\.fitx_admin_role_permissions\(p_role text\): /],
+    reason:
+      "run again it puts back its 16-permission role table; 20261121100030, run again after it, restores the 21-permission table " +
+      "that fitx_admin_op_can uses",
   },
 };
 
@@ -597,8 +606,8 @@ const RUNBOOK_PINNED = {
     ["2707379", "Kidney beans, NFS"], ["2707380", "Kidney beans, from dried, fat added"],
     ["2707381", "Kidney beans, from dried, no added fat"], ["2707382", "Kidney beans, from canned, fat added"],
   ].map(([id, name]) => ({ id, name, has_rajma: true }))],
-  "Final 2": [["ai_coach_limits", "ai_coach_usage_events", "billing_provider_events", "billing_reconciliation_runs", "fitx_admin_audit_logs", "fitx_rate_limits"]
-    .map((relname) => ({ relname }))],
+  "Final 2": [["admin_login_attempts", "admin_operators", "admin_web_sessions", "ai_coach_limits", "ai_coach_usage_events", "billing_provider_events",
+    "billing_reconciliation_runs", "fitx_admin_audit_logs", "fitx_rate_limits"].map((relname) => ({ relname }))],
   "History 2": [byVersion([...PRODUCTION_ROWS, ...PENDING.map(historyRow)])],
 };
 

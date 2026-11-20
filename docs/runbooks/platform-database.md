@@ -1,14 +1,14 @@
-# Platform database runbook (Phases 1 to 11)
+# Platform database runbook (Phases 1 to 11 and the Admin redesign)
 
 This runbook applies every pending database change to the production Supabase project, one file at a
 time. It is written for the FITX owner. You do not need to know SQL. "The session" below means the Claude
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **What is pending:** the 41 files from `20261115100000` to `20261120100000` in `supabase/migrations` on
+- **What is pending:** the 44 files from `20261115100000` to `20261121100036` in `supabase/migrations` on
   the branch `claude/train`. That folder is the source of truth. Production already has the 14 files from
   September 2026 and none of these, plus three changes that were applied to it by hand and have no file in
-  that folder (section 1.8). Five of the 41 files meet what those three made; they are written for it, and
+  that folder (section 1.8). Five of the 44 files meet what those three made; they are written for it, and
   their summaries say what they do on production.
 - **Older runbooks:** `docs/runbooks/phase1-database.md` covered the first five files for release 2. This
   runbook includes them, so use this one. `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
@@ -36,7 +36,7 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only these 41 files, only from `claude/train`. Never a copy from another branch or worktree, never
+- Only these 44 files, only from `claude/train`. Never a copy from another branch or worktree, never
   the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from `claude/train`), and
   never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
   production already has (section 1.8).
@@ -44,8 +44,8 @@ For each file, in the order of section 2:
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Do all 41 in one sitting if you can, then deploy the new app (section 6.4) the same
-  day. If you need two sittings, stop after #11 and do #12 to #41 on the day you deploy: #12 changes muscle
+- Pick a quiet time. Do all 44 in one sitting if you can, then deploy the new app (section 6.4) the same
+  day. If you need two sittings, stop after #11 and do #12 to #44 on the day you deploy: #12 changes muscle
   names that the live app's automatic workout builder still uses. The five food parts and #37 may also wait
   until after the deploy (section 2.1).
 - The live app keeps working throughout. Only three files change something it uses: #1 (it then saves pauses
@@ -108,7 +108,7 @@ numbers differ from the file names, stop and compare them with section 2 first.
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the 41 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
+-- Start 2: changes from the 44 pending files that are already there. Expect: two rows, 20261115110000 workout_sets.duration_seconds and 20261118180000 fitx_admin_members
 select m.file, m.object
 from (values
   ('20261115100000', 'column', 'workout_sessions.active_duration_seconds'),
@@ -141,7 +141,10 @@ from (values
   ('20261118190000', 'table', 'billing_plans'),
   ('20261119100000', 'column', 'activities.source'),
   ('20261119100010', 'table', 'exercise_notes'),
-  ('20261120100000', 'column', 'profiles.date_of_birth')
+  ('20261120100000', 'column', 'profiles.date_of_birth'),
+  ('20261121100030', 'table', 'admin_operators'),
+  ('20261121100033', 'table', 'platform_settings'),
+  ('20261121100036', 'function', 'fitx_admin_op_report(uuid,integer)')
 ) as m (file, kind, object)
 where case m.kind
   when 'table' then to_regclass('public.' || m.object) is not null
@@ -176,8 +179,8 @@ from pg_roles r where r.rolname = current_user;
 select has_table_privilege(current_user, 'auth.sessions', 'DELETE') as can_end_sessions;
 ```
 
-- `rolbypassrls` is `f`: apply everything except #29 to #35. Tell the session; Admin would see no team
-  members and could sign nobody in.
+- `rolbypassrls` is `f`: apply everything except #29 to #35 and #42 to #44. Tell the session; Admin would see no
+  team members or operators and could sign nobody in.
 - `can_end_sessions` is `f`: you can still apply everything. Admin's "Sign out everywhere" will report that
   Supabase refused, until this is fixed. Tell the session.
 - `applying_role` or `owner_of_existing_tables` is not `postgres`: stop and tell the session. The connector
@@ -238,7 +241,7 @@ applied by hand, outside this repository. Exact copies, checked against the hist
 | `20261002172706 fitx_share_access_and_index` | Only signed-out visitors may call `get_activity_share`; one index. |
 | `20261116093902 fitx_admin_control_plane` | The old Admin draft ("Prepared for review only"): the Admin team list, the Admin audit log and three Admin functions. |
 
-Five of the 41 files meet what these made, and are written for it:
+Five of the 44 files meet what these made, and are written for it:
 
 - #1 finds `paused_at` and adds the other two pause fields.
 - #2 finds all five of its fields, in which the live app already saves targets and set times. It adds its five
@@ -250,7 +253,7 @@ Five of the 41 files meet what these made, and are written for it:
   made them, and adopts them unchanged: FITX now keeps saved exercises there.
 
 Every other file does exactly what it does on a new project. `tests/integration/migrations.test.mjs` applies
-all 41 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
+all 44 to a copy of production's database made from those copies, twice, and checks that it ends exactly like a
 new project apart from what stays (below) and the order of fields: in the six tables experience 2.0 added fields
 to, production lists its fields before the ones these files add. Nothing in FITX depends on that order. (Production
 also has an event trigger, `ensure_rls`, that switches row level security on for each new public table, from
@@ -310,7 +313,7 @@ something has paused workouts the way experience 2.0 does, and #1 reads those fi
 workout would show the wrong time, or 00:00:00 while paused. If any other count in Start 10 is not 0, tell the
 session; the files still apply, but it changes the decision below.
 
-**What stays, for you to decide.** After all 41 files, production still has four of experience 2.0's five tables (#40 adopts the fifth, `exercise_favorites`),
+**What stays, for you to decide.** After all 44 files, production still has four of experience 2.0's five tables (#40 adopts the fifth, `exercise_favorites`),
 `get_activity_share(text)`, five extra fields on exercises, three on custom foods, five on the workout tables
 (distances, a paused total and a rest timer) and its three workout checks. Nothing in FITX uses any of it. Two
 things to weigh:
@@ -324,7 +327,7 @@ The choices: keep it as it is (nothing changes; Final 3 lists `get_activity_shar
 visitors lose the function, the API roles lose the four tables); or remove it (a migration that stops if any of
 the four tables has rows or any of the extra fields it drops holds a value, as Start 10 counts them, then drops
 the function, the tables and the extra fields). For the second or third, the session writes a new migration
-after #41, tests it on the copy, and applies it with your OK.
+after #44, tests it on the copy, and applies it with your OK.
 
 ## 2. Apply order
 
@@ -376,6 +379,9 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 39 | `20261119100010_fitx_exercise_notes` | Members' private notes on exercises: one per exercise, up to 500 characters. | Additive · yes | #11 | "Your note" on exercise pages | Until it is applied the exercise page hides the note box. |
 | 40 | `20261119100020_fitx_exercise_favorites` | Adopts experience 2.0's saved-exercises table (owner only) as a file. | Additive · yes | #11 | Saved exercises in the account, on every device and in "Download my data" | On production it changes nothing (1.8). Until it is applied on a new project, saved exercises stay on the device. |
 | 41 | `20261120100000_fitx_onboarding_v3` | Date of birth (age follows it), the maintain-weight goal, where meals come from and the nutrition goal. | Additive · yes | #4, #7 | The three setup pages: date of birth, Maintain weight, food preference and nutrition goal | Until it is applied setup asks the date of birth but saves only the age, offers Maintain weight greyed out and leaves out food preference and nutrition goal. |
+| 42 | `20261121100030_fitx_admin_v2` | Username and password sign-in for Admin operators, database sessions, sign-in limits, operator versions of every Admin write function. | Additive · yes | #29 to #35 | Admin /login and every Admin write | Until it is applied Admin refuses every sign-in and logs the missing migration; the FITX app is unaffected. Replaces the role table of #30 (21 permissions). |
+| 43 | `20261121100033_fitx_admin_ops` | Platform settings (feature switches, maintenance notice, website information), notices to chosen accounts, the Complaint category and unread tracking for Help requests, account search v2, Dashboard and Security summaries. | Additive · yes | #42; #34 and #35 | Admin Settings, Notifications, Support inbox and Security; the app's /unavailable page, notices and maintenance banner | Until it is applied the app keeps every feature on, and those Admin screens say they need this update. Before an undo, move complaint rows to another category (section 5). |
+| 44 | `20261121100036_fitx_admin_content` | No table. Type and size limits on `exercise-media`, a public `food-media` bucket, operator functions to edit exercises and their media, publish programmes, edit foods, portions, photos and categories, add and edit subscription plans (never prices), and read report counts. | Additive · yes | #42; #13, #14, #17 and #36 | Admin Workouts, Nutrition, Subscriptions and Reports | Before it is applied those screens say they need this update; Admin Overview is unaffected. Its `food-media` bucket is deleted in Dashboard → Storage, not with SQL. |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1243,6 +1249,73 @@ select exists (select 1 from information_schema.columns where table_schema = 'pu
   (select pg_get_constraintdef(oid) like '%eggetarian%' and pg_get_constraintdef(oid) like '%vegan%' from pg_constraint where conrelid = 'public.user_preferences'::regclass and conname = 'user_preferences_diet_type_check') as vegan_and_eggetarian_allowed;
 ```
 
+### #42 `20261121100030_fitx_admin_v2`
+
+Admin's own sign-in: a username and password, no Google. Adds three tables, `admin_operators`, `admin_web_sessions`
+and `admin_login_attempts`, with row level security forced and no policy, so only the server's secret key and the
+database functions reach them (members and visitors have no rights on them). Adds the sign-in limits (5 failures
+lock a username for 15 minutes; 20 attempts per network address in 15 minutes), `fitx_admin_op_can`,
+`fitx_admin_op_log_event` and an operator version (`fitx_admin_op_*`) of every Admin write function, all for the
+server key only. Adds operator columns to the audit log (`actor_operator_id`, `actor_username`), support requests and
+messages, and announcements; none is readable by members. Replaces the role table of #30 with 21 permissions. The
+older Admin functions, the team list of #29 and all audit history stay. It changes no row; the owner's operator row
+appears at the first sign-in. Until it is applied, Admin refuses every sign-in.
+
+```sql
+-- Check 20261121100030: expect 3, 0, f, f, 14, 21, 2, 4, 0
+select
+  (select count(*) from pg_class where relnamespace = 'public'::regnamespace and relname in ('admin_operators', 'admin_web_sessions', 'admin_login_attempts') and relrowsecurity and relforcerowsecurity) as admin_tables_locked,
+  (select count(*) from pg_policy where polrelid in ('public.admin_operators'::regclass, 'public.admin_web_sessions'::regclass, 'public.admin_login_attempts'::regclass)) as policies,
+  has_table_privilege('authenticated', 'public.admin_operators', 'SELECT') as members_read_operators,
+  has_function_privilege('anon', 'public.fitx_admin_login_check(text, text)', 'EXECUTE') as visitors_call_sign_in,
+  (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx_admin_op\_%') as operator_functions,
+  cardinality(public.fitx_admin_role_permissions('super_admin')) as super_admin_permissions,
+  (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'fitx_admin_audit_logs' and column_name in ('actor_operator_id', 'actor_username')) as audit_operator_columns,
+  (select count(*) from information_schema.columns where table_schema = 'public' and (table_name, column_name) in (('support_requests', 'assigned_operator_id'), ('support_messages', 'author_operator_id'), ('announcements', 'created_by_operator_id'), ('announcements', 'updated_by_operator_id'))) as operator_columns,
+  (select count(*) from public.admin_operators) as operators;
+```
+
+The last value becomes 1 once the owner signs in to Admin. Run later, after #43 and #44, `operator_functions` is
+higher: they add their own `fitx_admin_op_*` functions.
+
+### #43 `20261121100033_fitx_admin_ops`
+
+What Admin's Settings, Notifications, Support and Security screens need. `platform_settings` holds one row: the
+feature switches (AI coach, Home workout, Activity, Subscriptions, Help messages), the maintenance notice and the
+website information (support email, Instagram). Members and visitors may read it; operators change it only through
+`fitx_admin_op_save_platform_settings`. The app reads it with the publishable key, caches it for a minute, and keeps
+every feature on when it cannot read it. `member_notifications` holds notices sent to chosen accounts: each member
+reads and dismisses only their own, sees neither who sent them nor the batch, and the database stamps the dismissal
+itself. Help requests gain a Complaint category and staff unread tracking (`staff_seen_at`, `staff_unread`, both
+hidden from members). Adds the Admin account search v2, the Dashboard extras and the Security summary. Every function
+is for the server key only. It adds one settings row with everything on and changes no other row.
+
+```sql
+-- Check 20261121100033: expect 1, t, 10, t, t
+select (select count(*) from public.platform_settings) as settings_rows,
+       to_regclass('public.member_notifications') is not null as notices,
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('fitx_admin_op_save_platform_settings','fitx_admin_op_send_notifications','fitx_admin_notification_history','fitx_admin_op_support_mark_seen','fitx_admin_support_inbox','fitx_admin_search_users_v2','fitx_admin_overview_extras','fitx_admin_security_overview','fitx_support_staff_seen','fitx_member_notification_dismiss_guard')) as functions,
+       exists (select 1 from information_schema.columns where table_schema='public' and table_name='support_requests' and column_name='staff_unread') as unread_column,
+       (select pg_get_constraintdef(oid) ilike '%complaint%' from pg_constraint where conrelid='public.support_requests'::regclass and conname='support_requests_category_check') as complaints;
+```
+
+### #44 `20261121100036_fitx_admin_content`
+
+What Admin's Workouts, Nutrition, Subscriptions and Reports screens need. Adds no table. Sets type and size limits
+on the public `exercise-media` bucket (JPEG, PNG, WebP and AVIF photos, MP4 and WebM loops, 50 MB at most) and adds
+a public `food-media` bucket with the same kind of limits. No storage policy: only the Admin server uploads, through
+one-time signed upload URLs. Adds 16 functions for the server key only: edit exercises (a new one starts hidden;
+delete only an Admin-made one that nothing uses) and their photos and videos, publish programmes or move them back
+to draft, edit foods, their portions, photos and categories, add and edit subscription plans (prices and plan ids
+already set never change: Razorpay fixes them), and report counts. Each checks the operator's role and writes one
+audit row. It changes no row.
+
+```sql
+-- Check 20261121100036: expect 16, 2
+select (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('fitx_admin_op_save_exercise','fitx_admin_op_delete_exercise','fitx_admin_op_add_exercise_media','fitx_admin_op_remove_exercise_media','fitx_admin_op_set_programme_status','fitx_admin_op_training_counts','fitx_admin_op_save_food','fitx_admin_op_set_food_active','fitx_admin_op_set_food_portions','fitx_admin_op_set_food_image','fitx_admin_op_rename_food_category','fitx_admin_op_food_categories','fitx_admin_op_save_billing_plan','fitx_admin_op_report','fitx_admin_content_text_array','fitx_admin_content_slug')) as functions,
+  (select count(*) from storage.buckets where id in ('exercise-media','food-media') and public and file_size_limit is not null) as buckets;
+```
+
 ## 4. If a migration fails part-way
 
 1. **Stop.** Do not apply the next file. The live app keeps working, and the new app waits for each file.
@@ -1293,6 +1366,9 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
+| 44 | SQL below, then delete the `food-media` bucket (and the photos in it) in Dashboard → Storage, not with SQL. Admin's Workouts, Nutrition, Subscriptions and Reports then say they need the update; exercises, foods and plans already saved stay. |
+| 43 | First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. Audit rows it wrote stay: the audit log is permanent. |
+| 42 | Undo #44 and #43 first. SQL below. Drops the operators, their sessions and sign-in attempts, the operator functions and the operator columns on support and announcements, and puts back the role table of #30; Admin then refuses every sign-in. The two audit columns `actor_operator_id` and `actor_username` stay, so the log keeps who did what. |
 | 41 | SQL below. Drops members' birth dates (their age stays as last saved), food preference and nutrition goal, and turns Maintain weight goals into General fitness, which has the same calorie target. |
 | 40 | Nothing to undo on production: the table came with experience 2.0 (1.8) and #40 changes nothing there; leave its history row. On a new project only, `drop table if exists public.exercise_favorites;` drops every member's saved exercises, and the app keeps new ones on the device again. |
 | 39 | SQL below. Drops every member's exercise notes; the exercise page hides its note box again. |
@@ -1302,7 +1378,7 @@ feature off in the app is usually better than an undo.
 | 35, 34 | SQL below. Drops announcements, Help requests and replies. |
 | 33, 32 | SQL below. Drops functions only; Admin falls back to its older screens. |
 | 31 | Cannot be undone, by design: the audit log is permanent. |
-| 30, 29 | Not undone once anyone used Admin: the team list and audit log hold the record. To switch Admin off, set every member inactive on the Access screen, or empty `FITX_ADMIN_ALLOWED_EMAILS` on the admin project and redeploy. |
+| 30, 29 | Not undone once anyone used Admin: the team list and audit log hold the record. To switch Admin off, switch every other operator off in Admin and security, Access control, and delete `FITX_ADMIN_PASSWORD_HASH` on the admin project and redeploy: Admin then refuses every sign-in. |
 | 28 | SQL below. Drops the camera label. |
 | 27 | SQL below: stops the daily job. Points it already deleted are gone, by design. |
 | 26 | Undo #27 first. SQL below. Drops all recorded activities. |
@@ -1327,6 +1403,109 @@ feature off in the app is usually better than an undo.
 | 3 | SQL below. The app then treats every account as having seen the film. |
 | 2 | SQL below. On production the five fields came with experience 2.0 (1.8) and hold the live app's targets and set times, so it drops only #2's five range checks. |
 | 1 | SQL below. Drops the saved active time and stretch start; open workouts keep their clock in the browser again. On production `paused_at` came with experience 2.0 (1.8), so it stays, but emptied: otherwise #1, applied again later, would show each workout that was paused at the undo as paused with no time. |
+
+```sql
+-- Undo 20261121100036 (writes; then delete the food-media bucket in Dashboard → Storage)
+begin;
+drop function if exists public.fitx_admin_op_report(uuid, integer);
+drop function if exists public.fitx_admin_op_save_billing_plan(uuid, text, jsonb);
+drop function if exists public.fitx_admin_op_food_categories(uuid);
+drop function if exists public.fitx_admin_op_rename_food_category(uuid, text, text);
+drop function if exists public.fitx_admin_op_set_food_image(uuid, text, text, text, text);
+drop function if exists public.fitx_admin_op_set_food_portions(uuid, text, jsonb);
+drop function if exists public.fitx_admin_op_set_food_active(uuid, text, boolean);
+drop function if exists public.fitx_admin_op_save_food(uuid, text, jsonb);
+drop function if exists public.fitx_admin_op_training_counts(uuid);
+drop function if exists public.fitx_admin_op_set_programme_status(uuid, text, text);
+drop function if exists public.fitx_admin_op_remove_exercise_media(uuid, uuid);
+drop function if exists public.fitx_admin_op_add_exercise_media(uuid, text, text, text, text, text, text, integer, integer);
+drop function if exists public.fitx_admin_op_delete_exercise(uuid, text);
+drop function if exists public.fitx_admin_op_save_exercise(uuid, text, jsonb);
+drop function if exists public.fitx_admin_content_slug(text);
+drop function if exists public.fitx_admin_content_text_array(jsonb);
+update storage.buckets set file_size_limit = null, allowed_mime_types = null where id = 'exercise-media';
+commit;
+```
+
+```sql
+-- Before undo 20261121100033: Help requests filed as complaints. Expect: 0
+select count(*) as complaints from public.support_requests where category = 'complaint';
+```
+
+```sql
+-- Undo 20261121100033 (writes; drops platform settings and notices; complaint rows must be moved first)
+begin;
+drop trigger if exists support_messages_staff_seen on public.support_messages;
+drop trigger if exists member_notifications_dismiss_guard on public.member_notifications;
+drop function if exists public.fitx_admin_op_save_platform_settings(uuid, jsonb, jsonb, jsonb, timestamptz);
+drop function if exists public.fitx_admin_op_send_notifications(uuid, uuid[], text, text, text, text, text);
+drop function if exists public.fitx_admin_notification_history(integer);
+drop function if exists public.fitx_admin_op_support_mark_seen(uuid, uuid);
+drop function if exists public.fitx_admin_support_inbox();
+drop function if exists public.fitx_admin_search_users_v2(text, text, text, text, integer, integer);
+drop function if exists public.fitx_admin_overview_extras();
+drop function if exists public.fitx_admin_security_overview();
+drop function if exists public.fitx_support_staff_seen();
+drop function if exists public.fitx_member_notification_dismiss_guard();
+drop table if exists public.member_notifications;
+drop table if exists public.platform_settings;
+drop index if exists public.support_requests_unread_idx;
+alter table public.support_requests drop column if exists staff_unread;
+alter table public.support_requests drop column if exists staff_seen_at;
+alter table public.support_requests drop constraint if exists support_requests_category_check;
+alter table public.support_requests add constraint support_requests_category_check check (category in ('question','problem','feedback','account','other'));
+commit;
+```
+
+```sql
+-- Undo 20261121100030 (writes; Admin then refuses every sign-in; undo #44 and #43 first)
+begin;
+drop function if exists public.fitx_admin_op_set_announcement_status(uuid, uuid, text);
+drop function if exists public.fitx_admin_op_save_announcement(uuid, uuid, text, text, text, text, text, timestamptz, timestamptz, boolean);
+drop function if exists public.fitx_admin_op_support_reply(uuid, uuid, text, text);
+drop function if exists public.fitx_admin_op_support_update(uuid, uuid, text, text, uuid, timestamptz);
+drop function if exists public.fitx_admin_op_revoke_user_sessions(uuid, uuid, text);
+drop function if exists public.fitx_admin_op_set_exercise_active(uuid, text, boolean);
+drop function if exists public.fitx_admin_op_set_operator_password(uuid, uuid, text, boolean);
+drop function if exists public.fitx_admin_op_update_operator(uuid, uuid, text, boolean);
+drop function if exists public.fitx_admin_op_create_operator(uuid, text, text, text);
+drop function if exists public.fitx_admin_op_end_sessions(uuid, text);
+drop function if exists public.fitx_admin_op_mark_signed_in(uuid);
+drop function if exists public.fitx_admin_op_root_sign_in(text);
+drop function if exists public.fitx_admin_login_record(text, text, boolean);
+drop function if exists public.fitx_admin_login_check(text, text);
+drop function if exists public.fitx_admin_login_locked_until(text);
+drop function if exists public.fitx_admin_login_username_key(text);
+drop function if exists public.fitx_admin_login_limits();
+drop function if exists public.fitx_admin_op_log_event(uuid, text, text, text, jsonb);
+drop function if exists public.fitx_admin_op_can(uuid, text);
+alter table public.announcements drop column if exists updated_by_operator_id, drop column if exists created_by_operator_id;
+alter table public.support_messages drop column if exists author_operator_id;
+alter table public.support_requests drop column if exists assigned_operator_id;
+drop table if exists public.admin_login_attempts, public.admin_web_sessions, public.admin_operators;
+create or replace function public.fitx_admin_role_permissions(p_role text)
+returns text[]
+language sql
+immutable
+set search_path = ''
+as $function$
+  select case p_role
+    when 'super_admin' then array['overview.view', 'reports.view', 'people.view', 'people.support', 'people.suspend', 'people.delete', 'support.view', 'support.reply', 'content.manage', 'announcements.manage', 'audit.view', 'audit.export', 'access.view', 'access.manage', 'settings.view', 'billing.view']::text[]
+    when 'admin' then array['overview.view', 'reports.view', 'people.view', 'people.support', 'people.suspend', 'support.view', 'support.reply', 'content.manage', 'announcements.manage', 'audit.view', 'access.view', 'settings.view', 'billing.view']::text[]
+    when 'support_agent' then array['overview.view', 'people.view', 'people.support', 'support.view', 'support.reply']::text[]
+    when 'content_editor' then array['overview.view', 'content.manage', 'announcements.manage']::text[]
+    when 'viewer' then array['overview.view', 'reports.view']::text[]
+    else array[]::text[]
+  end;
+$function$;
+commit;
+```
+
+```sql
+-- After undo 20261121100030: what is left. Expect: 0, 16
+select (select count(*) from pg_proc where proname like 'fitx_admin_op\_%' or proname like 'fitx_admin_login\_%') as left_over,
+  cardinality(public.fitx_admin_role_permissions('super_admin')) as permissions_after_undo;
+```
 
 ```sql
 -- Undo 20261120100000 (writes; turns Maintain weight goals into General fitness)
@@ -1623,7 +1802,7 @@ select relname from pg_class where relnamespace = 'public'::regnamespace and rel
 ```
 
 ```sql
--- Final 2: tables with row level security but no policy. Expect exactly these six, on purpose: ai_coach_limits, ai_coach_usage_events, billing_provider_events, billing_reconciliation_runs, fitx_admin_audit_logs, fitx_rate_limits
+-- Final 2: tables with row level security but no policy. Expect exactly these nine, on purpose: admin_login_attempts, admin_operators, admin_web_sessions, ai_coach_limits, ai_coach_usage_events, billing_provider_events, billing_reconciliation_runs, fitx_admin_audit_logs, fitx_rate_limits
 select c.relname from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'r' and c.relrowsecurity
   and not exists (select 1 from pg_policy p where p.polrelid = c.oid)
 order by 1;
@@ -1640,9 +1819,9 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 `get_activity_share` is experience 2.0's, not from these files: it stays until you decide (section 1.8). Any
 other row: tell the session.
 
-Then run Start 2 again: now it lists all 31 rows.
+Then run Start 2 again: now it lists all 34 rows.
 
-The six tables in Final 2 are reached only by database functions or the server key, which is why they have
+The nine tables in Final 2 are reached only by database functions or the server key, which is why they have
 no policy. Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
 expected. Tell the session about any other new finding.
 
@@ -1697,7 +1876,8 @@ from (values
   ('20261118180006', 'fitx_announcements'), ('20261118190000', 'fitx_billing_razorpay'),
   ('20261118200000', 'fitx_food_catalog_rajma_keywords'), ('20261119100000', 'fitx_activity_sources'),
   ('20261119100010', 'fitx_exercise_notes'), ('20261119100020', 'fitx_exercise_favorites'),
-  ('20261120100000', 'fitx_onboarding_v3')
+  ('20261120100000', 'fitx_onboarding_v3'), ('20261121100030', 'fitx_admin_v2'),
+  ('20261121100033', 'fitx_admin_ops'), ('20261121100036', 'fitx_admin_content')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and h.version not in ('20261002172610', '20261002172706', '20261116093902')
@@ -1705,7 +1885,7 @@ where h.name = f.name and h.version <> f.version
 ```
 
 ```sql
--- History 2: expect 58 rows in version order: the 14 September ones, the three of section 1.8 and the 41 files of section 2, with their numbers and names
+-- History 2: expect 61 rows in version order: the 14 September ones, the three of section 1.8 and the 44 files of section 2, with their numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
@@ -1724,13 +1904,16 @@ tried here.
 Set the variables in section 7 first. Then ship the new app (the `claude/train` code) to production as
 planned. If the food parts wait (section 2.1), deploy after #36 and apply #20 to #24 and #37 afterwards. Both Vercel projects build from the same repository: the FITX site (`fitnessx`) and Admin
 (`admin`). If Admin's build is skipped because of its path filter, redeploy it as in `admin/README.md`,
-step 5.
+"Automatic deployments and path filters". Apply #42 to #44 before Admin is redeployed: without #42, Admin refuses
+every sign-in.
 
 ### 6.5 First super-admin
 
-After #29 to #35 and the Admin deploy, follow `admin/README.md` → "First super-admin": sign in to FITX once
-with your Google account, then the session runs that SQL with your email, after your OK. Then sign in at the
-Admin address and set up your authenticator app.
+Admin no longer uses Google or the team list of #29 to sign in. After #42 and the Admin variables of section 7
+(`FITX_ADMIN_USERNAME`, `FITX_ADMIN_PASSWORD_HASH`), redeploy Admin and sign in at `/login` with that username and your
+password: you are the root operator, always a super-admin, and your operator row is made at that first sign-in (Check
+20261121100030's last value becomes 1). Add other operators in Admin and security, Access control. `admin/README.md`
+→ "Owner checklist" has every step in order, including what to do if sign-in does not work.
 
 ## 7. Environment variables and owner steps
 
@@ -1751,12 +1934,14 @@ contains their values.
 | AI coach | `fitnessx` | `AI_ALLOW_PAID` | Leave unset. It would allow paid models. |
 | Activity (#26, #27) | Supabase | Switch on pg_cron | Before #27 (section 3, #27). No variables needed. Optional: `NEXT_PUBLIC_ACTIVITY_MAP_STYLE_LIGHT` and `_DARK` replace the free OpenFreeMap maps. |
 | Exercise photos (#13), optional later | this Mac | `scripts/catalog/mirror-media.mjs` | Copies the photos into the `exercise-media` bucket so they stop loading from GitHub. You run it with the secret key in your own Terminal; see the script's header. |
-| Admin (#29 to #35) | `admin` | Domain `fitnessx-admin.vercel.app` | Vercel → admin project → Settings → Domains → Add, for Production. If the name is taken, pick another free `.vercel.app` name and use it everywhere below. |
+| Admin (#29 to #35, #42 to #44) | `admin` | Domain `fitnessx-admin.vercel.app` | Vercel → admin project → Settings → Domains → Add, for Production. If the name is taken, pick another free `.vercel.app` name and use it everywhere below. |
 | Admin | `admin` | `ADMIN_SITE_URL` | `https://fitnessx-admin.vercel.app` (it replaces `https://admin-one-blond.vercel.app`). |
 | Admin | `admin` | `SUPABASE_SECRET_KEY` | The same kind of key as above; you can create a separate one named `fitx-admin`. Sensitive, Production only. |
-| Admin | `admin` | `FITX_ADMIN_ALLOWED_EMAILS` | The Google email or emails allowed into Admin, separated by commas. |
+| Admin (#42) | `admin` | `FITX_ADMIN_USERNAME` | The root operator's username, lower case (`saixsanthosh`). Production only. |
+| Admin (#42) | `admin` | `FITX_ADMIN_PASSWORD_HASH` | The single `scrypt:` line that `cd admin && npm run admin:hash` prints on your own computer after you type the password twice. Never the password itself. Sensitive, Production only. A new hash ends every open Admin session. |
+| Admin (#42) | `admin` | Delete `FITX_ADMIN_ALLOWED_EMAILS` | No longer read: Admin signs in with a username and password. |
 | Admin | `admin` | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Check they are already there. |
-| Admin | Supabase | Sign-in settings | Authentication → URL Configuration → Redirect URLs: add `https://fitnessx-admin.vercel.app/auth/callback`. Check that Google sign-in and Authenticator app (TOTP) are enabled. |
+| Admin, optional | Supabase | Sign-in settings | Admin no longer signs in through Supabase: you may remove `https://fitnessx-admin.vercel.app/auth/callback` from Authentication → URL Configuration → Redirect URLs. Google sign-in stays on for the FITX app. |
 | Admin, optional | `admin` | `FITX_ADMIN_PASSWORD_RESET_EMAILS` | `on` only after the "Password reset emails" steps in `admin/README.md`. |
 | Email code sign-in (no migration), before the redesign deploy | Supabase | Email templates | Authentication → Emails → Templates. In both "Magic link" and "Confirm signup", add the code, for example `<p>Your FITX code: <strong>{{ .Token }}</strong></p>`, and keep `{{ .ConfirmationURL }}` as a fallback link. A new address gets "Confirm signup" while "Confirm email" is on, so editing only "Magic link" leaves new members with a link and no code. Test with a new address and an existing one. |
 | Email code sign-in | Supabase | Email OTP length | Authentication → Sign In / Providers → Email: Email OTP length `6` (the code screen has six boxes; any other length always fails). Leave the expiry at 1 hour or less. |
@@ -1766,5 +1951,5 @@ contains their values.
 Already set and unchanged: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or the older
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`) and `NEXT_PUBLIC_SITE_URL` on `fitnessx`.
 
-`admin/README.md` → "Finish the Admin setup" has every Admin step in order, including what to do if sign-in
-does not work and the choice between one Google account or two.
+`admin/README.md` → "Owner checklist" has every Admin step in order, including what to do if sign-in does not
+work.
