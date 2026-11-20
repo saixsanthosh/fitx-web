@@ -48,6 +48,5 @@ Thumbs.db
 # Keys and certificates
 *.pem
 
-# Claude Code local files (the shared .claude/launch.json stays)
-.claude/*
-!.claude/launch.json
+# Claude Code local files
+.claude/
