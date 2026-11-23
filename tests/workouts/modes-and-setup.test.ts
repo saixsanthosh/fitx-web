@@ -22,6 +22,11 @@ describe("Home and Gym tabs", () => {
     assert.match(tabs, /modeForKey\(event\.key, mode\)/);
     assert.match(tabs, /role="tabpanel"/);
   });
+  test("sliding content is clipped, so a phone never zooms out mid-slide", () => {
+    assert.match(css, /\.panel \{[^}]*overflow-x: clip;/);
+    assert.match(read("src/components/workouts/WorkoutSetup.module.css"), /\.stage \{ overflow-x: clip;/);
+    assert.match(read("src/components/workouts/WorkoutSetupFlow.tsx"), /useState<1 \| -1 \| 0>\(0\)/, "the first step does not slide in");
+  });
   test("motion is transform and opacity, and reduced motion only fades", () => {
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
     assert.doesNotMatch(css, /transition:[^;]*\b(width|height|left|top|margin)\b/);

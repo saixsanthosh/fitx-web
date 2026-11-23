@@ -64,7 +64,8 @@ export function WorkoutSetupFlow({ setup, userId, legacyWords, variant, onSaved,
   const [limits, setLimits] = useState<string[]>(() => [...initialLimits.keys]);
   const [demoChoice, setDemoChoice] = useState<DemoModel | null>(setup.demoModel);
   const [stepIndex, setStepIndex] = useState(0);
-  const [direction, setDirection] = useState<1 | -1>(1);
+  // 0 until the member moves: the first step appears without sliding in.
+  const [direction, setDirection] = useState<1 | -1 | 0>(0);
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState("");
@@ -217,7 +218,10 @@ export function WorkoutSetupFlow({ setup, userId, legacyWords, variant, onSaved,
       <div className={styles.progress} aria-hidden="true">
         {steps.map((name, index) => <span key={name} className={cn(styles.bar, index <= stepIndex && styles.barOn)} />)}
       </div>
-      <div key={step} className={styles.step} data-direction={direction > 0 ? "next" : "previous"}>{body}</div>
+      {/* The step slides in from the side; the stage clips it so the page never grows sideways mid-slide. */}
+      <div className={styles.stage}>
+        <div key={step} className={styles.step} data-direction={direction > 0 ? "next" : direction < 0 ? "previous" : "none"}>{body}</div>
+      </div>
       {problem && <p role="alert" className="fitx-alert fitx-alert-danger m-0 px-3 py-2 text-sm">{problem}</p>}
       <footer className={styles.foot}>
         {stepIndex > 0

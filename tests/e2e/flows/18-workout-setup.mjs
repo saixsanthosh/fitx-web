@@ -150,6 +150,8 @@ export const flow = {
       await page.keyboard.press("ArrowRight");
       await page.waitForFunction(() => !new URL(location.href).searchParams.has("context"), null, { timeout: 10000 });
       t.expect((await library.getByRole("tab", { name: "Gym" }).getAttribute("aria-selected")) === "true", "ArrowRight selects Gym");
+      const midSlide = await overflow(page);
+      t.expect(fits(midSlide), "the sliding panel never widens the page", { midSlide });
       t.expect(await page.evaluate(() => document.activeElement?.getAttribute("role") === "tab" && document.activeElement?.textContent?.includes("Gym")), "focus moves with the selection");
       await t.checkpoint("library gym");
     });

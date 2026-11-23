@@ -78,7 +78,14 @@
 }
 .on .label svg { color: var(--fitx-inverse-primary); }
 
-.panel { outline: none; }
+/* The entering content starts 28 px to the side: clip it so the page never grows sideways mid-slide (a phone
+   would zoom out). The panel reaches 1rem into the page gutter, so rails that run to the screen edge still do. */
+.panel {
+  outline: none;
+  overflow-x: clip;
+  margin-inline: -1rem;
+  padding-inline: 1rem;
+}
 .enter { animation: none; }
 .enter[data-direction="next"] { animation: from-right 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .enter[data-direction="previous"] { animation: from-left 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
