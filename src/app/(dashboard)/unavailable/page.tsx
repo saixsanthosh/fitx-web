@@ -52,7 +52,7 @@ export default async function UnavailablePage({ searchParams }: { searchParams: 
         <Link href="/dashboard" className="fitx-button mt-2 min-h-11 px-5">Back to Home</Link>
         {feature === "ai_coach" && <CoachControls />}
         {feature === "explore" && (
-          <Link href="/explore/settings" className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-fitx-primary-text underline-offset-4 hover:underline">
+          <Link href="/explore/settings" className="fitx-button fitx-button-secondary min-h-11 px-5">
             Manage or delete my Explore content
           </Link>
         )}

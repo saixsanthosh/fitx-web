@@ -101,6 +101,8 @@ export const flow = {
 
     await t.step("Ben still sees his post, marked Hidden by FITX", async () => {
       await switchTo(t, ben, `/explore/p/${postId}`);
+      // Open the page again so the screenshot shows it rather than the sign-in reveal on top of it.
+      await t.goto(`/explore/p/${postId}`, { label: "hidden post as its owner" });
       const post = page.locator("article").filter({ hasText: "Plank hold, day 12" }).first();
       await post.waitFor({ timeout: 20000 });
       await post.getByText("Hidden by FITX").waitFor({ timeout: 15000 });
