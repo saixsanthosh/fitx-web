@@ -58,6 +58,7 @@ export function SettingsView() {
         </div>
       </section>}
       {!closed && <Notifications />}
+      {!closed && ready("messages") && me.age_band === "adult" && <MessagesLink />}
       <BirthDate />
       <YourContent />
       <Safety />
@@ -151,6 +152,19 @@ function Notifications() {
       {prefs.data && PREFS.filter((item) => item.shown && typeof prefs.data![item.key] === "boolean").map((item) => (
         <SwitchRow key={item.key} id={`pref-${item.key}`} label={item.label} checked={prefs.data![item.key] === true} onChange={(value) => void toggle(item.key, value)} />
       ))}
+    </section>
+  );
+}
+
+/** Who can start a conversation lives with the messages; this points there (it opens that setting at once). */
+function MessagesLink() {
+  return (
+    <section className={styles.panel} aria-labelledby="settings-messages">
+      <h2 id="settings-messages" className={styles.panelTitle}>Messages</h2>
+      <p className={styles.note}>Choose who can start a conversation with you. Message requests wait in Messages until you answer them.</p>
+      <Link href="/explore/messages?settings=1" className="fitx-button fitx-button-secondary mt-3 inline-flex min-h-11 items-center px-5 text-sm">
+        Who can message you
+      </Link>
     </section>
   );
 }

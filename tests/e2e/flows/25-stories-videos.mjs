@@ -5,6 +5,8 @@
 // this local database only): a video made in the page with canvas and MediaRecorder is posted (stored as MP4, with a
 // poster), Theo taps to play it (the server signs it within his daily budget) and Mira records a video story with the
 // camera. Moving the stories' expires_at back ends them for Theo at once, and the hourly clean-up queues their files.
+// Release 2a: the tray sits above the feed, the ring on feed avatars, the Videos tab in the rail and "Video" in the
+// create menu only while videos are on, and the platform switch closes the video composer and the links route.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { signInUi } from "./common.mjs";
@@ -70,6 +72,40 @@ async function makeClipInPage(page, ms = 2600) {
   }, ms);
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Opens the video composer from the create menu ("New post", then "Video") once FITX has switched videos on. The app
+ * keeps its platform settings for up to 60 s, so the composer's address can still show the paused page for a while:
+ * try again every 5 s, at most 90 s.
+ */
+async function openVideoComposerFromMenu(t) {
+  const page = t.page;
+  for (let attempt = 0; attempt < 18; attempt += 1) {
+    await t.goto("/explore", { label: attempt ? "explore again" : "explore with videos on" });
+    await page.getByRole("button", { name: "New post" }).first().click({ timeout: 15000 });
+    const video = page.getByRole("menu", { name: "Create" }).getByRole("menuitem", { name: /Video/ });
+    await video.click({ timeout: 10000 });
+    const composer = page.getByRole("heading", { level: 1, name: "New video" });
+    const paused = page.getByRole("heading", { level: 1, name: "Video posting is paused" });
+    await Promise.race([composer.waitFor({ timeout: 15000 }), paused.waitFor({ timeout: 15000 })]);
+    if (await composer.count()) return attempt;
+    await sleep(5000);
+  }
+  throw new Error("the platform gate did not open the video composer within 90 s");
+}
+
+/** The links route reads the platform settings too (up to 60 s old): asks until it stops answering 503, at most 90 s. */
+async function waitForVideoLinks(page, paths) {
+  let status = 0;
+  for (let attempt = 0; attempt < 18; attempt += 1) {
+    status = await page.evaluate(async (body) => (await fetch("/api/social/video-links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: body }) })).status, paths);
+    if (status !== 503) return status;
+    await sleep(5000);
+  }
+  return status;
+}
+
 const isMp4 = (bytes) => bytes.length > 12 && bytes.subarray(4, 8).toString("latin1") === "ftyp";
 
 export const flow = {
@@ -92,11 +128,19 @@ export const flow = {
     const caption = `Morning run done ${tag()}`;
 
     await t.step("Mira shares a photo story; with videos off there is no video choice", async () => {
-      await switchTo(t, mira, "/explore/stories");
+      // The tray is on the feed itself (FEED_TOP_SLOT).
+      await switchTo(t, mira);
       const tray = page.getByRole("region", { name: "Stories" });
       await tray.waitFor({ timeout: 20000 });
       await page.getByText("Stories from people you follow show here for 24 hours.").waitFor({ timeout: 15000 });
       await sawOverflow(t, "empty tray");
+      const nav = page.getByRole("navigation", { name: "Explore" });
+      t.expect(await nav.getByRole("link", { name: "Videos", exact: true }).count() === 0, "no Videos tab in the rail while videos are off");
+      await page.getByRole("button", { name: "New post" }).first().click();
+      const menu = page.getByRole("menu", { name: "Create" });
+      await menu.getByRole("menuitem", { name: /Story/ }).waitFor({ timeout: 10000 });
+      t.expect(await menu.getByRole("menuitem", { name: /Video/ }).count() === 0, "no Video in the create menu while videos are off");
+      await page.keyboard.press("Escape");
       await tray.getByRole("link", { name: "New story" }).click();
       await page.getByRole("heading", { level: 1, name: "New story" }).waitFor({ timeout: 15000 });
       t.expect(await page.getByRole("button", { name: /^Video/ }).count() === 0, "no video choice while videos are off");
@@ -122,7 +166,7 @@ export const flow = {
     });
 
     await t.step("Theo finds Mira in the tray and views her story; the view is stored and her ring turns to seen", async () => {
-      await switchTo(t, theo, "/explore/stories");
+      await switchTo(t, theo);
       const tray = page.getByRole("region", { name: "Stories" });
       await tray.getByRole("link", { name: `Story by ${miraName}, new` }).click({ timeout: 20000 });
       const viewer = page.getByRole("dialog", { name: `Story by ${miraName}` });
@@ -137,7 +181,8 @@ export const flow = {
         from public.social_story_views v join public.social_stories s on s.id = v.story_id where s.user_id = '${mira.id}' and v.user_id = '${theo.id}'`, (r) => Number(r?.n) === 1 && Number(r?.likes) === 1);
       t.expect(Number(view?.n) === 1 && Number(view?.likes) === 1, "the view and the like are stored once", view);
       await viewer.getByRole("button", { name: "Next story" }).first().click();
-      await page.waitForURL((url) => url.pathname === "/explore/stories", { timeout: 15000 });
+      // The last story closes the viewer, back to where it was opened from: the feed.
+      await page.waitForURL((url) => url.pathname === "/explore", { timeout: 15000 });
       await tray.getByRole("link", { name: `Story by ${miraName}` }).waitFor({ timeout: 15000 });
       t.expect(await tray.getByRole("link", { name: `Story by ${miraName}, new` }).count() === 0, "the ring shows it as seen");
     });
@@ -158,8 +203,13 @@ export const flow = {
       await page.getByText("Videos are paused by FITX").first().waitFor({ timeout: 15000 });
       t.expect(await page.getByRole("link", { name: "New video" }).count() === 0, "no New video link while paused");
       await sawOverflow(t, "videos paused");
+      // The platform switch closes the composer's address (the paused page); while the app's settings are a minute
+      // old it can still be the composer, which then says videos are paused (the database's answer). Either way: no picker.
       await t.goto("/explore/videos/new", { label: "video composer paused" });
-      await page.getByRole("heading", { name: "Videos are paused by FITX" }).waitFor({ timeout: 15000 });
+      const gate = page.getByRole("heading", { level: 1, name: "Video posting is paused" });
+      const composerPaused = page.getByRole("heading", { name: "Videos are paused by FITX" });
+      await Promise.race([gate.waitFor({ timeout: 15000 }), composerPaused.waitFor({ timeout: 15000 })]);
+      t.note("video composer while videos are off", (await gate.count()) ? "the platform gate's paused page" : "the composer's paused notice");
       t.expect(await page.getByLabel("Choose a video").count() === 0, "no video picker while paused");
       const status = await page.evaluate(async (paths) => (await fetch("/api/social/video-links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths }) })).status, [`${mira.id}/${mira.id}/0.mp4`]);
       t.expect(status === 503, "the links route answers 503 with videos off", status);
@@ -169,7 +219,9 @@ export const flow = {
     try {
       let postId = null;
       await t.step("Mira posts a video made in the page; it is stored as an MP4 with a poster", async () => {
-        await t.goto("/explore/videos/new", { label: "video composer" });
+        // "Video" is in the create menu once videos are on (and the Videos tab in the rail).
+        const tries = await openVideoComposerFromMenu(t);
+        t.note("tries until the video composer opened", tries);
         await page.getByRole("heading", { level: 1, name: "New video" }).waitFor({ timeout: 15000 });
         const clip = await makeClipInPage(page);
         t.expect(!clip.error, "the page can record MP4", clip.error);
@@ -206,7 +258,17 @@ export const flow = {
       });
 
       await t.step("Theo taps play: the server signs the video within his budget and it plays, muted until he turns the sound on", async () => {
-        await switchTo(t, theo, "/explore/videos");
+        // Theo follows Mira: her video is in his feed, her avatar ringed as seen (he watched her photo story).
+        await switchTo(t, theo);
+        const inFeed = page.locator("article").filter({ hasText: "Box jumps" }).first();
+        await inFeed.waitFor({ timeout: 20000 });
+        const ring = inFeed.locator("[data-story-ring]").first();
+        await ring.waitFor({ timeout: 15000 });
+        t.expect(await ring.getAttribute("data-story-ring") === "seen", "the story ring on her avatar shows her story as seen");
+        const linkStatus = await waitForVideoLinks(page, [`${mira.id}/${postId}/0.mp4`]);
+        t.expect(linkStatus === 200, "the links route signs once the switch is on", linkStatus);
+        await page.getByRole("navigation", { name: "Explore" }).getByRole("link", { name: "Videos", exact: true }).click();
+        await page.waitForURL((url) => url.pathname === "/explore/videos", { timeout: 15000 });
         const card = page.locator("article").filter({ hasText: "Box jumps" }).first();
         await card.waitFor({ timeout: 20000 });
         const [response] = await Promise.all([

@@ -3,7 +3,9 @@
 // unread badge updates through polling (a message arriving while she is on the inbox shows when the tab is shown
 // again) and clears once she reads the conversation. She sends one of Ben's posts with "Send to…", unsends a message,
 // sets who can message her to "No one" (Chen is then refused), and Ben blocks her from the conversation, after which
-// neither inbox lists the other.
+// neither inbox lists the other. Release 2a: each member reaches Messages from the Explore rail (whose "Messages" link
+// carries the unread badge), Asha starts the conversation from Ben's profile ("Message"), and shares his post from the
+// post's own share menu ("Send to…").
 import { signInUi } from "./common.mjs";
 
 const tag = () => Math.random().toString(36).slice(2, 7);
@@ -30,6 +32,13 @@ async function setUpProfile(t, username) {
   await page.getByText(`@${username} is free.`).waitFor({ timeout: 15000 });
   await page.getByRole("button", { name: "Create profile" }).click();
   await page.getByRole("navigation", { name: "Explore" }).waitFor({ timeout: 15000 });
+}
+
+/** Opens Messages from the Explore rail. */
+async function openMessagesFromRail(t) {
+  const page = t.page;
+  await page.getByRole("navigation", { name: "Explore" }).getByRole("link", { name: "Messages", exact: true }).click({ timeout: 20000 });
+  await page.waitForURL((url) => url.pathname === "/explore/messages", { timeout: 15000 });
 }
 
 async function sawOverflow(t, name) {
@@ -59,18 +68,20 @@ export const flow = {
       await switchTo(t, asha);
       await setUpProfile(t, ashaName);
       await standin.sql(`insert into public.social_follows (user_id, following_id, status, accepted_at) values ('${asha.id}', '${ben.id}', 'accepted', now())`);
-      await t.goto("/explore/messages", { label: "empty inbox" });
+      await t.goto("/explore", { label: "feed" });
+      await openMessagesFromRail(t);
       await page.getByRole("heading", { level: 1, name: "Messages" }).waitFor({ timeout: 20000 });
       await page.getByRole("heading", { name: "No messages yet" }).waitFor({ timeout: 15000 });
       await page.getByText("not end-to-end encrypted").first().waitFor();
       await sawOverflow(t, "empty inbox");
     });
 
-    await t.step("Asha writes to Ben; it waits in his Requests", async () => {
-      await page.getByRole("button", { name: "New message" }).first().click();
+    await t.step("Asha writes to Ben from his profile; it waits in his Requests", async () => {
+      await t.goto(`/explore/u/${benName}`, { label: "ben's profile" });
+      await page.getByRole("heading", { level: 1, name: "Ben Okafor" }).waitFor({ timeout: 20000 });
+      await page.getByRole("button", { name: "Message", exact: true }).click();
       const sheet = page.getByRole("dialog", { name: "New message" });
-      await sheet.getByRole("searchbox", { name: "Search people" }).fill(benName);
-      await sheet.getByRole("button", { name: new RegExp(benName) }).click();
+      await sheet.getByText(`@${benName}`).first().waitFor({ timeout: 15000 });
       await sheet.getByRole("textbox", { name: "Message" }).fill("Hi Ben, tempo run on Saturday? https://fitx.example/route");
       await sawOverflow(t, "new message");
       await Promise.all([page.waitForURL(/\/explore\/messages\/[0-9a-f-]{36}$/, { timeout: 20000 }), sheet.getByRole("button", { name: "Send" }).click()]);
@@ -86,7 +97,8 @@ export const flow = {
     });
 
     await t.step("Ben accepts from Requests and replies", async () => {
-      await switchTo(t, ben, "/explore/messages");
+      await switchTo(t, ben);
+      await openMessagesFromRail(t);
       await page.getByRole("heading", { level: 1, name: "Messages" }).waitFor({ timeout: 20000 });
       await page.getByRole("tab", { name: /Requests/ }).click();
       await page.getByRole("list", { name: "Message requests" }).getByRole("link", { name: new RegExp(ashaName) }).click();
@@ -105,14 +117,17 @@ export const flow = {
     });
 
     await t.step("Asha's unread badge shows the reply, updates by polling and clears once she reads", async () => {
-      await switchTo(t, asha, "/explore/messages");
+      await switchTo(t, asha);
+      // The rail's Messages link carries the badge on every Explore page.
+      await page.getByRole("navigation", { name: "Explore" }).getByLabel("1 unread message", { exact: true }).waitFor({ timeout: 20000 });
+      await openMessagesFromRail(t);
       await page.getByRole("heading", { level: 1, name: "Messages" }).waitFor({ timeout: 20000 });
-      await page.getByLabel("1 unread message", { exact: true }).waitFor({ timeout: 20000 });
+      await page.getByLabel("1 unread message", { exact: true }).first().waitFor({ timeout: 20000 });
       // A message arrives while she is on the page; it shows when the tab is shown again (the polling fallback).
       await standin.sql(`insert into public.social_messages (conversation_id, user_id, body) values ('${conversation}', '${ben.id}', 'Bring water.');
         update public.social_conversations set last_message_at = now() where id = '${conversation}'`);
       await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      await page.getByLabel("2 unread messages", { exact: true }).waitFor({ timeout: 15000 });
+      await page.getByLabel("2 unread messages", { exact: true }).first().waitFor({ timeout: 15000 });
       await sawOverflow(t, "inbox unread");
       await page.getByRole("list", { name: "Conversations" }).getByRole("link", { name: new RegExp(benName) }).click();
       await page.getByText("Bring water.").waitFor({ timeout: 15000 });
@@ -126,9 +141,10 @@ export const flow = {
       t.expect(await page.getByLabel(/unread message/).count() === 0, "no unread badge after reading");
     });
 
-    await t.step("Asha sends Ben's post with Send to…, then unsends her first message", async () => {
+    await t.step("Asha sends Ben's post with Send to… from its share menu, then unsends her first message", async () => {
       const post = await standin.one(`insert into public.social_posts (user_id, kind, caption) values ('${ben.id}', 'photo', 'Tempo run done, 8 km') returning id`);
-      await t.goto(`/explore/messages?share=${post.id}`, { label: "send to" });
+      await t.goto(`/explore/p/${post.id}`, { label: "ben's post" });
+      await page.locator("article").first().getByRole("button", { name: "Share", exact: true }).click({ timeout: 20000 });
       const sheet = page.getByRole("dialog", { name: "Share post" });
       await sheet.getByRole("button", { name: "Send to…" }).click();
       await sheet.getByRole("searchbox", { name: "Search people to send to" }).fill(benName);
@@ -149,14 +165,23 @@ export const flow = {
     });
 
     await t.step("with who can message her set to No one, Chen cannot start a conversation", async () => {
-      await t.goto("/explore/messages", { label: "message settings" });
-      await page.getByRole("button", { name: "Message settings" }).click();
+      // Explore settings points to the setting, which lives with the messages and opens at once.
+      await t.goto("/explore/settings", { label: "explore settings" });
+      await page.getByRole("link", { name: "Who can message you" }).click({ timeout: 20000 });
+      await page.waitForURL((url) => url.pathname === "/explore/messages", { timeout: 15000 });
       const sheet = page.getByRole("dialog", { name: "Who can message you" });
+      await sheet.waitFor({ timeout: 15000 });
       await sheet.getByText("No one", { exact: true }).click();
       await sawOverflow(t, "message settings");
       await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_set_dm_policy") && r.ok()), sheet.getByRole("button", { name: "Save" }).click()]);
       const policy = await settled(standin, `select dm_policy from public.social_profiles where user_id = '${asha.id}'`, (r) => r?.dm_policy === "off");
       t.expect(policy?.dm_policy === "off", "the setting is stored", policy);
+      // The inbox's own "Message settings" button opens the same setting.
+      if (await sheet.count()) await page.keyboard.press("Escape");
+      await sheet.waitFor({ state: "hidden", timeout: 10000 });
+      await page.getByRole("button", { name: "Message settings" }).click();
+      await sheet.waitFor({ timeout: 10000 });
+      await page.keyboard.press("Escape");
       await switchTo(t, chen, "/explore/messages");
       await page.getByRole("button", { name: "New message" }).first().click();
       const compose = page.getByRole("dialog", { name: "New message" });

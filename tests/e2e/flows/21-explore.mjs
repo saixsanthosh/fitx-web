@@ -6,6 +6,8 @@
 // unblocks him from Explore settings. /social now leads to /explore. Wave 2 (20261124100000): Ben blocks Asha and still
 // reports her account; a suspended Asha reads why and reaches her settings; Chen, whom FITX has no date of birth for,
 // adds it in Explore settings; with Explore switched off in Admin, Ben still deletes his own post from Explore settings.
+// Release 2a: the rail shows Feed, Discover, Community and Messages (Videos only while FITX has videos on), the story
+// tray sits above the feed, and "New post" opens the create menu (Photo post and Story; Video only while videos are on).
 import { signInUi, textOf } from "./common.mjs";
 import { makePng } from "../support/png.mjs";
 
@@ -35,6 +37,23 @@ async function setUpProfile(t, username, { isPrivate }) {
   if (isPrivate) await page.getByRole("switch", { name: "Private account" }).click();
   await page.getByRole("button", { name: "Create profile" }).click();
   await page.getByRole("navigation", { name: "Explore" }).waitFor({ timeout: 15000 });
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * After Explore is switched back on, the app keeps its platform settings for up to 60 s, so /explore can still show
+ * the paused page for a while: reload every 5 s, at most 90 s, until it is gone (as flow 28's waitForGate does), so the
+ * next step and the next size start on an open Explore.
+ */
+async function waitForExploreOpen(t) {
+  const page = t.page;
+  for (let attempt = 0; attempt < 18; attempt += 1) {
+    await t.goto("/explore", { label: "explore switched on again" });
+    if ((await page.getByText("Back soon. Your data is safe.").count()) === 0) return attempt;
+    await sleep(5000);
+  }
+  throw new Error("the platform gate did not reopen /explore within 90 s");
 }
 
 async function sawOverflow(t, name) {
@@ -69,11 +88,22 @@ export const flow = {
       const row = await settled(standin, `select username, is_private::text is_private from public.social_profiles where user_id = '${ben.id}'`, (r) => r?.username === benName);
       t.expect(row?.username === benName && row?.is_private === "true", "the private profile is stored", row);
       await page.getByRole("heading", { name: "Your feed is quiet" }).waitFor({ timeout: 15000 });
+      // The story tray sits above the feed (FEED_TOP_SLOT), with "New story" first.
+      const tray = page.getByRole("region", { name: "Stories" });
+      await tray.getByRole("link", { name: "New story" }).waitFor({ timeout: 15000 });
+      const nav = page.getByRole("navigation", { name: "Explore" });
+      for (const name of ["Feed", "Discover", "Community", "Messages"]) await nav.getByRole("link", { name, exact: true }).waitFor({ timeout: 10000 });
+      t.expect(await nav.getByRole("link", { name: "Videos", exact: true }).count() === 0, "no Videos tab while FITX has videos off");
       await sawOverflow(t, "empty feed");
     });
 
     await t.step("Ben posts two photos with a caption, hashtag, place and topic", async () => {
-      await page.getByRole("link", { name: "New post" }).first().click();
+      await page.getByRole("button", { name: "New post" }).first().click();
+      const menu = page.getByRole("menu", { name: "Create" });
+      await menu.getByRole("menuitem", { name: /Photo post/ }).waitFor({ timeout: 10000 });
+      await menu.getByRole("menuitem", { name: /Story/ }).waitFor();
+      t.expect(await menu.getByRole("menuitem", { name: /Video/ }).count() === 0, "no Video in the create menu while videos are off");
+      await menu.getByRole("menuitem", { name: /Photo post/ }).click();
       await page.getByRole("heading", { level: 1, name: "New post" }).waitFor({ timeout: 15000 });
       await page.getByLabel("Add photos").setInputFiles([
         { name: "squat.png", mimeType: "image/png", buffer: makePng(2400, 1800) },
@@ -326,6 +356,8 @@ export const flow = {
       } finally {
         await standin.sql(`update public.platform_settings set features = features - 'explore' where id = 1`);
       }
+      const waited = await waitForExploreOpen(t);
+      t.note("reloads until Explore was open again", waited);
     });
 
     if (size === "desktop") {

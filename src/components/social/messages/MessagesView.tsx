@@ -22,7 +22,8 @@ import exploreStyles from "../Explore.module.css";
 
 /**
  * /explore/messages: the inbox and the Requests tab, "New message", and who may message the member.
- * `?box=requests` opens Requests; `?to=<username>` starts a message to that member; `?share=<post id>` sends a post.
+ * `?box=requests` opens Requests; `?to=<username>` starts a message to that member; `?share=<post id>` sends a post;
+ * `?settings=1` opens "Who can message you" (Explore settings links here).
  */
 export function MessagesView() {
   const { db, userId, me, setMe } = useReadyExplore();
@@ -32,7 +33,7 @@ export function MessagesView() {
   const box: InboxBox = params?.get("box") === "requests" ? "requests" : "inbox";
   const counts = useUnreadCounts();
   const [composing, setComposing] = useState(false);
-  const [settings, setSettings] = useState(false);
+  const [settings, setSettings] = useState(() => params?.get("settings") === "1");
   const [initial, setInitial] = useState<SocialAuthor | null>(null);
   const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((value) => value + 1), []);
@@ -120,7 +121,10 @@ export function MessagesView() {
       <PolicySheet
         open={settings}
         value={me.profile?.dm_policy ?? "followers"}
-        onClose={() => setSettings(false)}
+        onClose={() => {
+          setSettings(false);
+          if (params?.get("settings")) router.replace(box === "requests" ? `${pathname}?box=requests` : pathname, { scroll: false });
+        }}
         onSave={async (policy) => {
           const saved = await messagesApi.setDmPolicy(db, policy);
           if (me.profile) setMe({ ...me, profile: { ...me.profile, dm_policy: saved } });

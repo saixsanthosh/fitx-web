@@ -4,6 +4,7 @@
 // only from a workout she completed after joining; she opts in to the leaderboard and shares her progress, which
 // carries the computed value. Ben, moderating the public community, removes her discussion (she is told without his
 // name). A teen sees the age notice for communities and the leaderboard, and can still join the challenge.
+// Release 2a: each member reaches Community from the Explore rail, and the challenge through the hub's "All challenges".
 import { signInUi } from "./common.mjs";
 
 const tag = () => Math.random().toString(36).slice(2, 7);
@@ -30,6 +31,13 @@ async function setUpProfile(t, username) {
   await page.getByText(`@${username} is free.`).waitFor({ timeout: 15000 });
   await page.getByRole("button", { name: "Create profile" }).click();
   await page.getByRole("navigation", { name: "Explore" }).waitFor({ timeout: 15000 });
+}
+
+/** Opens the Community hub from the Explore rail. */
+async function openCommunityFromRail(t) {
+  const page = t.page;
+  await page.getByRole("navigation", { name: "Explore" }).getByRole("link", { name: "Community", exact: true }).click({ timeout: 20000 });
+  await page.waitForURL((url) => url.pathname === "/explore/community", { timeout: 15000 });
 }
 
 async function sawOverflow(t, name) {
@@ -67,9 +75,9 @@ export const flow = {
           ('${ids.open_id}', '${ben.id}', 'moderator', 'accepted'), ('${ids.closed_id}', '${ben.id}', 'owner', 'accepted');
         insert into public.social_challenges (id, kind, title, metric, target, starts_at, ends_at) values
           ('${ids.challenge_id}', 'weekly', 'Two workouts ${run}', 'workouts', 2, now() - interval '1 day', now() + interval '6 days');`);
-      await switchTo(t, asha, "/explore/community");
+      await switchTo(t, asha);
       await setUpProfile(t, ashaName);
-      await t.goto("/explore/community", { label: "community directory" });
+      await openCommunityFromRail(t);
       await page.getByRole("heading", { level: 1, name: "Community" }).waitFor({ timeout: 20000 });
       await page.getByRole("heading", { level: 2, name: "Challenges" }).waitFor({ timeout: 15000 });
       await page.getByRole("searchbox", { name: "Search communities" }).fill(run);
@@ -126,7 +134,11 @@ export const flow = {
     });
 
     await t.step("Asha joins the challenge; her value counts only her own workout after joining", async () => {
-      await switchTo(t, asha, `/explore/challenges/${ids.challenge_id}`);
+      // From the rail: Community, then "All challenges" (challenges have no rail entry of their own, by design).
+      await switchTo(t, asha);
+      await openCommunityFromRail(t);
+      await page.getByRole("link", { name: "All challenges" }).first().click({ timeout: 20000 });
+      await page.getByRole("list", { name: "Open challenges" }).getByRole("link", { name: new RegExp(`Two workouts ${run}`) }).click({ timeout: 20000 });
       await page.getByRole("heading", { level: 1, name: `Two workouts ${run}` }).waitFor({ timeout: 20000 });
       // A workout from before she joins does not count.
       await standin.sql(`insert into public.workout_sessions (user_id, name, status, started_at, completed_at, duration_seconds)
@@ -160,7 +172,8 @@ export const flow = {
     });
 
     await t.step("a teen sees the age notices and can still join the challenge", async () => {
-      await switchTo(t, teen, "/explore/community");
+      await switchTo(t, teen);
+      await openCommunityFromRail(t);
       await page.getByRole("heading", { level: 1, name: "Community" }).waitFor({ timeout: 20000 });
       await page.getByText("Joining communities is for members aged 18 and over.").waitFor({ timeout: 15000 });
       t.expect(await page.getByRole("searchbox", { name: "Search communities" }).count() === 0, "no community search for a teen");
