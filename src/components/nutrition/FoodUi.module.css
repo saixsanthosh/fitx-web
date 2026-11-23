@@ -61,7 +61,7 @@
 .slotHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
 .slotTitle { display: flex; align-items: center; gap: .5rem; color: var(--fitx-text); font-size: .9rem; font-weight: 600; }
 .slotTitle span { color: var(--fitx-text-disabled); font-size: .74rem; font-weight: 400; }
-.textButton { min-height: 2.5rem; border-radius: .5rem; padding: .3rem .55rem; color: var(--fitx-primary); font-size: .74rem; font-weight: 600; }
+.textButton { min-height: 2.75rem; border-radius: .5rem; padding: .3rem .55rem; color: var(--fitx-primary); font-size: .74rem; font-weight: 600; }
 .textButton:hover { background: color-mix(in srgb, var(--fitx-primary) 7%, transparent); }
 .textButton:disabled { color: var(--fitx-text-disabled); cursor: not-allowed; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
