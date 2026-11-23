@@ -23,7 +23,9 @@
   flex-direction: column;
   justify-content: space-between;
   gap: 40px;
-  padding: 28px 20px 30px;
+  /* 48 px at the foot on a phone: the floating AI Coach button rests just above the tab bar at the right edge
+     (12 px gap, 52 px disc, its hide badge 13 px higher), and the quote's last line ends above it, not under it. */
+  padding: 28px 20px 48px;
 }
 
 .top { display: grid; gap: 6px; }
