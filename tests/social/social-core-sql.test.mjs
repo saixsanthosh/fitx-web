@@ -154,14 +154,37 @@ describe("Explore part 2 core", { skip }, () => {
     assert.equal(readable(B, mp4), 0, "the video itself is signed only by the server route");
     assert.equal(readable(A, mp4), 1);
 
-    // Signed links: visible videos only, 40 a day per member, and the project's daily bytes.
-    assert.deepEqual(call(B, `public.fitx_social_video_link_allowed(array['${mp4}', '${A}/${id()}/0.mp4'])`), [mp4]);
-    pg.exec(`insert into public.social_rate_counters (user_id, action, window_start, hits) values ('${B}', 'video_view:day', date_trunc('day', now()), 40)
-      on conflict (user_id, action, window_start) do update set hits = 40;`);
-    fails(B, `public.fitx_social_video_link_allowed(array['${mp4}'])`, /social_link_budget/);
-    pg.exec(`insert into public.social_rate_counters (user_id, action, window_start, hits) values ('${A}', 'video_bytes:day', date_trunc('day', now()), 78643000)
-      on conflict (user_id, action, window_start) do update set hits = 78643000;`);
-    fails(C, `public.fitx_social_video_link_allowed(array['${mp4}'])`, /social_link_budget/);
+    // Signed links: visible videos only, 40 a day per member, the member's share and the project's daily bytes.
+    const links = (who, ...paths) => call(who, `public.fitx_social_video_link_allowed(array[${paths.map(q).join(", ")}])`);
+    const counter = (who, action) => pg.json(`select coalesce((select hits from public.social_rate_counters where user_id = '${who}' and action = '${action}' and window_start = date_trunc('day', now())), 0);`);
+    assert.deepEqual(links(B, mp4, `${A}/${id()}/0.mp4`), [mp4]);
+    // A video already counted today is free to sign again: 30 more links to it cost no play and no bytes, so the
+    // budget stays for everyone else.
+    for (let n = 0; n < 30; n += 1) assert.deepEqual(links(B, mp4), [mp4]);
+    assert.equal(counter(B, "video_view:day"), 1, "one play counted");
+    assert.equal(counter(B, "video_bytes:day"), 2048, "its bytes counted once");
+    assert.deepEqual(links(C, mp4), [mp4], "another member still plays it");
+
+    const post2 = id();
+    const mp4b = `${A}/${post2}/0.mp4`;
+    assert.ok(upload(A, mp4b).ok);
+    assert.ok(upload(A, `${A}/${post2}/0p.webp`).ok);
+    call(A, `public.fitx_social_create_post('${post2}', 'Second drill', null, '[]', 'everyone', '${JSON.stringify([{ kind: "video", path: mp4b, poster_path: `${A}/${post2}/0p.webp`, width: 720, height: 1280, duration_ms: 9000 }])}')`);
+    const setCounter = (who, action, hits) => pg.exec(`insert into public.social_rate_counters (user_id, action, window_start, hits) values ('${who}', '${action}', date_trunc('day', now()), ${hits})
+      on conflict (user_id, action, window_start) do update set hits = ${hits};`);
+    // One member's share of the project's daily bytes is capped (video_play_bytes_per_member_day).
+    const share = pg.json(`select (public.fitx_social_caps() ->> 'video_play_bytes_per_member_day')::bigint;`);
+    assert.ok(share > 0 && share < pg.json(`select (public.fitx_social_caps() ->> 'video_play_bytes_per_day')::bigint;`), "a member's share is part of the project's budget");
+    setCounter(B, "video_bytes:day", share - 1000);
+    fails(B, `public.fitx_social_video_link_allowed(array['${mp4b}'])`, /social_link_budget[\s\S]*HINT:\s+member/);
+    assert.deepEqual(links(B, mp4), [mp4], "a video counted earlier today still plays");
+    setCounter(B, "video_bytes:day", 2048);
+    setCounter(B, "video_view:day", 40);
+    fails(B, `public.fitx_social_video_link_allowed(array['${mp4b}'])`, /social_link_budget[\s\S]*HINT:\s+member/);
+    assert.deepEqual(links(B, mp4), [mp4]);
+    setCounter(A, "video_bytes:day", 78643000);
+    fails(C, `public.fitx_social_video_link_allowed(array['${mp4b}'])`, /social_link_budget[\s\S]*HINT:\s+project/);
+    assert.deepEqual(links(C, mp4), [mp4], "a link to a video C already counted today needs no new budget");
     features({ explore_video: false });
     fails(C, `public.fitx_social_video_link_allowed(array['${mp4}'])`, /social_unavailable/);
     fails(A, `public.fitx_social_update_post('${post}', 'new', null, '[]', null)`, /social_unavailable/);

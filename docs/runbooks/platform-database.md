@@ -1501,7 +1501,8 @@ Profile after joining Explore is stamped for Admin like one from Explore setting
 deleting, blocking, reporting and settings kept open. Reports keep an evidence snapshot (removed 90 days after
 review), a report now goes through across a block, and restricting is rate limited. Video posts (one video of at most
 30 seconds) follow Admin's `explore_video` switch; the `social-media` bucket also takes `video/mp4` (still 3 MB a
-file); signed video links have a daily play budget. 25 new functions; 36 of #51's functions are rewritten under the
+file); signed video links have a daily play budget (each video counted once a member a day, in the new column
+`social_rate_counters.paths`, and a member's share of the project's plays capped). 25 new functions; 36 of #51's functions are rewritten under the
 same names and arguments, and #51's read policies on posts, post photos and comments now call the item-level helpers;
 `fitx_social_save_notification_prefs` goes from 5 to 9 parameters (the four new ones have defaults, so wave 1's call
 still works). New tables members write have #45's write limits (16 more triggers). On production it also schedules
@@ -1511,10 +1512,10 @@ no row; `social_notifications.actor_id` may now be empty (notices from FITX). Th
 from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
 run changes nothing. After it, #51's Check gives other numbers: use this one.
 
-md5 of the file (`md5 -q`): `3bd27c4958616aed6492356284feb684`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `98454157969ce3e197302a25acd3cee4`. The session compares it with the file it sends before it runs it.
 
 ```sql
--- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2
+-- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2, 1
 select (select count(*) from pg_tables where schemaname = 'public' and tablename like 'social\_%' and rowsecurity) as tables_with_rls,
        (select count(*) from pg_policies where (schemaname = 'public' and tablename like 'social\_%') or (schemaname = 'storage' and policyname like 'social\_media\_%')) as policies,
        (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%') as functions,
@@ -1523,16 +1524,17 @@ select (select count(*) from pg_tables where schemaname = 'public' and tablename
        (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid where c.relname like 'social\_%' and t.tgname like 'fitx\_write\_budget\_%') as budget_triggers,
        (select count(*) from information_schema.columns where table_schema = 'public' and table_name like 'social\_%' and column_name = 'moderation_state') as moderation_columns,
        (select string_agg(pronargs::text, ',') from pg_proc where pronamespace = 'public'::regnamespace and proname = 'fitx_social_save_notification_prefs') as prefs_save_args,
-       (select count(*) from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname in ('profiles_birth_date_locked', 'profiles_birth_date_added') and tgenabled = 'O') as birth_date_triggers;
+       (select count(*) from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname in ('profiles_birth_date_locked', 'profiles_birth_date_added') and tgenabled = 'O') as birth_date_triggers,
+       (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'social_rate_counters' and column_name = 'paths') as play_paths;
 ```
 
-Before #52 it gives `15, 18, 57, 0, 0, 28, 0, 5, 0`. On production the session then also checks the job and the Realtime
+Before #52 it gives `15, 18, 57, 0, 0, 28, 0, 5, 0, 0`. On production the session then also checks the job and the Realtime
 policy, expecting `1, 1`: `select (select count(*) from cron.job where jobname = 'fitx-social-hourly') as hourly_job,
 (select count(*) from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname =
 'social_inbox_read') as inbox_policy;` (the test copy has neither pg_cron nor Realtime). A 0 there means pg_cron or
 Realtime was off when #52 ran: tell the session; #52 can be run again once it is on.
 
-Run after #53 instead of right after #52, this Check gives `30, 30, 106, 0, 1, 44, 5, 9, 2` (#53 adds 24 functions; the
+Run after #53 instead of right after #52, this Check gives `30, 30, 106, 0, 1, 44, 5, 9, 2, 1` (#53 adds 24 functions; the
 rest does not move).
 
 ### #53 `20261124100010_fitx_social_v2_groups`
@@ -1765,6 +1767,7 @@ do $u$ begin if pg_catalog.to_regclass('realtime.messages') is not null then dro
 drop trigger if exists profiles_birth_date_locked on public.profiles;
 drop trigger if exists profiles_birth_date_added on public.profiles;
 drop function if exists public.fitx_profiles_birth_date_locked(), public.fitx_profiles_birth_date_added();
+alter table public.social_rate_counters drop column if exists paths;
 drop function if exists public.fitx_social_save_notification_prefs(boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean);
 drop function if exists public.fitx_social_sees_post(uuid, uuid), public.fitx_social_sees_comment_row(uuid, uuid),
   public.fitx_social_sees_story(uuid, uuid), public.fitx_social_sees_community(uuid, uuid), public.fitx_social_post_listed(uuid),

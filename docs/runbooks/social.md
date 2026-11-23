@@ -105,18 +105,21 @@ communities, challenges, the moderation record) and every shared helper; the gro
   content addressed to the reporter across a block. Evidence is removed 90 days after review (O8 a).
 - **Videos** (`explore_video`, off unless saved as true): one video of at most 30 s per post (15 s for a story) at
   `<uid>/<id>/0.mp4` with its poster at `<uid>/<id>/0p.webp`. A member's own key never signs another member's
-  `.mp4`: `/api/social/video-links` asks `fitx_social_video_link_allowed`, which counts 40 plays a day per member and
-  the project's daily play bytes.
+  `.mp4`: `/api/social/video-links` asks `fitx_social_video_link_allowed`, which counts 40 plays a day per member, a
+  member's share of the play bytes (15 MB a day, about 5 plays) and the project's daily play bytes. Each video is
+  counted once a member a day (its path joins `paths` on the member's `video_bytes:day` row of `social_rate_counters`),
+  so signing it again the same day costs nothing.
 - **Caps (O9 a), owner-tunable:** `fitx_social_caps()` returns them. To change one, run in the SQL editor:
 
 ```sql
 create or replace function public.fitx_social_caps() returns jsonb language sql immutable set search_path = '' as $f$
   select pg_catalog.jsonb_build_object('social_media_bytes', 471859200, 'video_bytes', 262144000,
-    'story_bytes', 62914560, 'video_play_bytes_per_day', 78643200);
+    'story_bytes', 62914560, 'video_play_bytes_per_day', 78643200, 'video_play_bytes_per_member_day', 15728640);
 $f$;
 ```
 
-  (450 MB of Explore files, of which 250 MB videos and posters and 60 MB live stories; 75 MB of video plays a day.)
+  (450 MB of Explore files, of which 250 MB videos and posters and 60 MB live stories; 75 MB of video plays a day, of
+  which one member may use 15 MB.)
 - **New limits:** stories 10 an hour, 20 a calendar day and 10 in any 24 hours; videos 2 an hour and 3 a day (also
   3 `.mp4` uploads in 24 hours and 20 kept); video plays 40 a day; restricting 30 an hour and 100 a day.
 - **Clean-up:** the pg_cron job `fitx-social-hourly` (minute 7) runs `fitx_social_hourly()`: expired stories without

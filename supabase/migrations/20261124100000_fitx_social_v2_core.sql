@@ -25,7 +25,8 @@
 --     longer needs the reported member to be unblocked; restricting is rate limited. Reports snapshot their evidence.
 --   * Stories (24 hours, photo or video), video posts (one video of at most 30 s with a poster), the video switch
 --     (features.explore_video, off unless saved as true) enforced here, project caps (fitx_social_caps), the daily play
---     budget for signed video links (fitx_social_video_link_allowed), the notification preferences for stories,
+--     budget for signed video links (fitx_social_video_link_allowed: each video counted once a member a day, and a
+--     member's share of the project's plays capped), the notification preferences for stories,
 --     challenges, communities and messages, Realtime pings, and the hourly clean-up job (fitx-social-hourly).
 --   * The social-media bucket now also takes video/mp4 (still 3 MB a file). Another member's .mp4 is never signed by
 --     the member's own key: video links come only from the server route, which checks the budget first.
@@ -48,6 +49,7 @@
 --   drop trigger if exists profiles_birth_date_locked on public.profiles;
 --   drop trigger if exists profiles_birth_date_added on public.profiles;
 --   drop function if exists public.fitx_profiles_birth_date_locked(), public.fitx_profiles_birth_date_added();
+--   alter table public.social_rate_counters drop column if exists paths;
 --   drop function if exists public.fitx_social_save_notification_prefs(boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean);
 --   drop function if exists public.fitx_social_sees_post(uuid, uuid), public.fitx_social_sees_comment_row(uuid, uuid),
 --     public.fitx_social_sees_story(uuid, uuid), public.fitx_social_sees_community(uuid, uuid), public.fitx_social_post_listed(uuid),
@@ -352,6 +354,9 @@ alter table public.social_notification_prefs add column if not exists communitie
 alter table public.social_notification_prefs add column if not exists messages boolean not null default true;
 alter table public.social_reports add column if not exists evidence jsonb;
 alter table public.social_reports add column if not exists evidence_purge_at timestamptz;
+-- On a member's 'video_bytes:day' row only: the videos their signed links were counted for that day, so a new link to
+-- a video already counted today costs nothing (fitx_social_video_link_allowed). Members still only read their own rows.
+alter table public.social_rate_counters add column if not exists paths text[];
 alter table public.social_notifications add column if not exists story_id uuid references public.social_stories (id) on delete cascade;
 alter table public.social_notifications add column if not exists conversation_id uuid references public.social_conversations (id) on delete cascade;
 alter table public.social_notifications add column if not exists community_id uuid references public.social_communities (id) on delete cascade;
@@ -680,7 +685,8 @@ as $function$
     'social_media_bytes', 471859200,        -- 450 MB: every Explore file
     'video_bytes', 262144000,               -- 250 MB of it: videos and their posters
     'story_bytes', 62914560,                -- 60 MB of it: live stories
-    'video_play_bytes_per_day', 78643200);  -- 75 MB a day of signed video links, about 25 plays
+    'video_play_bytes_per_day', 78643200,   -- 75 MB a day of signed video links, about 25 plays
+    'video_play_bytes_per_member_day', 15728640);  -- 15 MB of it per member (a fifth, about 5 plays)
 $function$;
 
 -- Storage: whether the signed-in member may read (and so sign a link to) a file in social-media. Owners read their own
@@ -2484,8 +2490,12 @@ end $function$;
 -- 12. Videos: signed links within the play budget --------------------------------------------------------------------
 
 -- For /api/social/video-links (called with the member's own session): of p_paths (at most 10 .mp4 files), the ones the
--- member may play, each counted against the member's 40 a day and the project's daily play bytes (fitx_social_caps).
--- Raises social_unavailable while videos are off and social_link_budget when either budget is spent.
+-- member may play. A video is counted once a member a day (its path joins the member's 'video_bytes:day' row), so a
+-- new link to one already counted today is free: a signed link can be fetched again during its life anyway. Each
+-- counted video takes one of the member's 40 plays a day, and its bytes count against the member's share
+-- (video_play_bytes_per_member_day) and the project's daily play bytes (video_play_bytes_per_day, fitx_social_caps),
+-- so no one account can spend everyone's plays. Raises social_unavailable while videos are off and social_link_budget
+-- (hint 'member' or 'project') when a budget is spent.
 create or replace function public.fitx_social_video_link_allowed(p_paths text[])
 returns text[]
 language plpgsql
@@ -2495,10 +2505,14 @@ as $function$
 declare
   v_uid uuid := public.fitx_social_member();
   v_day timestamptz := pg_catalog.date_trunc('day', pg_catalog.now());
-  v_cap bigint := (public.fitx_social_caps() ->> 'video_play_bytes_per_day')::bigint;
+  v_caps jsonb := public.fitx_social_caps();
+  v_cap bigint := (v_caps ->> 'video_play_bytes_per_day')::bigint;
+  v_share bigint := coalesce((v_caps ->> 'video_play_bytes_per_member_day')::bigint, (v_caps ->> 'video_play_bytes_per_day')::bigint / 5);
   v_path text;
   v_bytes bigint;
   v_used bigint;
+  v_mine bigint;
+  v_counted text[];
   v_allowed text[] := '{}';
 begin
   if coalesce((select ps.features ->> 'explore_video' from public.platform_settings ps where ps.id = 1), 'false') <> 'true' then
@@ -2507,6 +2521,13 @@ begin
   if p_paths is null or pg_catalog.cardinality(p_paths) not between 1 and 10 then
     raise exception using errcode = '23514', message = 'social_invalid';
   end if;
+  -- The member's row for today, locked, so two calls at once cannot both count one video or both pass the share.
+  insert into public.social_rate_counters as c (user_id, action, window_start, hits, paths)
+  values (v_uid, 'video_bytes:day', v_day, 0, '{}')
+  on conflict (user_id, action, window_start) do nothing;
+  select c.hits, coalesce(c.paths, '{}') into v_mine, v_counted from public.social_rate_counters c
+  where c.user_id = v_uid and c.action = 'video_bytes:day' and c.window_start = v_day
+  for update;
   foreach v_path in array p_paths loop
     if v_path is null or v_path !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9][.]mp4$'
        or v_path = any (v_allowed)
@@ -2521,8 +2542,13 @@ begin
     if not found then
       continue;
     end if;
+    if v_path = any (v_counted) then
+      v_allowed := v_allowed || v_path;
+      continue;
+    end if;
     if (select coalesce(pg_catalog.sum(c.hits), 0) from public.social_rate_counters c
-        where c.user_id = v_uid and c.action = 'video_view:day' and c.window_start = v_day) >= 40 then
+        where c.user_id = v_uid and c.action = 'video_view:day' and c.window_start = v_day) >= 40
+       or v_mine + v_bytes > v_share then
       raise exception using errcode = 'PT429', message = 'social_link_budget', hint = 'member';
     end if;
     select coalesce(pg_catalog.sum(c.hits), 0) into v_used from public.social_rate_counters c
@@ -2531,9 +2557,10 @@ begin
       raise exception using errcode = 'PT429', message = 'social_link_budget', hint = 'project';
     end if;
     perform public.fitx_social_take(v_uid, 'video_view', 40, 40);
-    insert into public.social_rate_counters as c (user_id, action, window_start, hits)
-    values (v_uid, 'video_bytes:day', v_day, least(v_bytes, 2147483647)::integer)
-    on conflict (user_id, action, window_start) do update set hits = least(c.hits::bigint + excluded.hits, 2147483647)::integer;
+    v_mine := least(v_mine + v_bytes, 2147483647);
+    v_counted := v_counted || v_path;
+    update public.social_rate_counters c set hits = v_mine::integer, paths = v_counted
+    where c.user_id = v_uid and c.action = 'video_bytes:day' and c.window_start = v_day;
     v_allowed := v_allowed || v_path;
   end loop;
   return v_allowed;
