@@ -9,7 +9,7 @@
 import type { PoseFrame, PosePoint } from "@/lib/pose/landmarks";
 import { LANDMARK, LANDMARK_COUNT } from "@/lib/pose/landmarks";
 import type { CoachEvent, CoachSession, CoachSnapshot } from "@/lib/form-rules/session";
-import type { FigurePoints, FigureView } from "@/lib/home-workout/figure";
+import type { FigurePoints, FigureView } from "./kinematics/figure";
 
 export interface Vec {
   x: number;

@@ -6,12 +6,13 @@
 import type { Joint } from "@/lib/pose/landmarks";
 
 /**
- * Camera exercise ids. The first six match public.exercise_library ids; the others have no starter
- * library row, so `libraryIds` lists the imported rows they count (if any).
+ * Camera exercise ids. Some match public.exercise_library ids; for the others `libraryIds` lists the
+ * library rows they count (if any).
  */
 export type ExerciseId =
   | "push_up" | "bodyweight_squat" | "split_squat" | "glute_bridge" | "plank" | "jumping_jack"
-  | "reverse_lunge" | "high_knees" | "mountain_climber" | "side_plank" | "wall_sit" | "superman" | "shoulder_press" | "biceps_curl";
+  | "reverse_lunge" | "high_knees" | "mountain_climber" | "side_plank" | "wall_sit" | "superman" | "shoulder_press" | "biceps_curl"
+  | "lateral_raise" | "front_raise" | "triceps_extension" | "romanian_deadlift" | "bent_over_row" | "sit_up";
 
 /**
  * Which body side a measurement uses.
@@ -20,6 +21,17 @@ export type ExerciseId =
  */
 export type SideMode = "visible" | "both-min" | "both-max";
 
+/**
+ * Where an angle or tilt is measured:
+ * - "image": on the camera picture (exact for movement square-on to the lens, as side-on squats are)
+ * - "world": in 3D from the model's world landmarks, when it gives them (sees leaning towards or away
+ *   from the lens, which the picture can't)
+ * - "auto" (the default): the picture, unless the body is turned at an angle between side-on and
+ *   facing the camera, where the picture squashes angles and 3D is the better measure
+ * Without world landmarks every measurement falls back to the picture.
+ */
+export type MetricSpace = "image" | "world" | "auto";
+
 /** A measurement taken from the landmarks on every frame. */
 export type MetricSpec =
   /**
@@ -27,9 +39,9 @@ export type MetricSpec =
    * rises above the line through the outer two reads past 180 (e.g. 195 = hips pushed 15° past
    * straight in a bridge), so "not high enough" and "over-arched" are never confused.
    */
-  | { kind: "angle"; joints: readonly [Joint, Joint, Joint]; side: SideMode; signed?: boolean }
+  | { kind: "angle"; joints: readonly [Joint, Joint, Joint]; side: SideMode; signed?: boolean; space?: MetricSpace }
   /** How far the segment from → to leans from vertical or horizontal, in degrees. */
-  | { kind: "tilt"; from: Joint; to: Joint; reference: "vertical" | "horizontal"; side: SideMode }
+  | { kind: "tilt"; from: Joint; to: Joint; reference: "vertical" | "horizontal"; side: SideMode; space?: MetricSpace }
   /** Signed distance of `point` from the line from → to, as a fraction of its length (+ = below the line). */
   | { kind: "lineOffset"; from: Joint; to: Joint; point: Joint; side: SideMode }
   /** How far `upper` sits above `lower`, as a fraction of the lower → upper distance (1 = straight above). */
@@ -136,6 +148,11 @@ export interface ExerciseRule {
   cues: readonly CueSpec[];
   /** One Euro smoothing for this exercise's measurements (faster moves need less smoothing). */
   smoothing: { minCutoff: number; beta: number };
+  /**
+   * Room the automatic framing keeps above the body, as a share of its height: more for moves that
+   * take the hands overhead. Defaults to 0.12.
+   */
+  headroom?: number;
   /** exercise_library ids this rule counts. */
   libraryIds: readonly string[];
   /** Exercise names (normalised: lower case, letters and digits) this rule counts. */

@@ -31,18 +31,33 @@ export interface CaptureProfile {
  * - "use-cpu", "use-lite", "lower-resolution": detection can't keep up; switch to something lighter
  * - "too-slow": detection is still slow with everything light; tell the user
  * - "slow-camera": detection keeps up, but the camera sends few frames; tell the user (more light helps)
+ * - "cool-down": detection has become much slower than it was at the start of the set (a device
+ *   throttling as it heats up): analyse fewer frames and ask the camera for a smaller picture
  */
-export type PerformanceAdvice = "use-cpu" | "use-lite" | "lower-resolution" | "too-slow" | "slow-camera";
+export type PerformanceAdvice = "use-cpu" | "use-lite" | "lower-resolution" | "too-slow" | "slow-camera" | "cool-down";
 
 /** A real GPU runs this model in well under this; slower means the GPU path is emulated or broken. */
 const SLOW_GPU_MS = 200;
+/** The detection time measured over this stretch after warm-up is the device's cool baseline. */
+const BASELINE_MS = 6000;
+/** Detection this many times slower than the baseline, for a sustained stretch, means the device is throttling. */
+const THROTTLE_FACTOR = 1.6;
 
+/**
+ * The most accurate set-up the device is likely to sustain: the full model wherever a GPU or a strong
+ * CPU can run it (the governor falls back to lite if it can't keep up), and the highest native camera
+ * resolution worth asking for (4K on strong desktops, 1080p on capable phones). Weak devices and data
+ * saver start light.
+ */
 export function initialProfile(hints: DeviceHints): CaptureProfile {
   const weak = (hints.cores !== undefined && hints.cores <= 2) || (hints.memoryGb !== undefined && hints.memoryGb <= 2);
-  if (hints.saveData || weak) return { model: "lite", width: 480, height: 360, maxFps: 15 };
-  if (hints.mobile) return { model: "lite", width: 640, height: 480, maxFps: 24 };
-  if ((hints.cores ?? 0) >= 8) return { model: "full", width: 640, height: 480, maxFps: 30 };
-  return { model: "lite", width: 640, height: 480, maxFps: 30 };
+  if (hints.saveData || weak) return { model: "lite", width: 640, height: 480, maxFps: 15 };
+  if (hints.mobile) {
+    const capable = (hints.cores ?? 0) >= 6 && (hints.memoryGb === undefined || hints.memoryGb >= 4);
+    return capable ? { model: "full", width: 1920, height: 1080, maxFps: 24 } : { model: "full", width: 1280, height: 720, maxFps: 24 };
+  }
+  if ((hints.cores ?? 0) >= 8) return { model: "full", width: 3840, height: 2160, maxFps: 30 };
+  return { model: "full", width: 1920, height: 1080, maxFps: 30 };
 }
 
 /** Reads device hints in the browser. */
@@ -74,6 +89,8 @@ export class FrameGovernor {
   private startedAt: number | null = null;
   private slowSince: number | null = null;
   private readonly given = new Set<PerformanceAdvice>();
+  /** Average detection time in the first seconds after warm-up, and how many frames it covers. */
+  private baseline = { sum: 0, count: 0 };
 
   constructor(maxFps: number) {
     this.maxFps = maxFps;
@@ -112,6 +129,11 @@ export class FrameGovernor {
     this.lastStart = startedAt;
     this.averageMs = this.averageMs === 0 ? inferenceMs : this.averageMs * 0.9 + inferenceMs * 0.1;
     this.analysed.push(startedAt);
+    const since = startedAt - this.startedAt;
+    if (since >= WARM_UP_MS && since < WARM_UP_MS + BASELINE_MS) {
+      this.baseline.sum += inferenceMs;
+      this.baseline.count += 1;
+    }
   }
 
   /**
@@ -142,6 +164,12 @@ export class FrameGovernor {
     this.slowSince = null;
     this.lastStart = -Infinity;
     this.averageMs = 0;
+    this.baseline = { sum: 0, count: 0 };
+  }
+
+  /** The cool baseline detection time, once measured. */
+  baselineMs(): number | null {
+    return this.baseline.count >= 10 ? this.baseline.sum / this.baseline.count : null;
   }
 
   /**
@@ -162,6 +190,12 @@ export class FrameGovernor {
     else if (detectionBound && profile.width > 480 && fps < 12 && !this.given.has("lower-resolution")) advice = "lower-resolution";
     else if (detectionBound && fps < 8 && !this.given.has("too-slow")) advice = "too-slow";
     else if (!detectionBound && cameraFps !== null && cameraFps < 8 && !this.given.has("slow-camera")) advice = "slow-camera";
+    else {
+      // Throttling: much slower than this device's own cool baseline, well after it was measured.
+      const baseline = this.baselineMs();
+      const late = now - this.startedAt > WARM_UP_MS + BASELINE_MS + SUSTAIN_MS;
+      if (baseline !== null && late && this.averageMs > baseline * THROTTLE_FACTOR && this.averageMs > 12 && !this.given.has("cool-down")) advice = "cool-down";
+    }
     if (!advice) {
       this.slowSince = null;
       return null;

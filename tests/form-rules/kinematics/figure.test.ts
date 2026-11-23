@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEMONSTRATIONS } from "@/lib/home-workout/demos";
-import { BONES, blendPose, demoBounds, easeInOut, FLOOR_Y, jointOf, loopDuration, sampleDemo } from "@/lib/home-workout/figure";
+import { DEMONSTRATIONS } from "./demos";
+import { BONES, blendPose, demoBounds, easeInOut, FLOOR_Y, jointOf, loopDuration, sampleDemo } from "./figure";
 
 const length = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 

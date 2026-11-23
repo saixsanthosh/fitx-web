@@ -2,6 +2,7 @@
  * Camera access for the form coach. Video stays in this browser: the stream only feeds the
  * on-device pose model and is never recorded or uploaded.
  */
+import { captureConstraints } from "./capture";
 
 export type CameraProblem = "insecure" | "unsupported" | "denied" | "no-camera" | "busy" | "constraints" | "interrupted" | "unknown";
 
@@ -96,12 +97,7 @@ export async function openCamera(request: CameraRequest): Promise<MediaStream> {
   if (typeof window === "undefined" || !window.isSecureContext) throw new CameraError("insecure");
   const devices = navigator.mediaDevices;
   if (!devices?.getUserMedia) throw new CameraError("unsupported");
-  const video: MediaTrackConstraints = {
-    width: { ideal: request.width },
-    height: { ideal: request.height },
-    frameRate: { ideal: request.frameRate, max: 30 },
-    ...(request.deviceId ? { deviceId: { exact: request.deviceId } } : { facingMode: { ideal: request.facing } }),
-  };
+  const video = captureConstraints(request);
   try {
     return await devices.getUserMedia({ audio: false, video });
   } catch (error) {

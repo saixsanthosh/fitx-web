@@ -24,6 +24,7 @@ export function captionFor(snapshot: CoachSnapshot | null): Caption {
     return { headline: "Can’t see you clearly", detail: guidance, tone: "wait" };
   }
   if (snapshot.status === "position") {
+    if (snapshot.calibrating) return { headline: "Hold still", detail: guidance, tone: "wait" };
     if (/turn side-on/i.test(snapshot.guidance)) return { headline: "Turn side-on", detail: guidance, tone: "wait" };
     if (/^face the camera/i.test(snapshot.guidance)) return { headline: "Face the camera", detail: guidance, tone: "wait" };
     if (/phone on its side/i.test(snapshot.guidance)) return { headline: "Turn the phone sideways", detail: guidance, tone: "wait" };

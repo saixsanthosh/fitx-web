@@ -6,8 +6,8 @@ import type { ExerciseRule } from "@/lib/form-rules/types";
 import { mountainClimber, planFrames } from "./figure-poses";
 import { cueIds, play } from "./synthetic";
 import { fromFigure, sequence, PORTRAIT } from "./synthetic";
-import { DEMONSTRATIONS } from "@/lib/home-workout/demos";
-import { place } from "@/lib/home-workout/figure";
+import { DEMONSTRATIONS } from "./kinematics/demos";
+import { place } from "./kinematics/figure";
 
 const rule = getExerciseRule("mountain_climber") as ExerciseRule;
 const run = (depths: number[], options: { torso?: number } = {}, seq = {}) =>

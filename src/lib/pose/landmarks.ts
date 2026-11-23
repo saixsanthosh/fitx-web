@@ -21,6 +21,12 @@ export interface PoseFrame {
   points: readonly PosePoint[] | null;
   /** Image width divided by height, so angles are measured in square pixels. */
   aspect: number;
+  /**
+   * The same 33 landmarks in metres, centred between the hips (MediaPipe's world landmarks), when the
+   * model gives them. Joint angles measured here do not shrink when the body is turned away from the
+   * camera, so oblique views and leaning towards the lens can still be judged.
+   */
+  world?: readonly PosePoint[] | null;
 }
 
 export type Side = "left" | "right";

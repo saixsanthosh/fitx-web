@@ -1,7 +1,9 @@
 /**
- * The looping demonstration of every Home workout exercise, as keyframes for the drawn figure in
- * ./figure.ts. Each demonstration shows the form its camera rule counts: tests play these loops
- * through the rule and expect every rep counted (or the hold timed) with no form cue.
+ * Reference motions for every camera exercise (test-only), as keyframes for the kinematic figure in
+ * ./figure.ts. Each one moves the way its camera rule expects good form to move: tests play these loops
+ * through the rule and expect every rep counted (or the hold timed) with no form cue. They were the
+ * drawn demonstrations of the old Home workout page; AI Form Check shows photos instead, and the
+ * figures live on here as the reference each rule is checked against.
  */
 import type { ExerciseId } from "@/lib/form-rules/types";
 import type { Demonstration, FigurePose, Limbs } from "./figure";
@@ -187,6 +189,66 @@ const bicepsCurl: Demonstration = {
   ],
 };
 
+const lateralRaise: Demonstration = {
+  view: "front",
+  anchor: { side: "centre", part: "hip" },
+  at: { x: 200, y: 132 },
+  keyframes: [
+    { pose: standFront, moveMs: 1000, holdMs: 350, label: "Lower" },
+    { pose: { ...standFront, near: { ...standFront.near, upperArm: 0, forearm: -2 }, far: { ...standFront.far, upperArm: 180, forearm: 182 } }, moveMs: 900, holdMs: 300, label: "Raise" },
+  ],
+};
+
+const frontRaise: Demonstration = {
+  view: "side",
+  anchor: { side: "near", part: "ankle" },
+  at: { x: 196, y: 256 },
+  keyframes: [
+    { pose: standSide, moveMs: 1000, holdMs: 350, label: "Lower" },
+    { pose: both(-90, limbs(0, 0, 90, 90, 0)), moveMs: 900, holdMs: 300, label: "Raise" },
+  ],
+};
+
+const tricepsExtension: Demonstration = {
+  view: "side",
+  anchor: { side: "near", part: "ankle" },
+  at: { x: 196, y: 256 },
+  keyframes: [
+    { pose: both(-90, limbs(-95, -95, 90, 90, 0)), moveMs: 900, holdMs: 350, label: "Press" },
+    { pose: both(-90, limbs(-100, 140, 90, 90, 0)), moveMs: 1000, holdMs: 250, label: "Lower" },
+  ],
+};
+
+const romanianDeadlift: Demonstration = {
+  view: "side",
+  anchor: { side: "near", part: "ankle" },
+  at: { x: 210, y: 256 },
+  keyframes: [
+    { pose: both(-90, limbs(90, 90, 92, 88, 0)), moveMs: 1100, holdMs: 400, label: "Stand tall" },
+    { pose: both(-10, limbs(90, 90, 98, 80, 0)), moveMs: 1200, holdMs: 300, label: "Hips back" },
+  ],
+};
+
+const bentOverRow: Demonstration = {
+  view: "side",
+  anchor: { side: "near", part: "ankle" },
+  at: { x: 210, y: 256 },
+  keyframes: [
+    { pose: both(-40, limbs(90, 90, 100, 85, 0)), moveMs: 900, holdMs: 350, label: "Lower" },
+    { pose: both(-40, limbs(180, 85, 100, 85, 0)), moveMs: 800, holdMs: 250, label: "Pull" },
+  ],
+};
+
+const sitUp: Demonstration = {
+  view: "side",
+  anchor: { side: "centre", part: "hip" },
+  at: { x: 210, y: 262 },
+  keyframes: [
+    { pose: both(180, limbs(0, 180, -45, 60, 0)), moveMs: 1000, holdMs: 400, label: "Lower" },
+    { pose: both(-110, limbs(-30, 160, -45, 60, 0), -10), moveMs: 1000, holdMs: 300, label: "Curl up" },
+  ],
+};
+
 export const DEMONSTRATIONS: Record<ExerciseId, Demonstration> = {
   push_up: pushUp,
   bodyweight_squat: squat,
@@ -202,4 +264,10 @@ export const DEMONSTRATIONS: Record<ExerciseId, Demonstration> = {
   superman,
   shoulder_press: shoulderPress,
   biceps_curl: bicepsCurl,
+  lateral_raise: lateralRaise,
+  front_raise: frontRaise,
+  triceps_extension: tricepsExtension,
+  romanian_deadlift: romanianDeadlift,
+  bent_over_row: bentOverRow,
+  sit_up: sitUp,
 };

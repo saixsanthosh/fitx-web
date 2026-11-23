@@ -262,6 +262,7 @@ const jumpingJack: ExerciseRule = {
     { id: "feet_narrow", text: "Jump your feet wider.", speech: "Feet wider", when: [{ metric: "armLow", op: ">=", value: 135 }, { metric: "legs", op: "<=", value: 1.3 }], during: ["outbound", "inbound"], sustainMs: 150 },
   ],
   smoothing: { minCutoff: 2, beta: 0.05 },
+  headroom: 0.4,
   libraryIds: ["jumping_jack"],
   names: ["jumping jack", "jumping jacks", "star jump", "star jumps"],
 };
@@ -537,7 +538,8 @@ const shoulderPress: ExerciseRule = {
     elbowMax: { kind: "angle", joints: ["shoulder", "elbow", "wrist"], side: "both-max" },
     // The lower hand's height above its shoulder, in torso lengths.
     wristLow: { kind: "level", point: "wrist", base: "shoulder", scale: ["shoulder", "hip"], side: "both-min" },
-    torso: { kind: "tilt", from: "hip", to: "shoulder", reference: "vertical", side: "visible" },
+    // Leaning back is a move towards or away from the lens: only the 3D landmarks see it from the front.
+    torso: { kind: "tilt", from: "hip", to: "shoulder", reference: "vertical", side: "visible", space: "world" },
   },
   posture: [
     { metric: "torso", op: "<=", value: 20 },
@@ -563,6 +565,7 @@ const shoulderPress: ExerciseRule = {
     { id: "lean_back", text: "Ribs down. Press without leaning back.", speech: "Ribs down", when: [{ metric: "torso", op: ">=", value: 15 }], sustainMs: 400 },
   ],
   smoothing: { minCutoff: 1, beta: 0.03 },
+  headroom: 0.42,
   libraryIds: ["dumbbell_shoulder_press", "free-exercise-db-Dumbbell_Shoulder_Press"],
   names: ["shoulder press", "shoulder presses", "dumbbell shoulder press", "overhead press", "dumbbell overhead press", "standing dumbbell press"],
 };
@@ -611,10 +614,271 @@ const bicepsCurl: ExerciseRule = {
   names: ["biceps curl", "biceps curls", "bicep curl", "bicep curls", "dumbbell curl", "dumbbell curls", "dumbbell bicep curl", "dumbbell biceps curl"],
 };
 
+const lateralRaise: ExerciseRule = {
+  id: "lateral_raise",
+  name: "Lateral raise",
+  view: "front",
+  checks: "Counts a rep when both arms lift out to the sides to shoulder height and lower again, and says when you swing or lift too high.",
+  setupTips: [
+    "Stand the phone upright at chest height, about 2 to 3 metres away.",
+    "Face the camera holding light dumbbells, or full water bottles, by your sides.",
+    "Lift both arms out to shoulder height with a soft bend in the elbows, then lower slowly.",
+  ],
+  limits: "Facing the camera it can't see whether your hands drift forwards or which way the weights tilt, and it can't tell how heavy they are.",
+  required: ["shoulder", "elbow", "wrist", "hip"],
+  minVisibility: 0.5,
+  metrics: {
+    // Arm away from the side of the body: about 15° hanging, 90° at shoulder height.
+    armLow: { kind: "angle", joints: ["hip", "shoulder", "wrist"], side: "both-min" },
+    armHigh: { kind: "angle", joints: ["hip", "shoulder", "wrist"], side: "both-max" },
+    elbow: { kind: "angle", joints: ["shoulder", "elbow", "wrist"], side: "both-min" },
+    torso: { kind: "tilt", from: "hip", to: "shoulder", reference: "vertical", side: "visible", space: "world" },
+  },
+  posture: [{ metric: "torso", op: "<=", value: 20 }],
+  postureHint: "Stand tall facing the camera, weights by your sides.",
+  motion: {
+    kind: "reps",
+    start: {
+      enter: [{ metric: "armLow", op: "<=", value: 35 }, { metric: "armHigh", op: "<=", value: 35 }],
+      exit: [{ metric: "armLow", op: ">=", value: 45 }, { metric: "armHigh", op: ">=", value: 45 }],
+    },
+    target: { enter: [{ metric: "armLow", op: ">=", value: 75 }], exit: [{ metric: "armLow", op: "<=", value: 65 }] },
+    progress: { metric: "armLow", from: 20, to: 85 },
+    partialFloor: 0.3,
+    minRepMs: 800,
+    maxRepMs: 15_000,
+    startHint: "Let the weights hang by your sides to start.",
+    partialCue: { text: "Lift both arms all the way to shoulder height.", speech: "Up to shoulders" },
+    lockoutCue: { text: "Lower the weights to your sides between reps.", speech: "All the way down" },
+  },
+  cues: [
+    { id: "too_high", text: "Stop at shoulder height; going higher shrugs the weight onto your neck.", speech: "Shoulder height", when: [{ metric: "armHigh", op: ">=", value: 115 }], during: ["target"], sustainMs: 250 },
+    { id: "swing", text: "Stand still; lift without swinging your body.", speech: "No swinging", when: [{ metric: "torso", op: ">=", value: 12 }], sustainMs: 300 },
+    { id: "bent_arms", text: "Keep a soft bend in your elbows, not a curl.", speech: "Longer arms", when: [{ metric: "elbow", op: "<=", value: 120 }], during: ["outbound", "target"], sustainMs: 300 },
+  ],
+  smoothing: { minCutoff: 1, beta: 0.03 },
+  headroom: 0.2,
+  libraryIds: ["lateral_raise", "band_lateral_raise", "free-exercise-db-Side_Lateral_Raise"],
+  names: ["lateral raise", "lateral raises", "dumbbell lateral raise", "dumbbell lateral raises", "side lateral raise", "side lateral raises", "side raise", "side raises", "band lateral raise"],
+};
+
+const frontRaise: ExerciseRule = {
+  id: "front_raise",
+  name: "Front raise",
+  view: "side",
+  checks: "Counts a rep when your arm lifts straight in front of you to shoulder height and lowers again, and says when you swing.",
+  setupTips: [
+    "Stand the phone upright at chest height, about 2 metres away.",
+    "Stand side-on holding light dumbbells, or full water bottles, in front of your thighs.",
+    "Lift to shoulder height with straight arms, then lower slowly.",
+  ],
+  limits: "The camera follows the arm nearest it; it can't see your far arm or whether your hands stay level with each other.",
+  required: ["shoulder", "elbow", "wrist", "hip"],
+  minVisibility: 0.6,
+  metrics: {
+    arm: { kind: "angle", joints: ["hip", "shoulder", "wrist"], side: "visible" },
+    elbow: { kind: "angle", joints: ["shoulder", "elbow", "wrist"], side: "visible" },
+    torso: { kind: "tilt", from: "hip", to: "shoulder", reference: "vertical", side: "visible" },
+  },
+  posture: [{ metric: "torso", op: "<=", value: 20 }],
+  postureHint: "Stand tall, side-on to the camera, weights in front of your thighs.",
+  motion: {
+    kind: "reps",
+    start: { enter: [{ metric: "arm", op: "<=", value: 35 }], exit: [{ metric: "arm", op: ">=", value: 45 }] },
+    target: { enter: [{ metric: "arm", op: ">=", value: 80 }], exit: [{ metric: "arm", op: "<=", value: 70 }] },
+    progress: { metric: "arm", from: 20, to: 90 },
+    partialFloor: 0.3,
+    minRepMs: 800,
+    maxRepMs: 15_000,
+    startHint: "Let the weights rest in front of your thighs to start.",
+    partialCue: { text: "Lift until your arm is level with your shoulder.", speech: "Up to shoulders" },
+    lockoutCue: { text: "Lower all the way to your thighs between reps.", speech: "All the way down" },
+  },
+  cues: [
+    { id: "too_high", text: "Stop at shoulder height.", speech: "Shoulder height", when: [{ metric: "arm", op: ">=", value: 125 }], during: ["target"], sustainMs: 250 },
+    { id: "swing", text: "Stand still; lift without leaning back or swinging.", speech: "No swinging", when: [{ metric: "torso", op: ">=", value: 12 }], sustainMs: 300 },
+    { id: "bent_arm", text: "Keep your arm long, with only a soft bend at the elbow.", speech: "Longer arm", when: [{ metric: "elbow", op: "<=", value: 130 }], during: ["outbound", "target"], sustainMs: 300 },
+  ],
+  smoothing: { minCutoff: 1, beta: 0.03 },
+  libraryIds: ["free-exercise-db-Front_Dumbbell_Raise"],
+  names: ["front raise", "front raises", "front dumbbell raise", "front dumbbell raises", "dumbbell front raise", "dumbbell front raises"],
+};
+
+const tricepsExtension: ExerciseRule = {
+  id: "triceps_extension",
+  name: "Overhead triceps extension",
+  view: "side",
+  checks: "Counts a rep when the weight lowers behind your head and presses back to straight arms, and says when your elbows drift or your back arches.",
+  setupTips: [
+    "Stand the phone upright at chest height, about 2 to 3 metres away, with room above your head in the picture.",
+    "Stand side-on holding one dumbbell overhead in both hands, arms straight.",
+    "Lower it behind your head by bending only at the elbows, then straighten.",
+  ],
+  limits: "Side-on the camera can't see whether your elbows flare outwards, and it follows the arm nearest it.",
+  required: ["shoulder", "elbow", "wrist", "hip"],
+  minVisibility: 0.6,
+  metrics: {
+    elbow: { kind: "angle", joints: ["shoulder", "elbow", "wrist"], side: "visible" },
+    // The upper arm points up: elbow above the shoulder, close to vertical.
+    upperArm: { kind: "tilt", from: "shoulder", to: "elbow", reference: "vertical", side: "visible" },
+    elbowUp: { kind: "rise", lower: "shoulder", upper: "elbow", side: "visible" },
+    torso: { kind: "tilt", from: "hip", to: "shoulder", reference: "vertical", side: "visible" },
+  },
+  posture: [
+    { metric: "torso", op: "<=", value: 20 },
+    { metric: "elbowUp", op: ">=", value: 0.6 },
+  ],
+  postureHint: "Stand side-on and hold the weight straight overhead.",
+  motion: {
+    kind: "reps",
+    start: { enter: [{ metric: "elbow", op: ">=", value: 150 }], exit: [{ metric: "elbow", op: "<=", value: 140 }] },
+    target: { enter: [{ metric: "elbow", op: "<=", value: 85 }], exit: [{ metric: "elbow", op: ">=", value: 95 }] },
+    progress: { metric: "elbow", from: 165, to: 75 },
+    partialFloor: 0.3,
+    minRepMs: 800,
+    maxRepMs: 15_000,
+    startHint: "Straighten your arms overhead to start.",
+    partialCue: { text: "Lower the weight further behind your head.", speech: "Lower" },
+    lockoutCue: { text: "Straighten your arms fully at the top.", speech: "Arms straight" },
+  },
+  cues: [
+    { id: "elbow_drift", text: "Keep your upper arms still, elbows pointing up.", speech: "Elbows up", when: [{ metric: "upperArm", op: ">=", value: 35 }], during: ["outbound", "target", "inbound"], sustainMs: 300 },
+    { id: "arch", text: "Ribs down; don't arch your back to lift.", speech: "Ribs down", when: [{ metric: "torso", op: ">=", value: 14 }], sustainMs: 300 },
+  ],
+  smoothing: { minCutoff: 1, beta: 0.03 },
+  headroom: 0.45,
+  libraryIds: ["triceps_extension", "free-exercise-db-Standing_Dumbbell_Triceps_Extension"],
+  names: ["overhead triceps extension", "overhead tricep extension", "dumbbell overhead triceps extension", "triceps extension", "tricep extension", "standing dumbbell triceps extension"],
+};
+
+const romanianDeadlift: ExerciseRule = {
+  id: "romanian_deadlift",
+  name: "Romanian deadlift",
+  view: "side",
+  checks: "Counts a rep when you hinge your hips back until your torso leans well forward and stand tall again, and says when you squat instead of hinge.",
+  setupTips: [
+    "Stand the phone upright at hip height, about 2 to 3 metres away.",
+    "Stand side-on holding dumbbells or a bar in front of your thighs.",
+    "Push your hips back with soft knees, lower the weight along your legs, then stand tall.",
+  ],
+  limits: "One camera can't see whether your back stays flat or rounds; keep your spine long. It can't tell how heavy the weight is.",
+  required: ["shoulder", "hip", "knee", "ankle"],
+  minVisibility: 0.6,
+  metrics: {
+    hip: { kind: "angle", joints: ["shoulder", "hip", "knee"], side: "visible" },
+    knee: { kind: "angle", joints: ["hip", "knee", "ankle"], side: "visible" },
+    torso: { kind: "tilt", from: "hip", to: "shoulder", reference: "vertical", side: "visible" },
+  },
+  posture: [{ metric: "torso", op: "<=", value: 25 }],
+  postureHint: "Stand tall, side-on to the camera, weight in front of your thighs.",
+  motion: {
+    kind: "reps",
+    start: { enter: [{ metric: "hip", op: ">=", value: 160 }], exit: [{ metric: "hip", op: "<=", value: 150 }] },
+    target: { enter: [{ metric: "hip", op: "<=", value: 115 }], exit: [{ metric: "hip", op: ">=", value: 125 }] },
+    progress: { metric: "hip", from: 170, to: 105 },
+    partialFloor: 0.3,
+    minRepMs: 900,
+    maxRepMs: 20_000,
+    startHint: "Stand tall to start.",
+    partialCue: { text: "Push your hips further back, until your torso leans well forward.", speech: "Hips back" },
+    lockoutCue: { text: "Stand all the way up between reps.", speech: "Stand tall" },
+  },
+  cues: [
+    { id: "squatting", text: "Keep only a soft bend in your knees; push your hips back rather than squatting down.", speech: "Hips back", when: [{ metric: "knee", op: "<=", value: 125 }], during: ["outbound", "target"], sustainMs: 300 },
+  ],
+  smoothing: { minCutoff: 1, beta: 0.03 },
+  libraryIds: ["romanian_deadlift", "dumbbell_rdl", "free-exercise-db-Stiff-Legged_Dumbbell_Deadlift"],
+  names: ["romanian deadlift", "romanian deadlifts", "dumbbell romanian deadlift", "dumbbell romanian deadlifts", "rdl", "dumbbell rdl", "stiff legged dumbbell deadlift"],
+};
+
+const bentOverRow: ExerciseRule = {
+  id: "bent_over_row",
+  name: "Bent-over row",
+  view: "side",
+  checks: "Counts a rep when you pull the weight up to your body and lower it to straight arms, and says when you stand up to lift.",
+  setupTips: [
+    "Stand the phone upright at hip height, about 2 to 3 metres away.",
+    "Stand side-on, hinge forward from your hips with a flat back, weights hanging under your shoulders.",
+    "Pull your elbows back past your body, then lower until your arms are straight.",
+  ],
+  limits: "The camera follows the arm nearest it; it can't see your back rounding or how far your shoulder blades squeeze.",
+  required: ["shoulder", "elbow", "wrist", "hip"],
+  minVisibility: 0.6,
+  metrics: {
+    elbow: { kind: "angle", joints: ["shoulder", "elbow", "wrist"], side: "visible" },
+    torso: { kind: "tilt", from: "hip", to: "shoulder", reference: "vertical", side: "visible" },
+  },
+  posture: [
+    { metric: "torso", op: ">=", value: 30 },
+    { metric: "torso", op: "<=", value: 85 },
+  ],
+  postureHint: "Hinge forward from your hips, side-on to the camera, weights hanging under your shoulders.",
+  motion: {
+    kind: "reps",
+    start: { enter: [{ metric: "elbow", op: ">=", value: 150 }], exit: [{ metric: "elbow", op: "<=", value: 140 }] },
+    target: { enter: [{ metric: "elbow", op: "<=", value: 95 }], exit: [{ metric: "elbow", op: ">=", value: 105 }] },
+    progress: { metric: "elbow", from: 165, to: 85 },
+    partialFloor: 0.3,
+    minRepMs: 700,
+    maxRepMs: 15_000,
+    startHint: "Let the weights hang with straight arms to start.",
+    partialCue: { text: "Pull your elbows further back, past your body.", speech: "Pull higher" },
+    lockoutCue: { text: "Lower until your arms are straight each rep.", speech: "Arms straight" },
+  },
+  cues: [
+    { id: "standing_up", text: "Stay hinged forward; don't stand up to lift the weight.", speech: "Stay low", when: [{ metric: "torso", op: "<=", value: 25 }], during: ["outbound", "target"], sustainMs: 300 },
+  ],
+  smoothing: { minCutoff: 1, beta: 0.03 },
+  libraryIds: ["free-exercise-db-Bent_Over_Two-Dumbbell_Row"],
+  names: ["bent over row", "bent over rows", "bent over dumbbell row", "bent over dumbbell rows", "bent over two dumbbell row", "dumbbell bent over row"],
+};
+
+const sitUp: ExerciseRule = {
+  id: "sit_up",
+  name: "Sit-up",
+  view: "side",
+  landscape: true,
+  checks: "Counts a rep when you curl all the way up from lying and lower back down, and says when your legs straighten.",
+  setupTips: [
+    "With auto-rotate on (rotation lock off), turn your phone sideways and stand it on the floor, about 2 metres away.",
+    "Lie on your back side-on to the camera, knees bent and feet flat.",
+    "Sit all the way up, then lower until your shoulders touch the floor.",
+  ],
+  limits: "The camera can't tell whether you pull on your neck or how your lower back moves; keep your hands light.",
+  required: ["shoulder", "hip", "knee", "ankle"],
+  minVisibility: 0.55,
+  metrics: {
+    // 0° lying flat, about 70° sitting up.
+    torso: { kind: "tilt", from: "hip", to: "shoulder", reference: "horizontal", side: "visible" },
+    knee: { kind: "angle", joints: ["hip", "knee", "ankle"], side: "visible" },
+  },
+  posture: [{ metric: "knee", op: "<=", value: 135 }],
+  postureHint: "Lie on your back, side-on to the camera, knees bent and feet flat.",
+  motion: {
+    kind: "reps",
+    start: { enter: [{ metric: "torso", op: "<=", value: 20 }], exit: [{ metric: "torso", op: ">=", value: 28 }] },
+    target: { enter: [{ metric: "torso", op: ">=", value: 60 }], exit: [{ metric: "torso", op: "<=", value: 52 }] },
+    progress: { metric: "torso", from: 5, to: 70 },
+    partialFloor: 0.3,
+    minRepMs: 900,
+    maxRepMs: 15_000,
+    startHint: "Lie back with your shoulders on the floor to start.",
+    partialCue: { text: "Curl all the way up until you're sitting tall.", speech: "All the way up" },
+    lockoutCue: { text: "Lower until your shoulders touch the floor.", speech: "All the way down" },
+  },
+  cues: [
+    { id: "legs_straight", text: "Keep your knees bent and feet flat on the floor.", speech: "Knees bent", when: [{ metric: "knee", op: ">=", value: 150 }], sustainMs: 300 },
+  ],
+  smoothing: { minCutoff: 1, beta: 0.03 },
+  libraryIds: ["free-exercise-db-Sit-Up"],
+  names: ["sit up", "sit ups", "situp", "situps"],
+};
+
 /** The supported exercises, in the order the practice page lists them. */
 export const EXERCISE_RULES: readonly ExerciseRule[] = [
   pushUp, bodyweightSquat, splitSquat, gluteBridge, plank, jumpingJack,
   reverseLunge, highKnees, mountainClimber, sidePlank, wallSit, superman, shoulderPress, bicepsCurl,
+  lateralRaise, frontRaise, tricepsExtension, romanianDeadlift, bentOverRow, sitUp,
 ];
 
 const BY_ID = new Map<string, ExerciseRule>(EXERCISE_RULES.map((rule) => [rule.id, rule]));

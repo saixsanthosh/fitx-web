@@ -6,7 +6,7 @@ import type { CoachSummary } from "@/lib/form-rules/session";
 import type { ExerciseRule } from "@/lib/form-rules/types";
 import { cn } from "@/lib/utils";
 import { formatClock } from "./CoachStage";
-import { ExerciseGlyph } from "./ExerciseGlyph";
+import { ExerciseThumb } from "@/components/form-check/ExerciseThumb";
 
 interface CoachSummaryCardProps {
   rule: ExerciseRule;
@@ -49,9 +49,7 @@ export function CoachSummaryCard({ rule, summary, mode, endedEarly, headingRef, 
       <div className="grid gap-6 p-5 sm:p-7 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] md:gap-10">
         <div>
           <div className="flex items-center gap-3">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-fitx-surface-variant text-fitx-text">
-              <ExerciseGlyph id={rule.id} className="h-10 w-10" />
-            </span>
+            <ExerciseThumb id={rule.id} size={48} />
             <div className="min-w-0">
               <p className="text-xs font-medium text-fitx-text-secondary">{mode === "workout" ? "Camera count" : "Set result"}</p>
               <h2 ref={headingRef} tabIndex={-1} id={`summary-${rule.id}`} className="truncate font-heading text-xl font-semibold tracking-tight text-fitx-text outline-none">{rule.name}</h2>

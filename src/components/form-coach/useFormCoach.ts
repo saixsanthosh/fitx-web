@@ -4,20 +4,21 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { CoachSnapshot } from "@/lib/form-rules/session";
 import type { ExerciseRule } from "@/lib/form-rules/types";
-import type { CoachStage, FrameSize } from "./coach-machine";
+import type { CoachStage, FrameSize, LiveView } from "./coach-machine";
 import { CoachVoice as CoachVoiceForPreview } from "./voice";
-import { CoachMachine } from "./coach-machine";
-import type { LiveFigureHandle } from "@/components/home-workout/LiveFigure";
+import { CoachMachine, INITIAL_VIEW } from "./coach-machine";
 import type { VoiceGender } from "./voice";
 import { pickVoice, readVoiceGender, readVoicePreference, speechSupported, writeVoiceGender, writeVoicePreference } from "./voice";
 
-export type { CoachStage, FrameSize } from "./coach-machine";
+export type { CoachStage, FrameSize, LiveView } from "./coach-machine";
 
 export interface FormCoachController {
   stage: CoachStage;
   snapshot: CoachSnapshot | null;
   /** Camera picture size, once known. */
   frame: FrameSize | null;
+  /** The camera's picture quality, light, framing and whether the analysis can be relied on. */
+  view: LiveView;
   /** Show the picture mirrored (selfie cameras). */
   mirrored: boolean;
   cameraCount: number;
@@ -75,15 +76,18 @@ export interface CoachRefs {
   video: RefObject<HTMLVideoElement | null>;
   canvas: RefObject<HTMLCanvasElement | null>;
   meter: RefObject<HTMLDivElement | null>;
-  figure: RefObject<LiveFigureHandle | null>;
+  /** The visible camera area, and the layer inside it that the automatic framing moves. */
+  viewport: RefObject<HTMLDivElement | null>;
+  layer: RefObject<HTMLDivElement | null>;
 }
 
 export function useCoachRefs(): CoachRefs {
   const video = useRef<HTMLVideoElement | null>(null);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const meter = useRef<HTMLDivElement | null>(null);
-  const figure = useRef<LiveFigureHandle | null>(null);
-  return useMemo(() => ({ video, canvas, meter, figure }), []);
+  const viewport = useRef<HTMLDivElement | null>(null);
+  const layer = useRef<HTMLDivElement | null>(null);
+  return useMemo(() => ({ video, canvas, meter, viewport, layer }), []);
 }
 
 export function useFormCoach(refs: CoachRefs): FormCoachController {
@@ -91,6 +95,7 @@ export function useFormCoach(refs: CoachRefs): FormCoachController {
   const [stage, setStage] = useState<CoachStage>({ name: "idle" });
   const [snapshot, setSnapshot] = useState<CoachSnapshot | null>(null);
   const [frame, setFrame] = useState<FrameSize | null>(null);
+  const [view, setView] = useState<LiveView>(INITIAL_VIEW);
   const [mirrored, setMirrored] = useState(true);
   const [cameraCount, setCameraCount] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -106,6 +111,7 @@ export function useFormCoach(refs: CoachRefs): FormCoachController {
       setStage,
       setSnapshot,
       setFrame,
+      setView,
       setMirrored,
       setCameraCount,
       setNotice,
@@ -113,7 +119,9 @@ export function useFormCoach(refs: CoachRefs): FormCoachController {
       video: () => refs.video.current,
       canvas: () => refs.canvas.current,
       meter: () => refs.meter.current,
-      pose: (points, aspect, mirrored, side) => refs.figure.current?.update(points, aspect, mirrored, side),
+      viewport: () => refs.viewport.current,
+      layer: () => refs.layer.current,
+      reducedMotion: () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
     });
     return machineRef.current;
   }, [refs]);
@@ -162,6 +170,7 @@ export function useFormCoach(refs: CoachRefs): FormCoachController {
     stage,
     snapshot,
     frame,
+    view,
     mirrored,
     cameraCount,
     notice,

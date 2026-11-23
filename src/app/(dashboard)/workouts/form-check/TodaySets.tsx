@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Check, LoaderCircle, Save, X } from "lucide-react";
-import { ExerciseGlyph } from "@/components/form-coach/ExerciseGlyph";
+import { ExerciseThumb } from "@/components/form-check/ExerciseThumb";
 import type { LoggedSet } from "@/lib/home-workout/log";
 import { setResult } from "@/lib/home-workout/log";
 
@@ -61,9 +61,7 @@ export function TodaySets({ sets, save, onSave, onRemove }: TodaySetsProps) {
           const form = set.kind === "reps" ? `${set.cleanReps} of ${set.reps} clean` : "Good-form hold";
           return (
             <li key={set.id} className="flex items-center gap-3 px-5 py-3 sm:px-6">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-fitx-surface-variant text-fitx-text" aria-hidden="true">
-                <ExerciseGlyph id={set.exerciseId} className="h-8 w-8" />
-              </span>
+              <ExerciseThumb id={set.exerciseId} size={40} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-fitx-text">{set.exerciseName}</span>
                 <span className="block text-xs text-fitx-text-secondary">{form}</span>
