@@ -244,7 +244,7 @@ function BirthDate() {
     <section id="birth-date" className={styles.panel} aria-labelledby="settings-birth-date">
       <h2 id="settings-birth-date" className={styles.panelTitle}>Date of birth</h2>
       <p className={`${styles.note} mb-3`}>
-        Some parts of Explore are for members aged {SOCIAL_LIMITS.adultAge} and over, and FITX has no date of birth for you. Add it once; it is never shown on your profile.
+        Some parts of Explore are for members aged {SOCIAL_LIMITS.adultAge} and over, and FITX has no date of birth for you. It is never shown on your profile.
       </p>
       <form className="flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); if (!problem && value) void save(); }}>
         <label className="flex flex-col gap-1.5">
