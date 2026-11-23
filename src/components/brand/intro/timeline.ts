@@ -96,5 +96,18 @@ export const CALLOUTS = [
   { id: "macros", start: 7.7, end: 8.3, label: "REFUEL", value: "P 42 G · C 64 G · F 18 G", detail: "612 KCAL", placement: { ...everywhere("bottom"), phone: "right", "tablet-p": "right" } },
 ] as const;
 
+/**
+ * Where each callout sits on the 11.9 s cuts encoded before wave 2 (wave 1's placements, the same on
+ * every screen, with wave 1's orientation rules in the CSS). Those cuts were framed for these spots,
+ * not for the per-composition areas, so the overlay keeps them until the new cuts play
+ * (`overlayLayoutFor`, introOverlayTiming.ts).
+ */
+export const SEED_PLACEMENT: Readonly<Record<(typeof CALLOUTS)[number]["id"], CalloutPlacement>> = {
+  pace: "right",
+  cadence: "left",
+  pr: "right",
+  macros: "bottom",
+};
+
 /** Cinematic letterbox (2.39:1 on landscape screens). Film time. */
 export const LETTERBOX = { inStart: 0, inEnd: 0.5, outStart: 10.6, outEnd: 11.0 } as const;

@@ -5,7 +5,7 @@ import { Logo } from "@/components/ui/Logo";
 import { FILM_CUT_ATTR, pickComposition, type FilmComposition } from "./films/compositions";
 import { manifestFor } from "./films/manifest";
 import { LogoReveal } from "./logo/LogoReveal";
-import { CALLOUTS, FILM_DURATION, STAGE, TITLES } from "./intro/timeline";
+import { CALLOUTS, FILM_DURATION, SEED_PLACEMENT, STAGE, TITLES } from "./intro/timeline";
 import { CALLOUT_ZONES } from "./overlay-zones";
 import {
   BRAND,
@@ -17,6 +17,7 @@ import {
   formatCount,
   letterboxTiming,
   liveDuringStage,
+  overlayLayoutFor,
   stageRestTime,
   stageStart,
   titleTiming,
@@ -32,9 +33,11 @@ import styles from "./IntroFilmOverlay.module.css";
 
 /**
  * The film's DOM motion graphics: the letterbox, kinetic titles, data callouts (stages 0–5) and
- * the brand end card (stage 6). The matte and the callout areas follow the composition being played
- * (`<html data-fitx-film-cut>`, overlay-zones.ts): a 2.39:1 scope on laptop and desktop, a thin matte
- * on the tablets and the phone. React state changes only when the scene reports a stage; every
+ * the brand end card (stage 6). On the films they were authored for (`overlayLayoutFor`), the matte
+ * and the callout areas follow the composition being played (`<html data-fitx-film-cut>`,
+ * overlay-zones.ts): a 2.39:1 scope on laptop and desktop, a thin matte on the tablets and the phone.
+ * On the 11.9 s cuts encoded before wave 2 they keep wave 1's orientation matte and fixed placements,
+ * which those cuts were framed for. React state changes only when the scene reports a stage; every
  * element then runs CSS animations whose delays are film times measured from the *origin* (the
  * `STAGE_START` of the stage in which it mounted). Each element captures its origin once, so a
  * later stage never retimes an animation that is already running, and each is pinned to the film
@@ -87,10 +90,16 @@ function readComposition(): FilmComposition {
   return attribute && known.includes(attribute) ? (attribute as FilmComposition) : pickComposition(window.innerWidth, window.innerHeight);
 }
 
+/**
+ * The composition the overlay lays itself out for, or null for wave 1's layout (the 11.9 s cuts, see
+ * `overlayLayoutFor`). Decided once per mount, like the end card: FilmGraphics remounts per run.
+ */
 function useFilmComposition(): FilmComposition | null {
   // The film graphics mount only on the client, once a film plays (never in the server HTML).
-  const [comp, setComp] = useState<FilmComposition | null>(() => (typeof document === "undefined" ? null : readComposition()));
+  const [zoned] = useState(() => typeof document !== "undefined" && overlayLayoutFor(playingDuration()) === "zoned");
+  const [comp, setComp] = useState<FilmComposition | null>(() => (zoned ? readComposition() : null));
   useLayoutEffect(() => {
+    if (!zoned) return;
     const sync = () => setComp(readComposition());
     const observer = typeof MutationObserver === "function" ? new MutationObserver(sync) : null;
     observer?.observe(document.documentElement, { attributes: true, attributeFilter: [FILM_CUT_ATTR] });
@@ -100,7 +109,7 @@ function useFilmComposition(): FilmComposition | null {
       observer?.disconnect();
       window.removeEventListener("resize", sync);
     };
-  }, []);
+  }, [zoned]);
   return comp;
 }
 
@@ -409,7 +418,7 @@ export function FilmGraphics({ stage, theme, freeze }: FilmGraphicsProps) {
       {titles.map((title) => (
         <KineticTitle key={title.text} title={title} index={TITLE_INDEX.get(title.text) ?? 0} origin={origin} frozen={frozen} />
       ))}
-      {comp && callouts.map((callout) => <DataCallout key={callout.id} callout={callout} comp={comp} origin={origin} frozen={frozen} />)}
+      {callouts.map((callout) => <DataCallout key={callout.id} callout={callout} comp={comp} origin={origin} frozen={frozen} />)}
     </div>
   );
 }
@@ -552,7 +561,8 @@ function CountText({ tokens, steps, className }: { tokens: CountToken[]; steps: 
   );
 }
 
-type DataCalloutProps = { callout: FilmCallout; comp: FilmComposition; origin: number; frozen: boolean };
+/** `comp` null: wave 1's fixed placement (the 11.9 s cuts), placed by the CSS alone. */
+type DataCalloutProps = { callout: FilmCallout; comp: FilmComposition | null; origin: number; frozen: boolean };
 
 function DataCalloutBlock({ callout, comp, origin, frozen }: DataCalloutProps) {
   const [mountOrigin] = useState(origin);
@@ -565,8 +575,8 @@ function DataCalloutBlock({ callout, comp, origin, frozen }: DataCalloutProps) {
   const detailIsBadge = !detailTokens.some((token) => token.kind === "number");
   const steps = Math.max(1, Math.round(timing.count * COUNT_FPS));
   const at = callout.start - mountOrigin;
-  const placement = callout.placement[comp];
-  const zone = CALLOUT_ZONES[comp][placement];
+  const placement = comp ? callout.placement[comp] : SEED_PLACEMENT[callout.id];
+  const zone = comp ? CALLOUT_ZONES[comp][placement] : null;
   // The chip's exit slide (attached at mount) starting cues the callout's group fade.
   useExitCue(chipExitRef, calloutRef, !frozen);
 
@@ -580,10 +590,7 @@ function DataCalloutBlock({ callout, comp, origin, frozen }: DataCalloutProps) {
       data-film-rest={callout.start + timing.rest}
       data-exiting={frozen ? "" : undefined}
       style={vars({
-        "--zx0": zone.x0,
-        "--zy0": zone.y0,
-        "--zx1": zone.x1,
-        "--zy1": zone.y1,
+        ...(zone ? { "--zx0": zone.x0, "--zy0": zone.y0, "--zx1": zone.x1, "--zy1": zone.y1 } : {}),
         "--at": sec(at),
         "--chip-in": sec(timing.chipIn),
         "--line-at": sec(at + timing.lineAt),

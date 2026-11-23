@@ -48,8 +48,9 @@
 
 /*
  * The matte per composition (overlay-zones.ts MATTES; FilmGraphics writes the composition being played as
- * data-comp): a 2.39:1 scope on laptop and desktop, a thin matte on the tablets and the phone. The
- * orientation rules above are the fallback before a composition is known.
+ * data-comp, only on the films the zones were authored for): a 2.39:1 scope on laptop and desktop, a thin
+ * matte on the tablets and the phone. Without data-comp (the 11.9 s cuts encoded before wave 2) the
+ * orientation rules above stay: wave 1's matte, which those cuts were framed for.
  */
 .film[data-comp="laptop"],
 .film[data-comp="desktop"] { --bar: clamp(0px, calc((100vh - 100vw / 2.39) / 2), 14vh); }
@@ -424,21 +425,39 @@
 .callout[data-exiting] { animation: fade-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards; }
 
 /*
- * Each callout sits in its area for the composition being played (overlay-zones.ts CALLOUT_ZONES,
- * written as --zx0/--zy0/--zx1/--zy1 fractions of the screen): side callouts hang from the area's top
- * corner, the bottom one stands on the area's foot, centred in it. They never reach into the matte
- * (nor, at the top of a portrait frame, under the Skip pill).
+ * Wave 1's placements, for the 11.9 s cuts encoded before wave 2 (no data-comp; SEED_PLACEMENT): side
+ * callouts a quarter of the way down the picture, the bottom one centred above the bottom bar, and the
+ * portrait rules under "small screens". Those cuts were framed for these spots.
  */
-.callout[data-placement="right"] {
+.film:not([data-comp]) .callout[data-placement="right"] { right: var(--safe-r); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); }
+.film:not([data-comp]) .callout[data-placement="left"] { left: var(--safe-l); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); flex-direction: row-reverse; }
+.film:not([data-comp]) .callout[data-placement="bottom"] {
+  left: 0;
+  right: 0;
+  bottom: calc(var(--floor) + clamp(16px, 3.6vh, 40px));
+  width: max-content;
+  margin-inline: auto;
+  flex-direction: column;
+  align-items: center;
+}
+
+/*
+ * On the films the zones were authored for (data-comp), each callout sits in its area for the
+ * composition being played (overlay-zones.ts CALLOUT_ZONES, written as --zx0/--zy0/--zx1/--zy1
+ * fractions of the screen): side callouts hang from the area's top corner, the bottom one stands on
+ * the area's foot, centred in it. They never reach into the matte (nor, at the top of a portrait
+ * frame, under the Skip pill).
+ */
+.film[data-comp] .callout[data-placement="right"] {
   right: max(var(--safe-r), calc((1 - var(--zx1, .94)) * 100%));
   top: max(calc(var(--ceiling) + 16px), calc(var(--zy0, .3) * 100%));
 }
-.callout[data-placement="left"] {
+.film[data-comp] .callout[data-placement="left"] {
   left: max(var(--safe-l), calc(var(--zx0, .06) * 100%));
   top: max(calc(var(--ceiling) + 16px), calc(var(--zy0, .3) * 100%));
   flex-direction: row-reverse;
 }
-.callout[data-placement="bottom"] {
+.film[data-comp] .callout[data-placement="bottom"] {
   left: calc(var(--zx0, .35) * 100%);
   right: calc((1 - var(--zx1, .65)) * 100%);
   bottom: max(calc(var(--floor) + 12px), calc((1 - var(--zy1, .85)) * 100%));
@@ -740,6 +759,10 @@
 .film[data-comp="tablet-p"] .leader { width: clamp(22px, 7vw, 44px); }
 
 @media (orientation: portrait) {
+  /* Wave 1's portrait placements (the 11.9 s cuts): chips ride the top, bottom chips clear the title line. */
+  .film:not([data-comp]) .callout[data-placement="right"],
+  .film:not([data-comp]) .callout[data-placement="left"] { top: calc(var(--ceiling) + 64px); }
+  .film:not([data-comp]) .callout[data-placement="bottom"] { bottom: calc(var(--floor) + clamp(120px, 17vh, 168px)); }
   .leader { width: clamp(22px, 7vw, 44px); }
 }
 

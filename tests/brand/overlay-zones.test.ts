@@ -143,3 +143,45 @@ test("nominal aspects are each composition's real screen", () => {
   const expected: Record<FilmComposition, number> = { phone: 390 / 844, "tablet-p": 820 / 1180, "tablet-l": 1180 / 820, laptop: 1440 / 810, desktop: 2 };
   for (const comp of ids) assert.ok(Math.abs(nominalAspect(comp) - expected[comp]) < 1e-12, comp);
 });
+
+test("today's 11.9 s cuts keep wave 1's matte and callout spots; only the films the zones were authored for get them", async () => {
+  const { overlayLayoutFor } = await import("@/components/brand/introOverlayTiming");
+  const { SEED_PLACEMENT } = await import("@/components/brand/intro/timeline");
+  const { FILM_MANIFESTS } = await import("@/components/brand/films/cuts.generated");
+  // The cuts encoded before wave 2 (715 frames at 60 fps) and the 2 s e2e fixture: wave 1's layout.
+  assert.equal(overlayLayoutFor(715 / 60), "seed");
+  assert.equal(overlayLayoutFor(2), "seed");
+  // The new cuts with the 2.0 s tail, and the live film (no usable length): the zones.
+  assert.equal(overlayLayoutFor(FILM_DURATION), "zoned");
+  assert.equal(overlayLayoutFor(756 / 60), "zoned");
+  assert.equal(overlayLayoutFor(null), "zoned");
+  // While the manifest still points at the seed cuts, members see wave 1's layout.
+  const intro = FILM_MANIFESTS.intro;
+  if (intro && intro.rev === "seed-w1") assert.equal(overlayLayoutFor(intro.duration), "seed");
+
+  // Wave 1's placement for every callout, the same on every screen.
+  assert.deepEqual(Object.keys(SEED_PLACEMENT).sort(), CALLOUTS.map((callout) => callout.id).sort());
+  assert.deepEqual({ ...SEED_PLACEMENT }, { pace: "right", cadence: "left", pr: "right", macros: "bottom" });
+
+  // The overlay writes data-comp (and the zone properties) only for the zoned layout.
+  const tsx = readFileSync("src/components/brand/IntroFilmOverlay.tsx", "utf8");
+  assert.match(tsx, /overlayLayoutFor\(playingDuration\(\)\) === "zoned"/);
+  assert.match(tsx, /comp \? callout\.placement\[comp\] : SEED_PLACEMENT\[callout\.id\]/);
+  assert.match(tsx, /useState<FilmComposition \| null>\(\(\) => \(zoned \? readComposition\(\) : null\)\)/);
+
+  // Without data-comp the CSS keeps wave 1's rules: the orientation matte, side callouts a quarter of the way down
+  // the picture, the bottom one above the bottom bar, and the portrait spots; the zone rules need data-comp.
+  const css = readFileSync("src/components/brand/IntroFilmOverlay.module.css", "utf8");
+  assert.match(css, /\n\.film \{[^}]*--bar: clamp\(0px, calc\(\(100vh - 100vw \/ 2\.39\) \/ 2\), 14vh\);/);
+  assert.match(css, /@media \(orientation: portrait\) \{\s*\/\*[^*]*\*\/\s*\.film \{ --bar: clamp\(0px, 5vh, 44px\); \}/);
+  assert.match(css, /\.film:not\(\[data-comp\]\) \.callout\[data-placement="right"\] \{ right: var\(--safe-r\); top: calc\(var\(--bar\) \+ \(100% - 2 \* var\(--bar\)\) \* \.24\); \}/);
+  assert.match(css, /\.film:not\(\[data-comp\]\) \.callout\[data-placement="left"\] \{ left: var\(--safe-l\); top: calc\(var\(--bar\) \+ \(100% - 2 \* var\(--bar\)\) \* \.24\); flex-direction: row-reverse; \}/);
+  assert.match(css, /\.film:not\(\[data-comp\]\) \.callout\[data-placement="bottom"\] \{[^}]*bottom: calc\(var\(--floor\) \+ clamp\(16px, 3\.6vh, 40px\)\);/);
+  assert.match(css, /\.film:not\(\[data-comp\]\) \.callout\[data-placement="left"\] \{ top: calc\(var\(--ceiling\) \+ 64px\); \}/);
+  assert.match(css, /\.film:not\(\[data-comp\]\) \.callout\[data-placement="bottom"\] \{ bottom: calc\(var\(--floor\) \+ clamp\(120px, 17vh, 168px\)\); \}/);
+  for (const placement of ["right", "left", "bottom"]) {
+    assert.ok(css.includes(`.film[data-comp] .callout[data-placement="${placement}"] {`), `${placement} zone rule is keyed on data-comp`);
+    // Rules on the callout itself (not its leader or chip) must say which layout they are for.
+    assert.ok(!new RegExp(`(^|\\n)\\.callout\\[data-placement="${placement}"\\] \\{`).test(css), `no unkeyed ${placement} placement rule`);
+  }
+});

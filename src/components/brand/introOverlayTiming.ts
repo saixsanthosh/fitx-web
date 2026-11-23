@@ -145,6 +145,20 @@ export function endCardFor(duration: number | null | undefined): EndCardKind {
   return length - BRAND.at >= FILM_END_REVEAL - 1e-6 ? "film-end" : "short";
 }
 
+/**
+ * How the matte and the data callouts are laid out for a film of `duration` seconds. "zoned": per
+ * composition (overlay-zones.ts MATTES and CALLOUT_ZONES, BRIEF-2 3.3), for the films those areas were
+ * authored and checked against (the new cuts with the 2.0 s tail, and the live film). "seed": wave 1's
+ * orientation matte and fixed placements (`SEED_PLACEMENT`), for the 11.9 s cuts encoded before wave 2,
+ * which were framed for those and never for the zones. The same length test as `endCardFor`, so the
+ * matte, the callouts and the end card change together, and only when the new cuts ship.
+ */
+export type OverlayLayout = "zoned" | "seed";
+
+export function overlayLayoutFor(duration: number | null | undefined): OverlayLayout {
+  return endCardFor(duration) === "film-end" ? "zoned" : "seed";
+}
+
 /** Representative film time for elements that are not titles/callouts (letterbox, brand card) in a stage freeze. */
 export function stageRestTime(stage: number): number {
   const s = clampStage(stage);
