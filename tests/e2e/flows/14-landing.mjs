@@ -1,123 +1,82 @@
-// Flow 14: the public home page. No sideways scroll at phone width, the two scroll scenes move with the scroll
-// (plan rows tick, reps count, cues change), the reduced-motion render is a sensible still frame, the idli
-// portion example works, the contact links are the owner's, and the short brand loader stays brief.
+// Flow 14: the public home page, four screens. The film plays behind the headline and its chapter rail jumps the
+// film; the capability deck moves on by itself, answers tabs, arrow keys and the idli stepper; the idea and the
+// contact cards show; nothing scrolls sideways and the page stays short; with reduced motion nothing moves (no film,
+// no auto-advance) and the brand loader stays away; a returning device gets the short loader.
 import { skipFilmIfShown, textOf } from "./common.mjs";
 
-async function scrollToFraction(page, selector, fraction) {
-  await page.evaluate(([sel, f]) => {
-    const el = document.querySelector(sel);
-    if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY;
-    const range = Math.max(0, el.offsetHeight - window.innerHeight);
-    window.scrollTo({ top: top + range * f, behavior: "instant" });
-  }, [selector, fraction]);
-  await page.waitForTimeout(450);
-}
-
-async function sceneState(page) {
-  return page.evaluate(() => {
-    const scene = document.querySelector("#scenes");
-    return {
-      height: scene?.getBoundingClientRect().height ?? 0,
-      viewport: window.innerHeight,
-      done: scene?.querySelectorAll('[data-done="true"]').length ?? -1,
-      reps: scene?.querySelector("[data-scene-reps]")?.textContent ?? null,
-      cue: [...(scene?.querySelectorAll("[data-scene-cue]") ?? [])].at(-1)?.textContent ?? null,
-      card: Number(getComputedStyle(scene?.querySelector('[aria-label="Example plan in FITX"]') ?? document.body).opacity),
-    };
-  });
-}
+const deckState = (page) => page.evaluate(() => {
+  const deck = document.querySelector("#capabilities");
+  return {
+    auto: deck?.getAttribute("data-auto") ?? null,
+    selected: deck?.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.replace(/^\d+/, "").trim() ?? null,
+    tabs: deck?.querySelectorAll('[role="tab"]').length ?? 0,
+    visiblePanels: [...(deck?.querySelectorAll('[role="tabpanel"]') ?? [])].filter((panel) => !panel.hidden).length,
+  };
+});
 
 export const flow = {
   id: "14-landing",
-  title: "Public home page: scroll scenes, reduced motion, contact links",
+  title: "Public home page: film, capability deck, idea and contact; reduced motion",
   schemes: () => ["light", "dark"],
   async run(t, { size }) {
     const page = await t.open();
 
-    await t.step("the page opens with its hero and no sideways scroll", async () => {
+    await t.step("the page opens with the film behind the headline and no sideways scroll", async () => {
       await t.goto("/", { label: "home" });
       await skipFilmIfShown(t);
-      await page.waitForTimeout(600);
       const title = await textOf(page.getByRole("heading", { level: 1 }));
       t.expect(/Train smart\.\s*Live fit\./.test(title), `hero title: ${title}`);
       t.expect(await page.getByRole("link", { name: "Start training" }).isVisible(), "Start training is offered");
-      const shot = await t.checkpoint("hero", { fullPage: false });
+      await page.waitForFunction(() => document.querySelector("section[data-film]")?.getAttribute("data-film") === "playing", null, { timeout: 15000 }).catch(() => undefined);
+      const film = await page.locator("section[data-film]").getAttribute("data-film");
+      t.note("film state", film);
+      t.expect(film === "playing", `the film plays (data-film=${film})`);
+      const shot = await t.checkpoint("hero", { fullPage: false, settle: false });
       t.expect(!shot.overflow?.overflow, "no sideways scroll", shot.overflow);
     });
 
-    await t.step("the two scenes follow the scroll", async () => {
-      await scrollToFraction(page, "#scenes", 0);
-      const start = await sceneState(page);
-      await t.checkpoint("scenes start", { fullPage: false, settle: false });
-      await scrollToFraction(page, "#scenes", 0.34);
-      const bottom = await sceneState(page);
-      await t.checkpoint("scenes first rep", { fullPage: false, settle: false });
-      await scrollToFraction(page, "#scenes", 1);
-      const end = await sceneState(page);
-      await t.checkpoint("scenes end", { fullPage: false, settle: false });
-      t.note("scene states", { start, bottom, end });
-      t.expect(start.height > start.viewport * 2, "the scene is a tall scroll section", start);
-      t.expect(start.reps === "0" && end.reps === "2", "reps count up with the scroll", { start, end });
-      t.expect(bottom.cue === "Good depth", "the bottom of the rep says Good depth", bottom);
-      t.expect(start.done === 0 && end.done === 4, "plan rows tick off", { start, end });
-      t.expect(bottom.card > 0.99 && end.card > 0.99, "the plan card shows once the scene is under way", { bottom, end });
+    await t.step("a chapter on the rail jumps the film there, and the film can be paused", async () => {
+      await page.getByRole("button", { name: /^Lift:/ }).click();
+      await page.waitForTimeout(500);
+      const state = await page.evaluate(() => ({
+        current: document.querySelector('[data-chapter][data-current="true"]')?.getAttribute("data-chapter"),
+        time: document.querySelector("section[data-film] video")?.currentTime ?? -1,
+      }));
+      t.note("after choosing Lift", state);
+      t.expect(state.current === "lift" && state.time >= 3.7 && state.time < 6.3, "the film is in the Lift chapter", state);
+      await page.getByRole("button", { name: "Pause film" }).click();
+      await page.getByRole("button", { name: "Play film" }).waitFor();
+      const paused = await page.evaluate(() => document.querySelector("section[data-film] video")?.paused);
+      t.expect(paused === true, "the film stops");
+      await t.checkpoint("hero lift chapter", { fullPage: false, settle: false });
+      await page.getByRole("button", { name: "Play film" }).click();
     });
 
-    if (size === "phone") {
-      await t.step("on short phones the pinned scene still fits: nothing is cut off at the bottom", async () => {
-        const original = page.viewportSize();
-        // Safari's small viewport (bars showing): about 660 px on a standard iPhone, about 548 px on an iPhone SE.
-        for (const viewport of [{ width: 390, height: 660 }, { width: 375, height: 548 }]) {
-          await page.setViewportSize(viewport);
-          await scrollToFraction(page, "#scenes", 0.34);
-          const fit = await page.evaluate(() => {
-            const scene = document.querySelector("#scenes");
-            const stage = scene?.firstElementChild?.getBoundingClientRect();
-            const box = (selector) => {
-              const rect = scene?.querySelector(selector)?.getBoundingClientRect();
-              return rect ? { top: Math.round(rect.top), bottom: Math.round(rect.bottom) } : null;
-            };
-            const caption = scene?.querySelector("[data-scene-cue]")?.closest("div")?.getBoundingClientRect();
-            const card = scene?.querySelector('[aria-label="Example plan in FITX"]');
-            const panel = card?.closest("article")?.getBoundingClientRect();
-            const cardRect = card?.getBoundingClientRect();
-            // The knee read-out (SVG text) must not sit under the caption: hidden is fine, overlapping is not.
-            const angleRect = scene?.querySelector("svg text")?.getBoundingClientRect();
-            const angle = angleRect && angleRect.width > 0 ? { top: Math.round(angleRect.top), bottom: Math.round(angleRect.bottom) } : null;
-            return {
-              angle,
-              stage: stage ? { top: Math.round(stage.top), bottom: Math.round(stage.bottom) } : null,
-              caption: caption ? { top: Math.round(caption.top), bottom: Math.round(caption.bottom) } : null,
-              reps: box("[data-scene-reps]"),
-              card: cardRect && panel ? { bottom: Math.round(cardRect.bottom), panelBottom: Math.round(panel.bottom) } : null,
-            };
-          });
-          t.note(`scene fit at ${viewport.width}×${viewport.height}`, fit);
-          const inside = (item) => item && fit.stage && item.top >= fit.stage.top - 1 && item.bottom <= fit.stage.bottom + 1;
-          t.expect(inside(fit.caption), `the caption sits inside the stage at ${viewport.width}×${viewport.height}`, fit);
-          t.expect(inside(fit.reps), `the rep count sits inside the stage at ${viewport.width}×${viewport.height}`, fit);
-          t.expect(fit.card && fit.card.bottom <= fit.card.panelBottom + 1, `the plan card sits inside its panel at ${viewport.width}×${viewport.height}`, fit);
-          t.expect(!fit.angle || !fit.caption || fit.angle.bottom <= fit.caption.top + 1, `the knee read-out stays clear of the caption at ${viewport.width}×${viewport.height}`, fit);
-          await t.checkpoint(`scenes short ${viewport.height}`, { fullPage: false, settle: false });
-        }
-        if (original) await page.setViewportSize(original);
-      });
-    }
+    await t.step("the capability deck moves on by itself while on screen", async () => {
+      await page.locator("#capabilities").scrollIntoViewIfNeeded();
+      await page.locator("#capabilities").evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
+      const before = await deckState(page);
+      t.expect(before.tabs === 6 && before.visiblePanels === 1, "six cards, one showing", before);
+      await page.waitForFunction((first) => {
+        const selected = document.querySelector('#capabilities [role="tab"][aria-selected="true"]')?.textContent?.replace(/^\d+/, "").trim();
+        return selected && selected !== first;
+      }, before.selected, { timeout: 12000 }).catch(() => undefined);
+      const after = await deckState(page);
+      t.note("deck before and after waiting", { before, after });
+      t.expect(after.selected !== before.selected, "the next card comes up by itself", { before, after });
+      await t.checkpoint("deck", { fullPage: false, settle: false });
+    });
 
-    await t.step("the Home workout features reveal as they scroll in", async () => {
-      const list = page.getByRole("heading", { name: "A coach that watches." });
-      await list.scrollIntoViewIfNeeded();
-      await page.mouse.wheel(0, 300);
-      // Items reveal one after another (and the last may have only just come into view): allow the stagger to finish.
-      const inViewHidden = () => [...document.querySelectorAll("[data-fitx-stagger-item]")]
-        .filter((item) => item.getBoundingClientRect().bottom < window.innerHeight - 40 && Number(getComputedStyle(item).opacity) < 0.99).length;
-      await page.waitForFunction(() => [...document.querySelectorAll("[data-fitx-stagger-item]")]
-        .every((item) => item.getBoundingClientRect().bottom >= window.innerHeight - 40 || Number(getComputedStyle(item).opacity) >= 0.99), null, { timeout: 4000 }).catch(() => undefined);
-      const hidden = await page.evaluate(inViewHidden);
-      t.expect(hidden === 0, `${hidden} feature rows in view are still hidden`);
-      t.expect(await page.getByText("never uploaded", { exact: false }).first().isVisible(), "the privacy promise shows");
-      await t.checkpoint("home workout features", { fullPage: false });
+    await t.step("tabs and arrow keys choose a card, and then the deck stays put", async () => {
+      await page.getByRole("tab", { name: /Form Check/ }).click();
+      t.expect((await deckState(page)).auto === "false", "a chosen card stops the auto-advance");
+      await page.locator('[data-scene-cue]').first().waitFor({ timeout: 5000 });
+      await t.checkpoint("deck form check", { fullPage: false, settle: false });
+      await page.keyboard.press("ArrowRight");
+      const state = await deckState(page);
+      t.expect(state.selected === "Fuel", `ArrowRight moves to Fuel (got ${state.selected})`);
+      const focused = await page.evaluate(() => document.activeElement?.getAttribute("role"));
+      t.expect(focused === "tab", "focus follows the chosen tab");
     });
 
     await t.step("the idli example scales by the piece", async () => {
@@ -127,10 +86,19 @@ export const flow = {
       await card.getByRole("button", { name: "One idli more" }).click();
       const after = await textOf(card);
       t.expect(/≈ 76 g/.test(before) && /≈ 114 g/.test(after), "two idli are 76 g, three are 114 g", { before, after });
-      await t.checkpoint("food tile", { fullPage: false });
+      await t.checkpoint("deck fuel", { fullPage: false, settle: false });
     });
 
-    await t.step("the contact block links to the owner's Instagram and e-mail", async () => {
+    await t.step("the idea lands word by word", async () => {
+      const heading = page.getByRole("heading", { name: /Train\. Eat\. Move\. Progress\./ });
+      await heading.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(1300);
+      const opacity = await heading.evaluate((element) => Math.min(...[...element.querySelectorAll("span")].map((span) => Number(getComputedStyle(span).opacity))));
+      t.expect(opacity > 0.99, `every word shows (lowest opacity ${opacity})`);
+      await t.checkpoint("idea", { fullPage: false });
+    });
+
+    await t.step("the contact cards link to the owner's Instagram and email", async () => {
       const instagram = page.getByRole("link", { name: /^Instagram @/ }).first();
       await instagram.scrollIntoViewIfNeeded();
       const href = await instagram.getAttribute("href");
@@ -140,30 +108,37 @@ export const flow = {
       t.expect(/^mailto:[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test((await mail.getAttribute("href")) ?? ""), "mailto link");
       t.expect(await page.getByRole("button", { name: "Copy email address" }).isVisible(), "copy button");
       if (size === "desktop") {
-        await page.getByRole("link", { name: /^Instagram @/ }).first().hover();
-        await page.waitForTimeout(500);
+        await mail.hover();
+        await page.waitForTimeout(700);
       }
       const shot = await t.checkpoint("contact", { fullPage: false });
-      t.expect(!shot.overflow?.overflow, "no sideways scroll at the contact block", shot.overflow);
+      t.expect(!shot.overflow?.overflow, "no sideways scroll at the contact cards", shot.overflow);
     });
 
-    await t.step("full page has no sideways scroll", async () => {
+    await t.step("the whole page is short and never scrolls sideways", async () => {
+      const height = await page.evaluate(() => ({ page: document.documentElement.scrollHeight, viewport: window.innerHeight }));
+      t.note("page height", height);
+      t.expect(height.page <= height.viewport * 6.5, `a few screens, not an endless scroll (${(height.page / height.viewport).toFixed(1)} screens)`, height);
       const shot = await t.checkpoint("full page");
       t.expect(!shot.overflow?.overflow, "no sideways scroll", shot.overflow);
     });
 
-    await t.step("reduced motion: one still frame with the final state", async () => {
+    await t.step("reduced motion: the film's still frame, a static chapter list, no auto-advance, no loader", async () => {
       await page.emulateMedia({ reducedMotion: "reduce" });
       await t.goto("/", { label: "home reduced motion" });
       await skipFilmIfShown(t);
-      await scrollToFraction(page, "#scenes", 0);
-      const still = await sceneState(page);
+      const still = await page.evaluate(() => ({
+        film: document.querySelector("section[data-film]")?.getAttribute("data-film"),
+        videos: document.querySelectorAll("section[data-film] video").length,
+        railButtons: document.querySelectorAll("[data-chapter] button").length,
+        auto: document.querySelector("#capabilities")?.getAttribute("data-auto"),
+      }));
       t.note("reduced", still);
-      t.expect(still.height < still.viewport * 1.6, "no tall scroll section", still);
-      t.expect(still.reps === "2" && still.done === 4 && still.cue === "Good depth" && still.card > 0.99, "the final frame shows", still);
+      t.expect(still.film === "still" && still.videos === 0 && still.railButtons === 0, "no film, the chapters as a plain list", still);
+      t.expect(still.auto === "false", "the deck does not move by itself", still);
       const log = await t.rootLog();
       t.expect(!log.some((entry) => entry.name === "data-fitx-loader" && entry.value === "on"), "no brand loader with reduced motion", log);
-      await t.checkpoint("reduced motion scenes", { fullPage: false });
+      await t.checkpoint("reduced motion hero", { fullPage: false });
       await page.emulateMedia({ reducedMotion: null });
     });
 

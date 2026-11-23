@@ -1,6 +1,7 @@
 // Flow 15: the one-screen sign-in pages and signing in with an e-mail code. Each page fits the viewport
-// without scrolling (phone 390 x 844 and desktop); the stage animation has a pause control and stays still with
-// reduced motion. A new address asks for a code, a wrong code is refused, the right code (pasted with a space)
+// without scrolling (phone 390 x 844 and desktop); the stage shows a still frame of the 3D scene first and settles
+// (live or still), has a pause control and stays still with reduced motion; without NEXT_PUBLIC_GOOGLE_CLIENT_ID the
+// Google button is the redirect flow and nothing is fetched from Google. A new address asks for a code, a wrong code is refused, the right code (pasted with a space)
 // signs in and onboarding opens; an existing account signs in by code and lands on the page it asked for, and
 // asking again within a minute keeps the code already sent. The stand-in keeps codes in an outbox (auth.mjs).
 import { seeText } from "./common.mjs";
@@ -43,6 +44,37 @@ export const flow = {
       t.expect(extra <= 1, `the sign-in page with other options open should still fit (scrolls ${extra}px)`);
       t.expect(!(await page.getByRole("button", { name: "Email me a code" }).count()), "only one submit button shows at a time");
       await t.checkpoint("signin other options open", { fullPage: false });
+    });
+
+    await t.step("the stage: a still frame of the scene first, the live scene where the device carries it", async () => {
+      await t.goto("/signin", { label: "stage scene" });
+      const stage = page.locator("section[aria-label=FITX]");
+      const still = await stage.evaluate((element) => getComputedStyle(element.querySelector("div")).backgroundImage);
+      t.expect(/\/media\/login\/still-(light|dark)-(wide|tall)\.webp/.test(still), `the still frame is the first picture (${still})`);
+      // The live scene needs WebGL2 on a capable GPU; headless runs may or may not have one. Either outcome is valid,
+      // but it must settle: live (a canvas showing) or still (no canvas), never stuck loading.
+      await page.waitForFunction(() => ["live", "still"].includes(document.querySelector("section[aria-label=FITX]")?.getAttribute("data-scene") ?? ""), null, { timeout: 30000 }).catch(() => undefined);
+      const scene = await stage.getAttribute("data-scene");
+      const canvases = await stage.locator("canvas").count();
+      t.note("sign-in scene", { scene, canvases });
+      t.expect(scene === "live" ? canvases === 1 : scene === "still", `the scene settles (data-scene=${scene}, canvases=${canvases})`);
+      t.expect(!(await page.getByRole("button", { name: "Tilt to look around" }).count()), "no tilt button where the browser shares motion without asking (or on a laptop)");
+      const extra = await verticalScroll(page);
+      t.expect(extra <= 1, `the page still fits one screen with the scene (scrolls ${extra}px)`);
+      await t.checkpoint("signin scene", { fullPage: false, settle: false });
+    });
+
+    await t.step("without a Google client id, Google sign-in is the redirect button and nothing loads from Google", async () => {
+      const requests = [];
+      const listen = (request) => { if (/accounts\.google\.com/.test(request.url())) requests.push(request.url()); };
+      page.on("request", listen);
+      await t.goto("/signin", { label: "google fallback" });
+      await page.getByRole("button", { name: "Continue with Google" }).waitFor();
+      await t.goto("/signup", { label: "google fallback sign-up" });
+      await page.getByRole("button", { name: "Continue with Google" }).waitFor();
+      page.off("request", listen);
+      t.expect(!requests.length, "no request to accounts.google.com", requests);
+      t.expect(!(await page.locator('script[src*="accounts.google.com"]').count()), "Google's script is not on the page");
     });
 
     await t.step("the stage animation can be paused, and is still with reduced motion", async () => {
