@@ -68,13 +68,13 @@ function Setup() {
   const { session, setMe } = useExplore();
   const context = useOptionalUserContext();
   const name = context?.data?.profile?.name ?? "";
-  const hero = EXPLORE_MEDIA["gym-workouts"];
+  const hero = EXPLORE_MEDIA.bodybuilding;
   if (!session) return null;
   return (
     <div className={styles.shell}>
       <section className={styles.stage} aria-labelledby="explore-setup-title">
         {/* eslint-disable-next-line @next/next/no-img-element -- a local, pre-sized still */}
-        <img src={hero.src} alt="" className={styles.stagePhoto} style={{ objectPosition: "50% 60%" }} />
+        <img src={hero.src} alt="" className={styles.stagePhoto} style={{ objectPosition: "60% 45%" }} />
         <span className={styles.stageShade} aria-hidden="true" />
         <div className={styles.stageInner}>
           <h1 id="explore-setup-title" className={styles.stageTitle}>Explore</h1>

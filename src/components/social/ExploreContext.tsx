@@ -23,14 +23,17 @@ export function ExploreProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [me, setMeState] = useState<SocialMe | null>(null);
   const ticket = useRef(0);
+  const ready = useRef(false);
 
   const refresh = useCallback(async () => {
     const mine = ++ticket.current;
+    // Once Explore has loaded, a later refresh (the unread badge) never replaces the page with an error.
+    const quiet = ready.current;
     let current: Session;
     try {
       current = await getSession();
     } catch (error) {
-      if (mine !== ticket.current) return;
+      if (mine !== ticket.current || quiet) return;
       const kind = sessionProblem(error);
       setStatus(kind === "signed-out" ? "signed_out" : kind === "not-configured" ? "not_configured" : "error");
       return;
@@ -41,8 +44,9 @@ export function ExploreProvider({ children }: { children: ReactNode }) {
       setSession(current);
       setMeState(next);
       setStatus(next.profile ? "ready" : "setup");
+      ready.current = true;
     } catch (error) {
-      if (mine !== ticket.current) return;
+      if (mine !== ticket.current || quiet) return;
       setSession(current);
       setStatus(toSocialError(error).key === "unavailable" ? "unavailable" : "error");
     }

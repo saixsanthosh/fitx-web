@@ -52,8 +52,8 @@ export const flow = {
       await page.getByText("At least 3 characters.").waitFor();
       t.expect(await page.getByRole("button", { name: "Create profile" }).isDisabled(), "an invalid username cannot be saved");
       await setUpProfile(t, benName, { isPrivate: true });
-      const row = await standin.one(`select username, is_private from public.social_profiles where user_id = '${ben.id}'`);
-      t.expect(row?.username === benName && row?.is_private === true, "the private profile is stored", row);
+      const row = await standin.one(`select username, is_private::text is_private from public.social_profiles where user_id = '${ben.id}'`);
+      t.expect(row?.username === benName && row?.is_private === "true", "the private profile is stored", row);
       await page.getByRole("heading", { name: "Your feed is quiet" }).waitFor({ timeout: 15000 });
       await sawOverflow(t, "empty feed");
     });
@@ -135,7 +135,7 @@ export const flow = {
       const counts = await standin.one(`select (select count(*) from public.social_likes where post_id = '${postId}')::int likes,
         (select count(*) from public.social_saves where post_id = '${postId}' and user_id = '${asha.id}')::int saves,
         (select count(*) from public.social_comments where post_id = '${postId}')::int comments`);
-      t.expect(counts?.likes === 1 && counts?.saves === 1 && counts?.comments === 1, "like, save and comment are stored", counts);
+      t.expect(Number(counts?.likes) === 1 && Number(counts?.saves) === 1 && Number(counts?.comments) === 1, "like, save and comment are stored", counts);
       await t.goto(`/explore/u/${ashaName}`, { label: "own profile" });
       await page.getByRole("radio", { name: "Saved" }).check({ force: true });
       await page.getByRole("link", { name: new RegExp(`Post by @${benName}`) }).waitFor({ timeout: 15000 });
@@ -159,8 +159,8 @@ export const flow = {
       await dialog.getByRole("button", { name: "Save changes" }).click();
       await page.locator("article").first().getByText("new squat best").waitFor({ timeout: 15000 });
       await page.locator("article").first().getByText("Edited").waitFor();
-      const edited = await standin.one(`select caption, edited_at is not null edited from public.social_posts where id = '${postId}'`);
-      t.expect(edited?.edited === true && /new squat best/.test(edited.caption), "the edit is stored", edited);
+      const edited = await standin.one(`select caption, (edited_at is not null)::text edited from public.social_posts where id = '${postId}'`);
+      t.expect(edited?.edited === "true" && /new squat best/.test(edited.caption), "the edit is stored", edited);
       await sawOverflow(t, "post with comments");
     });
 
@@ -178,7 +178,7 @@ export const flow = {
       await page.waitForURL((url) => url.pathname === "/explore", { timeout: 15000 });
       const left = await standin.one(`select (select count(*) from public.social_posts where id = '${secondId}')::int posts,
         (select count(*) from storage.objects where bucket_id = 'social-media' and name like '${ben.id}/${secondId}/%')::int files`);
-      t.expect(left?.posts === 0 && left?.files === 0, "the post and its photo are gone", left);
+      t.expect(Number(left?.posts) === 0 && Number(left?.files) === 0, "the post and its photo are gone", left);
     });
 
     await t.step("Asha finds the hashtag, reports the post, then blocks and unblocks Ben", async () => {
@@ -210,7 +210,7 @@ export const flow = {
       await page.getByText("You blocked this account").waitFor({ timeout: 15000 });
       const after = await standin.one(`select (select count(*) from public.social_follows where (user_id = '${asha.id}' and following_id = '${ben.id}') or (user_id = '${ben.id}' and following_id = '${asha.id}'))::int follows,
         (select count(*) from public.social_blocks where user_id = '${asha.id}' and blocked_id = '${ben.id}')::int blocks`);
-      t.expect(after?.follows === 0 && after?.blocks === 1, "blocking ends the follow", after);
+      t.expect(Number(after?.follows) === 0 && Number(after?.blocks) === 1, "blocking ends the follow", after);
       await t.goto("/explore", { label: "feed after block" });
       await page.getByRole("heading", { name: "Your feed is quiet" }).waitFor({ timeout: 15000 });
 
@@ -220,8 +220,8 @@ export const flow = {
       await safety.getByText("You have not blocked or restricted anyone.").waitFor({ timeout: 15000 });
       await page.getByRole("switch", { name: "Likes" }).click();
       await page.locator("button[role=switch][aria-checked='false']#pref-likes").waitFor({ timeout: 10000 });
-      const prefs = await standin.one(`select likes from public.social_notification_prefs where user_id = '${asha.id}'`);
-      t.expect(prefs?.likes === false, "the notification setting is stored", prefs);
+      const prefs = await standin.one(`select likes::text likes from public.social_notification_prefs where user_id = '${asha.id}'`);
+      t.expect(prefs?.likes === "false", "the notification setting is stored", prefs);
       await sawOverflow(t, "explore settings");
       const text = await textOf(page.locator("main"));
       t.expect(!/\b(kg|kcal|bpm)\b/i.test(text), "no health data appears in Explore", text.slice(0, 300));
