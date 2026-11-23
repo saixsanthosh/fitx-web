@@ -3,7 +3,7 @@
 // failed join, polling on visibility and on a timer, and unknown counts as null (never 0).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createUnreadPoller, inboxTopic, parsePing, subscribeInbox, unreadLabel, type RealtimeLike } from "../../src/lib/social/realtime.ts";
+import { createUnreadPoller, inboxTopic, parsePing, shareInbox, subscribeInbox, unreadLabel, type RealtimeLike } from "../../src/lib/social/realtime.ts";
 import { GROUP_LIMITS } from "../../src/lib/social/group-limits.ts";
 
 type Listener = () => void;
@@ -163,4 +163,38 @@ test("the unread poller reads now, on showing the tab and on its timer; failures
 test("the badge names itself", () => {
   assert.equal(unreadLabel(1), "1 unread message");
   assert.equal(unreadLabel(4), "4 unread messages");
+});
+
+test("shareInbox: one channel per member for the page; pings reach every listener; the last one out closes it", () => {
+  const { client, opened, removed } = fakeClient();
+  const page = fakeDocument();
+  const bell: unknown[] = [];
+  const inbox: unknown[] = [];
+  const bellLive: boolean[] = [];
+  const inboxLive: boolean[] = [];
+  const stopBell = shareInbox("u7", (ping) => bell.push(ping), (live) => bellLive.push(live), { client, doc: page.doc });
+  assert.equal(opened.length, 1);
+  opened[0].onStatus?.("SUBSCRIBED");
+  const stopInbox = shareInbox("u7", (ping) => inbox.push(ping), (live) => inboxLive.push(live), { client, doc: page.doc });
+  assert.equal(opened.length, 1, "a second listener for the same member shares the channel");
+  assert.deepEqual(inboxLive, [true], "a later listener learns at once that the channel is live");
+  opened[0].onPing?.({ payload: { kind: "message", id: "c9" } });
+  assert.deepEqual(bell, [{ kind: "message", id: "c9" }]);
+  assert.deepEqual(inbox, [{ kind: "message", id: "c9" }]);
+  stopInbox();
+  stopInbox();
+  assert.equal(removed(), 0, "the bell still listens, so the channel stays open");
+  opened[0].onPing?.({ payload: { kind: "notification", id: "n1" } });
+  assert.equal(inbox.length, 1, "a stopped listener hears nothing more");
+  assert.equal(bell.length, 2);
+  stopBell();
+  assert.equal(removed(), 1, "the last listener out closes the channel");
+  assert.deepEqual(bellLive, [true], "a listener that stopped is not called again, not even to say the channel closed");
+  const again = shareInbox("u7", () => undefined, undefined, { client, doc: page.doc });
+  assert.equal(opened.length, 2, "after the last stop a new listener opens a fresh channel");
+  again();
+  const live: boolean[] = [];
+  const none = shareInbox("", () => undefined, (value) => live.push(value), { client, doc: page.doc });
+  assert.deepEqual(live, [false], "no member: nothing opens, and the caller polls");
+  none();
 });

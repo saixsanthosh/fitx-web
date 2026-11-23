@@ -97,10 +97,11 @@ test("each slot component is exported from its own folder with social-core's pro
   const viewer = source("src/components/social/stories/StoryViewer.tsx");
   assert.match(viewer, /STORY_REPLY/);
   assert.match(viewer, /const Reply = STORY_REPLY;/);
-  // The filling stream never flips a slot: slots.ts still holds null for every one of them.
+  // The integrator filled the slots in release 2a (6.1a): each one now names this stream's component (or, for the
+  // reply box, social-groups').
   const slots = source("src/lib/social/slots.ts");
-  for (const slot of ["FEED_TOP_SLOT", "POST_VIDEO", "DISCOVER_VIDEOS", "AVATAR_RING", "STORY_REPLY"]) {
-    assert.match(slots, new RegExp(`export const ${slot}: ComponentType<\\w+> \\| null = null;`));
+  for (const [slot, component] of [["FEED_TOP_SLOT", "StoryTray"], ["POST_VIDEO", "PostVideo"], ["DISCOVER_VIDEOS", "DiscoverVideos"], ["AVATAR_RING", "StoryRing"], ["STORY_REPLY", "StoryReply"]]) {
+    assert.match(slots, new RegExp(`export const ${slot}: ComponentType<\\w+> \\| null = ${component};`));
   }
 });
 

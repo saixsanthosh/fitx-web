@@ -4,24 +4,29 @@
  * (and fills RAIL_BADGES) when the stream that builds a part has merged (brief 6.1a); the filling streams never do.
  */
 import type { ComponentType } from "react";
+import { MessagesBadge } from "./realtime";
 
 export type RailKey = "feed" | "discover" | "videos" | "community" | "messages";
 
-export type RailEntry = { key: RailKey; label: string; href: string; ready: boolean };
+export type RailEntry = {
+  key: RailKey; label: string; href: string; ready: boolean;
+  /** Also needs Admin's explore_video switch (fitx_social_me().videos): while videos are off the tab is not shown. */
+  needsVideo?: boolean;
+};
 
 export const EXPLORE_RAIL: readonly RailEntry[] = [
   { key: "feed", label: "Feed", href: "/explore", ready: true },
   { key: "discover", label: "Discover", href: "/explore/discover", ready: true },
-  { key: "videos", label: "Videos", href: "/explore/videos", ready: false },
-  { key: "community", label: "Community", href: "/explore/community", ready: false },
-  { key: "messages", label: "Messages", href: "/explore/messages", ready: false },
+  { key: "videos", label: "Videos", href: "/explore/videos", ready: true, needsVideo: true },
+  { key: "community", label: "Community", href: "/explore/community", ready: true },
+  { key: "messages", label: "Messages", href: "/explore/messages", ready: true },
 ];
 
 /**
  * A badge drawn on a rail link (for example the unread messages count). Each one names itself for screen readers
  * ("<n> unread messages") and renders nothing when its count is unknown or zero.
  */
-export const RAIL_BADGES: Partial<Record<RailKey, ComponentType>> = {};
+export const RAIL_BADGES: Partial<Record<RailKey, ComponentType>> = { messages: MessagesBadge };
 
 export type CreateKey = "photo" | "story" | "video";
 
@@ -38,13 +43,13 @@ export type CreateOption = {
 
 export const CREATE_OPTIONS: readonly CreateOption[] = [
   { key: "photo", label: "Photo post", hint: "Up to 10 photos", href: "/explore/new", ready: true },
-  { key: "story", label: "Story", hint: "Gone after 24 hours", href: "/explore/stories/new", ready: false },
-  { key: "video", label: "Video", hint: "Up to 30 seconds", href: "/explore/videos/new", ready: false, needsVideo: true },
+  { key: "story", label: "Story", hint: "Gone after 24 hours", href: "/explore/stories/new", ready: true },
+  { key: "video", label: "Video", hint: "Up to 30 seconds", href: "/explore/videos/new", ready: true, needsVideo: true },
 ];
 
-/** The rail entries to show: the ready ones, in order. */
-export function railEntries(rail: readonly RailEntry[] = EXPLORE_RAIL): RailEntry[] {
-  return rail.filter((entry) => entry.ready);
+/** The rail entries to show: the ready ones, in order, and video ones only while videos are switched on. */
+export function railEntries(rail: readonly RailEntry[] = EXPLORE_RAIL, videosOn = false): RailEntry[] {
+  return rail.filter((entry) => entry.ready && (!entry.needsVideo || videosOn));
 }
 
 /** The create choices a member has now: ready ones, and video ones only while videos are switched on. */

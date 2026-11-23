@@ -1,12 +1,11 @@
-// Explore part 2 core, the app side: the rail and create menu data, the component slots (all empty until the
-// integrator fills them), error keys, the new notification kinds, suspension wording, ages, video posters, the API
+// Explore part 2 core, the app side: the rail and create menu data, the component slots (filled by the integrator in
+// release 2a, read here from the source because the slot components are JSX), error keys, the new notification kinds, suspension wording, ages, video posters, the API
 // arguments, and that the slot hosts render each slot only when it is filled (else today's UI).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createChoices, CREATE_OPTIONS, EXPLORE_RAIL, RAIL_BADGES, railEntries, railKeyFor, type CreateOption, type RailEntry } from "@/lib/social/rail";
-import * as slots from "@/lib/social/slots";
 import { SOCIAL_CLOSED_KEYS, socialErrorKey, socialErrorMessage, toSocialError } from "@/lib/social/errors";
 import { notificationHref, notificationText } from "@/lib/social/text";
 import { ageOn, suspensionText } from "@/lib/social/format";
@@ -18,13 +17,19 @@ const U = "aaaaaaaa-0000-4000-8000-0000000000a1";
 const P = "bbbbbbbb-0000-4000-8000-0000000000b2";
 const source = (file: string) => readFileSync(path.resolve(process.cwd(), file), "utf8");
 
-test("the rail lists Feed, Discover, Videos, Community and Messages; only the shipped ones show", () => {
+test("the rail lists Feed, Discover, Videos, Community and Messages; Videos only while videos are on", () => {
   assert.deepEqual(EXPLORE_RAIL.map((entry) => entry.label), ["Feed", "Discover", "Videos", "Community", "Messages"]);
-  assert.deepEqual(EXPLORE_RAIL.filter((entry) => !entry.ready).map((entry) => entry.key), ["videos", "community", "messages"]);
-  assert.deepEqual(railEntries().map((entry) => entry.key), ["feed", "discover"]);
-  assert.deepEqual(RAIL_BADGES, {});
+  assert.deepEqual(EXPLORE_RAIL.filter((entry) => !entry.ready).map((entry) => entry.key), [], "release 2a ships every part");
+  assert.deepEqual(EXPLORE_RAIL.filter((entry) => entry.needsVideo).map((entry) => entry.key), ["videos"]);
+  assert.deepEqual(railEntries().map((entry) => entry.key), ["feed", "discover", "community", "messages"], "videos off by default: no Videos tab");
+  assert.deepEqual(railEntries(EXPLORE_RAIL, false).map((entry) => entry.key), ["feed", "discover", "community", "messages"]);
+  assert.deepEqual(railEntries(EXPLORE_RAIL, true).map((entry) => entry.key), ["feed", "discover", "videos", "community", "messages"]);
+  const unshipped: RailEntry[] = EXPLORE_RAIL.map((entry) => ({ ...entry, ready: entry.key === "feed" }));
+  assert.deepEqual(railEntries(unshipped, true).map((entry) => entry.key), ["feed"], "an entry that is not ready never shows");
+  assert.deepEqual(Object.keys(RAIL_BADGES), ["messages"], "only Messages has a badge (the unread count)");
+  assert.equal(typeof RAIL_BADGES.messages, "function");
   const all: RailEntry[] = EXPLORE_RAIL.map((entry) => ({ ...entry, ready: true }));
-  assert.equal(railEntries(all).length, 5);
+  assert.equal(railEntries(all, true).length, 5);
   assert.equal(railKeyFor("/explore", all), "feed");
   assert.equal(railKeyFor("/explore/videos/new", all), "videos");
   assert.equal(railKeyFor("/explore/messages/abc", all), "messages");
@@ -33,19 +38,42 @@ test("the rail lists Feed, Discover, Videos, Community and Messages; only the sh
   assert.equal(railKeyFor("/explore/u/someone", all), null);
 });
 
-test("the create menu: Photo post now; Story and Video once shipped, Video only while videos are on", () => {
+test("the create menu: Photo post and Story; Video only while videos are on", () => {
   assert.deepEqual(CREATE_OPTIONS.map((option) => [option.label, option.href]), [
     ["Photo post", "/explore/new"], ["Story", "/explore/stories/new"], ["Video", "/explore/videos/new"],
   ]);
-  assert.deepEqual(createChoices(true).map((option) => option.key), ["photo"], "one choice: the pill goes straight to the composer");
-  const shipped: CreateOption[] = CREATE_OPTIONS.map((option) => ({ ...option, ready: true }));
-  assert.deepEqual(createChoices(false, shipped).map((option) => option.key), ["photo", "story"]);
-  assert.deepEqual(createChoices(true, shipped).map((option) => option.key), ["photo", "story", "video"]);
+  assert.ok(CREATE_OPTIONS.every((option) => option.ready), "release 2a ships Story and Video");
+  assert.deepEqual(createChoices(false).map((option) => option.key), ["photo", "story"]);
+  assert.deepEqual(createChoices(true).map((option) => option.key), ["photo", "story", "video"]);
+  const photoOnly: CreateOption[] = CREATE_OPTIONS.map((option) => ({ ...option, ready: option.key === "photo" }));
+  assert.deepEqual(createChoices(true, photoOnly).map((option) => option.key), ["photo"], "one choice: the pill goes straight to the composer");
 });
 
-test("every component slot is empty until the integrator fills it", () => {
-  const names = ["FEED_TOP_SLOT", "POST_VIDEO", "DISCOVER_VIDEOS", "AVATAR_RING", "SHARE_TARGETS", "PROFILE_ACTIONS", "STORY_REPLY"] as const;
-  for (const name of names) assert.equal(slots[name], null, name);
+test("every component slot is filled with its stream's component (6.1a)", () => {
+  const slots = source("src/lib/social/slots.ts");
+  const filled: [string, string, string][] = [
+    ["FEED_TOP_SLOT", "StoryTray", "@/components/social/stories/StoryTray"],
+    ["POST_VIDEO", "PostVideo", "@/components/social/videos/PostVideo"],
+    ["DISCOVER_VIDEOS", "DiscoverVideos", "@/components/social/videos/DiscoverVideos"],
+    ["AVATAR_RING", "StoryRing", "@/components/social/stories/StoryRing"],
+    ["SHARE_TARGETS", "SendTo", "@/components/social/messages/SendTo"],
+    ["PROFILE_ACTIONS", "MessageButton", "@/components/social/messages/MessageButton"],
+    ["STORY_REPLY", "StoryReply", "@/components/social/messages/StoryReply"],
+  ];
+  for (const [slot, component, from] of filled) {
+    assert.match(slots, new RegExp(`export const ${slot}: ComponentType<\\w+> \\| null = ${component};`), slot);
+    assert.match(slots, new RegExp(`import \\{ ${component} \\} from "${from}";`), `${slot} imports ${component}`);
+    // The component takes its props from slots.ts as types only, so no value cycle starts in the component.
+    assert.match(source(`src/${from.slice(2)}.tsx`), /import type \{[^}]+\} from "@\/lib\/social\/slots";/, `${component} imports types only`);
+  }
+  assert.equal((slots.match(/^export const \w+: ComponentType<\w+> \| null = null;$/gm) ?? []).length, 0, "no slot is left empty");
+});
+
+test("the Notifications bell is live through the shared inbox channel, and Videos follows the switch", () => {
+  const shell = source("src/components/social/ExploreShell.tsx");
+  assert.match(shell, /import \{ shareInbox \} from "@\/lib\/social\/realtime";/);
+  assert.match(shell, /shareInbox\(userId, \(\) => \{[\s\S]*?void refresh\(\);/, "a ping reads the member's state again");
+  assert.match(shell, /railEntries\(EXPLORE_RAIL, me\?\.videos === true\)/);
 });
 
 test("each slot host renders the slot only when it is filled, and today's UI otherwise", () => {

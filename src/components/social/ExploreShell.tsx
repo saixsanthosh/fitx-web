@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { m } from "framer-motion";
 import { Bell, Clapperboard, Compass, MessageCircle, Newspaper, CirclePause, RefreshCw, UserRound, UsersRound, type LucideIcon } from "lucide-react";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { EXPLORE_MEDIA } from "@/data/explore-media";
 import { suggestUsername, suspensionText } from "@/lib/social";
 import { EXPLORE_RAIL, RAIL_BADGES, railEntries, railKeyFor, type RailKey } from "@/lib/social/rail";
+import { shareInbox } from "@/lib/social/realtime";
 import { ExploreProvider, useExplore } from "./ExploreContext";
 import { ProfileForm } from "./ProfileForm";
 import { NewPostButton } from "./create/CreateSheet";
@@ -133,17 +134,40 @@ const RAIL_ICONS: Record<RailKey, LucideIcon> = {
 
 type NavItem = { key: string; href: string; label: string; icon: LucideIcon; active: boolean; badge?: RailKey };
 
+/**
+ * The Notifications bell, live: every ping on the member's inbox topic (a notice, a message, a request) reads the
+ * member's Explore state again, at most once a second, so the bell's count follows without a reload. The channel is
+ * shared with the message pages (shareInbox), and while Realtime is not reachable the provider's read on tab return
+ * still updates it.
+ */
+function useLiveBell(userId: string | null, refresh: () => Promise<void>) {
+  useEffect(() => {
+    if (!userId) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const stop = shareInbox(userId, () => {
+      if (timer !== null) return;
+      timer = setTimeout(() => { timer = null; void refresh(); }, 1000);
+    });
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      stop();
+    };
+  }, [userId, refresh]);
+}
+
 /** Explore's rail: the ready entries of EXPLORE_RAIL, then Notifications and the member's profile, and "New post". */
 function ExploreNav() {
   const pathname = usePathname() ?? "/explore";
   const reduced = useReducedMotionSafe();
-  const { me } = useExplore();
+  const { me, session, refresh } = useExplore();
+  const userId = session?.userId ?? null;
   const username = me?.profile?.username ?? "";
   const unread = (me?.unread ?? 0) + (me?.requests ?? 0);
   const profileHref = `/explore/u/${username}`;
   const current = railKeyFor(pathname, EXPLORE_RAIL);
+  useLiveBell(userId, refresh);
   const items: NavItem[] = [
-    ...railEntries().map((entry) => ({ key: entry.key, href: entry.href, label: entry.label, icon: RAIL_ICONS[entry.key], active: current === entry.key, badge: entry.key })),
+    ...railEntries(EXPLORE_RAIL, me?.videos === true).map((entry) => ({ key: entry.key, href: entry.href, label: entry.label, icon: RAIL_ICONS[entry.key], active: current === entry.key, badge: entry.key })),
     { key: "activity", href: "/explore/notifications", label: "Notifications", icon: Bell, active: pathname.startsWith("/explore/notifications") },
     { key: "profile", href: profileHref, label: "Profile", icon: UserRound, active: pathname === profileHref || pathname.startsWith("/explore/settings") },
   ];

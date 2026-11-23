@@ -105,6 +105,53 @@ export function subscribeInbox(userId: string, onPing: (ping: InboxPing) => void
   };
 }
 
+type InboxListener = { onPing: (ping: InboxPing) => void; onLive?: (live: boolean) => void };
+type InboxHub = { listeners: Set<InboxListener>; live: boolean; stop: () => void };
+const hubs = new Map<string, InboxHub>();
+
+/**
+ * One inbox channel per member for the whole page, shared by everything that listens (the Notifications bell, the
+ * inbox, a conversation): Realtime gives one channel per topic, so two subscribeInbox calls for the same member would
+ * share it and the first to stop would close it for the other. The channel opens with the first listener and closes
+ * with the last; a listener that joins later is told at once whether the channel is live.
+ */
+export function shareInbox(userId: string, onPing: (ping: InboxPing) => void, onLive?: (live: boolean) => void, env: Omit<Env, "onLive"> = {}): () => void {
+  if (!userId) {
+    onLive?.(false);
+    return () => undefined;
+  }
+  const listener: InboxListener = { onPing, onLive };
+  let hub = hubs.get(userId);
+  if (hub) {
+    hub.listeners.add(listener);
+    onLive?.(hub.live);
+  } else {
+    const created: InboxHub = { listeners: new Set([listener]), live: false, stop: () => undefined };
+    hubs.set(userId, created);
+    hub = created;
+    created.stop = subscribeInbox(userId, (ping) => {
+      for (const each of [...created.listeners]) each.onPing(ping);
+    }, {
+      ...env,
+      onLive: (live) => {
+        created.live = live;
+        for (const each of [...created.listeners]) each.onLive?.(live);
+      },
+    });
+  }
+  const own = hub;
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    own.listeners.delete(listener);
+    if (own.listeners.size === 0 && hubs.get(userId) === own) {
+      hubs.delete(userId);
+      own.stop();
+    }
+  };
+}
+
 /**
  * Reads the unread counts now, whenever the tab is shown again, and every `everyMs` (120 s). `refresh()` reads them at
  * once (after a ping, or after the member read a conversation). A count that cannot be read is null, never 0.
@@ -193,7 +240,7 @@ export function useInboxRefresh(userId: string | null, onChange: (ping: InboxPin
   const fire = useCallback((ping: InboxPing | null) => callback.current(ping), []);
   useEffect(() => {
     if (!userId) return;
-    return subscribeInbox(userId, (ping) => { fire(ping); refreshUnreadCounts(); }, { onLive: setLive });
+    return shareInbox(userId, (ping) => { fire(ping); refreshUnreadCounts(); }, setLive);
   }, [userId, fire]);
   useEffect(() => {
     if (live || !userId) return;
