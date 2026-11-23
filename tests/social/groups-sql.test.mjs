@@ -1,9 +1,10 @@
 // Explore part 2 groups (20261124100010) on a throwaway local Postgres: direct messages (requests, dm_policy, blocks
-// mid-conversation, unsend, the duplicate-text spam stop, shared posts checked again for the reader, story replies, the
-// age gate and unread counts), communities (directory, private requests, member-only posts, moderator removal limited
+// mid-conversation, unsend, the duplicate-text spam stop, shared posts checked again for the reader and after they are
+// deleted, story replies also after the clean-up, the age gate and unread counts, which leave out suspended members),
+// communities (directory, private requests, member-only posts, moderator removal limited
 // to their own community) and challenges (values from the member's own rows from when they joined, no double count of
-// an activity and a workout, opted-out members never on the board, closing only after the final sync, badges and
-// template rollover). Ends with the header's undo and a second run. Skipped when the Postgres binaries are missing.
+// an activity and a workout, opted-out members never on the board, still listed for its members between end and close,
+// closing only after the final sync, badges and template rollover). Ends with the header's undo and a second run. Skipped when the Postgres binaries are missing.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -208,6 +209,74 @@ describe("Explore part 2 groups", { skip }, () => {
     assert.equal(shown.story.available, false, "an ended story shows as gone");
   });
 
+  test("a shared post deleted later reads as no longer available, and a story reply keeps its tag after the clean-up", () => {
+    resetLimits();
+    const post = photoPost(A, "Asha's bench");
+    const withText = send(A, B, "Look at this", `, '${post.id}'`);
+    const shared = send(A, B, "", `, '${post.id}'`);
+    assert.equal(call(A, `public.fitx_social_delete_post('${post.id}')`).length, 1);
+    const read = (who, message) => call(who, `public.fitx_social_messages('${shared.conversation_id}', null, null)`).messages.find((m) => m.id === message);
+    for (const who of [A, B]) {
+      const gone = read(who, shared.message.id);
+      assert.equal(gone.post, null);
+      assert.equal(gone.post_unavailable, true, "a deleted post is no longer available, not an empty bubble");
+      assert.equal(gone.story, null);
+      assert.equal(read(who, withText.message.id).post_unavailable, true, "its text stays, with the note");
+      assert.equal(read(who, withText.message.id).body, "Look at this");
+    }
+    const inbox = call(B, "public.fitx_social_conversations(null, 'inbox')").find((c) => c.id === shared.conversation_id);
+    assert.equal(inbox.last.kind, "post", "the inbox still says a post was shared");
+    // An unsent shared post is unsent, not unavailable.
+    call(A, `public.fitx_social_unsend_message('${shared.message.id}')`);
+    const unsent = read(B, shared.message.id);
+    assert.deepEqual([unsent.unsent, unsent.post_unavailable, unsent.story], [true, false, null]);
+
+    const story = id();
+    pg.exec(`insert into public.social_stories (id, user_id, kind, storage_path, width, height) values ('${story}', '${B}', 'image', '${B}/${story}/0.webp', 10, 10);`);
+    const reply = send(A, B, "Strong finish", `, null, '${story}'`);
+    pg.exec(`update public.social_stories set created_at = now() - interval '26 hours', expires_at = now() - interval '2 hours' where id = '${story}';`);
+    pg.exec(`select public.fitx_social_hourly();`);
+    assert.equal(pg.json(`select count(*) from public.social_stories where id = '${story}';`), 0, "the clean-up deleted the story");
+    for (const who of [A, B]) {
+      const tagged = read(who, reply.message.id);
+      assert.deepEqual(tagged.story, { id: null, available: false }, "still a reply to a story, which has ended");
+      assert.equal(tagged.body, "Strong finish");
+      assert.equal(tagged.post_unavailable, false);
+    }
+    assert.equal(call(B, "public.fitx_social_conversations(null, 'inbox')").find((c) => c.id === reply.conversation_id).last.kind, "story");
+    // A plain message is neither.
+    const plain = send(A, B, "See you Monday");
+    assert.deepEqual([read(B, plain.message.id).story, read(B, plain.message.id).post_unavailable], [null, false]);
+  });
+
+  test("a suspended member's messages and requests leave the unread counts until the suspension is lifted", () => {
+    resetLimits();
+    pg.exec(`delete from public.social_conversations; delete from public.social_notifications; delete from public.social_follows;`);
+    call(B, "public.fitx_social_set_dm_policy('everyone')");
+    call(B, `public.fitx_social_follow('${A}')`);
+    assert.equal(send(A, B, "Accepted hello").status, "accepted");
+    assert.equal(send(C, B, "A request hello").status, "request");
+    const counts = () => call(B, "public.fitx_social_unread_counts()");
+    const before = counts();
+    assert.deepEqual([before.messages, before.requests], [1, 1]);
+    pg.exec(`insert into public.social_member_sanctions (user_id, kind, reason_code) values ('${A}', 'explore', 'spam'), ('${C}', 'explore', 'spam');`);
+    const lift = () => pg.exec(`update public.social_member_sanctions set lifted_at = now() where user_id in ('${A}', '${C}') and lifted_at is null;`);
+    try {
+      const during = counts();
+      assert.deepEqual([during.messages, during.requests], [0, 0], "nothing the member cannot open is counted");
+      assert.equal(call(B, "public.fitx_social_conversations(null, 'inbox')").length, 0);
+      assert.equal(call(B, "public.fitx_social_conversations(null, 'requests')").length, 0);
+      assert.equal(during.notifications, before.notifications - 2, "nor their message notices");
+      // A suspension that has run out counts again.
+      pg.exec(`update public.social_member_sanctions set created_at = now() - interval '8 days', until = now() - interval '1 minute' where user_id = '${A}' and lifted_at is null;`);
+      assert.deepEqual([counts().messages, counts().requests], [1, 0]);
+    } finally {
+      lift();
+    }
+    assert.deepEqual([counts().messages, counts().requests, counts().notifications], [1, 1, before.notifications]);
+    call(B, `public.fitx_social_unfollow('${A}')`);
+  });
+
   test("other members' messages are never readable through the table", () => {
     assert.equal(pg.json(`select count(*) from public.social_messages where user_id <> '${B}';`, as(B)), 0);
   });
@@ -394,6 +463,22 @@ describe("Explore part 2 groups", { skip }, () => {
       fails(D, `public.fitx_social_leave_challenge('${ENDED}')`, /social_challenge_closed/);
       // No top-3 badge with fewer than 10 members on the board.
       assert.equal(pg.json(`select count(*) from public.social_challenge_badges where kind = 'top3';`), 0);
+    });
+
+    test("between its end and its close a challenge stays under Open for those who joined, then moves to Finished", () => {
+      const GRACE = id();
+      make(GRACE, "workouts", { starts: "now() - interval '7 days'", ends: "now() - interval '1 hour'" });
+      pg.exec(`insert into public.social_challenge_entries (challenge_id, user_id, joined_at) values ('${GRACE}', '${B}', now() - interval '6 days');`);
+      const listed = (who, box) => call(who, `public.fitx_social_challenges('${box}')`).some((c) => c.id === GRACE);
+      assert.equal(listed(B, "open"), true, "a member who joined still sees it, with 'Final count soon'");
+      assert.equal(listed(B, "closed"), false);
+      assert.equal(listed(A, "open"), false, "nobody else is offered an ended challenge");
+      pg.exec(`select public.fitx_social_challenge_tick();`);
+      assert.equal(listed(B, "open"), true, "still inside the 2-hour grace");
+      pg.exec(`update public.social_challenges set ends_at = now() - interval '3 hours' where id = '${GRACE}';`);
+      pg.exec(`select public.fitx_social_challenge_tick();`);
+      assert.equal(listed(B, "open"), false);
+      assert.equal(listed(B, "closed"), true, "closed: under Finished");
     });
 
     test("Top 3 needs 10 members on the board; Admin's close closes one challenge now", () => {

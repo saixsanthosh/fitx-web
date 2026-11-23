@@ -170,8 +170,8 @@ begin
   end if;
   perform public.fitx_social_take(v_uid, 'message', 60, 500);
 
-  insert into public.social_messages (conversation_id, user_id, body, shared_post_id, story_id)
-  values (v_conversation.id, v_uid, v_body, p_shared_post_id, p_story_id)
+  insert into public.social_messages (conversation_id, user_id, body, shared_post_id, story_id, shared_post, story_reply)
+  values (v_conversation.id, v_uid, v_body, p_shared_post_id, p_story_id, p_shared_post_id is not null, p_story_id is not null)
   returning * into v_message;
   update public.social_conversations c set last_message_at = v_message.created_at where c.id = v_conversation.id;
   update public.social_conversation_sides s set last_read_at = v_message.created_at, hidden_at = null
@@ -231,8 +231,8 @@ begin
         'last_message_at', x.last_message_at,
         'last', (select pg_catalog.jsonb_build_object(
                    'mine', m.user_id = v_uid,
-                   'kind', case when m.deleted_at is not null then 'unsent' when m.story_id is not null then 'story'
-                                when m.shared_post_id is not null and m.body = '' then 'post' else 'text' end,
+                   'kind', case when m.deleted_at is not null then 'unsent' when m.story_reply then 'story'
+                                when m.shared_post and m.body = '' then 'post' else 'text' end,
                    'body', case when m.deleted_at is null then pg_catalog.left(m.body, 140) else '' end,
                    'created_at', m.created_at)
                  from public.social_messages m
@@ -314,8 +314,12 @@ begin
           'created_at', m.created_at,
           'post', case when m.shared_post_id is not null and public.fitx_social_sees_post(v_uid, m.shared_post_id)
                        then (select public.fitx_social_post_json(v_uid, p) from public.social_posts p where p.id = m.shared_post_id) end,
-          'post_unavailable', m.deleted_at is null and m.shared_post_id is not null and not public.fitx_social_sees_post(v_uid, m.shared_post_id),
-          'story', case when m.story_id is null then null
+          -- A post deleted since it was shared (its link is then null) reads as unavailable like one the reader cannot see.
+          'post_unavailable', m.deleted_at is null and m.shared_post
+                              and (m.shared_post_id is null or not public.fitx_social_sees_post(v_uid, m.shared_post_id)),
+          -- A story reply keeps its tag after the hourly clean-up deletes the story (id null, never available).
+          'story', case when m.deleted_at is not null or not m.story_reply then null
+                        when m.story_id is null then pg_catalog.jsonb_build_object('id', null, 'available', false)
                         else pg_catalog.jsonb_build_object('id', m.story_id, 'available', public.fitx_social_sees_story(v_uid, m.story_id)) end)
         order by m.created_at desc, m.id desc)
       from (
@@ -427,9 +431,10 @@ begin
   return p_policy;
 end $function$;
 
--- The member's unread counts: messages in inbox conversations, requests waiting for an answer, and notifications. A
--- count the member has no access to (no Explore profile; Explore paused or suspended; messages under 18) is null,
--- never 0.
+-- The member's unread counts: messages in inbox conversations, requests waiting for an answer, and notifications. They
+-- leave out what the lists leave out (a block either way, no Explore profile, an Explore suspension), so a badge never
+-- counts what the member cannot open. A count the member has no access to (no Explore profile; Explore paused or
+-- suspended; messages under 18) is null, never 0.
 create or replace function public.fitx_social_unread_counts()
 returns jsonb
 language plpgsql
@@ -463,13 +468,17 @@ begin
         and m.user_id <> v_uid and m.moderation_state = 'visible' and m.deleted_at is null
         and m.created_at > coalesce(s.last_read_at, '-infinity'::timestamptz)
         and not public.fitx_social_blocked(v_uid, m.user_id)
-        and exists (select 1 from public.social_profiles p where p.user_id = m.user_id)) end,
+        and exists (select 1 from public.social_profiles p where p.user_id = m.user_id)
+        and not exists (select 1 from public.social_member_sanctions z where z.user_id = m.user_id and z.kind = 'explore'
+                          and z.lifted_at is null and (z.until is null or z.until > pg_catalog.now()))) end,
     'requests', case when v_adult then (
       select pg_catalog.count(*) from public.social_conversations c
       join public.social_conversation_sides s on s.conversation_id = c.id and s.user_id = v_uid
       where v_uid in (c.user_low, c.user_high) and c.status = 'request' and c.requested_by <> v_uid and s.hidden_at is null
         and not public.fitx_social_blocked(v_uid, c.requested_by)
-        and exists (select 1 from public.social_profiles p where p.user_id = c.requested_by)) end,
+        and exists (select 1 from public.social_profiles p where p.user_id = c.requested_by)
+        and not exists (select 1 from public.social_member_sanctions z where z.user_id = c.requested_by and z.kind = 'explore'
+                          and z.lifted_at is null and (z.until is null or z.until > pg_catalog.now()))) end,
     'notifications', (select pg_catalog.count(*) from public.social_notifications n
                       where n.user_id = v_uid and n.read_at is null and n.type <> 'follow_request'
                         and public.fitx_social_notification_visible(v_uid, n)));
@@ -575,7 +584,9 @@ begin
           'joined', exists (select 1 from public.social_challenge_entries e where e.challenge_id = c.id and e.user_id = v_uid))
         order by c.ends_at)
       from public.social_challenges c
-      where c.community_id = v_community.id and c.closed_at is null and c.ends_at > pg_catalog.now()), '[]'::jsonb)
+      where c.community_id = v_community.id and c.closed_at is null
+        and (c.ends_at > pg_catalog.now()
+             or exists (select 1 from public.social_challenge_entries e where e.challenge_id = c.id and e.user_id = v_uid))), '[]'::jsonb)
       else '[]'::jsonb end);
 end $function$;
 
@@ -955,7 +966,7 @@ begin
 end $function$;
 
 -- Challenges the member can see (FITX's, and those of communities they see): 'open' (running or about to start, the
--- member's own first) or 'closed' (ones the member took part in). Each with the number taking part, the member's
+-- member's own first, and the member's own ended ones until they close) or 'closed' (ones the member took part in). Each with the number taking part, the member's
 -- entry (value, and rank while on the board) and badges.
 create or replace function public.fitx_social_challenges(p_box text default 'open')
 returns jsonb
@@ -997,7 +1008,9 @@ begin
       from public.social_challenges c
       left join public.social_challenge_entries e on e.challenge_id = c.id and e.user_id = v_uid
       where (c.community_id is null or public.fitx_social_sees_community(v_uid, c.community_id))
-        and case when p_box = 'open' then c.closed_at is null and c.ends_at > v_now
+        -- Between its end and its close (the 2-hour grace and the next hourly tick) a challenge stays under Open for
+        -- the members who joined it ("Final count soon"), until it moves to Finished.
+        and case when p_box = 'open' then c.closed_at is null and (c.ends_at > v_now or e.user_id is not null)
                  else c.closed_at is not null and e.user_id is not null end
       order by e.user_id is not null desc, case when p_box = 'open' then c.ends_at end, c.closed_at desc nulls last
       limit 60

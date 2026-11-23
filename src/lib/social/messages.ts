@@ -30,7 +30,8 @@ export type DirectMessage = {
   post: SocialPost | null;
   /** A shared post the reader can no longer see. */
   post_unavailable: boolean;
-  story: { id: string; available: boolean } | null;
+  /** A story reply: the story's id while it exists (null once the hourly clean-up has deleted it). */
+  story: { id: string | null; available: boolean } | null;
 };
 
 export type ConversationPage = {

@@ -1509,11 +1509,14 @@ same names and arguments, and #51's read policies on posts, post photos and comm
 still works). New tables members write have #45's write limits (16 more triggers). On production it also schedules
 the hourly clean-up job `fitx-social-hourly` (expired stories, orphan files, old report evidence and notifications;
 files leave the bucket only through the server's sweep) and adds the Realtime policy `social_inbox_read`. It deletes
-no row; `social_notifications.actor_id` may now be empty (notices from FITX). The username `new` is kept for FITX
+no row; `social_notifications.actor_id` may now be empty (notices from FITX). A message records whether it was sent
+as a shared post or a story reply (`shared_post`, `story_reply`), so it still says so after the post is deleted or the
+story is cleaned up; a notice about a conversation shows only while the other side has no block either way and no
+Explore suspension, and a message request's notice only while the request waits. The username `new` is kept for FITX
 from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
 run changes nothing. After it, #51's Check gives other numbers: use this one.
 
-md5 of the file (`md5 -q`): `5816bd51b3fba253b8e23ed479bcda55`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `4cc5cb0de646558ae7d001af34b52045`. The session compares it with the file it sends before it runs it.
 
 ```sql
 -- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2, 1, 1
@@ -1547,16 +1550,17 @@ no date of birth counts as under 18), a block either way stops sending and hides
 you" (everyone, people you follow, mutual follows, or no one new), a first message from someone the member does not
 follow arrives as a request (one message, a notice that names nobody, no links), limits on new conversations and
 messages, a stop on the same text sent to several people, "Unsend" (the text is blanked), story replies, and unread
-counts (unknown is empty, never 0). Messages are not end-to-end encrypted: the service key, and so Admin's evidence view
-for a reported message, can read them. Communities are made by FITX in Admin (#54); members join (a private one asks
+counts (unknown is empty, never 0; a suspended member's messages and requests are not counted, as they are not
+listed). Messages are not end-to-end encrypted: the service key, and so Admin's evidence view for a reported message,
+can read them. Communities are made by FITX in Admin (#54); members join (a private one asks
 first), post and start discussions; a community's moderators can hide a post in their own community only, which is
 recorded. Challenges count only the member's own completed workouts and activities from when they joined (a run saved
 as both counts once), the leaderboard shows only adults who switched it on, and "Completed" and "Top 3" badges (Top 3
-only with 10 or more on the board) are given when a challenge closes, 2 hours after its end. On production it also
-schedules `fitx-challenge-hourly` (minute 23 of every hour): it brings every entry up to date, closes ended challenges
-and opens each template's challenge for the week (Monday) and month (the 1st), India time. A second run changes nothing.
+only with 10 or more on the board) are given when a challenge closes, 2 hours after its end (until then it stays
+under Open for the members who joined it). On production it also schedules `fitx-challenge-hourly` (minute 23 of
+every hour): it brings every entry up to date, closes ended challenges and opens each template's challenge for the week (Monday) and month (the 1st), India time. A second run changes nothing.
 
-md5 of the file (`md5 -q`): `667c84bd91aa5e5222b986457acaea7f`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `1f99d234d1c8a84ebbd22e75e3c687e8`. The session compares it with the file it sends before it runs it.
 
 ```sql
 -- Check 20261124100010: expect 24, 0, 0, 0, 22, 1, 106

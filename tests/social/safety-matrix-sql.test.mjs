@@ -248,6 +248,55 @@ describe("Explore safety matrix", { skip }, () => {
     assert.ok(pg.json(`select to_jsonb(public.fitx_social_me());`, { role: "authenticated", sub: OWNER_ID.suspended }).suspension, "me says so");
   });
 
+  test("a message notice follows its conversation: not across a block either way or a suspension, and a request's only while it waits", () => {
+    const [X, Y, Z] = [uuid("5e5e5e5e"), uuid("5e5e5e5e"), uuid("5e5e5e5e")];
+    const [REQUEST, CHAT] = [uuid("6f6f6f6f"), uuid("6f6f6f6f")];
+    const [REQUEST_NOTE, CHAT_NOTE] = [uuid("7a7a7a7a"), uuid("7a7a7a7a")];
+    pg.exec(`insert into auth.users (id, email) values ('${X}', 'x@example.test'), ('${Y}', 'y@example.test'), ('${Z}', 'z@example.test');
+      update public.profiles set date_of_birth = date '1990-01-01' where id in ('${X}', '${Y}', '${Z}');
+      insert into public.social_profiles (user_id, username, display_name) values ('${X}', 'notex', 'X'), ('${Y}', 'notey', 'Y'), ('${Z}', 'notez', 'Z');
+      insert into public.social_conversations (id, user_low, user_high, status, requested_by, last_message_at) values
+        ('${REQUEST}', least('${X}'::uuid, '${Y}'::uuid), greatest('${X}'::uuid, '${Y}'::uuid), 'request', '${Y}', now()),
+        ('${CHAT}', least('${X}'::uuid, '${Z}'::uuid), greatest('${X}'::uuid, '${Z}'::uuid), 'accepted', '${Z}', now());
+      insert into public.social_conversation_sides (conversation_id, user_id) values ('${REQUEST}', '${X}'), ('${REQUEST}', '${Y}'), ('${CHAT}', '${X}'), ('${CHAT}', '${Z}');
+      insert into public.social_messages (conversation_id, user_id, body) values ('${REQUEST}', '${Y}', 'Hello'), ('${CHAT}', '${Z}', 'Hi again');
+      insert into public.social_notifications (id, user_id, actor_id, type, entity_type, entity_id, conversation_id) values
+        ('${REQUEST_NOTE}', '${X}', null, 'message_request', 'conversation', '${REQUEST}', '${REQUEST}'),
+        ('${CHAT_NOTE}', '${X}', '${Z}', 'message', 'conversation', '${CHAT}', '${CHAT}');`);
+    const shown = () => {
+      const got = pg.json(`select jsonb_build_object('ids', (select coalesce(jsonb_agg(x->>'id' order by x->>'id'), '[]') from jsonb_array_elements(public.fitx_social_notifications(null, null, 50)) x),
+        'unread', (public.fitx_social_me())->'unread');`, { role: "authenticated", sub: X });
+      return { request: got.ids.includes(REQUEST_NOTE), chat: got.ids.includes(CHAT_NOTE), unread: got.unread };
+    };
+    assert.deepEqual(shown(), { request: true, chat: true, unread: 2 });
+    const cell = (label, setup, undo, want) => {
+      pg.exec(setup);
+      assert.deepEqual(shown(), want, label);
+      pg.exec(undo);
+      assert.deepEqual(shown(), { request: true, chat: true, unread: 2 }, `${label}, undone`);
+    };
+    cell("the recipient blocks the requester", `insert into public.social_blocks (user_id, blocked_id) values ('${X}', '${Y}');`,
+      `delete from public.social_blocks where user_id = '${X}';`, { request: false, chat: true, unread: 1 });
+    cell("the requester blocks the recipient", `insert into public.social_blocks (user_id, blocked_id) values ('${Y}', '${X}');`,
+      `delete from public.social_blocks where user_id = '${Y}';`, { request: false, chat: true, unread: 1 });
+    cell("the other side of a conversation is blocked", `insert into public.social_blocks (user_id, blocked_id) values ('${X}', '${Z}');`,
+      `delete from public.social_blocks where user_id = '${X}';`, { request: true, chat: false, unread: 1 });
+    cell("FITX suspends the requester from Explore", `insert into public.social_member_sanctions (user_id, kind, reason_code) values ('${Y}', 'explore', 'spam');`,
+      `delete from public.social_member_sanctions where user_id = '${Y}';`, { request: false, chat: true, unread: 1 });
+    cell("FITX suspends the other side of a conversation", `insert into public.social_member_sanctions (user_id, kind, reason_code) values ('${Z}', 'explore', 'spam');`,
+      `delete from public.social_member_sanctions where user_id = '${Z}';`, { request: true, chat: false, unread: 1 });
+    cell("a suspension from messages only leaves Explore's notices alone", `insert into public.social_member_sanctions (user_id, kind, reason_code) values ('${Y}', 'dm', 'spam');`,
+      `delete from public.social_member_sanctions where user_id = '${Y}';`, { request: true, chat: true, unread: 2 });
+    cell("the recipient deleted the request", `update public.social_conversation_sides set hidden_at = now() where conversation_id = '${REQUEST}' and user_id = '${X}';`,
+      `update public.social_conversation_sides set hidden_at = null where conversation_id = '${REQUEST}';`, { request: false, chat: true, unread: 1 });
+    cell("the request was accepted", `update public.social_conversations set status = 'accepted' where id = '${REQUEST}';`,
+      `update public.social_conversations set status = 'request' where id = '${REQUEST}';`, { request: false, chat: true, unread: 1 });
+    cell("the requester left Explore", `delete from public.social_profiles where user_id = '${Y}';`,
+      `insert into public.social_profiles (user_id, username, display_name) values ('${Y}', 'notey', 'Y');`, { request: false, chat: true, unread: 1 });
+    const other = pg.json(`select to_jsonb(public.fitx_social_notifications(null, null, 50));`, { role: "authenticated", sub: Y });
+    assert.ok(!other.some((n) => n.id === REQUEST_NOTE), "a notice is only ever its recipient's");
+  });
+
   test("the hourly clean-up deletes expired stories without an open report and queues their files", () => {
     const expired = items.filter((i) => i.kind === "story" && i.state === "expired" && i.owner !== "deleted");
     const reported = items.filter((i) => i.kind === "story" && i.state === "expired_reported" && i.owner !== "deleted");

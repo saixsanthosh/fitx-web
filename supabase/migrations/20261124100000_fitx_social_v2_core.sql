@@ -299,7 +299,8 @@ create table if not exists public.social_challenge_badges (
 );
 create index if not exists social_challenge_badges_user_idx on public.social_challenge_badges (user_id);
 
--- Messages: bodies are blanked on unsend (deleted_at set).
+-- Messages: bodies are blanked on unsend (deleted_at set). shared_post and story_reply say what a message was sent as,
+-- so it keeps saying so after the post is deleted or the story is swept (the links themselves are set null).
 create table if not exists public.social_messages (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null references public.social_conversations (id) on delete cascade,
@@ -307,6 +308,8 @@ create table if not exists public.social_messages (
   body text not null default '',
   shared_post_id uuid references public.social_posts (id) on delete set null,
   story_id uuid references public.social_stories (id) on delete set null,
+  shared_post boolean not null default false,
+  story_reply boolean not null default false,
   created_at timestamptz not null default now(),
   deleted_at timestamptz,
   moderation_state text not null default 'visible',
@@ -314,6 +317,9 @@ create table if not exists public.social_messages (
   constraint social_messages_body_check check (char_length(body) <= 2000),
   constraint social_messages_moderation_state_check check (moderation_state in ('visible', 'limited', 'hidden'))
 );
+-- Also over a test copy that has the table from an earlier draft of this file without the two flags.
+alter table public.social_messages add column if not exists shared_post boolean not null default false;
+alter table public.social_messages add column if not exists story_reply boolean not null default false;
 create index if not exists social_messages_conversation_idx on public.social_messages (conversation_id, created_at desc, id desc);
 create index if not exists social_messages_user_idx on public.social_messages (user_id, created_at desc);
 create index if not exists social_messages_post_idx on public.social_messages (shared_post_id) where shared_post_id is not null;
@@ -1157,7 +1163,8 @@ end $function$;
 
 -- Whether p_viewer's notification p_n is shown: nothing from an account with a block either way or without an Explore
 -- profile; a like, story like or follow only while it still stands, a follow request only while it waits; nothing
--- about a post, comment, story or community the viewer cannot see now, nor a conversation they are not a side of.
+-- about a post, comment, story or community the viewer cannot see now, nor a conversation they are not a side of or
+-- whose other side is blocked either way or suspended; a message request only while it waits.
 create or replace function public.fitx_social_notification_visible(p_viewer uuid, p_n public.social_notifications)
 returns boolean
 language sql
@@ -1180,8 +1187,20 @@ as $function$
     and (p_n.comment_id is null or public.fitx_social_sees_comment_row(p_viewer, p_n.comment_id))
     and (p_n.story_id is null or public.fitx_social_sees_story(p_viewer, p_n.story_id))
     and (p_n.community_id is null or public.fitx_social_sees_community(p_viewer, p_n.community_id))
-    and (p_n.conversation_id is null or exists (select 1 from public.social_conversation_sides s
-                                                where s.conversation_id = p_n.conversation_id and s.user_id = p_viewer));
+    -- A message notice (a request's names nobody) follows its conversation: the viewer is a side of it, the other side
+    -- has an Explore profile, no block either way and no Explore suspension, and a request's notice stays only while
+    -- the request waits for the viewer (not accepted, not deleted), as the Requests list and its count do.
+    and (p_n.conversation_id is null or exists (
+          select 1 from public.social_conversations c
+          join public.social_conversation_sides s on s.conversation_id = c.id and s.user_id = p_viewer
+          cross join lateral (select case when c.user_low = p_viewer then c.user_high else c.user_low end as id) o
+          where c.id = p_n.conversation_id
+            and not public.fitx_social_blocked(p_viewer, o.id)
+            and exists (select 1 from public.social_profiles a where a.user_id = o.id)
+            and not exists (select 1 from public.social_member_sanctions z where z.user_id = o.id and z.kind = 'explore'
+                              and z.lifted_at is null and (z.until is null or z.until > pg_catalog.now()))
+            and (p_n.type <> 'message_request'
+                 or (c.status = 'request' and c.requested_by = o.id and s.hidden_at is null))));
 $function$;
 
 -- Inserts a post for p_uid (who the caller already checked) whose files are already uploaded to <uid>/<p_post_id>/.
