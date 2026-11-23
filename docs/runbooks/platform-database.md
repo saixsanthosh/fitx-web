@@ -1512,7 +1512,7 @@ no row; `social_notifications.actor_id` may now be empty (notices from FITX). Th
 from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
 run changes nothing. After it, #51's Check gives other numbers: use this one.
 
-md5 of the file (`md5 -q`): `98454157969ce3e197302a25acd3cee4`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `48ef4b9727c2c0cb7fd53c167cb839ef`. The session compares it with the file it sends before it runs it.
 
 ```sql
 -- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2, 1
@@ -1663,7 +1663,7 @@ feature off in the app is usually better than an undo.
 |---|---|
 | 54 | SQL below, then remove #54's history row, then run #43's file once more (`20261121100033_fitx_admin_ops`, through the SQL editor, section 0.2 steps 1 to 3, without a Record query: #43's history row is still there): that puts back the five-switch settings save. Drops the 8 functions and the index, and puts back the 21-permission role table; Admin's Explore section then says it needs a database update. The saved `explore` and `explore_video` switches stay in `platform_settings`, where the app still reads them, but only until the next settings save: #43's save replaces all the switches with its five, and a missing `explore` reads as on (a missing `explore_video` as off). So note the Explore switch before the undo and, if it was off, set it off again after each settings save until #54 is back: `update public.platform_settings set features = features \|\| '{"explore": false}' where id = 1;` (writes). Reports, sanctions and moderation records stay. |
 | 53 | Undo #54 first (its challenge close calls #53). SQL below, then remove #53's history row. Drops the 24 functions, the index and the hourly challenge job; the tables and their rows stay (they are #52's), and posts a community moderator hid stay hidden. Explore's messages, communities and challenges then say they need the next update. |
-| 52 | Undo #54 and #53 first. First run its Before undo query: if it is not 0, the session lists those files (stories, video posts and their posters, community covers, and files already waiting in the trash) and you delete them in Dashboard → Storage, or they stay in the bucket with nothing pointing at them. Then the SQL below, then remove #52's history row, then run #51's file once more through the SQL editor (section 0.2, steps 1 to 3, without its Record query: #51's history row is still there): that puts back part 1's function bodies, its three read policies, the five-parameter notification settings save and the bucket's two file types. Deletes every story, message, conversation, community, challenge, badge, sanction and moderation record, report evidence, video and text posts, FITX notices and notifications and reports of the new kinds; Explore works as after #51. |
+| 52 | Undo #54 and #53 first. First run its Before undo query: if it is not 0, the session lists those files (stories, video posts and their posters, the photos of community, challenge, limited and hidden posts, community covers, and files already waiting in the trash) and you delete them in Dashboard → Storage, or they stay in the bucket with nothing pointing at them. Then the SQL below, then remove #52's history row, then run #51's file once more through the SQL editor (section 0.2, steps 1 to 3, without its Record query: #51's history row is still there): that puts back part 1's function bodies, its three read policies, the five-parameter notification settings save and the bucket's two file types. Deletes every story, message, conversation, community, challenge, badge, sanction and moderation record, report evidence, video and text posts, every post made in a community or a challenge (photo posts too) and every limited or hidden post and comment (a post with its comments and photos, a comment with its replies: part 1's feed, profile, Discover, hashtag and search reads would otherwise show them to every follower and, for a public account, to everyone), FITX notices and notifications and reports of the new kinds; Explore works as after #51. |
 | 51 | Undo #52 first. First empty the `social-media` bucket and then delete it in Dashboard → Storage (Storage refuses to delete a bucket that still holds files, and its files are deleted with the Storage API, not with SQL). Then the SQL below. Deletes every Explore profile, post, comment, like, save, follow, block, restriction, report and notification, its functions and its storage policies; Explore then says it needs the next update. |
 | 50 | First run its Before undo query: if it is not 0, delete those activities (or change their sport to walk, run or ride) or the last step fails. Then the SQL below. Drops every saved best effort and puts back the walk, run and ride rule; the app offers those three only again. |
 | 49 | SQL below. Drops when each member answered the Nutrition setup; the app then counts the setup as done when a diet is saved. The answers stay. |
@@ -1755,7 +1755,8 @@ select count(*) as files_to_delete_first from storage.objects o
 where o.bucket_id = 'social-media'
   and (exists (select 1 from public.social_stories s where o.name in (s.storage_path, s.poster_path))
        or exists (select 1 from public.social_post_media m join public.social_posts p on p.id = m.post_id
-                  where (p.kind <> 'photo' and o.name = m.storage_path) or o.name = m.poster_path)
+                  where ((p.kind <> 'photo' or p.community_id is not null or p.challenge_id is not null
+                          or p.moderation_state <> 'visible') and o.name = m.storage_path) or o.name = m.poster_path)
        or exists (select 1 from public.social_communities c where o.name = c.cover_path)
        or exists (select 1 from public.social_storage_trash t where o.name = t.path));
 ```
@@ -1783,7 +1784,9 @@ drop function if exists public.fitx_social_sees_post(uuid, uuid), public.fitx_so
   public.fitx_social_my_content(timestamptz, integer), public.fitx_social_delete_all_content(), public.fitx_social_hourly() cascade;
 delete from public.social_notifications where actor_id is null or type not in ('follow', 'follow_request', 'follow_accepted', 'like', 'comment', 'reply', 'mention');
 delete from public.social_reports where target_type not in ('post', 'comment', 'account');
-delete from public.social_posts where kind <> 'photo';
+delete from public.social_posts where kind <> 'photo' or community_id is not null or challenge_id is not null
+  or moderation_state <> 'visible';
+delete from public.social_comments where moderation_state <> 'visible';
 drop table if exists public.social_moderation_actions, public.social_challenge_badges, public.social_challenge_entries,
   public.social_challenge_templates, public.social_messages, public.social_conversation_sides, public.social_conversations,
   public.social_community_members, public.social_story_likes, public.social_story_views, public.social_member_sanctions,

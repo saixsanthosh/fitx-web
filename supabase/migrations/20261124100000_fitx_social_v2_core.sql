@@ -40,8 +40,10 @@
 -- added again, create or replace, drop policy if exists before each policy, guarded blocks for pg_cron and Realtime.
 -- It deletes no row. One relaxation: social_notifications.actor_id may now be null (notices that name no member).
 --
--- Undo (deletes every story, message, community, challenge, sanction and moderation record; then re-run
--- 20261123100060_fitx_social_v1.sql to restore the part-1 function bodies, policies and the bucket's two MIME types):
+-- Undo (deletes every story, message, community, challenge, sanction and moderation record, every video, text,
+-- community and challenge post, and every limited or hidden post and comment, since part 1's reads would show them
+-- to everyone; then re-run 20261123100060_fitx_social_v1.sql to restore the part-1 function bodies, policies and the
+-- bucket's two MIME types):
 --   begin;
 --   do $u$ begin if pg_catalog.to_regnamespace('cron') is not null then
 --     execute $e$select cron.unschedule(jobid) from cron.job where jobname = 'fitx-social-hourly'$e$; end if; end $u$;
@@ -63,7 +65,9 @@
 --     public.fitx_social_my_content(timestamptz, integer), public.fitx_social_delete_all_content(), public.fitx_social_hourly() cascade;
 --   delete from public.social_notifications where actor_id is null or type not in ('follow', 'follow_request', 'follow_accepted', 'like', 'comment', 'reply', 'mention');
 --   delete from public.social_reports where target_type not in ('post', 'comment', 'account');
---   delete from public.social_posts where kind <> 'photo';
+--   delete from public.social_posts where kind <> 'photo' or community_id is not null or challenge_id is not null
+--     or moderation_state <> 'visible';
+--   delete from public.social_comments where moderation_state <> 'visible';
 --   drop table if exists public.social_moderation_actions, public.social_challenge_badges, public.social_challenge_entries,
 --     public.social_challenge_templates, public.social_messages, public.social_conversation_sides, public.social_conversations,
 --     public.social_community_members, public.social_story_likes, public.social_story_views, public.social_member_sanctions,

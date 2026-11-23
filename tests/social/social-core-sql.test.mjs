@@ -300,8 +300,31 @@ describe("Explore part 2 core", { skip }, () => {
     const start = header.findIndex((line) => line.startsWith("-- Undo"));
     const undo = header.slice(start + 1).filter((line) => line.startsWith("--   ")).map((line) => line.slice(5))
       .filter((line) => !line.startsWith("-- then")).join("\n");
+    // Part 1's reads never look at community_id, challenge_id or moderation_state: a photo posted to a private
+    // community, a challenge post and anything FITX limited or hid would reach every follower (and Discover) after
+    // the undo, so it deletes them; a plain photo post stays.
+    const community = id();
+    const challenge = id();
+    pg.exec(`insert into public.social_communities (id, slug, name, visibility) values ('${community}', 'undo-private', 'Undo private', 'private');
+      insert into public.social_challenges (id, kind, title, metric, starts_at, ends_at) values ('${challenge}', 'weekly', 'Undo week', 'workouts', now(), now() + interval '7 days');
+      delete from public.social_rate_counters where user_id in ('${B}', '${C}');`);
+    const kept = photoPost(B, "Stays after the undo");
+    const inCommunity = photoPost(B, "Members only");
+    const inChallenge = photoPost(B, "Challenge post");
+    const limited = photoPost(B, "Limited post");
+    const hidden = photoPost(B, "Hidden post");
+    const comment = call(C, `public.fitx_social_add_comment('${kept.id}', null, 'Hidden comment')`);
+    pg.exec(`update public.social_posts set community_id = '${community}' where id = '${inCommunity.id}';
+      update public.social_posts set challenge_id = '${challenge}' where id = '${inChallenge.id}';
+      update public.social_posts set moderation_state = 'limited' where id = '${limited.id}';
+      update public.social_posts set moderation_state = 'hidden' where id = '${hidden.id}';
+      update public.social_comments set moderation_state = 'hidden' where id = '${comment.id}';`);
     const ran = pg.run(undo);
     assert.ok(ran.ok, ran.stderr);
+    const left = (table, ids) => pg.json(`select count(*) from public.${table} where id in (${ids.map((x) => `'${x}'`).join(", ")});`);
+    assert.equal(left("social_posts", [inCommunity.id, inChallenge.id, limited.id, hidden.id]), 0, "community, challenge, limited and hidden posts go");
+    assert.equal(left("social_comments", [comment.id]), 0, "a hidden comment goes");
+    assert.equal(left("social_posts", [kept.id]), 1, "a plain photo post stays");
     pg.applyFile(V1);
     assert.equal(pg.json(`select count(*) from pg_tables where schemaname = 'public' and tablename = 'social_stories';`), 0);
     assert.deepEqual(pg.json(`select to_jsonb(allowed_mime_types) from storage.buckets where id = 'social-media';`), ["image/webp", "image/jpeg"]);
