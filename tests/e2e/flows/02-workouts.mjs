@@ -56,7 +56,13 @@ export const flow = {
       t.expect((await page.getByRole("region", { name: "Where do you train?" }).count()) === 0, "no setup for a member with a saved list");
       t.expect((await page.getByRole("heading", { name: "Your home equipment" }).count()) === 0, "home equipment is not on this page");
       await page.getByRole("region", { name: "Today" }).getByText("Nothing planned today").waitFor();
-      t.expect((await page.getByRole("group", { name: "Train by area" }).getByRole("button").count()) >= 8, "every body area should be offered");
+      // Train by area (phase 7.4): anatomy tiles (the body map cropped to each area), each opening the builder; no photos.
+      const areas = page.getByRole("group", { name: "Train by area" });
+      t.expect((await areas.getByRole("button").count()) >= 8, "every body area should be offered");
+      const tiles = await areas.evaluate((group) => [...group.querySelectorAll("button")].map((button) => ({
+        area: button.getAttribute("data-focus-area"), popup: button.getAttribute("aria-haspopup"), map: Boolean(button.querySelector("svg")), photo: Boolean(button.querySelector("img")),
+      })));
+      t.expect(tiles.every((tile) => tile.area && tile.popup === "dialog" && tile.map && !tile.photo), "each area tile is an anatomy tile that opens the builder", tiles);
       // The Programme heading only ever stands over programmes (it goes when none is published).
       const programmeHeading = await page.getByRole("heading", { name: "Programme", exact: true }).count();
       const programmeCards = await page.locator("#programme article").count();
@@ -107,6 +113,11 @@ export const flow = {
       t.note("today card", todayText.slice(0, 300));
       t.expect(/Day \d+ of \d+/i.test(todayText) && /×/.test(todayText), "Today should show the programme day and its sets", todayText.slice(0, 300));
       t.expect(await todayCard.getByRole("button", { name: "Start workout" }).isEnabled(), "Today's workout can be started");
+      // Compact (phase 7.4): at most four exercises on the card, the rest under "and N more" (the preview lists them all).
+      t.expect((await rows.count()) <= 4, "Today lists at most four exercises", { rows: await rows.count() });
+      // The programme card: a ring of sessions done, and one visible action besides the journey link.
+      t.expect((await card.getByRole("img", { name: /^Sessions done: 0 of \d+, completed workouts only$/ }).count()) === 1, "the card shows sessions done as a ring with its meaning");
+      for (const gone of ["Leave programme", "Plan the next 7 days"]) t.expect((await card.getByRole("button", { name: gone }).count()) === 0, `${gone} sits in the card's menu`);
       await t.checkpoint("programme followed");
     });
 

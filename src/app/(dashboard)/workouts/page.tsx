@@ -8,7 +8,9 @@ import { EquipmentThumb } from "@/components/equipment/EquipmentTile";
 import { Reveal } from "@/components/motion";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Section } from "@/components/ui/Section";
-import { FocusTiles } from "@/components/training/FocusTiles";
+import { MuscleRail } from "@/components/training/MuscleRail";
+import { ActionsMenu } from "@/components/workouts/ActionsMenu";
+import { AreaLaunchRail } from "@/components/workouts/AreaLaunchRail";
 import { HomeCollection } from "@/components/workouts/HomeCollection";
 import { ModePanel, ModeTabs } from "@/components/workouts/ModeTabs";
 import { WorkoutSetupFlow } from "@/components/workouts/WorkoutSetupFlow";
@@ -262,7 +264,7 @@ export default function WorkoutsPage() {
   const [autoSeed, setAutoSeed] = useState(0);
   const [autoNote, setAutoNote] = useState("");
   const [focusAreas, setFocusAreas] = useState<FocusArea[]>([]);
-  // The body-area tiles take most of a phone screen: open while choosing, folded into one line after.
+  // The builder's anatomy tiles: open while choosing, folded into one line after.
   const [focusPickerOpen, setFocusPickerOpen] = useState(true);
   // The plan whose preview is open (where every plan and programme day begins), and an exercise's details.
   const [previewPlanId, setPreviewPlanId] = useState<string | null>(null);
@@ -541,13 +543,14 @@ export default function WorkoutsPage() {
   const catalogReady = catalog.length > 0;
   /** The user's equipment for a context, including what their items also serve as. */
   const ownedFor = useCallback((target: TrainingContext) => expandOwnedEquipment(equipmentFor(profiles, target, preferences.equipment).keys), [profiles, preferences.equipment]);
-  // The builder's equipment and the focus tiles' counts, worked out again only when their inputs change.
+  // The builder's equipment and the anatomy tiles' counts, worked out again only when their inputs change.
   const builderContext = contextForLocation(planLocation);
   const builderOwned = useMemo(() => ownedFor(builderContext), [ownedFor, builderContext]);
   const focusDetails = useMemo(() => {
     if (!creatorOpen || builderMode !== "focus") return undefined;
     const details: Partial<Record<FocusArea, string>> = {};
-    for (const [area, count] of Object.entries(focusCounts(catalog, builderOwned)) as Array<[FocusArea, { doable: number | null }]>) details[area] = `${(count.doable ?? 0).toLocaleString()} you can do`;
+    // An unknown count shows no line rather than a 0.
+    for (const [area, count] of Object.entries(focusCounts(catalog, builderOwned)) as Array<[FocusArea, { doable: number | null }]>) if (count.doable !== null) details[area] = `${count.doable.toLocaleString()} you can do`;
     return details;
   }, [creatorOpen, builderMode, catalog, builderOwned]);
 
@@ -1166,7 +1169,7 @@ export default function WorkoutsPage() {
 
       <Reveal amount={0.12}>
         <Section title="Train by area" id="areas" action={<Link href="/exercises" className={styles.textLink}>Library<ArrowRight size={14} aria-hidden="true" /></Link>}>
-          <FocusTiles value={[]} onChange={() => undefined} onLaunch={(area) => openCreator("focus", "gym", [area])} layout="rail" label="Train by area" credit={false} />
+          <AreaLaunchRail label="Train by area" onLaunch={(area) => openCreator("focus", "gym", [area])} />
         </Section>
       </Reveal>
 
@@ -1201,12 +1204,13 @@ export default function WorkoutsPage() {
                     <h3 className={styles.itemTitle}>{plan.title}</h3>
                     <p className={styles.itemMeta}><CalendarDays size={13} aria-hidden="true" />{plan.planned_for ? whenLabel(plan.planned_for, todayKey) : "No date"}<PlanStatusChip status={planCardStatus(plan.planned_for, todayKey, plan.last_done_key)} /></p>
                   </div>
-                  <div className={styles.planActions}>
-                    <button type="button" className={styles.iconButton} onClick={() => void editPlan(plan.id)} aria-label={"Edit " + plan.title} title="Edit"><Pencil size={16} aria-hidden="true" /></button>
-                    <button type="button" className={styles.iconButton} onClick={() => void duplicatePlan(plan)} aria-label={"Duplicate " + plan.title} title="Copy"><Copy size={16} aria-hidden="true" /></button>
-                    <button type="button" className={styles.iconButton} onClick={() => void deletePlan(plan)} aria-label={"Delete " + plan.title} title="Delete"><Trash2 size={16} aria-hidden="true" /></button>
-                    <button type="button" aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`} onClick={() => setPreviewPlanId(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
-                  </div>
+                  <button type="button" aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`} onClick={() => setPreviewPlanId(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
+                  {/* One visible action per row (phase 7.4); editing, copying and deleting sit in its menu. */}
+                  <ActionsMenu label={`More actions for ${plan.title}`} items={[
+                    { label: "Edit", name: `Edit ${plan.title}`, icon: Pencil, onSelect: () => void editPlan(plan.id), disabled: saving },
+                    { label: "Duplicate", name: `Duplicate ${plan.title}`, icon: Copy, onSelect: () => void duplicatePlan(plan), disabled: saving },
+                    { label: "Delete", name: `Delete ${plan.title}`, icon: Trash2, onSelect: () => void deletePlan(plan), tone: "danger" },
+                  ]} />
                 </article>
               ))}
               {(planCursor || (counts.plans !== null && counts.plans > plans.length)) && (
@@ -1255,7 +1259,7 @@ export default function WorkoutsPage() {
               <p className="text-sm font-semibold">{focusAreas.length ? `Training: ${listFocusAreas(focusAreas)}` : "What to train"}</p>
               {focusAreas.length > 0 && <button type="button" aria-expanded={focusPickerOpen} onClick={() => setFocusPickerOpen((open) => !open)} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">{focusPickerOpen ? "Done choosing" : "Change areas"}</button>}
             </div>
-            {(focusPickerOpen || !focusAreas.length) && <div id="builder-focus-tiles"><FocusTiles layout="rail" credit={false} value={focusAreas} label="Body areas to train" details={focusDetails} onChange={(areas) => { setFocusAreas(areas); applyFocus(builderContext, areas, autoSeed); }} /></div>}
+            {(focusPickerOpen || !focusAreas.length) && <div id="builder-focus-tiles"><MuscleRail bleed={false} value={focusAreas} label="Body areas to train" details={focusDetails} onChange={(areas) => { setFocusAreas(areas); applyFocus(builderContext, areas, autoSeed); }} /></div>}
           </div>}
           <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Workout name<input className="fitx-field" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} /></label>

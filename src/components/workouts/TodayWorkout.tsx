@@ -8,10 +8,11 @@ import type { CatalogExercise } from "@/lib/training/catalog";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { planSummary, rowPrescription } from "@/lib/training/plan-summary";
 import type { PlanExerciseRow } from "@/lib/training/plans";
+import { TODAY_ROWS_SHOWN } from "./gym-compact";
 import styles from "./TodayWorkout.module.css";
 
-/** How many exercises the card lists before "and N more". */
-const SHOWN = 6;
+/** How many exercises the card lists before "and N more" (the plan preview lists them all). */
+const SHOWN = TODAY_ROWS_SHOWN;
 
 export type TodayWorkoutPlan = {
   id: string;

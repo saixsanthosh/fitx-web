@@ -1,6 +1,7 @@
-// Flow 13: Workout planning. A gym workout is built by body area (the page's Chest tile opens the builder, Arms is
-// added there, an Abs exercise from the paged picker) and saved; it leads the page as Today's workout; its plan preview shows the summary, what it needs and each exercise, and an exercise opens
-// its details there. A gym programme is followed with today as a training day: the programme card's day strip, the
+// Flow 13: Workout planning. A gym workout is built by body area (the page's Chest anatomy tile opens the builder, Arms
+// is added there on the builder's anatomy tiles, an Abs exercise from the paged picker) and saved; it leads the page as
+// Today's workout; its compact plan row has Start and a menu (Edit, Duplicate, Delete; keyboard and Escape); its plan
+// preview shows the summary, what it needs and each exercise, and an exercise opens its details there. A gym programme is followed with today as a training day: the programme card's day strip, the
 // whole journey by week (rest days as planned recovery), then pausing (its coming days are removed) and resuming (the
 // next week is planned again from today).
 import { kolkataDate, signInUi, textOf } from "./common.mjs";
@@ -28,6 +29,10 @@ export const flow = {
       await builder.getByText("Training: Chest").waitFor();
       await builder.getByRole("button", { name: "Change areas" }).click();
       const tiles = builder.getByRole("group", { name: "Body areas to train" });
+      // The builder's areas are anatomy tiles (phase 7.4): the body map cropped to each area, with a real count, no photos.
+      const art = await tiles.evaluate((group) => [...group.querySelectorAll("button")].map((button) => ({ map: Boolean(button.querySelector("svg")), photo: Boolean(button.querySelector("img")), text: button.textContent ?? "" })));
+      t.expect(art.length >= 8 && art.every((tile) => tile.map && !tile.photo), "the builder offers every area as an anatomy tile", art);
+      t.expect(art.every((tile) => /\d[\d,]* you can do$/.test(tile.text)), "each tile says how many exercises fit the equipment", art.map((tile) => tile.text));
       await tiles.getByRole("button", { name: /^Arms/ }).click();
       t.expect((await tiles.getByRole("button", { name: /^Chest/ }).getAttribute("aria-pressed")) === "true", "the Chest tile should be selected");
       const sets = builder.getByRole("spinbutton", { name: / target sets$/ });
@@ -56,6 +61,23 @@ export const flow = {
       t.expect((await todayRows.count()) >= 4, "Today should list the plan's exercises", { rows: await todayRows.count() });
       await t.checkpoint("today's workout card");
       const card = page.locator("article[id^='workout-plan-']").filter({ hasText: "Chest and arms" }).first();
+      // A plan is one compact row (phase 7.4): its name and day, Start, and a menu with Edit, Duplicate and Delete.
+      const box = await card.boundingBox();
+      t.expect(box && box.height <= 80, "a plan row stays on one line", box);
+      const more = card.getByRole("button", { name: /^More actions for Chest and arms/ });
+      t.expect((await more.getAttribute("aria-haspopup")) === "menu" && (await more.getAttribute("aria-expanded")) === "false", "the row's menu button says what it opens");
+      await more.click();
+      const menu = card.getByRole("menu");
+      await menu.waitFor();
+      const items = await menu.getByRole("menuitem").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label") ?? node.textContent));
+      t.expect(items.length === 3 && /^Edit Chest and arms/.test(items[0]) && /^Duplicate /.test(items[1]) && /^Delete /.test(items[2]), "the menu offers Edit, Duplicate and Delete for the plan", items);
+      t.expect(await page.evaluate(() => document.activeElement?.getAttribute("role") === "menuitem"), "opening the menu moves focus into it");
+      await page.keyboard.press("ArrowDown");
+      t.expect(await page.evaluate(() => (document.activeElement?.getAttribute("aria-label") ?? "").startsWith("Duplicate")), "arrow keys move through the menu");
+      await t.checkpoint("plan row menu", { fullPage: false });
+      await page.keyboard.press("Escape");
+      await menu.waitFor({ state: "detached", timeout: 5000 });
+      t.expect(await page.evaluate(() => (document.activeElement?.getAttribute("aria-label") ?? "").startsWith("More actions for")), "Escape closes the menu and returns focus to its button");
       await card.getByRole("button", { name: /^Start/ }).click();
       const preview = page.getByRole("dialog", { name: /^Chest and arms/ });
       await preview.getByRole("button", { name: "Begin workout" }).waitFor({ timeout: 15000 });
@@ -86,6 +108,12 @@ export const flow = {
       const selected = await card.getByRole("tab", { selected: true }).getAttribute("aria-label");
       t.expect(/^Today/.test(selected ?? ""), "today should be the chosen day in the strip", { selected });
       t.expect(/plan · \d+ training days? and \d+ rest days?/.test(await textOf(card)), "the card should give the plan's length and its rest days");
+      // Compact (phase 7.4): leaving and planning ahead sit in the card's menu, not as buttons of their own.
+      t.expect((await card.getByRole("button", { name: "Leave programme" }).count()) === 0, "Leave programme is not a button on the card");
+      await card.getByRole("button", { name: "More programme actions" }).click();
+      await card.getByRole("menu").getByRole("menuitem", { name: "Leave programme" }).waitFor({ timeout: 5000 });
+      await page.keyboard.press("Escape");
+      await card.getByRole("menu").waitFor({ state: "detached", timeout: 5000 });
       await t.checkpoint("programme card with its day strip");
       await card.getByRole("link", { name: "See the whole programme" }).click();
       await page.waitForURL("**/workouts/programme", { timeout: 15000 });
