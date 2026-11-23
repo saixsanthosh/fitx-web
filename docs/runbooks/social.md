@@ -96,7 +96,10 @@ communities, challenges, the moderation record) and every shared helper; the gro
   switched off (`platform_settings.features.explore = false`; a missing key means on).
 - **Age (O1 a):** `fitx_social_age_band` from `profiles.date_of_birth`, else `profiles.age`. Under 13: no Explore
   profile. No date of birth: teen rules until the member adds one in Explore settings ("Add your date of birth",
-  `fitx_social_set_birth_date`, once; `social_profiles.birth_date_added_at` records it for Admin). Messages,
+  `fitx_social_set_birth_date`, once; `social_profiles.birth_date_added_at` records it for Admin, as it does for a date
+  added from Profile after joining Explore). A saved date of birth is changed or cleared only by FITX support: the
+  trigger `profiles_birth_date_locked` refuses a member's own update (`birth_date_locked`), and support changes it with
+  the service role or in the SQL editor (`update public.profiles set date_of_birth = ... where id = ...`). Messages,
   communities and leaderboards need 18+ (#53 enforces them and raises `social_age_restricted` with the band as hint).
 - **Reports** snapshot the item (`evidence`, at most 8 KB; O4 a: a message report holds that one message) and accept
   content addressed to the reporter across a block. Evidence is removed 90 days after review (O8 a).

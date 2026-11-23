@@ -16,6 +16,8 @@ import {
   ageFromBirthDate,
   birthDateBounds,
   birthDateEdit,
+  BIRTH_DATE_SAVED_ERROR,
+  isBirthDateLocked,
   profileAge,
   normalizeBirthDate,
   onboardingMeals,
@@ -239,8 +241,13 @@ describe("birthDateEdit (Profile, once profiles.date_of_birth exists)", () => {
   const today = new Date(2026, 10, 20);
   const withBirthDate = { age: 29, date_of_birth: "1997-03-14" };
 
-  test("an account with a birth date edits the birth date, and the age follows it", () => {
-    assert.deepEqual(birthDateEdit(withBirthDate, "1996-03-14", today), { error: null, patch: { date_of_birth: "1996-03-14", age: 30 }, age: 30 });
+  test("a saved birth date is never changed here: changing it is a FITX support request", () => {
+    assert.deepEqual(birthDateEdit(withBirthDate, "1996-03-14", today), { error: BIRTH_DATE_SAVED_ERROR, patch: {}, age: 29 });
+    assert.match(BIRTH_DATE_SAVED_ERROR, /ask FITX support/);
+  });
+
+  test("an account without a birth date adds one, and the age follows it", () => {
+    assert.deepEqual(birthDateEdit({ age: 41, date_of_birth: null }, "1996-03-14", today), { error: null, patch: { date_of_birth: "1996-03-14", age: 30 }, age: 30 });
   });
 
   test("an unchanged birth date saves nothing", () => {
@@ -254,13 +261,19 @@ describe("birthDateEdit (Profile, once profiles.date_of_birth exists)", () => {
     }
   });
 
-  test("clearing a birth date clears the age it gave", () => {
-    assert.deepEqual(birthDateEdit(withBirthDate, "", today), { error: null, patch: { date_of_birth: null, age: null }, age: null });
+  test("a saved birth date is never cleared here either, so its age stays", () => {
+    assert.deepEqual(birthDateEdit(withBirthDate, "", today), { error: BIRTH_DATE_SAVED_ERROR, patch: {}, age: 29 });
   });
 
   test("an account with only an age keeps it until a birth date is added", () => {
     assert.deepEqual(birthDateEdit({ age: 41, date_of_birth: null }, "", today), { error: null, patch: {}, age: 41 });
     assert.deepEqual(birthDateEdit({ age: null, date_of_birth: null }, "", today), { error: null, patch: {}, age: null });
+  });
+
+  test("the database's refusal to change a saved birth date is recognised", () => {
+    assert.equal(isBirthDateLocked({ message: "birth_date_locked" }), true);
+    assert.equal(isBirthDateLocked({ message: "permission denied for table profiles" }), false);
+    assert.equal(isBirthDateLocked(null), false);
   });
 
   test("future, unreal and out-of-range dates are refused without a patch", () => {

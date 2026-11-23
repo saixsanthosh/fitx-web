@@ -3,7 +3,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Dumbbell, HeartPulse, Ruler, Salad, Target, X } from "lucide-react";
 import { EquipmentGrid } from "@/components/equipment/EquipmentGrid";
-import { BirthDateField, ChipGroup, ChoiceGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
+import { BirthDateField, ChipGroup, ChoiceGroup, HeightField, SavedBirthDate, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
 import {
   ACTIVITY_OPTIONS,
   AGE_RANGE,
@@ -31,7 +31,9 @@ import {
   SPLIT_OPTIONS,
   WATER_RANGE_ML,
   WEIGHT_RANGE_KG,
+  BIRTH_DATE_SAVED_ERROR,
   birthDateEdit,
+  isBirthDateLocked,
   choicesKeeping,
   commitDraft,
   formatHeight,
@@ -64,7 +66,7 @@ import {
   type WorkoutSplit,
   unavailableProfileGoals,
 } from "@/lib/domain/profile-options";
-import { changedFields, logWeighIn, markWorkoutSetupAnswered, savePreferences, trainingAnswerPatch, trainingAnswersKnown, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { changedFields, loadBirthDate, logWeighIn, markWorkoutSetupAnswered, savePreferences, trainingAnswerPatch, trainingAnswersKnown, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
 import { equipmentLabel } from "@/lib/training/equipment";
@@ -184,6 +186,13 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
     setError("");
     if (Object.keys(profilePatch).length) {
       const saved = await updateProfileRow(supabase, data.userId, profilePatch);
+      // A date of birth saved meanwhile (on another device or in Explore) is not replaced: the form takes the saved
+      // one, so saving again keeps it and saves the rest.
+      if (isBirthDateLocked(saved.error)) {
+        const kept = await loadBirthDate(supabase, data.userId);
+        if (kept) setDraft((current) => ({ ...current, birthDate: kept }));
+        return failed(setSaving, setError, BIRTH_DATE_SAVED_ERROR);
+      }
       if (saved.error) return failed(setSaving, setError);
     }
     if (Object.keys(prefsPatch).length) {
@@ -220,10 +229,14 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
       ) : (
         <form ref={formRef} noValidate onSubmit={(event) => void save(event)}>
           <div className="space-y-6">
-            {v3 ? (
+            {v3 && profile?.date_of_birth ? (
+              // A saved date of birth is changed only by FITX support (the database refuses a member's change).
+              <SavedBirthDate value={profile.date_of_birth} />
+            ) : v3 ? (
               <div>
                 <BirthDateField value={draft.birthDate} onChange={(value) => set("birthDate", value)} error={errors.birthDate} required={false} />
-                {!profile?.date_of_birth && profile?.age != null && <p className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">Age on file: {profile.age} years. Add your date of birth to keep it up to date.</p>}
+                {profile?.age != null && <p className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">Age on file: {profile.age} years. Add your date of birth to keep it up to date.</p>}
+                <p className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">You can add it once. To change it later, ask FITX support.</p>
               </div>
             ) : (
               <div className="max-w-xs">

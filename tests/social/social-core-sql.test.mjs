@@ -64,6 +64,32 @@ describe("Explore part 2 core", { skip }, () => {
     fails(A, "public.fitx_social_set_birth_date(date '1991-01-01')", /social_birth_date_set/);
   });
 
+  test("a saved date of birth is changed only by FITX support; one a member adds after joining Explore is stamped", () => {
+    const edit = (who, value) => pg.run(`update public.profiles set date_of_birth = ${value} where id = '${who}';`, as(who));
+    const band = (who) => pg.json(`select to_jsonb(public.fitx_social_age_band('${who}'));`);
+    // U added a teen's date in Explore settings above; A's was saved at sign-up.
+    for (const [who, value] of [[U, "date '1995-01-01'"], [U, "null"], [A, "date '1991-06-01'"], [A, "null"]]) {
+      const r = edit(who, value);
+      assert.ok(!r.ok && /birth_date_locked/.test(r.stderr), `${who} ${value}: ${r.stderr || "no error"}`);
+    }
+    assert.equal(band(U), "teen", "the teen stays a teen");
+    fails(U, "public.fitx_social_set_birth_date(date '1990-01-01')", /social_birth_date_set/);
+    assert.ok(pg.run(`update public.profiles set date_of_birth = date_of_birth, height = 170 where id = '${U}';`, as(U)).ok, "saving the same date and other fields still works");
+    assert.ok(pg.run(`update public.profiles set date_of_birth = date '1995-01-01' where id = '${U}';`, { role: "service_role" }).ok, "support (service role) can change it");
+    assert.equal(band(U), "adult");
+    assert.ok(pg.run(`update public.profiles set date_of_birth = (current_date - interval '16 years')::date where id = '${U}';`).ok, "and the SQL editor");
+    assert.equal(band(U), "teen");
+
+    const W = "ffffffff-2222-4000-8000-0000000000f6";
+    pg.exec(`insert into auth.users (id, email) values ('${W}', 'w@example.test'); update public.profiles set date_of_birth = null, age = null where id = '${W}';`);
+    pg.exec(`select public.fitx_social_save_profile('wren.core', 'W', '', false, 'everyone');`, as(W));
+    const stamped = () => pg.json(`select to_jsonb(birth_date_added_at is not null) from public.social_profiles where user_id = '${W}';`);
+    assert.equal(stamped(), false);
+    assert.ok(edit(W, "date '1990-01-01'").ok, "a member with no date of birth can add one from Profile");
+    assert.equal(stamped(), true, "and Admin sees it was added after joining Explore");
+    assert.ok(!edit(W, "date '2010-01-01'").ok, "once only");
+  });
+
   test("a report reaches content addressed to the reporter across a block, and accounts despite one", () => {
     const post = photoPost(A, "Mention @ben.core");
     const comment = call(B, `public.fitx_social_add_comment('${post.id}', null, 'Rude comment')`);

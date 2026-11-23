@@ -1495,7 +1495,9 @@ badges); the challenge templates, the trash and the moderation record have no po
 (service role and `security definer` functions only, section 6.1). Posts and comments get a moderation state
 (visible, limited or hidden); an active Explore sanction stops the member's own Explore use and hides their posts,
 comments and stories from everyone else; age bands come from the date of birth (else the age), and members without a
-date of birth can add one once; Admin's Explore switch (`platform_settings`) is enforced in the database, with
+date of birth can add one once, and a saved date of birth is then changed or cleared only by FITX support (the trigger
+`profiles_birth_date_locked` refuses a member's change; service role and the SQL editor may; a date a member adds from
+Profile after joining Explore is stamped for Admin like one from Explore settings); Admin's Explore switch (`platform_settings`) is enforced in the database, with
 deleting, blocking, reporting and settings kept open. Reports keep an evidence snapshot (removed 90 days after
 review), a report now goes through across a block, and restricting is rate limited. Video posts (one video of at most
 30 seconds) follow Admin's `explore_video` switch; the `social-media` bucket also takes `video/mp4` (still 3 MB a
@@ -1509,10 +1511,10 @@ no row; `social_notifications.actor_id` may now be empty (notices from FITX). Th
 from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
 run changes nothing. After it, #51's Check gives other numbers: use this one.
 
-md5 of the file (`md5 -q`): `0a5527e9723998586d6958d92252a7ac`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `3bd27c4958616aed6492356284feb684`. The session compares it with the file it sends before it runs it.
 
 ```sql
--- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9
+-- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2
 select (select count(*) from pg_tables where schemaname = 'public' and tablename like 'social\_%' and rowsecurity) as tables_with_rls,
        (select count(*) from pg_policies where (schemaname = 'public' and tablename like 'social\_%') or (schemaname = 'storage' and policyname like 'social\_media\_%')) as policies,
        (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%') as functions,
@@ -1520,16 +1522,17 @@ select (select count(*) from pg_tables where schemaname = 'public' and tablename
        (select count(*) from storage.buckets where id = 'social-media' and not public and file_size_limit = 3145728 and allowed_mime_types = array['image/webp','image/jpeg','video/mp4']) as bucket,
        (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid where c.relname like 'social\_%' and t.tgname like 'fitx\_write\_budget\_%') as budget_triggers,
        (select count(*) from information_schema.columns where table_schema = 'public' and table_name like 'social\_%' and column_name = 'moderation_state') as moderation_columns,
-       (select string_agg(pronargs::text, ',') from pg_proc where pronamespace = 'public'::regnamespace and proname = 'fitx_social_save_notification_prefs') as prefs_save_args;
+       (select string_agg(pronargs::text, ',') from pg_proc where pronamespace = 'public'::regnamespace and proname = 'fitx_social_save_notification_prefs') as prefs_save_args,
+       (select count(*) from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname in ('profiles_birth_date_locked', 'profiles_birth_date_added') and tgenabled = 'O') as birth_date_triggers;
 ```
 
-Before #52 it gives `15, 18, 57, 0, 0, 28, 0, 5`. On production the session then also checks the job and the Realtime
+Before #52 it gives `15, 18, 57, 0, 0, 28, 0, 5, 0`. On production the session then also checks the job and the Realtime
 policy, expecting `1, 1`: `select (select count(*) from cron.job where jobname = 'fitx-social-hourly') as hourly_job,
 (select count(*) from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname =
 'social_inbox_read') as inbox_policy;` (the test copy has neither pg_cron nor Realtime). A 0 there means pg_cron or
 Realtime was off when #52 ran: tell the session; #52 can be run again once it is on.
 
-Run after #53 instead of right after #52, this Check gives `30, 30, 106, 0, 1, 44, 5, 9` (#53 adds 24 functions; the
+Run after #53 instead of right after #52, this Check gives `30, 30, 106, 0, 1, 44, 5, 9, 2` (#53 adds 24 functions; the
 rest does not move).
 
 ### #53 `20261124100010_fitx_social_v2_groups`
@@ -1667,7 +1670,7 @@ feature off in the app is usually better than an undo.
 | 44 | SQL below, then delete the `food-media` bucket (and the photos in it) in Dashboard → Storage, not with SQL. Admin's Workouts, Nutrition, Subscriptions and Reports then say they need the update; exercises, foods and plans already saved stay. |
 | 43 | Undo #54 first (it recreates #43's settings save). First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. The Dashboard's active counts keep counting walks, runs and rides; to count them as before, run #32's file again. Audit rows it wrote stay: the audit log is permanent. |
 | 42 | Undo #54 (it recreates #42's role table), #53, #52 (its sanctions and moderation record link to operators), #44 and #43 first. SQL below. Drops the operators, their sessions and sign-in attempts, the operator functions and the operator columns on support and announcements, and puts back the role table of #30; Admin then refuses every sign-in. The two audit columns `actor_operator_id` and `actor_username` stay, so the log keeps who did what. |
-| 41 | SQL below. Drops members' birth dates (their age stays as last saved), food preference and nutrition goal, and turns Maintain weight goals into General fitness, which has the same calorie target. |
+| 41 | Undo #52 first (its date-of-birth triggers depend on the column). SQL below. Drops members' birth dates (their age stays as last saved), food preference and nutrition goal, and turns Maintain weight goals into General fitness, which has the same calorie target. |
 | 40 | Nothing to undo on production: the table came with experience 2.0 (1.8) and #40 changes nothing there; leave its history row. On a new project only, `drop table if exists public.exercise_favorites;` drops every member's saved exercises, and the app keeps new ones on the device again. |
 | 39 | SQL below. Drops every member's exercise notes; the exercise page hides its note box again. |
 | 38 | SQL below. Deletes imported activities first, so none is shown as a FITX recording afterwards; members can import their files again once it is re-applied. |
@@ -1759,6 +1762,9 @@ begin;
 do $u$ begin if pg_catalog.to_regnamespace('cron') is not null then
   execute $e$select cron.unschedule(jobid) from cron.job where jobname = 'fitx-social-hourly'$e$; end if; end $u$;
 do $u$ begin if pg_catalog.to_regclass('realtime.messages') is not null then drop policy if exists social_inbox_read on realtime.messages; end if; end $u$;
+drop trigger if exists profiles_birth_date_locked on public.profiles;
+drop trigger if exists profiles_birth_date_added on public.profiles;
+drop function if exists public.fitx_profiles_birth_date_locked(), public.fitx_profiles_birth_date_added();
 drop function if exists public.fitx_social_save_notification_prefs(boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean);
 drop function if exists public.fitx_social_sees_post(uuid, uuid), public.fitx_social_sees_comment_row(uuid, uuid),
   public.fitx_social_sees_story(uuid, uuid), public.fitx_social_sees_community(uuid, uuid), public.fitx_social_post_listed(uuid),

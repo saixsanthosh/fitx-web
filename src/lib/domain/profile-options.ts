@@ -483,24 +483,34 @@ export function profileAge(row: { age?: unknown; date_of_birth?: unknown } | nul
 /**
  * The Profile edit for a member's birth date. Once profiles.date_of_birth exists, the database sets profiles.age
  * from it on every save (profiles_age_from_birth_date), so Profile edits the birth date and never the age alone.
- * `stored` is the profile as normalizeProfile returns it; `typed` is the date field's YYYY-MM-DD, or "" when
- * cleared. Clearing a birth date clears the age it gave, rather than leaving one nobody can change. `age` is the
- * age after the save.
+ * A member adds a birth date once: a saved one is changed or cleared only by FITX support (the database refuses a
+ * member's change, profiles_birth_date_locked in 20261124100000), so a typed date other than the saved one is an
+ * error with no patch. `stored` is the profile as normalizeProfile returns it; `typed` is the date field's
+ * YYYY-MM-DD, or "" when empty. `age` is the age after the save.
  */
+export const BIRTH_DATE_SAVED_ERROR = "Your date of birth is already saved. To change it, ask FITX support.";
+
+/** True for the database's refusal to change or clear a saved date of birth (birth_date_locked, 20261124100000). */
+export function isBirthDateLocked(error: { message?: string | null } | null | undefined): boolean {
+  return typeof error?.message === "string" && /\bbirth_date_locked\b/.test(error.message);
+}
+
 export function birthDateEdit(
   stored: { age: number | null; date_of_birth: string | null },
   typed: string,
   today: Date = new Date(),
 ): { error: string | null; patch: { date_of_birth?: string | null; age?: number | null }; age: number | null } {
   const value = typed.trim();
+  const savedAge = stored.date_of_birth ? ageFromBirthDate(stored.date_of_birth, today) ?? stored.age : stored.age;
   if (!value) {
-    return stored.date_of_birth ? { error: null, patch: { date_of_birth: null, age: null }, age: null } : { error: null, patch: {}, age: stored.age };
+    return stored.date_of_birth ? { error: BIRTH_DATE_SAVED_ERROR, patch: {}, age: savedAge } : { error: null, patch: {}, age: stored.age };
   }
   const birthDate = normalizeBirthDate(value);
   const age = ageFromBirthDate(birthDate, today);
-  if (!birthDate || age === null) return { error: "Enter a real date, not in the future.", patch: {}, age: stored.age };
-  if (!inRange(age, AGE_RANGE)) return { error: `FITX is for ages ${AGE_RANGE.min} to ${AGE_RANGE.max}.`, patch: {}, age: stored.age };
+  if (!birthDate || age === null) return { error: "Enter a real date, not in the future.", patch: {}, age: savedAge };
+  if (!inRange(age, AGE_RANGE)) return { error: `FITX is for ages ${AGE_RANGE.min} to ${AGE_RANGE.max}.`, patch: {}, age: savedAge };
   if (birthDate === stored.date_of_birth) return { error: null, patch: {}, age };
+  if (stored.date_of_birth) return { error: BIRTH_DATE_SAVED_ERROR, patch: {}, age: savedAge };
   return { error: null, patch: { date_of_birth: birthDate, age }, age };
 }
 

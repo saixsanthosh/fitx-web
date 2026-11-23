@@ -72,7 +72,7 @@ export default async function ExploreAccountPage({ params, searchParams }: { par
             {account.profile ? (
               <dl className="detail-list">
                 <div className="detail-field"><dt>Bio</dt><dd>{account.profile.bio || "None"}</dd></div>
-                <div className="detail-field"><dt>Date of birth</dt><dd>{account.profile.birthDateAddedAt ? `Date of birth added in Explore on ${formatIstDate(account.profile.birthDateAddedAt)}` : "Not added in Explore"}</dd></div>
+                <div className="detail-field"><dt>Date of birth</dt><dd>{account.profile.birthDateAddedAt ? `Added by the member after joining Explore, on ${formatIstDate(account.profile.birthDateAddedAt)}` : "Not added after joining Explore"}</dd></div>
               </dl>
             ) : <p className="metric-definition">This member has not made an Explore profile.</p>}
           </Panel>

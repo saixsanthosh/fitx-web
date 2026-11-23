@@ -14,7 +14,7 @@ import styles from "@/components/onboarding/Onboarding.module.css";
 import { PhotoChoices, type PhotoOption } from "@/components/onboarding/PhotoChoices";
 import { PostOnboardingSequence } from "@/components/onboarding/PostOnboardingSequence";
 import { NotGiven, PersonalArt, PersonalReadouts, Readout, StagePhoto } from "@/components/onboarding/StageArt";
-import { BirthDateField, TextField, focusFirstInvalid } from "@/components/profile/ProfileControls";
+import { BirthDateField, SavedBirthDate, TextField, focusFirstInvalid } from "@/components/profile/ProfileControls";
 import { Logo } from "@/components/ui/Logo";
 import { ONBOARDING_MEDIA } from "@/data/onboarding-media";
 import { calculateNutritionTargets } from "@/lib/domain/nutrition";
@@ -26,15 +26,18 @@ import {
   SEX_OPTIONS,
   activityBand,
   activityForBand,
+  BIRTH_DATE_SAVED_ERROR,
   ageFromBirthDate,
   formatHeight,
   formatWeight,
+  isBirthDateLocked,
+  normalizeBirthDate,
   optionLabel,
   type ActivityBand,
   type Goal,
   type Sex,
 } from "@/lib/domain/profile-options";
-import { ensureProfileRow, loadUserContext, logWeighIn, savePreferences, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { ensureProfileRow, loadBirthDate, loadUserContext, logWeighIn, savePreferences, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import {
   ONBOARDING_PAGES,
   firstName,
@@ -88,6 +91,8 @@ export function OnboardingFlow() {
   const [phase, setPhase] = useState<"loading" | "ready" | "load_failed" | "unavailable" | "welcome">("loading");
   const [context, setContext] = useState<UserContextData | null>(null);
   const [form, setForm] = useState<OnboardingForm | null>(null);
+  // Once saved, the date of birth is shown, not edited: changing it is a FITX support request (the database refuses it).
+  const [savedBirthDate, setSavedBirthDate] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [errors, setErrors] = useState<OnboardingErrors>({});
   const [saving, setSaving] = useState(false);
@@ -132,6 +137,7 @@ export function OnboardingFlow() {
       const metadata = auth.user.user_metadata as { name?: unknown; full_name?: unknown } | undefined;
       const metadataName = typeof metadata?.name === "string" ? metadata.name : typeof metadata?.full_name === "string" ? metadata.full_name : "";
       setContext(result.data);
+      setSavedBirthDate(result.data.schema.onboardingV3 ? normalizeBirthDate(result.data.profile?.date_of_birth) : null);
       setForm(initialOnboardingForm(result.data, metadataName));
       setPhase("ready");
     })();
@@ -173,18 +179,31 @@ export function OnboardingFlow() {
       error?.code === "23514" ? "One of these answers isn't accepted yet. Choose another for now." : "We couldn't save this page. Check your connection and try again.";
     const plan = pageSave(current, values, { schema, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
     if (plan.profile) {
+      let birthDateSent = "date_of_birth" in plan.profile;
       let saved = await updateProfileRow(supabase, userId, plan.profile);
       // Without the right to set the birth date yet, the age (worked out from it) still saves.
-      if (saved.error?.code === "42501" && "date_of_birth" in plan.profile) {
+      if (saved.error?.code === "42501" && birthDateSent) {
         const rest = { ...plan.profile };
         delete rest.date_of_birth;
+        birthDateSent = false;
         saved = await updateProfileRow(supabase, userId, rest);
+      }
+      // A date of birth saved earlier (another tab, or Explore) is not replaced: changing it is a support request.
+      // It is shown from then on, and the page can be saved again with it.
+      if (isBirthDateLocked(saved.error)) {
+        const kept = await loadBirthDate(supabase, userId);
+        if (kept) {
+          setSavedBirthDate(kept);
+          setForm((form) => (form ? { ...form, birthDate: kept } : form));
+        }
+        return BIRTH_DATE_SAVED_ERROR;
       }
       if (saved.error) {
         return saved.error.code === "profile_missing" || saved.error.code === "42501"
           ? "We couldn't set up your profile. Please try again, or contact FITX support if this keeps happening."
           : fail(saved.error);
       }
+      if (birthDateSent) setSavedBirthDate(normalizeBirthDate(plan.profile.date_of_birth));
     }
     if (Object.keys(plan.preferences).length) {
       const prefs = await savePreferences(supabase, userId, plan.preferences, { v2: schema.preferencesV2, v3: schema.onboardingV3 });
@@ -331,7 +350,9 @@ export function OnboardingFlow() {
                 {page === "you" && <>
                   <TextField label="Name" value={form.name} onChange={(value) => update("name", value)} error={errors.name} autoComplete="name" maxLength={NAME_MAX_LENGTH} required />
                   <ChoiceTiles legend="Gender" options={SEX_TILES} value={form.gender} onChange={(value) => update("gender", value)} columns="grid-cols-3" variant="tile" error={errors.gender} />
-                  <BirthDateField value={form.birthDate} onChange={(value) => update("birthDate", value)} error={errors.birthDate} />
+                  {savedBirthDate
+                    ? <SavedBirthDate value={savedBirthDate} helpHref="/help?from=%2Fonboarding" />
+                    : <BirthDateField value={form.birthDate} onChange={(value) => update("birthDate", value)} error={errors.birthDate} />}
                 </>}
 
                 {page === "body" && <>

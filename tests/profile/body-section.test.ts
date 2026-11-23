@@ -36,6 +36,12 @@ describe("Profile > Body keeps the stored age of a member without a birth date",
   test("the empty birth date field shows the age on file", () => {
     assert.match(body, /Age on file: \{profile\.age\} years\./);
   });
+
+  test("a saved birth date is shown read-only with the support line; a refused change keeps the saved one", () => {
+    assert.match(body, /\{v3 && profile\?\.date_of_birth \? \(\s*\/\/[^\n]*\n\s*<SavedBirthDate value=\{profile\.date_of_birth\} \/>/);
+    assert.match(body, /You can add it once\. To change it later, ask FITX support\./);
+    assert.match(body, /if \(isBirthDateLocked\(saved\.error\)\) \{\s*const kept = await loadBirthDate\(supabase, data\.userId\);\s*if \(kept\) setDraft\(\(current\) => \(\{ \.\.\.current, birthDate: kept \}\)\);\s*return failed\(setSaving, setError, BIRTH_DATE_SAVED_ERROR\);/);
+  });
 });
 
 describe("Profile > Body opens from the saved values however it is opened", () => {

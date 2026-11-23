@@ -18,7 +18,9 @@
 --     unfollowing, the notification and privacy reads and "Your Explore content" stay open (fitx_social_member_any), and
 --     so does all of it while Explore is switched off in Admin (platform_settings.features.explore = false).
 --   * Age bands from profiles.date_of_birth, else profiles.age: adult (18+), teen (13 to 17), child (under 13, no Explore
---     profile) or unknown (teen rules). Members with no date of birth can add one once (fitx_social_set_birth_date).
+--     profile) or unknown (teen rules). Members with no date of birth can add one once (fitx_social_set_birth_date);
+--     a saved date of birth is then changed or cleared only by FITX support (trigger profiles_birth_date_locked), and one
+--     a member adds from Profile after making an Explore profile is stamped for Admin too (profiles_birth_date_added).
 --   * Safety fixes: a report accepts content addressed to the reporter even across a block, and an account report no
 --     longer needs the reported member to be unblocked; restricting is rate limited. Reports snapshot their evidence.
 --   * Stories (24 hours, photo or video), video posts (one video of at most 30 s with a poster), the video switch
@@ -43,6 +45,9 @@
 --   do $u$ begin if pg_catalog.to_regnamespace('cron') is not null then
 --     execute $e$select cron.unschedule(jobid) from cron.job where jobname = 'fitx-social-hourly'$e$; end if; end $u$;
 --   do $u$ begin if pg_catalog.to_regclass('realtime.messages') is not null then drop policy if exists social_inbox_read on realtime.messages; end if; end $u$;
+--   drop trigger if exists profiles_birth_date_locked on public.profiles;
+--   drop trigger if exists profiles_birth_date_added on public.profiles;
+--   drop function if exists public.fitx_profiles_birth_date_locked(), public.fitx_profiles_birth_date_added();
 --   drop function if exists public.fitx_social_save_notification_prefs(boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean);
 --   drop function if exists public.fitx_social_sees_post(uuid, uuid), public.fitx_social_sees_comment_row(uuid, uuid),
 --     public.fitx_social_sees_story(uuid, uuid), public.fitx_social_sees_community(uuid, uuid), public.fitx_social_post_listed(uuid),
@@ -1459,6 +1464,54 @@ begin
   update public.social_profiles sp set birth_date_added_at = pg_catalog.now() where sp.user_id = v_uid;
   return public.fitx_social_age_band(v_uid);
 end $function$;
+
+-- A saved date of birth changes only through FITX support. Members hold update on profiles.date_of_birth (#41) so setup,
+-- Profile and Explore settings can add one when FITX has none, but changing or clearing a saved one is refused
+-- (birth_date_locked), so a teen cannot become an adult in one edit (O1 a). Security invoker: on a member's own update
+-- current_user is their API role; service_role (support, through Admin's server) and the SQL editor's postgres may
+-- change it. fitx_social_set_birth_date runs as its owner and only ever fills an empty date.
+create or replace function public.fitx_profiles_birth_date_locked()
+returns trigger
+language plpgsql
+set search_path = ''
+as $function$
+begin
+  if old.date_of_birth is not null and new.date_of_birth is distinct from old.date_of_birth
+     and current_user not in ('service_role', 'postgres', 'supabase_admin') then
+    raise exception using errcode = 'P0001', message = 'birth_date_locked',
+      hint = 'A saved date of birth is changed by FITX support.';
+  end if;
+  return new;
+end $function$;
+
+-- A date of birth a member adds to their own row once they have an Explore profile (from Profile as well as from
+-- Explore settings) is stamped for Admin's account record, as fitx_social_set_birth_date stamps its own. Dates FITX
+-- support adds (no member session) are not stamped.
+create or replace function public.fitx_profiles_birth_date_added()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+begin
+  if old.date_of_birth is null and new.date_of_birth is not null and (select auth.uid()) = new.id then
+    update public.social_profiles sp set birth_date_added_at = pg_catalog.now() where sp.user_id = new.id;
+  end if;
+  return null;
+end $function$;
+
+revoke all on function public.fitx_profiles_birth_date_locked() from public, anon, authenticated;
+revoke all on function public.fitx_profiles_birth_date_added() from public, anon, authenticated;
+
+drop trigger if exists profiles_birth_date_locked on public.profiles;
+create trigger profiles_birth_date_locked
+  before update of date_of_birth on public.profiles
+  for each row execute function public.fitx_profiles_birth_date_locked();
+
+drop trigger if exists profiles_birth_date_added on public.profiles;
+create trigger profiles_birth_date_added
+  after update of date_of_birth on public.profiles
+  for each row execute function public.fitx_profiles_birth_date_added();
 
 -- Unfollows, or withdraws a request (open while suspended or switched off).
 create or replace function public.fitx_social_unfollow(p_target uuid)

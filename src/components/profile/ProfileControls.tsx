@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Check, Plus, X } from "lucide-react";
 import {
@@ -486,6 +487,30 @@ export function WeightField({
  * A date of birth in the browser's date picker, limited to ages 13 to 100 (AGE_RANGE), with the age it gives
  * beside it. Reports YYYY-MM-DD, or "" while empty.
  */
+/**
+ * A saved date of birth, read-only. Members add it once; changing it is a FITX support request, because it decides
+ * which parts of Explore are open (the database refuses a member's change, 20261124100000).
+ */
+export function SavedBirthDate({ value, helpHref = "/help" }: { value: string; helpHref?: string }) {
+  const id = useId();
+  const age = ageFromBirthDate(value);
+  const text = new Date(`${value}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  return (
+    <div role="group" aria-labelledby={`${id}-label`} aria-describedby={`${id}-note`}>
+      <p id={`${id}-label`} className="text-sm font-medium text-fitx-text">Date of birth</p>
+      <p className="mt-1.5 text-sm text-fitx-text">
+        {text}
+        {age !== null && <span className="ml-1.5 text-fitx-text-secondary">· {age} years</span>}
+      </p>
+      <p id={`${id}-note`} className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">You can add it once. To change it, ask FITX support.</p>
+      {/* The colour sits on the inner span: the global unlayered `a { color: inherit }` outranks utilities on the link. */}
+      <Link href={helpHref} className="group inline-flex min-h-11 items-center text-sm font-medium">
+        <span className="text-fitx-primary-text underline-offset-4 group-hover:underline">Ask FITX support</span>
+      </Link>
+    </div>
+  );
+}
+
 export function BirthDateField({ label = "Date of birth", value, onChange, error, required = true }: { label?: string; value: string; onChange: (value: string) => void; error?: string | null; required?: boolean }) {
   const id = useId();
   const bounds = useMemo(() => birthDateBounds(), []);
