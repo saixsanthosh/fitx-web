@@ -97,9 +97,10 @@ export function ExerciseResultCard({ item, thumbnail, highlight, saved, canSave,
         </button>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-3 sm:p-3.5">
-        <h3 className="m-0 line-clamp-2 text-[14px] font-semibold leading-snug tracking-tight sm:text-[15px]">
-          <Link href={href} onClick={onOpen} className="after:absolute after:inset-0 after:content-[''] hover:text-fitx-primary-text focus-visible:outline-none">
-            <HighlightedName name={exercise.name} ranges={highlight} />
+        <h3 className="m-0 text-[14px] font-semibold leading-snug tracking-tight sm:text-[15px]">
+          {/* The whole card opens the exercise (the link's ::after covers it); the title row itself is a 44 px target too. */}
+          <Link href={href} onClick={onOpen} className="flex min-h-11 items-center after:absolute after:inset-0 after:content-[''] hover:text-fitx-primary-text focus-visible:outline-none">
+            <span className="line-clamp-2"><HighlightedName name={exercise.name} ranges={highlight} /></span>
           </Link>
         </h3>
         <p className="m-0 truncate text-xs text-fitx-text-secondary">{mainMuscleLabel(exercise)} · {capitalise(exercise.difficulty)}</p>

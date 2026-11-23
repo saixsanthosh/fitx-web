@@ -14,6 +14,7 @@ import { WORKOUTMODES_MEDIA } from "@/data/workout-modes-media";
 import { LIMITATION_OPTIONS, joinLimitations, splitLimitations } from "@/lib/domain/profile-options";
 import { createClient } from "@/lib/supabase/client";
 import { equipmentFor } from "@/lib/training/data";
+import { DEMO_SETUP_NOTE, useDemoIndex } from "@/lib/training/use-demo-model";
 import {
   DEMO_MODELS, DEMO_MODEL_LABELS, LOCATION_LABELS, MAX_DAYS, MIN_DAYS, WORKOUT_LOCATIONS, contextsFor, resolveDemoModel, saveWorkoutSetup,
   type DemoModel, type WorkoutLocation, type WorkoutSetup,
@@ -74,6 +75,9 @@ export function WorkoutSetupFlow({ setup, userId, legacyWords, variant, onSaved,
   const step = steps[Math.min(stepIndex, steps.length - 1)];
   const last = stepIndex >= steps.length - 1;
   const demoShown = resolveDemoModel(demoChoice, setup.gender);
+  // The index of FITX's AI demonstrations (one read per page); while it loads, or with none, the older note shows.
+  const demoIndex = useDemoIndex();
+  const demosAvailable = (demoIndex?.size ?? 0) > 0;
 
   const go = (delta: 1 | -1) => {
     setDirection(delta);
@@ -200,7 +204,7 @@ export function WorkoutSetupFlow({ setup, userId, legacyWords, variant, onSaved,
               </button>
             ))}
           </div>
-          <p className="m-0 text-xs text-fitx-text-secondary">Used wherever a demonstration has both. Most show the original photos for now.</p>
+          <p className="m-0 text-xs text-fitx-text-secondary">{DEMO_SETUP_NOTE(demosAvailable)}</p>
         </fieldset>
       </div>
     );

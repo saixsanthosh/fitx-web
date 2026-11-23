@@ -1,6 +1,6 @@
 /**
  * Focus areas: the body areas a member picks before training ("Chest", "Arms", "Full body"). Shared by the focus
- * tiles (src/components/training/FocusTiles.tsx), the exercise library (`?focus=chest,arms`), the workout
+ * area tiles (src/components/training/MuscleRail.tsx and src/components/workouts/AreaLaunchRail.tsx), the exercise library (`?focus=chest,arms`), the workout
  * generator (focusSlots in ./generator) and Home. Pure: it holds the vocabulary and works only on what the
  * caller passes in, so every count it returns comes from the catalogue it is given.
  *

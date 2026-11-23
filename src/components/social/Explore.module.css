@@ -253,9 +253,11 @@
 .progressBar { height: 100%; border-radius: inherit; background: var(--fitx-primary); transform-origin: left; transition: transform .3s ease; }
 .switchRow { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 16px; padding: 6px 0; }
 .switchRow + .switchRow { border-top: 1px solid var(--fitx-divider); }
-.switch { position: relative; width: 50px; height: 30px; flex: 0 0 auto; border-radius: 999px; background: var(--fitx-track); transition: background-color .2s ease; }
-.switch::after { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 999px; background: var(--fitx-surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--fitx-scrim) 30%, transparent); content: ""; transition: transform .22s cubic-bezier(.22, 1, .36, 1); }
-.switch[aria-checked="true"] { background: var(--fitx-primary); }
+/* The button is a 54 × 44 px target; the 50 × 30 track and its thumb are drawn inside it. */
+.switch { position: relative; width: 54px; height: 44px; flex: 0 0 auto; border-radius: 999px; background: transparent; }
+.switch::before { position: absolute; top: 7px; left: 2px; width: 50px; height: 30px; border-radius: 999px; background: var(--fitx-track); content: ""; transition: background-color .2s ease; }
+.switch::after { position: absolute; top: 10px; left: 5px; width: 24px; height: 24px; border-radius: 999px; background: var(--fitx-surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--fitx-scrim) 30%, transparent); content: ""; transition: transform .22s cubic-bezier(.22, 1, .36, 1); }
+.switch[aria-checked="true"]::before { background: var(--fitx-primary); }
 .switch[aria-checked="true"]::after { transform: translateX(20px); }
 .switch:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .menu { display: flex; flex-direction: column; gap: 4px; }
@@ -284,7 +286,7 @@
 .noteThumb { position: relative; width: 48px; height: 48px; flex: 0 0 auto; overflow: hidden; border-radius: 10px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .photo, .topicImg, .tile .photo, .trend .photo, .switch::after, .progressBar { transition: opacity .15s linear; }
+  .photo, .topicImg, .tile .photo, .trend .photo, .switch::before, .switch::after, .progressBar { transition: opacity .15s linear; }
   .photoWash { animation: none; }
   .topic:hover .topicImg, .tile:hover .photo, .trend:hover .photo { transform: none; }
 }

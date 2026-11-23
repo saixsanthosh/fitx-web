@@ -1,6 +1,5 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 // The cleaned catalogue exactly as migration 20261118130010 writes it, and the raw import rows (scripts/catalog).
 import { loadCatalog as deriveCatalog } from "../../scripts/catalog/catalog.mjs";
 import { loadSources } from "../../scripts/catalog/source.mjs";
@@ -396,38 +395,5 @@ describe("focusSlots and generateFocusDay", () => {
     assert.deepEqual(slotCandidates(soft, ctx, new Set()).map((exercise) => exercise.id), ["free-exercise-db-Superman"]);
     assert.deepEqual(slotCandidates(hard, ctx, new Set()), []);
     assert.equal(pickForSlot(hard, { ...ctx, owned: expandOwnedEquipment(["barbell"]) }, new Set())?.id, "free-exercise-db-Barbell_Shrug");
-  });
-});
-
-// ---------------------------------------------------------------- the tiles component (source checks; JSX is not loaded by node)
-
-describe("FocusTiles", () => {
-  const source = readFileSync(new URL("../../src/components/training/FocusTiles.tsx", import.meta.url), "utf8");
-  const css = readFileSync(new URL("../../src/components/training/FocusTiles.module.css", import.meta.url), "utf8");
-  test("toggle buttons in a labelled group, with a decorative optimised photo, a mini body map and a check", () => {
-    assert.match(source, /^"use client";/);
-    assert.match(source, /role="group" aria-label=\{label\}/);
-    // Toggles say whether they are pressed; launcher tiles (onLaunch) open a dialog instead and have no pressed state.
-    assert.match(source, /aria-pressed=\{onLaunch \? undefined : on\}/);
-    assert.match(source, /aria-haspopup=\{onLaunch \? "dialog" : undefined\}/);
-    assert.match(source, /onClick=\{\(\) => \(onLaunch \? onLaunch\(area\) : toggle\(area\)\)\}/);
-    assert.match(source, /aria-describedby=/);
-    assert.match(source, /import Image from "next\/image";/);
-    assert.match(source, /alt=""/);
-    assert.doesNotMatch(source, /\bunoptimized\b|srcSet/);
-    assert.match(source, /<BodyMap[^>]*size="sm"/);
-    assert.match(source, /<Check /);
-    assert.match(source, /onError=\{\(\) => markFailed\(area\)\}/);
-  });
-  test("token colours only, the tile scrim token with a fallback, 2 columns then 4, motion only when allowed", () => {
-    assert.match(css, /var\(--fitx-tile-scrim, var\(--fitx-scrim\)\)/);
-    assert.match(css, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-    assert.match(css, /@media \(min-width: 768px\) \{\s*\.grid \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
-    assert.match(css, /@media \(prefers-reduced-motion: no-preference\)/);
-    const code = css.replace(/\/\*[\s\S]*?\*\//g, "");
-    assert.doesNotMatch(code, /#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i);
-    assert.ok(code.indexOf("transition") > code.indexOf("prefers-reduced-motion: no-preference"), "transitions sit inside the motion query");    // The rail scrolls sideways inside itself on phones (snap), and is a grid from 768 px.
-    assert.match(css, /\.rail \{[^}]*overflow-x: auto;[^}]*scroll-snap-type: x mandatory;/);
-    assert.match(css, /@media \(min-width: 768px\) \{\s*\.rail \{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);[^}]*overflow: visible;/);
   });
 });

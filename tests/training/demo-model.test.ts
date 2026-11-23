@@ -179,6 +179,11 @@ describe("saving and reading the model", () => {
   test("the Workouts setup note", () => {
     assert.match(DEMO_SETUP_NOTE(false), /original photos for now/);
     assert.match(DEMO_SETUP_NOTE(true), /AI demonstrations, made from real photos/);
+    // The Workouts setup shows it, with "available" meaning the site's index lists at least one demonstration.
+    const flow = readFileSync(new URL("../../src/components/workouts/WorkoutSetupFlow.tsx", import.meta.url), "utf8");
+    assert.match(flow, /\{DEMO_SETUP_NOTE\(demosAvailable\)\}/);
+    assert.match(flow, /const demosAvailable = \(demoIndex\?\.size \?\? 0\) > 0;/);
+    assert.match(flow, /const demoIndex = useDemoIndex\(\);/);
   });
 });
 
