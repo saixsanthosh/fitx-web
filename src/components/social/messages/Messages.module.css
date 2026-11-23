@@ -65,6 +65,8 @@
 .unsent { border: 1px dashed var(--fitx-border); background: transparent !important; color: var(--fitx-text-secondary) !important; font-style: italic; }
 .bubbleRow { display: flex; max-width: 100%; align-items: center; gap: 2px; }
 .mine .bubbleRow { flex-direction: row-reverse; }
+.content { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.mine .content { align-items: flex-end; }
 .more {
   display: inline-flex; width: 36px; height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 12px;
   color: var(--fitx-text-disabled); opacity: .7; transition: opacity .15s ease, color .15s ease, background-color .15s ease;

@@ -6,12 +6,12 @@
 @media (min-width: 1100px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
 /* A challenge card: a dark stage with the metric's glyph, the time left and the member's own progress. */
-.card {
+.card { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-on-stage) 9%, transparent);
   position: relative; display: flex; height: 100%; min-height: 176px; overflow: hidden; flex-direction: column; gap: 14px; border-radius: 22px;
   background: var(--fitx-stage); padding: 18px; color: var(--fitx-on-stage); isolation: isolate;
   transition: transform .35s cubic-bezier(.22, 1, .36, 1), box-shadow .35s ease;
 }
-.card:hover { transform: translateY(-3px); box-shadow: 0 16px 40px color-mix(in srgb, var(--fitx-scrim) 24%, transparent); }
+.card:hover { transform: translateY(-3px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-on-stage) 9%, transparent), 0 16px 40px color-mix(in srgb, var(--fitx-scrim) 24%, transparent); }
 .card:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 3px; }
 .cardGlyph { position: absolute; right: -18px; bottom: -22px; z-index: -1; color: color-mix(in srgb, var(--fitx-on-stage) 8%, transparent); transition: transform .7s cubic-bezier(.22, 1, .36, 1); }
 .card:hover .cardGlyph { transform: rotate(-8deg) scale(1.05); }
@@ -27,7 +27,7 @@
 .barFill { position: absolute; inset: 0; border-radius: inherit; background: var(--fitx-primary); transform-origin: left; transition: transform .9s cubic-bezier(.22, 1, .36, 1); }
 
 /* The challenge page */
-.hero { position: relative; overflow: hidden; border-radius: 28px; background: var(--fitx-stage); color: var(--fitx-on-stage); isolation: isolate; }
+.hero { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-on-stage) 9%, transparent); position: relative; overflow: hidden; border-radius: 28px; background: var(--fitx-stage); color: var(--fitx-on-stage); isolation: isolate; }
 .heroGlyph { position: absolute; top: -40px; left: 46%; z-index: -1; color: color-mix(in srgb, var(--fitx-on-stage) 7%, transparent); }
 .heroInner { display: grid; gap: 22px; padding: 24px 20px; }
 @media (min-width: 820px) { .heroInner { grid-template-columns: minmax(0, 1fr) auto; align-items: end; padding: 34px; } }
@@ -58,6 +58,8 @@
 .layout { display: grid; gap: 24px; }
 @media (min-width: 1024px) { .layout { grid-template-columns: minmax(0, 620px) minmax(280px, 360px); justify-content: center; align-items: start; } }
 .side { display: flex; min-width: 0; flex-direction: column; gap: 16px; }
+/* Below the two-column width the board and its switch come before the progress shares. */
+@media (max-width: 1023px) { .side { order: -1; } }
 @media (min-width: 1024px) { .side { position: sticky; top: 24px; } }
 
 /* The board */

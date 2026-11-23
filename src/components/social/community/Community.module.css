@@ -11,12 +11,12 @@
 .grid { display: grid; gap: 12px; }
 @media (min-width: 640px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1100px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-.card {
+.card { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-on-stage) 9%, transparent);
   position: relative; display: flex; min-height: 196px; overflow: hidden; flex-direction: column; justify-content: flex-end; border-radius: 22px;
   background: var(--fitx-stage); color: var(--fitx-on-stage); isolation: isolate;
   transition: transform .35s cubic-bezier(.22, 1, .36, 1), box-shadow .35s ease;
 }
-.card:hover { transform: translateY(-3px); box-shadow: 0 16px 40px color-mix(in srgb, var(--fitx-scrim) 24%, transparent); }
+.card:hover { transform: translateY(-3px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-on-stage) 9%, transparent), 0 16px 40px color-mix(in srgb, var(--fitx-scrim) 24%, transparent); }
 .card:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 3px; }
 .cardCover { position: absolute; inset: 0; z-index: -2; }
 .cardCover > div { height: 100%; }
@@ -46,7 +46,7 @@
 .searchInput:focus-visible { border-color: var(--fitx-primary); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--fitx-primary) 22%, transparent); }
 
 /* One community */
-.hero { position: relative; overflow: hidden; border-radius: 28px; background: var(--fitx-stage); color: var(--fitx-on-stage); isolation: isolate; }
+.hero { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-on-stage) 9%, transparent); position: relative; overflow: hidden; border-radius: 28px; background: var(--fitx-stage); color: var(--fitx-on-stage); isolation: isolate; }
 .heroCover { position: absolute; inset: 0; z-index: -2; opacity: .7; }
 .heroCover > div { height: 100%; }
 .heroShade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(100deg, var(--fitx-stage) 22%, color-mix(in srgb, var(--fitx-stage) 50%, transparent) 70%, transparent); }

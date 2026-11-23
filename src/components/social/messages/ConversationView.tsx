@@ -332,16 +332,18 @@ function Bubble({ message, plainLinks, onActions }: { message: DirectMessage; pl
       {message.story && (
         <span className={styles.storyTag}>{message.mine ? "You replied to their story" : "Replied to your story"}{message.story.available ? "" : " · story ended"}</span>
       )}
-      {message.post && <SharedPost post={message.post} />}
-      {message.post_unavailable && <p className={styles.gone}>This post is no longer available.</p>}
       <div className={styles.bubbleRow}>
-        {message.body && (
-          <p className={styles.bubble}>
-            {linkParts(message.body).map((part, index) => part.href && !plainLinks
-              ? <a key={index} href={part.href} target="_blank" rel="noopener noreferrer nofollow ugc">{part.text}</a>
-              : <span key={index}>{part.text}</span>)}
-          </p>
-        )}
+        <div className={styles.content}>
+          {message.post && <SharedPost post={message.post} />}
+          {message.post_unavailable && <p className={styles.gone}>This post is no longer available.</p>}
+          {message.body && (
+            <p className={styles.bubble}>
+              {linkParts(message.body).map((part, index) => part.href && !plainLinks
+                ? <a key={index} href={part.href} target="_blank" rel="noopener noreferrer nofollow ugc">{part.text}</a>
+                : <span key={index}>{part.text}</span>)}
+            </p>
+          )}
+        </div>
         <button
           type="button"
           className={styles.more}
