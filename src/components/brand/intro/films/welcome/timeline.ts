@@ -23,6 +23,13 @@
  *   1.6 -> 1.40 (the swell's arrival), 3.4 -> 3.60, 5.0 -> 4.88, 6.8 -> 6.91, 9.4 -> 9.29 (the reveal).
  * The hits are accurate to the 10 ms hop. At 60 fps the first frame of each stage (the first at or after its
  * start) is 84, 216, 293, 415 and 558.
+ *
+ * Cross-check (C0 checker, same file, ffmpeg 8.1.1; band RMS at 10, 20, 30 and 40 ms windows, and a spectral-flux
+ * scan): 2.40, 3.60, 7.83, 8.88 and 9.29 are distinct hits in every scan, within 10 ms. 1.40 is the swell's arrival:
+ * weak, but present at 10 and 40 ms. 4.88 and 6.91 sit in the sustained body, where the events depend on the window
+ * and the filters (other scans put the strongest event in those windows at 4.78 to 4.83 s and at 6.57 or 6.97 s).
+ * They stay as the stage starts, but the score has no distinct accent there, so the shots and the mix (the
+ * plate-load effects) should make their own. The body hits from 4.4 to 6.2 s are the least certain in the list.
  */
 
 export const WELCOME_DURATION = 12.0;
