@@ -97,7 +97,7 @@ const TABLE_TRACK: CameraTrack = {
     { t: 0.75, position: [0.0, 1.9, 0.0], target: [0.0, 0.75, 0.0], focal: 31.5, roll: 0.64 },
   ],
   // Portrait: the table's long axis on the tall frame, Maya's setting above, Dre's below and left of
-  // the bottom-centre callout (his rings stay off in portrait: they would draw under it).
+  // the bottom centre (on the tall frames the REFUEL readout rides the top, so both rings draw there too).
   portrait: {
     keys: [
       { t: 0, position: [-0.1, 1.97, 0.07], target: [-0.1, 0.75, 0.07], focal: 29, roll: 2.14, ease: "inOut" },
@@ -128,7 +128,7 @@ const shotTable: Shot = {
     ringUp.set(0, 1, 0).applyQuaternion(cameraStateQuaternion(scratchCamera, ringQuat));
     ctx.props.rings.setStartDirection(ringUp.x, ringUp.z);
     ctx.props.rings.setProgressAt(0, window01(7.62, 8.14, frame.time));
-    ctx.props.rings.setProgressAt(1, ctx.portrait ? 0 : window01(7.72, 8.26, frame.time));
+    ctx.props.rings.setProgressAt(1, window01(7.72, 8.26, frame.time));
     evaluateCameraTrack(TABLE_TRACK, frame.local, frame.aspect, camera);
     point.set(camera.position.x, TABLE.height + 0.05, camera.position.z);
     const open = 1 - window01(0, 0.075, frame.local);
