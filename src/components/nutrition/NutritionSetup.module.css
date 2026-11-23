@@ -1,0 +1,83 @@
+/* Nutrition first-time setup. Colours come only from --fitx-* tokens. */
+.form { display: grid; gap: 1.1rem; }
+.progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.progress li { height: 4px; border-radius: 999px; background: var(--fitx-track); overflow: hidden; }
+.progress li::after { content: ""; display: block; height: 100%; border-radius: inherit; background: var(--fitx-primary); transform: scaleX(0); transform-origin: left; transition: transform .45s cubic-bezier(.22, 1, .36, 1); }
+.progress li[data-state="done"]::after, .progress li[data-state="current"]::after { transform: scaleX(1); }
+.title { color: var(--fitx-text); font-family: var(--font-heading); font-size: 1.15rem; font-weight: 750; letter-spacing: -.02em; }
+.body { display: grid; gap: 1.1rem; animation: setup-in .36s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes setup-in { from { opacity: 0; transform: translateX(12px); } }
+
+.dietGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin: 0; padding: 0; border: 0; }
+.dietCard {
+  position: relative; display: grid; overflow: hidden; border: 1.5px solid var(--fitx-border); border-radius: 1rem; background: var(--fitx-surface);
+  cursor: pointer; transition: border-color .18s ease, transform .18s ease;
+}
+.dietCard:hover { border-color: var(--fitx-text-disabled); }
+.dietCard:active { transform: scale(.985); }
+.dietCard[data-checked] { border-color: var(--fitx-primary); }
+.dietCard:has(input:focus-visible) { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.dietImage { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; background: var(--fitx-surface-variant); transition: transform .5s cubic-bezier(.22, 1, .36, 1); }
+.dietCard:hover .dietImage { transform: scale(1.03); }
+.dietText { display: grid; gap: .1rem; padding: .6rem .7rem .7rem; }
+.dietText strong { color: var(--fitx-text); font-size: .9rem; font-weight: 700; }
+.dietText small { color: var(--fitx-text-secondary); font-size: .72rem; line-height: 1.35; }
+.tick {
+  position: absolute; top: .5rem; right: .5rem; display: grid; width: 1.6rem; height: 1.6rem; place-items: center; border-radius: 999px;
+  background: var(--fitx-primary); color: var(--fitx-on-primary); opacity: 0; transform: scale(.6); transition: opacity .2s ease, transform .25s cubic-bezier(.22, 1, .36, 1);
+}
+.dietCard[data-checked] .tick { opacity: 1; transform: scale(1); }
+
+.group { display: grid; gap: .55rem; margin: 0; padding: 0; border: 0; min-width: 0; }
+.group legend { margin-bottom: .55rem; padding: 0; color: var(--fitx-text-secondary); font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chip { position: relative; cursor: pointer; }
+.chip input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.chip span {
+  display: inline-flex; min-height: 2.75rem; align-items: center; border: 1px solid var(--fitx-border); border-radius: 999px; background: var(--fitx-surface);
+  padding: 0 .95rem; color: var(--fitx-text); font-size: .82rem; font-weight: 600; transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.chip:hover span { border-color: var(--fitx-text-disabled); }
+.chip input:checked + span { border-color: var(--fitx-primary); background: var(--fitx-primary); color: var(--fitx-on-primary); }
+.chip input:focus-visible + span { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+
+.meals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
+.mealChoice { cursor: pointer; }
+.mealChoice span {
+  display: grid; min-height: 3.5rem; place-items: center; border: 1.5px solid var(--fitx-border); border-radius: .9rem; background: var(--fitx-surface);
+  color: var(--fitx-text); font-family: var(--font-heading); font-size: 1.3rem; font-weight: 800; transition: border-color .15s ease, background-color .15s ease;
+}
+.mealChoice input:checked + span { border-color: var(--fitx-primary); background: var(--fitx-hover); }
+.mealChoice input:focus-visible + span { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+
+.goals { display: grid; gap: .5rem; }
+.goal {
+  display: flex; min-height: 3.5rem; align-items: center; justify-content: space-between; gap: .75rem; border: 1.5px solid var(--fitx-border); border-radius: .9rem;
+  background: var(--fitx-surface); padding: 0 1rem; color: var(--fitx-text); font-size: .95rem; font-weight: 650; cursor: pointer; transition: border-color .15s ease;
+}
+.goal i { display: grid; width: 1.5rem; height: 1.5rem; place-items: center; border-radius: 999px; background: var(--fitx-primary); color: var(--fitx-on-primary); opacity: 0; transition: opacity .2s ease; }
+.goal:has(input:checked) { border-color: var(--fitx-primary); }
+.goal:has(input:checked) i { opacity: 1; }
+.goal:has(input:focus-visible) { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.summary { margin-top: .4rem; color: var(--fitx-text-secondary); font-size: .8rem; }
+
+.tags { display: grid; gap: .5rem; }
+.tagList { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.tagList li { display: inline-flex; align-items: center; gap: .15rem; border-radius: 999px; background: var(--fitx-surface-variant); padding-left: .75rem; color: var(--fitx-text); font-size: .8rem; font-weight: 600; }
+.tagList button { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 999px; color: var(--fitx-text-secondary); }
+.tagList button:hover { color: var(--fitx-text); }
+.tagList button:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: -4px; }
+.tagRow { display: flex; gap: .5rem; }
+.tagRow input { min-width: 0; flex: 1 1 auto; }
+
+.actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding-top: .25rem; }
+.actions :global(.fitx-button) { min-width: 8rem; }
+.back { display: inline-flex; min-height: 2.75rem; align-items: center; gap: .3rem; border-radius: 999px; padding: 0 .9rem; color: var(--fitx-text-secondary); font-size: .88rem; font-weight: 650; }
+.back:hover { background: var(--fitx-hover); color: var(--fitx-text); }
+.back:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .body { animation: none; }
+  .progress li::after, .dietCard, .dietImage, .tick, .chip span, .goal i { transition: none; }
+  .dietCard:hover .dietImage { transform: none; }
+}

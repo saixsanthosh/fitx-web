@@ -102,3 +102,15 @@ test("the migration adds the column, backfills from the diet and is safe to re-r
   assert.match(sql, /where nutrition_setup_at is null\s+and diet_type is not null/);
   assert.doesNotMatch(sql, /\bdrop\b|\bdefault\b\s+now/i);
 });
+
+test("Nutrition asks once, honours Later, offers the edit, and sends the water goal to Progress", () => {
+  const page = readFileSync(new URL("../../src/app/(dashboard)/nutrition/page.tsx", import.meta.url), "utf8");
+  const sheet = readFileSync(new URL("../../src/components/nutrition/NutritionSetup.tsx", import.meta.url), "utf8");
+  assert.match(page, /if \(!state\.done && !snoozed\(readSnooze\(uid\), localDateKey\(\)\)\) setSetup\(\{ open: true, mode: "first" \}\)/);
+  assert.match(page, /writeSnooze\(userId, localDateKey\(\)\)/, "Later is remembered on this device");
+  assert.match(page, /writeSnooze\(userId, null\)/, "saving clears it");
+  assert.match(page, />Food preferences</);
+  assert.match(page, /"\/progress\?panel=goals&new=water_day"/);
+  assert.doesNotMatch(page, /homePanel\(/);
+  assert.match(sheet, /mode === "first"\s*\n?\s*\? <button type="button" className=\{styles\.back\} onClick=\{onLater\}>Later<\/button>/);
+});

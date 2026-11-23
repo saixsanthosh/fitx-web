@@ -21,9 +21,9 @@ export interface DayOverviewProps {
 }
 
 /**
- * The top of Nutrition: calories against the day's target (goal − food = left, as the reference apps put it), the
- * three macros against theirs, and water. Nothing unknown is shown as 0: macros leave out entries with no value and
- * say how many, and with no target there is no "left".
+ * The top of Nutrition: calories and protein against the day's targets, large, with what is left; carbs and fat
+ * small beneath; then water. Nothing unknown is shown as 0: totals leave out entries with no value and say how
+ * many, and with no target there is no "left".
  */
 export function DayOverview({ summaryLabel, heading, totals, target, targetSource, hasOwnTargets, estimateCount, onTargets, water }: DayOverviewProps) {
   const eaten = Math.round(totals.calories);
@@ -31,6 +31,11 @@ export function DayOverview({ summaryLabel, heading, totals, target, targetSourc
   const progress = goal ? goalProgress(totals.calories, goal) : null;
   const balance = calorieBalance(totals.calories, goal);
   const ringLabel = `${eaten} calories logged${goal ? ` of ${goal} calorie target` : ""}${balance ? `, ${balance.remaining} ${balance.over ? "over" : "left"}` : ""}`;
+  const protein = Math.round(totals.protein);
+  const proteinGoal = target?.protein ?? null;
+  const proteinProgress = proteinGoal ? goalProgress(totals.protein, proteinGoal) : null;
+  const proteinLeft = proteinGoal ? Math.round(proteinGoal) - protein : null;
+  const proteinLabel = `${protein} grams of protein logged${proteinGoal ? ` of ${proteinGoal} gram target` : ""}${totals.unknown.protein ? `, ${totals.unknown.protein} without protein` : ""}`;
   return (
     <section className={styles.overview} aria-label={summaryLabel}>
       <div className={styles.head}>
@@ -41,54 +46,53 @@ export function DayOverview({ summaryLabel, heading, totals, target, targetSourc
         <button type="button" onClick={onTargets} className={styles.targets}><SlidersHorizontal size={14} aria-hidden="true"/>{hasOwnTargets ? "Your targets" : "Edit targets"}</button>
       </div>
 
-      <div className={styles.body}>
-        <div className={styles.energy}>
+      <div className={styles.hero}>
+        <div className={styles.meter} data-tone="energy">
           <div role="img" aria-label={ringLabel} className={styles.ring}>
             <SegmentRing size="lg" segments={[{ percent: progress?.percent ?? 0, tone: progress?.isOver ? "over" : "energy" }]}>
-              <strong className={styles.ringNumber}>{eaten.toLocaleString()}</strong>
-              <span className={styles.ringUnit}>{goal ? `/ ${goal.toLocaleString()} kcal` : "kcal eaten"}</span>
+              <strong className={styles.ringNumber}>{eaten.toLocaleString("en-GB")}</strong>
+              <span className={styles.ringUnit}>{goal ? `/ ${goal.toLocaleString("en-GB")} kcal` : "kcal eaten"}</span>
             </SegmentRing>
           </div>
-          <div className={styles.balance}>
-            {balance ? <>
-              <p className={`${styles.left} ${balance.over ? styles.over : ""}`}><strong>{balance.remaining.toLocaleString()}</strong> <span>kcal {balance.over ? "over your target" : "left"}</span></p>
-              <dl className={styles.sum}>
-                <div><dt>Goal</dt><dd>{goal?.toLocaleString()}</dd></div>
-                <div aria-hidden="true" className={styles.op}>−</div>
-                <div><dt>Food</dt><dd>{eaten.toLocaleString()}</dd></div>
-              </dl>
-              <p className={styles.fine}>Exercise isn&apos;t added back.{estimateCount > 0 ? ` Includes ${estimateCount} ${estimateCount === 1 ? "estimate" : "estimates"}.` : ""}</p>
-            </> : <>
-              <p className={styles.noTarget}>Set a target to see what&apos;s left.</p>
-              {estimateCount > 0 && <p className={styles.fine}>Includes {estimateCount} {estimateCount === 1 ? "estimate" : "estimates"}.</p>}
-            </>}
-          </div>
+          {balance
+            ? <p className={`${styles.left} ${balance.over ? styles.over : ""}`}><strong>{balance.remaining.toLocaleString("en-GB")}</strong> <span>kcal {balance.over ? "over your target" : "left"}</span></p>
+            : <p className={styles.noTarget}>Set a target to see what&apos;s left.</p>}
         </div>
-
-        <ul className={styles.macros} aria-label="Macros">
-          {MACROS.map(([key, label]) => {
-            const value = Math.round(totals[key]);
-            const macroGoal = target?.[key] ?? null;
-            const macro = macroGoal ? goalProgress(totals[key], macroGoal) : null;
-            const unknown = totals.unknown[key];
-            return (
-              <li key={key} className={styles.macro} data-macro={key}>
-                <div className={styles.macroTop}>
-                  <span className={styles.macroName}><i aria-hidden="true"/>{label}</span>
-                  <span className={styles.macroValue}><strong>{value}</strong>{macroGoal ? ` / ${macroGoal} g` : " g"}</span>
-                </div>
-                {macro && macroGoal
-                  ? <div className={`${styles.track} ${macro.isOver ? styles.trackOver : ""}`} role="progressbar" aria-label={`${label} against target`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={macro.percent}><span style={{ transform: `scaleX(${macro.percent / 100})` }}/></div>
-                  : <div className={styles.track} aria-hidden="true"/>}
-                <span className={styles.macroNote}>
-                  {macro && macroGoal ? (macro.isOver ? <span className={styles.over}>{macro.over} g over</span> : `${Math.max(0, Math.round(macroGoal) - value)} g left`) : "No target"}
-                  {unknown > 0 && ` · ${unknown} without ${MACRO_LABEL[key]}`}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+        <div className={styles.meter} data-tone="protein">
+          <div role="img" aria-label={proteinLabel} className={styles.ring}>
+            <SegmentRing size="lg" segments={[{ percent: proteinProgress?.percent ?? 0, tone: "protein" }]}>
+              <strong className={styles.ringNumber}>{protein}<small>g</small></strong>
+              <span className={styles.ringUnit}>{proteinGoal ? `/ ${proteinGoal} g protein` : "protein"}</span>
+            </SegmentRing>
+          </div>
+          {proteinLeft !== null
+            ? <p className={styles.left}><strong>{Math.abs(proteinLeft)}</strong> <span>g protein {proteinLeft < 0 ? "over" : "left"}</span></p>
+            : <p className={styles.noTarget}>No protein target yet.</p>}
+        </div>
       </div>
+
+      <ul className={styles.macros} aria-label="Carbs and fat">
+        {MACROS.filter(([key]) => key !== "protein").map(([key, label]) => {
+          const value = Math.round(totals[key]);
+          const macroGoal = target?.[key] ?? null;
+          const macro = macroGoal ? goalProgress(totals[key], macroGoal) : null;
+          return (
+            <li key={key} className={styles.macro} data-macro={key}>
+              <div className={styles.macroTop}>
+                <span className={styles.macroName}><i aria-hidden="true"/>{label}</span>
+                <span className={styles.macroValue}><strong>{value}</strong>{macroGoal ? ` / ${macroGoal} g` : " g"}</span>
+              </div>
+              {macro && macroGoal
+                ? <div className={`${styles.track} ${macro.isOver ? styles.trackOver : ""}`} role="progressbar" aria-label={`${label} against target`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={macro.percent}><span style={{ transform: `scaleX(${macro.percent / 100})` }}/></div>
+                : <div className={styles.track} aria-hidden="true"/>}
+            </li>
+          );
+        })}
+      </ul>
+      {(estimateCount > 0 || totals.unknown.protein + totals.unknown.carbs + totals.unknown.fat > 0) && <p className={styles.fine}>
+        {estimateCount > 0 ? `Includes ${estimateCount} ${estimateCount === 1 ? "estimate" : "estimates"}. ` : ""}
+        {MACROS.filter(([key]) => totals.unknown[key] > 0).map(([key]) => `${totals.unknown[key]} without ${MACRO_LABEL[key]}`).join(", ")}
+      </p>}
 
       <div className={styles.water}>
         <Droplets size={16} aria-hidden="true" className={styles.waterIcon}/>
