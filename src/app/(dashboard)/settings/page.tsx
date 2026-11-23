@@ -3,6 +3,7 @@ import { CircleHelp, CreditCard, Sparkles, UserRound, Watch } from "lucide-react
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SettingsAccount } from "./SettingsAccount";
 import { SettingsAppearance } from "./SettingsAppearance";
+import { SettingsCoachLauncher } from "./SettingsCoachLauncher";
 import { SettingsData } from "./SettingsData";
 import { SettingsGroup, SettingsLink, SettingsRow } from "./SettingsParts";
 
@@ -25,6 +26,7 @@ export default function SettingsPage() {
         </SettingsGroup>
         <SettingsGroup id="settings-coach" title="AI coach">
           <SettingsLink href="/ai-coach" icon={Sparkles} label="Coach settings" value="Data use, history" />
+          <SettingsCoachLauncher />
         </SettingsGroup>
         <SettingsGroup id="settings-elsewhere" title="More">
           <SettingsLink href="/subscription" icon={CreditCard} label="Subscription" />

@@ -1,7 +1,8 @@
 /* Shown only while the head script sets <html data-fitx-loader="on|leaving">. Whole sequence: about 0.6 s. */
 .loader { display: none; }
 
-:global(:root[data-fitx-loader]) .loader {
+:global(:root[data-fitx-loader="on"]) .loader,
+:global(:root[data-fitx-loader="leaving"]) .loader {
   position: fixed;
   inset: 0;
   z-index: 990;
@@ -25,20 +26,15 @@
 
 .row { display: inline-flex; align-items: center; gap: 10px; }
 
-/* The shared mark formation, compressed to the loader's half second. */
-.mark :global(.fitx-mark__path) { stroke-width: 6; }
-.mark :global(.fitx-mark__path--cap) { animation-duration: 260ms !important; animation-delay: 0ms !important; }
-.mark :global(.fitx-mark__path--spine) { animation-duration: 260ms !important; animation-delay: 50ms !important; }
-.mark :global(.fitx-mark__path--crossbar) { animation-duration: 200ms !important; animation-delay: 110ms !important; }
-.mark :global(.fitx-mark__path--x) { animation-duration: 300ms !important; animation-delay: 160ms !important; }
-.mark :global(.fitx-mark__path--x) { color: var(--fitx-primary); }
+/* The shared mark formation, compressed to the loader's moment (about 0.7 s). */
+.mark { --fitx-mark-tempo: .5; }
 
 .wordClip { display: block; overflow: hidden; }
 .word {
   display: block;
   font-size: 30px;
   line-height: 1;
-  animation: word-in 380ms cubic-bezier(.22, 1, .36, 1) 220ms both;
+  animation: word-in 380ms cubic-bezier(.22, 1, .36, 1) 420ms both;
 }
 
 .track {

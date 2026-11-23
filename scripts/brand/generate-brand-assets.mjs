@@ -1,39 +1,49 @@
-// Regenerates the FITX logo PNGs in public/brand and src/app/favicon.ico from the SVG marks there.
-// Run from the repository root: node scripts/brand/generate-brand-assets.mjs (sharp comes with Next).
+// Regenerates every FITX logo file from the mark's exact geometry (src/components/brand/logo/geometry.ts):
+// the SVG marks, app icons and PNGs in public/brand, src/app/icon.svg, src/app/favicon.ico and the Admin app's
+// icon. Run from the repository root: node scripts/brand/generate-brand-assets.mjs (sharp comes with Next).
+// tests/brand/brand-assets.test.ts checks the committed files still match the geometry.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { FITX_MARK_BOUNDS, FITX_MARK_D } from "../../src/components/brand/logo/geometry.ts";
+import { BRAND_INK, BRAND_PAPER, BRAND_TILE, BRAND_EMBER, iconSvg, markSvg } from "./brand-svg.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const brandDir = path.join(root, "public", "brand");
-const markPath = path.join(brandDir, "fitx-mark-black.svg");
-const appIconPath = path.join(brandDir, "fitx-app-icon.svg");
 await mkdir(brandDir, { recursive: true });
 
-const appIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#F7F7F4"/><path d="M10 13H54M32 13V54M10 29H32M32 31L53 52M32 52L53 31" fill="none" stroke="#191C19" stroke-width="5.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
-await writeFile(appIconPath, appIconSvg);
+const files = {
+  // The mark alone on a transparent ground, in ink and in white.
+  "public/brand/fitx-mark-black.svg": markSvg(BRAND_INK),
+  "public/brand/fitx-mark-white.svg": markSvg(BRAND_PAPER),
+  // The app icon: the light mark on the dark tile, as in the original artwork (white on black).
+  "public/brand/fitx-app-icon.svg": iconSvg({ fill: 0.68, radius: 0.22 }),
+  "public/brand/fitx-app-icon-maskable.svg": iconSvg({ fill: 0.54, radius: 0 }),
+  "public/brand/fitx-apple-touch-icon.svg": iconSvg({ fill: 0.64, radius: 0 }),
+  // Favicons fill more of the tile: at 16 to 48 px every pixel of the mark counts.
+  "src/app/icon.svg": iconSvg({ fill: 0.8, radius: 0.2 }),
+  // Admin: the same tile with an ember dot, so its tab is told apart from the member app's.
+  "admin/src/app/icon.svg": iconSvg({ fill: 0.8, radius: 0.2, dot: BRAND_EMBER }),
+};
+for (const [file, svg] of Object.entries(files)) await writeFile(path.join(root, file), svg);
 
-for (const [filename, size] of [
-  ["fitx-mark-black.png", 1024],
-  ["fitx-mark-white.png", 1024],
-  ["fitx-app-icon.png", 512],
-  ["fitx-apple-touch-icon.png", 180],
-  ["fitx-favicon-32.png", 32],
+const render = (svg, size) => sharp(Buffer.from(svg)).resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png({ compressionLevel: 9 }).toBuffer();
+for (const [filename, svg, size] of [
+  ["fitx-mark-black.png", files["public/brand/fitx-mark-black.svg"], 1024],
+  ["fitx-mark-white.png", files["public/brand/fitx-mark-white.svg"], 1024],
+  ["fitx-app-icon.png", files["public/brand/fitx-app-icon.svg"], 512],
+  ["fitx-app-icon-192.png", files["public/brand/fitx-app-icon.svg"], 192],
+  ["fitx-app-icon-maskable.png", files["public/brand/fitx-app-icon-maskable.svg"], 512],
+  ["fitx-apple-touch-icon.png", files["public/brand/fitx-apple-touch-icon.svg"], 180],
+  ["fitx-favicon-32.png", files["src/app/icon.svg"], 32],
 ]) {
-  const input = filename === "fitx-mark-white.png"
-    ? path.join(brandDir, "fitx-mark-white.svg")
-    : filename === "fitx-app-icon.png" || filename === "fitx-apple-touch-icon.png" || filename === "fitx-favicon-32.png"
-      ? appIconPath
-      : markPath;
-  const png = await sharp(input).resize(size, size, { fit: "contain" }).png({ compressionLevel: 9 }).toBuffer();
-  await writeFile(path.join(brandDir, filename), png);
+  await writeFile(path.join(brandDir, filename), await render(svg, size));
 }
 
-const icoImages = await Promise.all([16, 32, 48].map((size) =>
-  sharp(appIconPath).resize(size, size).png().toBuffer(),
-));
+const icoSizes = [16, 32, 48];
+const icoImages = await Promise.all(icoSizes.map((size) => render(files["src/app/icon.svg"], size)));
 const header = Buffer.alloc(6 + icoImages.length * 16);
 header.writeUInt16LE(0, 0);
 header.writeUInt16LE(1, 2);
@@ -41,7 +51,7 @@ header.writeUInt16LE(icoImages.length, 4);
 let offset = header.length;
 icoImages.forEach((png, index) => {
   const entry = 6 + index * 16;
-  const size = [16, 32, 48][index];
+  const size = icoSizes[index];
   header[entry] = size;
   header[entry + 1] = size;
   header[entry + 2] = 0;
@@ -53,4 +63,4 @@ icoImages.forEach((png, index) => {
   offset += png.length;
 });
 await writeFile(path.join(root, "src", "app", "favicon.ico"), Buffer.concat([header, ...icoImages]));
-console.log("Generated FITX logo PNGs and favicon.");
+console.log(`Generated the FITX logo files from the mark's geometry (${FITX_MARK_D.length} path characters, bounds ${FITX_MARK_BOUNDS.width} x ${FITX_MARK_BOUNDS.height}; tile ${BRAND_TILE}).`);

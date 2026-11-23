@@ -1,6 +1,12 @@
 type FitxMarkProps = { size?: number; className?: string };
 
-/** The original FITX mark geometry, kept separate from the wordmark. */
+/**
+ * The FITX mark (the F with the barbell, crossed by the X), the same exact geometry as the member app's
+ * src/components/brand/logo/geometry.ts (FITX_MARK_D in its 600-unit square). Filled with currentColor; kept
+ * separate from the wordmark. A root test (tests/brand/brand-assets.test.ts) keeps the two in step.
+ */
+const FITX_MARK_D = "M15.6 57L480.8 57L465.8 104L70.2 104ZM294.8 87L319.1 87L319.1 104L343.8 110.6L343.8 355.8L294.8 414.2ZM82.7 180L315.8 180L315.8 232L118.5 232L21.8 313.3ZM262.8 473.4L376 346.4L401.3 310.3L487.5 209L584.4 209L262.8 569ZM325.8 233.9L407.8 316.9L381.4 352.3L325.8 291.1ZM408 426.7L427.2 405.6L513 496.6L474.6 497.2ZM434.6 397L453.5 376L566.5 495.8L528.5 497.1L444.4 407.5ZM471.9 33.9Q472.8 31 475.8 31L500.8 31Q503.8 31 502.9 33.9L466.6 146.2Q465.7 149.1 462.7 149.1L437.4 148.8Q434.4 148.8 435.3 145.9ZM510.6 46.2Q511.5 43.3 514.5 43.8L531.9 47.1Q534.9 47.6 534 50.5L508.4 131.3Q507.5 134.2 504.5 134.6L483.9 137.7Q480.9 138.1 481.8 135.2ZM541.8 61.8Q542.7 58.9 545.6 59.8L558.6 64.1Q561.5 65 560.6 67.9L544.7 117.6Q543.8 120.5 540.8 121L525 123.9Q522 124.4 522.9 121.5Z";
+
 export function FitxMark({ size = 34, className }: FitxMarkProps) {
   return (
     <svg
@@ -8,15 +14,12 @@ export function FitxMark({ size = 34, className }: FitxMarkProps) {
       className={className}
       width={size}
       height={size}
-      viewBox="0 0 64 64"
-      fill="none"
+      viewBox="0 0 600 600"
+      fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
       focusable="false"
     >
-      <path d="M10 13H54" stroke="currentColor" strokeWidth="5.5" strokeLinecap="square" />
-      <path d="M32 13V54" stroke="currentColor" strokeWidth="5.5" strokeLinecap="square" />
-      <path d="M10 29H32" stroke="currentColor" strokeWidth="5.5" strokeLinecap="square" />
-      <path d="M32 31L53 52M32 52L53 31" stroke="currentColor" strokeWidth="5.5" strokeLinecap="square" />
+      <path d={FITX_MARK_D} />
     </svg>
   );
 }

@@ -7,6 +7,8 @@ import { SessionKeeper } from "@/components/app/SessionKeeper";
 import { UserContextProvider } from "@/components/app/UserContextProvider";
 import { CinematicIntro } from "@/components/brand/CinematicIntro";
 import { IntroCompletionReporter } from "@/components/brand/IntroCompletionReporter";
+import { CoachLauncher } from "@/components/layout/CoachLauncher";
+import "@/components/layout/nav-icons/nav-icons.css";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
@@ -27,6 +29,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <main id="main-content" className="mx-auto w-full max-w-[1440px] px-4 pb-[calc(96px+env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pt-6 md:pb-14 lg:px-10 lg:pt-10">{children}</main>
         </div>
         <BottomNav />
+        {/* The floating AI Coach button: draggable, dismissable for this page load, off for good in Settings. */}
+        <CoachLauncher />
         <SessionKeeper />
         <IntroCompletionReporter />
       </div>

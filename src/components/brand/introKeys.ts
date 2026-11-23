@@ -8,8 +8,9 @@
 export const INTRO_PENDING_EVENT = "fitx:intro:pending";
 
 /**
- * sessionStorage: "1" once this tab has played the signed-out visitor's film (or it was skipped), so that
- * film plays once per tab, as on the old site. The key is the old site's.
+ * localStorage: "1" once this device has played the signed-out visitor's film (or it was skipped), so that film
+ * plays once per device, for first-time visitors only (owner, 2026-11-22; until then it was once per tab, in
+ * sessionStorage). The key is the old site's. Replay (?intro=…) still plays it on request.
  */
 export const VISITOR_FILM_SEEN_KEY = "fitx-cinematic-seen";
 
@@ -19,3 +20,11 @@ export const VISITOR_FILM_SEEN_KEY = "fitx-cinematic-seen";
  * introBootstrap.ts and accountFilm.ts.
  */
 export const ACCOUNT_FILM_STARTED_KEY = "fitx-intro-account";
+
+/**
+ * Cookie set at sign-in (by the auth code, as WELCOME_COOKIE in src/lib/auth/cookies.ts) to "return" for an
+ * onboarded account whose film has been seen. The head script consumes it on the next full app-page load and plays
+ * the logo reveal (ReturningLogin) instead of the plain brand loader. Kept here as its own constant; each side
+ * tests the literal value.
+ */
+export const RETURNING_WELCOME_COOKIE = "fitx_welcome";

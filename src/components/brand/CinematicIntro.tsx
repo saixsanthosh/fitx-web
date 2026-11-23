@@ -117,7 +117,7 @@ function readDebugConfig(): DebugConfig | null {
 
 /**
  * The branded welcome film, layered over the page. It plays when the head script marked it pending
- * (a signed-out visit to the home page, once per tab; once per account on an app page; or `?intro=…`),
+ * (a signed-out visit to the home page, once per device; once per account on an app page; or `?intro=…`),
  * also when a tab that loaded hidden is first shown, and on Replay.
  */
 export function CinematicIntro() {
@@ -225,10 +225,10 @@ export function CinematicIntro() {
     }
 
     activeRef.current = true;
-    // The signed-out visitor's film plays once per tab, as on the old site (see introBootstrap.ts).
+    // The signed-out visitor’s film plays once per device, for first-time visitors (see introBootstrap.ts).
     if (document.documentElement.dataset.fitxIntroGate === "visitor") {
       try {
-        window.sessionStorage.setItem(VISITOR_FILM_SEEN_KEY, "1");
+        window.localStorage.setItem(VISITOR_FILM_SEEN_KEY, "1");
       } catch {
         // Storage blocked: the visitor's film plays on each full load of the home page instead.
       }

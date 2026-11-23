@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
-import { INTRO_BOOTSTRAP_SCRIPT } from "@/components/brand/introBootstrap";
-import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT, VISITOR_FILM_SEEN_KEY } from "@/components/brand/introKeys";
+import { INTRO_BOOTSTRAP_SCRIPT, WELCOME_FALLBACK_MS } from "@/components/brand/introBootstrap";
+import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT, RETURNING_WELCOME_COOKIE, VISITOR_FILM_SEEN_KEY } from "@/components/brand/introKeys";
 
 type Listener = (event: unknown) => void;
 type Run = {
@@ -238,14 +238,14 @@ test("returning devices get the short brand loader instead", () => {
   assert.equal(typeof window.__fitxReleaseLoader, "function");
 });
 
-// Until 2026-11-17 a signed-out home page played no film; the owner asked for it on every visit again, as the old
-// site played it: once per tab (its sessionStorage "fitx-cinematic-seen").
-test("signed-out visitors get the film on the home page once per tab, as the old site did, and it records nothing", () => {
+// Until 2026-11-17 a signed-out home page played no film; then it played once per tab, as the old site did. Since
+// 2026-11-22 the owner wants it for first-time visitors only: once per device (localStorage "fitx-cinematic-seen").
+test("signed-out visitors get the film on the home page once per device, and it records nothing on the account", () => {
   // A first visit, a device that was signed in before (seen), and one whose account film is still pending (play).
   for (const cookie of ["", "fitx_intro=seen", "fitx_intro=play"]) {
     for (const search of ["", "?utm_source=newsletter"]) {
       const label = `${cookie || "no cookies"}${search}`;
-      // A new tab or window: nothing in its sessionStorage yet.
+      // A first visit on this device: nothing in its localStorage yet.
       const first = run({ path: "/", search, cookie });
       assert.equal(first.attrs.get("data-fitx-intro"), "pending", label);
       assert.equal(first.attrs.get("data-fitx-intro-gate"), "visitor", label);
@@ -255,8 +255,10 @@ test("signed-out visitors get the film on the home page once per tab, as the old
       // No cookie, so a pending account film is left alone; the tab is remembered by CinematicIntro once the film starts.
       assert.deepEqual(first.cookieWrites, [], label);
       assert.deepEqual(first.storageWrites, [], label);
-      // The same tab again (a reload, or another full load of "/") after the film started there: no film.
-      const again = run({ path: "/", search, cookie, session: { [VISITOR_FILM_SEEN_KEY]: "1" } });
+      // The same device again (a reload, another tab or window) after the film started there: no film.
+      const again = run({ path: "/", search, cookie, local: { [VISITOR_FILM_SEEN_KEY]: "1" } });
+      // A session-only mark (the old once-per-tab rule) no longer stops it: the device has not seen it.
+      assert.equal(run({ path: "/", search, cookie, session: { [VISITOR_FILM_SEEN_KEY]: "1" } }).attrs.get("data-fitx-intro"), "pending", `${label}, old tab mark`);
       assert.equal(again.attrs.get("data-fitx-intro"), undefined, `${label}, same tab`);
       assert.equal(again.attrs.get("data-fitx-intro-gate"), undefined, `${label}, same tab`);
       assert.deepEqual(again.cookieWrites, [], `${label}, same tab`);
@@ -276,15 +278,16 @@ test("Skip and Escape give the page back before React hydrates, the visitor's fi
       assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${options.path}: another key or click keeps it`);
       dispatch(page, type, event);
       assert.equal(page.attrs.get("data-fitx-intro"), undefined, `${options.path} ${type}`);
-      // Skipping the visitor's film counts as having seen it in this tab, as on the old site.
-      assert.equal(page.session.get(VISITOR_FILM_SEEN_KEY), options.path === "/" ? "1" : undefined, `${options.path} ${type}`);
+      // Skipping the visitor's film counts as having seen it on this device.
+      assert.equal(page.local.get(VISITOR_FILM_SEEN_KEY), options.path === "/" ? "1" : undefined, `${options.path} ${type}`);
+      assert.equal(page.session.has(VISITOR_FILM_SEEN_KEY), false, `${options.path} ${type}: not per tab any more`);
     }
   }
   // When the app never starts the film, the page is given back after 8 s, and the next load of the tab tries again.
   const failed = run({ path: "/" });
   failed.timers[0].fn();
   assert.equal(failed.attrs.get("data-fitx-intro"), undefined);
-  assert.equal(failed.session.has(VISITOR_FILM_SEEN_KEY), false);
+  assert.equal(failed.local.has(VISITOR_FILM_SEEN_KEY), false);
 });
 
 test("Skip and Escape still give the page back while React holds events for an overlay it has not hydrated yet", () => {
@@ -299,7 +302,7 @@ test("Skip and Escape still give the page back while React holds events for an o
       assert.equal(page.attrs.get("data-fitx-intro"), "pending", `${label}: another key or click keeps it`);
       dispatchUntilReactStopsIt(page, type, event);
       assert.equal(page.attrs.get("data-fitx-intro"), undefined, label);
-      assert.equal(page.session.get(VISITOR_FILM_SEEN_KEY), options.path === "/" && !options.search ? "1" : undefined, label);
+      assert.equal(page.local.get(VISITOR_FILM_SEEN_KEY), options.path === "/" && !options.search ? "1" : undefined, label);
     }
   }
   // Each of the script's click, key and focus listeners runs in the capture phase, once.
@@ -356,10 +359,10 @@ test("Tab and Shift+Tab stay on Skip while the film waits for the app, and only 
     dispatch(page, "focusin", focusOn("page"));
     assert.deepEqual(page.focused, [], `${label}: focus is left alone`);
   };
-  // No film: another page, the same tab again, reduced motion, a returning device's loader, a tab nobody has shown yet.
+  // No film: another page, the same device again, reduced motion, a returning device's loader, a tab nobody has shown yet.
   const none = {
     "/features": run({ path: "/features" }),
-    "same tab": run({ path: "/", session: { [VISITOR_FILM_SEEN_KEY]: "1" } }),
+    "same device": run({ path: "/", local: { [VISITOR_FILM_SEEN_KEY]: "1" } }),
     "reduced motion": run({ path: "/", reduce: true }),
     loader: run({ path: "/nutrition", cookie: "fitx_intro=seen" }),
     "hidden tab": run({ path: "/", hidden: true }),
@@ -577,4 +580,64 @@ test("applies the saved theme before first paint", () => {
   // Visitors who never chose a theme (or whose saved value is unreadable) match their device.
   assert.equal(run({ theme: "bogus" }).attrs.get("data-theme"), "system");
   assert.equal(run().attrs.get("data-theme"), "system");
+});
+
+// A returning member signing in again (phase 3): the auth code sets fitx_welcome=return; the next full app-page load
+// plays the logo reveal (ReturningLogin) instead of the plain loader.
+const welcomeClick = { target: { closest: (selector: string) => (selector === "[data-fitx-welcome-skip]" ? {} : null) } };
+const forgetsWelcome = (page: Run) => page.cookieWrites.some((write) => write.startsWith("fitx_welcome=;") && write.includes("Max-Age=0") && write.includes("Path=/"));
+
+test("the returning-login cookie is the literal fitx_welcome, shared with the auth code", () => {
+  assert.equal(RETURNING_WELCOME_COOKIE, "fitx_welcome");
+  assert.ok(WELCOME_FALLBACK_MS > 2200 && WELCOME_FALLBACK_MS <= 3000, "the page is given back soon after the 2.2 s reveal");
+});
+
+test("a returning sign-in plays the logo reveal on the first app page, once, and the cookie is consumed", () => {
+  for (const path of ["/dashboard", "/progress", "/explore"]) {
+    const page = run({ path, cookie: "fitx_auth=1; fitx_intro=seen; fitx_welcome=return" });
+    assert.equal(page.attrs.get("data-fitx-loader"), "welcome", path);
+    assert.equal(page.attrs.get("data-fitx-intro"), undefined, `${path}: no film`);
+    assert.ok(forgetsWelcome(page), `${path}: the cookie is cleared at once`);
+    assert.ok(page.cookieWrites.every((write) => !write.startsWith("fitx_intro=")), `${path}: the film cookie is left alone`);
+    // The head script's own limit gives the page back if the app never ends the reveal.
+    const limit = page.timers.find(({ ms }) => ms === WELCOME_FALLBACK_MS);
+    assert.ok(limit, path);
+    limit.fn();
+    assert.equal(page.attrs.get("data-fitx-loader"), undefined, `${path}: given back`);
+  }
+  // Any other value, or no cookie: the plain loader as before.
+  assert.equal(run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=seen; fitx_welcome=other" }).attrs.get("data-fitx-loader"), "on");
+  assert.equal(run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=seen" }).attrs.get("data-fitx-loader"), "on");
+});
+
+test("Skip and Escape end the reveal before React hydrates; other clicks and keys keep it", () => {
+  for (const [type, event] of [["keydown", { key: "Escape" }], ["click", welcomeClick]] as const) {
+    const page = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=seen; fitx_welcome=return" });
+    dispatchUntilReactStopsIt(page, type, type === "keydown" ? { key: "Enter" } : { target: { closest: () => null } });
+    assert.equal(page.attrs.get("data-fitx-loader"), "welcome", `${type}: another key or click keeps it`);
+    dispatchUntilReactStopsIt(page, type, event);
+    assert.equal(page.attrs.get("data-fitx-loader"), undefined, type);
+  }
+});
+
+test("never under reduced motion, on a focus screen, outside the app, or over the film; a hidden tab keeps the cookie", () => {
+  const cookie = "fitx_auth=1; fitx_intro=seen; fitx_welcome=return";
+  const still = run({ path: "/dashboard", cookie, reduce: true });
+  assert.equal(still.attrs.get("data-fitx-loader"), undefined, "reduced motion: neither the reveal nor the loader");
+  assert.ok(forgetsWelcome(still), "reduced motion still uses the cookie up");
+  for (const path of ["/workouts/active", "/activity/record", "/workouts/form-check"]) {
+    const page = run({ path, cookie });
+    assert.equal(page.attrs.get("data-fitx-loader"), undefined, `${path}: a focus screen`);
+    assert.equal(forgetsWelcome(page), false, `${path}: the cookie waits for the next app page`);
+  }
+  for (const path of ["/", "/signin", "/features"]) assert.notEqual(run({ path, cookie }).attrs.get("data-fitx-loader"), "welcome", path);
+  // The account's film is pending: the film wins (it ends on the logo) and the cookie is used up all the same.
+  const film = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play; fitx_welcome=return" });
+  assert.equal(film.attrs.get("data-fitx-intro"), "pending");
+  assert.equal(film.attrs.get("data-fitx-loader"), undefined);
+  assert.ok(forgetsWelcome(film));
+  // A tab opened in the background: nothing is consumed until a page is shown.
+  const hidden = run({ path: "/dashboard", cookie, hidden: true });
+  assert.notEqual(hidden.attrs.get("data-fitx-loader"), "welcome");
+  assert.equal(forgetsWelcome(hidden), false);
 });
