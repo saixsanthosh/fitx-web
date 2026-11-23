@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { draftState, groupByDay, linkParts, mergeNewest, messageErrorText, previewText, type DirectMessage } from "../../src/lib/social/messages.ts";
 import { joinLabel, memberCountText } from "../../src/lib/social/communities.ts";
 import { challengePhase, countingNote, formatValue, metricText, ordinal, progressShare, targetText, timeLeftText, windowText } from "../../src/lib/social/challenges.ts";
-import { SocialError } from "../../src/lib/social/errors.ts";
+import { SocialError, toSocialError } from "../../src/lib/social/errors.ts";
 
 const message = (id: string, at: string, extra: Partial<DirectMessage> = {}): DirectMessage => ({
   id, mine: false, body: id, unsent: false, created_at: at, post: null, post_unavailable: false, story: null, ...extra,
@@ -15,6 +15,9 @@ test("message failures say what happened in plain words", () => {
   assert.equal(messageErrorText(new SocialError("social_suspended", "x", "dm")), "FITX has paused your messages for now.");
   assert.equal(messageErrorText(new SocialError("social_dm_not_allowed", "x", "pending")), "Your message request is waiting for an answer.");
   assert.equal(messageErrorText({ message: "social_dm_not_allowed", code: "P0001", hint: "policy" }), "This member does not take messages from you.");
+  // What the API layer throws: a SocialError made from the database's answer keeps Explore's wording.
+  const thrown = toSocialError({ message: "social_dm_not_allowed", code: "P0001", hint: "policy" });
+  assert.equal(messageErrorText(thrown), "This member does not take messages from you.");
   assert.equal(messageErrorText({ message: "social_age_restricted", code: "P0001", hint: "unknown" }),
     "Add your date of birth in Explore settings to use this. It is for members aged 18 and over.");
 });
@@ -86,4 +89,11 @@ test("challenge phases and windows", () => {
   assert.equal(timeLeftText(week, new Date("2026-11-24T18:30:00Z")), "Ends in 5 days");
   assert.equal(timeLeftText(week, new Date("2026-11-29T19:00:00Z")), "Final count soon");
   assert.match(countingNote({ kind: "weekly" }), /Monday to Monday/);
+});
+
+test("nobody joined is said in words, never as a bare 0", async () => {
+  const { participantsText } = await import("../../src/lib/social/challenges.ts");
+  assert.equal(participantsText(0), "No one has joined yet");
+  assert.equal(participantsText(1), "1 taking part");
+  assert.equal(participantsText(1204), "1,204 taking part");
 });

@@ -140,7 +140,7 @@ export const flow = {
       await t.goto(`/explore/challenges/${ids.challenge_id}`, { label: "challenge synced" });
       await page.getByRole("img", { name: "Your count: 1 workout of 2 workouts" }).waitFor({ timeout: 15000 });
       const entry = await standin.one(`select value::int value, on_leaderboard::text board from public.social_challenge_entries where challenge_id = '${ids.challenge_id}' and user_id = '${asha.id}'`);
-      t.expect(entry?.value === 1 && entry?.board === "false", "one workout counted; off the board by default", entry);
+      t.expect(Number(entry?.value) === 1 && entry?.board === "false", "one workout counted; off the board by default", entry);
       await sawOverflow(t, "challenge joined");
     });
 

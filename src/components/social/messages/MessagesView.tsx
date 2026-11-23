@@ -37,6 +37,11 @@ export function MessagesView() {
   const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((value) => value + 1), []);
   useInboxRefresh(me.age_band === "adult" ? userId : null, bump, GROUP_LIMITS.unreadPollMs);
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") bump(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [bump]);
 
   const to = params?.get("to") ?? null;
   const share = params?.get("share") ?? null;

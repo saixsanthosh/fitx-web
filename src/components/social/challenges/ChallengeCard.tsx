@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { CalendarDays, Check, Dumbbell, Footprints, Timer, type LucideIcon } from "lucide-react";
 import {
-  challengePhase, formatValue, metricText, ordinal, progressShare, targetText, timeLeftText, type Challenge, type ChallengeMetric,
+  challengePhase, formatValue, participantsText, metricText, ordinal, progressShare, targetText, timeLeftText, type Challenge, type ChallengeMetric,
 } from "@/lib/social/challenges";
 import styles from "./Challenges.module.css";
 
@@ -37,7 +37,7 @@ export function ChallengeCard({ challenge }: { challenge: Challenge }) {
         </span>
       )}
       <span className={styles.cardFoot}>
-        <span className={styles.sub}>{challenge.participants === 1 ? "1 taking part" : `${challenge.participants.toLocaleString("en-GB")} taking part`}</span>
+        <span className={styles.sub}>{participantsText(challenge.participants)}</span>
         {challenge.entry ? (
           <span className="flex flex-col items-end gap-1">
             <span className={styles.joinedTag}><Check size={12} aria-hidden="true" />{phase === "closed" ? "Took part" : "Joined"}</span>

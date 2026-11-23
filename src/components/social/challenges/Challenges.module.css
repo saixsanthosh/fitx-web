@@ -28,7 +28,7 @@
 
 /* The challenge page */
 .hero { position: relative; overflow: hidden; border-radius: 28px; background: var(--fitx-stage); color: var(--fitx-on-stage); isolation: isolate; }
-.heroGlyph { position: absolute; top: -40px; right: -50px; z-index: -1; color: color-mix(in srgb, var(--fitx-on-stage) 7%, transparent); }
+.heroGlyph { position: absolute; top: -40px; left: 46%; z-index: -1; color: color-mix(in srgb, var(--fitx-on-stage) 7%, transparent); }
 .heroInner { display: grid; gap: 22px; padding: 24px 20px; }
 @media (min-width: 820px) { .heroInner { grid-template-columns: minmax(0, 1fr) auto; align-items: end; padding: 34px; } }
 .heroTitle { font-family: var(--font-heading, inherit); font-size: clamp(30px, 6vw, 46px); font-weight: 780; line-height: 1.02; letter-spacing: -.045em; overflow-wrap: anywhere; }

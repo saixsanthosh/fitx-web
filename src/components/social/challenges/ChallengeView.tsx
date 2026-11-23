@@ -8,7 +8,7 @@ import { useReducedMotionSafe } from "@/components/motion/useReducedMotionSafe";
 import { Reveal } from "@/components/motion/Reveal";
 import { fullDate, relativeTime, toSocialError } from "@/lib/social";
 import {
-  BADGE_TEXT, challengePhase, challengesApi, countingNote, formatValue, metricText, ordinal, progressShare, targetText, timeLeftText, windowText,
+  BADGE_TEXT, challengePhase, participantsText, challengesApi, countingNote, formatValue, metricText, ordinal, progressShare, targetText, timeLeftText, windowText,
   type Board, type ChallengePage,
 } from "@/lib/social/challenges";
 import { AgeNotice } from "../AgeNotice";
@@ -182,7 +182,7 @@ function Hero({ page, busy, onJoin, onLeave }: { page: ChallengePage; busy: bool
             <span>{metricText(page.metric, page.sport)}</span>
             {target && <span>Goal {target}</span>}
             <span>{windowText(page)}</span>
-            <span>{page.participants === 1 ? "1 taking part" : `${page.participants.toLocaleString("en-GB")} taking part`}</span>
+            <span>{participantsText(page.participants)}</span>
           </p>
           <div className={styles.heroActions}>
             {!page.joined && (phase === "open" || phase === "upcoming") && (

@@ -149,3 +149,9 @@ export function countingNote(challenge: Pick<Challenge, "kind">): string {
   const window = challenge.kind === "weekly" ? "Monday to Monday" : "the 1st to the 1st";
   return `Counted from your own workouts and activities from when you join, ${window}, India time (${CHALLENGE_TIME_ZONE}). Results are final ${GROUP_LIMITS.closeGraceHours} hours after the end.`;
 }
+
+/** "No one has joined yet", "1 taking part", "1,204 taking part". */
+export function participantsText(count: number): string {
+  if (!count) return "No one has joined yet";
+  return `${count.toLocaleString("en-GB")} taking part`;
+}

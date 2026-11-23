@@ -2,7 +2,7 @@
  * Direct messages, typed (supabase/migrations/20261124100010_fitx_social_v2_groups.sql). Every call runs as the signed-in
  * member; the database decides who may message whom, what lands in Requests and what a reader may see.
  */
-import { toSocialError, socialErrorMessage } from "./errors";
+import { SocialError, toSocialError, socialErrorMessage } from "./errors";
 import type { Db } from "./api";
 import type { DmPolicy, SocialAuthor, SocialPost } from "./types";
 import { GROUP_LIMITS } from "./group-limits";
@@ -88,7 +88,8 @@ export function messageErrorText(error: unknown): string {
     if (failure.hint === "pending") return "Your message request is waiting for an answer.";
     if (failure.hint === "blocked") return "You cannot message this account.";
   }
-  return socialErrorMessage(error);
+  // A SocialError already carries Explore's own wording for its key; anything else is read as Explore reads it.
+  return error instanceof SocialError ? error.message : socialErrorMessage(error);
 }
 
 /** One line for a conversation in the inbox. */
