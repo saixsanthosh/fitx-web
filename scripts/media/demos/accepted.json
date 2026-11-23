@@ -1,5 +1,325 @@
 {
  "version": 1,
- "note": "Demonstration frames that passed the pose check and the owner's eye check. Edit captions here, then run scripts/media/demos/emit-index.mjs. Nothing has been generated yet.",
- "items": []
+ "items": [
+  {
+   "id": "push_up",
+   "model": "male",
+   "frame": 0,
+   "sha256": "dd06ba9b6b0ef88d2f56c6932eda235319f3e24b2cb7d36e9db6dc6ff59ca167",
+   "bytes": 19436,
+   "caption": "Plank, arms straight"
+  },
+  {
+   "id": "push_up",
+   "model": "male",
+   "frame": 1,
+   "sha256": "b421a36fb0b1e0d17fc5ee2989d3074aafa6aebf274d4fa4cfd7e960e86dc3da",
+   "bytes": 17284,
+   "caption": "Chest near the floor"
+  },
+  {
+   "id": "push_up",
+   "model": "female",
+   "frame": 0,
+   "sha256": "cd6bc2265fdb9a37d860ff81e2d7174ca668081a13a2b30a826014d46f2e6dc5",
+   "bytes": 14982,
+   "caption": "Plank, arms straight"
+  },
+  {
+   "id": "push_up",
+   "model": "female",
+   "frame": 1,
+   "sha256": "499eba8bc592ea4f6e4f3867ae3190bc3b0a2e1a9a97dd9c9f6699624b5cdaad",
+   "bytes": 16838,
+   "caption": "Chest near the floor"
+  },
+  {
+   "id": "free-exercise-db-Decline_Push-Up",
+   "model": "female",
+   "frame": 0,
+   "sha256": "ece154129454c09668cbc041b8bd7a4bad4f3b5f9905afa6887f4c201557272e",
+   "bytes": 14810,
+   "caption": "Plank, arms straight"
+  },
+  {
+   "id": "free-exercise-db-Decline_Push-Up",
+   "model": "female",
+   "frame": 1,
+   "sha256": "d1ec6c638b2759fb1755f26c6ac92a4c9152e23f32b2714a0f322fc6fb9a8300",
+   "bytes": 19994,
+   "caption": "Chest near the floor"
+  },
+  {
+   "id": "bodyweight_squat",
+   "model": "male",
+   "frame": 0,
+   "sha256": "8d518064ee27270d018bec355eb57f05fe2d3a97ee0c88423b68d6cf4280e444",
+   "bytes": 14048,
+   "caption": "Stand tall"
+  },
+  {
+   "id": "bodyweight_squat",
+   "model": "male",
+   "frame": 1,
+   "sha256": "1b07548aa36d2a05836441d4929f693fc750063277ddb8bd7055e832796c36ed",
+   "bytes": 14576,
+   "caption": "Thighs towards level"
+  },
+  {
+   "id": "bodyweight_squat",
+   "model": "female",
+   "frame": 0,
+   "sha256": "e08a15ecce0cad6c5c0b2fa1777c8d1d5e3b6527cdcf504526a064b7fb9112a2",
+   "bytes": 15274,
+   "caption": "Stand tall"
+  },
+  {
+   "id": "bodyweight_squat",
+   "model": "female",
+   "frame": 1,
+   "sha256": "3ed5a434b9fd65bf29b7a56af3029034649f277d224ccabf6fe09165be656e19",
+   "bytes": 16032,
+   "caption": "Thighs towards level"
+  },
+  {
+   "id": "split_squat",
+   "model": "male",
+   "frame": 0,
+   "sha256": "e5eb21f85d0cefe8cc0250b439caa21b355ae915993bcbb41e64d63840710967",
+   "bytes": 17900,
+   "caption": "Split stance"
+  },
+  {
+   "id": "split_squat",
+   "model": "male",
+   "frame": 1,
+   "sha256": "a5eaf14ad208b2ad548fb66990966718d9a1de9d7df50dd8c9e07af105112c7d",
+   "bytes": 19350,
+   "caption": "Back knee near the floor"
+  },
+  {
+   "id": "glute_bridge",
+   "model": "female",
+   "frame": 0,
+   "sha256": "71b4c811dc9b6a9abc33ce77b67a2209f4b199b0a960d98d5b8254b311bdcae5",
+   "bytes": 18930,
+   "caption": "Lie back, knees bent"
+  },
+  {
+   "id": "glute_bridge",
+   "model": "female",
+   "frame": 1,
+   "sha256": "2c2ffaf005ea72001ac3f089e68ef96192c61f3f8d20c901000c46ddd8580f97",
+   "bytes": 16826,
+   "caption": "Hold the top"
+  },
+  {
+   "id": "plank",
+   "model": "male",
+   "frame": 0,
+   "sha256": "1eb1a7e9a973882656a175fa69d6ec87572ecff95724bfd17d0afd520d0585c6",
+   "bytes": 17832,
+   "caption": "Get into position"
+  },
+  {
+   "id": "plank",
+   "model": "male",
+   "frame": 1,
+   "sha256": "4d6f488cff51b9fea64e08e28ad0369f9cbb0b55803e658483ade3325d31e284",
+   "bytes": 15596,
+   "caption": "Hold one straight line"
+  },
+  {
+   "id": "plank",
+   "model": "female",
+   "frame": 0,
+   "sha256": "e18de587b849b80b22dfc0c656d5391f290726e5d06f09c41631f364befed4e2",
+   "bytes": 16900,
+   "caption": "Get into position"
+  },
+  {
+   "id": "plank",
+   "model": "female",
+   "frame": 1,
+   "sha256": "4e45d44db9907c702ac440a10374bb73e488c0cc8776e080ca4edf0ee088cdbd",
+   "bytes": 14042,
+   "caption": "Hold one straight line"
+  },
+  {
+   "id": "jumping_jack",
+   "model": "male",
+   "frame": 0,
+   "sha256": "3f9db0b4f323e5456613a9b97b04e4eee07d6cddf2f5bf7b23793fb736e0b9d2",
+   "bytes": 13948,
+   "caption": "Feet together"
+  },
+  {
+   "id": "jumping_jack",
+   "model": "male",
+   "frame": 1,
+   "sha256": "b3ae895fea70a1194d6033bed544dfd92b598732987f9f076711fbaa466915bd",
+   "bytes": 13670,
+   "caption": "Arms overhead"
+  },
+  {
+   "id": "dumbbell_shoulder_press",
+   "model": "female",
+   "frame": 0,
+   "sha256": "31026fa6b53169debdd427a0b889374c86d2c87bd99d26f82aaf44edc5241f8f",
+   "bytes": 20778,
+   "caption": "Weights at shoulders"
+  },
+  {
+   "id": "dumbbell_shoulder_press",
+   "model": "female",
+   "frame": 1,
+   "sha256": "d160997df0273be692559df8ef21124b9004f58c9d0273f023942bd9600dc508",
+   "bytes": 21236,
+   "caption": "Arms straight overhead"
+  },
+  {
+   "id": "biceps_curl",
+   "model": "male",
+   "frame": 0,
+   "sha256": "52e5fb695ba2dfc2dc058116e4621c247f20c90515eabbaad8caa2a9ab180537",
+   "bytes": 14696,
+   "caption": "Arms long"
+  },
+  {
+   "id": "biceps_curl",
+   "model": "male",
+   "frame": 1,
+   "sha256": "52c563ce96a4552f267aea597aaa5a958509c98bb2043783a5f9b9704006a99f",
+   "bytes": 14364,
+   "caption": "Squeeze at the top"
+  },
+  {
+   "id": "biceps_curl",
+   "model": "female",
+   "frame": 0,
+   "sha256": "7190d03ff1c5a00d6ae039bfec51bf2f0915e200cb47d4b78df00751806fbb1b",
+   "bytes": 15602,
+   "caption": "Arms long"
+  },
+  {
+   "id": "biceps_curl",
+   "model": "female",
+   "frame": 1,
+   "sha256": "544c8afeea3d0336f199ebfdb97d73043946915aebdf7a42d279fbd1bb42e863",
+   "bytes": 15644,
+   "caption": "Squeeze at the top"
+  },
+  {
+   "id": "romanian_deadlift",
+   "model": "male",
+   "frame": 0,
+   "sha256": "7d58467c6a1a9358baab7bfb96f901fe2433992fab2c74c3aa7a350656ee1097",
+   "bytes": 17758,
+   "caption": "Stand tall"
+  },
+  {
+   "id": "romanian_deadlift",
+   "model": "male",
+   "frame": 1,
+   "sha256": "0cebedf1310224e72f9d2f04715ae9456ed9c41875351ca8f5c473e27c5c231a",
+   "bytes": 17462,
+   "caption": "Feel the stretch"
+  },
+  {
+   "id": "free-exercise-db-Barbell_Curl",
+   "model": "male",
+   "frame": 0,
+   "sha256": "acb8d2c6bf880108dac552568181a5ca36dc47c96b2e3eab606de9248a548e6d",
+   "bytes": 16180,
+   "caption": "Stand up with your torso upright while holding a barbell at a shoulder-width grip."
+  },
+  {
+   "id": "free-exercise-db-Barbell_Curl",
+   "model": "male",
+   "frame": 1,
+   "sha256": "82e0c6a75889d02056f6b307eb4fb0c8ae03b1b7394745a6bca584062405a789",
+   "bytes": 15178,
+   "caption": "While holding the upper arms stationary, curl the weights forward while contracting the biceps as you breathe out."
+  },
+  {
+   "id": "free-exercise-db-Barbell_Curl",
+   "model": "female",
+   "frame": 0,
+   "sha256": "cd15af3056d6b7f794a26c550ce04eba33045d56633ebb02a4fa8596ae7f2e49",
+   "bytes": 16680,
+   "caption": "Stand up with your torso upright while holding a barbell at a shoulder-width grip."
+  },
+  {
+   "id": "free-exercise-db-Barbell_Curl",
+   "model": "female",
+   "frame": 1,
+   "sha256": "92da4a005513bcf4b23c12d67a25a0a8192fec1a31362cd9c3c1194d526ba55d",
+   "bytes": 16830,
+   "caption": "While holding the upper arms stationary, curl the weights forward while contracting the biceps as you breathe out."
+  },
+  {
+   "id": "free-exercise-db-Leg_Extensions",
+   "model": "male",
+   "frame": 0,
+   "sha256": "1c8b1070b4f8ff820a258aebad98cfb5e668832af8961309429e19b868998196",
+   "bytes": 23072,
+   "caption": "Using your quadriceps, extend your legs to the maximum as you exhale."
+  },
+  {
+   "id": "free-exercise-db-Leg_Extensions",
+   "model": "male",
+   "frame": 1,
+   "sha256": "7ffc51ba77f716eeb157c71400bca54c26d45dcf0734e48f10d8a69bdcd7e6f4",
+   "bytes": 24388,
+   "caption": "Slowly lower the weight back to the original position as you inhale"
+  },
+  {
+   "id": "free-exercise-db-Kettlebell_One-Legged_Deadlift",
+   "model": "male",
+   "frame": 0,
+   "sha256": "c2d4adde1c5c2624bb86568f7825bfec83fca75b9a2497ec3221e3fb0b7a1850",
+   "bytes": 14824,
+   "caption": "Hold a kettlebell by the handle in one hand."
+  },
+  {
+   "id": "free-exercise-db-Kettlebell_One-Legged_Deadlift",
+   "model": "male",
+   "frame": 1,
+   "sha256": "54ca3201b48e2f04587b24174fedca189a0c291a6e1b95e5abfd251c1b3306b8",
+   "bytes": 17650,
+   "caption": "Keeping that knee slightly bent, perform a stiff legged deadlift by bending at the hip"
+  },
+  {
+   "id": "free-exercise-db-Single_Leg_Glute_Bridge",
+   "model": "female",
+   "frame": 0,
+   "sha256": "eb3c2eb86d27fccc5ea176e243bba37196ff11f70e911be157241a8ceb3727ed",
+   "bytes": 18330,
+   "caption": "Raise one leg off of the ground, pulling the knee to your chest."
+  },
+  {
+   "id": "free-exercise-db-Single_Leg_Glute_Bridge",
+   "model": "female",
+   "frame": 1,
+   "sha256": "535498f8a7c6a097a40fa5a8f83b443f89ed18d67a3d0b5c8af38dae4dbb1d4d",
+   "bytes": 18756,
+   "caption": "Execute the movement by driving through the heel, extending your hip upward and raising your glutes off of the ground."
+  },
+  {
+   "id": "free-exercise-db-Side_Bridge",
+   "model": "male",
+   "frame": 0,
+   "sha256": "55cbb9a2da094d77aebe72f27dfa4047192974aebcb2be8ca8869bea06ff7c0d",
+   "bytes": 19564,
+   "caption": "Lie on your side, propped on one forearm, elbow under the shoulder."
+  },
+  {
+   "id": "free-exercise-db-Side_Bridge",
+   "model": "male",
+   "frame": 1,
+   "sha256": "672646bb30a26c29a275e3625ca8dde7e359fd45a87f85aea33363f86971313a",
+   "bytes": 21776,
+   "caption": "Lift your hips until your body is one straight line, then hold."
+  }
+ ]
 }
