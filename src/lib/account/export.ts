@@ -74,6 +74,7 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   { table: "workouts", label: "Workouts (earlier version of FITX)", owner: "user_id", order: "id" },
   { table: "tasks", label: "Tasks (earlier version of FITX)", owner: "user_id", order: "id" },
   { table: "habits", label: "Habits (earlier version of FITX)", owner: "user_id", order: "id" },
+  { table: "daily_quote_history", label: "Quotes of the day you were shown", owner: "user_id", order: "local_date" },
 ];
 
 export const MEDIA_BUCKET = "fitx-user-media";

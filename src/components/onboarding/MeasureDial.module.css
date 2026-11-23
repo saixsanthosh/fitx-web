@@ -1,0 +1,123 @@
+.dial {
+  border: 1px solid var(--fitx-border);
+  border-radius: 22px;
+  background: var(--fitx-surface);
+  padding: 14px 14px 10px;
+  transition: border-color .2s ease;
+}
+
+.dial:focus-within { border-color: color-mix(in srgb, var(--fitx-primary) 55%, var(--fitx-border)); }
+
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.label { color: var(--fitx-text); font-size: .875rem; font-weight: 650; }
+.optional { color: var(--fitx-text-secondary); font-weight: 450; }
+
+.readout { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; margin-top: 6px; }
+.numbers { display: flex; min-width: 0; align-items: baseline; justify-content: center; gap: 10px; }
+.field { display: inline-flex; min-width: 0; align-items: baseline; gap: 4px; }
+
+.input {
+  width: auto;
+  min-width: 1.4ch;
+  max-width: 5.2ch;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 0;
+  color: var(--fitx-text);
+  font-family: var(--font-heading), sans-serif;
+  font-size: clamp(2.4rem, 9vw, 3.1rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.05em;
+  line-height: 1.05;
+  text-align: center;
+  field-sizing: content;
+}
+
+.input::placeholder { color: var(--fitx-text-disabled); }
+.input:focus { outline: none; border-bottom-color: var(--fitx-primary); }
+.input[aria-invalid="true"] { border-bottom-color: var(--fitx-danger); }
+
+.unit { color: var(--fitx-text-secondary); font-size: .95rem; font-weight: 650; }
+
+.step {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--fitx-border);
+  border-radius: 999px;
+  background: var(--fitx-surface-variant);
+  color: var(--fitx-text);
+  transition: transform .15s ease, border-color .15s ease;
+}
+
+.step:hover { border-color: var(--fitx-text-disabled); }
+.step:active { transform: scale(.94); }
+.step:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+
+/* The ruler: fine ticks every step band, a heavier tick every fifth, the part up to the value lit. */
+.ruler {
+  --fill: 50%;
+  width: 100%;
+  height: 44px;
+  margin-top: 4px;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  touch-action: pan-y;
+}
+
+.ruler:focus-visible { outline: none; }
+
+.ruler::-webkit-slider-runnable-track {
+  height: 22px;
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--fitx-primary) 22%, transparent) var(--fill), transparent var(--fill)),
+    repeating-linear-gradient(90deg, var(--fitx-text-disabled) 0 1px, transparent 1px 10px) 0 100% / 100% 9px no-repeat,
+    repeating-linear-gradient(90deg, var(--fitx-text-secondary) 0 1.5px, transparent 1.5px 50px) 0 100% / 100% 16px no-repeat;
+}
+
+.ruler::-moz-range-track {
+  height: 22px;
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--fitx-primary) 22%, transparent) var(--fill), transparent var(--fill)),
+    repeating-linear-gradient(90deg, var(--fitx-text-disabled) 0 1px, transparent 1px 10px) 0 100% / 100% 9px no-repeat,
+    repeating-linear-gradient(90deg, var(--fitx-text-secondary) 0 1.5px, transparent 1.5px 50px) 0 100% / 100% 16px no-repeat;
+}
+
+.ruler::-webkit-slider-thumb {
+  width: 6px;
+  height: 34px;
+  margin-top: -6px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--fitx-primary);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--fitx-primary) 18%, transparent);
+  appearance: none;
+  transition: transform .15s ease;
+}
+
+.ruler::-moz-range-thumb {
+  width: 6px;
+  height: 34px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--fitx-primary);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--fitx-primary) 18%, transparent);
+}
+
+.ruler:active::-webkit-slider-thumb { transform: scaleY(1.12); }
+.ruler:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--fitx-bg), 0 0 0 5px var(--fitx-primary); }
+.ruler:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--fitx-bg), 0 0 0 5px var(--fitx-primary); }
+
+/* Nothing set yet: the thumb waits, dimmed. */
+.dial[data-empty] .ruler::-webkit-slider-thumb { background: var(--fitx-text-disabled); box-shadow: none; }
+.dial[data-empty] .ruler::-moz-range-thumb { background: var(--fitx-text-disabled); box-shadow: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dial, .step, .ruler::-webkit-slider-thumb { transition: none; }
+}

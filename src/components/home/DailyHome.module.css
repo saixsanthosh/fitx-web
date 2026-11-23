@@ -1,0 +1,130 @@
+/*
+ * Home fills the space the shell leaves: edge to edge under the header on a phone, a framed stage from 640 px.
+ * The heights subtract the shell's header and the main area's padding at each width (src/app/(dashboard)/layout.tsx).
+ */
+.home {
+  position: relative;
+  display: flex;
+  /* On a phone it runs down to the tab bar: the main area's bottom padding is the bar plus 28 px. */
+  min-height: max(500px, calc(100svh - 128px - env(safe-area-inset-bottom)));
+  margin: -16px -16px -28px;
+  overflow: hidden;
+  background: var(--fitx-stage);
+  color: var(--fitx-on-stage);
+  isolation: isolate;
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  padding: 28px 20px 30px;
+}
+
+.top { display: grid; gap: 6px; }
+
+.date {
+  color: var(--fitx-on-stage-secondary);
+  font-size: .78rem;
+  font-weight: 650;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.greeting {
+  min-height: 1.1em;
+  overflow-wrap: anywhere;
+  color: var(--fitx-on-stage);
+  font-family: var(--font-heading), sans-serif;
+  font-size: clamp(2rem, 4.6vw + .9rem, 3.6rem);
+  font-weight: 800;
+  letter-spacing: -.045em;
+  line-height: 1.04;
+  text-shadow: 0 2px 24px color-mix(in srgb, var(--fitx-tile-scrim) 55%, transparent);
+}
+
+.greetingText { display: inline-block; }
+
+.quote { max-width: 34rem; margin: 0; }
+
+.theme {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fitx-on-stage-secondary);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+.rule { display: block; width: 28px; height: 2px; border-radius: 1px; background: var(--fitx-ember); }
+
+.text { margin: 14px 0 0; }
+
+.text p {
+  color: var(--fitx-on-stage);
+  font-family: var(--font-heading), sans-serif;
+  font-size: clamp(1.6rem, 4vw + .6rem, 3rem);
+  font-weight: 700;
+  letter-spacing: -.03em;
+  line-height: 1.14;
+  text-wrap: balance;
+  text-shadow: 0 2px 28px color-mix(in srgb, var(--fitx-tile-scrim) 70%, transparent);
+}
+
+.word { display: inline-block; white-space: pre; will-change: transform, opacity; }
+
+.caption {
+  margin-top: 16px;
+  color: var(--fitx-on-stage-secondary);
+  font-size: .85rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.caption cite { font-style: normal; }
+
+/* While the day's quote loads: two quiet lines where the words will be. */
+.loading { display: grid; gap: 12px; }
+.loading span {
+  display: block;
+  height: 26px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fitx-on-stage) 12%, transparent);
+  animation: breathe 1.6s ease-in-out infinite alternate;
+}
+
+.loading span + span { width: 62%; }
+
+@keyframes breathe { from { opacity: .45; } to { opacity: 1; } }
+
+@media (min-width: 640px) {
+  .home {
+    min-height: max(540px, calc(100svh - 168px));
+    margin: 0;
+    border: 1px solid var(--fitx-divider);
+    border-radius: 28px;
+  }
+
+  .content { padding: 40px 44px 44px; }
+}
+
+@media (min-width: 768px) {
+  .home { min-height: max(560px, calc(100svh - 150px)); }
+}
+
+@media (min-width: 1024px) {
+  .home { min-height: max(600px, calc(100svh - 104px)); border-radius: 32px; }
+  .content { padding: 52px 64px 60px; }
+  .quote { max-width: 40rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading span { animation: none; }
+}

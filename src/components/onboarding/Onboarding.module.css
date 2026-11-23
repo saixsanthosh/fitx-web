@@ -145,3 +145,43 @@
     max-height: 44svh;
   }
 }
+
+/* The stage's photograph: under the measuring grid, drifting slowly, washed towards the stage colour so the
+   title and readouts stay readable. */
+.photoLayer {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+}
+
+.photo {
+  position: absolute;
+  inset: -3%;
+  opacity: .62;
+  animation: drift 24s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.photo img { object-fit: cover; }
+.photoDim { opacity: .32; }
+
+.photoWash {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fitx-stage) 72%, transparent), color-mix(in srgb, var(--fitx-stage) 30%, transparent) 45%, color-mix(in srgb, var(--fitx-stage) 88%, transparent)),
+    linear-gradient(90deg, color-mix(in srgb, var(--fitx-stage) 55%, transparent), transparent 70%);
+}
+
+@keyframes drift {
+  from { transform: scale(1.02) translate3d(-1%, 0, 0); }
+  to { transform: scale(1.1) translate3d(1.5%, -1.5%, 0); }
+}
+
+/* A short line under the title on the stage. */
+.lede { max-width: 32ch; color: var(--fitx-on-stage-secondary); font-size: .95rem; line-height: 1.45; }
+
+@media (prefers-reduced-motion: reduce) {
+  .photo { animation: none; transform: none; }
+}
