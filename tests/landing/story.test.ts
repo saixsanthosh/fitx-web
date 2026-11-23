@@ -96,3 +96,22 @@ test("scroll-linked opacity uses function transforms, never ranges framer would 
     assert.doesNotMatch(source, /useTransform\([^,()]+,\s*\[/, `${file} uses a range-based useTransform`);
   }
 });
+
+test("the Form Check trace follows the knee angle the overlay reads out, standing at the top and depth at the foot", async () => {
+  const { TRACE_RANGE, kneeAngleAt, kneeTracePath, tracePoint } = await import("@/components/landing/story");
+  assert.equal(kneeAngleAt(0), kneeAngle(poseAt(0)));
+  assert.equal(kneeAngleAt(1 / 3), kneeAngle(poseAt(1)), "the bottom of the first rep");
+  assert.ok(TRACE_RANGE.max - TRACE_RANGE.min > 40, "a real range of motion");
+  const [x0, yTop] = tracePoint(0, 280, 72);
+  const [xBottom, yBottom] = tracePoint(1 / 3, 280, 72);
+  assert.equal(x0, 0);
+  assert.ok(Math.abs(xBottom - 280 / 3) < 0.2);
+  assert.ok(yBottom > yTop + 40, "deeper is lower on the trace");
+  for (let p = 0; p <= 1; p += 0.05) {
+    const [x, y] = tracePoint(p, 280, 72);
+    assert.ok(x >= 0 && x <= 280 && y >= 8 - 1e-9 && y <= 64 + 1e-9, `inside the box at ${p}`);
+  }
+  const path = kneeTracePath(280, 72);
+  assert.match(path, /^M0 [\d.]+(L[\d.]+ [\d.]+)+$/);
+  assert.equal(path.split("L").length - 1, 72);
+});

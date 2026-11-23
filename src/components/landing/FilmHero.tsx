@@ -6,7 +6,7 @@ import { ArrowRight, Pause, Play } from "lucide-react";
 import { useInView } from "framer-motion";
 import { useReducedMotionSafe, usePageVisible } from "@/components/motion";
 import { IntroReplayControl } from "@/components/brand/IntroReplayControl";
-import { CHAPTERS, chapterAt, chapterProgress, reelAllowed, reelSource, shapeFor, type FilmShape } from "./film";
+import { CHAPTERS, afterLoadAndIdle, chapterAt, chapterProgress, reelAllowed, reelSource, shapeFor, type FilmShape } from "./film";
 import { useSiteTheme } from "./useSiteTheme";
 import styles from "./landing.module.css";
 
@@ -23,6 +23,9 @@ const readShape = (): FilmShape => shapeFor(window.innerWidth, window.innerHeigh
  * Its chapters (Run, Ride, Lift, Fuel, Progress) sit on a rail: each fills as it plays, says what FITX does for it,
  * and jumps the film there when chosen. With reduced motion or Save-Data the film's still frame stays and the rail
  * is a plain list. The film stops while it is off screen or the tab is hidden, and has its own pause control.
+ * The still comes first: the reel is fetched only after the page's `load` event and an idle moment (film.ts
+ * afterLoadAndIdle), so it never competes with the first screen, and only once the real viewport is known, so a phone
+ * fetches only the phone cut.
  */
 export function FilmHero() {
   const reduced = useReducedMotionSafe();
@@ -37,8 +40,17 @@ export function FilmHero() {
   const [paused, setPaused] = useState(false);
   const [chapter, setChapter] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [settled, setSettled] = useState(false);
+  // A chapter chosen before the reel has loaded: the reel starts there.
+  const startAt = useRef(0);
   const allowed = reelAllowed({ reducedMotion: reduced, saveData });
-  const source = allowed && theme ? reelSource(theme, shape) : null;
+  const live = allowed && theme !== null;
+  const source = settled && theme && allowed ? reelSource(theme, shape) : null;
+
+  useEffect(() => {
+    if (!allowed) return;
+    return afterLoadAndIdle(window, () => setSettled(true));
+  }, [allowed]);
   const shouldPlay = allowed && !paused && visible && inView;
 
   // Swap the file when the theme or the shape changes, keeping the place in the film.
@@ -46,7 +58,7 @@ export function FilmHero() {
     const element = video.current;
     if (!element || !source) return;
     if (element.getAttribute("src") === source) return;
-    const at = element.currentTime || 0;
+    const at = element.currentTime || startAt.current;
     element.src = source;
     element.load();
     const resume = () => {
@@ -88,17 +100,21 @@ export function FilmHero() {
   const jump = (index: number) => {
     setChapter(index);
     const element = video.current;
-    if (!element || !source) return;
-    element.currentTime = CHAPTERS[index].start + 0.01;
     if (paused) setPaused(false);
+    if (!element || !source) {
+      startAt.current = CHAPTERS[index].start + 0.01;
+      return;
+    }
+    element.currentTime = CHAPTERS[index].start + 0.01;
   };
 
-  const live = Boolean(source);
+  // "still": no film at all (reduced motion, Save-Data); "poster": the still while the reel waits for the page to load.
+  const filmState = !live ? "still" : playing ? "playing" : source ? "ready" : "poster";
 
   return (
-    <section ref={root} className={styles.hero} aria-labelledby="hero-title" data-film={live ? (playing ? "playing" : "ready") : "still"}>
+    <section ref={root} className={styles.hero} aria-labelledby="hero-title" data-film={filmState} data-reel={source ? shape : undefined}>
       <div className={styles.heroStill} aria-hidden="true" />
-      {live && (
+      {source && (
         <video
           ref={video}
           className={styles.heroFilm}

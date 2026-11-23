@@ -143,3 +143,30 @@ export function planDoneAt(progress: number): number {
 export function manFrameAt(progress: number): 0 | 1 {
   return clamp01(progress) < 0.36 ? 0 : 1;
 }
+
+/** The knee angle the camera would read at this point of the scene (the measured poses, blended by depth). */
+export function kneeAngleAt(progress: number): number {
+  return kneeAngle(poseAt(squatDepth(progress)));
+}
+
+/** The knee angle's range over the scene: standing at the top, the bottom of the squat at the foot. */
+const TRACE_SAMPLES = 72;
+const traceAngles = Array.from({ length: TRACE_SAMPLES + 1 }, (_, index) => kneeAngleAt(index / TRACE_SAMPLES));
+export const TRACE_RANGE = { min: Math.min(...traceAngles), max: Math.max(...traceAngles) } as const;
+
+/** Where the trace is at `progress`, in a `width` × `height` box with `pad` px kept clear top and bottom. */
+export function tracePoint(progress: number, width: number, height: number, pad = 8): [number, number] {
+  const p = clamp01(progress);
+  const span = TRACE_RANGE.max - TRACE_RANGE.min || 1;
+  // Clamped: the sampled range can miss a peak between two samples by a degree.
+  const y = pad + clamp01((TRACE_RANGE.max - kneeAngleAt(p)) / span) * (height - pad * 2);
+  return [r(p * width), r(y)];
+}
+
+/** The whole rep as one path (left to right through the scene), drawn under the moving point. */
+export function kneeTracePath(width: number, height: number, pad = 8): string {
+  return Array.from({ length: TRACE_SAMPLES + 1 }, (_, index) => {
+    const [x, y] = tracePoint(index / TRACE_SAMPLES, width, height, pad);
+    return `${index === 0 ? "M" : "L"}${x} ${y}`;
+  }).join("");
+}
