@@ -1,3 +1,4 @@
+import { FITX_MARK_BOUNDS, FITX_MARK_PATHS } from "@/components/brand/logo/geometry";
 import { localDateKey } from "./format";
 import { decodeRoute } from "./polyline";
 import {
@@ -99,23 +100,35 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number):
   return `${cut.trimEnd()}…`;
 }
 
-/** The FITX mark (as in FitxMark.tsx: cap, spine, crossbar and X) at `x, y` with `size`. */
-function drawMark(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
-  const s = size / 64;
+/** Where the mark sits inside its `size` square: the same area the earlier stroked mark filled (x 10 to 54, y 13 to 54 of 64). */
+const MARK_AREA = { x: 10 / 64, y: 13 / 64, width: 44 / 64, height: 41 / 64 } as const;
+
+/** What drawMark needs from a canvas context (a full CanvasRenderingContext2D in the app). */
+export type MarkContext = Pick<CanvasRenderingContext2D, "save" | "restore" | "translate" | "scale" | "fill"> & { fillStyle: CanvasRenderingContext2D["fillStyle"] };
+
+/** The scale and offset that fit the mark's own bounds (FITX_MARK_BOUNDS) into MARK_AREA of a `size` square at `x, y`. */
+export function markPlacement(x: number, y: number, size: number): { scale: number; x: number; y: number } {
+  const scale = Math.min((MARK_AREA.width * size) / FITX_MARK_BOUNDS.width, (MARK_AREA.height * size) / FITX_MARK_BOUNDS.height);
+  const width = FITX_MARK_BOUNDS.width * scale;
+  const height = FITX_MARK_BOUNDS.height * scale;
+  return {
+    scale,
+    x: x + MARK_AREA.x * size + (MARK_AREA.width * size - width) / 2 - FITX_MARK_BOUNDS.x * scale,
+    y: y + MARK_AREA.y * size + (MARK_AREA.height * size - height) / 2 - FITX_MARK_BOUNDS.y * scale,
+  };
+}
+
+/**
+ * The FITX mark (the same vector pieces as FitxMark.tsx, FITX_MARK_PATHS) filled in `color`, in a `size` square at
+ * `x, y`. `PathType` is the canvas Path2D; tests pass their own.
+ */
+export function drawMark(ctx: MarkContext, x: number, y: number, size: number, color: string, PathType: new (d: string) => Path2D = Path2D): void {
+  const place = markPlacement(x, y, size);
   ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(s, s);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 5.5;
-  ctx.lineCap = "square";
-  ctx.lineJoin = "miter";
-  ctx.beginPath();
-  ctx.moveTo(10, 13); ctx.lineTo(54, 13);
-  ctx.moveTo(32, 13); ctx.lineTo(32, 54);
-  ctx.moveTo(10, 29); ctx.lineTo(32, 29);
-  ctx.moveTo(32, 31); ctx.lineTo(53, 52);
-  ctx.moveTo(32, 52); ctx.lineTo(53, 31);
-  ctx.stroke();
+  ctx.translate(place.x, place.y);
+  ctx.scale(place.scale, place.scale);
+  ctx.fillStyle = color;
+  for (const piece of FITX_MARK_PATHS) ctx.fill(new PathType(piece.d));
   ctx.restore();
 }
 
