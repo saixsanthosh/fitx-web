@@ -75,15 +75,16 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   }, [inPanel]);
   useEffect(scrollToEnd, [messages, pending, scrollToEnd]);
 
-  // A prompt from another page (or the voice button) fills the box; the member still presses Send.
+  // A prompt from another page fills the box once per key; the member still presses Send.
   const promptKey = openWith?.key;
   const promptText = openWith?.text;
-  useEffect(() => {
-    if (promptKey === undefined || !promptText) return;
+  const [appliedPrompt, setAppliedPrompt] = useState<number | undefined>(undefined);
+  if (promptKey !== undefined && promptText && promptKey !== appliedPrompt) {
+    setAppliedPrompt(promptKey);
     setMode("chat");
     setDraft(promptText);
     setFocusKey((key) => key + 1);
-  }, [promptKey, promptText]);
+  }
 
   const recordActions = useCallback((actions: CoachActionView[]) => {
     setActionStates((old) => ({ ...old, ...Object.fromEntries(actions.map((action) => [action.id, action.status])) }));

@@ -36,13 +36,15 @@ export function CoachPanel({ open, onClose, initialPrompt, promptKey = 0 }: { op
       .catch((error) => setLoad(error instanceof CoachRequestError && error.code === "unauthorized" ? { kind: "signed_out" } : { kind: "failed" }));
   }, []);
 
+  // Opening again mid-close drops the closing state at once.
+  if (open && closing) setClosing(false);
+
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;
     if (open) {
       if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
       closeTimer.current = null;
-      setClosing(false);
       if (!element.open) element.showModal();
       // The coach keeps its own state once loaded; only a first or failed load is fetched again.
       if (!loaded.current) refresh();
@@ -54,12 +56,14 @@ export function CoachPanel({ open, onClose, initialPrompt, promptKey = 0 }: { op
       element.close();
       return;
     }
-    setClosing(true);
+    // The closing class goes on in the next frame (state is not set inside the effect itself).
+    const frame = window.requestAnimationFrame(() => setClosing(true));
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
       setClosing(false);
       element.close();
     }, CLOSE_MS);
+    return () => window.cancelAnimationFrame(frame);
   }, [open, refresh]);
 
   useEffect(() => () => {

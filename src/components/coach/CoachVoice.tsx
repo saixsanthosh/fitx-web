@@ -59,7 +59,8 @@ function useRecognitionSupport() {
 /** Replies read aloud: on only with an on-device voice, and only when the member turned it on. */
 export function useReadAloud() {
   const [voice, setVoice] = useState<SpeechSynthesisVoice | null>(null);
-  const [on, setOn] = useState(false);
+  // Read once on the client; the toggle only renders after a voice is found (after hydration), so this never differs on screen.
+  const [on, setOn] = useState(() => typeof window !== "undefined" && read(READ_ALOUD_KEY) === "on");
 
   useEffect(() => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -71,7 +72,6 @@ export function useReadAloud() {
     };
     update();
     synth.addEventListener("voiceschanged", update);
-    setOn(read(READ_ALOUD_KEY) === "on");
     return () => {
       synth.removeEventListener("voiceschanged", update);
       synth.cancel();
