@@ -366,12 +366,28 @@ a { color: inherit; text-decoration: none; }
 .fitx-logo { gap: 0.34em; color: var(--fitx-text); }
 .fitx-wordmark { font-family: var(--font-manrope), Arial, sans-serif; font-weight: 850; letter-spacing: -0.095em; }
 .fitx-mark { display: block; flex: 0 0 auto; overflow: visible; color: currentColor; }
-.fitx-mark__path { fill: none; stroke: currentColor; stroke-width: 5.5; stroke-linecap: square; stroke-linejoin: miter; }
-.fitx-mark--formation .fitx-mark__path--cap { stroke-dasharray: 46; stroke-dashoffset: 46; animation: fitx-mark-form 480ms cubic-bezier(.2,.8,.2,1) 0ms both; }
-.fitx-mark--formation .fitx-mark__path--spine { stroke-dasharray: 44; stroke-dashoffset: 44; animation: fitx-mark-form 480ms cubic-bezier(.2,.8,.2,1) 90ms both; }
-.fitx-mark--formation .fitx-mark__path--crossbar { stroke-dasharray: 24; stroke-dashoffset: 24; animation: fitx-mark-form 360ms cubic-bezier(.2,.8,.2,1) 180ms both; }
-.fitx-mark--formation .fitx-mark__path--x { stroke-dasharray: 62; stroke-dashoffset: 62; animation: fitx-mark-form 520ms cubic-bezier(.2,.8,.2,1) 280ms both; }
-.fitx-logo.is-forming .fitx-wordmark { opacity: 0; animation: fitx-wordmark-form 420ms ease-out 520ms both; }
+/*
+ * The mark's formation (FitxMark animate): each stroke slides along its own direction inside a clip of its final
+ * shape, so it grows out of the mark the way it is written; the plates slide onto the bar. About 1.4 s at tempo 1.
+ */
+.fitx-mark--formation .fitx-mark__piece {
+  transform-box: view-box;
+  animation: fitx-mark-piece calc(var(--fitx-piece-ms, 420ms) * var(--fitx-mark-tempo, 1)) cubic-bezier(.22, 1, .36, 1) calc(var(--fitx-piece-at, 0ms) * var(--fitx-mark-tempo, 1)) both;
+}
+.fitx-mark__piece--bar { --fitx-piece-at: 0ms; --fitx-piece-ms: 440ms; }
+.fitx-mark__piece--stem { --fitx-piece-at: 150ms; --fitx-piece-ms: 400ms; }
+.fitx-mark__piece--arm { --fitx-piece-at: 280ms; --fitx-piece-ms: 360ms; }
+.fitx-mark__piece--stroke { --fitx-piece-at: 400ms; --fitx-piece-ms: 480ms; }
+.fitx-mark__piece--branch { --fitx-piece-at: 580ms; --fitx-piece-ms: 300ms; }
+.fitx-mark__piece--leg-inner { --fitx-piece-at: 650ms; --fitx-piece-ms: 320ms; }
+.fitx-mark__piece--leg-outer { --fitx-piece-at: 710ms; --fitx-piece-ms: 320ms; }
+.fitx-mark--formation .fitx-mark__piece--plate-1,
+.fitx-mark--formation .fitx-mark__piece--plate-2,
+.fitx-mark--formation .fitx-mark__piece--plate-3 { animation-name: fitx-mark-plate; animation-timing-function: cubic-bezier(.16, 1, .3, 1); }
+.fitx-mark__piece--plate-1 { --fitx-piece-at: 880ms; --fitx-piece-ms: 420ms; }
+.fitx-mark__piece--plate-2 { --fitx-piece-at: 960ms; --fitx-piece-ms: 420ms; }
+.fitx-mark__piece--plate-3 { --fitx-piece-at: 1040ms; --fitx-piece-ms: 400ms; }
+.fitx-logo.is-forming .fitx-wordmark { opacity: 0; animation: fitx-wordmark-form 520ms cubic-bezier(.22, 1, .36, 1) 900ms both; }
 .fitx-brand-formation { display: inline-flex; min-height: 44px; align-items: center; gap: 13px; color: #fff; }
 .fitx-brand-formation .fitx-logo { color: #fff; }
 .fitx-brand-formation__rule { width: 1px; height: 24px; background: rgba(255,255,255,.4); }
@@ -384,8 +400,9 @@ a { color: inherit; text-decoration: none; }
   .fitx-brand-formation > p { font-size: .52rem; letter-spacing: .08em; white-space: nowrap; }
   .fitx-intro-replay { padding-left: 3px; font-size: .54rem; }
 }
-@keyframes fitx-mark-form { to { stroke-dashoffset: 0; } }
-@keyframes fitx-wordmark-form { to { opacity: 1; } }
+@keyframes fitx-mark-piece { from { transform: translate(var(--fx, 0), var(--fy, 0)); } to { transform: none; } }
+@keyframes fitx-mark-plate { from { transform: translate(var(--fx, 0), var(--fy, 0)); opacity: 0; } 35% { opacity: 1; } to { transform: none; opacity: 1; } }
+@keyframes fitx-wordmark-form { from { opacity: 0; transform: translateX(-0.18em); } to { opacity: 1; transform: none; } }
 
 .fitx-panel {
   border: 1px solid var(--fitx-border);
@@ -623,6 +640,6 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-  .fitx-mark--formation .fitx-mark__path { stroke-dasharray: none; stroke-dashoffset: 0; }
+  .fitx-mark--formation .fitx-mark__piece { animation: none !important; transform: none; opacity: 1; }
   .fitx-logo.is-forming .fitx-wordmark { opacity: 1; }
 }

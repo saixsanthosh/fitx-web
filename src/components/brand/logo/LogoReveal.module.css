@@ -1,0 +1,142 @@
+/*
+ * The logo reveal (LogoReveal.tsx). Timeline at tempo 1 (ms): the mark forms 0–1440 (globals.css), the glow
+ * rises 0–900, the light passes 1050–1650, the wordmark rises 1000–1500, the ember rule draws 1150–1650 and the
+ * stage fades 1800–2100 ("return" 1700–2000; "film-end" holds). Transform and opacity only.
+ */
+.stage {
+  --reveal-size: clamp(120px, 34vmin, 260px);
+  --exit-at: 1800ms;
+  position: fixed;
+  inset: 0;
+  z-index: 995;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 24px;
+  background: var(--fitx-bg);
+  color: var(--fitx-text);
+  animation: stage-out 300ms cubic-bezier(.4, 0, .2, 1) var(--exit-at) both;
+}
+.return { --exit-at: 1700ms; }
+.welcome { --exit-at: 1800ms; }
+.filmEnd { background: transparent; animation: none; }
+
+/* A warm light behind the mark, brightest just before the plates land. */
+.glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--reveal-size) * 3.2);
+  aspect-ratio: 1;
+  margin: calc(var(--reveal-size) * -1.6) 0 0 calc(var(--reveal-size) * -1.6);
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--fitx-primary) 16%, transparent) 0%, transparent 62%);
+  opacity: 0;
+  transform: scale(.82);
+  animation: glow-in 900ms cubic-bezier(.22, 1, .36, 1) 120ms both;
+  pointer-events: none;
+}
+
+.lockup {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: calc(var(--reveal-size) * .1);
+  max-width: 100%;
+  animation: lockup-out 300ms cubic-bezier(.4, 0, .2, 1) var(--exit-at) both;
+}
+.filmEnd .lockup { animation: none; }
+
+.markBox {
+  position: relative;
+  width: var(--reveal-size);
+  max-width: min(70vw, 62vh);
+  aspect-ratio: 1;
+}
+.mark, .sheen { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mark { color: var(--fitx-text); }
+
+/* A soft contact shadow under the mark: depth without a filter. */
+.floor {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 2%;
+  height: 7%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--fitx-scrim) 22%, transparent) 0%, transparent 70%);
+  opacity: 0;
+  transform: scaleX(.4);
+  animation: floor-in 700ms cubic-bezier(.22, 1, .36, 1) 500ms both;
+}
+
+/* The light passing across the metal, clipped to the mark. */
+.lightEdge { stop-color: var(--fitx-primary); stop-opacity: 0; }
+.lightCore { stop-color: var(--fitx-primary); stop-opacity: .9; }
+.beam {
+  transform: translateX(0) skewX(-18deg);
+  opacity: 0;
+  animation: beam-pass 640ms cubic-bezier(.45, 0, .2, 1) 1050ms both;
+}
+
+.word {
+  display: inline-flex;
+  font-size: calc(var(--reveal-size) * .26);
+  line-height: 1;
+}
+.letterClip { display: inline-block; overflow: hidden; padding: .04em .02em .08em; margin: 0 -.02em; }
+.letter {
+  display: inline-block;
+  transform: translateY(110%);
+  animation: letter-up 520ms cubic-bezier(.22, 1, .36, 1) calc(1000ms + var(--i, 0) * 60ms) both;
+}
+
+.rule {
+  display: block;
+  width: calc(var(--reveal-size) * .46);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--fitx-primary);
+  transform: scaleX(0);
+  animation: rule-draw 500ms cubic-bezier(.65, 0, .35, 1) 1150ms both;
+}
+
+.skip {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--fitx-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fitx-bg) 70%, transparent);
+  color: var(--fitx-text-secondary);
+  font: inherit;
+  font-size: .8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.skip:hover { color: var(--fitx-text); background: var(--fitx-hover); }
+.filmEnd .skip { display: none; }
+
+@keyframes stage-out { to { opacity: 0; visibility: hidden; } }
+@keyframes lockup-out { to { transform: scale(1.035); } }
+@keyframes glow-in { 60% { opacity: 1; } to { opacity: .7; transform: none; } }
+@keyframes floor-in { to { opacity: 1; transform: none; } }
+@keyframes beam-pass {
+  from { transform: translateX(0) skewX(-18deg); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  to { transform: translateX(1000px) skewX(-18deg); opacity: 0; }
+}
+@keyframes letter-up { to { transform: none; } }
+@keyframes rule-draw { to { transform: scaleX(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage, .lockup, .glow, .floor, .beam, .letter, .rule { animation: none !important; }
+  .glow { opacity: .7; transform: none; }
+  .floor { opacity: 1; transform: none; }
+  .letter, .rule { transform: none; }
+}

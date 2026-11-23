@@ -1,5 +1,8 @@
 import { INTRO_PLAY_MAX_AGE } from "@/lib/auth/cookies";
-import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT, VISITOR_FILM_SEEN_KEY } from "./introKeys";
+import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT, RETURNING_WELCOME_COOKIE, VISITOR_FILM_SEEN_KEY } from "./introKeys";
+
+/** How long a returning member's logo reveal may hold the page if the app never ends it (ms). */
+export const WELCOME_FALLBACK_MS = 2600;
 
 /**
  * How long after this device started an account's film another "play" counts as a copy of the one it used:
@@ -24,20 +27,26 @@ const ACCOUNT_FILM_REPEAT_MS = (INTRO_PLAY_MAX_AGE + 60 * 60) * 1000;
  *       the next account on the device gets its own film. Pages that run this at the very same moment in
  *       several tabs can't see each other yet, so each leaves its claim (`window.__fitxAccountFilm`) and
  *       CinematicIntro plays only the latest one (accountFilmClaimedElsewhere);
- *     - "visitor": signed-out visitors, on the home page "/" and no other page, once per tab as on the
- *       old site (a new tab or window plays it again; CinematicIntro remembers it in sessionStorage when
- *       the film starts, and so does Skip or Escape here). It records nothing on any account and writes no
- *       cookie, so it never touches the account's film. Never for a signed-in visitor (fitx_auth hint),
- *       whom the proxy sends on to the dashboard anyway.
+ *     - "visitor": signed-out visitors, on the home page "/" and no other page, once per device (first-time
+ *       visitors only; CinematicIntro remembers it in localStorage when the film starts, and so does Skip or
+ *       Escape here). It records nothing on any account and writes no cookie, so it never touches the
+ *       account's film. Never for a signed-in visitor (fitx_auth hint), whom the proxy sends on to the
+ *       dashboard anyway.
  *    It then marks `<html data-fitx-intro="pending" data-fitx-intro-theme="light|dark">`, which CSS
  *    turns into the full-screen overlay showing the film's first frame, preloads that frame, and
  *    announces it (INTRO_PENDING_EVENT),
  *  - waits while the page is hidden (a tab opened in the background, or prerendered): nothing is
  *    consumed, marked or preloaded until the page is first shown, and the film is chosen then, so a tab
  *    nobody has looked at never uses up or records the account's film,
+ *  - on the first app page after a returning member signs in (cookie fitx_welcome=return, set at sign-in),
+ *    consumes the cookie and marks `data-fitx-loader="welcome"`: the logo reveal (ReturningLogin) instead of
+ *    the loader. Skip (`data-fitx-welcome-skip`) or Escape give the page back before React hydrates, and so does
+ *    a 2.6 s limit if the app never ends it. A film that plays wins (it ends on the logo) and the cookie is
+ *    consumed all the same; a page still hidden leaves it for the next one,
  *  - otherwise, on a returning device (`fitx_intro=seen`), shows the short brand loader
  *    (`data-fitx-loader`) until the app hydrates: at least 0.56 s, gone by 1.08 s at most,
- *  - never shows either on a focus screen (a live workout, /workouts/active, or the activity recorder,
+ *  - never shows either on a focus screen (a live workout, /workouts/active, the AI Form Check camera
+ *    /workouts/form-check, or the activity recorder,
  *    /activity/record): the account's film waits for the next app page,
  *  - never plays the account's film on Help either, which an account still in setup can open (see
  *    src/lib/auth/before-onboarding.ts): the film waits for the first app page after setup, and someone
@@ -83,8 +92,8 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
     var place = function () {
       var path = window.location.pathname;
       var section = path.split("/")[1] || "";
-      var focus = path.indexOf("/workouts/active") === 0 || path.indexOf("/activity/record") === 0;
-      var app = ["dashboard", "workouts", "nutrition", "activity", "ai-coach", "progress", "goals", "planner", "profile", "settings", "exercises", "home-workout", "form-coach"].indexOf(section) !== -1 && !focus;
+      var focus = path.indexOf("/workouts/active") === 0 || path.indexOf("/activity/record") === 0 || path.indexOf("/workouts/form-check") === 0;
+      var app = ["dashboard", "workouts", "nutrition", "activity", "ai-coach", "progress", "goals", "planner", "profile", "settings", "exercises", "home-workout", "form-coach", "explore"].indexOf(section) !== -1 && !focus;
       return { path: path, focus: focus, app: app };
     };
     var signedIn = cookie("fitx_auth") === "1";
@@ -95,7 +104,7 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
       var asked = (window.location.search.match(/[?&]intro=([a-z]+)/) || [])[1];
       if ((here.path === "/" || here.app) && (asked === "live" || asked === "video" || asked === "play")) return "replay";
       if (here.app && cookie("fitx_intro") === "play") return "account";
-      if (here.path === "/" && cookie("fitx_auth") !== "1" && read("sessionStorage", "${VISITOR_FILM_SEEN_KEY}") !== "1") return "visitor";
+      if (here.path === "/" && cookie("fitx_auth") !== "1" && read("localStorage", "${VISITOR_FILM_SEEN_KEY}") !== "1") return "visitor";
       return null;
     };
     var open = function (gate) {
@@ -122,7 +131,7 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
       var release = function (skipped) {
         if (root.getAttribute("data-fitx-intro") !== "pending") return;
         root.removeAttribute("data-fitx-intro");
-        if (skipped && gate === "visitor") write("sessionStorage", "${VISITOR_FILM_SEEN_KEY}", "1");
+        if (skipped && gate === "visitor") write("localStorage", "${VISITOR_FILM_SEEN_KEY}", "1");
       };
       var pendingSkip = function () {
         return root.getAttribute("data-fitx-intro") === "pending" ? document.querySelector("[data-fitx-skip]") : null;
@@ -172,7 +181,32 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
       document.addEventListener("prerenderingchange", shown);
       return;
     }
-    if (gate && open(gate)) return;
+    var welcome = here.app && cookie("${RETURNING_WELCOME_COOKIE}") === "return";
+    var forget = function () {
+      document.cookie = "${RETURNING_WELCOME_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax" + (window.location.protocol === "https:" ? "; Secure" : "");
+    };
+    if (gate && open(gate)) {
+      if (welcome) forget();
+      return;
+    }
+    if (welcome && !hidden()) {
+      forget();
+      if (!still()) {
+        root.setAttribute("data-fitx-loader", "welcome");
+        var done = function () {
+          if (root.getAttribute("data-fitx-loader") === "welcome") root.removeAttribute("data-fitx-loader");
+        };
+        document.addEventListener("click", function (event) {
+          var target = event.target;
+          if (target && target.closest && target.closest("[data-fitx-welcome-skip]")) done();
+        }, true);
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape") done();
+        }, true);
+        window.setTimeout(done, ${WELCOME_FALLBACK_MS});
+        return;
+      }
+    }
     var intro = gate === "account" ? "seen" : cookie("fitx_intro");
     if (still() || intro !== "seen" || here.focus) return;
     root.setAttribute("data-fitx-loader", "on");

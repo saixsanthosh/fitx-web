@@ -1,0 +1,7 @@
+/* Hidden unless the head script marked a returning member's sign-in, before the first paint. */
+.returning { display: none; }
+:global(:root[data-fitx-loader="welcome"]) .returning { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .returning { display: none !important; }
+}

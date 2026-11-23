@@ -20,3 +20,19 @@ export function homePanel(panel: HomePanel, extra: Record<string, string> = {}):
   for (const [key, value] of Object.entries(extra)) if (key !== "panel") params.append(key, value);
   return `/dashboard?${params.toString()}`;
 }
+
+/** The AI Form Check page (the camera coach). /home-workout and /form-coach redirect here, query kept. */
+export const FORM_CHECK = "/workouts/form-check";
+
+/** Explore, FITX's social space (/social redirects here). */
+export const EXPLORE = "/explore";
+
+/**
+ * Goals live on Progress: `/progress?panel=goals`, plus any extra parameters (for example `{ new: "water_day" }`
+ * to open the goal editor on a template). `panel` always comes first and an extra `panel` key is ignored.
+ */
+export function progressGoals(extra: Record<string, string> = {}): string {
+  const params = new URLSearchParams({ panel: "goals" });
+  for (const [key, value] of Object.entries(extra)) if (key !== "panel") params.append(key, value);
+  return `/progress?${params.toString()}`;
+}
