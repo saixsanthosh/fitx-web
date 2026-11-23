@@ -3,7 +3,7 @@
 // arguments, and that the slot hosts render each slot only when it is filled (else today's UI).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { createChoices, CREATE_OPTIONS, EXPLORE_RAIL, RAIL_BADGES, railEntries, railKeyFor, type CreateOption, type RailEntry } from "@/lib/social/rail";
 import { SOCIAL_CLOSED_KEYS, socialErrorKey, socialErrorMessage, toSocialError } from "@/lib/social/errors";
@@ -158,4 +158,15 @@ test("API arguments for the wave-2 calls, and the prefs save stays five-argument
   assert.deepEqual(Object.keys(calls[3][1]), ["p_story_id", "p_kind", "p_path", "p_poster_path", "p_width", "p_height", "p_duration_ms", "p_caption"]);
   await socialApi.deleteAllContent(db);
   assert.equal(calls[4][0], "fitx_social_delete_all_content");
+});
+
+test("a notification switch names only notices that can arrive: no 'invites' while nothing sends challenge_invite", () => {
+  const dir = path.resolve(process.cwd(), "supabase/migrations");
+  const sql = readdirSync(dir).filter((file) => file.endsWith(".sql")).map((file) => readFileSync(path.join(dir, file), "utf8")).join("\n");
+  assert.match(sql, /fitx_social_notify\([^;]*'challenge_badge'/, "challenge badges are sent");
+  const settings = source("src/components/social/SettingsView.tsx");
+  if (!/fitx_social_notify\([^;]*'challenge_invite'/.test(sql)) {
+    assert.match(settings, /\{ key: "challenges", label: "Challenge badges",/);
+    assert.doesNotMatch(settings, /label: "[^"]*[Ii]nvit/, "no switch promises invitations that cannot arrive");
+  }
 });

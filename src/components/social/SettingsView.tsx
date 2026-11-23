@@ -32,7 +32,8 @@ const PREFS: { key: keyof NotificationPrefs; label: string; shown: boolean }[] =
   { key: "stories", label: "Story likes and replies", shown: storiesReady },
   { key: "messages", label: "Messages and message requests", shown: ready("messages") },
   { key: "communities", label: "Communities", shown: ready("community") },
-  { key: "challenges", label: "Challenge invites and badges", shown: ready("community") },
+  // Release 2a sends challenge badges only (no invitations yet): say "Challenge invites and badges" once they ship.
+  { key: "challenges", label: "Challenge badges", shown: ready("community") },
 ];
 
 /**
