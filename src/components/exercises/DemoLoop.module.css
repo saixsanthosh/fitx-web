@@ -108,8 +108,20 @@
   color: var(--fitx-text-secondary);
 }
 
-/* The frame's own caption: one line of steady height, so the controls never jump when it changes. */
+/* Under the picture: the frame's own caption and, with both models, the model switch beside it (below it on phones). */
+.lead {
+  margin-top: 0.625rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+/* The frame's own caption: steady height, so the controls never jump when it changes. */
 .frameCaption {
+  margin: 0;
+  flex: 1 1 14rem;
+  min-width: 0;
   display: block;
   min-height: 1.25rem;
   font-size: 0.875rem;
@@ -126,9 +138,9 @@
   to { opacity: 1; transform: none; }
 }
 
-/* "Demonstration model": a two-way switch under the controls. */
+/* "Demonstration model": a two-way switch. */
 .models {
-  margin-top: 0.5rem;
+  flex: none;
   display: inline-flex;
   gap: 0.25rem;
   border-radius: 999px;

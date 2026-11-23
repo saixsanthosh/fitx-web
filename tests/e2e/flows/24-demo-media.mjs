@@ -53,8 +53,8 @@ export const flow = {
       await box.fill("bench press");
       const card = page.locator("article", { has: page.getByRole("link", { name: NAME, exact: true }) }).first();
       await card.waitFor({ timeout: 20000 });
-      await card.locator(`img[src='${frame("female", 0)}']`).waitFor({ timeout: 15000 });
-      t.expect(/AI demo/.test(await textOf(card)), "the card says it is an AI demonstration");
+      await card.locator(`img[src*='${frame("female", 0)}']`).waitFor({ timeout: 15000 });
+      t.expect(/AI demo/i.test(await textOf(card)), "the card says it is an AI demonstration");
       const other = page.locator("article", { has: page.getByRole("link", { name: "Dumbbell Bench Press", exact: true }) }).first();
       if (await other.count()) t.expect((await demoSrc(other)).length === 0, "an exercise without a demonstration keeps its photo");
       await t.checkpoint("library card with the female demonstration");
@@ -67,7 +67,7 @@ export const flow = {
       await figure.getByText(LABEL, { exact: false }).waitFor();
       await figure.getByText("No verified video yet").waitFor();
       t.expect((await figure.getByText(/^Photos: FITX demonstration/).count()) === 1, "the credit names FITX's demonstration and its source");
-      t.expect((await page.getByRole("radio", { name: "Female" }).isChecked()), "Female is the chosen model");
+      t.expect((await page.getByRole("radio", { name: "Female", exact: true }).isChecked()), "Female is the chosen model");
       const shown = await demoSrc(figure);
       t.expect(shown.length === 2 && shown.every((src) => src.includes("/female/")), `only the female frames are in the loop: ${shown.join(", ")}`);
       const caption = figure.locator("[data-demo-caption]");
@@ -82,9 +82,9 @@ export const flow = {
 
     await t.step("Demonstration model: Male switches the person at once and is saved", async () => {
       const group = page.getByRole("radiogroup", { name: "Demonstration model" });
-      await group.getByRole("radio", { name: "Male" }).check();
+      await group.getByRole("radio", { name: "Male", exact: true }).check();
       const figure = page.getByRole("figure", { name: `${NAME}: AI demonstration` });
-      await figure.locator(`img[src='${frame("male", 0)}']`).waitFor({ timeout: 10000 });
+      await figure.locator(`img[src*='${frame("male", 0)}']`).waitFor({ timeout: 10000 });
       const shown = await demoSrc(figure);
       t.expect(shown.every((src) => src.includes("/male/")), `never two people in one loop: ${shown.join(", ")}`);
       let stored = null;
@@ -98,7 +98,7 @@ export const flow = {
       const box = page.getByRole("main").getByRole("searchbox", { name: "Search exercises" });
       await box.fill("bench press");
       const card = page.locator("article", { has: page.getByRole("link", { name: NAME, exact: true }) }).first();
-      await card.locator(`img[src='${frame("male", 0)}']`).waitFor({ timeout: 20000 });
+      await card.locator(`img[src*='${frame("male", 0)}']`).waitFor({ timeout: 20000 });
       t.expect(true, "the library card follows the saved choice");
     });
 

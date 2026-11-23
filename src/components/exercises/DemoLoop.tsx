@@ -103,6 +103,8 @@ export function DemoLoop({ stills, name, size = "full", className, whenEmpty = n
   const compact = size === "compact";
   const aiDemo = shown.some((still) => still.aiDemo);
   const chooser = onModelChange && models.length > 1;
+  // The caption row stays in place for the whole loop, so a frame without a caption never makes the controls jump.
+  const hasCaptions = shown.some((still) => still.caption);
 
   return (
     <figure className={cn("m-0", className)} aria-label={`${name}: ${aiDemo ? "AI demonstration" : "photo demonstration"}`}>
@@ -127,6 +129,23 @@ export function DemoLoop({ stills, name, size = "full", className, whenEmpty = n
           <span className={styles.counter} aria-hidden="true">{frame + 1}/{frames}</span>
         )}
       </div>
+      {(hasCaptions || chooser) && (
+        <div className={styles.lead}>
+          <p className={styles.frameCaption} data-demo-caption aria-live={state.playing ? "off" : "polite"} aria-atomic="true">
+            {caption && <span key={`${frame}-${caption}`} className={styles.captionText}>{caption}</span>}
+          </p>
+          {chooser && (
+            <div role="radiogroup" aria-label="Demonstration model" className={styles.models}>
+              {models.map((value) => (
+                <label key={value} className={cn(styles.model, value === model && styles.modelOn)}>
+                  <input type="radio" name={radioName} value={value} checked={value === model} onChange={() => onModelChange(value)} className={styles.modelInput} />
+                  <span>{DEMO_MODEL_LABELS[value]}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {frames > 1 && (
         <div className={styles.controls} role="group" aria-label={`${name}: demonstration controls`}>
           <button type="button" className={cn(styles.control, styles.primary)} onClick={() => dispatch({ type: "toggle", frames })}
@@ -152,20 +171,7 @@ export function DemoLoop({ stills, name, size = "full", className, whenEmpty = n
           <span className="sr-only" aria-live={state.playing ? "off" : "polite"}>{frameLabel(frame, frames)}{state.playing ? "" : ", paused"}</span>
         </div>
       )}
-      {chooser && (
-        <div role="radiogroup" aria-label="Demonstration model" className={styles.models}>
-          {models.map((value) => (
-            <label key={value} className={cn(styles.model, value === model && styles.modelOn)}>
-              <input type="radio" name={radioName} value={value} checked={value === model} onChange={() => onModelChange(value)} className={styles.modelInput} />
-              <span>{DEMO_MODEL_LABELS[value]}</span>
-            </label>
-          ))}
-        </div>
-      )}
       <figcaption className={styles.caption}>
-        <span className={styles.frameCaption} data-demo-caption aria-live={state.playing ? "off" : "polite"} aria-atomic="true">
-          {caption && <span key={`${frame}-${caption}`} className={styles.captionText}>{caption}</span>}
-        </span>
         {aiDemo
           ? <span className="block">{DEMO_LABEL}.{compact ? "" : " A video demonstration is not available yet."}</span>
           : !compact && <span className="block">Real photos of the movement, played in order. A video demonstration is not available yet.</span>}
