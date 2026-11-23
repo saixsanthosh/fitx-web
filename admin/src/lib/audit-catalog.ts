@@ -1,13 +1,18 @@
 // Every action the Admin audit log records, with the words the Audit screen shows: the core list
-// (audit-catalog-core.ts) and the content list (audit-catalog-content.ts). Imports only those two.
+// (audit-catalog-core.ts), the content list (audit-catalog-content.ts) and the Explore list
+// (audit-catalog-explore.ts). Imports only those three.
 import { CONTENT_AUDIT_ACTIONS, CONTENT_AUDIT_RESOURCE_TYPES } from "./audit-catalog-content";
-import { CORE_AUDIT_ACTIONS, CORE_AUDIT_RESOURCE_TYPES } from "./audit-catalog-core";
+import { CORE_AUDIT_ACTIONS, CORE_AUDIT_RESOURCE_TYPES, READ_ONLY_AUDIT_ACTIONS as CORE_READ_ONLY } from "./audit-catalog-core";
+import { EXPLORE_AUDIT_ACTIONS, EXPLORE_AUDIT_RESOURCE_TYPES, EXPLORE_READ_ONLY_AUDIT_ACTIONS } from "./audit-catalog-explore";
 
-export const AUDIT_ACTIONS = { ...CORE_AUDIT_ACTIONS, ...CONTENT_AUDIT_ACTIONS } as const;
+export const AUDIT_ACTIONS = { ...CORE_AUDIT_ACTIONS, ...CONTENT_AUDIT_ACTIONS, ...EXPLORE_AUDIT_ACTIONS } as const;
+
+/** Every look (not a change) the log records; the Dashboard's recent activity leaves them out. */
+export const READ_ONLY_AUDIT_ACTIONS = [...CORE_READ_ONLY, ...EXPLORE_READ_ONLY_AUDIT_ACTIONS] as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 
-export const AUDIT_RESOURCE_TYPES = [...new Set([...CORE_AUDIT_RESOURCE_TYPES, ...CONTENT_AUDIT_RESOURCE_TYPES])] as const;
+export const AUDIT_RESOURCE_TYPES = [...new Set([...CORE_AUDIT_RESOURCE_TYPES, ...CONTENT_AUDIT_RESOURCE_TYPES, ...EXPLORE_AUDIT_RESOURCE_TYPES])] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];
 
 export function isAuditAction(value: unknown): value is AuditAction {

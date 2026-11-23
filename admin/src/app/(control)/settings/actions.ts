@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-auth";
-import { FEATURE_KEYS, validateSettingsInput } from "@/components/settings/settings-rules";
+import { FEATURE_KEYS, LEGACY_FEATURE_KEYS, validateSettingsInput } from "@/components/settings/settings-rules";
 import { savePlatformSettings } from "@/lib/data/platform";
 import { istInputToIso } from "@/lib/time";
 
@@ -28,7 +28,9 @@ export async function saveSettings(formData: FormData) {
   });
   if (!checked.ok) redirect(`/settings?state=invalid&message=${encodeURIComponent(checked.error)}`);
   const seen = formData.get("updated_at");
-  const result = await savePlatformSettings(actor, checked.value, typeof seen === "string" && seen && !Number.isNaN(Date.parse(seen)) ? seen : null);
+  // The form shows the Explore switches only once 20261124100020 is applied (the older save refuses their keys).
+  const keys = formData.get("explore_keys") === "1" ? FEATURE_KEYS : LEGACY_FEATURE_KEYS;
+  const result = await savePlatformSettings(actor, checked.value, typeof seen === "string" && seen && !Number.isNaN(Date.parse(seen)) ? seen : null, keys);
   revalidatePath("/settings");
   redirect(`/settings?state=${result.ok ? "saved" : result.error}`);
 }

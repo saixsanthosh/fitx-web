@@ -50,6 +50,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const dash = <span aria-label="Not known">–</span>;
 
+const PLACES: Record<string, string> = { gym: "Gym", home: "Home", both: "Gym and home", outdoor: "Outdoors" };
+
+/**
+ * A Workouts setup answer: "Not set" until the member has done the setup (the stored value is then only the column
+ * default, as the app's Profile treats it), the answer after, and a dash when the setup state could not be read.
+ */
+function trainingValue(known: boolean | null, value: string | null) {
+  if (known === false) return <span className="field-note">Not set</span>;
+  if (known === null || value === null) return dash;
+  return value;
+}
+
 export default async function PersonPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ notice?: string }> }) {
   const actor = await requireAdmin("people.view");
   const { id } = await params;
@@ -112,7 +124,9 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
               <dl className="detail-list">
                 <Field label="Name">{person.profile.name ?? dash}</Field>
                 <Field label="Goal">{person.profile.goal ? (GOALS[person.profile.goal] ?? person.profile.goal) : dash}</Field>
-                <Field label="Experience">{person.profile.experience ? person.profile.experience[0].toUpperCase() + person.profile.experience.slice(1) : dash}</Field>
+                <Field label="Experience">{trainingValue(person.profile.trainingKnown, person.profile.experience ? person.profile.experience[0].toUpperCase() + person.profile.experience.slice(1) : null)}</Field>
+                <Field label="Trains at">{trainingValue(person.profile.trainingKnown, person.profile.place ? (PLACES[person.profile.place] ?? person.profile.place) : null)}</Field>
+                <Field label="Days a week">{trainingValue(person.profile.trainingKnown, person.profile.daysPerWeek === null ? null : String(person.profile.daysPerWeek))}</Field>
                 <Field label="Set-up">{person.profile.setUp === null ? dash : person.profile.setUp ? `Done${person.profile.profileCreatedAt ? ` · since ${formatIstDate(person.profile.profileCreatedAt)}` : ""}` : "Not finished"}</Field>
               </dl>
             ) : <p className="metric-definition">The profile could not be read.</p>}

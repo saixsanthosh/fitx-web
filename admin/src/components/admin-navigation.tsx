@@ -7,6 +7,7 @@ import {
   Apple,
   Bell,
   ChartNoAxesCombined,
+  Compass,
   CreditCard,
   Dumbbell,
   LayoutDashboard,
@@ -21,7 +22,7 @@ import {
 import { EASE_OUT, prefersReducedMotion } from "@/components/motion/reduced-motion";
 import { ThemeSwitch } from "@/components/theme/theme-switch";
 import type { AdminTheme } from "@/components/theme/theme";
-import { isActiveRoute, sectionForPath, visibleSections, type AdminSection, type VisibleSection } from "./admin-sections";
+import { currentRoute, isActiveRoute, sectionForPath, visibleSections, type AdminSection, type VisibleSection } from "./admin-sections";
 import styles from "./admin-shell.module.css";
 
 const ICONS: Record<AdminSection["icon"], LucideIcon> = {
@@ -32,6 +33,7 @@ const ICONS: Record<AdminSection["icon"], LucideIcon> = {
   subscriptions: CreditCard,
   support: LifeBuoy,
   notifications: Bell,
+  explore: Compass,
   reports: ChartNoAxesCombined,
   security: ShieldCheck,
   settings: Settings2,
@@ -44,7 +46,7 @@ function isSectionActive(pathname: string, section: VisibleSection) {
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
- * The ten sections, numbered. A marker glides to the active section (Web Animations API, transform
+ * The eleven sections, numbered. A marker glides to the active section (Web Animations API, transform
  * only); sub-pages of the active section open beneath it. The server checks every page again.
  */
 /** Unread or waiting counts by section route, shown as a badge (for example, Support). */
@@ -103,12 +105,12 @@ function SectionList({ sections, onNavigate, idPrefix, counts = {} }: { sections
               <span className={styles.sectionNumber} aria-hidden="true">{section.number}</span>
               <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
               <span className={styles.sectionLabel}>{section.label}</span>
-              {count > 0 && <span className={styles.count}><span aria-hidden="true">{count > 99 ? "99+" : count}</span><span className="sr-only">, {count} unread</span></span>}
+              {count > 0 && <span className={styles.count}><span aria-hidden="true">{count > 99 ? "99+" : count}</span><span className="sr-only">, {count} {section.icon === "explore" ? "waiting" : "unread"}</span></span>}
             </Link>
             {active && section.visibleRoutes.length > 1 && (
               <ul className={styles.subRoutes} id={subId} aria-label={section.label}>
                 {section.visibleRoutes.map((route) => {
-                  const current = isActiveRoute(pathname, route.href);
+                  const current = currentRoute(pathname, section.visibleRoutes) === route.href;
                   return (
                     <li key={route.href}>
                       <Link href={route.href} className={styles.subLink} aria-current={current ? "page" : undefined} onClick={onNavigate}>{route.label}</Link>

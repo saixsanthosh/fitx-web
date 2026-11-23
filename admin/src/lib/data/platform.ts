@@ -1,6 +1,6 @@
 import "server-only";
 import { hasPermission, requireAdmin, type AdminOperator } from "@/lib/admin-auth";
-import { parseSettingsRow, type PlatformSettingsValue } from "@/components/settings/settings-rules";
+import { FEATURE_KEYS, parseSettingsRow, type FeatureKey, type PlatformSettingsValue } from "@/components/settings/settings-rules";
 import { logServerError } from "@/lib/log";
 import { isMissingSchema, isPermissionError } from "@/lib/schema";
 import { createAdminSupabase } from "@/lib/supabase/admin";
@@ -33,14 +33,18 @@ export async function getPlatformSettings(): Promise<PlatformSettingsResult> {
 
 export type SaveSettingsResult = { ok: true } | { ok: false; error: "forbidden" | "changed" | "invalid" | "migration" | "configuration" | "failed" };
 
-/** Saves every part at once; the database checks settings.manage again, refuses stale saves and audits. */
-export async function savePlatformSettings(actor: AdminOperator, value: PlatformSettingsValue, expectedUpdatedAt: string | null): Promise<SaveSettingsResult> {
+/**
+ * Saves every part at once; the database checks settings.manage again, refuses stale saves and audits. `keys` are
+ * the switches the form showed: before 20261124100020 the database takes only the five older ones, so the Explore
+ * switches are sent only when the form had them.
+ */
+export async function savePlatformSettings(actor: AdminOperator, value: PlatformSettingsValue, expectedUpdatedAt: string | null, keys: readonly FeatureKey[] = FEATURE_KEYS): Promise<SaveSettingsResult> {
   if (!hasPermission(actor, "settings.manage")) return { ok: false, error: "forbidden" };
   const admin = createAdminSupabase();
   if (!admin) return { ok: false, error: "configuration" };
   const { error } = await admin.rpc("fitx_admin_op_save_platform_settings", {
     p_operator_id: actor.id,
-    p_features: value.features,
+    p_features: Object.fromEntries(keys.map((key) => [key, value.features[key]])),
     p_maintenance: value.maintenance,
     p_site: value.site,
     p_expected_updated_at: expectedUpdatedAt,

@@ -55,7 +55,7 @@ test("every audit action the migration writes is in the catalog, marked as writt
   for (const action of ["users_bulk_suspended", "admin_sessions_revoked"]) assert.equal(audit.AUDIT_ACTIONS[action].source, "server", action);
 });
 
-test("the ten sections link every admin-core screen, each behind its own permission", async () => {
+test("the eleven sections link every admin-core screen, each behind its own permission", async () => {
   const routes = sections.ADMIN_SECTIONS.flatMap((section) => section.routes.map((route) => route.href));
   for (const route of ["/overview", "/users", "/support", "/notifications", "/announcements", "/access-control", "/audit", "/security", "/settings"]) {
     assert.ok(routes.includes(route), route);
