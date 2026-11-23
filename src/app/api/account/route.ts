@@ -7,6 +7,7 @@ import {
   isAuthOutage,
   isRecentSignIn,
   RECENT_SIGN_IN_MINUTES,
+  removeSocialMediaFiles,
   sessionSignedInAt,
   type DeletionStatus,
 } from "@/lib/account/deletion";
@@ -116,6 +117,12 @@ export async function DELETE(request: NextRequest) {
     console.warn("[fitx-account] private files were not removed; the account was kept", codeOf(files.error));
     return route.applyTo(json({ error: "files_not_deleted" }, 502));
   }
+  // Explore photos live in their own private bucket; they go before the login too (a missing bucket is not an error).
+  const social = await removeSocialMediaFiles(admin, user.id);
+  if (social.error) {
+    console.warn("[fitx-account] Explore photos were not removed; the account was kept", codeOf(social.error));
+    return route.applyTo(json({ error: "files_not_deleted" }, 502));
+  }
   const { error } = await admin.auth.admin.deleteUser(user.id);
   if (error) {
     console.warn("[fitx-account] the login could not be deleted", codeOf(error));
@@ -124,7 +131,7 @@ export async function DELETE(request: NextRequest) {
 
   // The login is gone: end the session on this device. (route.applyTo is skipped on purpose, so a
   // token refresh during this request can't put the session cookies back.)
-  const response = json({ deleted: true, removedFiles: files.removed });
+  const response = json({ deleted: true, removedFiles: files.removed + social.removed });
   for (const cookie of request.cookies.getAll()) {
     if (SESSION_COOKIE_RE.test(cookie.name)) response.cookies.set(cookie.name, "", { ...sessionCookieOptions(route.secure), maxAge: 0 });
   }

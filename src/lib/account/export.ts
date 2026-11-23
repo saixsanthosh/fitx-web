@@ -41,7 +41,7 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   { table: "personal_records", label: "Personal records", owner: "user_id", order: "id" },
   { table: "exercise_notes", label: "Exercise notes", owner: "user_id", order: "exercise_id" },
   { table: "exercise_favorites", label: "Saved exercises", owner: "user_id", order: "exercise_id" },
-  { table: "activities", label: "Walks, runs and rides", owner: "user_id", order: "id" },
+  { table: "activities", label: "Activities (walks, runs, rides and more)", owner: "user_id", order: "id" },
   { table: "activity_track_chunks", label: "GPS points of your activities", owner: "user_id", order: ["activity_id", "seq"] },
   { table: "goals", label: "Goals", owner: "user_id", order: "id" },
   { table: "goal_progress_entries", label: "Goal progress", owner: "user_id", order: "id" },

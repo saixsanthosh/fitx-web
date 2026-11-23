@@ -175,6 +175,30 @@ describe("deleting the account", () => {
     assert.equal((await response.json()).error, "not_configured");
   });
 
+  test("removes the account's Explore photos from their own bucket too, before the login", async () => {
+    fake.files.set(`fitx-user-media/${ME.id}`, [{ name: "avatar-1.jpg", id: "f1" }]);
+    fake.files.set(`social-media/${ME.id}`, [{ name: "post-1", id: null }]);
+    fake.files.set(`social-media/${ME.id}/post-1`, [{ name: "0.webp", id: "s1" }, { name: "1.webp", id: "s2" }]);
+    fake.files.set(`social-media/${OTHER.id}`, [{ name: "post-9", id: null }]);
+    const response = await route.DELETE(request("DELETE", { signedInSecondsAgo: 60, body: { confirm: "DELETE", expectedUserId: ME.id } }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { deleted: true, removedFiles: 3 });
+    assert.deepEqual(fake.removed.sort(), [`${ME.id}/avatar-1.jpg`, `${ME.id}/post-1/0.webp`, `${ME.id}/post-1/1.webp`]);
+    const order = fake.calls.map((call) => `${call.method} ${call.path}`);
+    assert.ok(order.indexOf("DELETE /storage/v1/object/social-media") >= 0, "the Explore bucket is emptied");
+    assert.ok(order.indexOf("DELETE /storage/v1/object/social-media") < order.indexOf(`DELETE /auth/v1/admin/users/${ME.id}`), "before the login goes");
+  });
+
+  test("keeps the account when its Explore photos can't be removed", async () => {
+    fake.files.set(`social-media/${ME.id}`, [{ name: "post-1", id: null }]);
+    fake.files.set(`social-media/${ME.id}/post-1`, [{ name: "0.webp", id: "s1" }]);
+    fake.failRemove = true;
+    const response = await route.DELETE(request("DELETE", { signedInSecondsAgo: 30, body: { confirm: "DELETE", expectedUserId: ME.id } }));
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).error, "files_not_deleted");
+    assert.deepEqual(fake.deletedUsers, []);
+  });
+
   test("keeps the account when its files can't be removed, or when Supabase refuses", async () => {
     fake.files.set(`fitx-user-media/${ME.id}`, [{ name: "avatar-1.jpg", id: "f1" }]);
     fake.failRemove = true;
