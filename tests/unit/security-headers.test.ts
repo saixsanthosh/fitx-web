@@ -3,7 +3,7 @@
 // project and the e2e stand-in.
 import test from "node:test";
 import assert from "node:assert/strict";
-import nextConfig, { buildContentSecurityPolicy, CSP_ENFORCED, securityHeaders, supabaseOrigins } from "../../next.config.ts";
+import nextConfig, { buildContentSecurityPolicy, CSP_ENFORCED, googleClientIdFrom, securityHeaders, supabaseOrigins } from "../../next.config.ts";
 
 const directives = (policy: string) => new Map(policy.split("; ").map((part) => {
   const [name, ...sources] = part.split(" ");
@@ -46,6 +46,23 @@ test("the policy allows only what the app loads, and nothing that would make pag
   assert.ok(!policy.has("upgrade-insecure-requests"), "it would break the local http stand-in; HSTS covers production");
 });
 
+test("Google Identity Services gets exactly its documented entries, and only when its client id is set", () => {
+  const clientId = "1234567890-abcdefghijklmnop.apps.googleusercontent.com";
+  assert.equal(googleClientIdFrom(` ${clientId} `), clientId);
+  for (const value of [undefined, null, "", "not-a-client-id", "1234-x.example.com", "https://accounts.google.com"]) assert.equal(googleClientIdFrom(value), null, String(value));
+  const without = buildContentSecurityPolicy({ supabaseUrl: "https://abcd.supabase.co" });
+  assert.doesNotMatch(without, /accounts\.google\.com/, "nothing from Google without a client id");
+  assert.equal(buildContentSecurityPolicy({ supabaseUrl: "https://abcd.supabase.co", googleClientId: "rubbish" }), without);
+  const policy = directives(buildContentSecurityPolicy({ supabaseUrl: "https://abcd.supabase.co", googleClientId: clientId }));
+  assert.deepEqual(policy.get("script-src"), ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", "https://checkout.razorpay.com", "https://accounts.google.com/gsi/client"]);
+  assert.deepEqual(policy.get("style-src"), ["'self'", "'unsafe-inline'", "https://accounts.google.com/gsi/"]);
+  assert.deepEqual(policy.get("frame-src"), ["https://api.razorpay.com", "https://checkout.razorpay.com", "https://accounts.google.com/gsi/"]);
+  assert.ok(policy.get("connect-src")?.includes("https://accounts.google.com/gsi/"));
+  // Nothing else changes: the rest of the policy is the same as without Google.
+  const rest = (map: Map<string, readonly string[]>) => [...map].map(([name, sources]) => [name, sources.filter((source) => !source.startsWith("https://accounts.google.com/gsi/"))]);
+  assert.deepEqual(rest(policy), rest(directives(without)));
+});
+
 test("the e2e stand-in is allowed exactly the way the hosted project is", () => {
   const hosted = buildContentSecurityPolicy({ supabaseUrl: "https://abcd.supabase.co" });
   const standin = buildContentSecurityPolicy({ supabaseUrl: "http://fitx-e2e-db.localhost:3721" });
@@ -72,7 +89,10 @@ test("every path gets HSTS, COOP, nosniff, framing and referrer rules, a tight P
   assert.equal(get("X-Frame-Options"), "DENY");
   assert.equal(get("Referrer-Policy"), "strict-origin-when-cross-origin");
   const permissions = get("Permissions-Policy") ?? "";
-  for (const rule of ["camera=(self)", "geolocation=(self)", "microphone=()", "screen-wake-lock=(self)", 'payment=(self "https://api.razorpay.com")']) {
+  for (const rule of [
+    "camera=(self)", "geolocation=(self)", "microphone=(self)", "accelerometer=(self)", "gyroscope=(self)", "screen-wake-lock=(self)",
+    'payment=(self "https://api.razorpay.com")', "magnetometer=()", "usb=()", "bluetooth=()", "display-capture=()",
+  ]) {
     assert.ok(permissions.split(", ").includes(rule), rule);
   }
   assert.equal(CSP_ENFORCED, true);

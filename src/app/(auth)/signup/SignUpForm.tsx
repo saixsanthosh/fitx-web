@@ -6,7 +6,8 @@ import { AnimatePresence, m } from "framer-motion";
 import { Apple, LockKeyhole, Mail, Plus, UserRound } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
-import { GoogleButton, startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
+import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
+import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
 import { useEmailCode } from "@/components/auth/useEmailCode";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
@@ -116,7 +117,15 @@ export default function SignUpForm() {
         ) : (
           <m.div key="email" className={s.body} {...slide}>
             <h1 className={s.title}>Create account</h1>
-            <GoogleButton pending={pending === "google"} disabled={loading} onClick={() => void signInWith("google")} />
+            <GoogleSignIn
+              context="signup"
+              next={noNext}
+              disabled={loading}
+              redirectPending={pending === "google"}
+              onRedirect={() => void signInWith("google")}
+              onError={setError}
+              onBusy={(busy) => setPending(busy ? "google" : null)}
+            />
             <div className={s.divider}>or</div>
             <form onSubmit={submit} className={s.form} noValidate>
               <label className={s.field}>Email address

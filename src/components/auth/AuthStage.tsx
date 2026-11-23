@@ -1,120 +1,222 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, m, useInView } from "framer-motion";
-import { Pause, Play } from "lucide-react";
+import { Pause, Play, Smartphone } from "lucide-react";
 import { EASE, useReducedMotionSafe, usePageVisible } from "@/components/motion";
 import { Logo } from "@/components/ui/Logo";
-import { ANKLE, BONES, cueFor, hipPath, jointPoints, kneeAngle, squatDepth, squatPose, type Cue, type SquatPose } from "./squat-pose";
+import type { LoginScene } from "./scene/login-scene";
+import { follow, idleDrift, pointerLook, sceneVerdict, tiltLook, type Look } from "./scene/scene-math";
 import s from "./auth.module.css";
 
-/** One rep, down and up. */
-const REP_SECONDS = 3.6;
-/** The still frame: lowering, near depth. Shown before hydration, with reduced motion and while paused at load. */
-const STILL_PHASE = 0.32;
-const WORDS = ["Lift", "Run", "Fuel", "Recover"] as const;
+const WORDS = ["Lift", "Train", "Fuel", "Recover"] as const;
 const WORD_SECONDS = 2.6;
-const TRAIL = hipPath();
 
-function transforms(pose: SquatPose) {
-  return {
-    shin: `rotate(${pose.shin.toFixed(2)})`,
-    knee: `translate(0 ${-BONES.shin}) rotate(${pose.knee.toFixed(2)})`,
-    hip: `translate(0 ${-BONES.thigh}) rotate(${pose.hip.toFixed(2)})`,
-    shoulder: `translate(0 ${-(BONES.torso - 4)}) rotate(${pose.shoulder.toFixed(2)})`,
-    elbow: `translate(0 ${BONES.upperArm}) rotate(${pose.elbow.toFixed(2)})`,
+type Theme = "light" | "dark";
+type Motion = "idle" | "loading" | "live" | "still";
+type TiltAccess = "none" | "ask" | "on" | "denied";
+
+const never = () => () => {};
+
+/** Whether this device may run the live scene (read once on the client; "server" before hydration). */
+function readVerdict() {
+  const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean } };
+  return sceneVerdict({
+    reducedMotion: false,
+    saveData: nav.connection?.saveData === true,
+    cores: nav.hardwareConcurrency,
+    memory: nav.deviceMemory,
+    appleMobile: isAppleMobile(),
+    workers: typeof Worker !== "undefined",
+  });
+}
+
+/** How this phone shares its tilt: "ask" (iOS, on a tap), "auto" (Android), or "none" (laptops). */
+function readTiltSupport(): "ask" | "auto" | "none" {
+  const api = orientationApi();
+  if (!api || !window.matchMedia("(pointer: coarse)").matches) return "none";
+  // Only Safari on iPhone and iPad holds motion back until a tap; other browsers share it (or ask on their own).
+  return typeof api.requestPermission === "function" && isAppleMobile() ? "ask" : "auto";
+}
+
+/** The page's effective theme (a saved choice on <html data-theme>, else the device's). */
+function readTheme(): Theme {
+  const saved = document.documentElement.dataset.theme;
+  if (saved === "light" || saved === "dark") return saved;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function subscribeTheme(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  media.addEventListener("change", onChange);
+  return () => {
+    observer.disconnect();
+    media.removeEventListener("change", onChange);
   };
 }
 
-function labelTransform(pose: SquatPose) {
-  const { knee } = jointPoints(pose);
-  return `translate(${(knee.x + 14).toFixed(1)} ${(knee.y - 10).toFixed(1)})`;
-}
-
-/** One side of the body. `far` is the leg and arm behind, drawn fainter and offset for depth. */
-function Limbs({ pose, far = false }: { pose: SquatPose; far?: boolean }) {
-  const t = transforms(pose);
-  const bone = far ? `${s.bone} ${s.boneFar}` : s.bone;
-  return (
-    <g transform={`translate(${ANKLE.x + (far ? -9 : 0)} ${ANKLE.y})`}>
-      <line className={bone} x1={-6} y1={0} x2={24} y2={0} />
-      <g data-joint="shin" transform={t.shin}>
-        <line className={bone} x1={0} y1={0} x2={0} y2={-BONES.shin} />
-        <g data-joint="knee" transform={t.knee}>
-          <line className={bone} x1={0} y1={0} x2={0} y2={-BONES.thigh} />
-          <g data-joint="hip" transform={t.hip}>
-            {!far && <line className={bone} x1={0} y1={0} x2={0} y2={-BONES.torso} />}
-            {!far && <circle className={s.head} cx={0} cy={-(BONES.torso + 4 + BONES.head)} r={BONES.head} />}
-            <g data-joint="shoulder" transform={t.shoulder}>
-              <line className={bone} x1={0} y1={0} x2={0} y2={BONES.upperArm} />
-              <g data-joint="elbow" transform={t.elbow}>
-                <line className={bone} x1={0} y1={0} x2={0} y2={BONES.forearm} />
-                {!far && <circle className={s.joint} cx={0} cy={BONES.forearm} r={3.5} />}
-              </g>
-              {!far && <circle className={s.joint} cx={0} cy={BONES.upperArm} r={4} />}
-            </g>
-            {!far && <circle className={s.joint} cx={0} cy={-(BONES.torso - 4)} r={4.5} />}
-            {!far && <circle className={s.joint} r={5} />}
-          </g>
-          {!far && <circle className={s.joint} r={5} />}
-        </g>
-        {!far && <circle className={s.joint} r={4.5} />}
-      </g>
-    </g>
-  );
-}
+type OrientationPermission = { requestPermission?: () => Promise<"granted" | "denied"> };
+const orientationApi = () => (typeof window !== "undefined" && "DeviceOrientationEvent" in window ? (window.DeviceOrientationEvent as unknown as OrientationPermission) : null);
+const isAppleMobile = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 /**
- * The sign-in pages' moving picture: a figure squatting under a form-check frame, the knee angle and the
- * coaching cue read from the drawing itself, and the headline's first word changing. It animates SVG
- * transforms only, stops when it is off screen, the tab is hidden or the visitor pauses it, and shows one
- * still frame with reduced motion.
+ * The sign-in pages' stage: a live 3D scene from the FITX film (Dre's deadlift set in the film's gym) that turns
+ * with the phone's tilt or follows the pointer, over a still frame of the same scene. The still is the first paint,
+ * and it stays with reduced motion, Save-Data, low-end devices, or whenever WebGL, the worker or the frame rate
+ * fail; the still then drifts gently with the same tilt and pointer (except with reduced motion, when nothing moves).
+ * iOS asks before it shares motion: the "Tilt to look around" button asks, on a tap.
  */
 export function AuthStage() {
   const reduced = useReducedMotionSafe();
   const visible = usePageVisible();
   const root = useRef<HTMLElement>(null);
-  const svg = useRef<SVGSVGElement>(null);
-  const angleText = useRef<SVGTextElement>(null);
-  const label = useRef<SVGGElement>(null);
+  const host = useRef<HTMLDivElement>(null);
+  const still = useRef<HTMLDivElement>(null);
+  const scene = useRef<LoginScene | null>(null);
+  const look = useRef<Look | null>(null);
+  const started = useRef(false);
   const inView = useInView(root);
+  const theme = useSyncExternalStore(subscribeTheme, readTheme, () => "dark" as Theme);
   const [paused, setPaused] = useState(false);
-  const [cue, setCue] = useState<Cue>(cueFor(STILL_PHASE));
+  const verdict = useSyncExternalStore(never, readVerdict, () => "server" as const);
+  const tiltSupport = useSyncExternalStore(never, readTiltSupport, () => "none" as const);
+  const [loaded, setLoaded] = useState<Motion>("idle");
+  const [answer, setAnswer] = useState<"granted" | "denied" | null>(null);
+  const motion: Motion = reduced || verdict === "server" ? "idle" : verdict !== "live" ? "still" : loaded;
+  const tilt: TiltAccess = tiltSupport === "none" ? "none" : tiltSupport === "auto" || answer === "granted" ? "on" : answer === "denied" ? "denied" : "ask";
   const [word, setWord] = useState(0);
-  const phase = useRef(STILL_PHASE);
   const running = !reduced && !paused && visible && inView;
-  const still = squatPose(squatDepth(STILL_PHASE));
+
+  // Start the live scene once the page is idle (the form is usable first), when the device can carry it.
+  useEffect(() => {
+    if (reduced || verdict !== "live" || started.current) return;
+    started.current = true;
+    let cancelled = false;
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+    const begin = () => {
+      setLoaded("loading");
+      import("./scene/login-scene")
+        .then(({ createLoginScene }) => {
+          if (cancelled || !host.current) return;
+          scene.current = createLoginScene(host.current, readTheme(), {
+            onReady: () => !cancelled && setLoaded("live"),
+            onUnsupported: () => {
+              if (cancelled) return;
+              setLoaded("still");
+              // Give the GPU back as soon as the still frame takes over (after the scene's own failure path returns).
+              queueMicrotask(() => {
+                scene.current?.dispose();
+                scene.current = null;
+              });
+            },
+          });
+        })
+        .catch(() => !cancelled && setLoaded("still"));
+    };
+    const id = w.requestIdleCallback ? w.requestIdleCallback(begin, { timeout: 1500 }) : window.setTimeout(begin, 400);
+    return () => {
+      cancelled = true;
+      started.current = false;
+      if (w.cancelIdleCallback) w.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+      scene.current?.dispose();
+      scene.current = null;
+    };
+  }, [reduced, verdict]);
 
   useEffect(() => {
-    if (!running || !svg.current) return;
-    const groups = Array.from(svg.current.querySelectorAll<SVGGElement>("[data-joint]"));
+    scene.current?.setRunning(running && motion === "live");
+  }, [running, motion]);
+
+  useEffect(() => {
+    scene.current?.setTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => scene.current?.resize());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // Where the viewer looks from: the pointer anywhere on the page (laptops) or the phone's tilt.
+  const setLook = useCallback((next: Look | null) => {
+    look.current = next;
+    scene.current?.setLook(next);
+  }, []);
+
+  useEffect(() => {
+    if (reduced) return;
+    const fine = window.matchMedia("(pointer: fine)");
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse" && event.pointerType !== "pen") return;
+      setLook(pointerLook(event.clientX, event.clientY, { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }));
+    };
+    const onLeave = () => setLook(null);
+    if (!fine.matches) return;
+    window.addEventListener("pointermove", onMove, { passive: true });
+    document.documentElement.addEventListener("pointerleave", onLeave);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      document.documentElement.removeEventListener("pointerleave", onLeave);
+    };
+  }, [reduced, setLook]);
+
+  // Phones: Android shares orientation without asking; iOS needs a tap on our button first.
+  useEffect(() => {
+    if (reduced || tilt !== "on") return;
+    let rest: { beta: number; gamma: number } | null = null;
+    const onOrientation = (event: DeviceOrientationEvent) => {
+      if (event.beta === null || event.gamma === null) return;
+      if (!rest) rest = { beta: event.beta, gamma: event.gamma };
+      setLook(tiltLook(event, rest, screen.orientation?.angle ?? 0));
+    };
+    const onTurn = () => { rest = null; };
+    window.addEventListener("deviceorientation", onOrientation);
+    screen.orientation?.addEventListener?.("change", onTurn);
+    return () => {
+      window.removeEventListener("deviceorientation", onOrientation);
+      screen.orientation?.removeEventListener?.("change", onTurn);
+      setLook(null);
+    };
+  }, [reduced, tilt, setLook]);
+
+  const askTilt = async () => {
+    const api = orientationApi();
+    try {
+      setAnswer((await api?.requestPermission?.()) === "granted" ? "granted" : "denied");
+    } catch {
+      setAnswer("denied");
+    }
+  };
+
+  // The still frame's own drift (when the live scene is not drawing): transform only, eased per frame.
+  useEffect(() => {
+    if (!running || motion !== "still" || !still.current) return;
+    const element = still.current;
+    const eased = { x: 0, y: 0 };
     let frame = 0;
-    let last = performance.now();
-    let lastCue: Cue | null = null;
-    let lastAngle = -1;
+    let last = 0;
+    let clock = 0;
     const tick = (now: number) => {
-      phase.current = (phase.current + (now - last) / 1000 / REP_SECONDS) % 1;
+      const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
       last = now;
-      const pose = squatPose(squatDepth(phase.current));
-      const t = transforms(pose);
-      for (const group of groups) group.setAttribute("transform", t[group.dataset.joint as keyof typeof t]);
-      const angle = kneeAngle(pose);
-      if (angle !== lastAngle && angleText.current) {
-        angleText.current.textContent = `${angle}°`;
-        lastAngle = angle;
-      }
-      label.current?.setAttribute("transform", labelTransform(pose));
-      const next = cueFor(phase.current);
-      if (next !== lastCue) {
-        lastCue = next;
-        setCue(next);
-      }
+      clock += dt;
+      const goal = look.current ?? idleDrift(clock);
+      eased.x = follow(eased.x, goal.x, dt, 0.35);
+      eased.y = follow(eased.y, goal.y, dt, 0.35);
+      element.style.transform = `translate3d(${(-eased.x * 1.6).toFixed(3)}%, ${(eased.y * 1.2).toFixed(3)}%, 0) scale(1.06)`;
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [running]);
+    return () => {
+      cancelAnimationFrame(frame);
+      element.style.transform = "";
+    };
+  }, [running, motion]);
 
   useEffect(() => {
     if (!running) return;
@@ -123,25 +225,17 @@ export function AuthStage() {
   }, [running]);
 
   return (
-    <section ref={root} className={`${s.stage} fitx-inverse`} data-running={running} aria-label="FITX">
-      <div className={s.dots} aria-hidden="true" />
+    <section ref={root} className={`${s.stage} fitx-inverse`} data-running={running} data-scene={motion} aria-label="FITX">
+      <div ref={still} className={s.still} aria-hidden="true" />
+      <div ref={host} className={s.scene} aria-hidden="true" />
+      <div className={s.scrim} aria-hidden="true" />
       <div className={s.stageTop}>
         <Link href="/" className={s.homeLink} aria-label="FITX home"><Logo size={30} /></Link>
-        <span className={s.live} aria-hidden="true"><span className={s.liveDot} />Form check</span>
-      </div>
-
-      <div className={s.figure} aria-hidden="true">
-        <div className={s.frame}><i /><span className={s.scan} /></div>
-        <svg ref={svg} className={s.figureSvg} viewBox="0 0 240 300" preserveAspectRatio="xMidYMax meet" focusable="false">
-          <line className={s.ground} x1={40} y1={ANKLE.y + 4} x2={220} y2={ANKLE.y + 4} />
-          <path className={s.trail} d={TRAIL} />
-          <Limbs pose={still} far />
-          <Limbs pose={still} />
-          <g ref={label} transform={labelTransform(still)}>
-            <rect className={s.readoutBg} x={0} y={-13} width={44} height={20} rx={10} />
-            <text ref={angleText} className={s.readout} x={22} y={1} textAnchor="middle">{kneeAngle(still)}°</text>
-          </g>
-        </svg>
+        {tilt === "ask" && !reduced && (
+          <button type="button" className={s.tilt} onClick={() => void askTilt()}>
+            <Smartphone size={15} aria-hidden="true" />Tilt to look around
+          </button>
+        )}
       </div>
 
       <p className={s.headline}>
@@ -161,8 +255,6 @@ export function AuthStage() {
         </span>
         <span className={s.wordRest} aria-hidden="true">smarter.</span>
       </p>
-
-      <p className={s.cue} aria-hidden="true">{cue}</p>
 
       {!reduced && (
         <button type="button" className={s.pause} onClick={() => setPaused((value) => !value)} aria-label={paused ? "Play animation" : "Pause animation"}>

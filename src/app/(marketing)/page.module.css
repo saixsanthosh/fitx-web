@@ -1,3 +1,5 @@
+/* No longer imported: the home page's styles all live in src/components/landing/landing.module.css. Kept because
+   scripts/checks/theme-checks.test.mjs (brand-nav) lists this path; remove both together. */
 /* The home page's closing call to action (the rest of the page's styles live with its sections in
    src/components/landing/landing.module.css). FITX tokens only; the stage colours stay dark in every theme. */
 

@@ -1,0 +1,56 @@
+{
+  "set": "landing-2",
+  "style": "Photoreal editorial sports photograph, natural and unposed, shot on a full-frame camera with a 50mm lens, soft warm neutral light, deep charcoal shadows, gentle film grain, true-to-life skin texture. Colour palette: warm off-white, charcoal, muted sage and a single terracotta ember accent (#C44933). No text, letters, numbers, logos, brand marks, watermarks or signage anywhere in the image; clothing and equipment are plain and unbranded. Not a real or famous person.",
+  "people": {
+    "man": "an Indian man in his late twenties, short dark hair, neatly trimmed beard, athletic build, plain charcoal t-shirt, black training shorts",
+    "woman": "an Indian woman in her late twenties, dark hair tied in a low bun, fit build, plain terracotta sports top, black leggings, barefoot"
+  },
+  "images": [
+    {
+      "id": "coach",
+      "aspect": "4:5",
+      "longEdge": 1400,
+      "alt": "A woman resting on a gym bench after training, reading her phone with a quiet smile",
+      "prompt": "Medium shot of {woman}, now wearing plain black trainers, sitting on a flat gym bench after a workout, towel over one shoulder, reading her phone held low in both hands with a quiet, satisfied smile. The phone's screen faces away from the camera and is not visible. Evening window light from the left, warm and soft; deep charcoal background with soft out-of-focus dumbbell racks. Calm, honest, unposed."
+    },
+    {
+      "id": "progress",
+      "aspect": "4:5",
+      "longEdge": 1400,
+      "alt": "A man resting on the floor of a sunlit garage gym after a session, catching his breath",
+      "prompt": "Three-quarter shot of {man} sitting on the floor of a clean garage gym at sunrise after a hard session, back against a plain concrete wall, forearms resting on his knees, catching his breath with a calm, proud half-smile. A plain black jump rope lies coiled beside him. Hard warm sunlight from a high side window paints a bright stripe across him and the wall; the rest of the frame stays in deep charcoal shade. No posters, no text.",
+      "note": "First take drew a stick held behind the neck instead of a pull-up; replaced with a resting pose (no technique to get wrong). A faint maker's mark on the right shoe is softened by the retouch box.",
+      "retouch": [
+        {
+          "x": 0.64,
+          "y": 0.795,
+          "w": 0.09,
+          "h": 0.05,
+          "sigma": 8
+        }
+      ]
+    },
+    {
+      "id": "library",
+      "aspect": "4:5",
+      "longEdge": 1400,
+      "alt": "A neat row of dumbbells and kettlebells on a rack in warm side light",
+      "prompt": "Close, low macro shot along a neat row of plain matte charcoal dumbbells and two kettlebells on a black steel rack, receding into soft bokeh. Warm raking side light picks out the knurling on the handles and the curves of the bells; deep charcoal shadows. Unbranded equipment with no numbers or weight markings anywhere."
+    },
+    {
+      "id": "night-run",
+      "aspect": "16:9",
+      "longEdge": 2000,
+      "alt": "A woman running along an empty riverside path at blue hour, city lights soft behind her",
+      "prompt": "Wide cinematic side shot of {woman}, now wearing plain black running shoes and a light charcoal running jacket over her top, running along an empty riverside path at blue hour, mid-stride, relaxed and fast, light on her feet. Soft blurred city lights far behind across the calm water; clear deep-blue dusk sky fading to a faint warm glow right at the horizon line. Subject on the right third, generous calm empty space on the left.",
+      "note": "First take put an odd orange streak in the sky; the prompt now keeps the sky clear."
+    },
+    {
+      "id": "kitchen",
+      "aspect": "4:5",
+      "longEdge": 1400,
+      "alt": "A man plating a simple post-workout meal of rice, dal and grilled paneer in a home kitchen",
+      "prompt": "Medium shot of {man} in a plain charcoal t-shirt in a small, tidy home kitchen, plating a simple post-workout meal of rice, dal, grilled paneer and cucumber salad onto a steel plate, focused and relaxed. Warm morning light from a window on the right, soft steam rising from the dal, deep charcoal shadows. No labels, packaging or text anywhere."
+    }
+  ]
+}

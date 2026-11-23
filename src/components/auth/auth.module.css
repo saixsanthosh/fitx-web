@@ -28,16 +28,6 @@
 .screen:has(details[open]) .stage { height: clamp(96px, 13svh, 128px); }
 .screen:has(details[open]) .headline { display: none; }
 
-.dots {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image: radial-gradient(color-mix(in srgb, var(--fitx-on-stage) 16%, transparent) 1px, transparent 1.5px);
-  background-size: 22px 22px;
-  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 68% 55%, var(--fitx-stage) 20%, transparent 78%);
-  mask-image: radial-gradient(ellipse 80% 70% at 68% 55%, var(--fitx-stage) 20%, transparent 78%);
-}
-
 .stageTop {
   position: absolute;
   top: 14px;
@@ -59,28 +49,58 @@
 }
 .homeLink:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 2px; }
 
-.live {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--fitx-on-stage) 18%, transparent);
-  border-radius: 999px;
-  padding: 6px 11px;
-  color: var(--fitx-on-stage-secondary);
-  font-family: var(--font-jetbrains), ui-monospace, monospace;
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+/* The still frame of the scene (first paint, and the whole picture with reduced motion or on low-end devices).
+   One file per theme and framing, chosen in CSS so only the one that shows is downloaded. */
+.still {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-color: var(--fitx-stage);
+  background-image: var(--still-wide-dark);
+  background-position: 50% 50%;
+  background-size: cover;
+  --still-wide-dark: url("/media/login/still-dark-wide.webp");
+  --still-wide-light: url("/media/login/still-light-wide.webp");
+  --still-tall-dark: url("/media/login/still-dark-tall.webp");
+  --still-tall-light: url("/media/login/still-light-tall.webp");
+}
+:global(html[data-theme="light"]) .still { background-image: var(--still-wide-light); }
+@media (prefers-color-scheme: light) {
+  :global(html[data-theme="system"]) .still { background-image: var(--still-wide-light); }
 }
 
-.liveDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--fitx-primary);
+.scene { position: absolute; inset: 0; z-index: -1; }
+.stage[data-scene="still"] .scene { display: none; }
+/* Without the live scene the still drifts with the tilt and pointer (AuthStage sets the transform). */
+.stage[data-scene="still"] .still { will-change: transform; }
+
+/* Keeps the logo, the headline and the controls readable over the brightest part of either look. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fitx-stage) 62%, transparent) 0%, transparent 26%),
+    linear-gradient(0deg, color-mix(in srgb, var(--fitx-stage) 82%, transparent) 0%, color-mix(in srgb, var(--fitx-stage) 30%, transparent) 34%, transparent 58%);
 }
-.stage[data-running="true"] .liveDot { animation: auth-blink 1.6s ease-in-out infinite; }
+
+.tilt {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--fitx-on-stage) 26%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fitx-stage) 55%, transparent);
+  color: var(--fitx-on-stage);
+  padding: 0 14px;
+  font-size: 0.76rem;
+  font-weight: 650;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.tilt:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 2px; }
 
 .headline {
   position: absolute;
@@ -105,71 +125,6 @@
 .wordSlot > span { position: absolute; left: 0; top: 0; white-space: nowrap; }
 .wordRest { display: block; }
 
-.figure {
-  position: absolute;
-  top: 46px;
-  right: 6px;
-  bottom: 0;
-  z-index: 1;
-  width: min(56%, 230px);
-}
-
-.figureSvg { display: block; width: 100%; height: 100%; overflow: visible; }
-
-.bone { stroke: var(--fitx-on-stage); stroke-linecap: round; stroke-width: 7; fill: none; }
-.boneFar { opacity: 0.32; }
-.joint { fill: var(--fitx-stage); stroke: var(--fitx-primary); stroke-width: 3; }
-.head { fill: var(--fitx-on-stage); }
-.ground { stroke: color-mix(in srgb, var(--fitx-on-stage) 26%, transparent); stroke-width: 1.5; }
-.trail { stroke: var(--fitx-primary); stroke-width: 1.5; stroke-dasharray: 2 5; fill: none; opacity: 0.8; }
-.readout { fill: var(--fitx-on-stage); font-family: var(--font-jetbrains), ui-monospace, monospace; font-size: 12px; font-weight: 600; }
-.readoutBg { fill: color-mix(in srgb, var(--fitx-stage) 78%, transparent); stroke: color-mix(in srgb, var(--fitx-on-stage) 20%, transparent); }
-
-.frame {
-  position: absolute;
-  inset: 22% 10% 8% 26%;
-  pointer-events: none;
-}
-.frame::before,
-.frame::after,
-.frame > i::before,
-.frame > i::after {
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  border-color: color-mix(in srgb, var(--fitx-on-stage) 55%, transparent);
-  border-style: solid;
-  content: "";
-}
-.frame::before { top: 0; left: 0; border-width: 1.5px 0 0 1.5px; }
-.frame::after { top: 0; right: 0; border-width: 1.5px 1.5px 0 0; }
-.frame > i::before { bottom: 0; left: 0; border-width: 0 0 1.5px 1.5px; }
-.frame > i::after { bottom: 0; right: 0; border-width: 0 1.5px 1.5px 0; }
-
-.scan {
-  position: absolute;
-  inset: 0 6%;
-  border-top: 1px solid color-mix(in srgb, var(--fitx-primary) 70%, transparent);
-  opacity: 0;
-}
-.stage[data-running="true"] .scan { animation: auth-scan 3.6s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
-
-.cue {
-  position: absolute;
-  right: 16px;
-  bottom: 14px;
-  z-index: 2;
-  display: none;
-  min-width: 8.5em;
-  border-radius: 999px;
-  background: var(--fitx-on-stage);
-  color: var(--fitx-stage);
-  padding: 7px 12px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-align: center;
-}
-
 .pause {
   position: absolute;
   right: 10px;
@@ -192,6 +147,8 @@
   flex: 1 1 auto;
   min-width: 0;
   flex-direction: column;
+  /* The form's rise-in starts 10 px low: clip it, so the page never scrolls while it plays. */
+  overflow: clip;
 }
 
 .panelInner {
@@ -242,6 +199,20 @@
 .google:active { transform: translateY(1px); }
 .google:disabled { cursor: wait; opacity: 0.68; }
 .google:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 3px; }
+
+/* Google's own button (Google Identity Services) sits in this slot; it draws a 40 px button in an iframe. */
+.gis { position: relative; display: grid; min-height: 50px; place-items: center; }
+.gis[data-state="loading"]::before {
+  position: absolute;
+  inset: 5px 0;
+  border: 1px solid var(--fitx-border);
+  border-radius: 10px;
+  background: var(--fitx-surface);
+  content: "";
+}
+.gisSlot { position: relative; display: flex; width: 100%; min-height: 40px; justify-content: center; }
+.gisCover { position: absolute; inset: 0; z-index: 1; cursor: wait; background: color-mix(in srgb, var(--fitx-bg) 45%, transparent); }
+.gisStatus { margin: 4px 0 0; color: var(--fitx-text-secondary); font-size: 0.78rem; }
 
 .divider {
   display: flex;
@@ -389,12 +360,6 @@
 
 @keyframes auth-rise { from { opacity: 0; transform: translateY(10px); } }
 @keyframes auth-blink { 50% { opacity: 0.25; } }
-@keyframes auth-scan {
-  0% { opacity: 0; transform: translateY(0); }
-  12% { opacity: 1; }
-  88% { opacity: 1; }
-  100% { opacity: 0; transform: translateY(100%); }
-}
 
 /* Short phones (iPhone SE and landscape): a slimmer stage. */
 @media (max-height: 700px) and (max-width: 959px) {
@@ -405,9 +370,7 @@
 
 @media (min-width: 600px) and (max-width: 959px) {
   .stage { height: clamp(200px, 30svh, 300px); }
-  .figure { right: 10%; }
-  .cue { display: block; right: 22px; bottom: 18px; }
-  .pause { right: auto; left: auto; bottom: 8px; right: 4px; }
+  .pause { bottom: 8px; right: 4px; }
   .panelInner { padding-top: 28px; }
 }
 
@@ -417,20 +380,22 @@
   .screen:has(details[open]) .headline { display: block; }
   .stageTop { top: 28px; left: clamp(28px, 4vw, 56px); right: clamp(28px, 4vw, 56px); }
   .headline { left: clamp(28px, 4vw, 56px); bottom: clamp(32px, 6svh, 64px); font-size: clamp(3.4rem, 6.2vw, 6.4rem); }
-  .figure { top: auto; right: 9%; bottom: 5svh; width: auto; height: min(74svh, 640px, 46vw); aspect-ratio: 240 / 300; }
-  .frame { inset: 2% -4% 4% 4%; }
-  .cue { display: block; right: clamp(28px, 4vw, 56px); bottom: clamp(32px, 6svh, 64px); padding: 9px 16px; font-size: 0.86rem; }
-  .pause { right: 12px; bottom: auto; top: 76px; }
+  .still { background-image: var(--still-tall-dark); }
+  :global(html[data-theme="light"]) .still { background-image: var(--still-tall-light); }
+  .pause { right: 12px; bottom: auto; top: 22px; }
   .panel { overflow-y: auto; }
   .panelInner { justify-content: center; padding: 48px clamp(24px, 4vw, 56px) 28px; }
   .body { gap: 14px; }
   .footer { margin-top: 28px; }
 }
 
+@media (min-width: 960px) and (prefers-color-scheme: light) {
+  :global(html[data-theme="system"]) .still { background-image: var(--still-tall-light); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stage { transition: none; }
-  .scan { display: none; }
-  .stage[data-running] .liveDot,
+  .still { transform: none !important; }
   .codeBox[data-focused="true"] .caret { animation: none; }
   .details > summary > svg { transition: none; }
 }

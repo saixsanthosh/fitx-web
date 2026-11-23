@@ -23,7 +23,7 @@ import { isMissingColumnError } from "@/lib/supabase/errors";
 const PRIVATE_ROOTS = [
   "/dashboard", "/workouts", "/nutrition", "/activity", "/progress", "/goals", "/planner", "/profile", "/settings", "/help",
   "/exercises", "/home-workout", "/form-coach", "/onboarding", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
-  "/unavailable",
+  "/unavailable", "/explore",
 ];
 const AUTH_ENTRY = new Set(["/signin", "/signup", "/forgot-password"]);
 /** Parameters Supabase Auth appends when it sends a browser back after sign-in or an e-mail link. */
