@@ -51,6 +51,7 @@
 --   drop trigger if exists profiles_birth_date_locked on public.profiles;
 --   drop trigger if exists profiles_birth_date_added on public.profiles;
 --   drop function if exists public.fitx_profiles_birth_date_locked(), public.fitx_profiles_birth_date_added();
+--   drop index if exists public.social_rate_counters_video_day_idx;
 --   alter table public.social_rate_counters drop column if exists paths;
 --   drop function if exists public.fitx_social_save_notification_prefs(boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean);
 --   drop function if exists public.fitx_social_sees_post(uuid, uuid), public.fitx_social_sees_comment_row(uuid, uuid),
@@ -361,6 +362,10 @@ alter table public.social_reports add column if not exists evidence_purge_at tim
 -- On a member's 'video_bytes:day' row only: the videos their signed links were counted for that day, so a new link to
 -- a video already counted today costs nothing (fitx_social_video_link_allowed). Members still only read their own rows.
 alter table public.social_rate_counters add column if not exists paths text[];
+-- The project's played video bytes today are a sum over every member's 'video_bytes:day' row (the play budget and
+-- Admin's meter); the primary key starts with user_id, so that sum needs its own index.
+create index if not exists social_rate_counters_video_day_idx on public.social_rate_counters (window_start)
+  where action = 'video_bytes:day';
 alter table public.social_notifications add column if not exists story_id uuid references public.social_stories (id) on delete cascade;
 alter table public.social_notifications add column if not exists conversation_id uuid references public.social_conversations (id) on delete cascade;
 alter table public.social_notifications add column if not exists community_id uuid references public.social_communities (id) on delete cascade;

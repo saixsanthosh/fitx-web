@@ -64,7 +64,7 @@ For each file, in the order of section 2:
   2026-11-23) keeps working after it; it deletes no row. #53 and #54 add only functions and two indexes (and, on
   production, the hourly challenge job); they change no row. The new app checks for each file and works without the
   ones not applied yet.
-- #52 (147 KB), #53 (70 KB) and #54 (47 KB) are larger than the files the connector took reliably. The session sends
+- #52 (149 KB), #53 (70 KB) and #54 (47 KB) are larger than the files the connector took reliably. The session sends
   each with the staged, md5-checked method it used for #42 to #51 (each part stored and compared, then the whole file
   run once and recorded under its own number; section 3 gives each file's md5), or through the SQL editor (section
   0.2), recording it with the same Record query as #12, with that file's number and name.
@@ -384,7 +384,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 49 | `20261123100040_fitx_nutrition_v2` | The Nutrition first-time setup: when it was answered. | Additive, fills `nutrition_setup_at` for members with a diet saved · yes | #7 | Nutrition setup asked once | Until it is applied the setup counts as done when a diet is saved. |
 | 50 | `20261123100050_fitx_coach_activity_v2` | Seven more Activity sports (hike, trail run, mountain bike, e-bike, wheelchair, inline skate, paddle) and each activity's best efforts. | Additive (a wider sport rule in place of the old one) · yes | #26 | The new sports on Record and import; best efforts saved with each activity | Until it is applied the app offers walk, run and ride only and works best efforts out on the activity page. Before an undo, delete or change activities of the new sports (section 5). |
 | 51 | `20261123100060_fitx_social_v1` | Explore, part 1: profiles, follows and follow requests, photo posts, hashtags, likes, saves, comments, blocks, restrictions, reports and notifications (15 tables), 57 functions, the private `social-media` bucket with 3 storage policies, rate counters and write limits. | Additive · yes | #45 (its write limits) | Explore | Large (90 KB): section 0.1. Until it is applied Explore says it needs the next update; everything else works as before. Its bucket is emptied and deleted in Dashboard → Storage, not with SQL (section 5). |
-| 52 | `20261124100000_fitx_social_v2_core` | Explore, part 2 core: stories (with views and likes), member sanctions, the storage trash, conversations and messages, communities and members, challenges (templates, entries, badges) and the moderation record (15 tables); moderation states on posts and comments; item-level visibility, sanctions, age bands and the Explore switch enforced in the database; report evidence; video posts; the bucket also takes `video/mp4`; the hourly clean-up job `fitx-social-hourly`; Realtime inbox pings. 25 new functions, 36 of #51's rewritten under the same names and arguments, the notification settings save from 5 to 9 parameters. | Additive (one relaxed rule: a notification may name no member) · yes | #51; #41 (date of birth), #42 (operator links), #43 (the Explore switch), #45 (its write limits); #27's pg_cron for the hourly job (skipped without the `cron` schema) | Explore part 2 (stories, video, groups, challenges, moderation) | Large (147 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore keeps working with it. Once it is applied, never run #51 again (section 0.1). It deletes no row. |
+| 52 | `20261124100000_fitx_social_v2_core` | Explore, part 2 core: stories (with views and likes), member sanctions, the storage trash, conversations and messages, communities and members, challenges (templates, entries, badges) and the moderation record (15 tables); moderation states on posts and comments; item-level visibility, sanctions, age bands and the Explore switch enforced in the database; report evidence; video posts; the bucket also takes `video/mp4`; the hourly clean-up job `fitx-social-hourly`; Realtime inbox pings; an index for the project's daily video plays. 25 new functions, 36 of #51's rewritten under the same names and arguments, the notification settings save from 5 to 9 parameters. | Additive (one relaxed rule: a notification may name no member) · yes | #51; #41 (date of birth), #42 (operator links), #43 (the Explore switch), #45 (its write limits); #27's pg_cron for the hourly job (skipped without the `cron` schema) | Explore part 2 (stories, video, groups, challenges, moderation) | Large (149 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore keeps working with it. Once it is applied, never run #51 again (section 0.1). It deletes no row. |
 | 53 | `20261124100010_fitx_social_v2_groups` | Explore part 2 groups: direct messages (requests, who can message you, blocks, unsend, a stop on repeated text, unread counts, Realtime pings), communities run by FITX (directory, private requests, member posts and discussions, removal by a community's moderators), challenges with values computed only from the member's own workouts and activities, opt-in leaderboards for adults, "Completed" and "Top 3" badges, templates that open a challenge each week and month, and the hourly job `fitx-challenge-hourly`. 24 new functions and one index; no table, policy or trigger. | Additive · yes | #52 (all its tables and helpers); #27's pg_cron for the job (skipped without the `cron` schema) | Explore messages, communities and challenges | Large (70 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore does not call it. It changes no row. |
 | 54 | `20261124100020_fitx_admin_explore` | Admin's Explore section: the `explore.view` and `explore.moderate` permissions (the role table recreated with 23 permissions; support agents view only); the `explore` and `explore_video` switches in the settings save (a switch the form leaves out keeps its saved value); moderating reports (dismiss, take for review, limit, hide, unhide, remove, clear photo or bio, warn, suspend, lift), each closing the reports, telling the reporters, keeping evidence 90 days and writing the audit row in one transaction; FITX's communities, their moderators, challenges (closed through #53's `fitx_social_challenge_tick`), templates; the Free-plan meter. No table; one index. | Additive · yes | #52 (every table it uses); #42 and #43 (the functions it recreates); #53 (the challenge close) | Admin's Explore section; the Explore switches in Settings | Large (47 KB): section 0.1. Before the wave-2 deploy. Once it is applied, never run #42 or #43 again (section 0.1). |
 
@@ -1502,7 +1502,8 @@ deleting, blocking, reporting and settings kept open. Reports keep an evidence s
 review), a report now goes through across a block, and restricting is rate limited. Video posts (one video of at most
 30 seconds) follow Admin's `explore_video` switch; the `social-media` bucket also takes `video/mp4` (still 3 MB a
 file); signed video links have a daily play budget (each video counted once a member a day, in the new column
-`social_rate_counters.paths`, and a member's share of the project's plays capped). 25 new functions; 36 of #51's functions are rewritten under the
+`social_rate_counters.paths`, and a member's share of the project's plays capped; the project's daily total is read
+through the new index `social_rate_counters_video_day_idx`). 25 new functions; 36 of #51's functions are rewritten under the
 same names and arguments, and #51's read policies on posts, post photos and comments now call the item-level helpers;
 `fitx_social_save_notification_prefs` goes from 5 to 9 parameters (the four new ones have defaults, so wave 1's call
 still works). New tables members write have #45's write limits (16 more triggers). On production it also schedules
@@ -1512,10 +1513,10 @@ no row; `social_notifications.actor_id` may now be empty (notices from FITX). Th
 from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
 run changes nothing. After it, #51's Check gives other numbers: use this one.
 
-md5 of the file (`md5 -q`): `331a53b6227287bae204f161bfbfc961`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `5816bd51b3fba253b8e23ed479bcda55`. The session compares it with the file it sends before it runs it.
 
 ```sql
--- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2, 1
+-- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2, 1, 1
 select (select count(*) from pg_tables where schemaname = 'public' and tablename like 'social\_%' and rowsecurity) as tables_with_rls,
        (select count(*) from pg_policies where (schemaname = 'public' and tablename like 'social\_%') or (schemaname = 'storage' and policyname like 'social\_media\_%')) as policies,
        (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%') as functions,
@@ -1525,16 +1526,17 @@ select (select count(*) from pg_tables where schemaname = 'public' and tablename
        (select count(*) from information_schema.columns where table_schema = 'public' and table_name like 'social\_%' and column_name = 'moderation_state') as moderation_columns,
        (select string_agg(pronargs::text, ',') from pg_proc where pronamespace = 'public'::regnamespace and proname = 'fitx_social_save_notification_prefs') as prefs_save_args,
        (select count(*) from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname in ('profiles_birth_date_locked', 'profiles_birth_date_added') and tgenabled = 'O') as birth_date_triggers,
-       (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'social_rate_counters' and column_name = 'paths') as play_paths;
+       (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'social_rate_counters' and column_name = 'paths') as play_paths,
+       (select count(*) from pg_indexes where schemaname = 'public' and indexname = 'social_rate_counters_video_day_idx') as play_budget_index;
 ```
 
-Before #52 it gives `15, 18, 57, 0, 0, 28, 0, 5, 0, 0`. On production the session then also checks the job and the Realtime
+Before #52 it gives `15, 18, 57, 0, 0, 28, 0, 5, 0, 0, 0`. On production the session then also checks the job and the Realtime
 policy, expecting `1, 1`: `select (select count(*) from cron.job where jobname = 'fitx-social-hourly') as hourly_job,
 (select count(*) from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname =
 'social_inbox_read') as inbox_policy;` (the test copy has neither pg_cron nor Realtime). A 0 there means pg_cron or
 Realtime was off when #52 ran: tell the session; #52 can be run again once it is on.
 
-Run after #53 instead of right after #52, this Check gives `30, 30, 106, 0, 1, 44, 5, 9, 2, 1` (#53 adds 24 functions; the
+Run after #53 instead of right after #52, this Check gives `30, 30, 106, 0, 1, 44, 5, 9, 2, 1, 1` (#53 adds 24 functions; the
 rest does not move).
 
 ### #53 `20261124100010_fitx_social_v2_groups`
@@ -1770,6 +1772,7 @@ do $u$ begin if pg_catalog.to_regclass('realtime.messages') is not null then dro
 drop trigger if exists profiles_birth_date_locked on public.profiles;
 drop trigger if exists profiles_birth_date_added on public.profiles;
 drop function if exists public.fitx_profiles_birth_date_locked(), public.fitx_profiles_birth_date_added();
+drop index if exists public.social_rate_counters_video_day_idx;
 alter table public.social_rate_counters drop column if exists paths;
 drop function if exists public.fitx_social_save_notification_prefs(boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean);
 drop function if exists public.fitx_social_sees_post(uuid, uuid), public.fitx_social_sees_comment_row(uuid, uuid),
