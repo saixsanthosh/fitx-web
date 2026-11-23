@@ -65,12 +65,17 @@ test("the request: the prompt first, then each reference image in order; the key
 test("prompts reproduce the reference pose and never ask the model to move it", () => {
   for (const frame of [0, 1]) {
     const text = demoPrompt(item("push_up"), "female", frame);
-    assert.match(text, /Reproduce exactly the pose in image 2/);
-    assert.match(text, /Change only the person/);
+    assert.match(text, /^Edit image 1\. Reproduce exactly the pose in image 1/, "the reference photo is the image being edited");
+    assert.match(text, /camera angle, camera height and framing exactly as they are in image 1, with the camera at the same distance/);
+    assert.match(text, /how much each elbow, knee and hip is bent, how far the chest, hips and knees are from the floor/);
+    assert.match(text, /Change only the person and the background/);
+    assert.match(text, /Nothing of the person in image 1 may remain/, "the photo's own person never shows through");
     assert.match(text, /Do not change, correct, exaggerate or move the pose/);
     assert.doesNotMatch(text, /\b(lower|raise|move) (the|your|their) (arms|body|hips)\b/i);
+    assert.doesNotMatch(text, /Image 3/, "no frame is sent a third image (the model copied its pose)");
+    assert.doesNotMatch(text, /push up|start position|end position/i, "the prompt names no exercise and no position");
   }
-  assert.match(demoPrompt(item("push_up"), "male", 1), /Image 3 is the same person already photographed in the start position/);
+  assert.equal(demoPrompt(item("push_up"), "male", 0), demoPrompt(item("push_up"), "male", 1), "start and end differ only by image 1");
   assert.match(personaPrompt("male"), /fictional and is not any real or famous person/);
   assert.match(personaPrompt("female"), /No logos/);
 });
@@ -123,7 +128,13 @@ test("a run makes start frames before end frames, sends the key only in the head
       assert.ok(!request.url.includes(KEY), "nor in the URL");
     }
     const parts = model.requests.map((request) => JSON.parse(request.body).contents[0].parts.length);
-    assert.deepEqual(parts, [3, 4, 3, 4, 3, 4, 3, 4], "start: prompt, persona, reference; end: also the start frame");
+    assert.deepEqual(parts, [3, 3, 3, 3, 3, 3, 3, 3], "each frame: prompt, its reference photo, the persona");
+    for (const request of model.requests.slice(0, 2)) {
+      const sent = JSON.parse(request.body).contents[0].parts;
+      assert.equal(sent[1].inline_data.mime_type, "image/jpeg", "image 1 is the reference photo being edited");
+      assert.equal(sent[2].inline_data.data, personas.male.data, "image 2 is the persona");
+    }
+    assert.equal(readLedger(dir).images[jobKey("push_up", "male", 0)].prompt, 5);
     const saved = readLedger(dir);
     assert.equal(saved.calls, 8);
     assert.equal(saved.spentUsd, 0.312);
@@ -189,9 +200,9 @@ test("the hard total (D9): calls are charged from their own token counts, the re
     assert.deepEqual(saved.images[jobKey("push_up", "male", 0)].usage, { input: 4400, output: 1290, thoughts: 0 });
     assert.equal(saved.images[jobKey("push_up", "male", 0)].costUsd, 0.0401);
 
-    // A refused request, an answer without an image and a lost connection are each charged honestly.
+    // A refused request (not a temporary one), an answer without an image and a lost connection are each charged honestly.
     const answers = [
-      async () => ({ ok: false, status: 429, text: async () => "quota" }),
+      async () => ({ ok: false, status: 400, text: async () => "bad request" }),
       async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ candidates: [{ finishReason: "IMAGE_SAFETY", content: { parts: [] } }], usageMetadata: { promptTokenCount: 3000, candidatesTokenCount: 0 } }) }),
       async () => { throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }); },
     ];
@@ -206,6 +217,50 @@ test("the hard total (D9): calls are charged from their own token counts, the re
       charges.push(after.spentUsd);
     }
     assert.deepEqual(charges, [ERROR_CHARGE_USD, 0.0009, reserve]);
+  } finally {
+    done();
+  }
+});
+
+test("a temporary refusal (503, 429) is asked again after a wait; each refusal is charged the small error charge", async () => {
+  const { dir, done } = workDir();
+  try {
+    const items = [item("push_up")];
+    await seedReferences(dir, items);
+    const image = await png(400, 300);
+    const good = fakeModel(image, { promptTokenCount: 1000, candidatesTokenCount: 1290 });
+    const statuses = [503, 429];
+    let requests = 0;
+    const busyThenGood = async (url, init) => {
+      requests += 1;
+      const status = statuses.shift();
+      if (status) return { ok: false, status, text: async () => "This model is currently experiencing high demand." };
+      return good.fetchImpl(url, init);
+    };
+    const slept = [];
+    const args = { ...parseArgs(["--model=male", "--max-calls=10", "--budget-usd=1"]), work: dir };
+    await runJobs({ jobs: planJobs(items, args, emptyLedger()).slice(0, 1), args, ledger: emptyLedger(), key: KEY, fetchImpl: busyThenGood, sharp, personas, log: () => undefined, sleep: async (ms) => { slept.push(ms); }, waits: [5, 10, 20] });
+    assert.equal(requests, 3);
+    assert.deepEqual(slept, [5, 10]);
+    const saved = readLedger(dir);
+    assert.equal(saved.calls, 1, "one image asked for, however many times it was refused");
+    assert.equal(saved.images[jobKey("push_up", "male", 0)].status, "generated");
+    assert.equal(saved.images[jobKey("push_up", "male", 0)].refused, 2);
+    assert.equal(saved.spentUsd, 0.039 + 2 * ERROR_CHARGE_USD);
+
+    // A refusal that is not temporary (400), or one past the last wait, is not asked again.
+    const work = mkdtempSync(path.join(dir, "n-"));
+    await seedReferences(work, items);
+    let bad = 0;
+    const one = { ...args, work };
+    await runJobs({ jobs: planJobs(items, one, emptyLedger()).slice(0, 1), args: one, ledger: emptyLedger(), key: KEY, fetchImpl: async () => { bad += 1; return { ok: false, status: 400, text: async () => "bad" }; }, sharp, personas, log: () => undefined, sleep: async () => undefined, waits: [5] });
+    assert.equal(bad, 1);
+    let busy = 0;
+    const two = { ...args, work: mkdtempSync(path.join(dir, "b-")) };
+    await seedReferences(two.work, items);
+    await runJobs({ jobs: planJobs(items, two, emptyLedger()).slice(0, 1), args: two, ledger: emptyLedger(), key: KEY, fetchImpl: async () => { busy += 1; return { ok: false, status: 503, text: async () => "busy" }; }, sharp, personas, log: () => undefined, sleep: async () => undefined, waits: [5, 5] });
+    assert.equal(busy, 3, "the first ask and two more");
+    assert.equal(readLedger(two.work).spentUsd, 3 * ERROR_CHARGE_USD);
   } finally {
     done();
   }

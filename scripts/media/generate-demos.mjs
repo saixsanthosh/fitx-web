@@ -44,6 +44,9 @@ export const CALL_RESERVE_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: 0.045 });
 export const ERROR_CHARGE_USD = 0.002;
 /** A request that has not answered by then is abandoned (and charged the reserve, as it may still be billed). */
 export const CALL_TIMEOUT_MS = 180_000;
+/** Google's temporary refusals ("high demand", rate limits): the same image is asked for again after these waits. */
+export const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
+export const TRANSIENT_WAITS_MS = Object.freeze([20_000, 60_000, 120_000]);
 export const endpointFor = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
 /** The byte target of one demonstration file (brief 3.5). The coordinator may raise it to a measured value <= 60 KB. */
@@ -102,8 +105,8 @@ export function requireCaps(args) {
  * personas/male.png and personas/female.png), so the words never contradict image 1 of a request.
  */
 export const PERSONAS = Object.freeze({
-  male: "An athletic man in his late twenties of Indian appearance, short dark hair and a neatly trimmed beard, an athletic but realistic build (not a bodybuilder). A plain charcoal crew-neck T-shirt, plain black training shorts above the knee, plain dark grey trainers with white soles. No logos, no text, no jewellery.",
-  female: "An athletic woman in her late twenties of Indian appearance, dark hair tied back in a low bun, a fit and realistic build. A plain terracotta short-sleeved fitted sports top that covers the midriff, plain black full-length leggings, plain dark grey trainers with white soles. No logos, no text, no jewellery.",
+  male: "An athletic man in his late twenties of Indian appearance, short dark hair and a neatly trimmed beard, an athletic but realistic build (not a bodybuilder). A plain charcoal crew-neck T-shirt with short sleeves (never a tank top or a sleeveless top), plain black training shorts above the knee, plain dark grey trainers with white soles. No logos, no text, no jewellery.",
+  female: "An athletic woman in her late twenties of Indian appearance, dark hair tied back in a low bun, a fit and realistic build. A plain terracotta short-sleeved fitted sports top that covers the midriff (never a crop top or a sports bra), plain black full-length leggings (never shorts), plain dark grey trainers with white soles. No logos, no text, no jewellery.",
 });
 /** The approved sheets' own studio, so every frame looks like the same shoot. */
 const STUDIO = "a seamless warm light-grey studio backdrop that curves into the floor, with soft even light from the front and a soft contact shadow under the body";
@@ -113,16 +116,25 @@ export function personaPrompt(model) {
   return `A full-body reference photograph of one person for a fitness app's exercise demonstrations: ${PERSONAS[model]} Standing relaxed, facing the camera, arms by the sides, in ${STUDIO}. ${RULES} This person is fictional and is not any real or famous person.`;
 }
 
+/** Bumped whenever the prompt or the order of the images changes; recorded on every ledger entry. */
+export const PROMPT_VERSION = 5;
+
 /**
- * Start frame: persona + reference start photo. End frame: persona + reference end photo + the start frame. Both ask
- * to reproduce the photo's pose exactly; neither asks the model to move a pose.
+ * Each frame is an edit of its own reference photo (image 1), with the approved persona as image 2, so the pose, camera
+ * angle and framing carry over. What the pilot showed (D9):
+ *  - prompt 1 (persona first) turned side-on push-ups into front views;
+ *  - prompts 1 and 2 gave the end frame the start frame as a look reference, and the model copied its pose (no movement);
+ *  - naming the exercise pulled poses towards the model's idea of it (a bridge's raised start came back flat).
+ *  - prompt 3 kept the poses but made push-ups shallower than the photo and left a dark gym floor once.
+ *  - prompt 4 fixed the depth, but in about a third of the frames the photo's own person showed through (their face, a
+ *    tank top, a crop top, printed shorts, a logo on a mat), and once a plate stayed on the floor.
+ * So the prompt names no exercise and no position, the end frame gets no image 3, and the words pin how bent each joint is,
+ * how far the body is from the floor, the camera distance and a light floor. It never asks to move a pose.
  */
 export function demoPrompt(item, model, frame) {
-  const which = frame === 0 ? "start" : "end";
-  const lead = frame === 0
-    ? `Image 1 shows the person. Image 2 is a photo of the ${which} position of the exercise "${item.name}".`
-    : `Image 1 shows the person. Image 2 is a photo of the ${which} position of the exercise "${item.name}". Image 3 is the same person already photographed in the start position of this exercise: keep their face, body, clothing, studio, lighting and camera exactly as in image 3.`;
-  return `${lead} Reproduce exactly the pose in image 2: the same joint angles, body orientation, grip, stance, equipment and its position, and the same camera angle and framing. Change only the person (use the person from image 1: ${PERSONAS[model]}) and the setting (${STUDIO}). Do not change, correct, exaggerate or move the pose in any way. ${RULES} Landscape 4:3.`;
+  void item;
+  void frame;
+  return `Edit image 1. Reproduce exactly the pose in image 1: keep the body position, how much each elbow, knee and hip is bent, how far the chest, hips and knees are from the floor, where the hands and feet are, the grip, the stance, the equipment and where it is, and the camera angle, camera height and framing exactly as they are in image 1, with the camera at the same distance so the person fills the same part of the frame. Change only the person and the background. Replace the person completely with the person in image 2: their face, hair, skin tone and build, dressed exactly like this: ${PERSONAS[model]} Nothing of the person in image 1 may remain: not their face, hair, skin tone, clothes, shoes or any print on them. Every piece of equipment stays in the same hands, under the same feet or under the same body as in image 1. Replace the whole background and the floor with ${STUDIO}; the floor is the same warm light grey as the backdrop, never a dark gym floor; remove the gym, racks, loose plates, walls, signs and other people, and keep only equipment the person is holding, touching, sitting or lying on, with every logo, letter and print removed from it. Do not change, correct, exaggerate or move the pose in any way. ${RULES} Landscape 4:3.`;
 }
 
 /** The generateContent body: the prompt, then each reference image in order. The key is never part of it. */
@@ -308,7 +320,7 @@ export async function callModel(options) {
  * Makes the planned images in order, writing the ledger after every call so a stopped run resumes where it ended.
  * Stops (and says why) before a call would pass --max-calls or --budget-usd.
  */
-export async function runJobs({ jobs, args, ledger, key, fetchImpl, sharp, personas, io = defaultIo, now = () => new Date(), log = console.log }) {
+export async function runJobs({ jobs, args, ledger, key, fetchImpl, sharp, personas, io = defaultIo, now = () => new Date(), log = console.log, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), waits = TRANSIENT_WAITS_MS }) {
   const reserve = CALL_RESERVE_USD[args.imageModel] ?? IMAGE_PRICES_USD[args.imageModel];
   const work = args.work;
   let stopped = null;
@@ -316,29 +328,44 @@ export async function runJobs({ jobs, args, ledger, key, fetchImpl, sharp, perso
     const { item, model, frame, key: id } = job;
     stopped = stopReason(ledger, { maxCalls: args.maxCalls, budgetUsd: args.budgetUsd, price: reserve });
     if (stopped) break;
-    const parts = [personas[model]];
     const refPath = referenceFile(work, item, frame);
     if (!io.exists(refPath)) { log(`skipped ${id}: no reference photo on disk (${path.basename(refPath)})`); continue; }
-    parts.push({ mimeType: refPath.endsWith(".webp") ? "image/webp" : "image/jpeg", data: Buffer.from(io.read(refPath)).toString("base64") });
+    // Image 1 is the photo being edited (its pose and camera carry over), image 2 the persona.
+    const parts = [{ mimeType: refPath.endsWith(".webp") ? "image/webp" : "image/jpeg", data: Buffer.from(io.read(refPath)).toString("base64") }, personas[model]];
     if (frame === 1) {
+      // The end frame is made only after a usable start frame (no money on half a pair), but it is not sent: the
+      // model copied its pose (D9).
       const start = ledger.images[jobKey(item.id, model, 0)];
-      const startPath = rawFile(work, item.id, model, 0);
-      if (!start || !START_USABLE.has(start.status) || !io.exists(startPath)) { log(`skipped ${id}: its start frame is not usable`); continue; }
-      parts.push({ mimeType: "image/png", data: Buffer.from(io.read(startPath)).toString("base64") });
+      if (!start || !START_USABLE.has(start.status) || !io.exists(rawFile(work, item.id, model, 0))) { log(`skipped ${id}: its start frame is not usable`); continue; }
     }
     ledger.calls += 1;
     const before = ledger.spentUsd;
     const earlierCost = ledger.images[id]?.costUsd ?? 0;
     // The reserve is held back while the call is out, so a run killed mid-call never under-counts.
     ledger.spentUsd = round4(before + reserve);
-    const entry = { id: item.id, model, frame, imageModel: args.imageModel, calls: (ledger.images[id]?.calls ?? 0) + 1, at: now().toISOString() };
+    const entry = { id: item.id, model, frame, imageModel: args.imageModel, prompt: PROMPT_VERSION, calls: (ledger.images[id]?.calls ?? 0) + 1, at: now().toISOString() };
     ledger.images[id] = { ...entry, costUsd: round4(earlierCost + reserve), status: "failed", reason: "in progress" };
     writeLedger(work, ledger, io);
     let answer = null;
     let charge = reserve;
+    let refused = 0;
     try {
-      answer = await requestImage({ fetchImpl, key, imageModel: args.imageModel, prompt: demoPrompt(item, model, frame), parts });
-      charge = callCostUsd(args.imageModel, answer.usage, { imageReturned: true });
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          answer = await requestImage({ fetchImpl, key, imageModel: args.imageModel, prompt: demoPrompt(item, model, frame), parts });
+          break;
+        } catch (error) {
+          // A temporary refusal is asked again after a wait, while the budget still covers the refusals and the reserve.
+          const again = TRANSIENT_STATUSES.has(error?.httpStatus) && attempt < waits.length && round4(before + (refused + 1) * ERROR_CHARGE_USD + reserve) <= args.budgetUsd;
+          if (!again) throw error;
+          refused += 1;
+          ledger.spentUsd = round4(before + refused * ERROR_CHARGE_USD + reserve);
+          writeLedger(work, ledger, io);
+          log(`busy ${id}: HTTP ${error.httpStatus}, asking again in ${Math.round(waits[attempt] / 1000)} s`);
+          await sleep(waits[attempt]);
+        }
+      }
+      charge = round4(callCostUsd(args.imageModel, answer.usage, { imageReturned: true }) + refused * ERROR_CHARGE_USD);
       const png = await sharp(answer.image).png().toBuffer();
       io.mkdir(path.dirname(rawFile(work, item.id, model, frame)));
       io.write(rawFile(work, item.id, model, frame), png);
@@ -346,12 +373,12 @@ export async function runJobs({ jobs, args, ledger, key, fetchImpl, sharp, perso
       io.mkdir(path.dirname(encodedFile(work, item.id, model, frame)));
       io.write(encodedFile(work, item.id, model, frame), encoded.data);
       ledger.spentUsd = round4(before + charge);
-      ledger.images[id] = { ...entry, costUsd: round4(earlierCost + charge), usage: usageSummary(answer.usage), status: encoded.ok ? "generated" : "encode-over-target", reason: encoded.ok ? null : `smallest ${encoded.bytes} bytes`, sha256: sha256(encoded.data), bytes: encoded.bytes, quality: encoded.quality, width: encoded.width, height: encoded.height };
+      ledger.images[id] = { ...entry, costUsd: round4(earlierCost + charge), usage: usageSummary(answer.usage), refused, status: encoded.ok ? "generated" : "encode-over-target", reason: encoded.ok ? null : `smallest ${encoded.bytes} bytes`, sha256: sha256(encoded.data), bytes: encoded.bytes, quality: encoded.quality, width: encoded.width, height: encoded.height };
       log(`made ${id} (${encoded.bytes} bytes, q${encoded.quality}; calls ${ledger.calls}, US$${ledger.spentUsd.toFixed(4)})`);
     } catch (error) {
       // An image that came back was billed in full; an answer without one, by its own counts; a refused request barely;
       // anything else (a timeout or a lost connection) may still be billed, so it keeps the reserve.
-      if (!answer) charge = error?.httpStatus ? ERROR_CHARGE_USD : error?.answered ? callCostUsd(args.imageModel, error.usage, { imageReturned: false }) : reserve;
+      if (!answer) charge = round4((error?.httpStatus ? ERROR_CHARGE_USD : error?.answered ? callCostUsd(args.imageModel, error.usage, { imageReturned: false }) : reserve) + refused * ERROR_CHARGE_USD);
       ledger.spentUsd = round4(before + charge);
       ledger.images[id] = { ...entry, costUsd: round4(earlierCost + charge), usage: usageSummary(answer?.usage ?? error?.usage), status: "failed", reason: safeError(error?.message ?? error, key) };
       log(`failed ${id}: ${ledger.images[id].reason}`);
