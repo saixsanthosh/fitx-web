@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { signInUi, textOf } from "./common.mjs";
 
-const AI_HOSTS = /generativelanguage\.googleapis\.com|api\.groq\.com|openrouter\.ai|api\.openai\.com|anthropic|ollama/i;
+const AI_HOSTS = /generativelanguage\.googleapis\.com|api\.groq\.com|api\.cloudflare\.com\/client\/v4\/accounts\/[^/]+\/ai|api\.cerebras\.ai|api\.mistral\.ai|openrouter\.ai|api\.openai\.com|anthropic|ollama/i;
 
 function outboundSince(outDir, since) {
   try {

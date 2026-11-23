@@ -397,14 +397,28 @@ describe("privacy page", () => {
       assert.ok(!providers(config, task, true).has("gemini"), `${task} with member data skips Gemini`);
       assert.ok(providers(config, task, true).has("groq") && providers(config, task, true).has("openrouter"), `${task} with member data goes to Groq or OpenRouter`);
     }
-    assert.match(geminiRouting(config), /^Google’s Gemini API only gets requests that carry neither a summary of your FITX data nor that eating-disorder note/);
-    assert.match(geminiRouting(config), /\bChats with your summary or that note, meal and workout plans and food swaps go to Groq or OpenRouter\.$/);
+    assert.match(geminiRouting(config), /^Google’s Gemini API, Cerebras and Mistral AI only get requests that carry neither a summary of your FITX data nor that eating-disorder note/);
+    assert.match(geminiRouting(config), /\bChats with your summary or that note, meal and workout plans and food swaps go to Groq, Cloudflare Workers AI or OpenRouter\.$/);
 
     // With AI_GEMINI_WITH_MEMBER_DATA, Gemini may get them all, and the page says so.
     const optedIn = readAiConfig({ ...keys, AI_GEMINI_WITH_MEMBER_DATA: "true" });
     for (const task of tasks) assert.ok(providers(optedIn, task, true).has("gemini"), `${task} with member data may go to Gemini`);
-    assert.match(geminiRouting(optedIn), /^Google’s Gemini API may get any coach request: chats with your summary or that eating-disorder note, meal and workout plans and food swaps may go to Gemini, Groq or OpenRouter\.$/);
-    assert.doesNotMatch(geminiRouting(optedIn), /\bonly gets\b/);
+    assert.match(geminiRouting(optedIn), /^Cerebras and Mistral AI only get requests that carry neither/);
+    assert.match(geminiRouting(optedIn), /\bgo to Gemini, Groq, Cloudflare Workers AI or OpenRouter\.$/);
+    assert.doesNotMatch(geminiRouting(optedIn), /Google’s Gemini API/);
+
+    // Cerebras and Mistral follow the same rule with their own opt-ins (AI_CEREBRAS_WITH_MEMBER_DATA, AI_MISTRAL_WITH_MEMBER_DATA).
+    const more = { ...keys, CEREBRAS_API_KEY: "cerebras-test", MISTRAL_API_KEY: "mistral-test", CLOUDFLARE_API_TOKEN: "cf-test", CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef" };
+    const cautious = readAiConfig(more);
+    for (const task of tasks) {
+      const member = providers(cautious, task, true);
+      assert.ok(!member.has("cerebras") && !member.has("mistral") && !member.has("gemini"), `${task} with member data skips the cautious services`);
+      assert.ok(member.has("cloudflare"), `${task} with member data may go to Workers AI`);
+    }
+    assert.ok(providers(cautious, "chat", false).has("mistral") && providers(cautious, "chat", false).has("cerebras"));
+    const everyone = readAiConfig({ ...more, AI_GEMINI_WITH_MEMBER_DATA: "true", AI_CEREBRAS_WITH_MEMBER_DATA: "true", AI_MISTRAL_WITH_MEMBER_DATA: "on" });
+    for (const task of tasks) assert.ok(providers(everyone, task, true).has("mistral") && providers(everyone, task, true).has("cerebras"));
+    assert.match(geminiRouting(everyone), /^Any coach request may go to any of these services: .* may go to Gemini, Cerebras, Mistral AI, Groq, Cloudflare Workers AI or OpenRouter\.$/);
 
     // The page renders the sentence for the deployment's own settings, next to Google's terms.
     const coach = section("AI coach");
@@ -428,8 +442,8 @@ describe("privacy page", () => {
     const { geminiRouting } = await import("@/lib/ai/disclosure");
     const optedIn = readAiConfig({ GROQ_API_KEY: "groq-test", AI_GEMINI_WITH_MEMBER_DATA: "true", OLLAMA_BASE_URL: "https://ollama.example.com", OLLAMA_MODEL: "llama3.2", VERCEL_ENV: "production" });
     assert.ok(config.ollama && optedIn.ollama);
-    assert.match(geminiRouting(config), /\bgo to Groq or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
-    assert.match(geminiRouting(optedIn), /\bmay go to Gemini, Groq or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
+    assert.match(geminiRouting(config), /\bgo to Groq, Cloudflare Workers AI or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
+    assert.match(geminiRouting(optedIn), /\bgo to Gemini, Groq, Cloudflare Workers AI or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
     assert.doesNotMatch(geminiRouting(readAiConfig({ GROQ_API_KEY: "groq-test" })), /Ollama/);
     const coach = section("AI coach");
     assert.match(coach, /\ban Ollama server run by FITX’s owner, when one is set up\b/);

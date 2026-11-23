@@ -5,11 +5,11 @@ import { ProviderError, errorDetail, errorForStatus, isAbort, retryAfterHeader }
 import type { ProviderAdapter, ProviderCall, ProviderResult, ProviderStreamCall } from "./types";
 
 /**
- * One adapter for every OpenAI-compatible chat API FITX uses: Groq, OpenRouter (free models only)
- * and, in local development, Ollama's /v1 endpoint. Plain fetch, no SDK.
+ * One adapter for every OpenAI-compatible chat API FITX uses: Groq, Cloudflare Workers AI, Cerebras, Mistral,
+ * OpenRouter (free models only) and Ollama's /v1 endpoint. Plain fetch, no SDK.
  */
 export type OpenAiCompatibleOptions = {
-  id: "groq" | "openrouter" | "ollama";
+  id: "groq" | "cloudflare" | "cerebras" | "mistral" | "openrouter" | "ollama";
   baseUrl: string;
   apiKey?: string;
   headers?: Record<string, string>;

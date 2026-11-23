@@ -7,7 +7,7 @@ import type { SafetyCaution, SafetyStopTopic } from "./safety";
  * server code.
  */
 
-export type ProviderId = "gemini" | "groq" | "openrouter" | "ollama";
+export type ProviderId = "gemini" | "groq" | "cloudflare" | "cerebras" | "mistral" | "openrouter" | "ollama";
 
 /** What a request is for. Each task has its own provider order (see registry.ts). */
 export type AiTask = "chat" | "meal_plan" | "workout_plan" | "swap";

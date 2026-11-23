@@ -7,6 +7,10 @@ import type { ProviderAdapter } from "./types";
 
 export const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+export const CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1";
+export const MISTRAL_BASE_URL = "https://api.mistral.ai/v1";
+/** Workers AI's OpenAI-compatible endpoint lives under the owner's Cloudflare account. */
+export const cloudflareBaseUrl = (accountId: string) => `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/v1`;
 
 /** One adapter per provider that has a key (Ollama: a local URL in development). */
 export function createAdapters(config: AiConfig): Partial<Record<ProviderId, ProviderAdapter>> {
@@ -21,6 +25,21 @@ export function createAdapters(config: AiConfig): Partial<Record<ProviderId, Pro
       // Groq's structured outputs accept a JSON schema on the gpt-oss models.
       jsonSchema: (model) => model.startsWith("openai/gpt-oss"),
     });
+  }
+  if (config.keys.cloudflare && config.cloudflareAccountId) {
+    adapters.cloudflare = createOpenAiCompatibleAdapter({
+      id: "cloudflare",
+      baseUrl: cloudflareBaseUrl(config.cloudflareAccountId),
+      apiKey: config.keys.cloudflare,
+      // JSON mode only: Workers AI does not take a JSON schema on every model.
+      jsonSchema: () => false,
+    });
+  }
+  if (config.keys.cerebras) {
+    adapters.cerebras = createOpenAiCompatibleAdapter({ id: "cerebras", baseUrl: CEREBRAS_BASE_URL, apiKey: config.keys.cerebras, jsonSchema: () => true });
+  }
+  if (config.keys.mistral) {
+    adapters.mistral = createOpenAiCompatibleAdapter({ id: "mistral", baseUrl: MISTRAL_BASE_URL, apiKey: config.keys.mistral, jsonSchema: () => true });
   }
   if (config.keys.openrouter) {
     adapters.openrouter = createOpenAiCompatibleAdapter({
