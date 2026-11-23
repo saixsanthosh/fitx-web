@@ -1,0 +1,109 @@
+{
+  "set": "home-scenes",
+  "style": "Photoreal cinematic film still, natural light only, shot on a full-frame cinema camera with a 35mm lens, gentle film grain, true-to-life textures, subtle atmospheric haze. Low-key, moody exposure: the main subject sits in the middle third of the frame, and the lower half and both sides stay calm and fairly dark so white text can be laid over them. Colour palette: charcoal shadows, warm off-white highlights, muted sage and one soft terracotta ember accent (#C44933) in the light. Wide 16:9 frame that still reads when cropped to a tall centre strip. No text, letters, numbers, logos, brand marks, watermarks, screens or signage anywhere; clothing and equipment are plain and unbranded. Any person is small in the frame, seen from behind or in soft silhouette, never posing for the camera, and is not a real or famous person.",
+  "images": [
+    {
+      "id": "dawn-road",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A lone runner on an empty coastal road at dawn, sea mist on the right",
+      "prompt": "A lone runner seen from behind, small in the centre of the frame, running away from the camera along an empty coastal road at blue-hour dawn. Low sea mist drifts over the water beside the road, and the first warm band of light sits on the horizon ahead of the runner. Wet tarmac catches the glow. Calm, quiet, early."
+    },
+    {
+      "id": "chalk-bar",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "Chalk dust hanging in a beam of light over a barbell on a rack in a dark gym",
+      "prompt": "A dark, empty strength gym before opening. A plain steel barbell rests in the hooks of a squat rack in the centre of the frame, its knurling dusted with white chalk. A single warm shaft of window light cuts diagonally across the bar, and fine chalk dust hangs suspended in the beam. Everything else falls away into soft charcoal shadow. There is no fire, flame, spark or glowing object anywhere, and no person in the frame.",
+      "note": "The first attempt drew a small flame on the bar and a faint figure; regenerated with the last sentence. Two small orange specks either side of the bar are softened by retouch.",
+      "retouch": [
+        {
+          "x": 0.494,
+          "y": 0.402,
+          "w": 0.02,
+          "h": 0.034,
+          "sigma": 6
+        },
+        {
+          "x": 0.495,
+          "y": 0.456,
+          "w": 0.018,
+          "h": 0.026,
+          "sigma": 6
+        }
+      ]
+    },
+    {
+      "id": "stadium-steps",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A person climbing empty concrete stadium steps at sunrise, long shadows",
+      "prompt": "Wide view of the empty concrete steps of an open-air stadium at sunrise. Far up the steps, small in the centre of the frame and seen from behind, one person climbs steadily. Low golden light rakes across the rows and throws long, regular shadows down the steps. Rows of plain empty seats either side fade into shadow. The photograph fills the entire wide frame edge to edge, with no black bars, borders or frames.",
+      "note": "The first attempt came back as a narrow picture between black bars; regenerated with the last sentence. The second still had black bands above and below (rows 0-85 and 683-767 of 768), so its raw file was cropped to rows 86-679 (1344x594) before encoding."
+    },
+    {
+      "id": "rain-track",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "An empty running track in light rain at dusk, wet lanes reflecting warm floodlights",
+      "prompt": "An empty athletics running track at dusk in light, steady rain. The lane lines curve gently away from the camera towards the centre of the frame, and the wet surface mirrors the warm glow of distant floodlights. Fine rain streaks catch the light. No markings or numbers on the lanes, no people, no signs."
+    },
+    {
+      "id": "iron-room",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A heavily loaded barbell on the floor of a quiet, hazy strength gym",
+      "prompt": "Low-angle view across the floor of a quiet, hazy strength gym. A barbell loaded with heavy plain black iron plates rests on a rubber lifting platform in the centre of the frame. Warm rim light from a high window behind outlines the plates through the haze; the walls and the rest of the room stay in deep charcoal shadow."
+    },
+    {
+      "id": "heavy-bag",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A heavy leather punching bag hanging still in a beam of light in an old boxing gym",
+      "prompt": "An old, empty boxing gym. A worn, plain brown leather heavy bag hangs perfectly still on a chain in the centre of the frame. A beam of late-afternoon window light falls on it from the left, dust drifting in the beam, the brick walls behind softly out of focus in shadow. Plain, unbranded, no posters. Nobody is in the room, and there is no fire, flame or glowing object anywhere.",
+      "note": "The first attempt added a man with a small orange light by his shoulder (a blur retouch looked worse); regenerated with the last sentence."
+    },
+    {
+      "id": "lake-dawn",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A person sitting quietly at the end of a wooden jetty on a misty lake at dawn",
+      "prompt": "A calm lake at dawn with mist lying on the water. A long wooden jetty runs out into the lake, and at its end, small in the centre of the frame and seen from behind, a person sits cross-legged, still and upright, facing the water. Pine-covered hills fade into the haze; the sky holds the first soft warm light."
+    },
+    {
+      "id": "pine-light",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "Morning sunbeams falling through tall pines across an empty forest trail",
+      "prompt": "An empty forest trail through tall pines on a hazy morning. Long beams of warm sunlight fall diagonally through the trunks and cross the path, which winds away towards the centre of the frame. Soft moss and pine needles on the ground, deep shadow between the trees. No people."
+    },
+    {
+      "id": "ridge-sunrise",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A hiker reaching a mountain ridge at sunrise above a sea of clouds",
+      "prompt": "A narrow mountain ridge at sunrise, high above a sea of clouds that fills the valleys below. Small in the centre of the frame, one hiker in silhouette reaches the top of the ridge and stands looking out. The sun is just below the horizon behind distant peaks, warming the edges of the clouds."
+    },
+    {
+      "id": "window-corner",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A quiet home training corner by a large window at first light, with a mat and dumbbells",
+      "prompt": "A quiet home training corner by a tall window at first light. A rolled-out plain dark exercise mat, a pair of plain hexagonal dumbbells and a folded towel sit on a wooden floor in the centre of the frame, with a leafy potted plant beside the window. Cool morning light through sheer curtains, a warm glow on the floorboards, the rest of the room dim. No people."
+    },
+    {
+      "id": "rest-bench",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "A person resting on a gym bench with a towel around their neck in warm evening light",
+      "prompt": "A calm, nearly empty gym in warm evening light. In the centre of the frame, seen from behind at a slight angle, a person sits at rest on the end of a flat bench, a towel around their neck and a plain water bottle beside them, head slightly lowered, recovering after training. Soft golden light from a high window, the rest of the gym in gentle shadow."
+    },
+    {
+      "id": "pebble-shore",
+      "aspect": "16:9",
+      "longEdge": 2400,
+      "alt": "Gentle waves on a pebble beach at dusk, a towel and running shoes on the stones",
+      "prompt": "A pebble beach at dusk with small, gentle waves rolling in. In the lower centre of the frame, a folded towel and a pair of plain, unbranded running shoes rest on the smooth grey stones. The sky over the sea fades from soft terracotta at the horizon to deep blue-grey above. Calm, still, restful. No people."
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "set": "onboarding",
+  "style": "Photoreal editorial fitness photograph, natural and unposed, shot on a full-frame camera with a 50mm lens, soft warm natural light, deep charcoal shadows, gentle film grain, true-to-life textures. Colour palette: warm off-white, charcoal, muted sage and a single terracotta ember accent (#C44933). The subject fills the centre of the frame with a little calm space around it. No text, letters, numbers, logos, brand marks, watermarks, screens or signage anywhere; clothing and equipment are plain and unbranded. Any person is seen in part, from behind or in soft profile, never posing for the camera, and is not a real or famous person.",
+  "images": [
+    {
+      "id": "stage",
+      "aspect": "4:5",
+      "longEdge": 1600,
+      "alt": "An empty gym at dawn, warm light streaming through haze across a single bench",
+      "prompt": "An empty, premium gym at dawn. Warm light streams through tall windows on the right and through a soft haze, falling across a single plain flat bench in the lower centre of the frame. The upper half of the frame is calm, dim and softly lit, the floor a dark polished concrete. No people, no machines with screens."
+    },
+    {
+      "id": "goal-muscle",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A hand gripping a heavy dumbbell on a rack in warm gym light",
+      "prompt": "Close-up of a strong forearm and hand wrapping around the handle of a heavy plain black hexagonal dumbbell resting on a dumbbell rack, about to lift it. Warm side light shows the veins and the knurled handle; the rest of the rack falls into soft shadow."
+    },
+    {
+      "id": "goal-loss",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A runner's legs mid-stride on a dewy park path at sunrise",
+      "prompt": "Low side view of a runner's lower legs and plain grey running shoes mid-stride on a dewy park path at sunrise, one foot just leaving the ground. Long warm light from behind, dew sparkling on the grass, the background softly blurred. Only the legs from the knees down are in frame."
+    },
+    {
+      "id": "goal-strength",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A leather lifting belt and a bowl of chalk beside a loaded barbell",
+      "prompt": "Still life on a rubber lifting platform: a worn, plain brown leather lifting belt lies coiled beside a small bowl of white chalk, next to the end of a barbell loaded with heavy plain black iron plates. Warm light from a high window, chalk dust on the floor, deep charcoal background."
+    },
+    {
+      "id": "goal-fitness",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman tying her running shoe on stone steps in morning light",
+      "prompt": "A woman seen in soft profile, crouched on old stone park steps in morning light, tying the lace of her plain grey running shoe. Her face is turned down towards the shoe and partly out of frame. Plain sage-green training top, black leggings. Warm low sun, trees softly blurred behind."
+    },
+    {
+      "id": "goal-maintain",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A water bottle, a bowl of fruit and a folded towel on a kitchen counter at dawn",
+      "prompt": "A calm kitchen counter at dawn by a window: a plain steel water bottle, a ceramic bowl of fresh fruit, a folded training towel and a plain gym bag. Soft warm morning light from the window on the left, a sage-green wall behind, everything balanced and tidy."
+    },
+    {
+      "id": "activity-low",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A desk by a window with a closed laptop, a cup of tea and an empty chair",
+      "prompt": "A quiet desk by a window in soft afternoon light: a closed plain laptop, a cup of tea with steam rising, a notebook and an empty upholstered chair pulled up to it. Calm, still, a sedentary working day. No screens switched on."
+    },
+    {
+      "id": "activity-moderate",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A person walking briskly up city steps in warm morning light, seen from behind",
+      "prompt": "A person seen from behind walking briskly up a wide flight of outdoor stone steps in a city in warm morning light, a plain canvas bag over one shoulder, long shadows on the steps. Plain clothes, everyday movement, the street softly blurred."
+    },
+    {
+      "id": "activity-high",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "An athlete resting on a gym floor after a hard session, towel over her head, ropes beside her",
+      "prompt": "A woman athlete sitting on a rubber gym floor after a very hard session, knees up, arms resting on them, a towel draped over her head hiding her face, her shoulders glistening with sweat. Two heavy plain battle ropes lie on the floor beside her. Warm rim light from behind, deep charcoal shadows."
+    }
+  ]
+}
