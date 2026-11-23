@@ -7,6 +7,11 @@
 import { signInUi, textOf } from "./common.mjs";
 
 const tabs = (page, name) => page.getByRole("tablist", { name });
+/** How far the page is wider than the device: a phone zooms out to fit wide content, so innerWidth alone hides it. */
+const overflow = async (page) => {
+  const width = page.viewportSize()?.width ?? 0;
+  return page.evaluate((device) => Math.max(document.documentElement.scrollWidth, window.innerWidth) - device, width);
+};
 
 export const flow = {
   id: "18-workout-setup",
@@ -24,7 +29,7 @@ export const flow = {
       const setup = page.getByRole("region", { name: "Where do you train?" });
       await setup.waitFor({ timeout: 20000 });
       t.expect((await setup.getByRole("group", { name: "Where you train" }).getByRole("button").count()) === 3, "Home, Gym and Both are offered");
-      const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      const sideways = await overflow(page);
       t.expect(sideways <= 0, "the page should not scroll sideways", { sideways });
       await t.checkpoint("setup inline");
       await setup.getByRole("button", { name: "Later" }).click();
@@ -57,8 +62,8 @@ export const flow = {
       await sheet.getByRole("button", { name: "4 days a week" }).click();
       await sheet.getByRole("button", { name: "Knees" }).click();
       // The profile says male, so the male model is chosen until the member picks another.
-      t.expect((await sheet.getByRole("button", { name: "Male model" }).getAttribute("aria-pressed")) === "true", "the demonstration model follows the profile");
-      await sheet.getByRole("button", { name: "Female model" }).click();
+      t.expect((await sheet.getByRole("button", { name: "Male model", exact: true }).getAttribute("aria-pressed")) === "true", "the demonstration model follows the profile");
+      await sheet.getByRole("button", { name: "Female model", exact: true }).click();
       await t.checkpoint("setup training details", { fullPage: false });
       await sheet.getByRole("button", { name: "Save setup" }).click();
       await sheet.waitFor({ state: "detached", timeout: 15000 });
@@ -90,7 +95,7 @@ export const flow = {
       await page.getByRole("heading", { name: "Chest", level: 2 }).waitFor();
       const cards = page.locator("section[aria-labelledby=home-collection-title] li button");
       t.expect((await cards.count()) > 0, "home chest exercises are listed");
-      const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      const sideways = await overflow(page);
       t.expect(sideways <= 0, "the Home tab should not scroll sideways", { sideways });
       await t.checkpoint("home tab chest");
       await cards.first().click();
@@ -141,7 +146,7 @@ export const flow = {
       await page.setViewportSize({ width: 768, height: 1024 });
       await t.goto("/workouts?mode=home", { label: "workouts 768" });
       await page.getByRole("heading", { name: "Home exercises" }).waitFor({ timeout: 20000 });
-      const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      const sideways = await overflow(page);
       t.expect(sideways <= 0, "no sideways scroll at 768 px", { sideways });
       await t.checkpoint("workouts home 768");
       await t.goto("/exercises", { label: "library 768" });

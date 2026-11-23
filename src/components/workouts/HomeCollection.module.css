@@ -1,8 +1,10 @@
 /* Workouts' Home mode. Transform and opacity only for motion; nothing moves under reduced motion. */
-.wrap { display: grid; gap: 1.5rem; }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
 @media (min-width: 768px) { .wrap { gap: 2rem; } }
 
-.lead { display: grid; gap: 0.625rem; }
+/* minmax(0, 1fr): a long line in the AI Form Check card truncates instead of widening the page on phones. */
+.lead { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; }
+.lead > * { min-width: 0; }
 @media (min-width: 640px) { .lead { grid-template-columns: auto minmax(0, 1fr); align-items: stretch; } }
 .plan { justify-content: center; }
 
@@ -77,7 +79,7 @@
 .card:hover .second, .card:focus-visible .second { opacity: 1; }
 .noPhoto { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fitx-text-disabled); }
 
-.body { display: grid; gap: 0.25rem; padding: 0.625rem 0.75rem 0.75rem; }
+.body { display: grid; min-width: 0; gap: 0.25rem; padding: 0.625rem 0.75rem 0.75rem; }
 .name { font-size: 0.875rem; font-weight: 650; line-height: 1.25; color: var(--fitx-text); }
 .muscles { font-size: 0.6875rem; color: var(--fitx-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kit { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.125rem; }

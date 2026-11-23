@@ -1,6 +1,7 @@
 /* The Workouts setup. Transform and opacity only for motion; reduced motion keeps the final states. */
 .flow {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 .inline {
@@ -50,8 +51,10 @@
 .place:active { transform: scale(0.97); }
 .place:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .placeOn { border-color: var(--fitx-primary); box-shadow: inset 0 0 0 1px var(--fitx-primary); }
-.placeArt { position: relative; display: flex; aspect-ratio: 4 / 3; background: var(--fitx-surface-variant); }
+/* Pictures never take a tap: the whole tile is the button. */
+.placeArt { position: relative; display: flex; aspect-ratio: 4 / 3; overflow: hidden; background: var(--fitx-surface-variant); pointer-events: none; }
 .half { position: relative; flex: 1; overflow: hidden; }
+@media (min-width: 768px) { .placeArt { aspect-ratio: 16 / 9; } }
 .halfRight { border-left: 2px solid var(--fitx-surface); }
 .placeLabel { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; padding: 0.625rem 0.75rem; font-size: 0.9375rem; font-weight: 700; color: var(--fitx-text); }
 .placeLabel svg { color: var(--fitx-primary-text); }

@@ -24,6 +24,8 @@
 
 .picture {
   position: relative;
+  overflow: hidden;
+  pointer-events: none;
   display: block;
   aspect-ratio: 4 / 3;
   background: var(--fitx-surface-variant);
