@@ -64,8 +64,8 @@
      "/media/demos/male/free-exercise-db-Barbell_Curl/1.webp"
     ],
     "captions": [
-     "Stand up with your torso upright while holding a barbell at a shoulder-width grip.",
-     "While holding the upper arms stationary, curl the weights forward while contracting the biceps as you breathe out."
+     "Arms long, bar at the thighs",
+     "Bar curled up, elbows still"
     ]
    },
    "female": {
@@ -74,8 +74,8 @@
      "/media/demos/female/free-exercise-db-Barbell_Curl/1.webp"
     ],
     "captions": [
-     "Stand up with your torso upright while holding a barbell at a shoulder-width grip.",
-     "While holding the upper arms stationary, curl the weights forward while contracting the biceps as you breathe out."
+     "Arms long, bar at the thighs",
+     "Bar curled up, elbows still"
     ]
    }
   },
@@ -98,8 +98,8 @@
      "/media/demos/male/free-exercise-db-Kettlebell_One-Legged_Deadlift/1.webp"
     ],
     "captions": [
-     "Hold a kettlebell by the handle in one hand.",
-     "Keeping that knee slightly bent, perform a stiff legged deadlift by bending at the hip"
+     "Stand tall, kettlebell in one hand",
+     "Hinge forward, back leg raised"
     ]
    }
   },
@@ -110,8 +110,8 @@
      "/media/demos/male/free-exercise-db-Leg_Extensions/1.webp"
     ],
     "captions": [
-     "Using your quadriceps, extend your legs to the maximum as you exhale.",
-     "Slowly lower the weight back to the original position as you inhale"
+     "Knees bent, pad on the shins",
+     "Legs straight, squeeze the thighs"
     ]
    }
   },
@@ -122,8 +122,8 @@
      "/media/demos/male/free-exercise-db-Side_Bridge/1.webp"
     ],
     "captions": [
-     "Lie on your side, propped on one forearm, elbow under the shoulder.",
-     "Lift your hips until your body is one straight line, then hold."
+     "On your side, on one forearm",
+     "Hips up, one straight line"
     ]
    }
   },
@@ -134,8 +134,8 @@
      "/media/demos/female/free-exercise-db-Single_Leg_Glute_Bridge/1.webp"
     ],
     "captions": [
-     "Raise one leg off of the ground, pulling the knee to your chest.",
-     "Execute the movement by driving through the heel, extending your hip upward and raising your glutes off of the ground."
+     "Lie back, one leg raised",
+     "Hips up, push through the heel"
     ]
    }
   },

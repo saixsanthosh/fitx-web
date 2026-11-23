@@ -80,6 +80,14 @@ describe("DemoLoop and the player (source)", () => {
     assert.match(css, /\.frameCaption \{[^}]*min-height/);
   });
 
+  test("the caption row is as tall as the longest caption, so the controls never move when the frame changes", () => {
+    // The other frames' captions share the row's grid cell, hidden and out of the accessibility tree.
+    assert.match(loop, /className=\{styles\.captionSizer\} aria-hidden="true"/);
+    assert.match(css, /\.frameCaption \{[^}]*display: grid/);
+    assert.match(css, /\.frameCaption > \* \{ grid-area: 1 \/ 1;/);
+    assert.match(css, /\.captionSizer \{ visibility: hidden; \}/);
+  });
+
   test("an AI demonstration says what it is and offers the model choice when both exist", () => {
     assert.match(loop, /DEMO_LABEL/);
     assert.match(loop, /role="radiogroup" aria-label="Demonstration model"/);

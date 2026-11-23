@@ -41,6 +41,18 @@ test("the committed index and files match accepted.json", () => {
   assert.deepEqual(checkPublished({ accepted, indexText: readFileSync(INDEX_FILE, "utf8") }), []);
 });
 
+test("shipped captions are short FITX lines about the pose on screen, not catalogue sentences", () => {
+  // Each caption names the frame's own pose (DemoLoop shows it with that frame), in a few plain words: no instruction
+  // sentences copied from the Free Exercise DB, no full stops, short enough to stay on one or two lines at 390 px.
+  const accepted = JSON.parse(readFileSync(ACCEPTED_FILE, "utf8"));
+  for (const item of accepted.items) {
+    const where = `${item.id}/${item.model}/${item.frame}`;
+    assert.ok(item.caption.length > 0 && item.caption.length <= 40, `${where}: "${item.caption}" is ${item.caption.length} characters (at most 40)`);
+    assert.doesNotMatch(item.caption, /[.!?]$/, `${where}: no closing full stop`);
+    assert.doesNotMatch(item.caption, /\b(inhale|exhale|breathe|you|your torso|original position)\b/i, `${where}: describes the pose, not the instructions`);
+  }
+});
+
 test("the check finds a missing, changed or unlisted file", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "fitx-demo-index-"));
   try {

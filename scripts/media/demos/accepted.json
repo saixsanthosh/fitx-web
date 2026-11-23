@@ -231,7 +231,7 @@
    "frame": 0,
    "sha256": "acb8d2c6bf880108dac552568181a5ca36dc47c96b2e3eab606de9248a548e6d",
    "bytes": 16180,
-   "caption": "Stand up with your torso upright while holding a barbell at a shoulder-width grip."
+   "caption": "Arms long, bar at the thighs"
   },
   {
    "id": "free-exercise-db-Barbell_Curl",
@@ -239,7 +239,7 @@
    "frame": 1,
    "sha256": "82e0c6a75889d02056f6b307eb4fb0c8ae03b1b7394745a6bca584062405a789",
    "bytes": 15178,
-   "caption": "While holding the upper arms stationary, curl the weights forward while contracting the biceps as you breathe out."
+   "caption": "Bar curled up, elbows still"
   },
   {
    "id": "free-exercise-db-Barbell_Curl",
@@ -247,7 +247,7 @@
    "frame": 0,
    "sha256": "cd15af3056d6b7f794a26c550ce04eba33045d56633ebb02a4fa8596ae7f2e49",
    "bytes": 16680,
-   "caption": "Stand up with your torso upright while holding a barbell at a shoulder-width grip."
+   "caption": "Arms long, bar at the thighs"
   },
   {
    "id": "free-exercise-db-Barbell_Curl",
@@ -255,7 +255,7 @@
    "frame": 1,
    "sha256": "92da4a005513bcf4b23c12d67a25a0a8192fec1a31362cd9c3c1194d526ba55d",
    "bytes": 16830,
-   "caption": "While holding the upper arms stationary, curl the weights forward while contracting the biceps as you breathe out."
+   "caption": "Bar curled up, elbows still"
   },
   {
    "id": "free-exercise-db-Leg_Extensions",
@@ -263,7 +263,7 @@
    "frame": 0,
    "sha256": "1c8b1070b4f8ff820a258aebad98cfb5e668832af8961309429e19b868998196",
    "bytes": 23072,
-   "caption": "Using your quadriceps, extend your legs to the maximum as you exhale."
+   "caption": "Knees bent, pad on the shins"
   },
   {
    "id": "free-exercise-db-Leg_Extensions",
@@ -271,7 +271,7 @@
    "frame": 1,
    "sha256": "7ffc51ba77f716eeb157c71400bca54c26d45dcf0734e48f10d8a69bdcd7e6f4",
    "bytes": 24388,
-   "caption": "Slowly lower the weight back to the original position as you inhale"
+   "caption": "Legs straight, squeeze the thighs"
   },
   {
    "id": "free-exercise-db-Kettlebell_One-Legged_Deadlift",
@@ -279,7 +279,7 @@
    "frame": 0,
    "sha256": "c2d4adde1c5c2624bb86568f7825bfec83fca75b9a2497ec3221e3fb0b7a1850",
    "bytes": 14824,
-   "caption": "Hold a kettlebell by the handle in one hand."
+   "caption": "Stand tall, kettlebell in one hand"
   },
   {
    "id": "free-exercise-db-Kettlebell_One-Legged_Deadlift",
@@ -287,7 +287,7 @@
    "frame": 1,
    "sha256": "54ca3201b48e2f04587b24174fedca189a0c291a6e1b95e5abfd251c1b3306b8",
    "bytes": 17650,
-   "caption": "Keeping that knee slightly bent, perform a stiff legged deadlift by bending at the hip"
+   "caption": "Hinge forward, back leg raised"
   },
   {
    "id": "free-exercise-db-Single_Leg_Glute_Bridge",
@@ -295,7 +295,7 @@
    "frame": 0,
    "sha256": "eb3c2eb86d27fccc5ea176e243bba37196ff11f70e911be157241a8ceb3727ed",
    "bytes": 18330,
-   "caption": "Raise one leg off of the ground, pulling the knee to your chest."
+   "caption": "Lie back, one leg raised"
   },
   {
    "id": "free-exercise-db-Single_Leg_Glute_Bridge",
@@ -303,7 +303,7 @@
    "frame": 1,
    "sha256": "535498f8a7c6a097a40fa5a8f83b443f89ed18d67a3d0b5c8af38dae4dbb1d4d",
    "bytes": 18756,
-   "caption": "Execute the movement by driving through the heel, extending your hip upward and raising your glutes off of the ground."
+   "caption": "Hips up, push through the heel"
   },
   {
    "id": "free-exercise-db-Side_Bridge",
@@ -311,7 +311,7 @@
    "frame": 0,
    "sha256": "55cbb9a2da094d77aebe72f27dfa4047192974aebcb2be8ca8869bea06ff7c0d",
    "bytes": 19564,
-   "caption": "Lie on your side, propped on one forearm, elbow under the shoulder."
+   "caption": "On your side, on one forearm"
   },
   {
    "id": "free-exercise-db-Side_Bridge",
@@ -319,7 +319,7 @@
    "frame": 1,
    "sha256": "672646bb30a26c29a275e3625ca8dde7e359fd45a87f85aea33363f86971313a",
    "bytes": 21776,
-   "caption": "Lift your hips until your body is one straight line, then hold."
+   "caption": "Hips up, one straight line"
   }
  ]
 }

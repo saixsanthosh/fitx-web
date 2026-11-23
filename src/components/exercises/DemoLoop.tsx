@@ -131,9 +131,16 @@ export function DemoLoop({ stills, name, size = "full", className, whenEmpty = n
       </div>
       {(hasCaptions || chooser) && (
         <div className={styles.lead}>
-          <p className={styles.frameCaption} data-demo-caption aria-live={state.playing ? "off" : "polite"} aria-atomic="true">
-            {caption && <span key={`${frame}-${caption}`} className={styles.captionText}>{caption}</span>}
-          </p>
+          {/* Every caption sits in the same cell (the others hidden), so the row is as tall as the longest one and the
+              controls below never move when the frame changes, however each caption wraps. */}
+          <div className={styles.frameCaption}>
+            {shown.map((still, index) => (still.caption && index !== frame
+              ? <span key={`sizer-${still.url}`} className={styles.captionSizer} aria-hidden="true">{still.caption}</span>
+              : null))}
+            <p className={styles.captionLine} data-demo-caption aria-live={state.playing ? "off" : "polite"} aria-atomic="true">
+              {caption && <span key={`${frame}-${caption}`} className={styles.captionText}>{caption}</span>}
+            </p>
+          </div>
           {chooser && (
             <div role="radiogroup" aria-label="Demonstration model" className={styles.models}>
               {models.map((value) => (
