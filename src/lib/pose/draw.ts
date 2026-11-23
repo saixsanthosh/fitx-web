@@ -29,6 +29,11 @@ export interface DrawOptions {
   /** Landmark indices the current exercise measures; drawn in the accent colour. */
   focus: ReadonlySet<number>;
   minVisibility: number;
+  /**
+   * Screen (CSS) pixels per canvas pixel, once the picture is fitted and zoomed: lines keep about the
+   * same thickness on screen however far the framing zooms in.
+   */
+  pixelScale?: number;
 }
 
 /** Clears the canvas and draws `points` (image-normalised) at the canvas's own pixel size. */
@@ -36,7 +41,7 @@ export function drawPose(context: CanvasRenderingContext2D, points: readonly Pos
   const { width, height } = context.canvas;
   context.clearRect(0, 0, width, height);
   if (!points) return;
-  const line = Math.max(2, Math.round(Math.min(width, height) / 160));
+  const line = options.pixelScale && options.pixelScale > 0 ? Math.max(1, 3.2 / options.pixelScale) : Math.max(2, Math.round(Math.min(width, height) / 160));
   const at = (point: PosePoint) => [point.x * width, point.y * height] as const;
   const seen = (index: number) => isConfident(points[index], options.minVisibility);
 

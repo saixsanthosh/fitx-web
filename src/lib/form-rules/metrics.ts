@@ -22,6 +22,18 @@ export interface FrameReading {
   facing: number | undefined;
   /** Size of the seen body in image heights (the larger of its width and its height). */
   extent: number | undefined;
+  /** Some measurement was taken in 3D from world landmarks on this frame. */
+  usedWorld: boolean;
+}
+
+/** Facing ratios between these are an oblique view: neither side-on nor square to the camera. */
+const OBLIQUE_FROM = 0.28;
+const OBLIQUE_TO = 0.62;
+
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
 }
 
 /** Landmarks this loose still place a shoulder or hip well enough to judge which way the body faces. */
@@ -32,7 +44,7 @@ const BODY_JOINTS: readonly Joint[] = ["shoulder", "elbow", "wrist", "hip", "kne
 export function readFrame(rule: ExerciseRule, frame: PoseFrame, preferredSide: Side | null): FrameReading {
   const points = frame.points;
   if (!points || points.length < 33) {
-    return { person: false, side: preferredSide, missing: [...rule.required], values: {}, facing: undefined, extent: undefined };
+    return { person: false, side: preferredSide, missing: [...rule.required], values: {}, facing: undefined, extent: undefined, usedWorld: false };
   }
   const aspect = frame.aspect > 0 ? frame.aspect : 1;
   const seen = (joint: Joint, side: Side) => {
@@ -45,10 +57,83 @@ export function readFrame(rule: ExerciseRule, frame: PoseFrame, preferredSide: S
     ? rule.required.filter((joint) => SIDES.some((s) => !seen(joint, s)))
     : rule.required.filter((joint) => !seen(joint, side));
 
+  const facing = facingRatio(points, aspect);
+  const world = frame.world && frame.world.length >= 33 ? frame.world : null;
+  const oblique = facing !== undefined && facing > OBLIQUE_FROM && facing < OBLIQUE_TO;
+  /** A world landmark, only for joints the picture also sees clearly (world points are never guessed into use). */
+  const seen3d = (joint: Joint, side: Side): Vec3 | null => {
+    if (!world || !seen(joint, side)) return null;
+    const point = world[landmarkIndex(joint, side)];
+    return point && Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z ?? Number.NaN) ? { x: point.x, y: point.y, z: point.z as number } : null;
+  };
+  let usedWorld = false;
   const values: Record<string, number | undefined> = {};
-  for (const [id, spec] of Object.entries(rule.metrics)) values[id] = measure(spec, side, seen);
+  for (const [id, spec] of Object.entries(rule.metrics)) {
+    const space = spec.kind === "angle" || spec.kind === "tilt" ? spec.space ?? "auto" : "image";
+    const in3d = world !== null && (space === "world" || (space === "auto" && oblique));
+    const value = in3d ? measure3d(spec, side, seen, seen3d) : undefined;
+    if (value !== undefined) usedWorld = true;
+    values[id] = value ?? measure(spec, side, seen);
+  }
 
-  return { person: true, side, missing, values, facing: facingRatio(points, aspect), extent: bodyExtent(points, aspect, rule.minVisibility) };
+  return { person: true, side, missing, values, facing, extent: bodyExtent(points, aspect, rule.minVisibility), usedWorld };
+}
+
+/**
+ * An angle or tilt measured in 3D, or undefined when it can't be (other kinds, or a joint not seen).
+ * World landmarks share the picture's axes (x right, y down, z towards or away from the lens), so
+ * "vertical" is the picture's up and down, as on the picture itself.
+ */
+function measure3d(
+  spec: MetricSpec,
+  side: Side,
+  seen: (joint: Joint, side: Side) => Vec | null,
+  seen3d: (joint: Joint, side: Side) => Vec3 | null,
+): number | undefined {
+  const one = (s: Side): number | undefined => {
+    if (spec.kind === "angle") {
+      const [ja, jb, jc] = spec.joints;
+      const a = seen3d(ja, s);
+      const b = seen3d(jb, s);
+      const c = seen3d(jc, s);
+      if (!a || !b || !c) return undefined;
+      const angle = angle3d(a, b, c);
+      if (angle === undefined) return undefined;
+      if (!spec.signed) return angle;
+      // Which side of the line the middle joint lies on is read from the picture, as in 2D.
+      const pa = seen(ja, s);
+      const pb = seen(jb, s);
+      const pc = seen(jc, s);
+      return pa && pb && pc && offsetFromLine(pa, pc, pb) < 0 ? 360 - angle : angle;
+    }
+    if (spec.kind === "tilt") {
+      const from = seen3d(spec.from, s);
+      const to = seen3d(spec.to, s);
+      if (!from || !to) return undefined;
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const dz = to.z - from.z;
+      if (dx === 0 && dy === 0 && dz === 0) return undefined;
+      const fromVertical = (Math.atan2(Math.hypot(dx, dz), Math.abs(dy)) * 180) / Math.PI;
+      return spec.reference === "vertical" ? fromVertical : 90 - fromVertical;
+    }
+    return undefined;
+  };
+  if (spec.kind !== "angle" && spec.kind !== "tilt") return undefined;
+  if (spec.side === "visible") return one(side);
+  const left = one("left");
+  const right = one("right");
+  if (left === undefined || right === undefined) return undefined;
+  return spec.side === "both-min" ? Math.min(left, right) : Math.max(left, right);
+}
+
+function angle3d(a: Vec3, b: Vec3, c: Vec3): number | undefined {
+  const u = { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+  const v = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z };
+  const lengths = Math.hypot(u.x, u.y, u.z) * Math.hypot(v.x, v.y, v.z);
+  if (!(lengths > 0)) return undefined;
+  const cos = Math.min(1, Math.max(-1, (u.x * v.x + u.y * v.y + u.z * v.z) / lengths));
+  return (Math.acos(cos) * 180) / Math.PI;
 }
 
 /** True when every condition holds for these values (a missing value fails its condition). */

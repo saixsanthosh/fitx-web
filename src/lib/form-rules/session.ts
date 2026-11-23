@@ -12,7 +12,7 @@
 import type { Joint, PoseFrame, Side } from "@/lib/pose/landmarks";
 import { OneEuroFilter } from "@/lib/pose/smoothing";
 import { allHold, anyHolds, readFrame } from "./metrics";
-import type { CueSpec, CueText, ExerciseId, ExerciseRule, MetricSpec, RepMotion, RepPhase } from "./types";
+import type { Condition, CueSpec, CueText, ExerciseId, ExerciseRule, HoldMotion, MetricSpec, RepMotion, RepPhase } from "./types";
 
 /**
  * - "searching": no person in view
@@ -31,6 +31,8 @@ export interface ActiveCue extends CueText {
 
 export type CoachEvent =
   | { type: "rep"; reps: number; clean: boolean }
+  /** The start position was fitted to this member and camera (see `calibrateStart`). */
+  | { type: "calibrated"; metric: string; start: number }
   | { type: "partial"; partials: number; cue: ActiveCue }
   | { type: "cue"; cue: ActiveCue }
   | { type: "lost" };
@@ -57,6 +59,12 @@ export interface CoachSnapshot {
   side: Side | null;
   /** What happened on this frame (for speech and announcements). */
   events: CoachEvent[];
+  /** Holding still near the start position while the coach fits the start to this member. */
+  calibrating: boolean;
+  /** The start position has been fitted to this member and camera. */
+  calibrated: boolean;
+  /** This frame's angles were partly measured in 3D (an angled view). */
+  usedWorld: boolean;
 }
 
 export interface CoachSummary {
@@ -106,6 +114,16 @@ const MAX_FRAME_GAP_MS = 1000;
 const SMOOTHING_GAP_MS = 300;
 /** Leaving the exercise posture between reps for this long means the set is paused. */
 const POSTURE_LOSS_MS = 800;
+/** How long a steady position near the start must be held before the start is fitted to it. */
+export const CALIBRATE_MS = 900;
+/** The start threshold may move by at most this share of the movement's range. */
+const CALIBRATE_MAX_SHIFT = 0.15;
+/** A calibrated start sits this share of the range inside the member's own steady value. */
+const CALIBRATE_MARGIN = 0.03;
+/** "Steady" means the value stays within this share of the range. */
+const CALIBRATE_STEADY = 0.05;
+/** Only positions within this share of the range from the start count as trying to start. */
+const CALIBRATE_NEAR = 0.35;
 const LOST_NOTICE: ActiveCue = { id: "lost", text: "Lost sight of you, so that rep wasn't counted.", speech: "Rep not counted" };
 /**
  * Replaces a floor exercise's posture hint while the picture is portrait. Either the phone stands
@@ -138,12 +156,50 @@ function list(parts: string[]): string {
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
 }
 
+/**
+ * Per-member calibration of where a rep starts. Bodies, clothing and camera angles differ: a member
+ * whose straight leg reads 152° to this camera would never reach a 160° start and could never begin.
+ * When the member holds a steady position close to the start (within 35% of the range) that the rule
+ * doesn't accept, the start (and its exit) move to just inside their own value, by at most 15% of the
+ * range. The turnaround a full rep must reach never moves, so calibration can't make a short rep count.
+ * Returns the adjusted motion, or null when the position is too far from the start to fit.
+ */
+export function calibrateStart(motion: RepMotion, value: number): RepMotion | null {
+  const metric = motion.progress.metric;
+  const range = Math.abs(motion.progress.to - motion.progress.from);
+  const startSideIsHigh = motion.progress.from > motion.progress.to;
+  const enter = motion.start.enter.find((condition) => condition.metric === metric);
+  if (!enter || !(range > 0)) return null;
+  const margin = range * CALIBRATE_MARGIN;
+  const wanted = startSideIsHigh ? value - margin : value + margin;
+  const shift = startSideIsHigh ? enter.value - wanted : wanted - enter.value;
+  if (shift <= 0) return motion;
+  if (shift > range * CALIBRATE_MAX_SHIFT) return null;
+  const move = (condition: Condition): Condition =>
+    condition.metric === metric ? { ...condition, value: startSideIsHigh ? condition.value - shift : condition.value + shift } : condition;
+  const start = { enter: motion.start.enter.map(move), exit: motion.start.exit.map(move) };
+  // The start must stay clear of the turnaround: its exit has to lie beyond the target's exit.
+  const startExit = start.exit.find((condition) => condition.metric === metric);
+  const targetExit = motion.target.exit.find((condition) => condition.metric === metric);
+  if (startExit && targetExit) {
+    const gap = startSideIsHigh ? startExit.value - targetExit.value : targetExit.value - startExit.value;
+    if (gap < range * 0.1) return null;
+  }
+  return { ...motion, start, progress: { ...motion.progress, from: startSideIsHigh ? Math.max(value, motion.progress.to) : Math.min(value, motion.progress.to) } };
+}
+
 export function createCoachSession(rule: ExerciseRule, options: CoachSessionOptions = {}): CoachSession {
   const lossGraceMs = options.lossGraceMs ?? 600;
   const cueCooldownMs = options.cueCooldownMs ?? 6000;
   const noticeMs = options.noticeMs ?? 2500;
   const minExtent = options.minExtent ?? 0.2;
-  const motion = rule.motion;
+  const ruleMotion = rule.motion;
+  /** The rule's motion, or its start fitted to this member once calibrated. */
+  let motion: RepMotion | HoldMotion = ruleMotion;
+  let calibrated = false;
+  let steady: { since: number; ref: number; samples: number[] } | null = null;
+  let calibrating = false;
+  let usedWorld = false;
 
   const filters = new Map<string, { filter: OneEuroFilter; lastT: number }>();
   let side: Side | null = null;
@@ -283,13 +339,25 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
       cue: showing ?? extra.cue,
       side,
       events: extra.events,
+      calibrating,
+      calibrated,
+      usedWorld,
     };
   }
 
   function stepReps(m: RepMotion, values: Record<string, number | undefined>, ready: boolean, t: number, events: CoachEvent[]) {
     const progress = progressOf(values);
     if (phase === "idle") {
-      if (ready && allHold(m.start.enter, values)) phase = "start";
+      if (ready && allHold(m.start.enter, values)) {
+        phase = "start";
+        steady = null;
+        calibrating = false;
+      } else if (ready) {
+        tryCalibrate(m, values, t, events);
+      } else {
+        steady = null;
+        calibrating = false;
+      }
     } else if (phase === "start") {
       if (ready) postureLostSince = null;
       else postureLostSince ??= t;
@@ -349,6 +417,42 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
     return progress;
   }
 
+  /** Fits the start to a steady position near it (see `calibrateStart`). */
+  function tryCalibrate(m: RepMotion, values: Record<string, number | undefined>, t: number, events: CoachEvent[]) {
+    const metric = m.progress.metric;
+    const value = values[metric];
+    const range = Math.abs(m.progress.to - m.progress.from);
+    const others = m.start.enter.filter((condition) => condition.metric !== metric);
+    const share = value === undefined ? Infinity : (value - ruleMotionProgress().from) / (ruleMotionProgress().to - ruleMotionProgress().from);
+    if (value === undefined || share > CALIBRATE_NEAR || !allHold(others, values)) {
+      steady = null;
+      calibrating = false;
+      return;
+    }
+    if (!steady || Math.abs(value - steady.ref) > range * CALIBRATE_STEADY) {
+      steady = { since: t, ref: value, samples: [value] };
+      calibrating = false;
+      return;
+    }
+    steady.samples.push(value);
+    calibrating = t - steady.since >= 250;
+    if (t - steady.since < CALIBRATE_MS) return;
+    const sorted = [...steady.samples].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const fitted = calibrateStart(m, median);
+    steady = null;
+    calibrating = false;
+    if (!fitted || fitted === m) return;
+    motion = fitted;
+    calibrated = true;
+    events.push({ type: "calibrated", metric, start: median });
+    if (allHold(fitted.start.enter, values)) phase = "start";
+  }
+
+  function ruleMotionProgress() {
+    return (ruleMotion as RepMotion).progress;
+  }
+
   function markActive() {
     started = true;
     activeSpanMs = sinceStartMs;
@@ -362,6 +466,7 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
     const events: CoachEvent[] = [];
     const reading = readFrame(rule, frame, side);
     if (reading.person) side = reading.side;
+    usedWorld = reading.usedWorld;
 
     let problem: { status: CoachStatus; guidance: string } | null = null;
     if (!reading.person) {
@@ -425,7 +530,7 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
     const progress = stepReps(motion, values, ready, t, events);
     if (phase === "idle") {
       clearFaults();
-      const guidance = !viewOk ? viewHint : !postureOk ? postureHint : motion.startHint;
+      const guidance = !viewOk ? viewHint : !postureOk ? postureHint : calibrating ? "Hold still a moment while the coach fits your start position." : motion.startHint;
       return snapshot(t, "position", guidance, { progress: null, cue: null, events });
     }
     markActive();
@@ -438,6 +543,11 @@ export function createCoachSession(rule: ExerciseRule, options: CoachSessionOpti
 
   function pause() {
     if (motion.kind === "reps") dropRep();
+    // The camera or the member may have moved: fit the start again when counting resumes.
+    motion = ruleMotion;
+    calibrated = false;
+    steady = null;
+    calibrating = false;
     holdPhase = "resting";
     formBadSince = null;
     postureLostSince = null;

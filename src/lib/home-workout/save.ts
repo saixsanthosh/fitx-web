@@ -1,5 +1,5 @@
 /**
- * Saves today's Home workout sets to workout history as one completed session, with the member's
+ * Saves today's AI Form Check sets to workout history as one completed session, with the member's
  * own rights (owner RLS on the workout tables): the session, one row per exercise and one row per
  * set, each set labelled as counted by the camera. Only counts leave the device.
  *
@@ -17,7 +17,7 @@ import { missingColumnFromError } from "@/lib/domain/schema-fallback";
 import type { LoggedSet } from "./log";
 
 /** The name history shows for these sessions. */
-export const HOME_WORKOUT_SESSION_NAME = "Home workout";
+export const HOME_WORKOUT_SESSION_NAME = "AI Form Check";
 /** A workout row holds at most this many sets of one exercise (the table's limit). */
 const MAX_SETS_PER_ROW = 10;
 const MAX_ROWS = 100;

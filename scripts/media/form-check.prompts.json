@@ -1,0 +1,101 @@
+{
+  "set": "form-check",
+  "style": "Photoreal editorial fitness photograph in a minimal, dark home studio: matte charcoal wall and floor, one soft key light from the front and a single warm terracotta (#C44933) rim light from behind on one side, deep soft shadows, gentle film grain, true-to-life skin texture, calm and premium. The whole body is in frame with generous empty space around it, the floor line low in the frame, shot at hip height with a 50mm lens. Textbook exercise form. Colour palette: charcoal, warm off-white skin highlights and the single terracotta accent. No text, letters, numbers, logos, brand marks, watermarks, mirrors, screens or signage anywhere; clothing and equipment are plain and unbranded. Not a real or famous person.",
+  "people": {},
+  "images": [
+    {
+      "id": "squat-end",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman at the bottom of a bodyweight squat, hips back, arms reaching forward",
+      "prompt": "Not generated: a reference seeded into the raw folder from the existing FITX photo public/media/home-workout-1/squat.webp (generated earlier with the same style), so the edits below keep its person and studio. Its raw file is removed before encoding, so it is not re-published in this set."
+    },
+    {
+      "id": "push-up-top",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man in a high plank at the top of a push-up",
+      "prompt": "Not generated: a reference seeded into the raw folder from the existing FITX photo public/media/home-workout-1/push-up.webp (generated earlier with the same style), so the edits below keep its person and studio. Its raw file is removed before encoding, so it is not re-published in this set."
+    },
+    {
+      "id": "shoulder-press-end",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman facing the camera with two dumbbells pressed straight overhead",
+      "prompt": "Not generated: a reference seeded into the raw folder from the existing FITX photo public/media/home-workout-2/shoulder-press.webp (generated earlier with the same style), so the edits below keep its person and studio. Its raw file is removed before encoding, so it is not re-published in this set."
+    },
+    {
+      "id": "jumping-jack-ref",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman facing the camera with her arms overhead",
+      "prompt": "Not generated: a reference seeded into the raw folder from the existing FITX photo public/media/home-workout-1/jumping-jack.webp (generated earlier with the same style), so the edits below keep its person and studio. Its raw file is removed before encoding, so it is not re-published in this set."
+    },
+    {
+      "id": "glute-bridge-ref",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman lying on her back on a mat with her knees bent",
+      "prompt": "Not generated: a reference seeded into the raw folder from the existing FITX photo public/media/home-workout-1/glute-bridge.webp (generated earlier with the same style), so the edits below keep its person and studio. Its raw file is removed before encoding, so it is not re-published in this set."
+    },
+    {
+      "id": "squat-start",
+      "ref": "squat-end",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman standing tall side-on, arms reaching forward, ready to squat",
+      "prompt": "Edit this photograph. Keep the same person (same face, hair, build and clothing), the same studio, wall, floor, mat, lighting, camera position, lens and framing exactly as they are, so the photos can be shown one after the other as a single demonstration. Change only the body position, to: standing tall at the start of a bodyweight squat, exactly side-on: legs straight, feet flat and hip-width apart, chest up, both arms reaching straight forward at shoulder height, looking ahead. Textbook exercise form."
+    },
+    {
+      "id": "push-up-bottom",
+      "ref": "push-up-top",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A man side-on at the bottom of a push-up, chest just above the mat",
+      "prompt": "Edit this photograph. Keep the same person (same face, hair, build and clothing), the same studio, wall, floor, mat, lighting, camera position, lens and framing. The body position must clearly change from the input photo; this is the other end of the same movement, so the two photos can be shown one after the other as a single demonstration. In the new photo: he has lowered himself to the bottom of the push-up: his elbows are bent to ninety degrees and point back along his body, his chest is a fist's height above the mat and his shoulders are level with his elbows. His whole body from head to heels stays in one straight line, close to the floor. Textbook exercise form.",
+      "status": "Rejected after 2 calls (2026-11-23): both edits kept the arms straight, so neither shows the bottom of a push-up. Not published."
+    },
+    {
+      "id": "shoulder-press-start",
+      "ref": "shoulder-press-end",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman facing the camera holding two dumbbells at her shoulders",
+      "prompt": "Edit this photograph. Keep the same person (same face, hair, build and clothing), the same studio, wall, floor, mat, lighting, camera position, lens and framing. The body position must clearly change from the input photo; this is the other end of the same movement, so the two photos can be shown one after the other as a single demonstration. In the new photo: her arms make a goalpost shape (a letter W): each upper arm points out to the side, level with her shoulders; each elbow is bent to a right angle; each forearm points straight up; each hand holds a dumbbell at the height of her ears, directly above its elbow and level with the top of the shoulder. The dumbbells are beside her head, not in front of her chest and not behind her head. Textbook exercise form.",
+      "status": "Rejected after 3 calls (2026-11-23): the dumbbells came back behind the head, then held out in front like a front raise, then still overhead. Not published."
+    },
+    {
+      "id": "jumping-jack-closed",
+      "ref": "jumping-jack-ref",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman standing tall facing the camera, feet together, arms by her sides",
+      "prompt": "Edit this photograph. Keep the same person (same face, hair, build and clothing), the same studio, wall, floor, mat, lighting, camera position, lens and framing exactly as they are, so the photos can be shown one after the other as a single demonstration. Change only the body position, to: standing tall facing the camera at the start of a jumping jack: feet together and flat on the floor, legs straight, both arms straight down by her sides with the palms against the thighs, looking straight ahead. Textbook exercise form."
+    },
+    {
+      "id": "jumping-jack-open",
+      "ref": "jumping-jack-ref",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman facing the camera mid jumping jack, feet wide and arms straight overhead",
+      "prompt": "Edit this photograph. Keep the same person (same face, hair, build and clothing), the same studio, wall, floor, mat, lighting, camera position, lens and framing. The body position must clearly change from the input photo; this is the other end of the same movement, so the two photos can be shown one after the other as a single demonstration. In the new photo: she has jumped her feet wide apart: each foot lands well outside her shoulders, so her straight legs form a wide upside-down V on the floor, and both arms are straight overhead with the hands close together above her head. Textbook exercise form."
+    },
+    {
+      "id": "glute-bridge-start",
+      "ref": "glute-bridge-ref",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman lying on her back side-on, knees bent, hips resting on the mat",
+      "prompt": "Edit this photograph. Keep the same person (same face, hair, build and clothing), the same studio, wall, floor, mat, lighting, camera position, lens and framing exactly as they are, so the photos can be shown one after the other as a single demonstration. Change only the body position, to: the start of a glute bridge, exactly side-on: lying on her back on the mat with her head and shoulders down, knees bent to about ninety degrees, feet flat on the mat hip-width apart, hips resting on the mat, arms flat on the mat by her sides. Textbook exercise form."
+    },
+    {
+      "id": "glute-bridge-top",
+      "ref": "glute-bridge-ref",
+      "aspect": "4:5",
+      "longEdge": 1000,
+      "alt": "A woman side-on at the top of a glute bridge, shoulders, hips and knees in one line",
+      "prompt": "Edit this photograph. Keep the same person (same face, hair, build and clothing), the same studio, wall, floor, mat, lighting, camera position, lens and framing. The body position must clearly change from the input photo; this is the other end of the same movement, so the two photos can be shown one after the other as a single demonstration. In the new photo: her hips are lifted about forty centimetres off the mat, high enough that her shoulders, hips and knees form one straight diagonal line rising from her shoulders to her knees. Only her head, shoulders, upper back, arms and feet touch the mat; her feet are flat under her knees, her shins are vertical and her thighs and torso are in one line. Textbook exercise form.",
+      "status": "Rejected after 2 calls (2026-11-23): both edits left the hips resting on the mat, so neither shows the top of a bridge. Not published."
+    }
+  ]
+}

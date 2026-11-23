@@ -22,7 +22,7 @@ const mentionsAutoRotate = (guidance: string) => /auto-rotate/.test(guidance);
 
 test("only the floor exercises ask for a landscape picture", () => {
   const landscape = EXERCISE_RULES.filter((r) => r.landscape).map((r) => r.id).sort();
-  assert.deepEqual(landscape, ["glute_bridge", "mountain_climber", "plank", "push_up", "side_plank", "superman"]);
+  assert.deepEqual(landscape, ["glute_bridge", "mountain_climber", "plank", "push_up", "side_plank", "sit_up", "superman"]);
   for (const id of landscape) {
     assert.match(rule(id).setupTips[0], /auto-rotate on/, `${id}: the first tip says how to set the phone up`);
   }

@@ -1,8 +1,8 @@
 "use client";
 
 import type { Ref } from "react";
-import { ArrowLeft, Camera, CircleAlert, RotateCcw, ShieldCheck, Volume2 } from "lucide-react";
-import { DemoPlayer } from "@/components/home-workout/DemoPlayer";
+import { ArrowLeft, Camera, CircleAlert, RotateCcw, ScanLine, ShieldCheck, Volume2 } from "lucide-react";
+import { DemoReel } from "@/components/form-check/DemoReel";
 import type { ExerciseRule } from "@/lib/form-rules/types";
 import { exerciseFacts, homeExercise } from "@/lib/home-workout/catalog";
 import { cameraHelp, detectPlatform } from "@/lib/pose/camera";
@@ -44,12 +44,12 @@ export function CoachSetup({ rule, coach, context, onChangeExercise, actionRef }
 
   return (
     <section aria-labelledby={`coach-${rule.id}-title`} className="grid gap-5 lg:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)] lg:gap-8">
-      {/* The demonstration: a dark stage in every theme. */}
-      <div className="fitx-inverse relative overflow-hidden rounded-3xl border border-fitx-border bg-fitx-bg text-fitx-text lg:sticky lg:top-6 lg:self-start">
-        <div className="aspect-[4/3] w-full">
-          {exercise && <DemoPlayer exercise={exercise} />}
+      {/* The demonstration: real photos and timed captions on a dark stage in every theme. */}
+      <div className="lg:sticky lg:top-6 lg:self-start">
+        <div className="fitx-inverse relative mx-auto aspect-[4/5] w-full max-w-[min(100%,calc((100svh-8rem)*0.8))] overflow-hidden rounded-3xl border border-fitx-border bg-fitx-bg text-fitx-text">
+          {exercise && <DemoReel exercise={exercise} priority />}
         </div>
-        <div className="pointer-events-none absolute left-4 top-4 flex flex-wrap gap-1.5 sm:left-5 sm:top-5">
+        <div className="mt-3 flex flex-wrap justify-center gap-1.5 lg:justify-start">
           <Tag>{facts.counting}</Tag>
           <Tag>{facts.facing}</Tag>
           {exercise?.equipment && <Tag>{exercise.equipment}</Tag>}
@@ -88,7 +88,11 @@ export function CoachSetup({ rule, coach, context, onChangeExercise, actionRef }
               </li>
             ))}
           </ol>
-          <p className="mt-3 text-xs leading-5 text-fitx-text-secondary">{rule.checks}</p>
+          <p className="mt-3 flex gap-2 text-xs leading-5 text-fitx-text-secondary">
+            <ScanLine size={15} className="mt-0.5 shrink-0 text-fitx-primary" aria-hidden="true" />
+            <span>No need to stand perfectly: the picture zooms and follows you to keep your whole body in view, and tells you if it can&rsquo;t.</span>
+          </p>
+          <p className="mt-2 text-xs leading-5 text-fitx-text-secondary">{rule.checks}</p>
         </div>
 
         {coach.voice.supported && (
@@ -155,7 +159,7 @@ export function CoachSetup({ rule, coach, context, onChangeExercise, actionRef }
         </div>
         <details className="group mt-2 text-xs leading-5 text-fitx-text-secondary">
           <summary className="inline-flex min-h-11 cursor-pointer items-center font-medium text-fitx-text-secondary hover:text-fitx-text">What one camera can&rsquo;t see</summary>
-          <p className="pb-2">One camera gives a 2D view, so counts can be off in poor light, loose clothing or at awkward angles. {rule.limits}</p>
+          <p className="pb-2">One camera sees you from one place, so counts can be off in poor light, loose clothing or at awkward angles. {rule.limits}</p>
         </details>
       </div>
     </section>
@@ -163,5 +167,5 @@ export function CoachSetup({ rule, coach, context, onChangeExercise, actionRef }
 }
 
 function Tag({ children }: { children: React.ReactNode }) {
-  return <span className="rounded-full border border-fitx-border bg-fitx-bg/70 px-2.5 py-1 text-[11px] font-semibold text-fitx-text backdrop-blur-sm">{children}</span>;
+  return <span className="rounded-full border border-fitx-border bg-fitx-surface px-2.5 py-1 text-[11px] font-semibold text-fitx-text">{children}</span>;
 }

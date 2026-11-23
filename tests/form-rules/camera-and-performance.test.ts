@@ -34,13 +34,17 @@ test("platform detection recognises iPhone, iPad (desktop mode) and Android", ()
   assert.equal(detectPlatform("Mozilla/5.0 (Linux; Android 15; Pixel 8)"), "android");
 });
 
-test("weak devices and data saver start light; strong desktops get the full model", () => {
-  assert.deepEqual(initialProfile({ mobile: true, cores: 2 }), { model: "lite", width: 480, height: 360, maxFps: 15 });
-  assert.deepEqual(initialProfile({ mobile: true, memoryGb: 2, cores: 8 }), { model: "lite", width: 480, height: 360, maxFps: 15 });
-  assert.deepEqual(initialProfile({ mobile: false, cores: 12, saveData: true }), { model: "lite", width: 480, height: 360, maxFps: 15 });
-  assert.deepEqual(initialProfile({ mobile: true, cores: 8, memoryGb: 8 }), { model: "lite", width: 640, height: 480, maxFps: 24 });
-  assert.deepEqual(initialProfile({ mobile: false, cores: 10 }), { model: "full", width: 640, height: 480, maxFps: 30 });
-  assert.deepEqual(initialProfile({ mobile: false, cores: 4 }), { model: "lite", width: 640, height: 480, maxFps: 30 });
+test("weak devices and data saver start light; everything else starts on the full model at the best native resolution", () => {
+  assert.deepEqual(initialProfile({ mobile: true, cores: 2 }), { model: "lite", width: 640, height: 480, maxFps: 15 });
+  assert.deepEqual(initialProfile({ mobile: true, memoryGb: 2, cores: 8 }), { model: "lite", width: 640, height: 480, maxFps: 15 });
+  assert.deepEqual(initialProfile({ mobile: false, cores: 12, saveData: true }), { model: "lite", width: 640, height: 480, maxFps: 15 });
+  // Phones: 1080p where they are capable, 720p otherwise, and fewer frames a second to keep them cool.
+  assert.deepEqual(initialProfile({ mobile: true, cores: 8, memoryGb: 8 }), { model: "full", width: 1920, height: 1080, maxFps: 24 });
+  assert.deepEqual(initialProfile({ mobile: true, cores: 8 }), { model: "full", width: 1920, height: 1080, maxFps: 24 });
+  assert.deepEqual(initialProfile({ mobile: true, cores: 4 }), { model: "full", width: 1280, height: 720, maxFps: 24 });
+  // Desktops and laptops: up to 4K where the camera has it (an ideal size never upscales; see capture.ts).
+  assert.deepEqual(initialProfile({ mobile: false, cores: 10 }), { model: "full", width: 3840, height: 2160, maxFps: 30 });
+  assert.deepEqual(initialProfile({ mobile: false, cores: 4 }), { model: "full", width: 1920, height: 1080, maxFps: 30 });
 });
 
 /** Feeds the governor frames every 16 ms (a 60 Hz camera) whose detection takes `inferenceMs`. */
@@ -72,7 +76,7 @@ test("slow detection advises a lighter model once, after warm-up and a sustained
   const advice = drive(slow, 90, 0, 12_000);
   assert.equal(advice[0], "use-lite");
   assert.equal(advice.filter((a) => a === "use-lite").length, 1);
-  const lite = initialProfile({ mobile: true, cores: 8 });
+  const lite = { ...initialProfile({ mobile: true, cores: 8 }), model: "lite" as const };
   const stuck = new FrameGovernor(24);
   const later = drive(stuck, 130, 0, 30_000, lite);
   assert.deepEqual(later, ["lower-resolution", "too-slow"]);
@@ -140,4 +144,29 @@ test("detection slower than the camera's frames still gets the lighter model", (
   // A 15 fps camera with 60 ms detections: every second frame is skipped for detection.
   const mid = new FrameGovernor(30);
   assert.equal(film(mid, { cameraFps: 15, inferenceMs: 60, seconds: 20 })[0], "use-lite");
+});
+
+test("a device that slows down as it warms up is told to cool down once, long after its baseline", () => {
+  const governor = new FrameGovernor(30);
+  const profile = initialProfile({ mobile: true, cores: 8 });
+  const advice: string[] = [];
+  for (let now = 0; now < 90_000; now += 16) {
+    if (!governor.due(now)) continue;
+    // 14 ms while cool; from a minute in, 26 ms (still fast enough that no lighter model is advised).
+    const inferenceMs = now < 60_000 ? 14 : 26;
+    governor.record(now, inferenceMs);
+    const next = governor.advise(now + inferenceMs, profile, true);
+    if (next) advice.push(next);
+  }
+  assert.ok(Math.abs((governor.baselineMs() ?? 0) - 14) < 0.5, `baseline ${governor.baselineMs()}`);
+  assert.deepEqual(advice, ["cool-down"]);
+  const steady = new FrameGovernor(30);
+  const calm: string[] = [];
+  for (let now = 0; now < 90_000; now += 16) {
+    if (!steady.due(now)) continue;
+    steady.record(now, 14);
+    const next = steady.advise(now + 14, profile, true);
+    if (next) calm.push(next);
+  }
+  assert.deepEqual(calm, [], "a device that stays cool is left alone");
 });

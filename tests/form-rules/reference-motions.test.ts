@@ -2,16 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EXERCISE_RULES } from "@/lib/form-rules/catalog";
 import { createCoachSession } from "@/lib/form-rules/session";
-import { DEMONSTRATIONS } from "@/lib/home-workout/demos";
-import { loopDuration, sampleDemo } from "@/lib/home-workout/figure";
-import { cueIds, figureSequence, LANDSCAPE, PORTRAIT, play } from "../form-rules/synthetic";
+import { DEMONSTRATIONS } from "./kinematics/demos";
+import { loopDuration, sampleDemo } from "./kinematics/figure";
+import { cueIds, figureSequence, LANDSCAPE, PORTRAIT, play } from "./synthetic";
 
 /** Reps each demonstration loop should count (high knees lift both knees; the camera counts the near knee of a climber). */
 const REPS_PER_LOOP: Record<string, number> = { high_knees: 2 };
 const LOOPS = 4;
 
 for (const rule of EXERCISE_RULES) {
-  test(`the ${rule.name} demonstration shows form its own camera rule accepts`, () => {
+  test(`the ${rule.name} reference motion is counted cleanly by its own camera rule`, () => {
     const demo = DEMONSTRATIONS[rule.id];
     assert.ok(demo, `${rule.id} has a demonstration`);
     assert.equal(demo.view, rule.view, `${rule.id}: the demonstration faces the camera the way the rule expects`);
@@ -32,7 +32,7 @@ for (const rule of EXERCISE_RULES) {
   });
 }
 
-test("every demonstration loops in a few seconds and labels its moves", () => {
+test("every reference motion loops in a few seconds and labels its moves", () => {
   for (const [id, demo] of Object.entries(DEMONSTRATIONS)) {
     const loop = loopDuration(demo);
     assert.ok(loop >= 900 && loop <= 6000, `${id}: loop of ${loop} ms`);

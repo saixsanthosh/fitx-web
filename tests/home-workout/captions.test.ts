@@ -4,7 +4,7 @@ import type { CoachSnapshot } from "@/lib/form-rules/session";
 import { captionFor, isSpokenWait } from "@/lib/home-workout/captions";
 
 const snap = (patch: Partial<CoachSnapshot>): CoachSnapshot => ({
-  t: 0, status: "active", guidance: "Counting.", phase: "start", reps: 0, cleanReps: 0, partials: 0, holdMs: 0, positionMs: 0, progress: 0, cue: null, side: "left", events: [], ...patch,
+  t: 0, status: "active", guidance: "Counting.", phase: "start", reps: 0, cleanReps: 0, partials: 0, holdMs: 0, positionMs: 0, progress: 0, cue: null, side: "left", events: [], calibrating: false, calibrated: false, usedWorld: false, ...patch,
 });
 
 test("a form cue is the caption, in its short spoken words with the full sentence under it", () => {
@@ -32,4 +32,10 @@ test("while counting the caption stays short and quiet", () => {
   assert.equal(captionFor(snap({ phase: "outbound" })).headline, "Counting");
   assert.equal(captionFor(snap({ phase: "holding", guidance: "Hold steady in one straight line." })).headline, "Hold");
   assert.equal(captionFor(snap({ phase: "adjust", guidance: "Straighten your body line to keep the timer running." })).tone, "wait");
+});
+
+test("while the coach fits the start position, the caption asks the member to hold still", () => {
+  const caption = captionFor(snap({ status: "position", calibrating: true, guidance: "Hold still a moment while the coach fits your start position." }));
+  assert.equal(caption.headline, "Hold still");
+  assert.equal(caption.tone, "wait");
 });

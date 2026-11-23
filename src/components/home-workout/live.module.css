@@ -1,7 +1,9 @@
-/* Small entrances in the live view: a new caption slides up, a new count pops. Nothing moves with reduced motion. */
+/* Small entrances in the live view: a new caption slides up, a new count pops, the framing arrow nudges. Nothing moves with reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
   .captionIn { animation: caption-in 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
   .countPop { animation: count-pop 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+  .nudgeLeft { animation: nudge-left 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+  .nudgeRight { animation: nudge-right 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
 }
 @keyframes caption-in {
   from { opacity: 0; transform: translateY(10px); }
@@ -11,12 +13,20 @@
   from { opacity: 0.4; transform: scale(0.86); }
   to { opacity: 1; transform: none; }
 }
+@keyframes nudge-left {
+  0%, 100% { transform: none; }
+  50% { transform: translateX(-4px); }
+}
+@keyframes nudge-right {
+  0%, 100% { transform: none; }
+  50% { transform: translateX(4px); }
+}
 
 /*
  * A phone held sideways (about 844 x 390): the floor moves need it, and the stacked layout would
- * leave the camera about 100 px tall. Here the camera and the "You" and "Demo" tiles sit side by
- * side, the header and footer slim down, and the count and caption shrink to fit over the video.
- * These rules sit outside Tailwind's layers, so they win over the utilities on the same elements.
+ * leave the camera about 100 px tall. Here the camera and the demonstration and coach tiles sit side
+ * by side, the header and footer slim down, and the count shrinks to fit over the video. These rules
+ * sit outside Tailwind's layers, so they win over the utilities on the same elements.
  */
 @media (orientation: landscape) and (max-height: 500px) {
   .shortHeader {
@@ -35,7 +45,8 @@
   }
   .shortAside {
     display: flex;
-    width: clamp(140px, 24vw, 220px);
+    width: clamp(150px, 26vw, 230px);
+    height: auto;
     min-height: 0;
     flex-direction: column;
     gap: 8px;
@@ -45,16 +56,12 @@
     min-height: 0;
     flex: 1 1 0;
   }
-  .shortPanel { display: none; }
-  .shortCaption { display: block; }
-  .shortCaption p:first-child { font-size: 1.35rem; }
-  .shortCaption p + p { margin-top: 4px; -webkit-line-clamp: 1; line-clamp: 1; }
-  .shortCaption > div { padding: 8px 12px; }
   .shortCount {
     min-width: 0;
     padding: 6px 12px 8px;
   }
   .shortCount .shortValue { font-size: 2.75rem; }
+  .shortVerdict { left: 8px; right: 8px; bottom: 8px; padding: 6px 10px; }
   .shortFooter {
     padding-top: 4px;
     padding-bottom: max(env(safe-area-inset-bottom), 8px);

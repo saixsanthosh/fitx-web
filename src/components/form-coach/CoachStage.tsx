@@ -1,11 +1,10 @@
 "use client";
 
-import type { CSSProperties, KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { Check, LoaderCircle, Play, SwitchCamera, Volume2, VolumeX, X } from "lucide-react";
-import { DemoPlayer } from "@/components/home-workout/DemoPlayer";
-import { LiveFigure } from "@/components/home-workout/LiveFigure";
+import { ArrowLeft, ArrowRight, Check, CircleAlert, LoaderCircle, Maximize2, Minimize2, Play, ScanLine, SunDim, SwitchCamera, Volume2, VolumeX, X } from "lucide-react";
+import { DemoReel } from "@/components/form-check/DemoReel";
 import type { CoachSnapshot } from "@/lib/form-rules/session";
 import type { ExerciseRule } from "@/lib/form-rules/types";
 import { captionFor } from "@/lib/home-workout/captions";
@@ -34,14 +33,15 @@ interface CoachStageProps {
 }
 
 /**
- * The live camera view, full screen and always dark. The camera with its skeleton overlay and
- * count takes most of the room; beside it (under it on phones) the member's live figure, the
- * demonstration loop and the coach's words in captions large enough to read across a room. On
- * phones the captions sit over the video. Rendered into document.body, so nothing can trap it
- * below other layers.
+ * The live camera view, full screen and always dark. The camera takes most of the room: the picture
+ * is zoomed and moved by the automatic framing (outside React, straight on the layer), with the
+ * skeleton, the count and any positioning guidance over it. Beside it (under it on phones) sit the
+ * demonstration, with its own timed captions, and the coach's words, large enough to read across a
+ * room. When the view isn't good enough for reliable feedback it says so, and why. Rendered into
+ * document.body, so nothing can trap it below other layers.
  */
-export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canvasRef, meter: meterRef, figure: figureRef }, mode, target }: CoachStageProps) {
-  const { stage, snapshot, frame } = coach;
+export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canvasRef, meter: meterRef, viewport: viewportRef, layer: layerRef }, mode, target }: CoachStageProps) {
+  const { stage, snapshot, view } = coach;
   const open = stage.name === "starting" || stage.name === "running" || stage.name === "paused";
   const titleId = useId();
   const finishRef = useRef<HTMLButtonElement>(null);
@@ -75,10 +75,9 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
     }
   };
 
-  const ratio = frame ? `${frame.width} / ${frame.height}` : "4 / 3";
-  const frameStyle: CSSProperties = { aspectRatio: ratio, width: `min(100cqw, calc(100cqh * ${ratio}))` };
   const running = stage.name === "running";
   const caption = captionFor(snapshot);
+  const guide = running && view.framing?.hint && view.framing.issue !== "no-body" ? view.framing : null;
 
   if (!onClient) return null;
   return createPortal(
@@ -90,11 +89,24 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
       onKeyDown={onKeyDown}
       className="fitx-inverse fixed inset-0 z-[110] flex flex-col bg-fitx-bg text-fitx-text"
     >
-      <header className={cn("flex items-center gap-3 px-4 pb-2 pt-[max(env(safe-area-inset-top),12px)] sm:px-6", live.shortHeader)}>
+      <header className={cn("flex items-center gap-2 px-4 pb-2 pt-[max(env(safe-area-inset-top),12px)] sm:gap-3 sm:px-6", live.shortHeader)}>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">{mode === "workout" ? "Camera count" : "Home workout"}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">{mode === "workout" ? "Camera count" : "AI Form Check"}</p>
           <h2 id={titleId} className="truncate font-heading text-base font-semibold tracking-tight sm:text-lg">{rule.name}</h2>
         </div>
+        {view.picture && (
+          <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-fitx-border px-2.5 py-1.5 text-xs font-medium text-fitx-text-secondary sm:inline-flex" title="The picture your camera delivers">
+            {view.zoomed && <ScanLine size={13} className="text-fitx-primary" aria-hidden="true" />}
+            <span><span className="sr-only">Camera picture </span>{view.picture}{view.zoomed && <span className="hidden md:inline">, auto-framed</span>}</span>
+          </span>
+        )}
+        {running && view.light !== "ok" && (
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-fitx-border px-2.5 py-1.5 text-xs font-medium text-fitx-text-secondary">
+            <SunDim size={13} className="text-fitx-warning" aria-hidden="true" />
+            <span className="hidden sm:inline">{view.light === "dim" ? "Dim light" : "Low light"}</span>
+            <span className="sr-only sm:hidden">{view.light === "dim" ? "Dim light" : "Low light"}</span>
+          </span>
+        )}
         <StatusChip coach={coach} />
         <button type="button" onClick={coach.finish} aria-label="End and see results" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary transition-colors hover:bg-fitx-hover hover:text-fitx-text">
           <X size={18} aria-hidden="true" />
@@ -102,36 +114,38 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
       </header>
       {coach.notice && <p className="mx-4 mb-2 rounded-lg border border-fitx-border bg-fitx-surface px-3 py-2 text-xs leading-5 text-fitx-text-secondary sm:mx-6">{coach.notice}</p>}
 
-      <div className={cn("flex min-h-0 flex-1 flex-col gap-2 px-2 sm:px-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:gap-4 lg:pb-2 xl:grid-cols-[minmax(0,1fr)_440px]", live.shortBody)}>
-        {/* The camera. The count and messages sit on the camera area, over the video when it fills the
-            area and in the bars beside it when it doesn't (a landscape picture on an upright phone).
-            On a phone held sideways (the floor moves) the tiles move beside the camera instead of under it. */}
+      <div className={cn("flex min-h-0 flex-1 flex-col gap-2 px-2 sm:px-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:gap-4 lg:pb-2 xl:grid-cols-[minmax(0,1fr)_420px]", live.shortBody)}>
+        {/* The camera. The layer holds the whole picture; the framing crop scales and moves it inside the viewport. */}
         <div className="relative min-h-0 flex-1">
-          <div className="absolute inset-0 grid place-items-center [container-type:size]">
-            <div className="relative overflow-hidden rounded-2xl bg-fitx-surface" style={frameStyle}>
+          <div ref={viewportRef} className="absolute inset-0 overflow-hidden rounded-2xl bg-fitx-surface">
+            <div ref={layerRef} className="absolute left-0 top-0 origin-top-left will-change-transform">
               <video
                 ref={videoRef}
                 playsInline
                 muted
                 autoPlay
                 aria-label={`Camera view for ${rule.name}. Video stays on this device.`}
-                className={cn("absolute inset-0 h-full w-full object-cover", coach.mirrored && "-scale-x-100")}
+                className={cn("absolute inset-0 h-full w-full object-fill", coach.mirrored && "-scale-x-100")}
               />
-              {/* Cropped like the video, so the skeleton stays on the body even while the box is catching up with a new picture size. */}
-              <canvas ref={canvasRef} aria-hidden="true" className={cn("pointer-events-none absolute inset-0 h-full w-full object-cover", coach.mirrored && "-scale-x-100")} />
-              {running && reps && (
-                <div className="absolute bottom-3 right-3 top-3 flex w-3 flex-col sm:right-4 sm:top-4" aria-hidden="true">
-                  <div className="relative flex-1 overflow-hidden rounded-full bg-fitx-bg/70">
-                    <div ref={meterRef} className="absolute inset-0 origin-bottom scale-y-0 rounded-full bg-fitx-primary transition-transform duration-100 ease-out" />
-                  </div>
-                </div>
-              )}
+              <canvas ref={canvasRef} aria-hidden="true" className={cn("pointer-events-none absolute inset-0 h-full w-full", coach.mirrored && "-scale-x-100")} />
             </div>
+            {running && reps && (
+              <div className="absolute bottom-3 right-3 top-3 flex w-3 flex-col sm:right-4 sm:top-4" aria-hidden="true">
+                <div className="relative flex-1 overflow-hidden rounded-full bg-fitx-bg/70">
+                  <div ref={meterRef} className="absolute inset-0 origin-bottom scale-y-0 rounded-full bg-fitx-primary transition-transform duration-100 ease-out" />
+                </div>
+              </div>
+            )}
           </div>
           {running && <CountBlock rule={rule} snapshot={snapshot} target={mode === "workout" ? target : null} />}
-          {running && (
-            <div className={cn("pointer-events-none absolute inset-x-3 bottom-3 lg:hidden", live.shortCaption)} aria-hidden="true">
-              <CaptionText caption={caption} compact />
+          {guide && <FramingGuide hint={guide.hint ?? ""} move={guide.move} />}
+          {running && !view.reliable && view.reason && (
+            <div role="status" className={cn("absolute inset-x-3 bottom-3 flex items-start gap-2.5 rounded-2xl border border-fitx-warning/60 bg-fitx-bg/90 px-4 py-3 backdrop-blur-md sm:inset-x-auto sm:left-4 sm:max-w-md", live.shortVerdict)}>
+              <CircleAlert size={18} className="mt-0.5 shrink-0 text-fitx-warning" aria-hidden="true" />
+              <p className="text-sm leading-5">
+                <span className="block font-semibold">Not reliable right now</span>
+                <span className="text-fitx-text-secondary">{view.reason}</span>
+              </p>
             </div>
           )}
           {stage.name === "starting" && <StartingOverlay coach={coach} />}
@@ -148,20 +162,15 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
           )}
         </div>
 
-        {/* You, the demonstration and the captions. */}
-        <aside aria-label="Coach" className={cn("grid shrink-0 grid-cols-2 gap-2 lg:flex lg:min-h-0 lg:flex-col lg:gap-4", live.shortAside)}>
-          <figure className={cn("relative h-28 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface sm:h-36 lg:h-auto lg:min-h-0 lg:flex-1", live.shortTile)}>
-            <LiveFigure ref={figureRef} className="absolute inset-0" />
-            <figcaption className="absolute left-2.5 top-2 text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary sm:left-3 sm:top-2.5">You</figcaption>
-          </figure>
-          <figure className={cn("relative h-28 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface sm:h-36 lg:h-auto lg:min-h-0 lg:flex-1", live.shortTile)}>
-            {/* Capped well below the display rate, and slower still on a device already struggling, so the loop never takes frame time from the pose model. */}
-            {exercise && open && <DemoPlayer exercise={exercise} size="sm" maxFps={coach.notice === SLOW_DEVICE_NOTICE ? 8 : 24} className="absolute inset-0" />}
-            <figcaption className="absolute left-2.5 top-2 text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary sm:left-3 sm:top-2.5">Demo</figcaption>
-          </figure>
-          <div className={cn("hidden min-h-[11rem] rounded-2xl border border-fitx-border bg-fitx-surface p-5 lg:block", live.shortPanel)} aria-hidden="true">
+        {/* The demonstration and the coach's words. */}
+        <aside aria-label="Coach" className={cn("grid h-32 shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2 sm:h-40 lg:flex lg:h-auto lg:min-h-0 lg:flex-col lg:gap-4", live.shortAside)}>
+          <div className={cn("relative min-h-0 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface lg:flex-1", live.shortTile)}>
+            {/* Capped well below the display rate, and slower still on a device already struggling, so it never takes frame time from the pose model. */}
+            {exercise && open && <DemoReel exercise={exercise} size="sm" fit="contain" maxFps={coach.notice === SLOW_DEVICE_NOTICE ? 8 : 24} className="absolute inset-0" />}
+          </div>
+          <div className={cn("min-h-0 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface p-3 sm:p-4 lg:min-h-[11rem] lg:p-5", live.shortTile)} aria-hidden="true">
             <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">Coach</p>
-            <div className="mt-2">{running ? <CaptionText caption={caption} /> : <p className="font-heading text-3xl font-bold tracking-tight text-fitx-text-secondary">{stage.name === "paused" ? "Paused" : "Starting"}</p>}</div>
+            <div className="mt-1.5 lg:mt-2">{running ? <CaptionText caption={caption} /> : <p className="font-heading text-2xl font-bold tracking-tight text-fitx-text-secondary lg:text-3xl">{stage.name === "paused" ? "Paused" : "Starting"}</p>}</div>
           </div>
         </aside>
       </div>
@@ -211,21 +220,38 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
   );
 }
 
-function CaptionText({ caption, compact = false }: { caption: ReturnType<typeof captionFor>; compact?: boolean }) {
+const MOVE_ICON = { left: ArrowLeft, right: ArrowRight, back: Minimize2, closer: Maximize2 } as const;
+
+/** Where to move, over the camera: an arrow that nudges the way to go, and the plain instruction. */
+function FramingGuide({ hint, move }: { hint: string; move: "left" | "right" | "back" | "closer" | null }) {
+  const Icon = move ? MOVE_ICON[move] : ScanLine;
   return (
-    <div className={cn(compact && "rounded-2xl bg-fitx-bg/80 px-4 py-3 backdrop-blur-md", compact && caption.tone === "cue" && "border-l-4 border-fitx-primary")}>
+    <div className="pointer-events-none absolute inset-x-3 top-[5.5rem] flex justify-center sm:top-4 sm:inset-x-24">
+      <p className="flex max-w-md items-center gap-2.5 rounded-full border border-fitx-border bg-fitx-bg/85 py-2 pl-2 pr-4 text-sm font-medium leading-5 backdrop-blur-md">
+        <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full bg-fitx-primary text-fitx-on-primary", move === "left" && live.nudgeLeft, move === "right" && live.nudgeRight)} aria-hidden="true">
+          <Icon size={16} />
+        </span>
+        <span>{hint}</span>
+      </p>
+    </div>
+  );
+}
+
+function CaptionText({ caption }: { caption: ReturnType<typeof captionFor> }) {
+  return (
+    <div className={cn(caption.tone === "cue" && "border-l-4 border-fitx-primary pl-3")}>
       <p
         key={caption.headline}
         className={cn(
           "font-heading font-bold leading-[1.02] tracking-[-.03em]",
           live.captionIn,
-          compact ? "text-[clamp(1.6rem,7.4vw,2.6rem)]" : "text-[clamp(2.2rem,3.4vw,3.6rem)]",
+          "text-[clamp(1.35rem,6vw,2.2rem)] lg:text-[clamp(2.2rem,3.2vw,3.4rem)]",
           caption.tone === "cue" ? "text-fitx-primary" : "text-fitx-text",
         )}
       >
         {caption.headline}
       </p>
-      {caption.detail && <p className={cn("mt-2 leading-snug text-fitx-text-secondary", compact ? "line-clamp-2 text-sm" : "text-base xl:text-lg")}>{caption.detail}</p>}
+      {caption.detail && <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-fitx-text-secondary sm:text-sm lg:mt-2 lg:line-clamp-none lg:text-base">{caption.detail}</p>}
     </div>
   );
 }
@@ -241,6 +267,9 @@ function StatusChip({ coach }: { coach: FormCoachController }) {
   else if (snapshot.status === "unclear") {
     label = "Can't see you clearly";
     tone = "wait";
+  } else if (snapshot.calibrating) {
+    label = "Calibrating";
+    tone = "wait";
   } else if (snapshot.status === "position") {
     label = "Get in position";
     tone = "wait";
@@ -252,7 +281,7 @@ function StatusChip({ coach }: { coach: FormCoachController }) {
     tone = "go";
   }
   return (
-    <span role="status" className="inline-flex max-w-[44vw] shrink-0 items-center gap-2 rounded-full border border-fitx-border px-3 py-1.5 text-xs font-medium text-fitx-text-secondary sm:max-w-none">
+    <span role="status" className="inline-flex max-w-[40vw] shrink-0 items-center gap-2 rounded-full border border-fitx-border px-3 py-1.5 text-xs font-medium text-fitx-text-secondary sm:max-w-none">
       <span className={cn("h-2 w-2 shrink-0 rounded-full", tone === "go" ? "bg-fitx-primary" : tone === "wait" ? "bg-fitx-warning" : "bg-fitx-text-disabled")} aria-hidden="true" />
       <span className="truncate">{label}</span>
     </span>
@@ -263,9 +292,9 @@ function CountBlock({ rule, snapshot, target }: { rule: ExerciseRule; snapshot: 
   const hold = rule.motion.kind === "hold";
   const value = hold ? formatClock((snapshot?.holdMs ?? 0) / 1000) : String(snapshot?.reps ?? 0);
   return (
-    <div className={cn("absolute left-3 top-3 min-w-28 rounded-2xl bg-fitx-bg/80 px-4 py-3 backdrop-blur-md sm:left-4 sm:top-4 sm:px-5 sm:py-4", live.shortCount)}>
+    <div className={cn("absolute left-3 top-3 min-w-24 rounded-2xl bg-fitx-bg/80 px-4 py-3 backdrop-blur-md sm:left-4 sm:top-4 sm:min-w-28 sm:px-5 sm:py-4", live.shortCount)}>
       <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">{hold ? "Good-form hold" : "Reps"}</p>
-      <p className={cn("mt-1 font-heading text-6xl font-bold leading-none tracking-tight tabular-nums sm:text-7xl lg:text-8xl", live.shortValue)}>
+      <p className={cn("mt-1 font-heading text-5xl font-bold leading-none tracking-tight tabular-nums sm:text-7xl lg:text-8xl", live.shortValue)}>
         <span key={value} className={cn("inline-block", live.countPop)}>{value}</span>
         {target ? <span className="ml-1 text-lg font-semibold text-fitx-text-secondary sm:text-xl">/ {hold ? formatClock(target) : target}</span> : null}
       </p>

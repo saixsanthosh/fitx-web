@@ -4,9 +4,10 @@
  * `k` (0 = start position, 1 = a full rep) plus the fault being tested, then writes the figure out
  * as camera frames through ./synthetic.ts.
  */
-import { DEMONSTRATIONS } from "@/lib/home-workout/demos";
-import type { Demonstration, FigurePoints, FigurePose, Limbs } from "@/lib/home-workout/figure";
-import { blendPose, place } from "@/lib/home-workout/figure";
+import { DEMONSTRATIONS } from "./kinematics/demos";
+import type { Demonstration, FigurePoints, FigurePose, Limbs } from "./kinematics/figure";
+import { blendPose, place } from "./kinematics/figure";
+import { getExerciseRule } from "@/lib/form-rules/catalog";
 import type { ExerciseId } from "@/lib/form-rules/types";
 import type { RepPlan, SequenceOptions } from "./synthetic";
 import { figureSequence, LANDSCAPE, planDuration, PORTRAIT, repValueAt } from "./synthetic";
@@ -82,15 +83,66 @@ export function bicepsCurl(k: number, options: { drift?: number; swing?: number 
   return draw("biceps_curl", { ...figure, torso: figure.torso - (options.swing ?? 0) * k, near: arm(figure.near), far: arm(figure.far) });
 }
 
+/** Lateral raise: `k` 0 arms down, 1 at shoulder height; `high` lifts on past that, `bend` bends the elbows, `lean` tips sideways. */
+export function lateralRaise(k: number, options: { high?: number; bend?: number; lean?: number } = {}): FigurePoints {
+  const figure = blendPose(pose("lateral_raise", 0), pose("lateral_raise", 1), k);
+  const high = (options.high ?? 0) * k;
+  const bend = (options.bend ?? 0) * k;
+  return draw("lateral_raise", {
+    ...figure,
+    torso: figure.torso + (options.lean ?? 0) * k,
+    near: withLimbs(figure.near, { upperArm: figure.near.upperArm - high, forearm: figure.near.forearm - high - bend }),
+    far: withLimbs(figure.far, { upperArm: figure.far.upperArm + high, forearm: figure.far.forearm + high + bend }),
+  });
+}
+
+/** Front raise: `k` 0 arms down, 1 at shoulder height; `high` lifts on past that, `swing` leans back. */
+export function frontRaise(k: number, options: { high?: number; swing?: number } = {}): FigurePoints {
+  const figure = blendPose(pose("front_raise", 0), pose("front_raise", 1), k);
+  const high = (options.high ?? 0) * k;
+  const arm = (limbs: Limbs) => withLimbs(limbs, { upperArm: limbs.upperArm - high, forearm: limbs.forearm - high });
+  return draw("front_raise", { ...figure, torso: figure.torso - (options.swing ?? 0) * k, near: arm(figure.near), far: arm(figure.far) });
+}
+
+/** Overhead triceps extension: `k` 0 arms straight up, 1 weight lowered behind the head; `drift` swings the upper arm forward, `arch` leans back. */
+export function tricepsExtension(k: number, options: { drift?: number; arch?: number } = {}): FigurePoints {
+  const figure = blendPose(pose("triceps_extension", 0), pose("triceps_extension", 1), k);
+  const drift = (options.drift ?? 0) * k;
+  const arm = (limbs: Limbs) => withLimbs(limbs, { upperArm: limbs.upperArm + drift, forearm: limbs.forearm + drift });
+  return draw("triceps_extension", { ...figure, torso: figure.torso - (options.arch ?? 0) * k, near: arm(figure.near), far: arm(figure.far) });
+}
+
+/** Romanian deadlift: `k` 0 standing, 1 hinged; `squat` bends the knees by that many degrees at the bottom. */
+export function romanianDeadlift(k: number, options: { squat?: number } = {}): FigurePoints {
+  const figure = blendPose(pose("romanian_deadlift", 0), pose("romanian_deadlift", 1), k);
+  const bend = (options.squat ?? 0) * k;
+  const leg = (limbs: Limbs) => withLimbs(limbs, { thigh: limbs.thigh - bend * 0.6, shin: limbs.shin + bend * 0.4 });
+  return draw("romanian_deadlift", { ...figure, near: leg(figure.near), far: leg(figure.far) });
+}
+
+/** Bent-over row: `k` 0 arms hanging, 1 elbows pulled back; `rise` stands the torso up by that many degrees as it pulls; `standing` rows upright. */
+export function bentOverRow(k: number, options: { rise?: number; standing?: boolean } = {}): FigurePoints {
+  const figure = blendPose(pose("bent_over_row", 0), pose("bent_over_row", 1), k);
+  return draw("bent_over_row", { ...figure, torso: options.standing ? -90 : figure.torso - (options.rise ?? 0) * k });
+}
+
+/** Sit-up: `k` 0 lying, 1 sitting up; `straight` straightens the legs flat along the floor. */
+export function sitUp(k: number, options: { straight?: boolean } = {}): FigurePoints {
+  const figure = blendPose(pose("sit_up", 0), pose("sit_up", 1), k);
+  if (!options.straight) return draw("sit_up", figure);
+  const leg = (limbs: Limbs) => withLimbs(limbs, { thigh: 0, shin: 0, foot: -80 });
+  return draw("sit_up", { ...figure, near: leg(figure.near), far: leg(figure.far) });
+}
+
 /** Frames for a rep plan whose value is the blend `k` handed to `body`. */
 export function planFrames(id: ExerciseId, plan: RepPlan, body: (k: number, t: number) => FigurePoints, options: SequenceOptions = {}) {
   const view = demo(id).view;
-  const landscape = id === "mountain_climber" || id === "superman" || id === "side_plank";
+  const landscape = getExerciseRule(id)?.landscape === true;
   return figureSequence(planDuration(plan), view, (t) => body(repValueAt(plan, t), t), { aspect: landscape ? LANDSCAPE : PORTRAIT, ...options });
 }
 
 /** Frames of a still pose (holds), sampled like `sequence`. */
 export function holdFrames(id: ExerciseId, durationMs: number, body: (t: number) => FigurePoints, options: SequenceOptions = {}) {
-  const landscape = id === "mountain_climber" || id === "superman" || id === "side_plank";
+  const landscape = getExerciseRule(id)?.landscape === true;
   return figureSequence(durationMs, demo(id).view, body, { aspect: landscape ? LANDSCAPE : PORTRAIT, ...options });
 }

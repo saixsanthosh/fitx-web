@@ -7,10 +7,11 @@ import type { Condition, PhaseSpec } from "@/lib/form-rules/types";
 
 const MIGRATIONS = path.resolve(import.meta.dirname, "../../supabase/migrations");
 
-test("the fourteen camera exercises are listed in order", () => {
+test("the twenty camera exercises are listed in order", () => {
   assert.deepEqual(EXERCISE_RULES.map((rule) => rule.id), [
     "push_up", "bodyweight_squat", "split_squat", "glute_bridge", "plank", "jumping_jack",
     "reverse_lunge", "high_knees", "mountain_climber", "side_plank", "wall_sit", "superman", "shoulder_press", "biceps_curl",
+    "lateral_raise", "front_raise", "triceps_extension", "romanian_deadlift", "bent_over_row", "sit_up",
   ]);
   assert.equal(new Set(EXERCISE_RULES.map((rule) => rule.id)).size, EXERCISE_RULES.length);
 });
@@ -97,6 +98,17 @@ test("workout exercises map to camera rules by library id or by name", () => {
   assert.equal(cameraRuleFor({ id: "free-exercise-db-Butt_Lift_Bridge", name: "Butt Lift (Bridge)" })?.id, "glute_bridge");
   assert.equal(cameraRuleFor({ id: "plank", name: "Front Plank" })?.id, "plank");
   assert.equal(cameraRuleFor({ name: "Star jumps" })?.id, "jumping_jack");
+  // Added with AI Form Check: home and gym moves a single camera can judge.
+  assert.equal(cameraRuleFor({ id: "lateral_raise", name: "Dumbbell Lateral Raise" })?.id, "lateral_raise");
+  assert.equal(cameraRuleFor({ id: "free-exercise-db-Side_Lateral_Raise" })?.id, "lateral_raise");
+  assert.equal(cameraRuleFor({ id: "free-exercise-db-Front_Dumbbell_Raise", name: "Front Dumbbell Raise" })?.id, "front_raise");
+  assert.equal(cameraRuleFor({ id: "triceps_extension", name: "Dumbbell Overhead Triceps Extension" })?.id, "triceps_extension");
+  assert.equal(cameraRuleFor({ id: "dumbbell_rdl", name: "Dumbbell Romanian Deadlift" })?.id, "romanian_deadlift");
+  assert.equal(cameraRuleFor({ id: "romanian_deadlift" })?.id, "romanian_deadlift");
+  assert.equal(cameraRuleFor({ name: "Stiff-Legged Dumbbell Deadlift" })?.id, "romanian_deadlift");
+  assert.equal(cameraRuleFor({ id: "free-exercise-db-Bent_Over_Two-Dumbbell_Row", name: "Bent Over Two-Dumbbell Row" })?.id, "bent_over_row");
+  assert.equal(cameraRuleFor({ id: "free-exercise-db-Sit-Up", name: "Sit-Up" })?.id, "sit_up");
+  assert.equal(cameraRuleFor({ name: "Sit ups" })?.id, "sit_up");
 });
 
 test("exercises the camera can't judge well get no camera rule", () => {
@@ -107,6 +119,13 @@ test("exercises the camera can't judge well get no camera rule", () => {
     { id: "free-exercise-db-Single_Leg_Glute_Bridge", name: "Single Leg Glute Bridge" },
     { id: "goblet_squat", name: "Goblet Squat" },
     { id: null, name: "Barbell Back Squat" },
+    // Still out of reach for one camera: the bar or machine hides the body, or the move is too small to see.
+    { id: "pull_up", name: "Pull-Up" },
+    { id: "lat_pulldown", name: "Lat Pulldown" },
+    { id: "free-exercise-db-Standing_Calf_Raises", name: "Standing Calf Raises" },
+    { id: null, name: "Burpee" },
+    { id: null, name: "Deadlift" },
+    { id: null, name: "Crunch" },
     { id: null, name: "" },
   ]) {
     assert.equal(cameraRuleFor(exercise), null, exercise.name);

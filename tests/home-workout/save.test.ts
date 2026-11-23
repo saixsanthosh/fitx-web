@@ -21,7 +21,7 @@ test("today's sets become one completed session: exercises in order, sets number
   const sets = [set("push_up", "Push-up", { reps: 12, clean: 10 }, 0), set("plank", "Plank", { hold: 40 }, 3), set("push_up", "Push-up", { reps: 9 }, 6), set("high_knees", "High knees", { reps: 30 }, 9)];
   const record = buildWorkoutRecord(sets, library);
   assert.ok(record);
-  assert.equal(record.session.name, "Home workout");
+  assert.equal(record.session.name, "AI Form Check");
   assert.equal(record.session.status, "completed");
   assert.equal(record.session.started_at, new Date(T0).toISOString());
   assert.equal(record.session.duration_seconds, 4 * 45, "the time measured in the four 45-second sets, not the rests between them");

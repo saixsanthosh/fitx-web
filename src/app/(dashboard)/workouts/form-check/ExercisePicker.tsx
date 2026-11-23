@@ -4,16 +4,18 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
-import { ExerciseGlyph } from "@/components/form-coach/ExerciseGlyph";
 import { Chip, ChipGroup } from "@/components/ui/Chip";
-import { HOME_WORKOUT } from "@/config/routes";
+import { FORM_CHECK_PATH } from "@/lib/home-workout/route";
 import type { ExerciseGroup } from "@/lib/home-workout/catalog";
 import { exerciseFacts, GROUP_LABELS, GROUP_ORDER, HOME_EXERCISES } from "@/lib/home-workout/catalog";
-import styles from "./home-workout.module.css";
+import styles from "./form-check.module.css";
 
 type Filter = ExerciseGroup | "all";
 
-/** Every camera exercise as a poster card, filterable by body area. Plain links, so the exercise is in the address. */
+/**
+ * Every camera exercise as a card, filterable by body area. Plain links, so the exercise is in the
+ * address. A card shows the exercise's photo; an exercise without a correct photo shows its cues instead.
+ */
 export function ExercisePicker() {
   const [filter, setFilter] = useState<Filter>("all");
   const shown = HOME_EXERCISES.filter((exercise) => filter === "all" || exercise.group === filter);
@@ -35,7 +37,7 @@ export function ExercisePicker() {
           const facts = exerciseFacts(exercise.rule);
           return (
             <li key={exercise.id}>
-              <Link href={`${HOME_WORKOUT}?exercise=${exercise.id}`} className={`${styles.card} fitx-inverse aspect-[4/5] text-fitx-text`}>
+              <Link href={`${FORM_CHECK_PATH}?exercise=${exercise.id}`} className={`${styles.card} fitx-inverse aspect-[4/5] text-fitx-text`} prefetch={false}>
                 {exercise.poster ? (
                   <Image
                     src={exercise.poster.src}
@@ -48,10 +50,16 @@ export function ExercisePicker() {
                     className="object-cover"
                   />
                 ) : (
-                  // No photo shows this move correctly: its demonstration's turnaround pose, drawn.
-                  <span className={styles.drawnPoster} aria-hidden="true">
-                    <span className={styles.floorLines} />
-                    <ExerciseGlyph id={exercise.id} className={styles.drawnFigure} />
+                  // No photo shows this move correctly yet: its three cues instead of a wrong picture.
+                  <span className={styles.cuePoster} aria-hidden="true">
+                    <ol className="space-y-1.5">
+                      {exercise.cues.map((cue, i) => (
+                        <li key={cue} className="flex items-baseline gap-2 text-[13px] font-medium leading-snug text-fitx-text-secondary sm:text-sm">
+                          <span className="font-heading text-[11px] font-bold tabular-nums text-fitx-primary">{String(i + 1).padStart(2, "0")}</span>
+                          {cue}
+                        </li>
+                      ))}
+                    </ol>
                   </span>
                 )}
                 <span className={styles.shade} aria-hidden="true" />
@@ -59,9 +67,6 @@ export function ExercisePicker() {
                   <ArrowUpRight size={18} />
                 </span>
                 <span className="absolute inset-x-0 bottom-0 flex items-end gap-2.5 p-3 sm:p-4">
-                  <span className="hidden h-11 w-11 shrink-0 place-items-center rounded-xl border border-fitx-border bg-fitx-bg/60 backdrop-blur-sm sm:grid" aria-hidden="true">
-                    <ExerciseGlyph id={exercise.id} className="h-8 w-8" />
-                  </span>
                   <span className="min-w-0">
                     <span className="block font-heading text-base font-bold leading-tight tracking-tight sm:text-lg">{exercise.rule.name}</span>
                     <span className="mt-0.5 block truncate text-xs text-fitx-text-secondary">

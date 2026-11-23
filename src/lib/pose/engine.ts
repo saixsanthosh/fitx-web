@@ -20,13 +20,19 @@ export class PoseEngineError extends Error {
   }
 }
 
+/** One analysed frame: image landmarks (0..1) and, when the model gives them, world landmarks in metres. */
+export interface PoseDetection {
+  points: PosePoint[];
+  world: PosePoint[] | null;
+}
+
 export interface PoseEngine {
   readonly variant: ModelVariant;
   readonly delegate: "GPU" | "CPU";
   /** The first detection (which compiles GPU programs and can take seconds) has run. */
   readonly warmed: boolean;
   /** Landmarks of the most prominent person in this video frame, or null. `timestampMs` must increase. */
-  detect(video: HTMLVideoElement, timestampMs: number): PosePoint[] | null;
+  detect(video: HTMLVideoElement, timestampMs: number): PoseDetection | null;
   close(): void;
 }
 
@@ -129,8 +135,15 @@ function wrap(landmarker: PoseLandmarker, variant: ModelVariant, delegate: "GPU"
         failures = 0;
         warmed = true;
         const person = result.landmarks[0];
+        if (!person) return null;
         // 0.10.x reports each landmark's visibility; a separate presence score only exists in later versions.
-        return person ? person.map((point) => ({ x: point.x, y: point.y, z: point.z, visibility: point.visibility })) : null;
+        const world = result.worldLandmarks?.[0];
+        return {
+          points: person.map((point) => ({ x: point.x, y: point.y, z: point.z, visibility: point.visibility })),
+          world: world && world.length === person.length
+            ? world.map((point, index) => ({ x: point.x, y: point.y, z: point.z, visibility: person[index].visibility }))
+            : null,
+        };
       } catch (error) {
         failures += 1;
         if (failures >= MAX_FAILED_FRAMES) throw new PoseEngineError("runtime", error);
