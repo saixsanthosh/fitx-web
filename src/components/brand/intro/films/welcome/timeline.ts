@@ -76,3 +76,34 @@ export const WELCOME_SHOTS = [
 ] as const;
 
 export type WelcomeShotId = (typeof WELCOME_SHOTS)[number]["id"];
+
+/** Film time of the reveal: `LogoReveal variant="film-end"` mounts on this stage (`WelcomeFilm`). */
+export const WELCOME_REVEAL_AT = WELCOME_STAGE_START[WELCOME_STAGE.ignite];
+
+/**
+ * The beats each shot plays on, all on measured hits of score #5 (above), so the picture and the mix share one clock
+ * (film-audio places plate effects #3 and #4 on `plateSeat`). PROVISIONAL until gate A has passed and the owner has
+ * approved the D5 animatic: the shots read every time from here, so a retime is one edit.
+ *
+ * - `flicker`: the strip light stutters on three times in the dark (the score's three opening hits); `lightOn` it holds.
+ * - `plateSeat`: plates 1 to 3 seat against the stack (Maya on the cymbal crash, Leo, then Dre in slow motion).
+ * - `settle`: the small after-tap of each plate (rebound and settle), on the next hit.
+ * - `craneHits`: the floor lines catch the strip light one after another as the crane rises.
+ */
+export const WELCOME_BEATS = Object.freeze({
+  flicker: [0.25, 0.49, 0.86] as readonly number[],
+  lightOn: 1.4,
+  plateSeat: [2.4, 4.48, 5.86] as readonly number[],
+  settle: [3.6, 4.71, 6.12] as readonly number[],
+  craneHits: [7.54, 7.83, 8.3, 8.66, 8.88] as readonly number[],
+  reveal: 9.29,
+  /** The last full-level echo: the bloom of the ignited lines peaks here. */
+  bloomPeak: 9.68,
+});
+
+/** A beat time's shot (the shot whose `[start, end)` holds it). */
+export function welcomeShotAt(time: number): WelcomeShotId {
+  let id: WelcomeShotId = WELCOME_SHOTS[0].id;
+  for (const shot of WELCOME_SHOTS) if (time >= shot.start) id = shot.id;
+  return id;
+}
