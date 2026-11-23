@@ -5,8 +5,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { X } from "lucide-react";
 import { CoachNavIcon } from "@/components/layout/nav-icons";
 import { useHydrated } from "@/components/ui/use-hydrated";
-import { COACH_LAUNCHER_PREF_EVENT, cachedLauncherPref, loadLauncherPref, type LauncherPrefDetail } from "@/lib/shell/coach-launcher-pref";
-import { cachedCoachSwitch, loadCoachSwitch } from "@/lib/shell/coach-switch";
+import { COACH_LAUNCHER_CACHE_KEY, COACH_LAUNCHER_PREF_EVENT, loadLauncherPref, type LauncherPrefDetail } from "@/lib/shell/coach-launcher-pref";
+import { COACH_SWITCH_CACHE_KEY, loadCoachSwitch } from "@/lib/shell/coach-switch";
+import { cachedAnswer, knownAnswer } from "./coach-launcher-reveal";
 import {
   DRAG_THRESHOLD,
   LAUNCHER_CLOSE_EVENT,
@@ -35,6 +36,9 @@ function storage(): Storage | null {
     return null;
   }
 }
+
+/** This device's cached answer under `key`, or null on a first visit (coach-launcher-reveal.ts). */
+const cached = (key: string) => cachedAnswer(storage(), key);
 
 /** Visible elements the button keeps clear of (`data-coach-avoid`), in viewport coordinates. */
 function obstacles(self: HTMLElement | null): Rect[] {
@@ -107,12 +111,13 @@ export function CoachLauncher() {
   const swallowClick = useRef(false);
   const spot = useRef<LauncherSpot>({ side: "right", y: 1 });
   const hydrated = useHydrated();
-  // The account's answer once known (or a change from Settings); until then this device's cached choice.
+  // The account's answer once known (or a change from Settings); until then this device's cached choice. A device
+  // with none cached (a first visit) waits for the account, so the button never shows and then vanishes.
   const [chosen, setChosen] = useState<boolean | null>(null);
-  const enabled = hydrated ? chosen ?? cachedLauncherPref() : null;
-  // FITX Admin's AI coach switch: this device's last answer at once, then a fresh read.
+  const enabled = hydrated ? knownAnswer(chosen, cached(COACH_LAUNCHER_CACHE_KEY)) : null;
+  // FITX Admin's AI coach switch: this device's last answer at once, then a fresh read (the same wait on a first visit).
   const [switchedOn, setSwitchedOn] = useState<boolean | null>(null);
-  const coachOn = hydrated ? switchedOn ?? cachedCoachSwitch() : null;
+  const coachOn = hydrated ? knownAnswer(switchedOn, cached(COACH_SWITCH_CACHE_KEY)) : null;
   const [dismissed, setDismissed] = useState(false);
   const [place, setPlace] = useState<Place | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -144,6 +149,7 @@ export function CoachLauncher() {
     };
   }, [pathname]);
 
+  // Shown only once both are known to be on: unknown (null, a first visit before the answers) hides it.
   const hidden = enabled !== true || coachOn !== true || dismissed || launcherHiddenOn(pathname) || keyboard;
 
   const layout = useCallback(() => {

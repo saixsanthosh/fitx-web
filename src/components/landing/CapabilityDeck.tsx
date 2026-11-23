@@ -2,14 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowUpRight, Check, Minus, Pause, Play, Plus } from "lucide-react";
 import { m, useInView, useMotionValue, useTransform, type MotionValue } from "framer-motion";
 import { useReducedMotionSafe, usePageVisible } from "@/components/motion";
 import { LANDING_MEDIA } from "@/data/landing-media";
 import { CAPABILITIES, DECK_SECONDS, nextCard, previousCard, type Capability } from "./capabilities";
 import { portionNutrition, type PieceFood } from "./portion";
-import { EXAMPLE_PLAN, POSE_FRAME, bonesPath, cueAt, frameAt, jointsPath, kneeAngle, planDoneAt, poseAt, ramp, squatDepth } from "./story";
+import { EXAMPLE_PLAN, POSE_FRAME, bonesPath, cueAt, frameAt, jointsPath, kneeAngle, kneeAngleAt, kneeTracePath, planDoneAt, poseAt, ramp, repsAt, squatDepth, tracePoint } from "./story";
 import styles from "./landing.module.css";
 
 const SIZES = "(max-width: 767px) 100vw, (max-width: 1280px) 60vw, 760px";
@@ -194,6 +194,11 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
               data-active={index === active}
               data-moving={animate && index === active}
             >
+              {item.id === "form" && (
+                // Wide cards: the portrait photo's own colours, blurred, fill the card behind it (the tiny blur
+                // placeholder, so no extra download).
+                <div className={styles.formAmbient} data-form-ambient="" aria-hidden="true" style={{ "--ambient": `url("${item.image.blurDataURL}")` } as CSSProperties} />
+              )}
               <div className={styles.deckPhoto}>
                 <Image
                   src={item.image.src}
@@ -231,7 +236,12 @@ function Overlay({ item, progress, food }: { item: Capability; progress: MotionV
     case "train":
       return <PlanCard progress={progress} />;
     case "form":
-      return <FormScan progress={progress} />;
+      return (
+        <>
+          <FormScan progress={progress} />
+          <FormTrace progress={progress} />
+        </>
+      );
     case "fuel":
       return food ? <PortionCard food={food} /> : null;
     case "move":
@@ -312,6 +322,40 @@ function FormScan({ progress }: { progress: MotionValue<number> }) {
       <span className={styles.cue} data-scene-cue="">
         {cue}
       </span>
+    </div>
+  );
+}
+
+const TRACE_W = 280;
+const TRACE_H = 72;
+const TRACE_PATH = kneeTracePath(TRACE_W, TRACE_H);
+const readReps = (p: number) => repsAt(p);
+
+/**
+ * Wide cards only (CSS): the knee angle over the rep, as the camera would trace it from the same measured poses,
+ * drawn with the scene's clock. An example (the photos are), so it says so.
+ */
+function FormTrace({ progress }: { progress: MotionValue<number> }) {
+  const x = useTransform(progress, (p) => tracePoint(p, TRACE_W, TRACE_H)[0]);
+  const y = useTransform(progress, (p) => tracePoint(p, TRACE_W, TRACE_H)[1]);
+  const draw = useTransform<number, number>(progress, (p) => Math.max(0.001, Math.min(1, p)));
+  const angle = useTransform(progress, (p) => `${kneeAngleAt(p)}°`);
+  const reps = useStep(progress, readReps);
+  return (
+    <div className={`${styles.overlayCard} ${styles.formTrace}`} data-form-trace="" aria-hidden="true">
+      <div className={styles.overlayTop}>
+        <strong>Knee angle</strong>
+        <span className={styles.tag}>Example</span>
+      </div>
+      <svg className={styles.traceSvg} viewBox={`0 0 ${TRACE_W} ${TRACE_H}`}>
+        <path className={styles.traceTrack} d={TRACE_PATH} />
+        <m.path className={styles.traceLine} d={TRACE_PATH} style={{ pathLength: draw }} />
+        <m.circle className={styles.traceDot} cx={x} cy={y} r={5} />
+      </svg>
+      <div className={styles.traceFoot}>
+        <m.span>{angle}</m.span>
+        <span>{reps === 1 ? "1 rep" : `${reps} reps`}</span>
+      </div>
     </div>
   );
 }

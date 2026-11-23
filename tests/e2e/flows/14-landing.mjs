@@ -1,7 +1,8 @@
-// Flow 14: the public home page, four screens. The film plays behind the headline and its chapter rail jumps the
-// film; the capability deck moves on by itself, holds still under keyboard focus, pauses and plays, answers tabs, arrow
+// Flow 14: the public home page, four screens. The film's still comes first and the reel loads only after the page
+// has loaded (the phone cut on phones); the film plays behind the headline and its chapter rail jumps the film; the capability deck moves on by itself, holds still under keyboard focus, pauses and plays, answers tabs, arrow
 // keys and the idli stepper, and shows its seventh (Explore) card; the idea and the
-// contact cards show; nothing scrolls sideways and the page stays short; with reduced motion nothing moves (no film,
+// contact cards show; on wide screens the Form Check card fills its left side (the photo's own colours and the knee-angle
+// trace); nothing scrolls sideways and the page stays short; with reduced motion nothing moves (no film,
 // no auto-advance) and the brand loader stays away; a returning device gets the short loader.
 import { skipFilmIfShown, textOf } from "./common.mjs";
 
@@ -12,6 +13,26 @@ const deckState = (page) => page.evaluate(() => {
     selected: deck?.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.replace(/^\d+/, "").trim() ?? null,
     tabs: deck?.querySelectorAll('[role="tab"]').length ?? 0,
     visiblePanels: [...(deck?.querySelectorAll('[role="tabpanel"]') ?? [])].filter((panel) => !panel.hidden).length,
+  };
+});
+
+/** Waits until the short entry fades and rises (under 2 s) have finished, so a screenshot never catches text mid-fade. */
+async function fadesSettled(page) {
+  await page.waitForFunction(() => document.getAnimations().every((animation) => {
+    const timing = animation.effect?.getComputedTiming?.() ?? {};
+    const short = Number.isFinite(timing.endTime) && timing.endTime < 2000;
+    return !short || animation.playState !== "running";
+  }), null, { timeout: 4000 }).catch(() => undefined);
+}
+
+/** When the reel was fetched, against the page's load event (ms since navigation start). */
+const reelTiming = (page) => page.evaluate(() => {
+  const nav = performance.getEntriesByType("navigation")[0];
+  const reels = performance.getEntriesByType("resource").filter((entry) => /\/media\/landing-film\/reel-.*\.mp4/.test(entry.name));
+  return {
+    loadEnd: nav ? Math.round(nav.loadEventEnd) : null,
+    reels: reels.map((entry) => ({ file: entry.name.split("/").pop(), start: Math.round(entry.startTime) })),
+    shape: document.querySelector("section[data-film]")?.getAttribute("data-reel") ?? null,
   };
 });
 
@@ -32,6 +53,12 @@ export const flow = {
       const film = await page.locator("section[data-film]").getAttribute("data-film");
       t.note("film state", film);
       t.expect(film === "playing", `the film plays (data-film=${film})`);
+      const timing = await reelTiming(page);
+      t.note("reel timing", timing);
+      t.expect(timing.loadEnd !== null && timing.reels.length > 0 && timing.reels.every((reel) => reel.start >= timing.loadEnd), "the reel is fetched only after the page has loaded (the still comes first)", timing);
+      const cut = size === "phone" ? "portrait" : "landscape";
+      t.expect(timing.shape === cut && timing.reels.every((reel) => reel.file.includes(cut)), `this screen gets the ${cut} cut only`, timing);
+      await fadesSettled(page);
       const shot = await t.checkpoint("hero", { fullPage: false });
       t.expect(!shot.overflow?.overflow, "no sideways scroll", shot.overflow);
     });
@@ -67,6 +94,7 @@ export const flow = {
       const after = await deckState(page);
       t.note("deck before and after waiting", { before, after });
       t.expect(after.selected !== before.selected, "the next card comes up by itself", { before, after });
+      await fadesSettled(page);
       await t.checkpoint("deck", { fullPage: false, settle: false });
     });
 
@@ -103,6 +131,36 @@ export const flow = {
       await page.getByRole("tab", { name: /Form Check/ }).click();
       t.expect((await deckState(page)).auto === "false", "a chosen card stops the auto-advance");
       await page.locator('[data-scene-cue]').first().waitFor({ timeout: 5000 });
+      // Wide cards fill the side beside the portrait photo: its own colours behind, the knee-angle trace on top.
+      const wide = await page.evaluate(() => {
+        const card = document.querySelector('#capabilities [data-card="form"]');
+        const shown = (selector) => {
+          const element = card?.querySelector(selector);
+          if (!element) return false;
+          const box = element.getBoundingClientRect();
+          return getComputedStyle(element).display !== "none" && box.width > 0 && box.height > 0;
+        };
+        // The card's photo: next/image's fill <img> sits straight inside its frame.
+        const photo = card?.querySelector("img")?.parentElement?.getBoundingClientRect();
+        const trace = card?.querySelector("[data-form-trace]")?.getBoundingClientRect();
+        return {
+          cardWidth: Math.round(card?.getBoundingClientRect().width ?? 0),
+          photoLeft: Math.round((photo?.left ?? 0) - (card?.getBoundingClientRect().left ?? 0)),
+          ambient: shown("[data-form-ambient]"),
+          trace: shown("[data-form-trace]"),
+          traceRight: Math.round((trace?.right ?? 0) - (card?.getBoundingClientRect().left ?? 0)),
+          traceText: card?.querySelector("[data-form-trace]")?.textContent ?? "",
+        };
+      });
+      t.note("form check card", wide);
+      if (size === "phone") t.expect(!wide.ambient && !wide.trace, "a phone's card is the photo itself, nothing beside it", wide);
+      else {
+        t.expect(wide.photoLeft > 120, "the portrait photo leaves room on the left of a wide card", wide);
+        t.expect(wide.ambient && wide.trace, "that room carries the photo's colours and the knee-angle trace", wide);
+        t.expect(wide.traceRight <= wide.photoLeft + 24, "the trace sits beside the photo, never over the athlete", wide);
+        t.expect(/Knee angle/.test(wide.traceText) && /Example/.test(wide.traceText), "the trace says what it is and that it is an example", wide);
+      }
+      await fadesSettled(page);
       await t.checkpoint("deck form check", { fullPage: false, settle: false });
       await page.keyboard.press("ArrowRight");
       const state = await deckState(page);
@@ -118,6 +176,7 @@ export const flow = {
       await card.getByRole("button", { name: "One idli more" }).click();
       const after = await textOf(card);
       t.expect(/≈ 76 g/.test(before) && /≈ 114 g/.test(after), "two idli are 76 g, three are 114 g", { before, after });
+      await fadesSettled(page);
       await t.checkpoint("deck fuel", { fullPage: false, settle: false });
     });
 
@@ -130,6 +189,7 @@ export const flow = {
         const image = document.querySelector('#capabilities [data-card="explore"] img');
         return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0;
       }, null, { timeout: 8000 }).catch(() => undefined);
+      await fadesSettled(page);
       await t.checkpoint("deck explore", { fullPage: false, settle: false });
     });
 

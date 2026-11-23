@@ -2,11 +2,14 @@ import type { NextRequest } from "next/server";
 import { CoachError, unavailableError } from "@/lib/ai/coach";
 import { buildCoachContext, loadContextSources } from "@/lib/ai/context";
 import { coachGate, errorResponse, jsonResponse } from "@/lib/ai/http";
-import { getConsent, saveConsent, updateDataSharing, withdrawConsent } from "@/lib/ai/store";
+import { CONSENT_VERSION, consentOutdated, getConsent, renewConsent, saveConsent, updateDataSharing, withdrawConsent } from "@/lib/ai/store";
 import { readJsonObjectOrNull } from "@/lib/security/body";
 
 /**
  * POST { shareData: boolean }: agree to the coach, or change "Use my FITX data" later.
+ * POST { renew: true }: agree again to the current consent screen from the coach's one-time prompt (a consent given to
+ * an older screen); "Use my FITX data" keeps its setting. Nothing is stored for a member with no consent, or one the
+ * newer screen would change nothing for.
  * DELETE: withdraw consent (conversations stay until the member deletes them).
  * Only accounts whose profile says 18 or over share their data with the coach, whatever the request says:
  * under-18 accounts and accounts without an age in their profile get "Questions only".
@@ -16,6 +19,7 @@ export async function POST(request: NextRequest) {
   if (!access.ok) return access.response;
   const { gate } = access;
   const body = await readJsonObjectOrNull(request, 500);
+  if (body?.renew === true) return gate.finish(await renew(gate.db, gate.userId));
   if (!body || typeof body.shareData !== "boolean") return gate.finish(errorResponse(new CoachError("invalid", "Choose whether the coach may use your FITX data.")));
   try {
     const existing = await getConsent(gate.db, gate.userId);
@@ -31,6 +35,19 @@ export async function POST(request: NextRequest) {
     return gate.finish(jsonResponse({ consent: { shareData } }));
   } catch (error) {
     return gate.finish(errorResponse(error));
+  }
+}
+
+async function renew(db: Parameters<typeof getConsent>[0], userId: string) {
+  try {
+    const existing = await getConsent(db, userId);
+    if (!existing) return errorResponse(new CoachError("invalid", "There is no consent to renew. Agree on the AI Coach page first."));
+    const { facts } = buildCoachContext(await loadContextSources(db, userId, new Date(), { full: false }));
+    if (!consentOutdated(existing, facts.adult)) return jsonResponse({ consent: { shareData: existing.shareData && facts.adult, version: existing.version } });
+    if (!(await renewConsent(db, userId))) return errorResponse(new CoachError("invalid", "There is no consent to renew. Agree on the AI Coach page first."));
+    return jsonResponse({ consent: { shareData: true, version: CONSENT_VERSION } });
+  } catch (error) {
+    return errorResponse(error);
   }
 }
 

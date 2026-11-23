@@ -52,9 +52,18 @@ function wrap(seconds: number) {
   return ((seconds % REEL_SECONDS) + REEL_SECONDS) % REEL_SECONDS;
 }
 
-/** The reel file for a theme and a viewport shape (portrait below an aspect of 0.9). */
+/**
+ * The reel file for a theme and a viewport shape (portrait below an aspect of 0.9). Every cut is 30 fps H.264; the
+ * portrait one (540 × 960, about 1.4 MB) is the phone cut, the landscape one (1280 × 720, about 1.6 MB) is for wider
+ * screens.
+ */
 export function reelSource(theme: FilmTheme, shape: FilmShape): string {
   return `/media/landing-film/reel-${theme}-${shape}.mp4`;
+}
+
+/** The still the reel opens on (frame 0 of the same cut), shown first and kept with reduced motion or Save-Data. */
+export function posterSource(theme: FilmTheme, shape: FilmShape): string {
+  return `/media/landing-film/poster-${theme}-${shape}.webp`;
 }
 
 export function shapeFor(width: number, height: number): FilmShape {
@@ -64,4 +73,51 @@ export function shapeFor(width: number, height: number): FilmShape {
 /** Whether the reel may play at all: never with reduced motion or Save-Data (the still frame stays). */
 export function reelAllowed({ reducedMotion, saveData }: { reducedMotion: boolean; saveData: boolean }): boolean {
   return !reducedMotion && !saveData;
+}
+
+/** Longest wait for an idle moment once the page has loaded, in ms. */
+export const REEL_IDLE_TIMEOUT_MS = 2500;
+
+type IdleHandle = number;
+/** The parts of `window` the reel's start-up gate uses (a stub in tests). */
+export type ReelWindow = {
+  document: { readyState: string };
+  addEventListener(type: "load", listener: () => void, options?: { once?: boolean }): void;
+  removeEventListener(type: "load", listener: () => void): void;
+  setTimeout(handler: () => void, ms: number): IdleHandle;
+  clearTimeout(handle: IdleHandle): void;
+  requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => IdleHandle;
+  cancelIdleCallback?: (handle: IdleHandle) => void;
+};
+
+/**
+ * Calls `start` once the page has finished loading (the `load` event, or at once when it already has) and the browser
+ * then has an idle moment (or after `timeout` ms, or a short timer where requestIdleCallback is missing, as in Safari).
+ * So the poster, the fonts and the first screen's images always come first and the reel never competes with them.
+ * Returns a cancel function; after it, `start` is never called.
+ */
+export function afterLoadAndIdle(win: ReelWindow, start: () => void, timeout = REEL_IDLE_TIMEOUT_MS): () => void {
+  let cancelled = false;
+  let idle: IdleHandle | null = null;
+  let timer: IdleHandle | null = null;
+  const run = () => {
+    if (!cancelled) {
+      cancelled = true;
+      start();
+    }
+  };
+  const whenIdle = () => {
+    if (cancelled) return;
+    if (typeof win.requestIdleCallback === "function") idle = win.requestIdleCallback(run, { timeout });
+    else timer = win.setTimeout(run, 200);
+  };
+  const onLoad = () => whenIdle();
+  if (win.document.readyState === "complete") whenIdle();
+  else win.addEventListener("load", onLoad, { once: true });
+  return () => {
+    cancelled = true;
+    win.removeEventListener("load", onLoad);
+    if (idle !== null) win.cancelIdleCallback?.(idle);
+    if (timer !== null) win.clearTimeout(timer);
+  };
 }
