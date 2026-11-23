@@ -10,7 +10,7 @@ export function FormCheckHero() {
 
   return (
     <section aria-labelledby="form-check-title" className="fitx-inverse relative overflow-hidden rounded-[28px] bg-fitx-bg text-fitx-text">
-      <div className="grid items-stretch md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+      <div className="grid items-stretch md:grid-cols-[minmax(0,1fr)_auto]">
         <div className="relative z-10 flex flex-col justify-end p-6 pb-4 sm:p-10 md:pb-10">
           <p className="text-[11px] font-semibold uppercase tracking-[.18em] text-fitx-primary">On-device coach</p>
           <h1 id="form-check-title" className="mt-3 font-heading text-[44px] font-bold leading-[.95] tracking-[-.045em] sm:text-[60px] lg:text-[72px]">AI Form Check</h1>
@@ -34,7 +34,7 @@ export function FormCheckHero() {
             Choose an exercise
           </a>
         </div>
-        <div className="relative aspect-[4/5] max-h-[560px] w-full md:aspect-auto md:min-h-[460px]">
+        <div className="relative aspect-[4/5] w-full md:w-[min(40vw,400px)]">
           {squat && <DemoReel exercise={squat} size="sm" priority className="absolute inset-0" />}
           {/* The camera's framing marks, as the live view keeps them around the member. */}
           <span className={styles.frameMarks} aria-hidden="true">

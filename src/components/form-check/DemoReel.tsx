@@ -17,6 +17,8 @@ interface DemoReelProps {
   maxFps?: number;
   /** Image loading priority (the page's first demonstration). */
   priority?: boolean;
+  /** "contain" shows the whole photo in a box of another shape (the live view's tile); "cover" fills it. */
+  fit?: "cover" | "contain";
   className?: string;
 }
 
@@ -27,7 +29,7 @@ interface DemoReelProps {
  * Play, pause, replay and loop are always at hand; it starts paused when reduced motion is asked for
  * (stepping through then cuts instead of fading), and it rests while off screen or in a hidden tab.
  */
-export function DemoReel({ exercise, size = "lg", maxFps, priority = false, className }: DemoReelProps) {
+export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit = "cover", className }: DemoReelProps) {
   const script = useMemo(() => demoScript(exercise.id), [exercise.id]);
   const reduced = useReducedMotionSafe();
   const visible = usePageVisible();
@@ -130,12 +132,12 @@ export function DemoReel({ exercise, size = "lg", maxFps, priority = false, clas
     <figure ref={holder} aria-label={label} className={cn("fitx-inverse relative isolate h-full w-full overflow-hidden bg-fitx-bg text-fitx-text", className)}>
       {start && (
         <div ref={startLayer} className={styles.layer}>
-          <Image src={start.image.src} alt={start.image.alt} fill sizes={large ? "(min-width: 1024px) 46vw, 100vw" : "240px"} placeholder="blur" blurDataURL={start.image.blurDataURL} priority={priority} className="object-cover" />
+          <Image src={start.image.src} alt={start.image.alt} fill sizes={large ? "(min-width: 1024px) 46vw, 100vw" : "240px"} placeholder="blur" blurDataURL={start.image.blurDataURL} priority={priority} className={fit === "cover" ? "object-cover object-[50%_35%]" : "object-contain"} />
         </div>
       )}
       {end && (
         <div ref={endLayer} className={styles.layer} style={{ opacity: start ? 0 : 1 }}>
-          <Image src={end.image.src} alt={end.image.alt} fill sizes={large ? "(min-width: 1024px) 46vw, 100vw" : "240px"} placeholder="blur" blurDataURL={end.image.blurDataURL} priority={priority && !start} className="object-cover" />
+          <Image src={end.image.src} alt={end.image.alt} fill sizes={large ? "(min-width: 1024px) 46vw, 100vw" : "240px"} placeholder="blur" blurDataURL={end.image.blurDataURL} priority={priority && !start} className={fit === "cover" ? "object-cover object-[50%_35%]" : "object-contain"} />
         </div>
       )}
       {!start && !end && (

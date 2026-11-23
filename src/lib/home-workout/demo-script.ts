@@ -88,9 +88,13 @@ export interface DemoMoment {
   phase: DemoPhase;
   /** How far through the phase, 0..1. */
   progress: number;
-  /** How much of the `end` photo shows, 0..1, eased through each move. */
+  /** How much of the `end` photo shows, 0..1: a short eased dissolve in the middle of each move. */
   mix: number;
 }
+
+/** Where in a move phase the photo dissolve starts, and how much of the phase it takes. */
+const DISSOLVE_FROM = 0.35;
+const DISSOLVE_SPAN = 0.3;
 
 const easeInOut = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);
 
@@ -108,7 +112,9 @@ export function momentAt(script: DemoScript, t: number, loop = true): DemoMoment
       const previous = script.phases[(index - 1 + script.phases.length) % script.phases.length];
       const from = previous.frame === "end" ? 1 : 0;
       const to = phase.frame === "end" ? 1 : 0;
-      const mix = phase.move ? from + (to - from) * easeInOut(progress) : to;
+      // The photos dissolve in the middle of the move, briefly, so two positions are never long on screen together.
+      const dissolve = Math.min(1, Math.max(0, (progress - DISSOLVE_FROM) / DISSOLVE_SPAN));
+      const mix = phase.move ? from + (to - from) * easeInOut(dissolve) : to;
       return { index, phase, progress, mix };
     }
     cursor += phase.ms;

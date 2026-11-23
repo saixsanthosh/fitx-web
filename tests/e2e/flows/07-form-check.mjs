@@ -29,6 +29,9 @@ function fakeCamera() {
     return canvas.captureStream(25);
   };
   devices.enumerateDevices = async () => [{ kind: "videoinput", deviceId: "stand-in", groupId: "stand-in", label: "Stand-in camera", toJSON() { return this; } }];
+  // The browser itself was never asked, so its permission answer for the camera is "granted" for this stand-in.
+  const query = navigator.permissions?.query?.bind(navigator.permissions);
+  if (query) navigator.permissions.query = (descriptor) => (descriptor?.name === "camera" ? Promise.resolve({ state: "granted", onchange: null }) : query(descriptor));
 }
 
 export const flow = {
@@ -156,7 +159,7 @@ export const flow = {
         const match = /scale\(([\d.]+)\)/.exec(layer?.style.transform ?? "");
         return match && Number(match[1]) > 0 ? Number(match[1]) : false;
       }, undefined, { timeout: 90000, polling: 500 }).then((handle) => handle.jsonValue()).catch(() => null);
-      const status = await textOf(live.locator("header [role=status]"));
+      const status = await textOf(live.locator("header [role=status]")).catch(() => "(no status)");
       t.note("live status", status);
       t.expect(zoom !== null, "the framing should place the camera picture");
       // Fitting the whole picture is the base scale; once the member is found it zooms past it.

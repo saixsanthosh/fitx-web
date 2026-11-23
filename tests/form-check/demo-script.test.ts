@@ -35,13 +35,18 @@ test("captions change exactly at the phase boundaries, and the photo mix eases b
   assert.equal(momentAt(script, start.ms + out.ms + 1).mix, 1, "the end photo shows at the turnaround");
   const halfway = momentAt(script, start.ms + out.ms / 2).mix;
   assert.ok(Math.abs(halfway - 0.5) < 1e-9, `halfway through the move the photos are evenly mixed (${halfway})`);
-  // The mix never jumps between frames 10 ms apart, anywhere in the loop (including the loop's seam).
+  // The dissolve is short (so two positions are rarely seen together) but never a cut, and it only goes one way per move.
+  assert.equal(momentAt(script, start.ms + out.ms * 0.3).mix, 0, "the start photo holds through the first part of the move");
+  assert.equal(momentAt(script, start.ms + out.ms * 0.7).mix, 1, "and the end photo is fully there before the move ends");
   let previous = momentAt(script, 0).mix;
+  let steps = 0;
   for (let t = 10; t <= script.totalMs * 2; t += 10) {
     const mix = momentAt(script, t).mix;
-    assert.ok(Math.abs(mix - previous) < 0.05, `jump at ${t} ms`);
+    assert.ok(Math.abs(mix - previous) < 0.15, `jump at ${t} ms`);
+    if (mix !== previous) steps += 1;
     previous = mix;
   }
+  assert.ok(steps > 40, "the dissolve takes many frames");
 });
 
 test("looping wraps around; with looping off it rests on the last moment", () => {

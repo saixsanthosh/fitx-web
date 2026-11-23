@@ -166,7 +166,7 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
         <aside aria-label="Coach" className={cn("grid h-32 shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2 sm:h-40 lg:flex lg:h-auto lg:min-h-0 lg:flex-col lg:gap-4", live.shortAside)}>
           <div className={cn("relative min-h-0 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface lg:flex-1", live.shortTile)}>
             {/* Capped well below the display rate, and slower still on a device already struggling, so it never takes frame time from the pose model. */}
-            {exercise && open && <DemoReel exercise={exercise} size="sm" maxFps={coach.notice === SLOW_DEVICE_NOTICE ? 8 : 24} className="absolute inset-0" />}
+            {exercise && open && <DemoReel exercise={exercise} size="sm" fit="contain" maxFps={coach.notice === SLOW_DEVICE_NOTICE ? 8 : 24} className="absolute inset-0" />}
           </div>
           <div className={cn("min-h-0 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface p-3 sm:p-4 lg:min-h-[11rem] lg:p-5", live.shortTile)} aria-hidden="true">
             <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">Coach</p>
