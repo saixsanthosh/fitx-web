@@ -1,0 +1,94 @@
+/* Challenges, boards and badges: theme tokens only, transform and opacity motion, 44 px targets. */
+
+.page { display: flex; width: 100%; max-width: 1120px; min-width: 0; flex-direction: column; gap: 22px; margin: 0 auto; }
+.grid { display: grid; gap: 12px; }
+@media (min-width: 720px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1100px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* A challenge card: a dark stage with the metric's glyph, the time left and the member's own progress. */
+.card {
+  position: relative; display: flex; height: 100%; min-height: 176px; overflow: hidden; flex-direction: column; gap: 14px; border-radius: 22px;
+  background: var(--fitx-stage); padding: 18px; color: var(--fitx-on-stage); isolation: isolate;
+  transition: transform .35s cubic-bezier(.22, 1, .36, 1), box-shadow .35s ease;
+}
+.card:hover { transform: translateY(-3px); box-shadow: 0 16px 40px color-mix(in srgb, var(--fitx-scrim) 24%, transparent); }
+.card:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 3px; }
+.cardGlyph { position: absolute; right: -18px; bottom: -22px; z-index: -1; color: color-mix(in srgb, var(--fitx-on-stage) 8%, transparent); transition: transform .7s cubic-bezier(.22, 1, .36, 1); }
+.card:hover .cardGlyph { transform: rotate(-8deg) scale(1.05); }
+.cardTop { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.kind { border-radius: 999px; background: color-mix(in srgb, var(--fitx-on-stage) 14%, transparent); padding: 3px 10px; font-size: 11px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.left { color: var(--fitx-on-stage-secondary); font-size: 12px; font-weight: 650; }
+.title { font-family: var(--font-heading, inherit); font-size: 21px; font-weight: 750; line-height: 1.12; letter-spacing: -.025em; }
+.sub { color: var(--fitx-on-stage-secondary); font-size: 13px; line-height: 1.4; }
+.cardFoot { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-top: auto; }
+.mine { font-size: 15px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.joinedTag { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; background: var(--fitx-primary); padding: 4px 10px; color: var(--fitx-on-primary); font-size: 11px; font-weight: 750; }
+.bar { position: relative; overflow: hidden; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--fitx-on-stage) 16%, transparent); }
+.barFill { position: absolute; inset: 0; border-radius: inherit; background: var(--fitx-primary); transform-origin: left; transition: transform .9s cubic-bezier(.22, 1, .36, 1); }
+
+/* The challenge page */
+.hero { position: relative; overflow: hidden; border-radius: 28px; background: var(--fitx-stage); color: var(--fitx-on-stage); isolation: isolate; }
+.heroGlyph { position: absolute; top: -40px; right: -50px; z-index: -1; color: color-mix(in srgb, var(--fitx-on-stage) 7%, transparent); }
+.heroInner { display: grid; gap: 22px; padding: 24px 20px; }
+@media (min-width: 820px) { .heroInner { grid-template-columns: minmax(0, 1fr) auto; align-items: end; padding: 34px; } }
+.heroTitle { font-family: var(--font-heading, inherit); font-size: clamp(30px, 6vw, 46px); font-weight: 780; line-height: 1.02; letter-spacing: -.045em; overflow-wrap: anywhere; }
+.heroMeta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--fitx-on-stage-secondary); font-size: 14px; }
+.heroActions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+/* The member's own value, drawn as a ring around the number. */
+.ring { position: relative; display: grid; width: 168px; height: 168px; flex: 0 0 auto; place-items: center; }
+.ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ringTrack { fill: none; stroke: color-mix(in srgb, var(--fitx-on-stage) 14%, transparent); }
+.ringFill { fill: none; stroke: var(--fitx-primary); stroke-linecap: round; transition: stroke-dashoffset 1.1s cubic-bezier(.22, 1, .36, 1); }
+.ringValue { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.ringNumber { font-family: var(--font-heading, inherit); font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.ringUnit { max-width: 120px; color: var(--fitx-on-stage-secondary); font-size: 12px; font-weight: 650; }
+
+.stageButton {
+  display: inline-flex; min-height: 46px; align-items: center; gap: 8px; border-radius: 14px; background: var(--fitx-primary); padding: 0 20px;
+  color: var(--fitx-on-primary); font-size: 15px; font-weight: 750; transition: background-color .18s ease, transform .18s cubic-bezier(.22, 1, .36, 1);
+}
+.stageButton:hover { background: var(--fitx-primary-bright); }
+.stageButton:active { transform: scale(.97); }
+.stageButton:disabled { opacity: .6; }
+.stageButton:focus-visible { outline: 2px solid var(--fitx-on-stage); outline-offset: 3px; }
+.stageQuiet { border: 1px solid color-mix(in srgb, var(--fitx-on-stage) 40%, transparent); background: transparent; color: var(--fitx-on-stage); }
+.stageQuiet:hover { background: color-mix(in srgb, var(--fitx-on-stage) 12%, transparent); }
+
+.layout { display: grid; gap: 24px; }
+@media (min-width: 1024px) { .layout { grid-template-columns: minmax(0, 620px) minmax(280px, 360px); justify-content: center; align-items: start; } }
+.side { display: flex; min-width: 0; flex-direction: column; gap: 16px; }
+@media (min-width: 1024px) { .side { position: sticky; top: 24px; } }
+
+/* The board */
+.board { display: flex; flex-direction: column; gap: 2px; }
+.boardRow { display: grid; grid-template-columns: 34px auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-radius: 14px; padding: 8px; }
+.boardRow:hover { background: var(--fitx-hover); }
+.boardMine { background: color-mix(in srgb, var(--fitx-primary) 9%, transparent); }
+.place { color: var(--fitx-text-secondary); font-size: 14px; font-weight: 750; text-align: center; font-variant-numeric: tabular-nums; }
+.placeTop { color: var(--fitx-gold); }
+.boardName { overflow: hidden; color: var(--fitx-text); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.boardValue { color: var(--fitx-text); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Badges, drawn in code */
+.badges { display: flex; flex-wrap: wrap; gap: 10px; }
+.badge { display: flex; min-width: 0; align-items: center; gap: 10px; border: 1px solid var(--fitx-border); border-radius: 16px; background: var(--fitx-card-bg); padding: 8px 14px 8px 8px; }
+.badgeTitle { color: var(--fitx-text); font-size: 14px; font-weight: 700; }
+.badgeText { color: var(--fitx-text-secondary); font-size: 12px; }
+.medal { flex: 0 0 auto; }
+.medalCompleted .medalFace { fill: var(--fitx-primary); }
+.medalTop3 .medalFace { fill: var(--fitx-gold); }
+.medalRim { fill: none; stroke: color-mix(in srgb, var(--fitx-on-stage) 70%, transparent); stroke-width: 1.5; }
+.medalMark { fill: none; stroke: var(--fitx-on-primary); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.4; }
+.medalRibbon { fill: var(--fitx-ember); }
+
+.entryChip {
+  display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; margin-bottom: -10px; border: 1px solid var(--fitx-border); border-radius: 999px;
+  background: var(--fitx-surface-variant); padding: 4px 12px; color: var(--fitx-text); font-size: 13px; font-weight: 650;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .cardGlyph, .barFill, .ringFill, .stageButton { transition: none; }
+  .card:hover { transform: none; }
+  .card:hover .cardGlyph { transform: none; }
+}
