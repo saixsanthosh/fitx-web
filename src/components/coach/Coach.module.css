@@ -4,7 +4,7 @@
 .chat { display: flex; min-width: 0; min-height: calc(100dvh - 220px); flex-direction: column; width: 100%; max-width: 760px; margin: 0 auto; }
 
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.mode { display: inline-flex; min-height: 32px; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 999px; padding: 0 12px; color: var(--fitx-text-secondary); font-size: .8rem; font-weight: 600; }
+.mode { display: inline-flex; min-width: 0; white-space: nowrap; min-height: 32px; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 999px; padding: 0 12px; color: var(--fitx-text-secondary); font-size: .8rem; font-weight: 600; }
 .dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 999px; background: var(--fitx-text-disabled); }
 .dotOn { background: var(--fitx-success); }
 .tools { display: flex; align-items: center; gap: 2px; }

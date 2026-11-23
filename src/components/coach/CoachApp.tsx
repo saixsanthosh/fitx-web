@@ -385,8 +385,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
           </p>
           <div className={styles.tools}>
             <ReadAloudToggle readAloud={readAloud} />
-            <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
-              <History size={17} aria-hidden="true" /> History
+            <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
+              <History size={17} aria-hidden="true" /><span className="sr-only sm:not-sr-only">History</span>
             </button>
             <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className={cn("grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
               <MessageSquarePlus size={18} aria-hidden="true" />

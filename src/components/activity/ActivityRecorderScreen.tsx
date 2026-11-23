@@ -441,7 +441,8 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                 <span className="relative h-2.5 w-2.5 rounded-full bg-fitx-danger" />
               </span>
             )}
-            {recording ? (phase === "paused" ? "Paused" : `Recording ${SPORT_NOUN[activeSport]}`) : SPORT_LABEL[sport]}
+            {/* The sport's short name while recording, so long ones ("Mountain bike") fit beside the GPS state at 390 px. */}
+            {recording ? (phase === "paused" ? "Paused" : <><span className="sr-only">Recording </span><span className="truncate">{SPORT_LABEL[activeSport]}</span></>) : SPORT_LABEL[sport]}
           </h1>
         </div>
         <SignalPill snapshot={snapshot} className="shrink-0" />
@@ -560,7 +561,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
               <Stat label="Distance" value={kmValue(stats.distanceM)} unit="km" size="hero" />
               <div className="mt-5 grid grid-cols-2 gap-4 border-t border-fitx-divider pt-4">
                 {autoPause
-                  ? <Stat label={autoPaused ? "Moving time · auto-paused" : "Moving time"} value={formatDuration(stats.movingSeconds)} size="large" />
+                  ? <Stat label={autoPaused ? "Auto-paused" : "Moving time"} value={formatDuration(stats.movingSeconds)} size="large" />
                   : <Stat label="Time" value={formatDuration(stats.activeSeconds)} size="large" />}
                 {pace
                   ? <Stat label="Pace" value={stats.stopped ? "–" : paceValue(stats.currentPaceSecondsPerKm)} unit="/km" size="large" />

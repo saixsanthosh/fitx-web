@@ -119,7 +119,7 @@ export function ReadAloudToggle({ readAloud }: { readAloud: ReturnType<typeof us
       aria-pressed={readAloud.on}
       aria-label="Read replies aloud"
       title={readAloud.on ? "Replies are read aloud" : "Read replies aloud"}
-      className={cn(styles.round, readAloud.on && styles.roundOn)}
+      className={cn("grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary transition-colors hover:bg-fitx-hover hover:text-fitx-text", readAloud.on && "text-fitx-primary-text")}
     >
       <Icon size={17} aria-hidden="true" />
     </button>

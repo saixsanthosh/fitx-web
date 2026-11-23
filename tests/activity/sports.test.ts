@@ -75,5 +75,5 @@ test("recording extras: auto-pause and cues are per-device switches, cues use an
   const recorder = source("src/components/activity/ActivityRecorderScreen.tsx");
   assert.match(recorder, /\{cueVoice\.available && \(/, "no cue switch without an on-device voice");
   assert.match(recorder, /label="Lock"/);
-  assert.match(recorder, /Moving time · auto-paused/);
+  assert.match(recorder, /label=\{autoPaused \? "Auto-paused" : "Moving time"\}/);
 });
