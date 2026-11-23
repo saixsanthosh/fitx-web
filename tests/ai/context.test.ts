@@ -272,6 +272,7 @@ describe("privacy page", () => {
   // The page is JSX, which `node --test` cannot load, so its source text is checked.
   const page = readFileSync(new URL("../../src/app/(marketing)/privacy/page.tsx", import.meta.url), "utf8");
   const section = (heading: string) => (page.match(new RegExp(`<h2>${heading}</h2>([\\s\\S]*?)</section>`))?.[1] ?? "").replace(/<[^>]+>/g, " ");
+  const read = (file: string) => readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
 
   test("the AI coach section names the health details the coach summary sends", () => {
     const base = sources();
@@ -498,11 +499,57 @@ describe("privacy page", () => {
     assert.match(workouts, /sessionMinutes: preferences\.session_duration_minutes/);
     assert.match(profile, /\bAuto workouts use where you train, your equipment, your experience, session length and split\b/);
     assert.match(profile, /\bAuto workouts do not avoid the injuries you enter yet\b/);
-    // Training days set Home's weekly goal; the diet ticks Nutrition's diet filter to begin with.
+    // Training days set the weekly goal (Goals live on Progress now); the diet ticks Nutrition's diet filter to begin with.
     assert.match(source("lib/data/today.ts"), /select\("workouts_per_week,/);
-    assert.match(profile, /\byour training days set your weekly goal on Home\b/);
+    assert.match(source("components/progress/ProgressAnalytics.tsx"), /context\.preferences\.workouts_per_week/);
+    assert.match(profile, /\byour training days set your weekly goal on Progress\b/);
     assert.match(source("app/(dashboard)/nutrition/page.tsx"), /setDietFilter\(dietFilterFor\(prefs\?\.dietary_preferences\)\)/);
     assert.match(profile, /\bYour diet type sets which foods Nutrition’s food search hides at first\b/);
+  });
+
+  test("the AI coach section names every outside service and where voice goes, word for word with the coach's own text", async () => {
+    const { coachServicesSentence, VOICE_PRIVACY } = await import("@/lib/ai/disclosure");
+    const coach = section("AI coach");
+    assert.ok(coach.includes(coachServicesSentence()), "the services sentence: Gemini, Groq, Workers AI, Cerebras, Mistral and OpenRouter, only those connected");
+    assert.ok(coach.includes(VOICE_PRIVACY), "the voice sentence the coach shows on the first press");
+  });
+
+  test("with a consent that listed them, the summary carries activity totals per sport, and the page says so", () => {
+    const rows = [{ sport: "run", started_at: "2026-11-14T06:00:00Z", distance_m: 5000, moving_seconds: 1500, elevation_gain_m: 20 }];
+    const withActivities = buildCoachContext(sources({ activities: rows }) as never, NOW, { activities: true });
+    assert.ok((withActivities.summary as Record<string, unknown>).activities_last_28_days, "a version-2 consent sends them");
+    assert.equal((buildCoachContext(sources({ activities: rows }) as never, NOW).summary as Record<string, unknown>).activities_last_28_days, undefined, "an older consent does not");
+    assert.doesNotMatch(JSON.stringify((withActivities.summary as Record<string, unknown>).activities_last_28_days), /"(lat|lng|lon|latitude|longitude|polyline|route|place|location)[a-z_]*"/i, "never routes or places");
+    const coach = section("AI coach");
+    assert.match(coach, /\bactivities of the last 4 weeks: how many, distance, moving time and climb per sport, never your routes or locations\b/);
+  });
+
+  test("the AI Form Check, Explore, daily quote and setup paragraphs state what ships", () => {
+    const camera = section("AI Form Check");
+    assert.ok(camera, "the camera section is titled for AI Form Check");
+    assert.doesNotMatch(page, /<h2>Camera and Home workout<\/h2>/);
+    assert.match(camera, /\bwhose files are served by FITX itself\b/);
+    assert.match(camera, /\bbrightness from a tiny copy of it, on your device\b/);
+    assert.match(read("src/lib/home-workout/log.ts"), /HOME_WORKOUT_SETS_KEY = /, "unsaved sets stay in the tab");
+    const explore = section("Explore");
+    assert.match(explore, /\bonly by the followers you approve\b/);
+    assert.match(explore, /\bcamera and location details are removed\b/);
+    assert.match(explore, /\bnot shown to the member you report\b/);
+    assert.doesNotMatch(explore, /reviews reports/, "Admin moderation is not part of this release");
+    const exported = read("src/lib/account/export.ts");
+    for (const table of ["daily_quote_history", "social_profiles", "social_posts", "social_comments", "social_likes", "social_saves", "social_follows", "social_blocks", "social_restricts", "social_reports", "social_notifications"]) {
+      assert.match(exported, new RegExp(`table: "${table}"`), `${table} is in Download my data`);
+    }
+    assert.match(read("src/app/api/account/route.ts"), /removeSocialMediaFiles\(admin, user\.id\)/, "account deletion removes Explore photos");
+    assert.match(section("Daily quote"), /\bincluded in “Download my data”/);
+    const profile = section("Information you choose to save");
+    assert.match(profile, /\bdemonstration photos you prefer\b/);
+    assert.match(read("supabase/migrations/20261123100020_fitx_workout_setup.sql"), /demo_model/);
+    assert.match(read("supabase/migrations/20261123100040_fitx_nutrition_v2.sql"), /nutrition_setup_at/);
+    const cookies = read("src/app/(marketing)/cookies/page.tsx");
+    assert.match(cookies, /fitx_welcome/);
+    assert.match(cookies, /floating AI Coach button/);
+    assert.doesNotMatch(page + cookies, /Home workout/, "the old name is gone");
   });
 
   test("the page says what Profile can remove, and that weigh-ins can only be added", async () => {
@@ -543,6 +590,8 @@ describe("privacy page", () => {
     // Members' own session can't read these (tests/account/export-schema.test.ts lists them as left out).
     assert.ok(!exported.has("ai_coach_usage_events") && !exported.has("fitx_rate_limits") && !exported.has("fitx_admin_audit_logs"));
     assert.match(data, /\bIt leaves out the counters behind the AI coach’s and food search’s daily limits\b/);
+    assert.ok(!exported.has("social_rate_counters"), "Explore's rate counters are left out");
+    assert.match(data, /\band Explore’s anti-spam limits\b/);
     assert.match(data, /\bFITX’s internal admin log\b/);
     // Help requests are read with the columns members may see: not the page they came from, the priority or the assignee.
     const help = exported.get("support_requests")?.columns ?? "";

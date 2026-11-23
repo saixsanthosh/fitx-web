@@ -50,7 +50,7 @@ export const GOAL_METRICS: Record<GoalMetric, MetricInfo> = {
   workouts_completed: { label: "Workouts", unit: "workouts", source: "From finished workouts", periods: GOAL_PERIODS, directions: ["increase"], category: "consistency" },
   body_weight_kg: { label: "Body weight", unit: "kg", source: "From your weigh-ins", periods: ["long_term"], directions: ["decrease", "increase"], category: "body" },
   tasks_completed: { label: "Linked To-Dos", unit: "To-Dos", source: "From To-Dos linked to this goal", periods: GOAL_PERIODS, directions: ["increase"], category: "personal" },
-  activity_distance_km: { label: "Distance", unit: "km", source: "From your recorded walks, runs and rides", periods: GOAL_PERIODS, directions: ["increase"], category: "fitness" },
+  activity_distance_km: { label: "Distance", unit: "km", source: "From your recorded walks, runs, rides and other activities", periods: GOAL_PERIODS, directions: ["increase"], category: "fitness" },
   active_minutes: { label: "Active minutes", unit: "min", source: "Moving time of your activities plus training time of finished workouts", periods: GOAL_PERIODS, directions: ["increase"], category: "fitness" },
 };
 
@@ -401,7 +401,7 @@ export type GoalContext = {
 
 export const GOAL_TEMPLATES: ReadonlyArray<{ key: GoalTemplateKey; label: string; hint: string }> = [
   { key: "workouts_week", label: "Workouts per week", hint: "Counts finished workouts, Monday to Sunday" },
-  { key: "distance_week", label: "Distance a week", hint: "Adds up your recorded walks, runs and rides" },
+  { key: "distance_week", label: "Distance a week", hint: "Adds up your recorded walks, runs, rides and more" },
   { key: "active_week", label: "Active minutes a week", hint: "Activity moving time plus workout training time" },
   { key: "protein_day", label: "Daily protein", hint: "Adds up the protein in the food you log" },
   { key: "calories_day", label: "Daily calories", hint: "A calorie target or a limit to stay under" },

@@ -202,7 +202,7 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
             <textarea className="fitx-field" maxLength={1000} value={draft.notes} onChange={(event) => change({ notes: event.target.value })} />
           </label>
           {draft.template === "checklist" && <p className={styles.hint}><CalendarCheck size={14} aria-hidden="true" />Link To-Dos to it with “Counts toward” in the To-Do editor.</p>}
-          {draft.metric === "activity_distance_km" && <p className={styles.hint}><Footprints size={14} aria-hidden="true" />Walks, runs and rides you record, by the day each started.</p>}
+          {draft.metric === "activity_distance_km" && <p className={styles.hint}><Footprints size={14} aria-hidden="true" />Walks, runs, rides and other activities you record, by the day each started.</p>}
           {draft.metric === "active_minutes" && <p className={styles.hint}><Timer size={14} aria-hidden="true" />Activity moving time plus workout training time, pauses left out.</p>}
         </form>
       )}
