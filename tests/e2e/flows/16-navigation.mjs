@@ -36,7 +36,7 @@ export const flow = {
       t.expect((await nav.getByRole("link", { name: /Activity/ }).locator("svg[data-pose]").count()) === 1, "Activity keeps its animated icon");
       if (phone) {
         t.expect(labels.length === 4 && ["Home", "Workouts", "Nutrition", "Activity"].every((label, index) => labels[index] === label), "the phone bar has four tabs", labels);
-        await page.getByRole("button", { name: "More" }).click();
+        await page.getByRole("button", { name: "More", exact: true }).click();
         const sheet = page.getByRole("dialog", { name: "More" });
         await sheet.waitFor();
         const groups = await sheet.locator("h3").allInnerTexts();
@@ -49,7 +49,7 @@ export const flow = {
         await sheet.getByRole("link", { name: "Progress" }).click();
         await page.waitForURL("**/progress");
         await t.settle();
-        t.expect((await page.getByRole("button", { name: "More" }).getAttribute("class"))?.includes("font-semibold"), "More is highlighted on a page it holds");
+        t.expect((await page.getByRole("button", { name: "More", exact: true }).getAttribute("class"))?.includes("font-semibold"), "More is highlighted on a page it holds");
       } else {
         for (const label of MAIN) t.expect(labels.includes(label), `${label} is in the sidebar`, labels);
         const headings = (await nav.locator("p[id^=nav-group-]").allInnerTexts()).map((text) => text.trim().toLowerCase());
@@ -90,11 +90,14 @@ export const flow = {
       const nav = page.getByRole("navigation", { name: "Main navigation" }).filter({ visible: true }).first();
       await nav.getByRole("link", { name: "Home" }).click();
       await page.waitForURL("**/dashboard");
+      await page.locator("main .fitx-page-enter").waitFor();
+      // Two frames: even a 0.01 ms animation is "running" until the frame after it starts.
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const state = await page.evaluate(() => ({
         opacity: getComputedStyle(document.querySelector("main .fitx-page-enter") ?? document.body).opacity,
-        moving: document.getAnimations().filter((animation) => animation.playState === "running" && /fitx-navicon|fitx-page-in/.test(animation.animationName ?? "")).length,
+        moving: document.getAnimations().filter((animation) => animation.playState === "running" && /fitx-navicon|fitx-page-in/.test(animation.animationName ?? "")).map((animation) => `${animation.animationName} ${animation.effect?.getComputedTiming().duration}`),
       }));
-      t.expect(state.opacity === "1" && state.moving === 0, "nothing animates with reduced motion", state);
+      t.expect(state.opacity === "1" && state.moving.length === 0, `nothing animates with reduced motion: ${JSON.stringify(state)}`);
       await page.emulateMedia({ reducedMotion: "no-preference" });
     });
 
