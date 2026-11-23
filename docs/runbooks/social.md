@@ -23,7 +23,8 @@ Routes: `/explore` (feed), `/explore/discover[?topic=|?tag=]`, `/explore/new`, `
   `search_path = ''` that takes the member from the session (`auth.uid()`), never from its arguments.
 - Reads go through row level security on every table; the policies ask `fitx_social_viewer_sees_*`, which answer
   only for the signed-in member. A block either way hides everything; a private account's posts reach only accepted
-  followers; a restricted member's comments reach only them and the post's owner.
+  followers; a restricted member's comments reach only them and the post's owner, in notifications too (no reply
+  or mention notification, no snippet, and a later restriction hides earlier ones).
 - Photos are in the private bucket `social-media` (3 MB a file, WebP or JPEG only) at
   `<user id>/<post id>/<0-9>.webp|jpg` or `<user id>/profile/<name>.webp|jpg`. A signed link is issued only for a
   file its post's or profile's visibility allows (`fitx_social_can_read_object`). The browser shrinks every photo to
@@ -38,11 +39,12 @@ Routes: `/explore` (feed), `/explore/discover[?topic=|?tag=]`, `/explore/new`, `
 | Follows | 60 | 200 |
 | Reports | 10 | 30 |
 | Profile and setting saves | 30 | 100 |
-| Photo uploads (bucket policy) | | 60 in 24 hours; 600 files and 150 MB in all per member |
+| Photo uploads (bucket policy) | | 60 in 24 hours, counted as they happen (deleting a file gives none back); 600 files and 150 MB in all per member |
 
   Every Explore table also joins the general write budget (`fitx_member_write_budget`, 20261121100040).
 - Likes and follows notify once per member and post or account; a like or follow notification shows only while it
-  still stands, so liking and unliking cannot flood anyone.
+  still stands, so liking and unliking cannot flood anyone. The unread badge counts exactly what the list shows
+  (`fitx_social_notification_visible` decides both).
 - Nothing from Workouts, Nutrition, Progress or Activity is read by Explore. A post holds only the photos and words the
   member chose.
 

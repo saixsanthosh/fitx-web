@@ -13,8 +13,8 @@
 --   * Every table a member's action writes joins the fitx_member_write_budget triggers (20261121100040).
 --   * Photos live in the private `social-media` bucket at <user id>/<post id>/<n>.webp|jpg (and
 --     <user id>/profile/<name>.webp|jpg for profile pictures), at most 3 MB each, WebP or JPEG only. A file can be
---     read (and so signed) only by its owner and by members who may see its post or profile. Uploads stop at 60 files
---     a day and 150 MB in all per member.
+--     read (and so signed) only by its owner and by members who may see its post or profile. Uploads stop at 60 in
+--     24 hours (counted as they happen, so deleting a file gives none back) and at 600 files and 150 MB in all per member.
 --   * Nothing from Workouts, Nutrition, Progress or Activity is read or shared here: a post holds only what the
 --     member typed and the photos they chose.
 --
@@ -394,29 +394,49 @@ begin
 end $function$;
 
 -- Storage: whether the signed-in member may upload one more file to social-media at p_name: their own folder, a post
--- photo (<uid>/<post id>/<0-9>.webp|jpg) or a profile picture (<uid>/profile/<name>.webp|jpg), fewer than 60 files
--- added in the last 24 hours, and under 600 files and 150 MB in all.
-create or replace function public.fitx_social_upload_allowed(p_name text)
+-- photo (<uid>/<post id>/<0-9>.webp|jpg) or a profile picture (<uid>/profile/<name>.webp|jpg), fewer than 60 uploads
+-- in the last 24 hours, and under 600 files and 150 MB in all. Uploads are counted when they are let in (the
+-- 'upload:hour' rows of social_rate_counters), so deleting a file does not give an upload back; a refused or failed
+-- upload rolls its count back with it. Only the insert policy below calls it (it writes, so it is not stable).
+create or replace function public.fitx_social_upload_allowed(p_bucket text, p_name text)
 returns boolean
-language sql
-stable
+language plpgsql
 security definer
 set search_path = ''
 as $function$
-  with me as (select (select auth.uid()) as uid),
-  folder as (
-    select o.created_at, o.metadata
-    from storage.objects o, me
-    where o.bucket_id = 'social-media' and me.uid is not null and o.name like me.uid::text || '/%'
-  )
-  select (select me.uid from me) is not null
-    and p_name ~ ('^' || (select me.uid from me)::text
-                  || '/(profile/[a-z0-9-]{1,40}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9])[.](webp|jpg)$')
-    and (select pg_catalog.count(*) from folder f where f.created_at > pg_catalog.now() - interval '24 hours') < 60
-    and (select pg_catalog.count(*) from folder) < 600
-    and (select coalesce(pg_catalog.sum(case when (f.metadata ->> 'size') ~ '^[0-9]{1,15}$' then (f.metadata ->> 'size')::bigint end), 0)
-         from folder f) < 150 * 1024 * 1024;
-$function$;
+declare
+  v_uid uuid := (select auth.uid());
+  v_hour timestamptz := pg_catalog.date_trunc('hour', pg_catalog.now());
+  v_files bigint;
+  v_bytes bigint;
+  v_recent bigint;
+begin
+  if v_uid is null or p_bucket is distinct from 'social-media'
+     or p_name !~ ('^' || v_uid::text
+                   || '/(profile/[a-z0-9-]{1,40}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9])[.](webp|jpg)$') then
+    return false;
+  end if;
+  select pg_catalog.count(*),
+         coalesce(pg_catalog.sum(case when (o.metadata ->> 'size') ~ '^[0-9]{1,15}$' then (o.metadata ->> 'size')::bigint end), 0)
+    into v_files, v_bytes
+  from storage.objects o
+  where o.bucket_id = 'social-media' and o.name like v_uid::text || '/%';
+  if v_files >= 600 or v_bytes >= 150 * 1024 * 1024 then
+    return false;
+  end if;
+  select coalesce(pg_catalog.sum(c.hits), 0) into v_recent
+  from public.social_rate_counters c
+  where c.user_id = v_uid and c.action = 'upload:hour' and c.window_start > pg_catalog.now() - interval '24 hours';
+  if v_recent >= 60 then
+    return false;
+  end if;
+  insert into public.social_rate_counters as c (user_id, action, window_start, hits)
+  values (v_uid, 'upload:hour', v_hour, 1)
+  on conflict (user_id, action, window_start) do update set hits = c.hits + 1;
+  delete from public.social_rate_counters c
+  where c.user_id = v_uid and c.action = 'upload:hour' and c.window_start < pg_catalog.now() - interval '2 days';
+  return true;
+end $function$;
 
 revoke all on function public.fitx_social_blocked(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.fitx_social_sees_profile(uuid, uuid) from public, anon, authenticated;
@@ -428,7 +448,7 @@ declare
 begin
   foreach v_fn in array array[
     'fitx_social_viewer_sees_profile(uuid)', 'fitx_social_viewer_sees_posts(uuid)', 'fitx_social_viewer_sees_post(uuid)',
-    'fitx_social_viewer_sees_comment(uuid, uuid)', 'fitx_social_can_read_object(text)', 'fitx_social_upload_allowed(text)'
+    'fitx_social_viewer_sees_comment(uuid, uuid)', 'fitx_social_can_read_object(text)', 'fitx_social_upload_allowed(text, text)'
   ] loop
     execute pg_catalog.format('revoke all on function public.%s from public, anon', v_fn);
     execute pg_catalog.format('grant execute on function public.%s to authenticated, service_role', v_fn);
@@ -494,7 +514,7 @@ create policy social_media_read on storage.objects for select to authenticated
 drop policy if exists social_media_insert on storage.objects;
 create policy social_media_insert on storage.objects for insert to authenticated
   with check (bucket_id = 'social-media' and (storage.foldername(name))[1] = (select auth.uid())::text
-              and (select public.fitx_social_upload_allowed(name)));
+              and (select public.fitx_social_upload_allowed(bucket_id, name)));
 drop policy if exists social_media_delete on storage.objects;
 create policy social_media_delete on storage.objects for delete to authenticated
   using (bucket_id = 'social-media' and (storage.foldername(name))[1] = (select auth.uid())::text);
@@ -705,7 +725,8 @@ begin
   on conflict do nothing;
 end $function$;
 
--- Notifies the members a text mentions who can see the post (once per text; on an edit, only newly mentioned ones).
+-- Notifies the members a text mentions who can see the post, and for a comment the comment itself (a restricted
+-- member's comment reaches only the post's owner), once per text; on an edit, only newly mentioned ones.
 create or replace function public.fitx_social_notify_mentions(p_actor uuid, p_text text, p_previous text, p_post public.social_posts,
   p_comment uuid)
 returns void
@@ -722,11 +743,38 @@ begin
       and not (p.username = any (public.fitx_social_mentions_in(p_previous)))
       and p.user_id <> p_actor
       and public.fitx_social_sees_posts(p.user_id, p_post.user_id)
+      and (p_comment is null or public.fitx_social_sees_comment(p.user_id, p_actor, p_post.user_id))
   loop
     perform public.fitx_social_notify(v_target, p_actor, 'mention', case when p_comment is null then 'post' else 'comment' end,
       coalesce(p_comment, p_post.id), p_post.id, p_comment);
   end loop;
 end $function$;
+
+-- Whether p_viewer's notification p_n is shown: nothing from an account with a block either way or without an Explore
+-- profile; a like or follow only while it still stands, a follow request only while it waits; nothing about a post or
+-- comment the viewer cannot see now (so a comment hidden by a later restriction drops out too). The list and the
+-- unread count both use it, so the badge counts what the list shows.
+create or replace function public.fitx_social_notification_visible(p_viewer uuid, p_n public.social_notifications)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $function$
+  select p_n.user_id = p_viewer
+    and not public.fitx_social_blocked(p_viewer, p_n.actor_id)
+    and exists (select 1 from public.social_profiles a where a.user_id = p_n.actor_id)
+    and (p_n.type <> 'like' or exists (select 1 from public.social_likes l where l.user_id = p_n.actor_id and l.post_id = p_n.post_id))
+    and (p_n.type <> 'follow' or exists (select 1 from public.social_follows f
+                                         where f.user_id = p_n.actor_id and f.following_id = p_viewer and f.status = 'accepted'))
+    and (p_n.type <> 'follow_request' or exists (select 1 from public.social_follows f
+                                                 where f.user_id = p_n.actor_id and f.following_id = p_viewer and f.status = 'pending'))
+    and (p_n.post_id is null
+         or exists (select 1 from public.social_posts p where p.id = p_n.post_id and public.fitx_social_sees_posts(p_viewer, p.user_id)))
+    and (p_n.comment_id is null
+         or exists (select 1 from public.social_comments c join public.social_posts p on p.id = c.post_id
+                    where c.id = p_n.comment_id and public.fitx_social_sees_comment(p_viewer, c.user_id, p.user_id)));
+$function$;
 
 do $do$
 declare
@@ -736,7 +784,8 @@ begin
     'fitx_social_member()', 'fitx_social_take(uuid, text, integer, integer)', 'fitx_social_author_json(uuid)',
     'fitx_social_can_comment(uuid, public.social_posts)', 'fitx_social_post_json(uuid, public.social_posts)',
     'fitx_social_notify(uuid, uuid, text, text, uuid, uuid, uuid)', 'fitx_social_hashtags_in(text)', 'fitx_social_mentions_in(text)',
-    'fitx_social_tag_post(uuid, text)', 'fitx_social_notify_mentions(uuid, text, text, public.social_posts, uuid)'
+    'fitx_social_tag_post(uuid, text)', 'fitx_social_notify_mentions(uuid, text, text, public.social_posts, uuid)',
+    'fitx_social_notification_visible(uuid, public.social_notifications)'
   ] loop
     execute pg_catalog.format('revoke all on function public.%s from public, anon, authenticated', v_fn);
   end loop;
@@ -770,7 +819,7 @@ begin
       'is_private', v_profile.is_private, 'default_comment_policy', v_profile.default_comment_policy),
     'unread', (select pg_catalog.count(*) from public.social_notifications n
                where n.user_id = v_uid and n.read_at is null and n.type <> 'follow_request'
-                 and not public.fitx_social_blocked(v_uid, n.actor_id)),
+                 and public.fitx_social_notification_visible(v_uid, n)),
     'requests', (select pg_catalog.count(*) from public.social_follows f
                  where f.following_id = v_uid and f.status = 'pending' and not public.fitx_social_blocked(v_uid, f.user_id)));
 end $function$;
@@ -1293,7 +1342,10 @@ begin
   returning * into v_comment;
 
   perform public.fitx_social_notify(v_post.user_id, v_uid, 'comment', 'comment', v_comment.id, p_post, v_comment.id);
-  if v_parent.id is not null and v_parent.user_id <> v_post.user_id then
+  -- A reply tells the comment's author only when they may see it (a restricted member's reply reaches only the
+  -- post's owner).
+  if v_parent.id is not null and v_parent.user_id <> v_post.user_id
+     and public.fitx_social_sees_comment(v_parent.user_id, v_uid, v_post.user_id) then
     perform public.fitx_social_notify(v_parent.user_id, v_uid, 'reply', 'comment', v_comment.id, p_post, v_comment.id);
   end if;
   perform public.fitx_social_notify_mentions(v_uid, v_comment.body, null, v_post, v_comment.id);
@@ -1670,8 +1722,8 @@ begin
     where f.following_id = v_uid and f.status = 'pending' and not public.fitx_social_blocked(v_uid, f.user_id)), '[]'::jsonb);
 end $function$;
 
--- The member's notifications, newest first. A like or follow shows only while it still stands; nothing from an account
--- with a block either way.
+-- The member's notifications, newest first, as fitx_social_notification_visible allows (a like or follow only while it
+-- still stands; nothing from an account with a block either way; nothing about a post or comment the member cannot see).
 create or replace function public.fitx_social_notifications(p_before_at timestamptz default null, p_before_id uuid default null,
   p_limit integer default 30)
 returns jsonb
@@ -1694,14 +1746,7 @@ begin
     from (
       select * from public.social_notifications n
       where n.user_id = v_uid
-        and not public.fitx_social_blocked(v_uid, n.actor_id)
-        and exists (select 1 from public.social_profiles a where a.user_id = n.actor_id)
-        and (n.type <> 'like' or exists (select 1 from public.social_likes l where l.user_id = n.actor_id and l.post_id = n.post_id))
-        and (n.type <> 'follow' or exists (select 1 from public.social_follows f
-                                           where f.user_id = n.actor_id and f.following_id = v_uid and f.status = 'accepted'))
-        and (n.type <> 'follow_request' or exists (select 1 from public.social_follows f
-                                                   where f.user_id = n.actor_id and f.following_id = v_uid and f.status = 'pending'))
-        and (n.post_id is null or public.fitx_social_sees_posts(v_uid, (select p.user_id from public.social_posts p where p.id = n.post_id)))
+        and public.fitx_social_notification_visible(v_uid, n)
         and (p_before_at is null or (n.created_at, n.id) < (p_before_at, coalesce(p_before_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
       order by n.created_at desc, n.id desc
       limit least(greatest(coalesce(p_limit, 30), 1), 50)

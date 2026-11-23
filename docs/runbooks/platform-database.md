@@ -373,7 +373,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 48 | `20261123100020_fitx_workout_setup` | The Workouts first-time setup: when it was finished and the demonstration model (male or female); a model and a caption on exercise media for wave 2. | Additive, fills `workout_setup_at` for members with an equipment list · yes | #11, #13 | Workouts setup asked once, the model choice saved | Until it is applied the setup counts as done for members with an equipment list, and the model follows the profile's sex. |
 | 49 | `20261123100040_fitx_nutrition_v2` | The Nutrition first-time setup: when it was answered. | Additive, fills `nutrition_setup_at` for members with a diet saved · yes | #7 | Nutrition setup asked once | Until it is applied the setup counts as done when a diet is saved. |
 | 50 | `20261123100050_fitx_coach_activity_v2` | Seven more Activity sports (hike, trail run, mountain bike, e-bike, wheelchair, inline skate, paddle) and each activity's best efforts. | Additive (a wider sport rule in place of the old one) · yes | #26 | The new sports on Record and import; best efforts saved with each activity | Until it is applied the app offers walk, run and ride only and works best efforts out on the activity page. Before an undo, delete or change activities of the new sports (section 5). |
-| 51 | `20261123100060_fitx_social_v1` | Explore, part 1: profiles, follows and follow requests, photo posts, hashtags, likes, saves, comments, blocks, restrictions, reports and notifications (15 tables), 56 functions, the private `social-media` bucket with 3 storage policies, rate counters and write limits. | Additive · yes | #45 (its write limits) | Explore | Large (90 KB): section 0.1. Until it is applied Explore says it needs the next update; everything else works as before. Its bucket is emptied and deleted in Dashboard → Storage, not with SQL (section 5). |
+| 51 | `20261123100060_fitx_social_v1` | Explore, part 1: profiles, follows and follow requests, photo posts, hashtags, likes, saves, comments, blocks, restrictions, reports and notifications (15 tables), 57 functions, the private `social-media` bucket with 3 storage policies, rate counters and write limits. | Additive · yes | #45 (its write limits) | Explore | Large (90 KB): section 0.1. Until it is applied Explore says it needs the next update; everything else works as before. Its bucket is emptied and deleted in Dashboard → Storage, not with SQL (section 5). |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1448,16 +1448,18 @@ private), follows and follow requests, photo posts and their photos, hashtags, l
 replies, blocks, restrictions, reports, notifications and notification settings, and the anti-spam counters.
 Members read rows only through the 18 select and storage policies, which call visibility helpers (a block either
 way hides everything; a private account's posts reach only its accepted followers), and write nothing directly:
-every change goes through one of the 56 `fitx_social_*` functions (`security definer`, `search_path = ''`), which
+every change goes through one of the 57 `fitx_social_*` functions (`security definer`, `search_path = ''`), which
 take the member from the session and check blocks, privacy, sizes and daily limits first. Every table a member's
 action writes has #45's write limits (28 triggers). Photos go to the new private `social-media` bucket (WebP or
 JPEG, at most 3 MB each), at `<member>/<post>/<n>`; a file can be read only by its owner and by members who may see
-its post or profile. Members' Explore rows are in "Download my data" (the counters are left out) and go with the
-account; the app removes the account's photos from the bucket before it deletes the login. It touches no existing
-table, row or policy, and a second run changes nothing.
+its post or profile. Each member may upload 60 files in 24 hours, counted as they are uploaded (deleting a file gives
+none back), and keep 600 files and 150 MB in all. A restricted member's comment reaches no one but them and the post's
+owner, in notifications too: no reply or mention notification, no snippet. Members' Explore rows are in "Download
+my data" (the counters are left out) and go with the account; the app removes the account's photos from the bucket
+before it deletes the login. It touches no existing table, row or policy, and a second run changes nothing.
 
 ```sql
--- Check 20261123100060: expect 15, 18, 56, 0, 1, 28
+-- Check 20261123100060: expect 15, 18, 57, 0, 1, 28
 select (select count(*) from pg_tables where schemaname = 'public' and tablename like 'social\_%' and rowsecurity) as tables_with_rls,
        (select count(*) from pg_policies where (schemaname = 'public' and tablename like 'social\_%') or (schemaname = 'storage' and policyname like 'social\_media\_%')) as policies,
        (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%') as functions,

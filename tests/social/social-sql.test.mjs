@@ -1,7 +1,7 @@
 // Runs every repo migration on a throwaway local Postgres (the Supabase stand-in in tests/support, no network, no real
 // data) and checks Explore's schema (20261123100060) as signed-in members: profiles, private follow approval, posts and
 // their photos, likes, comments, saves, notifications and their preferences, blocks, restrictions, reports, the
-// social-media bucket's policies, the anti-spam limits, and that the file can run again.
+// social-media bucket's policies, the anti-spam limits (uploads counted as they happen), and that the file can run again.
 // Skipped when the Postgres binaries (initdb, pg_ctl, psql) are not on PATH.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -213,6 +213,47 @@ describe("Explore schema", { skip }, () => {
     assert.equal(call(C, `public.fitx_social_comments('${pub.id}')`).length, 1);
   });
 
+  test("a restricted member's replies and mentions reach nobody else, and a later restriction hides earlier ones", () => {
+    const me = (who) => call(who, "public.fitx_social_me()");
+    const pub = post(A, "Squat day");
+    const top = call(C, `public.fitx_social_add_comment('${pub.id}', null, 'Depth looks good')`);
+    const early = call(D, `public.fitx_social_add_comment('${pub.id}', '${top.id}', 'Agreed, early reply')`);
+    const seen = notes(C).find((n) => n.comment_id === early.id);
+    assert.equal(seen?.type, "reply", "before any restriction the reply reaches the comment's author");
+    assert.equal(seen.snippet, "Agreed, early reply");
+    const unreadBefore = me(C).unread;
+
+    call(A, `public.fitx_social_set_restrict('${D}', true)`);
+    assert.equal(notes(C).some((n) => n.comment_id === early.id), false, "a later restriction hides the earlier reply");
+    assert.equal(me(C).unread, unreadBefore - 1, "and the badge no longer counts it");
+    const unreadB = me(B).unread;
+    const hidden = call(D, `public.fitx_social_add_comment('${pub.id}', '${top.id}', 'Secret reply @ben_private')`);
+    call(D, `public.fitx_social_edit_comment('${hidden.id}', 'Secret reply @ben_private @chen.runs')`);
+    assert.equal(pg.json(`select count(*) from public.social_notifications where comment_id = '${hidden.id}' and user_id <> '${A}';`), 0,
+      "no reply or mention notification is written for anyone but the post's owner");
+    for (const who of [B, C]) {
+      assert.equal(notes(who).some((n) => n.comment_id === hidden.id || /Secret/.test(n.snippet ?? "")), false, `${who} reads nothing of it`);
+    }
+    assert.equal(me(B).unread, unreadB);
+    assert.equal(me(C).unread, unreadBefore - 1);
+
+    call(A, `public.fitx_social_set_restrict('${D}', false)`);
+    assert.ok(notes(C).some((n) => n.comment_id === early.id), "lifting the restriction shows the earlier reply again");
+  });
+
+  test("the unread count counts only what the list shows", () => {
+    const me = (who) => call(who, "public.fitx_social_me()");
+    const unreadShown = (who) => notes(who).filter((n) => !n.read && n.type !== "follow_request").length;
+    call(B, "public.fitx_social_mark_read()");
+    const quiet = post(B, "Rest and stretch");
+    call(A, `public.fitx_social_set_like('${quiet.id}', true)`);
+    assert.equal(me(B).unread, 1);
+    assert.equal(unreadShown(B), 1);
+    call(A, `public.fitx_social_set_like('${quiet.id}', false)`);
+    assert.equal(unreadShown(B), 0, "a like that no longer stands is not listed");
+    assert.equal(me(B).unread, 0, "nor counted");
+  });
+
   test("blocking hides both members from each other and ends their follows", () => {
     call(C, `public.fitx_social_follow('${A}')`);
     assert.ok(pg.json(`select count(*) from public.social_follows where (user_id = '${A}' and following_id = '${C}') or (user_id = '${C}' and following_id = '${A}');`) >= 2);
@@ -278,6 +319,26 @@ describe("Explore schema", { skip }, () => {
       select public.fitx_social_create_post('${id}', 'one too many', null, '[]', 'everyone', '[{"path": "${user}/${id}/0.webp", "width": 10, "height": 10}]');`, as(user));
     assert.ok(!r.ok && /social_rate_limited/.test(r.stderr), r.stderr);
     assert.equal(pg.json(`select count(*) from public.social_posts where user_id = '${user}';`), 10);
+  });
+
+  test("uploads are limited to 60 in 24 hours, and deleting files gives none back", () => {
+    const user = "ffffffff-0000-4000-8000-0000000000f6";
+    pg.exec(`insert into auth.users (id, email) values ('${user}', 'f@example.test');`);
+    profile(user, "fay.uploads");
+    const name = (n) => `${user}/profile/churn-${n}.webp`;
+    const churn = [];
+    for (let n = 0; n < 60; n += 1) {
+      churn.push(`insert into storage.objects (bucket_id, name, metadata) values ('social-media', ${q(name(n))}, '{"size": 10}');`);
+      churn.push(`delete from storage.objects where bucket_id = 'social-media' and name = ${q(name(n))};`);
+    }
+    pg.exec(churn.join("\n"), as(user));
+    assert.equal(pg.json(`select count(*) from storage.objects where name like '${user}/%';`), 0, "every churned file is gone");
+    const again = pg.run(`insert into storage.objects (bucket_id, name, metadata) values ('social-media', ${q(name(60))}, '{"size": 10}');`, as(user));
+    assert.ok(!again.ok && /row-level security/i.test(again.stderr), "the 61st upload of the day is refused");
+    assert.equal(pg.json(`select coalesce(sum(hits), 0) from public.social_rate_counters where user_id = '${user}' and action = 'upload:hour';`), 60,
+      "a refused upload is not counted");
+    const elsewhere = pg.run(`select public.fitx_social_upload_allowed('user-media', ${q(name(61))});`, as(user));
+    assert.ok(elsewhere.ok && elsewhere.stdout.trim() === "f", "another bucket's files are not this policy's");
   });
 
   test("deleting a post returns its photo paths and takes its likes, comments and notifications with it", () => {
