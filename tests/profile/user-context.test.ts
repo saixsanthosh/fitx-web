@@ -9,8 +9,11 @@ import {
   ensureProfileRow,
   loadUserContext,
   logWeighIn,
+  markWorkoutSetupAnswered,
   normalizePreferences,
   savePreferences,
+  trainingAnswerPatch,
+  trainingAnswersKnown,
   updateProfileRow,
 } from "@/lib/domain/user-context";
 import { localDateKey } from "@/lib/domain/dates";
@@ -249,5 +252,41 @@ describe("saving", () => {
     assert.equal(values.session_duration_minutes, 45);
     assert.equal(values.primary_goal, "general_fitness");
     assert.equal(values.monthly_food_budget_inr, null);
+  });
+});
+
+describe("Profile > Training before the Workouts setup", () => {
+  const lists = (home: boolean, gym: boolean) => ({ available: true, home: { keys: [], saved: home }, gym: { keys: [], saved: gym } });
+
+  test("the defaults of a member who has not done the setup are not their answers", () => {
+    assert.equal(trainingAnswersKnown({ workoutSetupAt: null, equipmentLists: lists(false, false) }), false);
+    assert.equal(trainingAnswersKnown({ workoutSetupAt: "2026-11-23T08:00:00Z", equipmentLists: lists(false, false) }), true);
+    assert.equal(trainingAnswersKnown({ workoutSetupAt: null, equipmentLists: lists(false, true) }), true);
+    assert.equal(trainingAnswersKnown({ workoutSetupAt: null, equipmentLists: lists(true, false) }), true);
+  });
+
+  test("a save then stores every answer shown, not only the changed ones", () => {
+    assert.deepEqual(trainingAnswerPatch({ location: "gym", experience: "beginner", days: 4 }), { workout_location: "gym", fitness_level: "beginner", workouts_per_week: 4 });
+  });
+
+  test("the save records the setup as answered once its column exists", async () => {
+    const now = new Date("2026-11-23T09:30:00Z");
+    const marked = await markWorkoutSetupAnswered(client(), USER.id, now);
+    assert.deepEqual(marked, { error: null, stored: true });
+    assert.equal(fake.tables.user_preferences[0].workout_setup_at, now.toISOString());
+  });
+
+  test("before migration 20261123100020 nothing is stored and the save still succeeds", async () => {
+    fake.missingColumns.user_preferences = ["workout_setup_at"];
+    const marked = await markWorkoutSetupAnswered(client(), USER.id);
+    assert.deepEqual(marked, { error: null, stored: false });
+    assert.equal("workout_setup_at" in fake.tables.user_preferences[0], false);
+  });
+
+  test("any other failure is reported", async () => {
+    fake.failures["user_preferences:update"] = { code: "42501", message: "permission denied" };
+    const marked = await markWorkoutSetupAnswered(client(), USER.id);
+    assert.equal(marked.stored, false);
+    assert.equal(marked.error?.code, "42501");
   });
 });

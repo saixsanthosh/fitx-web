@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingFunctionError } from "@/lib/supabase/errors";
 import { equipmentFor, loadEquipmentProfiles } from "@/lib/training/data";
+import { isWorkoutSetupDone } from "@/lib/training/setup";
 import { localDateKey } from "./dates";
 import { calculateNutritionTargets, type NutritionTargets } from "./nutrition";
 import {
@@ -423,6 +424,30 @@ export async function savePreferences(
   );
   const skipped = tiers.slice(outcome.kept).flat().filter((column) => column in patch);
   return { error: outcome.result.error as WriteError, skipped };
+}
+
+/**
+ * Whether experience, where the member trains and their days a week are their own answers: the Workouts setup is
+ * done (training/setup isWorkoutSetupDone). Until then user_preferences holds only the column defaults, which
+ * Profile shows as "Not set".
+ */
+export function trainingAnswersKnown(data: Pick<UserContextData, "workoutSetupAt" | "equipmentLists">): boolean {
+  return isWorkoutSetupDone({ setupAt: data.workoutSetupAt, hasEquipmentList: data.equipmentLists.home.saved || data.equipmentLists.gym.saved });
+}
+
+/** The columns a Profile > Training save records as answered when the Workouts setup has not been done yet. */
+export function trainingAnswerPatch(draft: { location: string; experience: string; days: number }): Row {
+  return { workout_location: draft.location, fitness_level: draft.experience, workouts_per_week: draft.days };
+}
+
+/**
+ * Records that the member answered the setup's questions (user_preferences.workout_setup_at). Before migration
+ * 20261123100020 the column is missing and nothing is stored; the setup then counts as done once a list is saved.
+ */
+export async function markWorkoutSetupAnswered(supabase: SupabaseClient, userId: string, now = new Date()): Promise<{ error: WriteError; stored: boolean }> {
+  const result = await supabase.from("user_preferences").update({ workout_setup_at: now.toISOString() }).eq("user_id", userId);
+  if (result.error && isMissingColumnError(result.error, PREFERENCE_COLUMNS_V4)) return { error: null, stored: false };
+  return { error: result.error as WriteError, stored: !result.error };
 }
 
 /** Keeps profiles.weight equal to the latest weigh-in, so every screen calculates from the same weight. */

@@ -64,7 +64,7 @@ import {
   type WorkoutSplit,
   unavailableProfileGoals,
 } from "@/lib/domain/profile-options";
-import { changedFields, logWeighIn, savePreferences, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { changedFields, logWeighIn, markWorkoutSetupAnswered, savePreferences, trainingAnswerPatch, trainingAnswersKnown, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
 import { equipmentLabel } from "@/lib/training/equipment";
@@ -330,6 +330,8 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
   const v2 = data.schema.preferencesV2;
   const v3 = data.schema.onboardingV3;
   const lists = data.equipmentLists;
+  // Until the Workouts setup is done, experience, place and days a week are only the column defaults.
+  const answersKnown = trainingAnswersKnown(data);
   const original: TrainingDraft = {
     location: prefs.workout_location,
     experience: prefs.fitness_level,
@@ -372,7 +374,8 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
       workout_location: draft.location, fitness_level: draft.experience, workouts_per_week: draft.days,
       session_duration_minutes: draft.minutes, workout_split: draft.split,
     };
-    const patch: Record<string, unknown> = changedFields(before, after);
+    // Saving here answers the setup's questions: every answer shown is stored as the member's own.
+    const patch: Record<string, unknown> = { ...changedFields(before, after), ...(answersKnown ? {} : trainingAnswerPatch(draft)) };
     const homeChanged = !sameKeys(draft.homeEquipment, original.homeEquipment);
     const gymChanged = !sameKeys(draft.gymEquipment, original.gymEquipment);
     const unknownChanged = !sameKeys(draft.unknownEquipment, original.unknownEquipment);
@@ -396,6 +399,10 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
     if (Object.keys(patch).length) {
       const saved = await savePreferences(supabase, data.userId, patch, { v2, v3 });
       if (saved.error) return failed(setSaving, setError);
+    }
+    if (!answersKnown) {
+      const marked = await markWorkoutSetupAnswered(supabase, data.userId);
+      if (marked.error) return failed(setSaving, setError);
     }
     const usedByAutoWorkouts = homeChanged || gymChanged || AUTO_WORKOUT_COLUMNS.some((column) => column in patch);
     await onSaved(usedByAutoWorkouts ? { tone: "saved", text: "Saved · new auto workouts use it" } : SAVED);
@@ -423,9 +430,9 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
     <SectionCard id="training" title="Training" icon={<Dumbbell size={18} />} editing={editing} onEdit={start} canEdit notice={notice}>
       {!editing ? (
         <DetailList>
-          <Detail label="Experience">{optionLabel(EXPERIENCE_OPTIONS, prefs.fitness_level)}</Detail>
-          <Detail label="Workout setup">{optionLabel(LOCATION_OPTIONS, prefs.workout_location)}</Detail>
-          <Detail label="Weekly availability">{prefs.workouts_per_week} {prefs.workouts_per_week === 1 ? "day" : "days"} a week</Detail>
+          <Detail label="Experience">{answersKnown ? optionLabel(EXPERIENCE_OPTIONS, prefs.fitness_level) : <NotSet />}</Detail>
+          <Detail label="Workout setup">{answersKnown ? optionLabel(LOCATION_OPTIONS, prefs.workout_location) : <NotSet />}</Detail>
+          <Detail label="Weekly availability">{answersKnown ? <>{prefs.workouts_per_week} {prefs.workouts_per_week === 1 ? "day" : "days"} a week</> : <NotSet />}</Detail>
           <Detail label="Session length">{prefs.session_duration_minutes} min · {optionLabel(SPLIT_OPTIONS, prefs.workout_split)}</Detail>
           <Detail label="Home equipment" wide><ChipList items={equipmentChips(lists.home.keys)} empty="No equipment" /></Detail>
           <Detail label="Gym equipment" wide>
