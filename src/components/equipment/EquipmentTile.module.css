@@ -79,3 +79,5 @@
   .tile, .photo, .check { transition: none; }
   .tile:active, .tile:hover .photo, .check, .on .check { transform: none; }
 }
+
+.thumb { position: relative; display: block; flex-shrink: 0; overflow: hidden; border-radius: 0.875rem; background: var(--fitx-surface-variant); }

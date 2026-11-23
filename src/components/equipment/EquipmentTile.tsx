@@ -39,3 +39,16 @@ export function EquipmentTile({ equipmentKey, label, on, onClick, disabled = fal
     </button>
   );
 }
+
+/** A small square picture of one item: its studio photo, else its icon (lists that only show what someone has). */
+export function EquipmentThumb({ equipmentKey, size = 56, className }: { equipmentKey: string; size?: number; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  const photo = failed ? null : equipmentPhoto(equipmentKey);
+  return (
+    <span className={cn(styles.thumb, className)} style={{ width: size, height: size }} aria-hidden="true">
+      {photo
+        ? <Image src={photo.src} alt="" fill sizes={`${size}px`} placeholder="blur" blurDataURL={photo.blurDataURL} className={styles.photo} onError={() => setFailed(true)} />
+        : <span className={styles.icon}><EquipmentIcon name={equipmentKey} size={Math.round(size * 0.5)} /></span>}
+    </span>
+  );
+}

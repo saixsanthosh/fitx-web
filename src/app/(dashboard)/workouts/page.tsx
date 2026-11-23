@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, CalendarDays, ChevronDown, Copy, Info, Pencil, Plus, RotateCcw, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
-import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
+import { EquipmentThumb } from "@/components/equipment/EquipmentTile";
 import { Reveal } from "@/components/motion";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Section } from "@/components/ui/Section";
@@ -1149,7 +1149,7 @@ export default function WorkoutsPage() {
 
       <Reveal amount={0.12}>
         <Section title="Train by area" id="areas" action={<Link href="/exercises" className={styles.textLink}>Library<ArrowRight size={14} aria-hidden="true" /></Link>}>
-          <FocusTiles value={[]} onChange={() => undefined} onLaunch={(area) => openCreator("focus", "gym", [area])} layout="rail" label="Train by area" />
+          <FocusTiles value={[]} onChange={() => undefined} onLaunch={(area) => openCreator("focus", "gym", [area])} layout="rail" label="Train by area" credit={false} />
         </Section>
       </Reveal>
 
@@ -1209,8 +1209,8 @@ export default function WorkoutsPage() {
         <Section title="Gym equipment" id="equipment">
           <div className={styles.equipmentCard}>
             <ul className={styles.equipmentGrid} aria-label={`${gymEquipment.keys.length} items on your gym list`}>
-              {gymEquipment.keys.length === 0 && <li className={styles.equipmentItem}><EquipmentIcon name="none" size={26} /><span>Body weight</span></li>}
-              {gymEquipment.keys.slice(0, EQUIPMENT_SHOWN).map((key) => <li key={key} className={styles.equipmentItem}><EquipmentIcon name={key} size={26} /><span>{equipmentLabel(key)}</span></li>)}
+              {gymEquipment.keys.length === 0 && <li className={styles.equipmentItem}><EquipmentThumb equipmentKey="none" size={52} /><span>Body weight</span></li>}
+              {gymEquipment.keys.slice(0, EQUIPMENT_SHOWN).map((key) => <li key={key} className={styles.equipmentItem}><EquipmentThumb equipmentKey={key} size={52} /><span>{equipmentLabel(key)}</span></li>)}
               {hiddenEquipment > 0 && <li className={`${styles.equipmentItem} ${styles.equipmentMore}`}><span className={styles.equipmentCount}>+{hiddenEquipment}</span><span>more</span></li>}
             </ul>
             <div className={styles.equipmentFoot}>
@@ -1223,6 +1223,7 @@ export default function WorkoutsPage() {
       </>
       )}
       </ModePanel>
+      <p className={styles.credit}>Exercise photos: Free Exercise DB (public domain).</p>
       </div>
 
       {creatorOpen && <div className="fixed inset-0 z-50 flex items-end justify-center bg-fitx-scrim/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="builder-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreatorOpen(false); }}><div ref={builderRef} className="max-h-[94dvh] w-full max-w-4xl overflow-y-auto rounded-t-[22px] border border-fitx-border bg-fitx-elevated shadow-2xl sm:max-h-[90dvh] sm:rounded-[22px]">
