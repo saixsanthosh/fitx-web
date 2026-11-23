@@ -97,6 +97,14 @@ export const flow = {
       t.expect(born?.dob === "1995-03-14", "the date of birth is stored", born);
       const expectedAge = await standin.one(`select extract(year from age(current_date, date '1995-03-14'))::int n`);
       t.expect(Number(born?.age) === Number(expectedAge?.n), "the age follows the date of birth", { born, expectedAge });
+      // Saved once, the date of birth is shown, not edited: changing it is a FITX support request.
+      await body.getByRole("button", { name: "Edit body" }).click();
+      await body.getByText("You can add it once. To change it, ask FITX support.").waitFor({ timeout: 10000 });
+      t.expect((await body.locator("input[type=date]").count()) === 0, "the saved date of birth is not an editable field");
+      t.expect((await body.getByRole("link", { name: "Ask FITX support" }).getAttribute("href")) === "/help", "the support line links to Help");
+      await t.checkpoint("profile with a saved date of birth");
+      await body.getByRole("button", { name: "Cancel", exact: true }).click();
+      await body.getByRole("button", { name: "Edit body" }).waitFor();
 
       const food = page.locator("section#food");
       await food.getByRole("button", { name: "Edit food" }).click();

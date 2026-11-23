@@ -104,6 +104,17 @@ export const flow = {
       await page.getByRole("heading", { level: 1, name: "Your body" }).waitFor();
     });
 
+    await t.step("back on About you, the saved date of birth is shown, not edited (a change is a support request)", async () => {
+      await page.getByRole("button", { name: "Back" }).click();
+      await page.getByRole("heading", { level: 1, name: "About you" }).waitFor();
+      await seeText(t, "You can add it once. To change it, ask FITX support.");
+      t.expect((await page.locator("form input[type=date]").count()) === 0, "the saved date of birth is not an editable field");
+      t.expect((await page.getByRole("link", { name: "Ask FITX support" }).getAttribute("href")) === "/help?from=%2Fonboarding", "the support line links to Help");
+      await t.checkpoint("setup about you (saved date of birth)");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await page.getByRole("heading", { level: 1, name: "Your body" }).waitFor();
+    });
+
     await t.step("setup 2 of 3: your body, with dials", async () => {
       const height = page.getByRole("textbox", { name: "Height", exact: true });
       await height.fill("162");
