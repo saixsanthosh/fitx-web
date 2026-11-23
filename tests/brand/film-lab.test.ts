@@ -93,6 +93,8 @@ test("the landing reel: film time 1.3 to 10.6 at 30 fps is 279 frames, as shippe
   assert.equal(JOBS["landing-reel"].shapes.portrait.comp, "phone");
   assert.equal(JOBS["landing-reel"].shapes.landscape.comp, "laptop");
   assert.deepEqual(Object.values(JOBS["landing-reel"].stills).map((still) => [still.time, still.width, still.height]), [[2.05, 1600, 900], [2.05, 720, 1280], [9.9, 1600, 900]]);
+  assert.equal(JOBS["landing-reel"].stillQuality, 60);
+  assert.equal(JOBS["login-stills"].quality, 70);
   assert.deepEqual(JOBS["login-stills"].frames, { wide: { width: 1600, height: 800 }, tall: { width: 1000, height: 1100 } });
 });
 

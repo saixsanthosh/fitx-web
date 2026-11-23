@@ -106,8 +106,9 @@ async function compare(args) {
   return { a: args.compare, b: args.against, ...measured, problems: [] };
 }
 
+/** Frame `index` of a 60 fps FFV1 master (every frame is a key frame, so an input seek is exact and fast). */
 async function frameAt(file, index, out) {
-  await capture(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-i", file, "-vf", `select=eq(n\\,${index})`, "-frames:v", "1", "-c:v", "ffv1", out]);
+  await capture(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-ss", (index / 60).toFixed(6), "-i", file, "-frames:v", "1", "-c:v", "ffv1", out]);
 }
 
 async function determinism(args) {
@@ -192,8 +193,10 @@ async function main() {
     const input = JSON.parse(readFileSync(path.resolve(args["gate-a"]), "utf8"));
     result = { ...gateA(input), problems: [] };
   } else throw new Error("choose a mode: --cut, --mix, --compare, --determinism, --contact, --framing or --gate-a");
-  if (args.json && args.json !== true) writeFileSync(path.resolve(args.json), JSON.stringify(result, null, 2));
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  // JSON has no Infinity: an identical frame's PSNR is written as "inf".
+  const json = JSON.stringify(result, (key, value) => (value === Infinity ? "inf" : value), 2);
+  if (args.json && args.json !== true) writeFileSync(path.resolve(args.json), json);
+  process.stdout.write(`${json}\n`);
   if (result.problems?.length) process.exitCode = 1;
 }
 

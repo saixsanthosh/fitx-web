@@ -47,12 +47,16 @@ export const JOBS = Object.freeze({
       team: { shape: "landscape", time: 9.9, width: 1600, height: 900, file: "team-{theme}.webp" },
     },
     ss: 2,
+    // cwebp quality that gives the shipped stills' sizes (24 to 31 KB; measured on this job's own PNGs).
+    stillQuality: 60,
   },
   "login-stills": {
     kind: "stills",
     page: "/signin",
     // The scene's moment (STILL_SECONDS in src/components/auth/scene/scene-math.ts) and the shipped sizes.
     seconds: 5,
+    // cwebp quality that gives the shipped files' sizes (44 to 75 KB; measured on this job's own PNGs).
+    quality: 70,
     frames: {
       wide: { width: 1600, height: 800 },
       tall: { width: 1000, height: 1100 },

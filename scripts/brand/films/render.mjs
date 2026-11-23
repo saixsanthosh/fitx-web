@@ -330,7 +330,7 @@ async function renderReel({ request, page, sink, lane, logEntry, compDir, shape,
     await stillEncoder.end();
     await runFfmpeg(["-hide_banner", "-loglevel", "error", "-y", "-i", raw, "-frames:v", "1", "-vf", "scale=in_color_matrix=bt709:in_range=tv,format=rgb24", png]);
     rmSync(raw, { force: true });
-    await run(CWEBP, ["-quiet", "-q", String(ENCODER.poster.quality), "-m", "6", "-sharp_yuv", png, "-o", path.join(compDir, still.file.replace("{theme}", theme))]);
+    await run(CWEBP, ["-quiet", "-q", String(def.stillQuality), "-m", "6", "-sharp_yuv", png, "-o", path.join(compDir, still.file.replace("{theme}", theme))]);
   }
   lane.touch();
   logEntry({ event: "reel", shape, theme, frames: frames.length, seconds: (Date.now() - started) / 1000 });
@@ -370,7 +370,7 @@ async function renderLoginStills({ request, playwright, port, logEntry, outDir, 
       const png = path.join(outDir, `still-${theme}-${name}.png`);
       writeFileSync(png, Buffer.from(dataUrl.split(",")[1], "base64"));
       const webp = path.join(outDir, `still-${theme}-${name}.webp`);
-      await run(CWEBP, ["-quiet", "-q", "80", "-m", "6", "-sharp_yuv", "-resize", String(frame.width), String(frame.height), png, "-o", webp]);
+      await run(CWEBP, ["-quiet", "-q", String(def.quality), "-m", "6", "-sharp_yuv", "-resize", String(frame.width), String(frame.height), png, "-o", webp]);
       results.push({ name, theme, webp, bytes: statSync(webp).size });
       logEntry({ event: "still", name, theme, bytes: statSync(webp).size });
       await context.close();
