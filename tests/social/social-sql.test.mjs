@@ -60,7 +60,10 @@ describe("Explore schema", { skip }, () => {
   });
 
   test("a profile comes first; usernames are lower case, valid, unreserved and unique", () => {
-    assert.deepEqual(call(A, "public.fitx_social_me()"), { profile: null, unread: 0, requests: 0 });
+    const first = call(A, "public.fitx_social_me()");
+    assert.deepEqual({ profile: first.profile, unread: first.unread, requests: first.requests }, { profile: null, unread: 0, requests: 0 });
+    assert.equal(first.explore, true, "Explore is on when Admin never saved the switch");
+    assert.equal(first.suspension, null);
     const noProfile = fails(A, "public.fitx_social_feed()");
     assert.ok(!noProfile.ok && /social_no_profile/.test(noProfile.stderr));
     for (const bad of ["ab", "-bad", "bad.", "a..b", "has space"]) {
@@ -134,7 +137,7 @@ describe("Explore schema", { skip }, () => {
     const odd = pg.run(`insert into storage.objects (bucket_id, name) values ('social-media', '${A}/notes/0.webp');`, as(A));
     assert.ok(!odd.ok, "no files outside posts and the profile folder");
     assert.equal(JSON.stringify(pg.json(`select jsonb_build_object('public', public, 'limit', file_size_limit, 'types', allowed_mime_types) from storage.buckets b where id = 'social-media';`)),
-      JSON.stringify({ limit: 3145728, types: ["image/webp", "image/jpeg"], public: false }));
+      JSON.stringify({ limit: 3145728, types: ["image/webp", "image/jpeg", "video/mp4"], public: false }), "wave 2 (20261124100000) adds video/mp4");
 
     const bPost = pg.json(`select to_jsonb(storage_path) from public.social_post_media where user_id = '${B}' limit 1;`);
     const visible = (who, name) => pg.json(`select count(*) from storage.objects where bucket_id = 'social-media' and name = ${q(name)};`, as(who));
@@ -357,6 +360,9 @@ describe("Explore schema", { skip }, () => {
   test("the file runs again without errors, and deleting an account removes its Explore rows", () => {
     const again = pg.runFile(FILE);
     assert.ok(again.ok, again.stderr);
+    // Part 2 (20261124100000) builds on this file and restores its own definitions when it runs after it.
+    const part2 = pg.runFile(path.join(MIGRATIONS_DIR, "20261124100000_fitx_social_v2_core.sql"));
+    assert.ok(part2.ok, part2.stderr);
     pg.exec(`delete from auth.users where id = '${A}';`);
     for (const table of ["social_profiles", "social_posts", "social_likes", "social_comments", "social_follows", "social_notifications", "social_reports"]) {
       assert.equal(pg.json(`select count(*) from public.${table} where user_id = '${A}';`), 0, table);
