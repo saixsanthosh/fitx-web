@@ -8,6 +8,7 @@ import { BULK_SUSPEND_MAX, confirmsDeletion, normalisePeopleQuery, parsePeopleFi
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
 import { sealPeopleSearch } from "@/lib/people-search";
+import { removeSocialMediaFiles } from "@/lib/social-media-storage";
 import { isMissingFunction, isMissingTable, isPermissionError } from "@/lib/schema";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
@@ -236,6 +237,14 @@ export async function deleteAccount(formData: FormData) {
       back(id, "delete_failed");
     }
     filesRemoved += removed.data?.length ?? batch.length;
+  }
+  // Explore photos live in their own private bucket (social-media/<id>/…); they go before the login too.
+  const social = await removeSocialMediaFiles(admin, id);
+  filesRemoved += social.removed;
+  if (social.error) {
+    logServerError("people.delete_social_storage", social.error);
+    await logAdminEvent({ actor, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "social_storage", files_removed: filesRemoved } });
+    back(id, "delete_failed");
   }
 
   const { error } = await admin.auth.admin.deleteUser(id);

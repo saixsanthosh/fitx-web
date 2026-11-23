@@ -52,6 +52,18 @@ export function createClient() {
   return {
     from: (table) => query(table),
     rpc: (name, args) => { const call = { rpc: name, args }; fake.calls.push(call); return Promise.resolve().then(() => fake.handler(call)); },
+    // Storage and Auth calls are recorded the same way: { storage: bucket, op, args } and { auth: method, args }.
+    storage: {
+      from: (bucket) => {
+        const record = (op) => (...args) => { const call = { storage: bucket, op, args }; fake.calls.push(call); return Promise.resolve().then(() => fake.handler(call)); };
+        return { list: record("list"), remove: record("remove") };
+      },
+    },
+    auth: {
+      admin: new Proxy({}, {
+        get: (_target, method) => (...args) => { const call = { auth: method, args }; fake.calls.push(call); return Promise.resolve().then(() => fake.handler(call)); },
+      }),
+    },
   };
 }
 `;
