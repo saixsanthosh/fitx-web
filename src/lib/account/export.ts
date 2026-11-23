@@ -74,6 +74,18 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   { table: "workouts", label: "Workouts (earlier version of FITX)", owner: "user_id", order: "id" },
   { table: "tasks", label: "Tasks (earlier version of FITX)", owner: "user_id", order: "id" },
   { table: "habits", label: "Habits (earlier version of FITX)", owner: "user_id", order: "id" },
+  { table: "social_profiles", label: "Explore profile", owner: "user_id", order: "user_id" },
+  { table: "social_follows", label: "Explore accounts you follow or asked to follow", owner: "user_id", order: "following_id" },
+  { table: "social_posts", label: "Explore posts", owner: "user_id", order: "id" },
+  { table: "social_post_media", label: "Photos in your Explore posts", owner: "user_id", order: "id" },
+  { table: "social_likes", label: "Explore posts you liked", owner: "user_id", order: "post_id" },
+  { table: "social_saves", label: "Explore posts you saved", owner: "user_id", order: "post_id" },
+  { table: "social_comments", label: "Explore comments", owner: "user_id", order: "id" },
+  { table: "social_blocks", label: "Explore accounts you blocked", owner: "user_id", order: "blocked_id" },
+  { table: "social_restricts", label: "Explore accounts you restricted", owner: "user_id", order: "restricted_id" },
+  { table: "social_reports", label: "Explore reports you made", owner: "user_id", order: "id" },
+  { table: "social_notifications", label: "Explore notifications", owner: "user_id", order: "id" },
+  { table: "social_notification_prefs", label: "Explore notification settings", owner: "user_id", order: "user_id" },
 ];
 
 export const MEDIA_BUCKET = "fitx-user-media";

@@ -14,6 +14,7 @@ const LEFT_OUT: Record<string, string> = {
   fitx_rate_limits: "food search counters, removed after 2 days by the member's next search; members cannot read the table",
   fitx_admin_members: "FITX Admin staff roles, not member data",
   fitx_member_write_budget: "hourly counts of the rows and bytes a member wrote, for the write limit; hours over two days old are deleted, for every member, at any member's first write of an hour; members cannot read the table",
+  social_rate_counters: "hourly and daily counts of a member's Explore actions, for the anti-spam limits; rows over two days old are deleted by the member's next action",
 };
 
 const DIR = path.resolve(process.cwd(), "supabase/migrations");
