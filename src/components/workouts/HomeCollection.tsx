@@ -7,13 +7,11 @@
  * movement's second photo, so the card previews the movement (opacity only).
  */
 import Image from "next/image";
-import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowRight, ScanLine, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
+import { FormCheckEntry } from "@/components/form-check/FormCheckEntry";
 import { MuscleRail } from "@/components/training/MuscleRail";
-import { HOME_WORKOUT } from "@/config/routes";
-import { cameraRuleFor } from "@/lib/form-rules/catalog";
 import { SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { equipmentLabel } from "@/lib/training/equipment";
@@ -28,34 +26,6 @@ import styles from "./HomeCollection.module.css";
 
 const PAGE = 12;
 const HOME_AREAS: readonly FocusArea[] = ["full_body", "chest", "back", "shoulders", "arms", "abs", "legs", "glutes"];
-
-/**
- * The AI Form Check entry (brief 3.5). Until formcheck's FormCheckEntry is merged this links to Home workout,
- * which then redirects to /workouts/form-check; the accessible name stays "AI Form Check".
- */
-export function FormCheckLink({ exercise, variant = "card" }: { exercise?: { id: string; name: string }; variant?: "card" | "inline" }) {
-  // Like FormCheckEntry: nothing for an exercise the camera cannot analyse.
-  const rule = exercise ? cameraRuleFor(exercise) : null;
-  if (exercise && !rule) return null;
-  const href = rule ? `${HOME_WORKOUT}?exercise=${encodeURIComponent(rule.id)}` : HOME_WORKOUT;
-  if (variant === "inline") {
-    return (
-      <Link href={href} aria-label="AI Form Check" className={styles.formChip}>
-        <ScanLine size={15} aria-hidden="true" />AI Form Check<ArrowRight size={14} aria-hidden="true" />
-      </Link>
-    );
-  }
-  return (
-    <Link href={href} aria-label="AI Form Check" className={styles.formCard}>
-      <span className={styles.formIcon} aria-hidden="true"><ScanLine size={20} /></span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-fitx-text">AI Form Check</span>
-        <span className="block truncate text-xs text-fitx-text-secondary">Your camera checks your posture. Nothing is uploaded.</span>
-      </span>
-      <ArrowRight size={16} aria-hidden="true" className="shrink-0 text-fitx-text-secondary" />
-    </Link>
-  );
-}
 
 function musclesLine(exercise: CatalogExercise): string {
   const words = [exercise.primary_muscle, ...exercise.secondary_muscles].map(muscleWords).filter(Boolean);
@@ -117,7 +87,7 @@ export function HomeCollection({ catalog, owned, level, model, onPlan, equipment
         <button type="button" onClick={() => onPlan(area)} className={cn("fitx-button min-h-11", styles.plan)}>
           <Sparkles size={16} aria-hidden="true" />{area ? `Plan a ${FOCUS_AREA_INFO[area].label.toLowerCase()} workout` : "Plan a home workout"}
         </button>
-        <FormCheckLink />
+        <FormCheckEntry variant="card" />
       </div>
 
       <section aria-labelledby="home-areas-title" className="grid grid-cols-1 gap-3">
@@ -150,7 +120,7 @@ export function HomeCollection({ catalog, owned, level, model, onPlan, equipment
 
       {open && (
         <ExerciseInfoSheet exerciseId={open.id} name={open.name} owned={owned} listName="home" model={model}
-          extra={<FormCheckLink exercise={open} variant="inline" />} onClose={() => setOpen(null)} />
+          extra={<FormCheckEntry variant="inline" exerciseId={open.id} exerciseName={open.name} />} onClose={() => setOpen(null)} />
       )}
     </div>
   );

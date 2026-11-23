@@ -12,6 +12,8 @@ export interface FormCheckEntryProps {
   variant: "card" | "inline";
   /** A camera rule id or an exercise_library id. The entry renders nothing when the camera can't analyse it. */
   exerciseId?: string;
+  /** The exercise's name, matched as cameraRuleFor({ id, name }) matches it when the id alone is not known. */
+  exerciseName?: string;
   className?: string;
 }
 
@@ -19,9 +21,9 @@ export interface FormCheckEntryProps {
  * The way into AI Form Check from other pages. Always named "AI Form Check" for assistive technology;
  * it links to /workouts/form-check, opened on the exercise when one is given.
  */
-export function FormCheckEntry({ variant, exerciseId, className }: FormCheckEntryProps) {
+export function FormCheckEntry({ variant, exerciseId, exerciseName, className }: FormCheckEntryProps) {
   const lineId = useId();
-  const href = formCheckHref(exerciseId);
+  const href = formCheckHref(exerciseId, exerciseName);
   if (!href) return null;
 
   if (variant === "inline") {

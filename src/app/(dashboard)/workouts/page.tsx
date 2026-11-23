@@ -18,6 +18,7 @@ import { EquipmentPicker } from "@/components/workouts/EquipmentPicker";
 import { ExerciseInfoSheet } from "@/components/workouts/ExerciseInfoSheet";
 import { LibraryPicker } from "@/components/workouts/LibraryPicker";
 import { PlanPreviewSheet } from "@/components/workouts/PlanPreviewSheet";
+import { ScheduledWorkouts } from "@/components/workouts/ScheduledWorkouts";
 import { ProgrammeBrowser } from "@/components/workouts/ProgrammeBrowser";
 import { ProgrammeCard } from "@/components/workouts/ProgrammeCard";
 import { Sheet } from "@/components/workouts/Sheet";
@@ -49,6 +50,7 @@ import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout
 import { MAX_PLAN_EXERCISES, moveRow, plannedFrom, removeRow, selectedIds, swapRow, toggleRow, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { pickToday } from "./_lib/today-pick";
+import { fetchUpcomingScheduled, type ScheduledItem } from "./_lib/scheduled";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
 
@@ -279,6 +281,20 @@ export default function WorkoutsPage() {
   // the session, so finishing ticks it off. Read when the page opens, before the address is reset to /workouts.
   const startLink = useRef<StartLink | null>(null);
   useEffect(() => { startLink.current = startLinkFrom(window.location.search); }, []);
+  // Upcoming scheduled workouts (planner items); read again whenever the plans change (a save, a delete, a reload).
+  const [scheduled, setScheduled] = useState<ScheduledItem[]>([]);
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase || !userId || !listDayKey) return;
+    let live = true;
+    void fetchUpcomingScheduled(supabase, userId, listDayKey).then((items) => { if (live) setScheduled(items); });
+    return () => { live = false; };
+  }, [userId, listDayKey, plans]);
+  /** Start on a scheduled workout: open its plan, and keep the planner item on the session it starts. */
+  function startScheduled(planId: string, plannerEventId: string) {
+    startLink.current = { planId, plannerEventId };
+    setPreviewPlanId(planId);
+  }
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -1099,6 +1115,7 @@ export default function WorkoutsPage() {
               <button type="button" aria-haspopup="dialog" className={`fitx-button ${styles.planStart}`} onClick={() => setPreviewPlanId(todayCard.id)}>Start<ArrowRight size={15} aria-hidden="true" /></button>
             </div>
           )}
+          <ScheduledWorkouts items={scheduled} dayLabel={(day) => whenLabel(day, listDayKey || localDateKey())} onStart={startScheduled} headingLevel={2} starting={Boolean(starting)} />
           <HomeCollection catalog={catalog} owned={homeOwned} level={level} model={demoModel}
             onPlan={(area) => openCreator(area ? "focus" : "auto", "home", area ? [area] : [])}
             equipmentSummary={homeEquipment.keys.length ? homeEquipment.keys.map(equipmentLabel).join(", ") : "No equipment"}
@@ -1175,6 +1192,7 @@ export default function WorkoutsPage() {
       <div className={styles.bottomGrid}>
         {/* No "Week" link: the To-Do week view is gone and its address now opens this page (brief 3.7). */}
         <Section title="Your plans" id="plans">
+          <ScheduledWorkouts items={scheduled} dayLabel={(day) => whenLabel(day, listDayKey || localDateKey())} onStart={startScheduled} starting={Boolean(starting)} />
           {plans.length ? (
             <div className={styles.planList}>
               {plans.map((plan) => (

@@ -1,12 +1,14 @@
 import { LANDING_MEDIA, type SiteImage } from "@/data/landing-media";
 import { LANDING2_MEDIA } from "@/data/landing-2-media";
+import { EXPLORE_MEDIA } from "@/data/explore-media";
+import { EXPLORE, FORM_CHECK } from "@/config/routes";
 
 /**
  * What FITX does, one card each on the landing page's capability deck. Every line describes a feature that ships
  * (tests/landing/page.test.ts holds the claims to the code); the moving overlays are labelled examples.
  */
 export type Capability = {
-  id: "train" | "form" | "fuel" | "move" | "coach" | "progress";
+  id: "train" | "form" | "fuel" | "move" | "coach" | "progress" | "explore";
   tab: string;
   title: string;
   line: string;
@@ -36,7 +38,7 @@ export const CAPABILITIES: readonly Capability[] = [
     image: LANDING_MEDIA["woman-stand"],
     // Centred: the drawn skeleton is laid over the photo with the same centred crop.
     focus: "50% 50%",
-    href: "/home-workout",
+    href: FORM_CHECK,
     cta: "Try AI Form Check",
   },
   {
@@ -78,6 +80,16 @@ export const CAPABILITIES: readonly Capability[] = [
     focus: "35% 50%",
     href: "/progress",
     cta: "Open Progress",
+  },
+  {
+    id: "explore",
+    tab: "Explore",
+    title: "Share the work, if you want to.",
+    line: "Photo posts, follows and comments. A private account approves each follower.",
+    image: EXPLORE_MEDIA.bodybuilding,
+    focus: "50% 45%",
+    href: EXPLORE,
+    cta: "Open Explore",
   },
 ];
 

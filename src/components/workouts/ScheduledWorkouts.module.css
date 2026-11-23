@@ -1,0 +1,67 @@
+/* Scheduled workouts on Workouts: one compact card of rows. Theme tokens only (check:colors). */
+.wrap { display: grid; gap: 8px; min-width: 0; }
+
+.heading {
+  margin: 0;
+  color: var(--fitx-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--fitx-border);
+  border-radius: 16px;
+  background: var(--fitx-card-bg);
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  min-width: 0;
+  min-height: 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 16px;
+}
+
+.row + .row { border-top: 1px solid var(--fitx-divider); }
+
+.when { display: grid; flex: 0 0 auto; width: 84px; gap: 2px; }
+
+.day {
+  overflow: hidden;
+  color: var(--fitx-primary-text);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fitx-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--fitx-text);
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.start { min-height: 44px; flex: 0 0 auto; padding-inline: 16px; }
+.start[aria-disabled="true"] { opacity: 0.6; pointer-events: none; }

@@ -99,7 +99,7 @@ export const flow = {
       await page.getByRole("heading", { name: "Home exercises" }).waitFor({ timeout: 15000 });
       t.expect((await page.getByRole("heading", { name: "Gym equipment" }).count()) === 0, "the Gym content is gone on Home");
       const formCheck = page.getByRole("link", { name: "AI Form Check" }).first();
-      t.expect(/^\/home-workout/.test((await formCheck.getAttribute("href")) ?? ""), "AI Form Check links to the form check page");
+      t.expect(/^\/workouts\/form-check/.test((await formCheck.getAttribute("href")) ?? ""), "AI Form Check links to the form check page");
       const areas = page.getByRole("group", { name: "Home body areas" });
       t.expect((await areas.getByRole("button").count()) >= 7, "every body area is offered");
       await areas.getByRole("button", { name: /^Chest/ }).click();
@@ -182,6 +182,37 @@ export const flow = {
       await sheet.waitFor({ state: "detached", timeout: 15000 });
       const prefs = await standin.one(`select workout_location from public.user_preferences where user_id = '${account.id}'`);
       t.expect(prefs?.workout_location === "gym", "the new answer is saved", prefs);
+    });
+
+    await t.step("scheduled workouts: soonest first with day and time; Start on today's opens its plan", async () => {
+      // Planner items as the old To-Do week sheet saved them (that view is gone, so Workouts lists them now).
+      const days = await page.evaluate(() => {
+        const key = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+        const today = new Date();
+        today.setHours(23, 15, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(7, 0, 0, 0);
+        return { today: key(today), todayAt: today.toISOString(), tomorrow: key(tomorrow), tomorrowAt: tomorrow.toISOString() };
+      });
+      const plan = await standin.one(`insert into public.workout_plans (user_id, title, split, status) values ('${account.id}', 'Late pull session', 'custom', 'draft') returning id`);
+      await standin.sql(`insert into public.planner_events (user_id, event_type, title, starts_at, local_date, status, workout_plan_id) values
+        ('${account.id}', 'workout', 'Morning legs', '${days.tomorrowAt}', '${days.tomorrow}', 'scheduled', null),
+        ('${account.id}', 'workout', 'Late pull session', '${days.todayAt}', '${days.today}', 'scheduled', '${plan.id}'),
+        ('${account.id}', 'workout', 'Cancelled run', '${days.todayAt}', '${days.today}', 'cancelled', null)`);
+      await t.goto("/workouts", { label: "workouts scheduled" });
+      const list = page.locator("section[aria-labelledby=scheduled-workouts-title]");
+      await list.waitFor({ timeout: 20000 });
+      const rows = (await list.getByRole("listitem").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
+      t.note("scheduled rows", rows);
+      t.expect(rows.length === 2 && /^Today/.test(rows[0]) && rows[0].includes("Late pull session") && /^Tomorrow/.test(rows[1]) && rows[1].includes("Morning legs"),
+        "today's workout first, then tomorrow's; the cancelled one is not listed", rows);
+      t.expect((await list.getByRole("link", { name: /^Start / }).count()) === 1, "only today's workout with a plan can start");
+      await t.checkpoint("scheduled workouts", { fullPage: false });
+      await list.getByRole("link", { name: "Start Late pull session" }).click();
+      await page.getByRole("dialog", { name: "Late pull session" }).waitFor({ timeout: 15000 });
+      t.expect(new URL(page.url()).pathname === "/workouts", "Start opens the plan on this page");
+      await page.keyboard.press("Escape");
     });
   },
 };

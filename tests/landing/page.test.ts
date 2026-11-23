@@ -75,11 +75,11 @@ test("the chapters cover the reel end to end, in the film's order, and the rail 
   assert.deepEqual(CHAPTERS.slice(1).map((chapter) => Math.round((chapter.start + 1.3) * 100) / 100), [3.5, 5.1, 7.55, 9.2]);
 });
 
-test("the deck: six cards, wrapping both ways, unhurried", () => {
-  assert.equal(CAPABILITIES.length, 6);
-  assert.equal(new Set(CAPABILITIES.map((item) => item.id)).size, 6);
-  assert.equal(nextCard(5), 0);
-  assert.equal(previousCard(0), 5);
+test("the deck: seven cards, wrapping both ways, unhurried", () => {
+  assert.equal(CAPABILITIES.length, 7);
+  assert.equal(new Set(CAPABILITIES.map((item) => item.id)).size, 7);
+  assert.equal(nextCard(6), 0);
+  assert.equal(previousCard(0), 6);
   assert.equal(nextCard(2), 3);
   assert.ok(DECK_SECONDS >= 6, "time to read a card");
   for (const item of CAPABILITIES) assert.ok(item.title.length <= 40 && item.line.length <= 90, `${item.id} stays short`);
@@ -121,6 +121,13 @@ test("each card claims only what the code does", () => {
   assert.match(read("src/lib/activity/recorder.ts"), /watchPosition/, "live GPS");
   const sports = read("src/lib/activity/types.ts").match(/export type Sport = ([^;]+);/)?.[1] ?? "";
   for (const sport of ["walk", "run", "ride"]) assert.match(sports, new RegExp(`"${sport}"`), sport);
+  assert.equal(CAPABILITIES.find((item) => item.id === "form")?.href, "/workouts/form-check", "Form Check opens AI Form Check itself");
+  assert.match(line("explore"), /Photo posts, follows and comments/);
+  const social = read("supabase/migrations/20261123100060_fitx_social_v1.sql");
+  for (const table of ["social_posts", "social_post_media", "social_follows", "social_comments"]) assert.match(social, new RegExp(`create table if not exists public\\.${table}\\b`), table);
+  assert.match(line("explore"), /private account approves each follower/);
+  assert.match(social, /is_private/, "private accounts");
+  assert.match(social, /'pending'/, "follow requests wait for approval");
   for (const item of CAPABILITIES) {
     const route = item.href.split("?")[0];
     assert.ok(existsSync(new URL(`src/app/(dashboard)${route}/page.tsx`, ROOT)), `${item.id} links to a real page (${route})`);

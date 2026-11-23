@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Bookmark, BookmarkCheck, ScanLine } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bookmark, BookmarkCheck } from "lucide-react";
 import { BodyMap } from "@/components/anatomy/BodyMap";
 import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
-import { HOME_WORKOUT } from "@/config/routes";
+import { FormCheckEntry } from "@/components/form-check/FormCheckEntry";
 import { exerciseRegions } from "@/lib/training/anatomy";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { equipmentLabel } from "@/lib/training/equipment";
@@ -67,12 +67,8 @@ export function ExerciseHeader({ exercise, summary, cameraRuleId, saved, onToggl
           </ul>
           <div className="flex flex-wrap gap-2 pt-1">
             <Link href={addToWorkoutHref(exercise.id)} className="fitx-button">Add to a workout<ArrowRight size={15} aria-hidden="true" /></Link>
-            {cameraRuleId && (
-              // The AI Form Check entry (brief 3.5); the integrator swaps in formcheck's FormCheckEntry after the merge.
-              <Link href={`${HOME_WORKOUT}?exercise=${encodeURIComponent(cameraRuleId)}`} aria-label="AI Form Check" className="fitx-button fitx-button-secondary">
-                <ScanLine size={15} aria-hidden="true" />AI Form Check
-              </Link>
-            )}
+            {/* The AI Form Check entry (brief 3.5), opened on this exercise's camera rule. */}
+            {cameraRuleId && <FormCheckEntry variant="inline" exerciseId={cameraRuleId} />}
             {saved !== null && (
               // The wrapper hides it on phones (the round button by the title saves there): .fitx-button's own
               // display would beat a `hidden` class on the button itself.

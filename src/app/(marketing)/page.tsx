@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 const IDLI = pieceFoodFrom(staples.foods, "2708346", { pieceLabel: "idli", source: "USDA FoodData Central" });
 
 /**
- * The public home page, four screens: FITX's own film with its chapters, the six tools as a deck, the idea, and a
+ * The public home page, four screens: FITX's own film with its chapters, the seven tools as a deck, the idea, and a
  * way to say hello.
  */
 export default async function HomePage() {

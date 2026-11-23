@@ -15,6 +15,13 @@ test("an entry link opens the exercise it was given, by camera rule id or exerci
   assert.equal(formCheckHref("free-exercise-db-Dumbbell_Bicep_Curl"), "/workouts/form-check?exercise=biceps_curl");
 });
 
+test("an entry link also matches by name, as cameraRuleFor({ id, name }) does", () => {
+  assert.equal(formCheckHref("some-library-id", "Air Squats"), "/workouts/form-check?exercise=bodyweight_squat");
+  assert.equal(formCheckHref(undefined, "Push-Ups"), "/workouts/form-check?exercise=push_up");
+  assert.equal(formCheckHref("push_up", "Air Squats"), "/workouts/form-check?exercise=push_up", "a known id wins over the name");
+  assert.equal(formCheckHref("some-library-id", "Barbell Bench Press"), null);
+});
+
 test("an exercise the camera can't analyse gets no link at all", () => {
   assert.equal(formCheckHref("free-exercise-db-Barbell_Bench_Press_-_Medium_Grip"), null);
   assert.equal(formCheckHref("not-an-exercise"), null);

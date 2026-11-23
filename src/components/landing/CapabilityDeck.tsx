@@ -25,7 +25,7 @@ function useStep<T extends string | number>(value: MotionValue<number>, read: (p
 }
 
 /**
- * What FITX does, as a deck of six cards: a photo animated in code (a slow push and a passing light) with a small
+ * What FITX does, as a deck of seven cards: a photo animated in code (a slow push and a passing light) with a small
  * live example drawn over it. It moves on by itself every few seconds while on screen, until someone picks a card
  * (tabs, arrow keys or a swipe); then it stays where they put it. Reduced motion: no auto-advance, no movement,
  * each example shows its final frame.
@@ -112,7 +112,7 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
           <div className={styles.deckHead}>
             <p className={styles.eyebrow}>What FITX does</p>
             <h2 id="deck-title" className={styles.sectionTitle}>
-              Six tools. One routine.
+              Seven tools. One routine.
             </h2>
           </div>
           <div className={styles.deckTabs} role="tablist" aria-label="FITX features" onKeyDown={onKey}>
@@ -209,6 +209,9 @@ function Overlay({ item, progress, food }: { item: Capability; progress: MotionV
       return <Chat progress={progress} />;
     case "progress":
       return <Rings progress={progress} />;
+    case "explore":
+      // No example overlay: a made-up post or member would be invented engagement.
+      return null;
   }
 }
 

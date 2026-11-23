@@ -40,11 +40,17 @@ describe("Home and Gym tabs", () => {
     assert.match(library, /writeStoredMode\(next\)/);
     assert.match(workouts, /writeStoredMode\(next\)/);
   });
-  test("Home mode has the AI Form Check entry, named for the integrator's swap", () => {
+  test("Home mode and exercise pages use formcheck's AI Form Check entry", () => {
     const home = read("src/components/workouts/HomeCollection.tsx");
-    assert.match(home, /aria-label="AI Form Check"/);
-    assert.match(home, /if \(exercise && !rule\) return null;/, "nothing for an exercise the camera cannot analyse");
-    assert.match(read("src/components/exercises/detail/ExerciseHeader.tsx"), /aria-label="AI Form Check"/);
+    assert.match(home, /<FormCheckEntry variant="card" \/>/, "one card on the Home mode");
+    assert.match(home, /<FormCheckEntry variant="inline" exerciseId=\{open\.id\} exerciseName=\{open\.name\} \/>/, "a chip beside an exercise, matched as cameraRuleFor({ id, name })");
+    assert.doesNotMatch(home, /HOME_WORKOUT|FormCheckLink/, "the interim link is gone");
+    const header = read("src/components/exercises/detail/ExerciseHeader.tsx");
+    assert.match(header, /\{cameraRuleId && <FormCheckEntry variant="inline" exerciseId=\{cameraRuleId\} \/>\}/);
+    assert.doesNotMatch(header, /HOME_WORKOUT/);
+    const entry = read("src/components/form-check/FormCheckEntry.tsx");
+    assert.match(entry, /aria-label="AI Form Check"/);
+    assert.match(entry, /if \(!href\) return null;/, "nothing for an exercise the camera cannot analyse");
   });
   test("Your plans has no Week link to the removed week view", () => {
     assert.doesNotMatch(read("src/app/(dashboard)/workouts/page.tsx"), /homePanel\("week"\)/);

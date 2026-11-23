@@ -56,7 +56,7 @@ export const flow = {
       await page.locator("#capabilities").scrollIntoViewIfNeeded();
       await page.locator("#capabilities").evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
       const before = await deckState(page);
-      t.expect(before.tabs === 6 && before.visiblePanels === 1, "six cards, one showing", before);
+      t.expect(before.tabs === 7 && before.visiblePanels === 1, "seven cards, one showing", before);
       await page.waitForFunction((first) => {
         const selected = document.querySelector('#capabilities [role="tab"][aria-selected="true"]')?.textContent?.replace(/^\d+/, "").trim();
         return selected && selected !== first;
