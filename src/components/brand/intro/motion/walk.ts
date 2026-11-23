@@ -78,7 +78,14 @@ class WalkModel implements GaitModel {
   private readonly hipMid = new THREE.Vector3();
   private readonly hipOffset: Record<Side, THREE.Vector3>;
 
-  constructor(rig: Rig, readonly speed: number, readonly style: StyleSpec, readonly phase: number) {
+  readonly speed: number;
+  readonly style: StyleSpec;
+  readonly phase: number;
+
+  constructor(rig: Rig, speed: number, style: StyleSpec, phase: number) {
+    this.speed = speed;
+    this.style = style;
+    this.phase = phase;
     const m = rigMetrics(rig);
     this.metrics = m;
     const k = m.height / 1.75;

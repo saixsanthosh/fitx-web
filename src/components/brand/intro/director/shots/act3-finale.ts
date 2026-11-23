@@ -24,7 +24,7 @@ import { cameraStateQuaternion, createCameraState, evaluateCameraTrack, type Cam
 import type { FilmContext, Shot, ShotFrame, ShotView } from "../shot-types";
 import { carryHelmet } from "../stage-kit";
 import { timeRamp } from "../shot-utils";
-import { focusOn, gradeFor, lightingFor, liveLayers, poseWithHair, stage, window01 } from "./common";
+import { bodyBox, focusOn, gradeFor, headBox, lightingFor, liveLayers, pointBox, poseWithHair, stage, window01 } from "./common";
 
 const camera = createCameraState();
 const scratchCamera = createCameraState();
@@ -74,6 +74,15 @@ function dine(ctx: FilmContext, key: string, start: number, action: number) {
   diners.forEach((instance, index) => liveLayers(instance, action, { seed: DINERS[index].seed, gaze: eyes[1 - index] }));
 }
 
+/** TABLE_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const TABLE_COMPS: CameraTrack["compositions"] = {
+  phone: { focalScale: 0.802 },
+  "tablet-p": { focalScale: 0.794 },
+  "tablet-l": { focalScale: 0.925, offset: [0, -0.075, 0] },
+  laptop: { focalScale: 0.943, offset: [-0.012, 0, 0] },
+  desktop: { focalScale: 0.976 },
+};
+
 /**
  * Straight down from just under the pendants (hung high enough for a ~1.2 m drop), on a 31 mm
  * lens: close to orthographic, so the tall glasses read upright. Both place settings sit on the
@@ -95,6 +104,7 @@ const TABLE_TRACK: CameraTrack = {
       { t: 0.75, position: [-0.1, 1.91, 0.07], target: [-0.1, 0.75, 0.07], focal: 30, roll: 2.24 },
     ],
   },
+  compositions: TABLE_COMPS,
 };
 
 /** Warm dust-coloured lift on the cut from the 3d dust cloud; it clears in ~4 frames. */
@@ -132,6 +142,23 @@ const shotTable: Shot = {
       flash: { color: flash.color, amount: flash.amount * open * open },
     };
   },
+  // Both meals (bowl and glass) on the table.
+  subjects() {
+    return TABLE.places.flatMap((place, index) => [
+      // A world box round a disc seen from above overstates it by the roll; 0.75 of the rim radius bounds the bowl at this shot's roll.
+      pointBox(`bowl-${index}`, point.fromArray(place.bowl).setY(TABLE.height + TABLE.bowlHeight / 2), [TABLE.bowlRadius * 0.75, TABLE.bowlHeight / 2, TABLE.bowlRadius * 0.75], true),
+      pointBox(`glass-${index}`, point.fromArray(place.glass).setY(TABLE.height + 0.09), [0.05, 0.09, 0.05], false),
+    ]);
+  },
+};
+
+/** TOAST_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const TOAST_COMPS: CameraTrack["compositions"] = {
+  phone: { focalScale: 0.83, offset: [-0.075, 0, 0] },
+  "tablet-p": {},
+  "tablet-l": { offset: [-0.075, 0, 0] },
+  laptop: {},
+  desktop: {},
 };
 
 /**
@@ -153,6 +180,7 @@ const TOAST_TRACK: CameraTrack = {
       { t: 0.9, position: [-0.5, 1.8, 3.2], target: [0.16, 0.45, 0.0], focal: 25 },
     ],
   },
+  compositions: TOAST_COMPS,
 };
 
 const shotToast: Shot = {
@@ -175,6 +203,10 @@ const shotToast: Shot = {
       grade: gradeFor(ctx.theme, "kitchenMorning", "kitchenEvening"),
       focus: { distance: focusOn(camera, look), aperture: 2 },
     };
+  },
+  // Both faces through the clink and the laugh.
+  subjects(ctx) {
+    return [headBox(ctx.cast.maya!, "maya-face", true), headBox(ctx.cast.dre!, "dre-face", true)];
   },
 };
 
@@ -379,6 +411,15 @@ function teamKeys(m: TeamMove): CameraKey[] {
 
 const DOOR_LIGHT: Vec3Tuple = [0, STUDIO_DOOR.height * 0.52, STUDIO_DOOR.wallZ];
 
+/** TEAM_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const TEAM_COMPS: CameraTrack["compositions"] = {
+  phone: {},
+  "tablet-p": {},
+  "tablet-l": {},
+  laptop: { focalScale: 0.911 },
+  desktop: { focalScale: 0.881 },
+};
+
 const TEAM_TRACK: CameraTrack = {
   keys: teamKeys({
     walk: [[0.42, 0.56, 5.4], [0.1, 0.66, 4.95]],
@@ -411,6 +452,7 @@ const TEAM_TRACK: CameraTrack = {
       driftFocal: 80,
     }),
   },
+  compositions: TEAM_COMPS,
 };
 const TEAM_START = 9.2;
 
@@ -463,6 +505,14 @@ const shotWalk: Shot = {
       focus: { distance: focusOn(camera, eyeOf.maya), aperture: 2.8 },
     };
   },
+  // Every face on every composition; on the wide ones the whole squad, head to toes.
+  subjects(ctx) {
+    const wide = ctx.composition === "laptop" || ctx.composition === "desktop";
+    return SQUAD.flatMap((member) => {
+      const instance = ctx.cast[member.id]!;
+      return [headBox(instance, `${member.id}-face`, true), bodyBox(instance, member.id, wide)];
+    });
+  },
 };
 
 // ---------------------------------------------------------------------------------- rise + brand
@@ -514,9 +564,23 @@ const shotRise: Shot = {
       flash: { color: spec.flashColor, amount: spec.flash * flash * flash },
     };
   },
+  // The heads leave through the bottom of the frame as the lens rises (by design): nothing must stay.
+  subjects(ctx) {
+    return SQUAD.map((member) => headBox(ctx.cast[member.id]!, `${member.id}-face`, false));
+  },
 };
 
 const brandGrade: Partial<Record<Theme, GradeParams>> = {};
+
+/**
+ * The tail (BRIEF-2 3.2a shot 14, local seconds from 10.6). By `settle` the swell has cleared under a
+ * `veil` of the page colour; the doorway's last glow and its drifting dust then fall away under that
+ * veil (a soft light fall-off behind the forming mark) until the frame is exactly the page colour at
+ * `clear` (11.8), held to the end (12.6). The DOM `LogoReveal variant="film-end"` forms over it.
+ */
+export const BRAND_TAIL = { settle: 0.29, veil: 0.9, clear: 1.2 } as const;
+/** The doorway light (a share of its swell level) still glowing as the tail's fall-off begins. */
+const TAIL_GLOW: Record<Theme, number> = { light: 0.7, dark: 0.32 };
 
 const shotBrand: Shot = {
   id: "6-brand",
@@ -527,9 +591,10 @@ const shotBrand: Shot = {
     const local = frame.local;
     const theme = ctx.theme;
     const spec = SWELL[theme];
-    // Both themes land exactly on the page colour at ~10.9 (the DOM backdrop lands at 10.94).
-    const settle = window01(0.0, 0.29, local);
-    const done = settle >= 1;
+    // The swell clears to the veil by ~10.9 (the DOM reveal's bar is already drawing), then the fall-off.
+    const settle = window01(0.0, BRAND_TAIL.settle, local);
+    const fall = window01(BRAND_TAIL.settle, BRAND_TAIL.clear, local);
+    const done = local >= BRAND_TAIL.clear;
     ctx.sets.studio.group.visible = !done;
     teamCamera(frame);
     const swellGrade = gradeFor(theme, "studioSwellLight", "studioSwellDark");
@@ -540,15 +605,18 @@ const shotBrand: Shot = {
       grade = brandGrade[theme] ??= { ...mixGrades(swellGrade, brand, 1) };
     } else {
       grade = blendGrade(swellGrade, brand, settle);
-      grade.exposure = spec.exposure + (theme === "light" ? 1.1 : -2.6) * window01(0, 0.2, local);
+      grade.exposure = spec.exposure + (theme === "light" ? 1.1 : -2.6) * window01(0, 0.2, local) * (1 - fall);
     }
+    // What is left of the doorway's light as the tail falls off (its dust drifts with it, then settles out).
+    const glow = TAIL_GLOW[theme] * spec.level * settle * (1 - fall);
     if (theme === "light") {
       // The white-out: the doorway's light takes the frame, the flash carries it onto the page.
-      setStudioBarLevel(ctx.sets.studio, spec.level * (1 + 0.6 * window01(0, 0.12, local)), spec.spread);
+      const swell = spec.level * (1 + 0.6 * window01(0, 0.12, local)) * (1 - settle);
+      setStudioBarLevel(ctx.sets.studio, swell + glow, spec.spread);
       flash = { color: spec.flashColor, amount: THREE.MathUtils.lerp(spec.flash, 0.9, window01(0, 0.1, local)) * (1 - window01(0.2, 0.29, local)) };
     } else {
       // The light goes out: the doorway's glow sinks into the charcoal as the page lands.
-      setStudioBarLevel(ctx.sets.studio, spec.level * (1 - window01(0.02, 0.22, local)), spec.spread * (1 - window01(0, 0.2, local)));
+      setStudioBarLevel(ctx.sets.studio, spec.level * (1 - window01(0.02, 0.22, local)) + glow, spec.spread * (1 - window01(0, 0.2, local)));
       flash = { color: spec.flashColor, amount: spec.flash * (1 - window01(0, 0.08, local)) };
     }
     return {
@@ -557,12 +625,16 @@ const shotBrand: Shot = {
       grade,
       focus: { distance: 8, aperture: 0 },
       flash,
-      fade: { color: BRAND_BG[theme], amount: settle },
+      fade: { color: BRAND_BG[theme], amount: done ? 1 : settle * BRAND_TAIL.veil + fall * (1 - BRAND_TAIL.veil) },
     };
+  },
+  // The frame clears: nothing stands behind the mark.
+  subjects() {
+    return [];
   },
 };
 
 export const ACT3_SHOTS: Shot[] = [shotTable, shotToast, shotWalk, shotRise, shotBrand];
 
 /** Staging data for the lab's projection checks (framing vs overlay zones); not used at runtime. */
-export const ACT3_LAB = { TABLE_TRACK, TOAST_TRACK, TEAM_TRACK, TEAM_START, SQUAD, DINERS, TABLE_CLOCK, walkClock, PORTRAIT_SPREAD };
+export const ACT3_LAB = { TABLE_TRACK, TOAST_TRACK, TEAM_TRACK, TEAM_START, SQUAD, DINERS, TABLE_CLOCK, walkClock, PORTRAIT_SPREAD, BRAND_TAIL, BRAND_BG };

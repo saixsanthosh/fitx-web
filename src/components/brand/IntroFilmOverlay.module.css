@@ -46,6 +46,24 @@
   @supports (height: 100svh) { .film { --bar: clamp(0px, 5svh, 44px); } }
 }
 
+/*
+ * The matte per composition (overlay-zones.ts MATTES; FilmGraphics writes the composition being played as
+ * data-comp): a 2.39:1 scope on laptop and desktop, a thin matte on the tablets and the phone. The
+ * orientation rules above are the fallback before a composition is known.
+ */
+.film[data-comp="laptop"],
+.film[data-comp="desktop"] { --bar: clamp(0px, calc((100vh - 100vw / 2.39) / 2), 14vh); }
+.film[data-comp="phone"],
+.film[data-comp="tablet-p"] { --bar: clamp(0px, 5vh, 44px); }
+.film[data-comp="tablet-l"] { --bar: clamp(0px, 4vh, 40px); }
+@supports (height: 100svh) {
+  .film[data-comp="laptop"],
+  .film[data-comp="desktop"] { --bar: clamp(0px, calc((100svh - 100vw / 2.39) / 2), 14svh); }
+  .film[data-comp="phone"],
+  .film[data-comp="tablet-p"] { --bar: clamp(0px, 5svh, 44px); }
+  .film[data-comp="tablet-l"] { --bar: clamp(0px, 4svh, 40px); }
+}
+
 /* ---------------------------------------------------------------- letterbox */
 
 .letterbox {
@@ -405,14 +423,25 @@
    an offscreen pass only while it fades, not for its whole time on screen. */
 .callout[data-exiting] { animation: fade-out var(--exit) cubic-bezier(.55, 0, .8, .2) var(--exit-at) forwards; }
 
-.callout[data-placement="right"] { right: var(--safe-r); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); }
-.callout[data-placement="left"] { left: var(--safe-l); top: calc(var(--bar) + (100% - 2 * var(--bar)) * .24); flex-direction: row-reverse; }
+/*
+ * Each callout sits in its area for the composition being played (overlay-zones.ts CALLOUT_ZONES,
+ * written as --zx0/--zy0/--zx1/--zy1 fractions of the screen): side callouts hang from the area's top
+ * corner, the bottom one stands on the area's foot, centred in it. They never reach into the matte
+ * (nor, at the top of a portrait frame, under the Skip pill).
+ */
+.callout[data-placement="right"] {
+  right: max(var(--safe-r), calc((1 - var(--zx1, .94)) * 100%));
+  top: max(calc(var(--ceiling) + 16px), calc(var(--zy0, .3) * 100%));
+}
+.callout[data-placement="left"] {
+  left: max(var(--safe-l), calc(var(--zx0, .06) * 100%));
+  top: max(calc(var(--ceiling) + 16px), calc(var(--zy0, .3) * 100%));
+  flex-direction: row-reverse;
+}
 .callout[data-placement="bottom"] {
-  left: 0;
-  right: 0;
-  bottom: calc(var(--floor) + clamp(16px, 3.6vh, 40px));
-  width: max-content;
-  margin-inline: auto;
+  left: calc(var(--zx0, .35) * 100%);
+  right: calc((1 - var(--zx1, .65)) * 100%);
+  bottom: max(calc(var(--floor) + 12px), calc((1 - var(--zy1, .85)) * 100%));
   flex-direction: column;
   align-items: center;
 }
@@ -669,6 +698,16 @@
 }
 @keyframes tagline-in { from { opacity: 0; transform: translate3d(calc(var(--o) * .48em), 0, 0); } }
 
+/*
+ * The film-end reveal (films with the 2.0 s tail): LogoReveal's own transparent stage, kept inside the
+ * overlay's stacking order (above the film and its vignette, under the Skip pill) instead of its page-level
+ * z-index, and filling the overlay rather than the window.
+ */
+.brandCard .filmEndReveal {
+  position: absolute;
+  z-index: 5;
+}
+
 /* Resolves the titles' and tagline's computed fonts for kerning ahead of their mounts (no layout). */
 .kernProbe { display: none; }
 
@@ -692,11 +731,15 @@
 
 /* ---------------------------------------------------------------- small screens */
 
+/* Portrait frames: subjects fill the centre, chips ride the top under the Skip pill. */
+.film[data-comp="phone"] .callout[data-placement="right"],
+.film[data-comp="phone"] .callout[data-placement="left"],
+.film[data-comp="tablet-p"] .callout[data-placement="right"],
+.film[data-comp="tablet-p"] .callout[data-placement="left"] { top: max(calc(var(--ceiling) + 64px), calc(var(--zy0, .12) * 100%)); }
+.film[data-comp="phone"] .leader,
+.film[data-comp="tablet-p"] .leader { width: clamp(22px, 7vw, 44px); }
+
 @media (orientation: portrait) {
-  /* Subjects fill the centre of a tall frame: chips ride the top, bottom chips clear the title line. */
-  .callout[data-placement="right"],
-  .callout[data-placement="left"] { top: calc(var(--ceiling) + 64px); }
-  .callout[data-placement="bottom"] { bottom: calc(var(--floor) + clamp(120px, 17vh, 168px)); }
   .leader { width: clamp(22px, 7vw, 44px); }
 }
 

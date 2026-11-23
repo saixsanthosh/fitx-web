@@ -45,7 +45,10 @@ class TextureBaker {
   private readonly material: THREE.ShaderMaterial;
   readonly maxAnisotropy: number;
 
-  constructor(private readonly renderer: THREE.WebGLRenderer) {
+  private readonly renderer: THREE.WebGLRenderer;
+
+  constructor(renderer: THREE.WebGLRenderer) {
+    this.renderer = renderer;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
     this.material = new THREE.ShaderMaterial({
