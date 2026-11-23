@@ -23,7 +23,7 @@ import { KEY_DIRS } from "../../sets";
 import { createCameraState, evaluateCameraTrack, type CameraState, type CameraTrack } from "../camera";
 import type { FilmContext, Shot, ShotView } from "../shot-types";
 import { smoothRamp } from "../shot-utils";
-import { focusOn, gradeFor, lightingFor, liveLayers, stage, window01 } from "./common";
+import { focusOn, gradeFor, headBox, jointsBox, lightingFor, liveLayers, pointBox, stage, window01 } from "./common";
 
 /**
  * Dre's lift clock (driver time: clap 0.25, lift-off 1.42, lockout 2.2, release ≈2.27, plates land
@@ -153,13 +153,23 @@ function collarOffset(t: number) {
   return COLLAR.travel * (1 - u) * (1 - a * u);
 }
 
+/** PLATE_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const PLATE_COMPS: CameraTrack["compositions"] = {
+  phone: { offset: [0.015, 0, 0] },
+  "tablet-p": {},
+  "tablet-l": { offset: [0.023, 0, 0] },
+  laptop: { offset: [0, -0.022, 0] },
+  desktop: { focalScale: 0.991, offset: [0, -0.024, 0] },
+};
+
 const PLATE_TRACK: CameraTrack = {
   // Opens on the plate's axis where 2b leaves the wheel (hub ≈(64 %, 57 %) of the frame, rim ≈1.9
   // half-heights, same clockwise spin), starting from rest as 2b settles. It drops and swings round
   // to a low 3/4 under the plate: the window bokeh and its shafts behind, lettering raking-lit.
   keys: [
     { t: 0, position: [-1.97, 0.28, 0.13], target: [-1.0, 0.259, 0.02], focal: 74, ease: "in" },
-    { t: 0.16, position: [-1.9, 0.2, 0.5], target: [-0.99, 0.3, -0.03], focal: 68 },
+    // "out" after the "in": the eased segments meet at the same speed (G1, no velocity kink at the key).
+    { t: 0.16, position: [-1.9, 0.2, 0.5], target: [-0.99, 0.3, -0.03], focal: 68, ease: "out" },
     { t: 0.4, position: [-1.72, 0.14, 0.93], target: [-0.98, 0.37, -0.1], focal: 61 },
   ],
   // Phones: the same match (the automatic wider lens) and arc, but the lens turns onto the plate so
@@ -167,11 +177,12 @@ const PLATE_TRACK: CameraTrack = {
   portrait: {
     keys: [
       { t: 0, position: [-1.97, 0.28, 0.13], target: [-1.0, 0.259, 0.02], focal: 61, ease: "in" },
-      { t: 0.16, position: [-1.9, 0.2, 0.5], target: [-0.99, 0.3, 0.07], focal: 52 },
+      { t: 0.16, position: [-1.9, 0.2, 0.5], target: [-0.99, 0.3, 0.07], focal: 52, ease: "out" },
       { t: 0.4, position: [-1.72, 0.14, 0.93], target: [-0.98, 0.36, 0.08], focal: 46 },
     ],
   },
   shake: { amplitude: 0.08, frequency: 1.2, seed: 41 },
+  compositions: PLATE_COMPS,
 };
 
 const shotPlate: Shot = {
@@ -208,9 +219,28 @@ const shotPlate: Shot = {
       focus: { distance: focusOn(camera, point), aperture: 2.8, maxBlur: 0.03 },
     };
   },
+  // The match cut opens with the plate's rim past the frame; its hub, and the collar once it has slammed home, stay in.
+  subjects(ctx, frame) {
+    const { barbell } = ctx.props;
+    const plates = barbell.plates.right;
+    const hub = plates[plates.length - 1].object.getWorldPosition(point);
+    const boxes = [pointBox("plate-hub", hub, 0.05, true)];
+    const collar = barbell.collars[1];
+    if (collar.visible) boxes.push(pointBox("collar", collar.getWorldPosition(point2), [0.05, 0.05, 0.05], frame.local >= COLLAR.home));
+    return boxes;
+  },
 };
 
 // ---------------------------------------------------------------------------------- 3b-chalk
+
+/** CHALK_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const CHALK_COMPS: CameraTrack["compositions"] = {
+  phone: { focalScale: 0.981 },
+  "tablet-p": {},
+  "tablet-l": {},
+  laptop: { offset: [0, 0.012, 0] },
+  desktop: {},
+};
 
 const CHALK_TRACK: CameraTrack = {
   // Low 3/4 from the right, below the palms: the window sits behind the cloud (it glows) and the burst
@@ -227,6 +257,7 @@ const CHALK_TRACK: CameraTrack = {
     ],
   },
   shake: { amplitude: 0.14, frequency: 1.1, seed: 42 },
+  compositions: CHALK_COMPS,
 };
 
 /** Night MCU: less bloom and deeper corners, so the window's glow doesn't haze the background mid-blue. */
@@ -308,9 +339,23 @@ const shotChalk: Shot = {
       focus: { distance, aperture: 2.2, maxBlur: 0.03 },
     };
   },
+  // Dre's face and both hands through the clap.
+  subjects(ctx) {
+    const dre = ctx.cast.dre!;
+    return [headBox(dre, "dre-face", true), jointsBox(dre, "hands", ["hand_L", "hand_R"], 0.08, true)];
+  },
 };
 
 // ---------------------------------------------------------------------------------- 3c-pull
+
+/** PULL_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const PULL_COMPS: CameraTrack["compositions"] = {
+  phone: { focalScale: 0.782, distanceScale: 1.292 },
+  "tablet-p": { distanceScale: 1.164 },
+  "tablet-l": { distanceScale: 1.115, offset: [-0.45, 0, 0] },
+  laptop: { offset: [-0.412, 0, 0] },
+  desktop: { offset: [-0.15, 0, 0] },
+};
 
 const PULL_TRACK: CameraTrack = {
   // Low 3/4 front-right on 22 mm, craning up with the bar; Dre left of centre so the PR callout
@@ -329,6 +374,7 @@ const PULL_TRACK: CameraTrack = {
     ],
   },
   shake: { amplitude: 0.1, frequency: 0.8, seed: 43 },
+  compositions: PULL_COMPS,
 };
 
 const shotPull: Shot = {
@@ -350,9 +396,26 @@ const shotPull: Shot = {
       focus: { distance: focusOn(camera, chest), aperture: 4 },
     };
   },
+  // The whole loaded bar (plate rims included) and Dre's face.
+  subjects(ctx) {
+    const { barbell } = ctx.props;
+    barbell.group.getWorldPosition(point);
+    // The plates are discs: a world box at 0.75 of their radius bounds what a 3/4 view shows of them.
+    const rim = (BARBELL.plates[0].diameter / 2) * 0.75;
+    return [pointBox("bar", point, [BARBELL.length / 2, rim, rim], true, false), headBox(ctx.cast.dre!, "dre-face", true)];
+  },
 };
 
 // ---------------------------------------------------------------------------------- 3d-drop
+
+/** DROP_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const DROP_COMPS: CameraTrack["compositions"] = {
+  phone: {},
+  "tablet-p": {},
+  "tablet-l": {},
+  laptop: {},
+  desktop: {},
+};
 
 const DROP_TRACK: CameraTrack = {
   // Floor level off the +X plates: the released bar falls into the top of frame and lands at 0.14;
@@ -372,6 +435,7 @@ const DROP_TRACK: CameraTrack = {
     ],
   },
   shake: { amplitude: 0.3, frequency: 2.4, seed: 44 },
+  compositions: DROP_COMPS,
 };
 
 /** Film-local time of the impact in 3d (LIFT_CLOCK.drop reaches the drop time here). */
@@ -432,6 +496,12 @@ const shotDrop: Shot = {
       focus: { distance: focusOn(camera, point), aperture: 2.8 },
       fade: { color: DUST_VEIL[ctx.theme], amount: 0.56 * veil * veil },
     };
+  },
+  // The landing plates until the lens drives into the dust (the cut is a wipe).
+  subjects(ctx, frame) {
+    const plates = ctx.props.barbell.plates.left;
+    const stack = plates[Math.floor(plates.length / 2)].object.getWorldPosition(point);
+    return [pointBox("landing-plates", stack, [0.18, 0.22, 0.22], frame.local >= DROP_IMPACT && frame.local < 0.19, false)];
   },
 };
 

@@ -29,7 +29,7 @@ export interface FilmContext {
   /** Assembled characters; a shot only runs once every id in `shot.cast` is present. */
   cast: Partial<Record<CharacterId, CharacterInstance>>;
   theme: Theme;
-  /** True on portrait screens; shots keep subjects nearer the optical centre. Derived from `aspect` (< 0.85). */
+  /** True on the portrait compositions (phone, tablet-p); shots keep subjects nearer the optical centre. Derived from `composition`. */
   portrait: boolean;
   /** The authored composition this frame is rendered for (`pickComposition` of the render size). */
   composition: FilmComposition;
@@ -46,6 +46,11 @@ export interface SubjectBox {
   min: [number, number, number];
   max: [number, number, number];
   must: boolean;
+  /**
+   * A `must` subject also stays clear of the overlay's zones (overlay-zones.ts) unless this is false: a whole
+   * body that must stay in frame while a title may cross its feet. Default true.
+   */
+  clearOfOverlay?: boolean;
 }
 
 export interface ShotFrame {

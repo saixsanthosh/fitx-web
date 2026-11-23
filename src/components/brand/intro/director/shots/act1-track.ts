@@ -32,7 +32,7 @@ import { KEY_DIRS, TRACK_KEY_MAST, TRACK_NIGHT_MACRO_KEY } from "../../sets/pres
 import { createCameraState, evaluateCameraTrack, whipBlurVector, type CameraState, type CameraTrack } from "../camera";
 import type { FilmContext, Shot, ShotFrame, ShotView } from "../shot-types";
 import { smoothRamp, timeRamp } from "../shot-utils";
-import { focusOn, followLighting, followTrack, gradeFor, liveLayers, poseWithHair, stage, window01 } from "./common";
+import { bodyBox, focusOn, followLighting, followTrack, gradeFor, headBox, jointsBox, liveLayers, pointBox, poseWithHair, stage, window01 } from "./common";
 
 /** Rubber kicked back off a toe-off. The 0-set kick is cheated upward so it sprays across the macro frame. */
 const GRIT_KICK = new THREE.Vector3(0, 0.55, -1);
@@ -185,6 +185,15 @@ function rideGrade(ctx: FilmContext) {
 
 // ---------------------------------------------------------------------------------- 0-set
 
+/** SET_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const SET_COMPS: CameraTrack["compositions"] = {
+  phone: { focalScale: 0.966 },
+  "tablet-p": {},
+  "tablet-l": {},
+  laptop: {},
+  desktop: {},
+};
+
 /**
  * 3 cm off the tartan, front 3/4 on the right shoe and looking back into the sun: the toe box
  * and the lace row lead (the side panel foreshortens), the start line runs under the toe and
@@ -207,8 +216,14 @@ const SET_TRACK: CameraTrack = {
       { t: 1.3, position: [MAYA_X + 0.288, 0.028, 0.416], target: [MAYA_X - 0.1, 0.13, -0.14], focal: 42 },
     ],
   },
+  compositions: SET_COMPS,
 };
 
+/**
+ * Film time the hero shoe has to stay whole in frame: from here the heel is rising into the push-off and the
+ * toe leaves through the top of the frame (the owner-approved exit into 1a's speed ramp).
+ */
+const SET_SHOE_UNTIL = 0.9;
 /** Screen-space smear of the rear foot's pass (frame heights; it travels left and a little down). */
 const REAR_FOOT_SMEAR: [number, number] = [-0.07, -0.012];
 /** Without DOF (medium tier) the macro's background is crisp: thicken the haze and close the vignette so it still falls away. */
@@ -257,9 +272,22 @@ const shotSet: Shot = {
       whip: { direction: REAR_FOOT_SMEAR, amount: window01(0.79, 0.84, frame.time) * (1 - window01(0.88, 0.94, frame.time)) },
     };
   },
+  // The hero shoe (heel to toe) holds the frame until it pushes off and leaves through the top (~1.07).
+  subjects(ctx, frame) {
+    return [jointsBox(ctx.cast.maya!, "shoe", ["foot_R", "toe_R"], 0.045, frame.time < SET_SHOE_UNTIL)];
+  },
 };
 
 // ---------------------------------------------------------------------------------- 1a-drive
+
+/** DRIVE_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const DRIVE_COMPS: CameraTrack["compositions"] = {
+  phone: { focalScale: 0.957, distanceScale: 1.284, offset: [0.15, 0, 0] },
+  "tablet-p": { offset: [0.075, 0, 0] },
+  "tablet-l": { distanceScale: 1.057, offset: [0.563, 0, 0] },
+  laptop: { distanceScale: 1.076, offset: [0.3, 0, 0] },
+  desktop: { distanceScale: 1.103 },
+};
 
 /**
  * Relative to Maya's smoothed root: ahead of her on the bike lane, looking back across the lanes
@@ -280,6 +308,7 @@ const DRIVE_TRACK: CameraTrack = {
       { t: 1.05, position: [2.65, 0.8, 1.65], target: [0, 0.86, 0.22], focal: 31 },
     ],
   },
+  compositions: DRIVE_COMPS,
 };
 
 /**
@@ -312,9 +341,23 @@ const shotDrive: Shot = {
       focus: { distance: focusOn(camera, hips), aperture: 2 },
     };
   },
+  // Maya whole, head to toes (the TRAIN title may cross her stride, never her face).
+  subjects(ctx) {
+    const maya = ctx.cast.maya!;
+    return [bodyBox(maya, "maya", true), headBox(maya, "maya-face", true)];
+  },
 };
 
 // ---------------------------------------------------------------------------------- 1b-stride
+
+/** STRIDE_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const STRIDE_COMPS: CameraTrack["compositions"] = {
+  phone: {},
+  "tablet-p": {},
+  "tablet-l": { focalScale: 0.77 },
+  laptop: {},
+  desktop: {},
+};
 
 /**
  * Relative to Maya's root: a lead car on the inner edge of the bike lane (0.45 m inside Leo's
@@ -340,6 +383,7 @@ const STRIDE_TRACK: CameraTrack = {
       { t: 1.15, position: [1.27, 1.68, 6.0], target: [0.9, 1.12, -0.4], focal: 25 },
     ],
   },
+  compositions: STRIDE_COMPS,
 };
 /**
  * The operator picks Leo up as he draws level with Maya: first a pan that holds his face left of
@@ -419,6 +463,13 @@ const shotStride: Shot = {
       whip: { direction: whip, amount: window01(3.38, 3.49, frame.time) },
     };
   },
+  // Maya whole until the operator hands over to Leo (she then slides out left); Leo's face once he is close.
+  subjects(ctx, frame) {
+    const maya = ctx.cast.maya!;
+    const onMaya = frame.time < STRIDE_FOLLOW.yawFrom;
+    const onLeo = frame.time >= 3.0 && frame.time < STRIDE_FOLLOW.chestFrom;
+    return [bodyBox(maya, "maya", onMaya), headBox(maya, "maya-face", onMaya), headBox(ctx.cast.leo!, "leo-face", onLeo)];
+  },
 };
 
 /** The 1b camera's pan blur at its cut (frame heights), carried into the first frames of 2a. */
@@ -430,6 +481,15 @@ function strideExitWhip(ctx: FilmContext, aspect: number): [number, number] {
 }
 
 // ---------------------------------------------------------------------------------- 2a-cadence
+
+/** CADENCE_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const CADENCE_COMPS: CameraTrack["compositions"] = {
+  phone: { distanceScale: 1.164, offset: [-0.03, 0, 0] },
+  "tablet-p": {},
+  "tablet-l": { offset: [-0.09, 0, 0] },
+  laptop: { distanceScale: 1.103, offset: [-0.03, -0.037, 0] },
+  desktop: { distanceScale: 1.096, offset: [0, -0.03, 0] },
+};
 
 /**
  * Relative to the bike: pedal height on the drive side (−X), drifting forward past the crank. A
@@ -450,6 +510,7 @@ const CADENCE_TRACK: CameraTrack = {
       { t: 0.85, position: [-1.0, 0.3, 0.02], target: [0, 0.45, 0.0], focal: 22 },
     ],
   },
+  compositions: CADENCE_COMPS,
 };
 /** 1b's whip carries into 2a and dies within a couple of frames (out of the wipe, not into it). */
 const CADENCE_WHIP_IN = 0.07;
@@ -478,9 +539,44 @@ const shotCadence: Shot = {
       whip: { direction: whip, amount: whipIn },
     };
   },
+  // The chainring and cranks and both feet on the pedals.
+  subjects(ctx) {
+    const leo = ctx.cast.leo!;
+    const bike = ctx.props.bike.group.position;
+    point.set(bike.x, BIKE.crankCenter[1], bike.z + BIKE.crankCenter[2]);
+    return [
+      pointBox("cranks", point, [0.03, BIKE.crankLength + 0.015, BIKE.crankLength + 0.015], true),
+      jointsBox(leo, "feet", ["foot_L", "foot_R", "toe_L", "toe_R"], 0.06, true),
+    ];
+  },
 };
 
 // ---------------------------------------------------------------------------------- 2b-wheel
+
+/** WHEEL_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
+const WHEEL_COMPS: CameraTrack["compositions"] = {
+  // The tall frames open further back and higher, so Leo's lifted face clears the CADENCE readout at the top; the
+  // crane still lands on the same match frame (the last key), where the wheel fills the frame's height.
+  phone: {
+    keys: [
+      { t: 0, position: [-0.69, 1.17, 3.5], target: [-0.08, 1.53, 0.3], focal: 38.1, ease: "in" },
+      { t: 0.4, position: [-1.3, 0.75, 1.68], target: [0.0, 0.75, 0.45], focal: 36, ease: "out" },
+      // The narrow frame turns a little further onto the hub, so the wheel's centre stays in.
+      { t: 0.75, position: [-0.6, 0.29, 0.54], target: [0.276, 0.365, 0.509], focal: 33.2 },
+    ],
+    focalScale: 0.9,
+  },
+  "tablet-p": {
+    keys: [
+      { t: 0, position: [-0.64, 1.015, 3.21], target: [-0.08, 1.34, 0.3], focal: 42, ease: "in" },
+      { t: 0.4, position: [-1.27, 0.65, 1.63], target: [0.0, 0.65, 0.45], focal: 38, ease: "out" },
+      { t: 0.75, position: [-0.6, 0.29, 0.54], target: [0.3943, 0.3774, 0.4792], focal: 33.2 },
+    ],
+  },
+  "tablet-l": {},
+  laptop: {},
+  desktop: {},
+};
 
 /**
  * Relative to the bike: head-on at eye height, drifting back and round to the drive side from
@@ -495,6 +591,7 @@ const WHEEL_TRACK: CameraTrack = {
     { t: 0.4, position: [-1.15, 0.62, 1.54], target: [0.0, 0.62, 0.45], focal: 38, ease: "out" },
     { t: 0.75, position: [-0.6, 0.29, 0.54], target: [0.3943, 0.3774, 0.4792], focal: 33.2 },
   ],
+  compositions: WHEEL_COMPS,
 };
 /** The reflector a car rig carries above the lens: sweeps across his lenses so the catch travels. */
 const PING = { from: 0.0, to: 0.3, sweep: 0.6 } as const;
@@ -555,6 +652,14 @@ const shotWheel: Shot = {
       // The crane's own streak through the fast middle of the arc; none on the head-on beat or the settle.
       whip: { direction: whipBlurVector(previous, camera, 1 / 60, ctx.camera, { deadZone: 0.006, max: 0.15 }), amount: window01(0.12, 0.26, frame.local) * (1 - window01(0.56, 0.7, frame.local)) },
     };
+  },
+  // Leo's face on the head-on beat (on the portrait frames until 4.65, BRIEF-2 3.2a; the landscape crane
+  // leaves it through the top sooner); the swoop then fills the frame with the wheel (its hub stays in).
+  subjects(ctx, frame) {
+    const bike = ctx.props.bike.group.position;
+    point.set(bike.x, BIKE.frontAxle[1], bike.z + BIKE.frontAxle[2]);
+    const faceUntil = ctx.portrait ? 0.3 : 0.12;
+    return [headBox(ctx.cast.leo!, "leo-face", frame.local < faceUntil), pointBox("front-hub", point, 0.05, frame.local >= 0.62)];
   },
 };
 

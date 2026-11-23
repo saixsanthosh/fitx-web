@@ -84,7 +84,10 @@ class SprintModel implements GaitModel {
   private readonly hipMidBind = new THREE.Vector3();
   private readonly hipOffset: Record<Side, THREE.Vector3>;
 
-  constructor(rig: Rig, readonly mode: Mode) {
+  readonly mode: Mode;
+
+  constructor(rig: Rig, mode: Mode) {
+    this.mode = mode;
     const m = rigMetrics(rig);
     this.metrics = m;
     const L = m.leg;

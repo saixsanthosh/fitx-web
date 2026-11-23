@@ -18,7 +18,10 @@ export class EnvBaker {
   private readonly pmrem: THREE.PMREMGenerator;
   private target: THREE.WebGLCubeRenderTarget | null = null;
 
-  constructor(private readonly renderer: THREE.WebGLRenderer) {
+  private readonly renderer: THREE.WebGLRenderer;
+
+  constructor(renderer: THREE.WebGLRenderer) {
+    this.renderer = renderer;
     this.cubeTarget = new THREE.WebGLCubeRenderTarget(ENV_SIZE, { type: THREE.HalfFloatType, generateMipmaps: false, depthBuffer: true });
     this.cubeCamera = new THREE.CubeCamera(0.05, 3000, this.cubeTarget);
     this.pmrem = new THREE.PMREMGenerator(renderer);

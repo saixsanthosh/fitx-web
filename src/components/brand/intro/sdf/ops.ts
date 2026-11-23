@@ -72,7 +72,9 @@ class Ranger {
   kept = 0;
   private readonly bbd: Float64Array;
   private readonly order: Int32Array;
-  constructor(private readonly kids: Node[]) {
+  private readonly kids: Node[];
+  constructor(kids: Node[]) {
+    this.kids = kids;
     const n = kids.length;
     this.lo = new Float64Array(n);
     this.hi = new Float64Array(n);

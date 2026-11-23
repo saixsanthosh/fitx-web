@@ -109,7 +109,6 @@ export function soleSweeps(o: Outline, prof: SoleProfile, foamC: RGB, rubberC: R
   const foamColors = new Float32Array(foam.positions.length);
   for (let i = 0; i < loop.n; i += 1) {
     for (let j = 0; j < rows; j += 1) {
-      profileShade(shade, i, j, rows, station, prof, arc.length, wall);
       const v = i * rows + j, p = v * 3;
       const n = 1 + 0.012 * noise3(foam.positions[p] * 260, foam.positions[p + 1] * 260, foam.positions[p + 2] * 260, seed + 11);
       // Foam reads a touch warmer low down (bounce from the track) and cooler at the rolled top.
@@ -172,9 +171,6 @@ export function soleSweeps(o: Outline, prof: SoleProfile, foamC: RGB, rubberC: R
     rubber: { positions: rubber.positions, normals: rubberNormals, indices: idx, colors: rubberColors },
   };
 }
-
-/** (Hook kept trivial: shading per row is fixed; split out so the row table stays readable.) */
-function profileShade(_shade: Float32Array, _i: number, _j: number, _rows: number, _station: unknown, _prof: SoleProfile, _arc: number, _wall: number[]) {}
 
 /**
  * Chevron tread lugs under the outsole: rows across the forefoot and heel, each split into

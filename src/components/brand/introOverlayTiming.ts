@@ -7,11 +7,12 @@
  * No DOM, no React: safe to unit-test from Node.
  */
 
-import { CALLOUTS, LETTERBOX, STAGE, STAGE_START, TITLES, stageAt } from "./intro/timeline";
+import { CALLOUTS, FILM_DURATION, LETTERBOX, STAGE, STAGE_START, TITLES, stageAt } from "./intro/timeline";
+import { revealPlan } from "./logo/reveal-plan";
 
 export type FilmTitle = (typeof TITLES)[number];
 export type FilmCallout = (typeof CALLOUTS)[number];
-export type CalloutPlacement = FilmCallout["placement"];
+export type { CalloutPlacement } from "./intro/timeline";
 
 /** Review freeze (dev only): every element of a stage at its resting frame, or the whole overlay at one film time. */
 export type FilmFreeze = { kind: "stage"; stage: number } | { kind: "time"; time: number };
@@ -127,6 +128,22 @@ export const BRAND = {
   lineAt: 0.38,
   line: 0.5,
 } as const;
+
+/** How long `LogoReveal variant="film-end"` runs before it holds (s). */
+export const FILM_END_REVEAL = revealPlan("film-end").totalMs / 1000;
+
+/**
+ * The end card a film of `duration` seconds gets: "film-end" (the mark forms over the film's own
+ * 2.0 s tail and holds, BRIEF-2 3.3) when the tail is long enough for the whole reveal, otherwise
+ * "short" (the card the 11.9 s cuts encoded before wave 2 were made for: an opaque backdrop, the mark
+ * and the tagline, all landed by 11.72). A duration that is not a usable number counts as the film's own.
+ */
+export type EndCardKind = "film-end" | "short";
+
+export function endCardFor(duration: number | null | undefined): EndCardKind {
+  const length = typeof duration === "number" && Number.isFinite(duration) && duration > 0 ? duration : FILM_DURATION;
+  return length - BRAND.at >= FILM_END_REVEAL - 1e-6 ? "film-end" : "short";
+}
 
 /** Representative film time for elements that are not titles/callouts (letterbox, brand card) in a stage freeze. */
 export function stageRestTime(stage: number): number {

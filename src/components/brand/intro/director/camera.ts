@@ -7,9 +7,17 @@
  * per segment. Everything is a pure function of the track time, so any frame can be seeked.
  * Handheld shake is deterministic (seeded sines + value noise) and portrait screens get
  * aspect-aware framing.
+ *
+ * Compositions (BRIEF-2 3.2): a track may author each film composition (`COMPOSITIONS` in
+ * films/compositions.ts) on its own. A composition is the frame the pre-rendered cut for that band
+ * holds at its render aspect; on any other aspect inside the band the camera shows exactly the
+ * cover-fit crop of that frame, which is what the cut shows on that screen, so `?intro=live`
+ * previews every cut truthfully. Only near a band boundary are the two neighbouring compositions
+ * blended (by log-aspect), so a live resize never jumps.
  */
 
 import * as THREE from "three";
+import { COMPOSITIONS, type CompositionBand, type FilmComposition } from "../../films/compositions";
 import { clamp, DEG, hash1, lerp, noise1, smoothstep, TAU } from "../math";
 import type { Vec3Tuple } from "../types";
 
@@ -54,7 +62,36 @@ export interface CameraTrack {
    * to opt out of any adaptation.
    */
   portrait?: { keys?: CameraKey[]; focalScale?: number; distanceScale?: number };
+  /**
+   * Authored compositions (BRIEF-2 3.2). Present → every composition is evaluated at its own render
+   * aspect and cover-cropped to the viewport (see the file header). A composition left out falls
+   * back to the automatic framing at its render aspect (`portrait` stays the `phone` alias). Absent
+   * → the track behaves exactly as before this field existed.
+   */
+  compositions?: Partial<Record<FilmComposition, CompositionFrame>>;
 }
+
+/** One composition's frame of a track (all optional; an empty object means "as keyed"). */
+export interface CompositionFrame {
+  /** Keys for this composition, on the same clock. Default: the track's keys (`phone`: `portrait.keys` when present). */
+  keys?: CameraKey[];
+  /** Multiplies the focal length (> 1 tighter). Default 1. */
+  focalScale?: number;
+  /** Pushes the camera away from (> 1) or toward (< 1) its target. Default 1. */
+  distanceScale?: number;
+  /**
+   * Camera-space move of both the lens and its target, in metres: [right, up, forward] (a truck,
+   * pedestal and dolly that keep the perspective). Default none.
+   */
+  offset?: Vec3Tuple;
+}
+
+/** The 16:9 frame the film was first authored for. */
+export const BASE_ASPECT = 16 / 9;
+/** Above 16:9 the lens widens to keep 16:9's vertical coverage, at most by this factor. */
+export const WIDE_FOCAL_CAP = 1.3;
+/** Half-width, in log-aspect, of the blend between neighbouring compositions around each band boundary. */
+export const COMPOSITION_BLEND = 0.035;
 
 export interface CameraState {
   position: THREE.Vector3;
@@ -163,16 +200,10 @@ function shakeSignal(t: number, frequency: number, seed: number) {
   return sum + 0.35 * noise1(t * frequency * 1.37, seed);
 }
 
-/**
- * Evaluates a track at time `t` (clamped to the key range) for the given viewport aspect
- * (width / height) and writes the result into `out` (also returned). Allocation-free.
- */
-export function evaluateCameraTrack(track: CameraTrack, t: number, aspect: number, out: CameraState): CameraState {
-  const portrait = aspect < 1;
-  const keys = portrait && track.portrait?.keys && track.portrait.keys.length > 0 ? track.portrait.keys : track.keys;
+/** Interpolates a key list at `t` (clamped to the key range) into `out`; no framing, no shake. */
+function evaluateKeys(keys: readonly CameraKey[], t: number, out: CameraState) {
   const n = keys.length;
   if (n === 0) return out;
-
   if (n === 1 || t <= keys[0].t) {
     out.position.fromArray(keys[0].position);
     out.target.fromArray(keys[0].target);
@@ -198,48 +229,165 @@ export function evaluateCameraTrack(track: CameraTrack, t: number, aspect: numbe
     out.focal = Math.exp(segment(keys, LOG_FOCAL, i, 0, s, duration));
     out.roll = segment(keys, ROLL, i, 0, s, duration);
   }
+  return out;
+}
 
-  // Portrait framing. Weight ramps in from square (no change) to phone portrait (full).
-  if (portrait) {
-    const weight = smoothstep(1, 0.56, aspect);
-    let focalScale = 1;
-    let distanceScale = 1;
-    if (track.portrait) {
-      focalScale = track.portrait.focalScale ?? 1;
-      distanceScale = track.portrait.distanceScale ?? 1;
+/** Pushes the lens away from (> 1) or toward (< 1) its target. */
+function scaleDistance(out: CameraState, scale: number) {
+  if (scale !== 1) out.position.sub(out.target).multiplyScalar(scale).add(out.target);
+}
+
+/** The automatic and `portrait` framing as it always was: weight ramps from square (none) to phone portrait (full). */
+function legacyPortrait(track: CameraTrack, aspect: number, out: CameraState) {
+  if (!(aspect < 1)) return;
+  const weight = smoothstep(1, 0.56, aspect);
+  let focalScale = 1;
+  let distanceScale = 1;
+  if (track.portrait) {
+    focalScale = track.portrait.focalScale ?? 1;
+    distanceScale = track.portrait.distanceScale ?? 1;
+  } else {
+    // Landscape 16:9 covers h = 36 / 1.78 mm of film on its short side; portrait covers
+    // 36 × aspect mm on its short side. Widen the lens by the ratio (capped).
+    focalScale = 1 / clamp(1 / (aspect * (16 / 9)), 1, 1.45);
+  }
+  out.focal *= lerp(1, focalScale, weight);
+  scaleDistance(out, lerp(1, distanceScale, weight));
+}
+
+/** Above 16:9: the factor the focal length is divided by so the frame keeps 16:9's vertical coverage (capped). */
+export function wideFocalFactor(aspect: number) {
+  return aspect > BASE_ASPECT ? Math.min(WIDE_FOCAL_CAP, aspect / BASE_ASPECT) : 1;
+}
+
+/** Film height and width (mm) a 36 mm gauge covers at this aspect (three.js puts the gauge on the long side). */
+const filmHeight = (aspect: number) => FILM_GAUGE / Math.max(aspect, 1);
+const filmWidth = (aspect: number) => filmHeight(aspect) * aspect;
+
+/**
+ * Focal multiplier that turns a frame rendered at `frameAspect` into its cover-fit crop on a
+ * viewport of `viewAspect`: a narrower viewport loses width, a wider one height. 1 when they match.
+ */
+export function coverZoom(frameAspect: number, viewAspect: number) {
+  return Math.max(filmHeight(viewAspect) / filmHeight(frameAspect), filmWidth(viewAspect) / filmWidth(frameAspect));
+}
+
+/** The compositions framed as portrait (phone and tablet-p): shots stage tighter for them. */
+export function isPortraitComposition(comp: FilmComposition) {
+  return comp === "phone" || comp === "tablet-p";
+}
+
+const BAND_BY_ID = new Map<FilmComposition, CompositionBand>(COMPOSITIONS.map((band) => [band.id, band]));
+
+/**
+ * The compositions a viewport of `aspect` blends, with their weights (they sum to 1): one inside a
+ * band, two within `COMPOSITION_BLEND` of a boundary (half and half exactly on it).
+ */
+export function compositionWeights(aspect: number): { comp: FilmComposition; weight: number }[] {
+  const a = Number.isFinite(aspect) && aspect > 0 ? aspect : BASE_ASPECT;
+  const log = Math.log(a);
+  for (let index = 0; index < COMPOSITIONS.length - 1; index += 1) {
+    const boundary = Math.log(COMPOSITIONS[index].max);
+    if (Math.abs(log - boundary) < COMPOSITION_BLEND) {
+      const u = (log - (boundary - COMPOSITION_BLEND)) / (2 * COMPOSITION_BLEND);
+      const wider = u * u * (3 - 2 * u);
+      return [
+        { comp: COMPOSITIONS[index].id, weight: 1 - wider },
+        { comp: COMPOSITIONS[index + 1].id, weight: wider },
+      ];
+    }
+  }
+  const band = COMPOSITIONS.find((entry) => a >= entry.min && a < entry.max) ?? COMPOSITIONS[COMPOSITIONS.length - 1];
+  return [{ comp: band.id, weight: 1 }];
+}
+
+const _offset = new THREE.Vector3();
+const _offsetQuat = new THREE.Quaternion();
+const _blendA = createCameraState();
+const _blendB = createCameraState();
+
+/**
+ * One composition's frame at time `t`, as the cut for its band renders it (at its own render aspect),
+ * then cover-cropped to `viewAspect`. No shake.
+ */
+export function evaluateComposition(track: CameraTrack, comp: FilmComposition, t: number, viewAspect: number, out: CameraState): CameraState {
+  const band = BAND_BY_ID.get(comp)!;
+  const frameAspect = band.aspect;
+  const spec = track.compositions?.[comp];
+  const portraitKeys = track.portrait?.keys && track.portrait.keys.length > 0 ? track.portrait.keys : null;
+  const keys = spec?.keys && spec.keys.length > 0 ? spec.keys : frameAspect < 1 && portraitKeys ? portraitKeys : track.keys;
+  evaluateKeys(keys, t, out);
+  if (spec) {
+    scaleDistance(out, spec.distanceScale ?? 1);
+    if (spec.offset) {
+      // Screen axes of this frame (roll and straight-down views included).
+      cameraStateQuaternion(out, _offsetQuat);
+      _offset.set(spec.offset[0], spec.offset[1], -spec.offset[2]).applyQuaternion(_offsetQuat);
+      out.position.add(_offset);
+      out.target.add(_offset);
+    }
+    out.focal *= spec.focalScale ?? 1;
+  } else {
+    legacyPortrait(track, frameAspect, out);
+  }
+  out.focal = (out.focal / wideFocalFactor(frameAspect)) * coverZoom(frameAspect, viewAspect);
+  return out;
+}
+
+/** Shake on top of a framed state (view-axis jitter plus a few millimetres of drift). */
+function applyShake(shake: CameraShake | undefined, t: number, out: CameraState) {
+  if (!shake || !(shake.amplitude > 0)) return;
+  _forward.subVectors(out.target, out.position);
+  const distance = _forward.length();
+  if (distance <= 1e-6) return;
+  _forward.divideScalar(distance);
+  _right.crossVectors(_forward, WORLD_UP);
+  if (_right.lengthSq() < 1e-8) _right.set(1, 0, 0);
+  _right.normalize();
+  _up.crossVectors(_right, _forward);
+  const angle = shake.amplitude * DEG;
+  const yaw = angle * shakeSignal(t, shake.frequency, shake.seed);
+  const pitch = angle * 0.8 * shakeSignal(t, shake.frequency * 0.93, shake.seed + 101);
+  const rollJitter = angle * 0.45 * shakeSignal(t, shake.frequency * 0.71, shake.seed + 202);
+  const offset = shake.amplitude * 0.004;
+  const px = offset * shakeSignal(t, shake.frequency * 0.81, shake.seed + 303);
+  const py = offset * shakeSignal(t, shake.frequency * 1.11, shake.seed + 404);
+  out.target.addScaledVector(_right, Math.tan(yaw) * distance).addScaledVector(_up, Math.tan(pitch) * distance);
+  out.position.addScaledVector(_right, px).addScaledVector(_up, py);
+  out.target.addScaledVector(_right, px).addScaledVector(_up, py);
+  out.roll += rollJitter;
+}
+
+/**
+ * Evaluates a track at time `t` (clamped to the key range) for the given viewport aspect
+ * (width / height) and writes the result into `out` (also returned). Allocation-free.
+ */
+export function evaluateCameraTrack(track: CameraTrack, t: number, aspect: number, out: CameraState): CameraState {
+  if (track.compositions) {
+    const weights = compositionWeights(aspect);
+    if (weights.length === 1) {
+      evaluateComposition(track, weights[0].comp, t, aspect, out);
     } else {
-      // Landscape 16:9 covers h = 36 / 1.78 mm of film on its short side; portrait covers
-      // 36 × aspect mm on its short side. Widen the lens by the ratio (capped).
-      focalScale = 1 / clamp(1 / (aspect * (16 / 9)), 1, 1.45);
+      evaluateComposition(track, weights[0].comp, t, aspect, _blendA);
+      evaluateComposition(track, weights[1].comp, t, aspect, _blendB);
+      const w = weights[1].weight;
+      out.position.lerpVectors(_blendA.position, _blendB.position, w);
+      out.target.lerpVectors(_blendA.target, _blendB.target, w);
+      out.focal = Math.exp(lerp(Math.log(_blendA.focal), Math.log(_blendB.focal), w));
+      out.roll = lerp(_blendA.roll, _blendB.roll, w);
     }
-    out.focal *= lerp(1, focalScale, weight);
-    const scale = lerp(1, distanceScale, weight);
-    if (scale !== 1) out.position.sub(out.target).multiplyScalar(scale).add(out.target);
+    applyShake(track.shake, t, out);
+    return out;
   }
 
-  const shake = track.shake;
-  if (shake && shake.amplitude > 0) {
-    _forward.subVectors(out.target, out.position);
-    const distance = _forward.length();
-    if (distance > 1e-6) {
-      _forward.divideScalar(distance);
-      _right.crossVectors(_forward, WORLD_UP);
-      if (_right.lengthSq() < 1e-8) _right.set(1, 0, 0);
-      _right.normalize();
-      _up.crossVectors(_right, _forward);
-      const angle = shake.amplitude * DEG;
-      const yaw = angle * shakeSignal(t, shake.frequency, shake.seed);
-      const pitch = angle * 0.8 * shakeSignal(t, shake.frequency * 0.93, shake.seed + 101);
-      const rollJitter = angle * 0.45 * shakeSignal(t, shake.frequency * 0.71, shake.seed + 202);
-      const offset = shake.amplitude * 0.004;
-      const px = offset * shakeSignal(t, shake.frequency * 0.81, shake.seed + 303);
-      const py = offset * shakeSignal(t, shake.frequency * 1.11, shake.seed + 404);
-      out.target.addScaledVector(_right, Math.tan(yaw) * distance).addScaledVector(_up, Math.tan(pitch) * distance);
-      out.position.addScaledVector(_right, px).addScaledVector(_up, py);
-      out.target.addScaledVector(_right, px).addScaledVector(_up, py);
-      out.roll += rollJitter;
-    }
-  }
+  const portrait = aspect < 1;
+  const keys = portrait && track.portrait?.keys && track.portrait.keys.length > 0 ? track.portrait.keys : track.keys;
+  if (keys.length === 0) return out;
+  evaluateKeys(keys, t, out);
+  // Portrait framing. Weight ramps in from square (no change) to phone portrait (full).
+  legacyPortrait(track, aspect, out);
+  out.focal /= wideFocalFactor(aspect);
+  applyShake(track.shake, t, out);
   return out;
 }
 

@@ -19,7 +19,7 @@ import { createCharacterMaterials, disposeCharacterMaterials } from "../characte
 import { assembleCharacter } from "../character/assemble";
 import { detectQuality, downgradeQuality, fitQualityToGpu, qualityForTier, type QualitySettings } from "../fx/quality";
 import { createPost, type GradeParams } from "../fx/post";
-import { applyCameraState } from "./camera";
+import { applyCameraState, isPortraitComposition } from "./camera";
 import { buildStage, hideStage, type Stage } from "./stage-kit";
 import type { FilmDef } from "./film-def";
 import { filmFinalStageStart, filmShotIndexAt, filmStageAt } from "./film-defs";
@@ -178,9 +178,10 @@ export function createFilmDirector(film: FilmDef, options: DirectorOptions): Int
       progress: Math.min(1, Math.max(0, (time - def.start) / (def.end - def.start))),
       aspect: width / height,
     };
-    ctx.portrait = width / height < 0.85;
     ctx.aspect = width / height;
     ctx.composition = pickComposition(width, height);
+    // Staging follows the composition (not the raw aspect), so the live film stages what its cut does.
+    ctx.portrait = isPortraitComposition(ctx.composition);
 
     if (shotIndex !== activeShot) {
       hideStage(stage, cast);
@@ -436,7 +437,7 @@ export function createFilmDirector(film: FilmDef, options: DirectorOptions): Int
     // Before any character can arrive: the late-compile path needs a context.
     ctx = {
       renderer, scene, camera, post, quality, lights, sets: stage.sets, props: stage.props, fx: stage.fx, cast, theme,
-      portrait: width / height < 0.85, aspect: width / height, composition: pickComposition(width, height),
+      portrait: isPortraitComposition(pickComposition(width, height)), aspect: width / height, composition: pickComposition(width, height),
     };
 
     for (const id of castOrder) {

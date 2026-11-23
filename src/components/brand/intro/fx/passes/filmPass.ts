@@ -143,7 +143,9 @@ void main() {
 
   c = clamp(c, 0.0, 1.0);
   c = mix(c, fadeColor, fadeAmount);
-  c += (dither.x + dither.y - 1.0) * (1.0 / 255.0) * (1.0 - fadeAmount);
+  // Full-strength dither until the frame is exactly the fade colour: a glow falling off under a
+  // near-opaque veil is a very shallow gradient, the first thing to band at 8 bits (G7).
+  c += (dither.x + dither.y - 1.0) * (1.0 / 255.0) * (1.0 - step(1.0, fadeAmount));
   gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
 
