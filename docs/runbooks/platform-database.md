@@ -1,18 +1,20 @@
-# Platform database runbook (Phases 1 to 11 and the Admin redesign)
+# Platform database runbook (Phases 1 to 11, the Admin redesign and the "next level" wave 1)
 
 This runbook applies every pending database change to the production Supabase project, one file at a
 time. It is written for the FITX owner. You do not need to know SQL. "The session" below means the Claude
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **Where production stands (2026-11-20):** it has the 14 files from September 2026, the three changes applied
-  to it by hand that have no file in `supabase/migrations` (section 1.8), and #1 to #41 of section 2
-  (`20261115100000` to `20261120100000`), applied on 2026-11-17, 2026-11-18 and 2026-11-20 and recorded under
-  their own numbers: 58 rows in its history. Those 41 are done; never apply one again.
-- **What is pending:** the four files #42 to #45, `20261121100030` to `20261121100040`, in `supabase/migrations`
-  on `master` once the redesign is merged (until then on the branch `claude/redesign`). That folder is the
-  source of truth. Sections 2 and 3 still list all 45 files, so each summary and Check stays next to its file.
-- **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #42, #43, #44 and #45 in that order
+- **Where production stands (2026-11-21):** it has the 14 files from September 2026, the three changes applied
+  to it by hand that have no file in `supabase/migrations` (section 1.8), and #1 to #45 of section 2
+  (`20261115100000` to `20261121100040`), applied on 2026-11-17, 2026-11-18, 2026-11-20 and 2026-11-21 and recorded
+  under their own numbers: 62 rows in its history. Those 45 are done; never apply one again.
+- **What is pending:** the six files #46 to #51, `20261123100000` to `20261123100060` (the "next level" job's wave 1:
+  the floating AI Coach button setting, Home's quote of the day, the Workouts and Nutrition first-time setups, the
+  new Activity sports and best efforts, and Explore), in `supabase/migrations` on `master` once wave 1 is merged
+  (until then on the branch `claude/next`). That folder is the source of truth. Sections 2 and 3 still list all 51
+  files, so each summary and Check stays next to its file.
+- **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #46, #47, #48, #49, #50 and #51 in that order
   (section 3), then section 6.3 and 6.1. Start 5 to 10 belong to the first sitting, before #1; they are kept as
   its record and need not be run again.
 - **Other runbook:** `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
@@ -40,8 +42,8 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only the four pending files, #42 to #45, and only from `master` (or `claude/redesign` before the merge).
-  Never #1 to #41 again: production has them, and #7 must never run a second time. Never a copy from another
+- Only the six pending files, #46 to #51, and only from `master` (or `claude/next` before the merge).
+  Never #1 to #45 again: production has them, and #7 must never run a second time. Never a copy from another
   branch or worktree, never the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from the
   repository), and never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
   production already has (section 1.8).
@@ -49,14 +51,14 @@ For each file, in the order of section 2:
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Apply #42 to #45 in one sitting, then redeploy Admin and the app (section 6.4) the same
-  day. Admin refuses every sign-in until #42 is applied.
-- The live app keeps working throughout. #42 to #44 add only what Admin uses (and the app's feature switches and
-  notices, which stay on and empty until Admin changes them); #45 takes away rights the app does not use and adds
-  limits far above normal use. The new app checks for each file and works without the ones not applied yet.
-- #42 (45 KB), #43 (43 KB) and #44 (72 KB) are larger than the files the connector took reliably. The session may
-  send them through the SQL editor (section 0.2) instead; it then records each one with the same Record query as
-  #12, with that file's number and name.
+- Pick a quiet time. Apply #46 to #51 in one sitting, then deploy the app (section 6.4) the same day.
+- The live app keeps working throughout: #46 to #51 add columns, Home's quote tables, Explore's own tables,
+  functions and bucket, and a wider sport rule, and change no row the live app reads (#48 and #49 only fill their
+  own new columns). The new app checks for each file and works without the ones not applied yet.
+- #47 (50 KB) and #51 (90 KB) are larger than the files the connector took reliably. The session sends them with
+  the staged, md5-checked method it used for #42 to #45 (each part stored and compared, then the whole file run
+  once and recorded under its own number), or through the SQL editor (section 0.2), recording each one with the
+  same Record query as #12, with that file's number and name.
 
 ### 0.2 The six large files: SQL editor
 
@@ -80,7 +82,7 @@ connector reliably. For each of them:
 
 ### 1.1 Take or confirm a backup
 
-Do this on the day, before the first file of the sitting (#42).
+Do this on the day, before the first file of the sitting (#46).
 
 - Supabase Dashboard → Database → Backups. If it lists daily backups, note the time of the newest one. If it
   lists none (the Free plan has none), make your own copy as below.
@@ -100,27 +102,30 @@ Do this on the day, before the first file of the sitting (#42).
 ### 1.2 What is already applied
 
 ```sql
--- Start 1: the migration history. Expect: 58 rows, from 20260924162506 initial_fitx_schema to 20261120100000 fitx_onboarding_v3
+-- Start 1: the migration history. Expect: 62 rows, from 20260924162506 initial_fitx_schema to 20261121100040 fitx_security_hardening
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
 Expected rows, in version order: the 14 September files (`20260924162506` to `20260930180717`), the three
 changes applied by hand (section 1.8: `20261002172610 fitx_experience_2_0`, `20261002172706
 fitx_share_access_and_index` and `20261116093902 fitx_admin_control_plane`, which comes between #2 and #3), and #1
-to #41 of section 2, each under its file's number and name (History 1 ran after each earlier sitting). The last
-row is `20261120100000 fitx_onboarding_v3`. If there are other rows, a row with a time instead of a file's
-number, or a row for #42 to #45, stop and compare them with section 2 first.
+to #45 of section 2, each under its file's number and name (History 1 ran after each earlier sitting; #42 to #45
+were recorded under their own numbers when they were applied). The last row is `20261121100040
+fitx_security_hardening`. If there are other rows, a row with a time instead of a file's number, or a row for #46 to
+#51, stop and compare them with section 2 first.
 
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the four pending files that are already there. Expect: no rows
+-- Start 2: changes from the six pending files that are already there. Expect: no rows
 select m.file, m.object
 from (values
-  ('20261121100030', 'table', 'admin_operators'),
-  ('20261121100033', 'table', 'platform_settings'),
-  ('20261121100036', 'function', 'fitx_admin_op_report(uuid,integer)'),
-  ('20261121100040', 'table', 'fitx_member_write_budget')
+  ('20261123100000', 'column', 'user_preferences.coach_launcher'),
+  ('20261123100010', 'table', 'daily_quote_history'),
+  ('20261123100020', 'column', 'user_preferences.workout_setup_at'),
+  ('20261123100040', 'column', 'user_preferences.nutrition_setup_at'),
+  ('20261123100050', 'column', 'activities.best_efforts'),
+  ('20261123100060', 'table', 'social_posts')
 ) as m (file, kind, object)
 where case m.kind
   when 'table' then to_regclass('public.' || m.object) is not null
@@ -363,6 +368,12 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 43 | `20261121100033_fitx_admin_ops` | Platform settings (feature switches, maintenance notice, website information), notices to chosen accounts, the Complaint category and unread tracking for Help requests, account search v2, Dashboard and Security summaries; the Dashboard's active counts and trend also count a walk, run or ride (it replaces #32's two functions). | Additive · marks older Help requests read · yes | #42; #26, #32, #34, #35 and #36 | Admin Settings, Notifications, Support inbox and Security; the app's /unavailable page, notices and maintenance banner | Until it is applied the app keeps every feature on, and those Admin screens say they need this update. Before an undo, move complaint rows to another category (section 5). |
 | 44 | `20261121100036_fitx_admin_content` | No table. Type and size limits on `exercise-media`, a public `food-media` bucket, operator functions to edit exercises and their media, publish programmes, edit foods, portions, photos and categories, add and edit subscription plans (never prices), and read report counts. | Additive · yes | #42; #13, #14, #17, #26 and #36 | Admin Workouts, Nutrition, Subscriptions and Reports | Before it is applied those screens say they need this update; Admin Overview is unaffected. Its `food-media` bucket is deleted in Dashboard → Storage, not with SQL. |
 | 45 | `20261121100040_fitx_security_hardening` | The security review: signed-out visitors lose experience 2.0's share function and members its four unused tables; workouts are no longer broadcast; members' photo uploads and how much each member can write an hour and a day get limits; members can join published programmes only. | Takes privileges away, adds limits · yes | The tables it limits: September files, #8, #11, #14, #18, #25, #26, #35, #39, #40 |  Phase 15 hardening | No change members notice: the limits are far above normal use. Until it is applied, the app works as before. |
+| 46 | `20261123100000_fitx_shell_prefs` | The "Floating AI Coach button" setting on the account (`user_preferences.coach_launcher`, on by default). | Additive · yes | September files | Settings → "Floating AI Coach button" saved to the account, on every device | Until it is applied the switch says it applies on this device only. |
+| 47 | `20261123100010_fitx_onboarding_v4` | Home's quote of the day: a library of 372 quotes, the quote each member was shown on each day, and the function that picks it. | Additive · yes | #45 (its write limits) | The same quote on every device, never repeated while unseen ones remain; in "Download my data" | Large (50 KB): section 0.1. Until it is applied Home keeps the quote history in the browser. |
+| 48 | `20261123100020_fitx_workout_setup` | The Workouts first-time setup: when it was finished and the demonstration model (male or female); a model and a caption on exercise media for wave 2. | Additive, fills `workout_setup_at` for members with an equipment list · yes | #11, #13 | Workouts setup asked once, the model choice saved | Until it is applied the setup counts as done for members with an equipment list, and the model follows the profile's sex. |
+| 49 | `20261123100040_fitx_nutrition_v2` | The Nutrition first-time setup: when it was answered. | Additive, fills `nutrition_setup_at` for members with a diet saved · yes | #7 | Nutrition setup asked once | Until it is applied the setup counts as done when a diet is saved. |
+| 50 | `20261123100050_fitx_coach_activity_v2` | Seven more Activity sports (hike, trail run, mountain bike, e-bike, wheelchair, inline skate, paddle) and each activity's best efforts. | Additive (a wider sport rule in place of the old one) · yes | #26 | The new sports on Record and import; best efforts saved with each activity | Until it is applied the app offers walk, run and ride only and works best efforts out on the activity page. Before an undo, delete or change activities of the new sports (section 5). |
+| 51 | `20261123100060_fitx_social_v1` | Explore, part 1: profiles, follows and follow requests, photo posts, hashtags, likes, saves, comments, blocks, restrictions, reports and notifications (15 tables), 56 functions, the private `social-media` bucket with 3 storage policies, rate counters and write limits. | Additive · yes | #45 (its write limits) | Explore | Large (90 KB): section 0.1. Until it is applied Explore says it needs the next update; everything else works as before. Its bucket is emptied and deleted in Dashboard → Storage, not with SQL (section 5). |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1349,7 +1360,111 @@ select
 ```
 
 66 is two triggers on each of the 33 tables members write directly. If `broadcast_tables` is not 0, a table was added
-to Realtime outside these files: tell the session.
+to Realtime outside these files: tell the session. Run later, after #47 and #51, `write_limit_triggers` is higher: they add the
+same limits to their own tables.
+
+### #46 `20261123100000_fitx_shell_prefs`
+
+The Settings switch "Floating AI Coach button". Adds `user_preferences.coach_launcher`, true (the button shows)
+unless the member turns it off; then it stays off after a refresh, a new sign-in or on another device until they
+turn it back on. Hiding the button for one page load is not stored. The owner-only policy, the grants and #45's
+write limits on `user_preferences` already cover the column, so there is no new table, policy or function. It
+changes no row, and a second run changes nothing.
+
+```sql
+-- Check 20261123100000: expect boolean, NO, true
+select data_type, is_nullable, column_default from information_schema.columns
+where table_schema = 'public' and table_name = 'user_preferences' and column_name = 'coach_launcher';
+```
+
+### #47 `20261123100010_fitx_onboarding_v4`
+
+Home's quote of the day. `daily_quotes` holds the library of 372 quotes (members and the app read it; nobody writes
+it from the browser). `daily_quote_history` keeps which quote each member was shown on each local day: one row per
+member and day, never the same quote twice for one member; members read only their own rows and write none
+directly, the function below writes them, #45's write limits count them, and they go with the account and are in
+"Download my data". `fitx_daily_quote(date, text[])` picks the day's quote (`security definer`, `search_path = ''`,
+for signed-in members only). It changes no existing row, and a second run changes nothing.
+
+```sql
+-- Check 20261123100010: expect 372, t, t, 2
+select (select count(*) from public.daily_quotes) as quotes,
+       pg_catalog.to_regclass('public.daily_quote_history') is not null as history,
+       pg_catalog.to_regprocedure('public.fitx_daily_quote(date,text[])') is not null as picker,
+       (select count(*) from pg_catalog.pg_trigger where tgrelid = 'public.daily_quote_history'::regclass and tgname like 'fitx_write_budget_%') as budget_triggers;
+```
+
+### #48 `20261123100020_fitx_workout_setup`
+
+The Workouts first-time setup. Adds `user_preferences.workout_setup_at` (when the member last finished it; null:
+not yet) and `user_preferences.demo_model` (`male`, `female`, or null to follow the profile's sex), with the named
+check `user_preferences_demo_model_check`. The setup's other answers use columns that exist already. For wave 2's
+demonstration media it adds `exercise_media.model` and `exercise_media.caption` (at most 280 characters), with the
+named checks `exercise_media_model_check` and `exercise_media_caption_check`; the unique key on `exercise_media`
+stays. It sets `workout_setup_at` to now for members who already have an equipment list, so nobody who set up
+training is asked again, and changes no other row. A second run changes nothing.
+
+```sql
+-- Check 20261123100020: expect 4
+select count(*) from information_schema.columns where table_schema = 'public' and ((table_name = 'user_preferences' and column_name in ('workout_setup_at', 'demo_model')) or (table_name = 'exercise_media' and column_name in ('model', 'caption')));
+```
+
+### #49 `20261123100040_fitx_nutrition_v2`
+
+The Nutrition first-time setup. Onboarding no longer asks the food questions; Nutrition asks them once and saves
+them in the `user_preferences` columns that hold them already. This adds only `user_preferences.nutrition_setup_at`
+(null until the setup is answered), with no default, so the table is not rewritten. The old onboarding required a
+diet, so every row with a diet is marked answered now; nobody is asked again. It changes no other row, and a second
+run changes nothing.
+
+```sql
+-- Check 20261123100040: expect 0, 1
+select count(*) filter (where nutrition_setup_at is null and diet_type is not null) as missed,
+       (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'user_preferences' and column_name = 'nutrition_setup_at') as col
+from public.user_preferences;
+```
+
+### #50 `20261123100050_fitx_coach_activity_v2`
+
+More Activity sports and best efforts. The rule on `activities.sport` (named `activities_sport_check`) is replaced,
+in one transaction and only while it does not list them yet, by one that also accepts hike, trail_run, mtb, ebike,
+wheelchair, skate and paddle; walk, run and ride stay, and every existing row passes it. Adds
+`activities.best_efforts` (the fastest time for each benchmark distance inside one activity, worked out on the
+device) with the check `activities_best_efforts_check` (null, or a list of at most 20 entries and 4,000 bytes). No
+new table, policy, function or grant: the owner-only policies on `activities` cover the column, and it is part of
+the activities in "Download my data". It changes no row, and a second run changes nothing.
+
+```sql
+-- Check 20261123100050: expect t, t, t
+select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'activities' and column_name = 'best_efforts') as best_efforts,
+       (select position('paddle' in pg_get_constraintdef(oid)) > 0 from pg_constraint where conname = 'activities_sport_check' and conrelid = 'public.activities'::regclass) as sport_check_lists_paddle,
+       exists (select 1 from pg_constraint where conname = 'activities_best_efforts_check' and conrelid = 'public.activities'::regclass) as best_efforts_check;
+```
+
+### #51 `20261123100060_fitx_social_v1`
+
+Explore, part 1. Fifteen tables, all with row level security: profiles (a separate Explore profile, public or
+private), follows and follow requests, photo posts and their photos, hashtags, likes, saves, comments with
+replies, blocks, restrictions, reports, notifications and notification settings, and the anti-spam counters.
+Members read rows only through the 18 select and storage policies, which call visibility helpers (a block either
+way hides everything; a private account's posts reach only its accepted followers), and write nothing directly:
+every change goes through one of the 56 `fitx_social_*` functions (`security definer`, `search_path = ''`), which
+take the member from the session and check blocks, privacy, sizes and daily limits first. Every table a member's
+action writes has #45's write limits (28 triggers). Photos go to the new private `social-media` bucket (WebP or
+JPEG, at most 3 MB each), at `<member>/<post>/<n>`; a file can be read only by its owner and by members who may see
+its post or profile. Members' Explore rows are in "Download my data" (the counters are left out) and go with the
+account; the app removes the account's photos from the bucket before it deletes the login. It touches no existing
+table, row or policy, and a second run changes nothing.
+
+```sql
+-- Check 20261123100060: expect 15, 18, 56, 0, 1, 28
+select (select count(*) from pg_tables where schemaname = 'public' and tablename like 'social\_%' and rowsecurity) as tables_with_rls,
+       (select count(*) from pg_policies where (schemaname = 'public' and tablename like 'social\_%') or (schemaname = 'storage' and policyname like 'social\_media\_%')) as policies,
+       (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%') as functions,
+       (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%' and prosecdef and not coalesce(proconfig, '{}') @> array['search_path=""']) as definer_without_search_path,
+       (select count(*) from storage.buckets where id = 'social-media' and not public and file_size_limit = 3145728 and allowed_mime_types = array['image/webp','image/jpeg']) as bucket,
+       (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid where c.relname like 'social\_%' and t.tgname like 'fitx\_write\_budget\_%') as budget_triggers;
+```
 
 ## 4. If a migration fails part-way
 
@@ -1401,6 +1516,12 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
+| 51 | First empty the `social-media` bucket and then delete it in Dashboard → Storage (Storage refuses to delete a bucket that still holds files, and its files are deleted with the Storage API, not with SQL). Then the SQL below. Deletes every Explore profile, post, comment, like, save, follow, block, restriction, report and notification, its functions and its storage policies; Explore then says it needs the next update. |
+| 50 | First run its Before undo query: if it is not 0, delete those activities (or change their sport to walk, run or ride) or the last step fails. Then the SQL below. Drops every saved best effort and puts back the walk, run and ride rule; the app offers those three only again. |
+| 49 | SQL below. Drops when each member answered the Nutrition setup; the app then counts the setup as done when a diet is saved. The answers stay. |
+| 48 | SQL below. Drops the setup time, the demonstration model choice and exercise media's model and caption; the app then counts the setup as done for members with an equipment list, and the model follows the profile's sex. |
+| 47 | SQL below. Drops the quote library and every member's quote history; Home falls back to a history kept in the browser. |
+| 46 | SQL below. Drops the switch's stored value: the button shows again for everyone, and the switch applies on each device only. |
 | 45 | SQL below. Puts back the share function for signed-out visitors, members' rights on experience 2.0's four tables and the workouts broadcast, and drops the photo and write limits (with their counts) and the published-programmes rule. |
 | 44 | SQL below, then delete the `food-media` bucket (and the photos in it) in Dashboard → Storage, not with SQL. Admin's Workouts, Nutrition, Subscriptions and Reports then say they need the update; exercises, foods and plans already saved stay. |
 | 43 | First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. The Dashboard's active counts keep counting walks, runs and rides; to count them as before, run #32's file again. Audit rows it wrote stay: the audit log is permanent. |
@@ -1439,6 +1560,64 @@ feature off in the app is usually better than an undo.
 | 3 | SQL below. The app then treats every account as having seen the film. |
 | 2 | SQL below. On production the five fields came with experience 2.0 (1.8) and hold the live app's targets and set times, so it drops only #2's five range checks. |
 | 1 | SQL below. Drops the saved active time and stretch start; open workouts keep their clock in the browser again. On production `paused_at` came with experience 2.0 (1.8), so it stays, but emptied: otherwise #1, applied again later, would show each workout that was paused at the undo as paused with no time. |
+
+```sql
+-- Undo 20261123100060 (writes; empty and delete the social-media bucket in Dashboard → Storage first)
+begin;
+drop policy if exists social_media_read on storage.objects;
+drop policy if exists social_media_insert on storage.objects;
+drop policy if exists social_media_delete on storage.objects;
+drop table if exists public.social_notifications, public.social_notification_prefs, public.social_reports, public.social_restricts,
+  public.social_blocks, public.social_comments, public.social_saves, public.social_likes, public.social_post_hashtags,
+  public.social_hashtags, public.social_post_media, public.social_posts, public.social_follows, public.social_profiles,
+  public.social_rate_counters cascade;
+do $do$
+declare v_fn regprocedure;
+begin
+  for v_fn in select p.oid::regprocedure from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'fitx\_social\_%' loop
+    execute format('drop function if exists %s cascade', v_fn);
+  end loop;
+end $do$;
+commit;
+```
+
+```sql
+-- Before undo 20261123100050: activities of the sports the undo takes away. Expect: 0
+select count(*) as new_sport_activities from public.activities where sport not in ('walk', 'run', 'ride');
+```
+
+```sql
+-- Undo 20261123100050 (writes)
+begin;
+alter table public.activities drop constraint if exists activities_best_efforts_check;
+alter table public.activities drop column if exists best_efforts;
+alter table public.activities drop constraint if exists activities_sport_check;
+alter table public.activities add constraint activities_sport_check check (sport in ('walk', 'run', 'ride'));
+commit;
+```
+
+```sql
+-- Undo 20261123100040 (writes)
+alter table public.user_preferences drop column if exists nutrition_setup_at;
+```
+
+```sql
+-- Undo 20261123100020 (writes)
+alter table public.exercise_media drop constraint if exists exercise_media_caption_check, drop constraint if exists exercise_media_model_check, drop column if exists caption, drop column if exists model;
+alter table public.user_preferences drop constraint if exists user_preferences_demo_model_check, drop column if exists demo_model, drop column if exists workout_setup_at;
+```
+
+```sql
+-- Undo 20261123100010 (writes)
+drop function if exists public.fitx_daily_quote(date, text[]);
+drop table if exists public.daily_quote_history;
+drop table if exists public.daily_quotes;
+```
+
+```sql
+-- Undo 20261123100000 (writes)
+alter table public.user_preferences drop column if exists coach_launcher;
+```
 
 ```sql
 -- Undo 20261121100040 (writes; puts back what #45 locked down and drops its limits)
@@ -1896,7 +2075,7 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 Before #45 it listed experience 2.0's `get_activity_share`, which #45 locks down (section 1.8). Any row: tell the
 session.
 
-Then run Start 2 again: now it lists all four rows.
+Then run Start 2 again: now it lists all six rows.
 
 The ten tables in Final 2 are reached only by database functions or the server key, which is why they have
 no policy. Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
@@ -1915,9 +2094,9 @@ The connector records each file under the time it ran, not under the file's numb
 the repository already carry the numbers production recorded. The three changes of section 1.8 have their own
 numbers and no file; the queries below leave their rows alone. One of them, the old Admin draft, has the same
 name as #29, `fitx_admin_control_plane`, which is why they leave those three out. Give each new row its file's
-number once, after the last file. It writes to the history table only. #1 to #41 already carry their numbers
-(History 1 ran after each earlier sitting), so in this sitting it changes only the rows of #42 to #45 that the
-connector recorded under a time: four rows at most.
+number once, after the last file. It writes to the history table only. #1 to #45 already carry their numbers
+(History 1 ran after each earlier sitting), so in this sitting it changes only the rows of #46 to #51 that the
+connector recorded under a time: six rows at most.
 
 ```sql
 -- History 0: files recorded twice. Expect: no rows
@@ -1957,7 +2136,10 @@ from (values
   ('20261119100010', 'fitx_exercise_notes'), ('20261119100020', 'fitx_exercise_favorites'),
   ('20261120100000', 'fitx_onboarding_v3'), ('20261121100030', 'fitx_admin_v2'),
   ('20261121100033', 'fitx_admin_ops'), ('20261121100036', 'fitx_admin_content'),
-  ('20261121100040', 'fitx_security_hardening')
+  ('20261121100040', 'fitx_security_hardening'), ('20261123100000', 'fitx_shell_prefs'),
+  ('20261123100010', 'fitx_onboarding_v4'), ('20261123100020', 'fitx_workout_setup'),
+  ('20261123100040', 'fitx_nutrition_v2'), ('20261123100050', 'fitx_coach_activity_v2'),
+  ('20261123100060', 'fitx_social_v1')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and h.version not in ('20261002172610', '20261002172706', '20261116093902')
@@ -1965,7 +2147,7 @@ where h.name = f.name and h.version <> f.version
 ```
 
 ```sql
--- History 2: expect 62 rows in version order: the 14 September ones, the three of section 1.8 and the 45 files of section 2, with their numbers and names
+-- History 2: expect 68 rows in version order: the 14 September ones, the three of section 1.8 and the 51 files of section 2, with their numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
@@ -1985,7 +2167,8 @@ Set the variables in section 7 first. Then ship the new app (the redesign, `clau
 `master`) to production as planned. If the food parts wait (section 2.1), deploy after #36 and apply #20 to #24 and #37 afterwards. Both Vercel projects build from the same repository: the FITX site (`fitnessx`) and Admin
 (`admin`). If Admin's build is skipped because of its path filter, redeploy it as in `admin/README.md`,
 "Automatic deployments and path filters". Apply #42 to #44 before Admin is redeployed: without #42, Admin refuses
-every sign-in.
+every sign-in. For the "next level" wave 1, apply #46 to #51 first, then deploy `claude/next` merged into `master`; the
+app checks for each of them and works without the ones not applied yet.
 
 ### 6.5 First super-admin
 
@@ -2012,6 +2195,8 @@ contains their values.
 | AI coach | `fitnessx` | `AI_COACH_ENABLED` | `false` pauses every AI feature at once. Leave unset otherwise. |
 | AI coach | `fitnessx` | `AI_GEMINI_WITH_MEMBER_DATA` | Leave unset unless you accept it: on Gemini's free tier Google may use prompts and people at Google may read them. Unset, Gemini only gets questions without the member's data. |
 | AI coach | `fitnessx` | `AI_ALLOW_PAID` | Leave unset. It would allow paid models. |
+| AI coach, "next level" wave 1 | `fitnessx` | `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; optional `CEREBRAS_API_KEY`, `MISTRAL_API_KEY` | Workers AI needs both Cloudflare values. Like Gemini, Cerebras and Mistral get only questions without the member's data unless `AI_CEREBRAS_WITH_MEMBER_DATA` or `AI_MISTRAL_WITH_MEMBER_DATA` is set; leave those unset unless you accept their free tiers' terms. `docs/runbooks/ai-coach.md` has the details. |
+| Google sign-in name, "next level" wave 1 | `fitnessx` | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google Cloud: add `https://fitnessx.vercel.app` as an authorised JavaScript origin of the OAuth client; Supabase → Authentication → Google: add the client ID to the authorised client IDs. Until it is set, Google sign-in uses the redirect as before. `docs/runbooks/google-sign-in.md` has the steps. |
 | Activity (#26, #27) | Supabase | Switch on pg_cron | Before #27 (section 3, #27). No variables needed. Optional: `NEXT_PUBLIC_ACTIVITY_MAP_STYLE_LIGHT` and `_DARK` replace the free OpenFreeMap maps. |
 | Exercise photos (#13), optional later | this Mac | `scripts/catalog/mirror-media.mjs` | Copies the photos into the `exercise-media` bucket so they stop loading from GitHub. You run it with the secret key in your own Terminal; see the script's header. |
 | Admin (#29 to #35, #42 to #44) | `admin` | Domain `fitnessx-admin.vercel.app` | Vercel → admin project → Settings → Domains → Add, for Production. If the name is taken, pick another free `.vercel.app` name and use it everywhere below. |
