@@ -60,14 +60,20 @@ describe("demonstration models and captions (20261123100020)", () => {
     assert.deepEqual(male.videos.map((item) => [item.url, item.caption]), [["https://example.org/male.mp4", "Keep a straight line."]]);
   });
 
-  test("with no choice, or a model the kind lacks, one model is shown, never both", () => {
+  test("with no choice, or a model the kind lacks, one person is shown, never both; Free Exercise DB is the fallback", () => {
     assert.equal(resolveExerciseMedia({ exerciseId: "push_up", name: "Push-Up", rows }).videos.length, 1);
-    const items: MediaItem[] = [
-      { kind: "still", url: "a", alt: "", position: 0, selfHosted: false, attribution: "", license: "" },
-      { kind: "still", url: "b", alt: "", position: 1, selfHosted: false, attribution: "", license: "", model: "male" },
-    ];
-    assert.deepEqual(forModel(items, "female").map((item) => item.url), ["a", "b"]);
-    assert.deepEqual(forModel(items, null).map((item) => item.url), ["a", "b"]);
+    const still = (url: string, position: number, model?: "male" | "female"): MediaItem => ({ kind: "still", url, alt: "", position, selfHosted: false, attribution: "", license: "", ...(model ? { model } : {}) });
+    const items: MediaItem[] = [still("photo-0", 0), still("photo-1", 1), still("male-0", 2, "male"), still("male-1", 3, "male")];
+    // The member's model exists: only it is shown, the photos tied to no model are dropped.
+    assert.deepEqual(forModel(items, "male").map((item) => item.url), ["male-0", "male-1"]);
+    // The member's model is missing: the photos, never the other person.
+    assert.deepEqual(forModel(items, "female").map((item) => item.url), ["photo-0", "photo-1"]);
+    // No choice: the photos.
+    assert.deepEqual(forModel(items, null).map((item) => item.url), ["photo-0", "photo-1"]);
+    // No photos at all: one model, never both.
+    const onlyModels = [still("male-0", 2, "male"), still("female-0", 4, "female")];
+    assert.deepEqual(forModel(onlyModels, null).map((item) => item.url), ["male-0"]);
+    assert.deepEqual(forModel(onlyModels, "female").map((item) => item.url), ["female-0"]);
   });
 
   test("the model and caption columns are read only once they exist", () => {

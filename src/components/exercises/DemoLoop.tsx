@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * DemoLoop: an exercise's real photos played as a looping demonstration (phase 12). The Free Exercise DB has two
- * public-domain photos per movement; they blend one into the other and back, one repetition at a time, with
- * Play/Pause, Replay, Loop and half speed. It says plainly that these are photos and that no verified video exists.
+ * DemoLoop: an exercise's two frames played as a looping demonstration (phases 12 and 13): the Free Exercise DB's
+ * public-domain photos, or FITX's AI demonstration made from them (a male and a female model). They blend one into
+ * the other and back, one repetition at a time, with Play/Pause, Replay, Loop and half speed. Each frame has its own
+ * caption, which changes exactly when the frame does and is read out only while the loop is paused. It says plainly
+ * what the pictures are and that no verified video exists. With both models, "Demonstration model" switches person.
  *
  * Motion is opacity and a slight scale only. It never starts on its own while the device asks for reduced motion
  * (Play still works, without the blend), and it pauses while off screen or while the tab is hidden.
@@ -12,11 +14,12 @@
  *   <DemoLoop stills={media.stills} name="Push-Up" size="compact" />  the live workout and sheets
  */
 import Image from "next/image";
-import { useEffect, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Pause, Play, Repeat, RotateCcw, VideoOff } from "lucide-react";
 import { usePageVisible, useReducedMotionSafe } from "@/components/motion";
 import { SUPABASE_URL } from "@/lib/supabase/client";
-import { isOptimizableImageUrl, mediaCreditLines, type MediaItem } from "@/lib/training/media";
+import { DEMO_LABEL, isOptimizableImageUrl, mediaCreditLines, type DemoModelKey, type MediaItem } from "@/lib/training/media";
+import { DEMO_MODEL_LABELS } from "@/lib/training/setup";
 import { cn } from "@/lib/utils";
 import {
   advanceDemo, blendDuration, frameInterval, frameLabel, initialDemoState, replayDemo, showFrame, togglePlay,
@@ -51,8 +54,23 @@ function useOnScreen<T extends Element>() {
   return [ref, onScreen] as const;
 }
 
-export function DemoLoop({ stills, name, size = "full", className, whenEmpty = null }: { stills: readonly MediaItem[]; name: string; size?: "full" | "compact"; className?: string; /** Shown when every photo fails to load. */ whenEmpty?: ReactNode }) {
+type DemoLoopProps = {
+  stills: readonly MediaItem[];
+  name: string;
+  size?: "full" | "compact";
+  className?: string;
+  /** Shown when every photo fails to load. */
+  whenEmpty?: ReactNode;
+  /** The models this exercise's demonstration has; with both, the "Demonstration model" choice shows. */
+  models?: readonly DemoModelKey[];
+  /** The model on screen (checked in the choice). */
+  model?: DemoModelKey | null;
+  onModelChange?: (model: DemoModelKey) => void;
+};
+
+export function DemoLoop({ stills, name, size = "full", className, whenEmpty = null, models = [], model = null, onModelChange }: DemoLoopProps) {
   const reducedMotion = useReducedMotionSafe();
+  const radioName = useId();
   const [failed, setFailed] = useState<readonly string[]>([]);
   const shown = stills.filter((still) => !failed.includes(still.url));
   const frames = shown.length;
@@ -80,11 +98,16 @@ export function DemoLoop({ stills, name, size = "full", className, whenEmpty = n
   if (!frames) return <>{whenEmpty}</>;
   const blend = blendDuration(speed, reducedMotion);
   const credits = mediaCreditLines(shown);
-  const caption = shown.find((still) => still.caption)?.caption ?? null;
+  // The caption of the frame on screen: it changes exactly when the frame does.
+  const caption = shown[frame]?.caption ?? null;
   const compact = size === "compact";
+  const aiDemo = shown.some((still) => still.aiDemo);
+  const chooser = onModelChange && models.length > 1;
+  // The caption row stays in place for the whole loop, so a frame without a caption never makes the controls jump.
+  const hasCaptions = shown.some((still) => still.caption);
 
   return (
-    <figure className={cn("m-0", className)} aria-label={`${name}: photo demonstration`}>
+    <figure className={cn("m-0", className)} aria-label={`${name}: ${aiDemo ? "AI demonstration" : "photo demonstration"}`}>
       <div ref={stageRef} className={cn(styles.stage, compact && styles.compact)}>
         {shown.map((still, index) => (
           <Image
@@ -106,6 +129,23 @@ export function DemoLoop({ stills, name, size = "full", className, whenEmpty = n
           <span className={styles.counter} aria-hidden="true">{frame + 1}/{frames}</span>
         )}
       </div>
+      {(hasCaptions || chooser) && (
+        <div className={styles.lead}>
+          <p className={styles.frameCaption} data-demo-caption aria-live={state.playing ? "off" : "polite"} aria-atomic="true">
+            {caption && <span key={`${frame}-${caption}`} className={styles.captionText}>{caption}</span>}
+          </p>
+          {chooser && (
+            <div role="radiogroup" aria-label="Demonstration model" className={styles.models}>
+              {models.map((value) => (
+                <label key={value} className={cn(styles.model, value === model && styles.modelOn)}>
+                  <input type="radio" name={radioName} value={value} checked={value === model} onChange={() => onModelChange(value)} className={styles.modelInput} />
+                  <span>{DEMO_MODEL_LABELS[value]}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {frames > 1 && (
         <div className={styles.controls} role="group" aria-label={`${name}: demonstration controls`}>
           <button type="button" className={cn(styles.control, styles.primary)} onClick={() => dispatch({ type: "toggle", frames })}
@@ -132,8 +172,9 @@ export function DemoLoop({ stills, name, size = "full", className, whenEmpty = n
         </div>
       )}
       <figcaption className={styles.caption}>
-        {caption && <span className="block text-fitx-text-secondary">{caption}</span>}
-        {!compact && <span className="block">Real photos of the movement, played in order. A video demonstration is not available yet.</span>}
+        {aiDemo
+          ? <span className="block">{DEMO_LABEL}.{compact ? "" : " A video demonstration is not available yet."}</span>
+          : !compact && <span className="block">Real photos of the movement, played in order. A video demonstration is not available yet.</span>}
         {credits.map((line) => <span key={line} className="block text-[11px] text-fitx-text-disabled">{line}</span>)}
       </figcaption>
     </figure>

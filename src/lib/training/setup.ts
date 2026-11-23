@@ -9,7 +9,7 @@
  * their answers at any time from Workouts.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { columnList, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { columnList, isMissingColumnError, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { loadEquipmentProfiles, saveEquipmentProfile, type EquipmentProfiles } from "./data";
 import { sortEquipmentKeys } from "./equipment";
 import { LEVELS, type Level, type TrainingContext } from "./taxonomy";
@@ -200,4 +200,39 @@ export async function saveWorkoutSetup(db: Db, userId: string, answers: SetupAns
     return db.from("user_preferences").upsert(payload, { onConflict: "user_id" });
   });
   return { error: outcome.result.error, storedSetupTime: outcome.includedOptional && !outcome.result.error };
+}
+
+/**
+ * Only the demonstration model, for the pages that need nothing else (useDemoModel): the member's choice and their
+ * profile's gender, read together. Before 20261123100020 the choice is not stored and the gender decides.
+ */
+export async function loadDemoModel(db: Pick<SupabaseClient, "from">, userId: string): Promise<DemoModel | null> {
+  const [preferences, profile] = await Promise.all([
+    withOptionalColumns(["demo_model"] as const, (include) =>
+      db.from("user_preferences").select(include ? "demo_model" : "user_id").eq("user_id", userId).maybeSingle()),
+    db.from("profiles").select("gender").eq("id", userId).maybeSingle(),
+  ]);
+  const choice = preferences.result.error ? null : ((preferences.result.data ?? null) as { demo_model?: unknown } | null)?.demo_model;
+  const gender = profile.error ? null : ((profile.data ?? null) as { gender?: unknown } | null)?.gender;
+  return resolveDemoModel(choice, gender);
+}
+
+/**
+ * Saves the member's demonstration model on its own (the "Demonstration model" choice beside a demonstration). It
+ * changes nothing else: it updates the member's preferences row, and only when there is none yet does it add one.
+ * Returns `stored: false` when the column is not there yet (before 20261123100020).
+ */
+export async function saveDemoModel(db: Pick<SupabaseClient, "from">, userId: string, model: DemoModel): Promise<{ error: unknown; stored: boolean }> {
+  const value = asDemoModel(model);
+  if (!value) return { error: new Error("Unknown demonstration model"), stored: false };
+  const updated = await db.from("user_preferences").update({ demo_model: value }).eq("user_id", userId).select("user_id");
+  if (updated.error) return isMissingColumn(updated.error) ? { error: null, stored: false } : { error: updated.error, stored: false };
+  if (Array.isArray(updated.data) && updated.data.length) return { error: null, stored: true };
+  const inserted = await db.from("user_preferences").upsert({ user_id: userId, demo_model: value }, { onConflict: "user_id" });
+  if (inserted.error) return isMissingColumn(inserted.error) ? { error: null, stored: false } : { error: inserted.error, stored: false };
+  return { error: null, stored: true };
+}
+
+function isMissingColumn(error: unknown): boolean {
+  return isMissingColumnError(error, ["demo_model"]);
 }
