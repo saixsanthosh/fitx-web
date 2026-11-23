@@ -85,7 +85,7 @@ export const CAPABILITIES: readonly Capability[] = [
     id: "explore",
     tab: "Explore",
     title: "Share the work, if you want to.",
-    line: "Photo posts, follows and comments. A private account approves each follower.",
+    line: "Posts, stories, communities, challenges and messages. Private accounts approve followers.",
     image: EXPLORE_MEDIA.bodybuilding,
     focus: "50% 45%",
     href: EXPLORE,

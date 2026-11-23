@@ -139,10 +139,21 @@ test("each card claims only what the code does", () => {
   const sports = read("src/lib/activity/types.ts").match(/export type Sport = ([^;]+);/)?.[1] ?? "";
   for (const sport of ["walk", "run", "ride"]) assert.match(sports, new RegExp(`"${sport}"`), sport);
   assert.equal(CAPABILITIES.find((item) => item.id === "form")?.href, "/workouts/form-check", "Form Check opens AI Form Check itself");
-  assert.match(line("explore"), /Photo posts, follows and comments/);
+  // Posts (with their follows and comments, wave 1's Explore part 1).
+  assert.match(line("explore"), /^Posts, /);
   const social = read("supabase/migrations/20261123100060_fitx_social_v1.sql");
   for (const table of ["social_posts", "social_post_media", "social_follows", "social_comments"]) assert.match(social, new RegExp(`create table if not exists public\\.${table}\\b`), table);
-  assert.match(line("explore"), /private account approves each follower/);
+  // Release 2a: 24-hour stories, communities, challenges and direct messages, each built and shown in Explore.
+  assert.match(line("explore"), /^Posts, stories, communities, challenges and messages\. /);
+  const social2 = ["20261124100000_fitx_social_v2_core.sql", "20261124100010_fitx_social_v2_groups.sql"].map((file) => read(`supabase/migrations/${file}`)).join("\n");
+  for (const table of ["social_stories", "social_communities", "social_challenges", "social_messages"]) assert.match(social2, new RegExp(`create table if not exists public\\.${table}\\b`), table);
+  const rail = read("src/lib/social/rail.ts");
+  assert.match(rail, /key: "community", label: "Community", href: "\/explore\/community", ready: true \}/, "communities and challenges are in the Explore menu");
+  assert.ok(existsSync(new URL("src/app/(dashboard)/explore/challenges", ROOT)), "challenges have their own pages");
+  assert.match(rail, /key: "messages", label: "Messages", href: "\/explore\/messages", ready: true \}/, "messages are in the Explore menu");
+  assert.match(rail, /key: "story", label: "Story", hint: "Gone after 24 hours", href: "\/explore\/stories\/new", ready: true \}/, "stories can be made");
+  assert.doesNotMatch(line("explore"), /video/i, "videos stay behind Admin's explore_video switch, which is off");
+  assert.match(line("explore"), /Private accounts approve followers\.$/);
   assert.match(social, /is_private/, "private accounts");
   assert.match(social, /'pending'/, "follow requests wait for approval");
   for (const item of CAPABILITIES) {
