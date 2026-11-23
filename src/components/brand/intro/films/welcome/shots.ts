@@ -35,7 +35,7 @@ import type { Theme } from "../../types";
 import type { FilmComposition } from "../../../films/compositions";
 import { CRANE_LIMITS, closestRevealRatio, ignitionAt, MARK_IGNITION_ORDER, topDownFraming } from "./mark-floor";
 import { LOADS, plateTravel, poseLoad, poseStand, type LoadSpec } from "./load-motion";
-import { BAR_CENTRE, INLAY_TOP, PLATE_SEATS, placePlate, plateWorld, resetWelcomeProps, showPlates, sleeveZ, welcomePlates, welcomeProps, WELCOME_COLOURS } from "./props";
+import { BAR_CENTRE, INLAY_TOP, leoIndoors, PLATE_SEATS, placePlate, plateWorld, resetWelcomeProps, showPlates, sleeveZ, welcomePlates, welcomeProps, WELCOME_COLOURS } from "./props";
 import { WELCOME_BEATS, WELCOME_DURATION, WELCOME_SHOTS } from "./timeline";
 
 const SHOT = Object.fromEntries(WELCOME_SHOTS.map((shot) => [shot.id, shot])) as Record<(typeof WELCOME_SHOTS)[number]["id"], (typeof WELCOME_SHOTS)[number]>;
@@ -189,10 +189,16 @@ export function stripLevel(time: number) {
   return Math.max(level, 0.12 * window01(WELCOME_BEATS.flicker[2], WELCOME_BEATS.lightOn, time));
 }
 
-function base(ctx: ShotContext) {
+function base(ctx: ShotContext, cast: readonly CharacterId[] = []) {
   const welcome = welcomeProps(ctx.sets.gym, ctx.theme);
   welcome.applyTheme(ctx.theme);
   resetWelcomeProps(welcome, ctx.props.barbell);
+  // D11: indoors Leo has his helmet off (set down by the platform) and his sunglasses off, in every shot he is in.
+  // `hideStage` put them back on him before this `enter`, so this runs at every such shot's start (seeks included).
+  // Only for the shots that cast him, so no frame depends on whether he happened to be assembled already; the spot is
+  // out of frame in the others (tested).
+  const leo = ctx.cast.leo;
+  if (leo && cast.includes("leo")) leoIndoors(welcome, leo);
   return welcome;
 }
 
@@ -350,7 +356,7 @@ const shotLeo: ShotModule = {
   start: SHOT["w2-leo"].start,
   end: SHOT["w2-leo"].end,
   enter(ctx) {
-    base(ctx);
+    base(ctx, shotLeo.cast);
     showPlates(ctx.props.barbell, 2);
   },
   update(ctx, frame) {
@@ -492,7 +498,7 @@ const shotCrane: ShotModule = {
   start: SHOT["w4-crane"].start,
   end: SHOT["w4-crane"].end,
   enter(ctx) {
-    base(ctx);
+    base(ctx, shotCrane.cast);
     showPlates(ctx.props.barbell, 3);
   },
   update(ctx, frame) {
@@ -556,7 +562,7 @@ const shotIgnite: ShotModule = {
   start: SHOT["w5-ignite"].start,
   end: SHOT["w5-ignite"].end,
   enter(ctx) {
-    base(ctx);
+    base(ctx, shotIgnite.cast);
     showPlates(ctx.props.barbell, 3);
   },
   update(ctx, frame) {
