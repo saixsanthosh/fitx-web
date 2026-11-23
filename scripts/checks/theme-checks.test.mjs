@@ -98,7 +98,6 @@ test("files converted to tokens in this stream contain no raw colours", () => {
     "src/components/app/ProgressRing.tsx",
     "src/components/ui/Toaster.tsx",
     "src/app/(auth)/onboarding/page.tsx",
-    "src/app/(marketing)/page.module.css",
     "src/components/landing/landing.module.css",
     "src/app/(dashboard)/dashboard",
     "src/app/(dashboard)/goals",
