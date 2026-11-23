@@ -1,5 +1,6 @@
 // Flow 14: the public home page, four screens. The film plays behind the headline and its chapter rail jumps the
-// film; the capability deck moves on by itself, answers tabs, arrow keys and the idli stepper; the idea and the
+// film; the capability deck moves on by itself, holds still under keyboard focus, pauses and plays, answers tabs, arrow
+// keys and the idli stepper, and shows its seventh (Explore) card; the idea and the
 // contact cards show; nothing scrolls sideways and the page stays short; with reduced motion nothing moves (no film,
 // no auto-advance) and the brand loader stays away; a returning device gets the short loader.
 import { skipFilmIfShown, textOf } from "./common.mjs";
@@ -55,6 +56,8 @@ export const flow = {
     await t.step("the capability deck moves on by itself while on screen", async () => {
       await page.locator("#capabilities").scrollIntoViewIfNeeded();
       await page.locator("#capabilities").evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
+      // A mouse resting over the picture makes the deck wait, so keep the pointer off it.
+      await page.mouse.move(1, 1);
       const before = await deckState(page);
       t.expect(before.tabs === 7 && before.visiblePanels === 1, "seven cards, one showing", before);
       await page.waitForFunction((first) => {
@@ -65,6 +68,35 @@ export const flow = {
       t.note("deck before and after waiting", { before, after });
       t.expect(after.selected !== before.selected, "the next card comes up by itself", { before, after });
       await t.checkpoint("deck", { fullPage: false, settle: false });
+    });
+
+    await t.step("keyboard focus on a card's link holds the deck; Pause stops it and only Play starts it again", async () => {
+      const link = page.locator('#capabilities [role="tabpanel"]:not([hidden]) a').first();
+      const name = await textOf(link);
+      await link.focus();
+      await page.waitForTimeout(8000);
+      const held = await page.evaluate(() => {
+        const focused = document.activeElement;
+        return {
+          focused: focused?.tagName === "A" ? (focused.textContent ?? "").replace(/\s+/g, " ").trim() : focused?.tagName ?? null,
+          hidden: Boolean(focused?.closest('[role="tabpanel"]')?.hidden),
+          auto: document.querySelector("#capabilities")?.getAttribute("data-auto"),
+        };
+      });
+      t.note("after 8 s with focus on the card's link", { name, held });
+      t.expect(held.focused === name && !held.hidden, "the focused link is still there and still focused", { name, held });
+      t.expect(held.auto === "false", "focus holds the deck", held);
+      await page.getByRole("button", { name: "Pause cards" }).click();
+      await page.getByRole("button", { name: "Play cards" }).waitFor();
+      const paused = await page.evaluate(() => ({
+        auto: document.querySelector("#capabilities")?.getAttribute("data-auto"),
+        moving: document.querySelectorAll('#capabilities [data-moving="true"]').length,
+      }));
+      t.expect(paused.auto === "false" && paused.moving === 0, "Pause stops the deck and its pictures", paused);
+      await page.getByRole("button", { name: "Play cards" }).click();
+      await page.getByRole("button", { name: "Pause cards" }).waitFor();
+      await page.mouse.move(1, 1);
+      t.expect((await deckState(page)).auto === "true", "Play starts the deck moving on again");
     });
 
     await t.step("tabs and arrow keys choose a card, and then the deck stays put", async () => {
@@ -87,6 +119,18 @@ export const flow = {
       const after = await textOf(card);
       t.expect(/≈ 76 g/.test(before) && /≈ 114 g/.test(after), "two idli are 76 g, three are 114 g", { before, after });
       await t.checkpoint("deck fuel", { fullPage: false, settle: false });
+    });
+
+    await t.step("the seventh card, Explore, shows its own photo", async () => {
+      await page.getByRole("tab", { name: /Explore$/ }).click();
+      await page.locator("#capabilities").evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
+      const state = await deckState(page);
+      t.expect(state.selected === "Explore" && state.visiblePanels === 1, `the Explore card shows (got ${state.selected})`, state);
+      await page.waitForFunction(() => {
+        const image = document.querySelector('#capabilities [data-card="explore"] img');
+        return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0;
+      }, null, { timeout: 8000 }).catch(() => undefined);
+      await t.checkpoint("deck explore", { fullPage: false, settle: false });
     });
 
     await t.step("the idea lands word by word", async () => {

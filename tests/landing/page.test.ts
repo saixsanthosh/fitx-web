@@ -85,6 +85,23 @@ test("the deck: seven cards, wrapping both ways, unhurried", () => {
   for (const item of CAPABILITIES) assert.ok(item.title.length <= 40 && item.line.length <= 90, `${item.id} stays short`);
 });
 
+test("the deck holds still for a reader: focus holds it, a mouse over it waits, Pause stops it, only Play restarts it", () => {
+  const deck = read("src/components/landing/CapabilityDeck.tsx");
+  // Keyboard focus inside the deck (a tab or a card's link) holds it, so a focused link is never hidden by an auto-advance.
+  assert.match(deck, /onFocus=\{onFocusIn\}/);
+  assert.match(deck, /const onFocusIn = [^;]*\{\s*if \(event\.target !== toggle\.current\) setHeld\(true\);/);
+  assert.match(deck, /const auto = !reduced && !held && !paused && !hovered && visible && inView;/);
+  assert.match(deck, /onPointerEnter=\{\(event\) => \{\s*if \(event\.pointerType === "mouse"\) setHovered\(true\);/);
+  // A visible 44 px Pause / Play control (WCAG 2.2.2); Pause stops the movement too, and only Play clears the hold.
+  assert.match(deck, /aria-label=\{paused \? "Play cards" : "Pause cards"\}/);
+  assert.match(deck, /const animate = !reduced && !paused && visible && inView;/);
+  assert.match(deck, /if \(paused\) setHeld\(false\);/);
+  assert.match(read("src/components/landing/landing.module.css"), /\.deckToggle \{[^}]*width: 44px;[^}]*height: 44px;/);
+  // The live region speaks only a change the visitor made, never the auto-advance.
+  assert.match(deck, /aria-live="polite">\s*\{announced\}/);
+  assert.doesNotMatch(deck, /aria-live="polite">\s*\{current\.tab\}/);
+});
+
 test("the idli example comes from the built-in food list and scales by the piece", () => {
   const idli = pieceFoodFrom(staples.foods, "2708346", { pieceLabel: "idli", source: "USDA" });
   assert.ok(idli);

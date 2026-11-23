@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { ArrowUpRight, Check, Minus, Plus } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { ArrowUpRight, Check, Minus, Pause, Play, Plus } from "lucide-react";
 import { m, useInView, useMotionValue, useTransform, type MotionValue } from "framer-motion";
 import { useReducedMotionSafe, usePageVisible } from "@/components/motion";
 import { LANDING_MEDIA } from "@/data/landing-media";
@@ -27,8 +27,9 @@ function useStep<T extends string | number>(value: MotionValue<number>, read: (p
 /**
  * What FITX does, as a deck of seven cards: a photo animated in code (a slow push and a passing light) with a small
  * live example drawn over it. It moves on by itself every few seconds while on screen, until someone picks a card
- * (tabs, arrow keys or a swipe); then it stays where they put it. Reduced motion: no auto-advance, no movement,
- * each example shows its final frame.
+ * (tabs, arrow keys or a swipe) or moves keyboard focus into it; then it stays where they put it. It waits while a
+ * mouse is over the picture. Pause stops everything (each example shows its final frame); only Play starts the
+ * deck moving on again. Reduced motion: no auto-advance, no movement, each example shows its final frame.
  */
 export function CapabilityDeck({ food }: { food: PieceFood | null }) {
   const reduced = useReducedMotionSafe();
@@ -38,13 +39,22 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
   const inView = useInView(root, { amount: 0.35 });
   const [active, setActive] = useState(0);
   const [held, setHeld] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  // Said to screen readers only when the visitor changed the card (a swipe or a tab), never on an auto-advance.
+  const [announced, setAnnounced] = useState("");
   const progress = useMotionValue(reduced ? 1 : 0);
-  const auto = !reduced && !held && visible && inView;
-  const animate = !reduced && visible && inView;
+  const auto = !reduced && !held && !paused && !hovered && visible && inView;
+  const animate = !reduced && !paused && visible && inView;
+  // The clock reads this at the end of a card, so a hover starting or ending does not restart the card's example.
+  const advance = useRef(auto);
+  useEffect(() => {
+    advance.current = auto;
+  }, [auto]);
 
   // One clock per card: 0 to 1 over DECK_SECONDS; the overlays read it, the deck advances at the end.
   useEffect(() => {
-    if (reduced) {
+    if (reduced || paused) {
       progress.set(1);
       return;
     }
@@ -58,7 +68,7 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
       last = now;
       elapsed += dt;
       progress.set(Math.min(1, elapsed / DECK_SECONDS));
-      if (elapsed >= DECK_SECONDS && auto) {
+      if (elapsed >= DECK_SECONDS && advance.current) {
         setActive((index) => nextCard(index));
         return;
       }
@@ -68,12 +78,24 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [active, animate, auto, reduced, progress]);
+  }, [active, animate, paused, reduced, progress]);
 
   const choose = (index: number, focus = false) => {
     setHeld(true);
     setActive(index);
+    // Arrow keys move focus to the tab, which says its own name; a click or a swipe is announced here.
     if (focus) tabs.current[index]?.focus();
+    else setAnnounced(CAPABILITIES[index].tab);
+  };
+
+  // Keyboard focus anywhere in the deck (a tab, a card's link) holds it, so a focused link is never hidden under it.
+  const toggle = useRef<HTMLButtonElement>(null);
+  const onFocusIn = (event: FocusEvent<HTMLElement>) => {
+    if (event.target !== toggle.current) setHeld(true);
+  };
+  const onToggle = () => {
+    if (paused) setHeld(false);
+    setPaused(!paused);
   };
 
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -103,14 +125,19 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
     if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(event.clientY - start.y) * 1.4) choose(dx < 0 ? nextCard(active) : previousCard(active));
   };
 
-  const current = CAPABILITIES[active];
-
   return (
-    <section ref={root} id="capabilities" className={styles.deck} aria-labelledby="deck-title" data-auto={auto}>
+    <section ref={root} id="capabilities" className={styles.deck} aria-labelledby="deck-title" data-auto={auto} data-paused={paused} onFocus={onFocusIn}>
       <div className={styles.deckBody}>
         <div className={styles.deckSide}>
           <div className={styles.deckHead}>
-            <p className={styles.eyebrow}>What FITX does</p>
+            <div className={styles.deckEyebrowRow}>
+              <p className={styles.eyebrow}>What FITX does</p>
+              {!reduced && (
+                <button ref={toggle} type="button" className={styles.deckToggle} onClick={onToggle} aria-label={paused ? "Play cards" : "Pause cards"}>
+                  {paused ? <Play size={15} aria-hidden="true" /> : <Pause size={15} aria-hidden="true" />}
+                </button>
+              )}
+            </div>
             <h2 id="deck-title" className={styles.sectionTitle}>
               Seven tools. One routine.
             </h2>
@@ -136,7 +163,7 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
                 </span>
                 <span className={styles.deckTabLabel}>{item.tab}</span>
                 <span className={styles.deckTimer} aria-hidden="true">
-                  {index === active && <m.i style={{ scaleX: held || reduced ? 1 : progress }} />}
+                  {index === active && <m.i style={{ scaleX: held || paused || reduced ? 1 : progress }} />}
                 </span>
               </button>
             ))}
@@ -150,6 +177,10 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
           onPointerCancel={() => {
             swipe.current = null;
           }}
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") setHovered(true);
+          }}
+          onPointerLeave={() => setHovered(false)}
         >
           {CAPABILITIES.map((item, index) => (
             <article
@@ -187,7 +218,7 @@ export function CapabilityDeck({ food }: { food: PieceFood | null }) {
             </article>
           ))}
           <p className={styles.srOnly} aria-live="polite">
-            {current.tab}
+            {announced}
           </p>
         </div>
       </div>

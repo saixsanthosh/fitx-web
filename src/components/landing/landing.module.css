@@ -252,6 +252,21 @@
   padding-block: var(--fitx-space-section) calc(var(--fitx-space-section) * .6);
 }
 .deckHead { display: grid; gap: 10px; margin-bottom: 18px; }
+.deckEyebrowRow { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; }
+.deckToggle {
+  display: grid;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--fitx-border);
+  border-radius: 999px;
+  background: var(--fitx-surface);
+  color: var(--fitx-text-secondary);
+  transition: color 200ms ease, border-color 200ms ease;
+}
+.deckToggle:hover { color: var(--fitx-text); border-color: var(--fitx-strong-border); }
+.deckToggle:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 2px; }
 .deckSide { display: grid; min-width: 0; align-content: center; }
 
 .deckBody { display: grid; gap: 14px; }
