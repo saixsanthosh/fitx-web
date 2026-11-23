@@ -1,9 +1,10 @@
 // Flow 23: film sound (BRIEF-2 3.4) under Chrome's own autoplay policy (sound needs a gesture). Without the fixture the
 // films have no sound yet, so there is no "Sound" control at all. With the fixture (a 2 s tone as the film's sound):
-// the film starts muted with "Sound" off; a stored "on" is tried as the film starts, and before the visitor has
-// touched the page Chrome refuses it, which shows "Tap for sound"; a tap on Sound then starts the audio element in the
-// gesture. Nothing before that tap is a user gesture (navigations only), because Chrome lets a page play sound once
-// the visitor has interacted with the site, and the refusal is what this flow checks.
+// the film starts muted with "Sound" off; a stored "on" is tried as the film starts, and without a gesture it is refused,
+// which shows "Tap for sound"; a tap on Sound then starts the audio element inside the gesture. Headless Chrome lets
+// unmuted media play even under its default policy, so the page is given the strict rule Safari and a fresh Chrome
+// profile apply (recordMediaPlays' strictAutoplay: an unmuted play() without transient user activation is refused).
+// That also proves the tap calls play() synchronously, while the activation still holds.
 import { recordMediaPlays, serveFilmFixture } from "../fixtures/films/route.mjs";
 
 const plays = (page) => page.evaluate(() => (window.__e2ePlays ?? []).map((entry) => ({ ...entry })));
@@ -32,7 +33,7 @@ export const flow = {
   schemes: () => ["light"],
   async run(t) {
     const page = await t.open();
-    await recordMediaPlays(t.context);
+    await recordMediaPlays(t.context, { strictAutoplay: true });
 
     await t.step("without sound in the manifest there is no Sound control", async () => {
       await openFilm(t, page);
@@ -72,6 +73,7 @@ export const flow = {
       const audio = await soundPlays(page);
       t.note("audio plays after the tap", audio);
       t.expect(audio.at(-1)?.result === "played" && audio.at(-1)?.src.endsWith("/__fitx-fixture/films/intro/sound.m4a"), "the film's own sound played", audio);
+      t.expect(audio.at(-1)?.gesture === true, "play() ran inside the tap's activation", audio);
       t.expect(asked.includes("/__fitx-fixture/films/intro/sound.m4a"), "the sound file was fetched", asked);
       t.expect((await page.getByRole("button", { name: "Sound" }).getAttribute("aria-pressed")) === "true", "Sound reads on");
       t.expect(!(await page.getByText("Tap for sound").isVisible()), "the hint goes once the sound plays");
