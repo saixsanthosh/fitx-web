@@ -26,9 +26,16 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function errorFrom(response: Response) {
-  const body = (await response.json().catch(() => null)) as { error?: { code?: CoachErrorCode; message?: string; retryAt?: string } } | null;
-  return new CoachRequestError(body?.error?.code ?? "failed", body?.error?.message ?? "Something went wrong. Please try again.", body?.error?.retryAt);
+/** What the proxy answers while FITX Admin has switched the AI coach off (src/lib/platform/gate.ts). */
+export const SWITCHED_OFF_MESSAGE = "The AI Coach is switched off for now. Your conversations and settings are safe.";
+
+export async function errorFrom(response: Response) {
+  const body = (await response.json().catch(() => null)) as { error?: string | { code?: CoachErrorCode; message?: string; retryAt?: string } } | null;
+  const error = body?.error;
+  // The platform gate's body is a plain string, not the coach's { code, message }.
+  if (error === "feature_unavailable") return new CoachRequestError("paused", SWITCHED_OFF_MESSAGE);
+  if (!error || typeof error !== "object") return new CoachRequestError("failed", "Something went wrong. Please try again.");
+  return new CoachRequestError(error.code ?? "failed", error.message ?? "Something went wrong. Please try again.", error.retryAt);
 }
 
 export type TurnRequest = { message: string; threadId: string | null; mode: "chat" | "meal_plan" | "workout_plan"; budget?: string };

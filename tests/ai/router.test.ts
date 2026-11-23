@@ -92,6 +92,31 @@ describe("configuration and the free-only guard", () => {
     assert.ok((await ai.json(planRequest, (value) => value)).value, "the same request without member data is answered");
   });
 
+  test("a version-1 consent never sends member data to services its consent screen did not name", async () => {
+    const account = "0123456789abcdef0123456789abcdef";
+    const env = { ...KEYS, CLOUDFLARE_API_TOKEN: "cf", CLOUDFLARE_ACCOUNT_ID: account, CEREBRAS_API_KEY: "c", MISTRAL_API_KEY: "m", AI_CEREBRAS_WITH_MEMBER_DATA: "true", AI_MISTRAL_WITH_MEMBER_DATA: "true" };
+    const config = readAiConfig(env);
+    const added = new Set(["cloudflare", "cerebras", "mistral"]);
+    for (const task of ["chat", "meal_plan", "workout_plan", "swap"] as const) {
+      const v1 = candidatesFor(task, config, { personalData: true, consentVersion: 1 }).map((c) => c.provider);
+      assert.ok(v1.length && v1.every((provider) => !added.has(provider)), `${task}: ${v1.join(", ")}`);
+      const v2 = new Set(candidatesFor(task, config, { personalData: true, consentVersion: 2 }).map((c) => c.provider));
+      assert.ok(v2.has("cloudflare"), `${task}: a version-2 consent named Workers AI`);
+      assert.ok(candidatesFor(task, config, { consentVersion: 1 }).some((c) => c.provider === "cloudflare"), `${task}: “Questions only” carries no member data`);
+    }
+    assert.equal(canSendMemberData(config, 1), true);
+
+    // Only Workers AI connected: a version-1 member's data is refused as "private", before any call; version 2 is answered.
+    const only = { CLOUDFLARE_API_TOKEN: "cf", CLOUDFLARE_ACCOUNT_ID: account };
+    assert.equal(canSendMemberData(readAiConfig(only), 1), false);
+    assert.equal(canSendMemberData(readAiConfig(only), 2), true);
+    const { mock, router: ai } = router(only, () => openAiText('{"ok":true}'));
+    assert.throws(() => ai.candidates("meal_plan", { personalData: true, consentVersion: 1 }), (error: unknown) => error instanceof AiUnavailableError && error.reason === "private");
+    await assert.rejects(ai.json({ ...planRequest, personalData: true, consentVersion: 1 }, () => ({})), (error: unknown) => error instanceof AiUnavailableError && error.reason === "private");
+    assert.equal(mock.calls.length, 0);
+    assert.equal(ai.candidates("meal_plan", { personalData: true, consentVersion: 2 })[0].provider, "cloudflare");
+  });
+
   test("a structured request stops trying more models when its time is up", async () => {
     let clock = 1_000_000;
     const { mock, router: ai } = router(KEYS, () => {

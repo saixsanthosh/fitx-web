@@ -8,7 +8,8 @@ import { makeJwt } from "../../support/fake-supabase.ts";
 
 type Row = Record<string, unknown>;
 const OWNER_COLUMN: Record<string, string> = { profiles: "id" };
-const PUBLIC_TABLES = new Set(["exercise_library"]);
+// platform_settings: readable by everyone (migration 20261121100033), as the platform gate reads it with the publishable key.
+const PUBLIC_TABLES = new Set(["exercise_library", "platform_settings"]);
 const COACH_TABLES = ["ai_coach_consents", "ai_coach_threads", "ai_coach_messages", "ai_coach_actions", "ai_coach_safety_notes"];
 
 export class FakeCoachDb {

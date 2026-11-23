@@ -3,7 +3,7 @@ import { hasAnyProvider, type AiConfig } from "./config";
 import { buildCoachContext, loadContextSources, type CoachContext, type ContextSources } from "./context";
 import { describeAllergies, describeDiet } from "./diet-rules";
 import { buildQuickPrompts, loadPromptSignals, type QuickPrompt } from "./quick-prompts";
-import { canSendMemberData, configuredProviders, memberDataAllowed, providerLabel } from "./registry";
+import { canSendMemberData, configuredProviders, consentCovers, memberDataAllowed, providerLabel } from "./registry";
 import { CARE_DAYS } from "./safety";
 import * as store from "./store";
 import type { CoachQuota, CoachThreadSummary, ProviderId } from "./types";
@@ -54,17 +54,25 @@ const OLLAMA_REMOTE = "Runs on a server the FITX owner runs, not an outside AI c
 const GEMINI_QUESTIONS_ONLY =
   "Gets only “Questions only” requests, never the summary of your FITX data or FITX's eating-disorder note: on Google's free tier, Google may use prompts and replies to improve its products, and people at Google may read them. FITX sends no name, email or account ID.";
 
+/**
+ * A service added after the member agreed (registry.ts FIRST_CONSENT_VERSION): their consent screen did not name it, so
+ * it gets none of their FITX data. Agreeing again (withdraw, then agree) would include it.
+ */
+const ADDED_AFTER_CONSENT = (terms: string) =>
+  `Added after you agreed to how the coach uses your data, so it gets only “Questions only” requests, never the summary of your FITX data. ${terms}`;
+
 /** Cerebras or Mistral while the owner keeps member data away from them (the default). */
 const QUESTIONS_ONLY = (name: string) =>
   `Gets only “Questions only” requests, never the summary of your FITX data or FITX's eating-disorder note, because its free plan may keep or learn from prompts. ${name === "Mistral AI" ? "" : "FITX could not confirm its free tier's terms. "}FITX sends no name, email or account ID.`;
 
-export function providerNotices(config: AiConfig): ProviderNotice[] {
+export function providerNotices(config: AiConfig, consentVersion?: number): ProviderNotice[] {
   return configuredProviders(config).map((id) => {
     const name = providerLabel(id, config);
     const questionsOnly = !memberDataAllowed(id, config);
     const dataUse =
       id === "gemini" && questionsOnly ? GEMINI_QUESTIONS_ONLY
         : questionsOnly ? QUESTIONS_ONLY(name)
+          : consentVersion !== undefined && !consentCovers(id, consentVersion) ? ADDED_AFTER_CONSENT(DATA_USE[id])
           : id === "ollama" && config.ollama?.kind === "remote" ? OLLAMA_REMOTE
             : DATA_USE[id];
     return { id, name, dataUse };
@@ -118,13 +126,15 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     // Agreeing to "Use my FITX data" does not carry over once the profile says under 18 or loses its age: the
     // member sees the consent screen again, and agreeing there starts the history afresh.
     if (!consent || store.needsNewConsent(consent, facts.adult)) return { ...base, state: "consent", ...age, sharedSummary };
-    const sharing = consent.shareData && facts.adult && base.memberDataAvailable;
+    // Services added after this consent was given get none of the member's data (registry.ts), and Coach settings says so.
+    const forConsent = { providers: providerNotices(config, consent.version), memberDataAvailable: canSendMemberData(config, consent.version) };
+    const sharing = consent.shareData && facts.adult && forConsent.memberDataAvailable;
     const [quotas, threads, quickPrompts] = await Promise.all([
       store.quotaStatus(db),
       store.listThreads(db, userId),
       sharing ? personalPrompts(db, userId, sources, now) : Promise.resolve([]),
     ]);
-    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts };
+    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts, ...forConsent };
   } catch (error) {
     if (error instanceof store.CoachStoreError && error.code === "not_available") return { ...base, state: "not_available", ...age };
     throw error;

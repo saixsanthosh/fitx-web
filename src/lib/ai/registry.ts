@@ -132,15 +132,31 @@ export function memberDataAllowed(provider: ProviderId, config: Pick<AiConfig, "
 }
 
 /**
+ * The first consent version (store.CONSENT_VERSION) whose consent screen could name each AI service. Version 1 screens
+ * (before wave 1 of the next-level job) knew only Gemini, Groq, OpenRouter and Ollama; Cloudflare Workers AI, Cerebras
+ * and Mistral arrived with version 2. A member who agreed to an earlier version never saw a later service named, so
+ * requests carrying their FITX data never go there (they still get "Questions only" requests, which carry none).
+ */
+const FIRST_CONSENT_VERSION: Partial<Record<ProviderId, number>> = { cloudflare: 2, cerebras: 2, mistral: 2 };
+
+/** The member's consent (of version `consentVersion`) covers sending their FITX data to this provider. */
+export function consentCovers(provider: ProviderId, consentVersion: number) {
+  return (FIRST_CONSENT_VERSION[provider] ?? 1) <= consentVersion;
+}
+
+/**
  * The models a task tries, in order: providers take turns (first model of each, then the second of
  * each…), so one provider being down or rate-limited costs one attempt, not several in a row.
  * Only providers with a key are listed, and only free models unless the config allows paid ones.
+ * `consentVersion`: the version of the consent the member agreed to; with `personalData`, providers their consent
+ * screen could not have named are left out (see FIRST_CONSENT_VERSION). Every coach request passes it.
  */
-export function candidatesFor(task: AiTask, config: AiConfig, options: { personalData?: boolean } = {}): Candidate[] {
+export function candidatesFor(task: AiTask, config: AiConfig, options: { personalData?: boolean; consentVersion?: number } = {}): Candidate[] {
   const lists: Candidate[][] = [];
   for (const [provider, defaults] of DEFAULTS[task]) {
     if (!config.keys[provider]) continue;
     if (options.personalData && !memberDataAllowed(provider, config)) continue;
+    if (options.personalData && options.consentVersion !== undefined && !consentCovers(provider, options.consentVersion)) continue;
     const models = config.models[provider] ?? defaults;
     lists.push(models.filter((model) => config.allowPaid || isFreeModel(provider, model)).map((model) => ({ provider, model })));
   }
@@ -152,9 +168,9 @@ export function candidatesFor(task: AiTask, config: AiConfig, options: { persona
   return ordered;
 }
 
-/** True when at least one configured provider may receive requests that carry member data. */
-export function canSendMemberData(config: AiConfig) {
-  return CLOUD_PROVIDERS.some((provider) => config.keys[provider] && memberDataAllowed(provider, config)) || Boolean(config.ollama);
+/** True when at least one configured provider may receive requests that carry member data (of a member with this consent version, when given). */
+export function canSendMemberData(config: AiConfig, consentVersion?: number) {
+  return CLOUD_PROVIDERS.some((provider) => config.keys[provider] && memberDataAllowed(provider, config) && (consentVersion === undefined || consentCovers(provider, consentVersion))) || Boolean(config.ollama);
 }
 
 /** Providers that will receive requests, for the consent screen. */

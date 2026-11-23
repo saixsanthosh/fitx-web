@@ -967,6 +967,41 @@ describe("GET /api/coach/status: providers and quick prompts", () => {
     }
   });
 
+  test("the FITX Admin switch off reports “paused”, keeping the coach's data controls", async () => {
+    const { resetPlatformSettingsCache } = await import("@/lib/platform/gate");
+    seedMember();
+    consentTo(MEMBER, true);
+    resetPlatformSettingsCache();
+    db.rows("platform_settings").push({ id: 1, features: { ai_coach: false }, maintenance: null, site: {} });
+    try {
+      const paused = await statusOf();
+      assert.equal(paused.state, "paused", "the panel shows the paused coach, not a ready one whose every message fails");
+      assert.equal(paused.consent?.shareData, true, "Coach settings still has the member's consent");
+      assert.deepEqual(paused.quotas, []);
+    } finally {
+      resetPlatformSettingsCache();
+    }
+    db.rows("platform_settings").length = 0;
+    assert.equal((await statusOf()).state, "ready", "switched back on, the coach is ready again");
+    resetPlatformSettingsCache();
+  });
+
+  test("a version-1 consent names services added since as “Questions only”", async () => {
+    setKeys({ ...KEYS, CLOUDFLARE_API_TOKEN: "test-cf", CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef" });
+    try {
+      seedMember();
+      consentTo(MEMBER, true);
+      const notices = (await statusOf()).providers;
+      assert.match(notices.find((provider) => provider.id === "cloudflare")?.dataUse ?? "", /^Added after you agreed/);
+      assert.doesNotMatch(notices.find((provider) => provider.id === "groq")?.dataUse ?? "", /Questions only/);
+      db.rows("ai_coach_consents")[0].consent_version = 2;
+      assert.doesNotMatch((await statusOf()).providers.find((provider) => provider.id === "cloudflare")?.dataUse ?? "", /Added after/);
+    } finally {
+      delete process.env.CLOUDFLARE_API_TOKEN;
+      delete process.env.CLOUDFLARE_ACCOUNT_ID;
+    }
+  });
+
   test("with “Use my FITX data”, prompts come from today's food, training, activity and goals", async () => {
     seedMember();
     db.rows("meals").length = 0;

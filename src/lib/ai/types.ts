@@ -35,6 +35,8 @@ export type AiRequest = {
   json?: { name: string; schema: JsonSchema };
   /** The request carries the member's FITX summary. It then never goes to a provider that may read or train on it (see registry.ts). */
   personalData?: boolean;
+  /** The version of the consent the member agreed to: with personalData, providers that consent never named are skipped (registry.ts). */
+  consentVersion?: number;
 };
 
 export type AiUsage = { inputTokens?: number; outputTokens?: number };

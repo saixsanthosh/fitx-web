@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { CoachNavIcon } from "@/components/layout/nav-icons";
 import { useHydrated } from "@/components/ui/use-hydrated";
 import { COACH_LAUNCHER_PREF_EVENT, cachedLauncherPref, loadLauncherPref, type LauncherPrefDetail } from "@/lib/shell/coach-launcher-pref";
+import { cachedCoachSwitch, loadCoachSwitch } from "@/lib/shell/coach-switch";
 import {
   DRAG_THRESHOLD,
   LAUNCHER_CLOSE_EVENT,
@@ -92,7 +93,8 @@ const typing = (element: Element | null) =>
  * The floating AI Coach button (phase 15). Small and draggable: it rests against the left or right edge where the
  * member drops it (remembered per phone, tablet and desktop size), keeps clear of the bottom bar and of anything
  * marked `data-coach-avoid` and of any button, link or field it would otherwise sit on, and hides on the coach page, onboarding and the focus screens (live workout, AI Form
- * Check camera, activity recorder), while a modal sheet is open, and on phones while the keyboard is up. "Hide AI Coach button" hides it for this
+ * Check camera, activity recorder), while a modal sheet is open, on phones while the keyboard is up, and while FITX Admin
+ * has the AI coach switched off (lib/shell/coach-switch.ts). "Hide AI Coach button" hides it for this
  * page load only (back on refresh); Settings turns it off for good. Pressing it opens the coach panel through the
  * fitx:coach-open event, or the AI Coach page when no panel is mounted.
  */
@@ -108,6 +110,9 @@ export function CoachLauncher() {
   // The account's answer once known (or a change from Settings); until then this device's cached choice.
   const [chosen, setChosen] = useState<boolean | null>(null);
   const enabled = hydrated ? chosen ?? cachedLauncherPref() : null;
+  // FITX Admin's AI coach switch: this device's last answer at once, then a fresh read.
+  const [switchedOn, setSwitchedOn] = useState<boolean | null>(null);
+  const coachOn = hydrated ? switchedOn ?? cachedCoachSwitch() : null;
   const [dismissed, setDismissed] = useState(false);
   const [place, setPlace] = useState<Place | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -128,7 +133,18 @@ export function CoachLauncher() {
     };
   }, []);
 
-  const hidden = enabled !== true || dismissed || launcherHiddenOn(pathname) || keyboard;
+  // Re-read on each page change (at most once a minute: loadCoachSwitch keeps the last answer that long).
+  useEffect(() => {
+    let live = true;
+    void loadCoachSwitch().then((on) => {
+      if (live) setSwitchedOn(on);
+    });
+    return () => {
+      live = false;
+    };
+  }, [pathname]);
+
+  const hidden = enabled !== true || coachOn !== true || dismissed || launcherHiddenOn(pathname) || keyboard;
 
   const layout = useCallback(() => {
     if (drag.current?.moved) return;

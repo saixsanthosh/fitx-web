@@ -158,7 +158,7 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
   // eating-disorder note (health information too), skip AI services that may let people read prompts.
   const personalData = task !== "chat" || sharesData || careMode;
   // Check the switch and keys before taking anything from today's limit.
-  if (safety.kind === "ok") planOrThrow(deps.router, task, personalData, careMode && task === "chat");
+  if (safety.kind === "ok") planOrThrow(deps.router, task, personalData, consent.version, careMode && task === "chat");
 
   let ticket = safety.kind === "ok" ? await store.takeQuota(deps.db, task === "chat" ? "chat" : "plan") : null;
   if (ticket && !ticket.allowed && task !== "chat" && !asked) {
@@ -220,6 +220,7 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
       careMode,
       cautions,
       historySince,
+      consentVersion: consent.version,
       userMessageId: userMessage.id,
       input,
       deadline: startedAt + TURN_BUDGET_MS,
@@ -247,6 +248,8 @@ type TurnState = CoachDeps & {
   context: CoachContext;
   sharesData: boolean;
   careMode: boolean;
+  /** The member's consent version: requests with their data skip AI services that consent did not name (registry.ts). */
+  consentVersion: number;
   /** Earlier messages from before this time are left out of the request (null: none are). */
   historySince: string | null;
   /** The member's message being answered. */
@@ -274,6 +277,7 @@ async function chatTurn(state: TurnState, emit: Emit) {
       temperature: 0.6,
       // The care rule is health information too (see runCoachTurn).
       personalData: state.sharesData || state.careMode,
+      consentVersion: state.consentVersion,
     },
     { signal: state.signal, deadlineMs: modelBudget(state), onDelta: (text) => emit({ type: "delta", text }), onReset: () => emit({ type: "reset" }) },
   );
@@ -306,6 +310,7 @@ async function mealPlanTurn(state: TurnState, emit: Emit) {
       temperature: 0.5,
       json: { name: "meal_plan", schema: MEAL_PLAN_SCHEMA },
       personalData: true,
+      consentVersion: state.consentVersion,
     },
     (value) => dietSafePlan(parseMealPlan(value), facts),
     { signal: state.signal, deadlineMs: modelBudget(state) },
@@ -353,6 +358,7 @@ async function workoutTurn(state: TurnState, emit: Emit) {
       temperature: 0.5,
       json: { name: "workout", schema: WORKOUT_SCHEMA },
       personalData: true,
+      consentVersion: state.consentVersion,
     },
     (value) => parseWorkout(value, new Set(byId.keys())),
     { signal: state.signal, deadlineMs: modelBudget(state) },
@@ -444,7 +450,7 @@ export async function runSwap(deps: CoachDeps, input: { actionId: string; note: 
   ]);
   const blocked = planBlock("swap", careMode, [...threadCautions, ...(noteSafety?.kind === "ok" ? noteSafety.cautions : [])]);
   if (blocked) throw new CoachError("plans_unavailable", blocked);
-  planOrThrow(deps.router, "swap", true);
+  planOrThrow(deps.router, "swap", true, consent.version);
   const ticket = await store.takeQuota(deps.db, "chat");
   if (!ticket.allowed) throw new CoachError("quota", `You've used your ${ticket.quota.limit} coach messages for the last 24 hours.`, ticket.quota.resetsAt || undefined);
 
@@ -462,6 +468,7 @@ export async function runSwap(deps: CoachDeps, input: { actionId: string; note: 
         temperature: 0.5,
         json: { name: "swap", schema: SWAP_SCHEMA },
         personalData: true,
+        consentVersion: consent.version,
       },
       (value) => {
         const parsed = parseSwap(value);
@@ -517,9 +524,9 @@ export function unavailableError(config: AiConfig): CoachError | null {
  * Throws the coach's own error when no AI service may take this request. `forCare`: a chat that carries the
  * eating-disorder care rule, which gets its own reason ("Questions only" would not help there).
  */
-function planOrThrow(router: AiRouter, task: AiTask, personalData: boolean, forCare = false) {
+function planOrThrow(router: AiRouter, task: AiTask, personalData: boolean, consentVersion: number, forCare = false) {
   try {
-    router.candidates(task, { personalData });
+    router.candidates(task, { personalData, consentVersion });
   } catch (error) {
     if (forCare && error instanceof AiUnavailableError && error.reason === "private") throw new CoachError("plans_unavailable", NO_PRIVATE_SERVICE_FOR_CARE);
     throw toCoachError(error);

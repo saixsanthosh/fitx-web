@@ -76,11 +76,11 @@ export function createAiRouter(deps: RouterDeps) {
   const adapters = deps.adapters ?? createAdapters(deps.config);
   const log = deps.log ?? defaultLog;
 
-  function plan(task: AiRequest["task"], personalData = false): Candidate[] {
+  function plan(task: AiRequest["task"], personalData = false, consentVersion?: number): Candidate[] {
     if (!deps.config.enabled) throw new AiUnavailableError("disabled");
-    const candidates = candidatesFor(task, deps.config, { personalData }).filter((candidate) => adapters[candidate.provider]);
+    const candidates = candidatesFor(task, deps.config, { personalData, consentVersion }).filter((candidate) => adapters[candidate.provider]);
     if (!candidates.length) {
-      // Keys exist, but only for providers that may not receive member data (see registry.ts).
+      // Keys exist, but only for providers that may not receive member data, or this member's data (see registry.ts).
       const anyAtAll = candidatesFor(task, deps.config).some((candidate) => adapters[candidate.provider]);
       throw new AiUnavailableError(anyAtAll ? "private" : "not_configured");
     }
@@ -94,7 +94,7 @@ export function createAiRouter(deps: RouterDeps) {
     deadlineMs: number,
     attempt: (adapter: ProviderAdapter, candidate: Candidate, attemptSignal: AbortSignal, budgetMs: number) => Promise<T>,
   ): Promise<{ result: T; candidate: Candidate; attempts: AttemptLog[] }> {
-    const candidates = plan(request.task, request.personalData);
+    const candidates = plan(request.task, request.personalData, request.consentVersion);
     const attempts: AttemptLog[] = [];
     const deadline = now() + deadlineMs;
     let refusals = 0;
@@ -138,8 +138,8 @@ export function createAiRouter(deps: RouterDeps) {
 
   return {
     /** The models this task would try, in order (after the kill switch, the free-only guard and the member-data rule). */
-    candidates(task: AiRequest["task"], options: { personalData?: boolean } = {}) {
-      return plan(task, options.personalData);
+    candidates(task: AiRequest["task"], options: { personalData?: boolean; consentVersion?: number } = {}) {
+      return plan(task, options.personalData, options.consentVersion);
     },
 
     /** A structured task: the reply must parse as JSON and pass `parse`, or the next model is tried. */
