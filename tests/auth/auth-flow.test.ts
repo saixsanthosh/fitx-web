@@ -81,6 +81,10 @@ describe("proxy", () => {
       ["/activity/record", "%2Factivity%2Frecord"],
       ["/form-coach?exercise=squat", "%2Fform-coach%3Fexercise%3Dsquat"],
       ["/help?from=%2Fworkouts", "%2Fhelp%3Ffrom%3D%252Fworkouts"],
+      // Explore (the social pages) and AI Form Check, new in this release.
+      ["/explore", "%2Fexplore"],
+      ["/explore/people?q=ana", "%2Fexplore%2Fpeople%3Fq%3Dana"],
+      ["/workouts/form-check?exercise=squat", "%2Fworkouts%2Fform-check%3Fexercise%3Dsquat"],
     ]) {
       const response = await proxy(request(path));
       assert.equal(response.status, 307, path);
@@ -88,6 +92,7 @@ describe("proxy", () => {
     }
     // A public page that only starts with a private root's name stays public.
     assert.equal(location(await proxy(request("/helpful-tips"))), null);
+    assert.equal(location(await proxy(request("/explorer-guide"))), null);
   });
 
   test("every page in the app navigation is private", async () => {
@@ -224,6 +229,8 @@ describe("proxy: the account's one-time film on a device that is already signed 
     assert.equal(location(response), "/dashboard");
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;/);
     assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};`));
+    // Only a sign-in starts the returning-login reveal; the proxy never does.
+    assert.equal(cookieNamed(response, "fitx_welcome"), undefined);
   });
 
   test("an account that has seen it gets seen", async () => {
@@ -422,6 +429,8 @@ describe("auth callback", () => {
     // The film's state was just read from the account, so the proxy doesn't read it again for this device.
     assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${NEWCOMER.id};.*HttpOnly`, "i"));
     assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+    // No returning-login reveal for an account that still has onboarding and its film ahead of it.
+    assert.match(cookieNamed(response, "fitx_welcome") ?? "", /^fitx_welcome=;.*Max-Age=0/i);
   });
 
   test("returning accounts go to the page they asked for, with the film already seen", async () => {
@@ -431,6 +440,13 @@ describe("auth callback", () => {
     assert.match(cookieNamed(response, "fitx_onboarded") ?? "", new RegExp(`^fitx_onboarded=${ONBOARDED.id};`));
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/);
     assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${ONBOARDED.id};.*HttpOnly`, "i"));
+    // The returning-login reveal (brand-nav's bootstrap reads this exact literal): two minutes, readable by page scripts.
+    const welcome = cookieNamed(response, "fitx_welcome") ?? "";
+    assert.match(welcome, /^fitx_welcome=return;/);
+    assert.match(welcome, /Path=\//i);
+    assert.match(welcome, /Max-Age=120/i);
+    assert.match(welcome, /SameSite=Lax/i);
+    assert.doesNotMatch(welcome, /HttpOnly/i);
   });
 
   test("an account whose film was reset gets it once more at sign-in, and the device is checked for it", async () => {
@@ -441,6 +457,10 @@ describe("auth callback", () => {
     assert.equal(location(response), "/dashboard");
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=play;/);
     assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${RESET.id};`));
+    // The film plays and ends on the logo itself, so no separate reveal.
+    assert.match(cookieNamed(response, "fitx_welcome") ?? "", /^fitx_welcome=;.*Max-Age=0/i);
+    // The film plays and ends on the logo itself, so no separate reveal.
+    assert.match(cookieNamed(response, "fitx_welcome") ?? "", /^fitx_welcome=;.*Max-Age=0/i);
   });
 
   test("a profile that can't be read at sign-in leaves the film's check to the proxy", async () => {
@@ -450,6 +470,7 @@ describe("auth callback", () => {
     const response = await callback.GET(request(`/auth/callback?code=${CODE}`, { cookies: { [`${SESSION_COOKIE}-code-verifier`]: ssrCookieValue("v9/"), fitx_intro_checked: RESET.id } }));
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/, "unknown counts as seen for now");
     assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", /^fitx_intro_checked=;.*Max-Age=0/i, "an older check is cleared");
+    assert.match(cookieNamed(response, "fitx_welcome") ?? "", /^fitx_welcome=;.*Max-Age=0/i, "unknown onboarding: no reveal");
     // Once the profile reads again, the proxy finds the account hasn't seen the film.
     fake.profileError = null;
     const next = await proxy(request("/dashboard", { cookies: { ...sessionCookies(RESET.id), fitx_auth: "1", fitx_intro: "seen" } }));
@@ -528,6 +549,7 @@ describe("session route", () => {
     assert.match(cookieNamed(response, "fitx_auth") ?? "", /^fitx_auth=1;/);
     assert.match(cookieNamed(response, "fitx_intro") ?? "", /^fitx_intro=seen;/);
     assert.match(cookieNamed(response, "fitx_intro_checked") ?? "", new RegExp(`^fitx_intro_checked=${ONBOARDED.id};.*HttpOnly`, "i"));
+    assert.match(cookieNamed(response, "fitx_welcome") ?? "", /^fitx_welcome=return;.*Max-Age=120/i, "password and code sign-ins get the reveal too");
     const signedOut = await sessionRoute.POST(request("/api/auth/session", { method: "POST", body: { intent: "sign-in" }, headers: { "sec-fetch-site": "same-origin" } }));
     assert.equal(signedOut.status, 401);
   });
@@ -541,6 +563,7 @@ describe("session route", () => {
     // A token refresh only re-sends the session: it never touches the film.
     const refresh = await sessionRoute.POST(request("/api/auth/session", { method: "POST", cookies: sessionCookies(RESET.id), body: { intent: "refresh" }, headers: { "sec-fetch-site": "same-origin" } }));
     assert.deepEqual(filmCookies(refresh), []);
+    assert.equal(cookieNamed(refresh, "fitx_welcome"), undefined, "a token refresh never starts the reveal");
   });
 
   test("after a password sign-in, an account still in setup goes to onboarding unless it asked for Help", async () => {

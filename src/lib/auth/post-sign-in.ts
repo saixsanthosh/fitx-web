@@ -9,6 +9,9 @@ import {
   INTRO_COOKIE,
   introCookieOptions,
   ONBOARDED_COOKIE,
+  WELCOME_COOKIE,
+  WELCOME_MAX_AGE,
+  WELCOME_VALUE,
 } from "./cookies";
 import { safeNext } from "./safe-next";
 
@@ -71,4 +74,14 @@ export function applySignInCookies(
   response.cookies.set(INTRO_COOKIE, intro, introCookieOptions(secure, intro));
   if (onboarded === null) response.cookies.set(INTRO_CHECKED_COOKIE, "", hintCookieOptions(secure, { httpOnly: true, maxAge: 0 }));
   else response.cookies.set(INTRO_CHECKED_COOKIE, userId, hintCookieOptions(secure, { httpOnly: true }));
+  // The returning-login logo reveal: only for a set-up account that has already seen its film (a pending film
+  // wins and ends on the logo itself; an account still in setup goes to onboarding). Anything else clears a
+  // leftover from an earlier sign-in on this device.
+  if (welcomesBack({ onboarded, intro })) response.cookies.set(WELCOME_COOKIE, WELCOME_VALUE, hintCookieOptions(secure, { maxAge: WELCOME_MAX_AGE }));
+  else response.cookies.set(WELCOME_COOKIE, "", hintCookieOptions(secure, { maxAge: 0 }));
+}
+
+/** Whether a sign-in gets the returning-login reveal (the fitx_welcome cookie). */
+export function welcomesBack({ onboarded, intro }: { onboarded: boolean | null; intro: IntroState }): boolean {
+  return onboarded === true && intro === "seen";
 }

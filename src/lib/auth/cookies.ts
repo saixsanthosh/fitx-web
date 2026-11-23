@@ -22,6 +22,17 @@ export const INTRO_COOKIE = "fitx_intro";
  */
 export const INTRO_CHECKED_COOKIE = "fitx_intro_checked";
 
+/**
+ * "return" for two minutes after an onboarded account whose film was already seen signs in. The head script
+ * (src/components/brand/introBootstrap.ts, RETURNING_WELCOME_COOKIE in introKeys.ts) reads and clears it on the
+ * next full app-page load and plays the short returning-login logo reveal instead of the plain loader. Readable by
+ * page scripts on purpose; it grants nothing.
+ */
+export const WELCOME_COOKIE = "fitx_welcome";
+export const WELCOME_VALUE = "return";
+/** Long enough to cover the redirect and the first app page, short enough never to replay on a later visit. */
+export const WELCOME_MAX_AGE = 120;
+
 /** Browsers cap cookie lifetimes at 400 days. */
 export const LONG_MAX_AGE = 400 * 24 * 60 * 60;
 /**

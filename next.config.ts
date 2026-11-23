@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import type { NextConfig } from "next";
 
 /**
@@ -53,6 +55,13 @@ const PHOTO_HOSTS = [
   "https://world.openfoodfacts.org",
 ];
 const GOOGLE_AVATAR_HOSTS = ["https://lh3.googleusercontent.com", "https://lh4.googleusercontent.com", "https://lh5.googleusercontent.com", "https://lh6.googleusercontent.com"];
+/**
+ * Google Identity Services (the "Sign in with Google" button that shows FITX instead of the Supabase address), exactly
+ * the entries Google documents for it: its client script, and its button iframe, credential calls and button styles
+ * under /gsi/. Only when NEXT_PUBLIC_GOOGLE_CLIENT_ID is set; otherwise sign-in uses the redirect flow and loads nothing
+ * from Google here.
+ */
+const GOOGLE_GSI = { script: "https://accounts.google.com/gsi/client", base: "https://accounts.google.com/gsi/" };
 /** Vercel's toolbar and comments, injected on preview deployments only. */
 const VERCEL_LIVE = "https://vercel.live";
 
@@ -62,11 +71,20 @@ export type CspOptions = {
   isDev?: boolean;
   /** A Vercel preview deployment (VERCEL_ENV=preview), which carries the Vercel toolbar. */
   isPreview?: boolean;
+  /** NEXT_PUBLIC_GOOGLE_CLIENT_ID: when set, the Google Identity Services entries are added. */
+  googleClientId?: string | null;
 };
 
-export function buildContentSecurityPolicy({ supabaseUrl, isDev = false, isPreview = false }: CspOptions): string {
+/** A plausible OAuth web client id (…apps.googleusercontent.com); anything else counts as unset. */
+export function googleClientIdFrom(value: string | undefined | null): string | null {
+  const text = value?.trim() ?? "";
+  return /^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/i.test(text) ? text : null;
+}
+
+export function buildContentSecurityPolicy({ supabaseUrl, isDev = false, isPreview = false, googleClientId = null }: CspOptions): string {
   const supabase = supabaseOrigins(supabaseUrl);
   const preview = isPreview ? [VERCEL_LIVE] : [];
+  const gsi = googleClientIdFrom(googleClientId) ? { script: [GOOGLE_GSI.script], base: [GOOGLE_GSI.base] } : { script: [], base: [] };
   const directives: Array<[string, string[]]> = [
     ["default-src", ["'self'"]],
     // Next's inline bootstrap and page data scripts differ on every page and static pages carry no nonce, so inline
@@ -74,15 +92,15 @@ export function buildContentSecurityPolicy({ supabaseUrl, isDev = false, isPrevi
     // Known trade-off: an injected inline script would run (no sink exists today: the only raw HTML is the constant
     // intro bootstrap and escaped JSON-LD). Closing it needs a per-request nonce with 'strict-dynamic' set in the
     // proxy for the signed-in pages, which makes them dynamic, as Admin does (admin/src/lib/csp.ts).
-    ["script-src", ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", ...(isDev ? ["'unsafe-eval'"] : []), ...RAZORPAY.script, ...preview]],
+    ["script-src", ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", ...(isDev ? ["'unsafe-eval'"] : []), ...RAZORPAY.script, ...gsi.script, ...preview]],
     // Server-rendered style attributes (React style props, motion start values).
-    ["style-src", ["'self'", "'unsafe-inline'"]],
+    ["style-src", ["'self'", "'unsafe-inline'", ...gsi.base]],
     ["img-src", ["'self'", "data:", "blob:", supabase.http, ...PHOTO_HOSTS, ...GOOGLE_AVATAR_HOSTS, ...RAZORPAY.img, ...preview]],
     ["font-src", ["'self'", ...preview]],
-    ["connect-src", ["'self'", supabase.http, supabase.ws, ...MAP_TILES, ...RAZORPAY.connect, ...preview]],
+    ["connect-src", ["'self'", supabase.http, supabase.ws, ...MAP_TILES, ...RAZORPAY.connect, ...gsi.base, ...preview]],
     ["media-src", ["'self'", "blob:", supabase.http]],
     ["worker-src", ["'self'", "blob:"]],
-    ["frame-src", [...RAZORPAY.frame, ...preview]],
+    ["frame-src", [...RAZORPAY.frame, ...gsi.base, ...preview]],
     ["manifest-src", ["'self'"]],
     ["object-src", ["'none'"]],
     ["base-uri", ["'self'"]],
@@ -112,15 +130,18 @@ export function securityHeaders(options: HeaderOptions): Array<{ key: string; va
     // Razorpay may open a bank or card window from its checkout; that window must still reach its opener.
     { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
     { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
-    // Camera for the barcode scanner and Home workout, location for activity tracking, the screen kept awake during
-    // workouts and recordings, payment only for Razorpay's iframe; no microphone or other device access.
+    // Camera for the barcode scanner and AI Form Check, location for activity tracking, the screen kept awake during
+    // workouts and recordings, payment only for Razorpay's iframe, the microphone for the AI Coach's push-to-talk voice,
+    // and the motion sensors (accelerometer, gyroscope) for the sign-in page's scene, which reads them on the device
+    // only (iOS asks on a tap). Every other device feature stays off.
     {
       key: "Permissions-Policy",
       value: [
         "camera=(self)", "geolocation=(self)", "screen-wake-lock=(self)", "fullscreen=(self)",
         'payment=(self "https://api.razorpay.com")',
-        "microphone=()", "usb=()", "serial=()", "hid=()", "bluetooth=()", "midi=()", "display-capture=()",
-        "accelerometer=()", "gyroscope=()", "magnetometer=()", "browsing-topics=()",
+        "microphone=(self)", "accelerometer=(self)", "gyroscope=(self)",
+        "usb=()", "serial=()", "hid=()", "bluetooth=()", "midi=()", "display-capture=()",
+        "magnetometer=()", "browsing-topics=()",
       ].join(", "),
     },
     { key: reportOnly ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy", value: buildContentSecurityPolicy(options) },
@@ -131,8 +152,28 @@ const SECURITY_HEADERS = securityHeaders({
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
   isDev: process.env.NODE_ENV === "development",
   isPreview: process.env.VERCEL_ENV === "preview",
+  googleClientId: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
   reportOnly: process.env.FITX_CSP_REPORT_ONLY === "1" ? true : undefined,
 });
+
+/** Where AI Form Check lives (brief 3.5 and 3.7). */
+export const FORM_CHECK_PATH = "/workouts/form-check";
+
+/**
+ * The retired camera addresses, 308s that keep the query (?exercise=). Old Form coach links and Home workout both end
+ * on AI Form Check once its page is part of the build; a build without that page (a branch cut before it) keeps the
+ * previous target, so no link ever ends on a missing page.
+ */
+export function cameraRedirects(hasFormCheckPage: boolean) {
+  const target = hasFormCheckPage ? FORM_CHECK_PATH : "/home-workout";
+  return [
+    ...(hasFormCheckPage ? [{ source: "/home-workout", destination: target, permanent: true }] : []),
+    { source: "/form-coach", destination: target, permanent: true },
+    { source: "/form-coach/:path*", destination: target, permanent: true },
+  ];
+}
+
+const HAS_FORM_CHECK_PAGE = existsSync(path.join(process.cwd(), "src/app/(dashboard)/workouts/form-check/page.tsx"));
 
 const nextConfig: NextConfig = {
   // The route badge is useful during development, but should not sit on top of
@@ -154,12 +195,8 @@ const nextConfig: NextConfig = {
     qualities: [50, 60, 75, 90, 100],
     formats: ["image/avif", "image/webp"],
   },
-  // Form coach is now Home workout. 308s keep the query (?exercise=), so old links still open the exercise.
   async redirects() {
-    return [
-      { source: "/form-coach", destination: "/home-workout", permanent: true },
-      { source: "/form-coach/:path*", destination: "/home-workout", permanent: true },
-    ];
+    return cameraRedirects(HAS_FORM_CHECK_PAGE);
   },
   async headers() {
     return [
