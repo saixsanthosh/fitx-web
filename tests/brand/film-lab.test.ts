@@ -328,7 +328,8 @@ test("the lock: release removes only a lock that is still ours", () => {
 
 test("encoders: the new rungs carry bt709 tv tags and faststart; the legacy HEVC repeats the shipped settings", () => {
   const hevc = hevc60Args({ input: "m.mkv", output: "o.mp4" }).join(" ");
-  assert.match(hevc, /-c:v libx265 -preset slow -tune grain -crf 29/);
+  assert.match(hevc, /-c:v libx265 -preset slow -crf 29/);
+  assert.match(hevc60Args({ input: "m.mkv", output: "o.mp4", tune: "grain" }).join(" "), /-preset slow -tune grain -crf 29/);
   assert.match(hevc, /keyint=60:min-keyint=60:level-idc=4\.1:high-tier=1:vbv-maxrate=50000:vbv-bufsize=50000:pools=4/);
   assert.match(hevc, /-tag:v hvc1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv -movflags \+faststart/);
   const avc = avc30Args({ input: "m.mkv", output: "o.mp4", comp: "phone" }).join(" ");

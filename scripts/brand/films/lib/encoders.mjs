@@ -15,11 +15,14 @@ export const AVC30_SIZES = Object.freeze({
 
 /**
  * The new rungs. `hevc60` starts from the recovered crf 29 and is tuned to the byte budget by `crfForBudget`; keyint
- * 60 (one a second), VBV at HEVC level 4.1 high tier, `--tune grain` so the film pass's grain is kept rather than
- * smeared into blocks, `pools=4` on this 8-core Mac.
+ * 60 (one a second), VBV at HEVC level 4.1 high tier. BRIEF-2 3.2 asked for `--tune grain`; measured on gate A's master
+ * (11.9 s, 1920×1080 dark) it doubles the bytes for a lower score: crf 29 5.79 MiB, crf 32 3.98 MiB (SSIM 0.967 to the
+ * master), against 3.08 MiB (SSIM 0.972) with no tune at crf 29. So the default is no tune; `encode.mjs --tune=grain`
+ * restores it if the coordinator wants it. `pools=4` on this 8-core Mac. `avc30` steps its CRF to the budget the same
+ * way (crf 27 at 1440×810 made 2.52 MiB for the 11.9 s film, over the 1.6 MiB cap; crf 32 made 1.47 MiB).
  */
 export const ENCODER = Object.freeze({
-  hevc60: { codec: "libx265", preset: "slow", crf: 29, tune: "grain", keyint: 60, level: "4.1", highTier: true, vbvMaxrate: 50000, vbvBufsize: 50000, pools: 4, tag: "hvc1", fps: 60 },
+  hevc60: { codec: "libx265", preset: "slow", crf: 29, tune: "none", keyint: 60, level: "4.1", highTier: true, vbvMaxrate: 50000, vbvBufsize: 50000, pools: 4, tag: "hvc1", fps: 60 },
   avc30: { codec: "libx264", preset: "slow", crf: 27, profile: "high", keyint: 30, fps: 30, scale: 0.75 },
   poster: { tool: "cwebp", quality: 82, maxBytes: 50 * 1024 },
 });
@@ -60,7 +63,7 @@ export function reelArgs({ input, output, shape }) {
 const even = (value) => Math.max(2, Math.round(value / 2) * 2);
 
 /** ffmpeg arguments: master → hevc60 (the master is already bt709 tv-range YUV 4:4:4 10-bit). */
-export function hevc60Args({ input, output, crf = ENCODER.hevc60.crf, frames = null }) {
+export function hevc60Args({ input, output, crf = ENCODER.hevc60.crf, frames = null, tune = ENCODER.hevc60.tune }) {
   const e = ENCODER.hevc60;
   const x265 = [
     `keyint=${e.keyint}`, `min-keyint=${e.keyint}`, `level-idc=${e.level}`, `high-tier=${e.highTier ? 1 : 0}`,
@@ -69,7 +72,7 @@ export function hevc60Args({ input, output, crf = ENCODER.hevc60.crf, frames = n
   ].join(":");
   return [
     "-hide_banner", "-loglevel", "error", "-y", "-i", input, ...(frames ? ["-frames:v", String(frames)] : []),
-    "-an", "-vf", "format=yuv420p", "-c:v", e.codec, "-preset", e.preset, "-tune", e.tune, "-crf", String(crf), "-x265-params", x265,
+    "-an", "-vf", "format=yuv420p", "-c:v", e.codec, "-preset", e.preset, ...(tune && tune !== "none" ? ["-tune", tune] : []), "-crf", String(crf), "-x265-params", x265,
     "-tag:v", e.tag, ...BT709_TV, "-movflags", "+faststart", output,
   ];
 }

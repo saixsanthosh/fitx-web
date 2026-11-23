@@ -10,7 +10,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { HEAVY, WORKTREES, laneHandle, withLane } from "./lane.mjs";
+import { HEAVY, WORKTREES, laneHandle, stopChildrenOnSignal, track, withLane } from "./lane.mjs";
 import { COMP_SIZES, JOBS, framePlan, parseArgs, readSources, reelPlan, renderArgsForRev, revHash, segmentsOf } from "./lib/plan.mjs";
 import { CHROME, CWEBP, FFMPEG, PLAYWRIGHT_CORE, preflightProblems, runPreflight, SOFTWARE_RENDERER } from "./lib/preflight.mjs";
 import { ENCODER } from "./lib/encoders.mjs";
@@ -75,7 +75,7 @@ function memorySampler(rootPid) {
 async function startDev(port) {
   const env = { ...process.env, FITX_LAB: "1", NEXT_TELEMETRY_DISABLED: "1", NODE_ENV: "development" };
   delete env.FITX_LANE_INNER;
-  const child = spawn(path.join(ROOT, "node_modules/.bin/next"), ["dev", "-p", String(port), "-H", "127.0.0.1"], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"], detached: false });
+  const child = track(spawn(path.join(ROOT, "node_modules/.bin/next"), ["dev", "-p", String(port), "-H", "127.0.0.1"], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"], detached: false }));
   let output = "";
   child.stdout.on("data", (chunk) => (output = (output + chunk).slice(-8000)));
   child.stderr.on("data", (chunk) => (output = (output + chunk).slice(-8000)));
@@ -158,7 +158,7 @@ function startSegmentEncoder({ file, width, height, outWidth, outHeight, fps, su
     "-r", String(fps), "-c:v", "ffv1", "-level", "3", "-g", "1", "-slices", "4", "-slicecrc", "1",
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv", file,
   ];
-  const child = spawn(FFMPEG, args, { stdio: ["pipe", "ignore", "pipe"] });
+  const child = track(spawn(FFMPEG, args, { stdio: ["pipe", "ignore", "pipe"] }));
   let errors = "";
   child.stderr.on("data", (chunk) => (errors = (errors + chunk).slice(-4000)));
   const done = new Promise((resolve, reject) => child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg ${code}: ${errors}`)))));
@@ -167,7 +167,7 @@ function startSegmentEncoder({ file, width, height, outWidth, outHeight, fps, su
 
 function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(FFMPEG, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = track(spawn(FFMPEG, args, { stdio: ["ignore", "pipe", "pipe"] }));
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk) => (out += chunk));
@@ -178,7 +178,7 @@ function runFfmpeg(args) {
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = track(spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }));
     let err = "";
     child.stderr.on("data", (chunk) => (err += chunk));
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${path.basename(command)} ${code}: ${err}`))));
@@ -479,6 +479,7 @@ export async function withLabSession({ theme = "dark", port = 3790, headed = fal
 async function main() {
   const request = parseArgs(process.argv.slice(2));
   if (process.env.FITX_LANE_INNER === "1") {
+    stopChildrenOnSignal();
     const summary = await inner(request);
     process.stdout.write(`${JSON.stringify(summary)}\n`);
     return;

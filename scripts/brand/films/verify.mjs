@@ -77,7 +77,11 @@ async function verifyCut(args) {
   const boxes = topLevelBoxes(headBytes(file));
   if (!moovFirst(boxes)) problems.push(`moov is not before mdat (boxes: ${boxes.join(", ")})`);
   const detect = await capture(FFMPEG, ["-hide_banner", "-nostats", "-i", file, "-vf", "freezedetect=n=0.0005:d=0.25,blackdetect=d=0.2:pix_th=0.04", "-an", "-f", "null", "-"]);
-  const { freezes, blacks } = parseDetect(detect.err);
+  const detected = parseDetect(detect.err);
+  // A freeze still open at the end of the file ends with the file (the brand hold).
+  const duration = Number(JSON.parse(out).format?.duration ?? 0);
+  const freezes = detected.freezes.map((freeze) => ({ ...freeze, end: Number.isFinite(freeze.end) ? freeze.end : duration }));
+  const blacks = detected.blacks;
   // The authored holds: the brand tail (from the last stage) is a deliberate still; callers pass the fades.
   const allowed = ranges(args.fades);
   const strayFreezes = unexpectedIntervals(freezes, allowed);

@@ -113,13 +113,19 @@ heavy.sh node scripts/brand/films/encode.mjs --master=<dir>/laptop-dark/master.m
 
 | Rung | Settings |
 |---|---|
-| `hevc60` | x265 `slow`, `--tune grain`, CRF from 29 stepped to fit 3.4 MB with `--budget`, keyint 60, level 4.1 high tier, VBV 50000/50000, `pools=4`, `hvc1` |
-| `avc30` | x264 `slow`, High, CRF 27, keyint 30, every other frame, 0.75× size (720×1440, 900×1200, 1200×900, 1440×810, 1440×720) |
+| `hevc60` | x265 `slow`, CRF from 29 stepped to fit 3.4 MB with `--budget`, keyint 60, level 4.1 high tier, VBV 50000/50000, `pools=4`, `hvc1`; no tune by default (`--tune=grain` doubles the bytes, measured below) |
+| `avc30` | x264 `slow`, High, CRF from 27 stepped to fit 1.6 MB with `--budget`, keyint 30, every other frame, 0.75× size (720×1440, 900×1200, 1200×900, 1440×810, 1440×720) |
 | poster | frame 0 → PNG → `cwebp -q 82` (down in steps of 6 until under 50 KB) |
 | `reel` (`--comp=landscape\|portrait --theme=…`) | the landing reel as shipped: x264 slow, High, CRF 29 landscape / 27 portrait, keyint 250, now tagged BT.709 tv |
 
 All files: `+faststart`, BT.709 primaries, transfer and matrix, tv range. `--legacy` makes the old pipeline's HEVC
 (below) for gate A.
+
+Measured on gate A's master (today's 11.9 s film, laptop, dark; 2026-11-23): `hevc60` slow with no tune at crf 29 is
+3.08 MiB (SSIM 0.972 to the master, 4 min); with `--tune grain` crf 29 is 5.79 MiB and crf 32 still 3.98 MiB (SSIM 0.967),
+about 7 minutes per try. `avc30` (1440×810) at crf 27 is 2.52 MiB, over its 1.6 MiB cap; `--budget` stepped it to crf
+32, 1.47 MiB (crf 31 was 1.64 MiB), about 1 minute per try. The poster is 43 KB at q 82. (Sizes here are MiB, as the
+budgets in `lib/encoders.mjs` are.)
 
 ## Verifying (`verify.mjs`)
 

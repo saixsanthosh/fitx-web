@@ -2,7 +2,7 @@
 // Encodes a composition's FFV1 master into the shipped rungs (BRIEF-2 3.2), holding the browser lane with keep-alive
 // so an encode never runs during a render. Usage (through heavy.sh):
 //   heavy.sh node scripts/brand/films/encode.mjs --master=<dir>/<comp>-<theme>/master.mkv --comp=laptop [--rungs=hevc60,avc30,poster]
-//     [--budget] [--out=<dir>] [--legacy]
+//     [--budget] [--crf=<start>] [--tune=grain|none] [--out=<dir>] [--legacy]
 // --budget steps the HEVC CRF (from the recovered 29) until the file fits its byte budget; --legacy makes the old
 // pipeline's HEVC (BT.601, x265 medium, crf 29, keyint 120) for gate A. Outputs go next to the master unless --out.
 import { spawn } from "node:child_process";
@@ -10,14 +10,14 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { HEAVY, laneHandle, withLane } from "./lane.mjs";
+import { HEAVY, laneHandle, stopChildrenOnSignal, track, withLane } from "./lane.mjs";
 import { AVC30_SIZES, BUDGET, ENCODER, avc30Args, crfForBudget, cwebpArgs, hevc60Args, legacyHevcArgs, posterPngArgs, reelArgs } from "./lib/encoders.mjs";
 import { CWEBP, FFMPEG } from "./lib/preflight.mjs";
 
 const log = (line) => process.stderr.write(`[encode] ${line}\n`);
 
 export function parseEncodeArgs(argv) {
-  const out = { master: null, comp: null, rungs: ["hevc60", "avc30", "poster"], budget: false, out: null, legacy: false, theme: null };
+  const out = { master: null, comp: null, rungs: ["hevc60", "avc30", "poster"], budget: false, out: null, legacy: false, theme: null, tune: ENCODER.hevc60.tune, crf: null };
   for (const arg of argv) {
     const match = /^--([a-z]+)(?:=(.*))?$/.exec(arg);
     if (!match) throw new Error(`unknown argument ${arg}`);
@@ -29,6 +29,8 @@ export function parseEncodeArgs(argv) {
     else if (name === "budget") out.budget = true;
     else if (name === "legacy") out.legacy = true;
     else if (name === "out") out.out = value;
+    else if (name === "tune") out.tune = value;
+    else if (name === "crf") out.crf = Number(value);
     else throw new Error(`unknown flag --${name}`);
   }
   if (!out.master) throw new Error("--master is required");
@@ -41,7 +43,7 @@ export function parseEncodeArgs(argv) {
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const child = track(spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] }));
     let err = "";
     child.stderr.on("data", (chunk) => (err = (err + chunk).slice(-8000)));
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${path.basename(command)} ${code}: ${err}`))));
@@ -50,28 +52,27 @@ function run(command, args) {
 
 const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
-async function encodeHevc({ master, file, budget, lane }) {
+/** Encodes with `args(crf, output)`, stepping the CRF to fit `budget` (null: one encode at `start`). */
+async function encodeToBudget({ file, budget, start, lane, args }) {
   const tried = new Map();
-  let crf = ENCODER.hevc60.crf;
+  let crf = start;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const part = `${file}.crf${crf}.mp4`;
     const started = Date.now();
-    await run(FFMPEG, hevc60Args({ input: master, output: part, crf }));
+    await run(FFMPEG, args(crf, part));
     lane.touch();
-    const bytes = statSync(part).size;
-    tried.set(crf, { part, bytes, seconds: (Date.now() - started) / 1000 });
-    log(`hevc60 crf ${crf}: ${(bytes / 1024 / 1024).toFixed(2)} MB`);
+    tried.set(crf, { part, bytes: statSync(part).size, seconds: (Date.now() - started) / 1000 });
+    log(`${path.basename(file)} crf ${crf}: ${(tried.get(crf).bytes / 1024 / 1024).toFixed(2)} MB`);
     if (!budget) break;
-    const next = crfForBudget(crf, bytes, BUDGET.hevc60);
+    const next = crfForBudget(crf, tried.get(crf).bytes, budget);
     if (next === crf || tried.has(next)) break;
     crf = next;
   }
-  // The lowest CRF that fits (or, with no budget, the one made).
-  const fitting = [...tried.entries()].filter(([, entry]) => !budget || entry.bytes <= BUDGET.hevc60).sort((a, b) => a[0] - b[0]);
+  const fitting = [...tried.entries()].filter(([, entry]) => !budget || entry.bytes <= budget).sort((a, b) => a[0] - b[0]);
   const [chosen, entry] = fitting[0] ?? [...tried.entries()].sort((a, b) => b[0] - a[0])[0];
   renameSync(entry.part, file);
   for (const [, other] of tried) if (other.part !== entry.part) rmSync(other.part, { force: true });
-  return { crf: chosen, bytes: entry.bytes, seconds: entry.seconds, fits: entry.bytes <= BUDGET.hevc60 };
+  return { crf: chosen, bytes: entry.bytes, seconds: entry.seconds, fits: budget ? entry.bytes <= budget : null };
 }
 
 async function work(request, lane) {
@@ -89,13 +90,12 @@ async function work(request, lane) {
     for (const rung of request.rungs) {
       if (rung === "hevc60") {
         const file = path.join(dir, `${name}-hevc60.mp4`);
-        outputs.hevc60 = { file, ...(await encodeHevc({ master: request.master, file, budget: request.budget, lane })), sha256: null };
+        outputs.hevc60 = { file, ...(await encodeToBudget({ file, budget: request.budget ? BUDGET.hevc60 : null, start: request.crf ?? ENCODER.hevc60.crf, lane, args: (crf, output) => hevc60Args({ input: request.master, output, crf, tune: request.tune }) })), sha256: null };
         outputs.hevc60.sha256 = sha256(file);
       } else if (rung === "avc30") {
         const file = path.join(dir, `${name}-avc30.mp4`);
-        const started = Date.now();
-        await run(FFMPEG, avc30Args({ input: request.master, output: file, comp: request.comp }));
-        outputs.avc30 = { file, bytes: statSync(file).size, seconds: (Date.now() - started) / 1000, sha256: sha256(file), fits: statSync(file).size <= BUDGET.avc30 };
+        outputs.avc30 = { file, ...(await encodeToBudget({ file, budget: request.budget ? BUDGET.avc30 : null, start: ENCODER.avc30.crf, lane, args: (crf, output) => avc30Args({ input: request.master, output, comp: request.comp, crf }) })), sha256: null };
+        outputs.avc30.sha256 = sha256(file);
       } else if (rung === "reel") {
         const file = path.join(dir, `reel-${request.theme}-${request.comp}.mp4`);
         const started = Date.now();
@@ -124,6 +124,7 @@ async function work(request, lane) {
 async function main() {
   const request = parseEncodeArgs(process.argv.slice(2));
   if (process.env.FITX_LANE_INNER === "1") {
+    stopChildrenOnSignal();
     const lane = laneHandle({ dir: process.env.FITX_LANE_LOCK, pid: Number(process.env.FITX_LANE_PID) });
     const outputs = await work(request, lane);
     process.stdout.write(`${JSON.stringify(outputs)}\n`);

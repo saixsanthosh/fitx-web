@@ -213,3 +213,32 @@ export async function withLane({ kind, label }, work) {
     handle.release();
   }
 }
+
+const children = new Set();
+
+/** Registers a child process of a lane job's inner half, so a signal stops it too (no orphaned encoder). */
+export function track(child) {
+  children.add(child);
+  child.once("exit", () => children.delete(child));
+  return child;
+}
+
+/** Inner half: on SIGINT, SIGTERM or exit, stop every tracked child first. */
+export function stopChildrenOnSignal() {
+  const stop = () => {
+    for (const child of children) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // already gone
+      }
+    }
+  };
+  process.once("exit", stop);
+  for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+    process.once(signal, () => {
+      stop();
+      process.exit(code);
+    });
+  }
+}
