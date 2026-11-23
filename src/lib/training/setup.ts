@@ -78,7 +78,11 @@ export function needsDemoModelChoice(gender: unknown): boolean {
   return resolveDemoModel(null, gender) === null;
 }
 
-/** Setup is done once it has been saved, or (before the migration, or for accounts it did not backfill) once a list is saved. */
+/**
+ * Setup is done once it has been saved, or (before the migration, or for accounts it did not backfill) once a list
+ * is saved. The migration also backfills workout_setup_at for every member onboarded before it ran: the old
+ * onboarding asked these questions but saved no list for a gym member who kept the full-gym default.
+ */
 export function isWorkoutSetupDone(input: { setupAt: string | null | undefined; hasEquipmentList: boolean }): boolean {
   return Boolean(input.setupAt) || input.hasEquipmentList;
 }

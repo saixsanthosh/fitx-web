@@ -6,8 +6,15 @@
 --                                  fitness_level, workouts_per_week, limitations, plus user_equipment_profiles.
 --    demo_model text               Which demonstration model to show: 'male', 'female', or null (follow
 --                                  profiles.gender when that is male or female, otherwise the member picks).
---    Backfill: workout_setup_at = now() for members who already have a saved equipment list
---    (any user_equipment_profiles row), so nobody who has set up training is asked again.
+--    Backfill, so nobody who has answered these questions is asked again:
+--    - on the run that adds the column (and only then), workout_setup_at = now() for every member who has
+--      finished onboarding (profiles.onboarded). Until this release onboarding asked where they train, their
+--      experience, days and equipment, and it saved no equipment list for a gym member who kept the full-gym
+--      default. The runbook applies this file before the new app (which no longer asks) is deployed, so these
+--      are exactly the members who answered. Later runs skip this step, so a member who joins afterwards is
+--      still asked once (an Undo followed by a new run after the deploy would count everyone onboarded by then);
+--    - on every run, workout_setup_at = now() for members who already have a saved equipment list
+--      (any user_equipment_profiles row).
 -- 2. public.exercise_media (wave 2 adds demonstration media for every exercise)
 --    model text    'male', 'female', or null when the photo or video is not tied to one model.
 --    caption text  A short caption shown with the media (at most 280 characters).
@@ -27,9 +34,20 @@
 --   alter table public.user_preferences drop constraint if exists user_preferences_demo_model_check,
 --     drop column if exists demo_model, drop column if exists workout_setup_at;
 
-alter table public.user_preferences
-  add column if not exists workout_setup_at timestamptz,
-  add column if not exists demo_model text;
+-- Members who finished onboarding answered its training questions: counted as set up once, on the run that adds
+-- the column (later runs leave it alone, so members who join after the deploy are still asked).
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'user_preferences'
+                   and column_name = 'workout_setup_at') then
+    alter table public.user_preferences add column workout_setup_at timestamptz;
+    update public.user_preferences up
+    set workout_setup_at = now()
+    where exists (select 1 from public.profiles p where p.id = up.user_id and p.onboarded);
+  end if;
+end $$;
+
+alter table public.user_preferences add column if not exists demo_model text;
 
 do $$
 begin

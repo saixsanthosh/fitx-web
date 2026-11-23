@@ -1,6 +1,7 @@
 // Runs every repo migration on a throwaway local Postgres (the Supabase stand-in in tests/support, no network, no
-// real data) and checks 20261123100020: members who already saved an equipment list are backfilled as set up,
-// others are not; a member saves their own setup time and demonstration model (male or female only) and cannot
+// real data) and checks 20261123100020: members who already saved an equipment list, or who finished the old
+// onboarding (which asked the training questions), are backfilled as set up, others are not; a later run never
+// counts a member who finished onboarding after the first run; a member saves their own setup time and demonstration model (male or female only) and cannot
 // change another member's; running the file again changes nothing; exercise_media gains model and caption.
 // Skipped when the Postgres binaries (initdb, pg_ctl, psql) are not on PATH.
 import { after, before, describe, test } from "node:test";
@@ -11,6 +12,10 @@ import { LocalPostgres, MIGRATIONS_DIR, available } from "../support/local-postg
 const FILE = "20261123100020_fitx_workout_setup.sql";
 const A = "aaaaaaaa-0000-4000-8000-0000000000a1";
 const B = "bbbbbbbb-0000-4000-8000-0000000000b2";
+// C finished the old onboarding as a gym member and kept the full-gym default, so no equipment list was saved.
+const C = "cccccccc-0000-4000-8000-0000000000c3";
+// D finishes the new onboarding (which no longer asks) after the first run.
+const D = "dddddddd-0000-4000-8000-0000000000d4";
 const asA = { role: "authenticated", sub: A };
 const asB = { role: "authenticated", sub: B };
 
@@ -24,17 +29,23 @@ describe("workout setup migration", { skip }, () => {
   before(() => {
     pg = new LocalPostgres().start();
     pg.applyMigrations({ before: FILE });
-    pg.exec(`insert into auth.users (id, email) values ('${A}', 'setup-a@example.test'), ('${B}', 'setup-b@example.test');
-      insert into public.user_preferences (user_id) values ('${A}'), ('${B}') on conflict (user_id) do nothing;
+    pg.exec(`insert into auth.users (id, email) values ('${A}', 'setup-a@example.test'), ('${B}', 'setup-b@example.test'), ('${C}', 'setup-c@example.test');
+      update public.profiles set onboarded = true where id = '${C}';
+      insert into public.user_preferences (user_id, workout_location, fitness_level, workouts_per_week)
+        values ('${A}', 'home', 'beginner', 3), ('${B}', 'gym', 'beginner', 3), ('${C}', 'gym', 'intermediate', 4)
+        on conflict (user_id) do nothing;
       insert into public.user_equipment_profiles (user_id, context, equipment_keys) values ('${A}', 'home', array['dumbbell']);`);
     pg.applyMigrations({ from: FILE });
   });
 
   after(() => pg?.stop());
 
-  test("only members with a saved equipment list are backfilled as set up", () => {
+  test("members with a saved equipment list or a finished onboarding are backfilled as set up, others are not", () => {
     assert.deepEqual(setupOf(A), { set: true, model: null });
     assert.deepEqual(setupOf(B), { set: false, model: null });
+    assert.deepEqual(setupOf(C), { set: true, model: null }, "the old onboarding's answers count; it saved no list for the gym default");
+    const kept = pg.json(`select json_build_object('l', workout_location, 'f', fitness_level, 'd', workouts_per_week) from public.user_preferences where user_id = '${C}';`);
+    assert.deepEqual(kept, { l: "gym", f: "intermediate", d: 4 }, "the answers themselves are not changed");
   });
 
   test("a member saves their own setup; the model is male or female only", () => {
@@ -47,11 +58,15 @@ describe("workout setup migration", { skip }, () => {
     assert.equal(pg.exec(`select demo_model from public.user_preferences where user_id = '${B}';`, asA), "", "nor read");
   });
 
-  test("running the file again changes nothing", () => {
+  test("running the file again changes nothing, and never counts a member onboarded since", () => {
+    pg.exec(`insert into auth.users (id, email) values ('${D}', 'setup-d@example.test');
+      update public.profiles set onboarded = true where id = '${D}';
+      insert into public.user_preferences (user_id) values ('${D}') on conflict (user_id) do nothing;`);
     const beforeRun = pg.json("select json_agg(json_build_object('u', user_id, 'at', workout_setup_at, 'm', demo_model) order by user_id) from public.user_preferences;");
     pg.applyFile(path.join(MIGRATIONS_DIR, FILE));
     const afterRun = pg.json("select json_agg(json_build_object('u', user_id, 'at', workout_setup_at, 'm', demo_model) order by user_id) from public.user_preferences;");
     assert.deepEqual(afterRun, beforeRun);
+    assert.deepEqual(setupOf(D), { set: false, model: null });
   });
 
   test("exercise_media has model and caption with their checks", () => {

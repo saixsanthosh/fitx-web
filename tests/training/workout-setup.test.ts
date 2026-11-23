@@ -182,11 +182,13 @@ describe("Home and Gym modes", () => {
 
 describe("migration 20261123100020", () => {
   const sql = readFileSync("supabase/migrations/20261123100020_fitx_workout_setup.sql", "utf8");
-  test("is additive, guarded and backfills only members with a saved list", () => {
-    assert.match(sql, /add column if not exists workout_setup_at timestamptz/);
+  test("is additive, guarded and backfills members with a saved list or a finished onboarding", () => {
     assert.match(sql, /add column if not exists demo_model text/);
     assert.match(sql, /user_preferences_demo_model_check/);
     assert.match(sql, /where up\.workout_setup_at is null\s+and exists \(select 1 from public\.user_equipment_profiles/);
+    // The old onboarding asked the training questions but saved no list for a gym member who kept the default:
+    // every onboarded member counts as set up, once, on the run that adds the column.
+    assert.match(sql, /if not exists \(select 1 from information_schema\.columns where table_schema = 'public' and table_name = 'user_preferences'\s+and column_name = 'workout_setup_at'\) then\s+alter table public\.user_preferences add column workout_setup_at timestamptz;\s+update public\.user_preferences up\s+set workout_setup_at = now\(\)\s+where exists \(select 1 from public\.profiles p where p\.id = up\.user_id and p\.onboarded\);\s+end if;/);
     assert.doesNotMatch(sql, /\bdrop\s+(table|column)\b(?![^\n]*if exists)/i);
     assert.doesNotMatch(sql, /create table/i);
   });
