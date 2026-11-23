@@ -188,7 +188,7 @@ export function ProgressAnalytics({ today }: { today: string }) {
               <span className={styles.ringUnit}>{view.current.activeDays === 1 ? "active day" : "active days"}</span>
             </ConcentricRings>
             <ul className={styles.legend} aria-label="Rings">
-              <li data-tone="train"><i /><span>Active</span><strong>{view.current.activeDays}<small>of {view.current.days} days</small></strong></li>
+              <li data-tone="train"><i /><span>Active</span><strong>{view.current.activeDays}<small>of {view.current.days} {view.current.days === 1 ? "day" : "days"}</small></strong></li>
               <li data-tone="food"><i /><span>Food logged</span><strong>{view.current.loggedDays}<small>{view.current.loggedDays === 1 ? "day" : "days"}</small></strong></li>
               {plan !== null ? <li data-tone="plan"><i /><span>Training days</span><strong>{view.current.trainingDays}<small>of {planTarget(plan, period)}</small></strong></li> : null}
             </ul>
@@ -381,7 +381,8 @@ function heroRings(current: ReturnType<typeof periodSummary>, period: Period, pl
 }
 
 function ringsLabel(current: ReturnType<typeof periodSummary>, plan: number | null, period: Period): string {
-  const parts = [`${current.activeDays} active of ${current.days} days`, `food logged on ${current.loggedDays} days`];
+  const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+  const parts = [`${current.activeDays} active of ${days(current.days)}`, `food logged on ${days(current.loggedDays)}`];
   if (plan !== null) parts.push(`${current.trainingDays} training days of ${planTarget(plan, period)} planned`);
   return parts.join(", ");
 }
