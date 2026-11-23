@@ -1,5 +1,6 @@
 /* Workouts page. Theme tokens only (check:colors). Phone first: one column; from 1024 px Today sits beside History
-   and Your plans beside Gym equipment. DOM order is the reading order at every width. */
+   and Your plans beside Gym equipment. DOM order is the reading order at every width. The Gym tab is compact
+   (phase 7.4): one line per plan, anatomy tiles for the body areas, a short programme card. */
 
 .page { min-width: 0; }
 
@@ -175,12 +176,12 @@
 /* Plans. */
 .planList { display: grid; gap: 8px; }
 
+/* One line per plan at every width: name and day, Start, and a menu for the rest (phase 7.4). */
 .planRow {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  padding: 12px 12px 12px 16px;
+  gap: 4px;
+  padding: 8px 6px 8px 16px;
   border: 1px solid var(--fitx-border);
   border-radius: 16px;
   background: var(--fitx-card-bg);
@@ -188,8 +189,7 @@
 
 .planRow:hover { border-color: color-mix(in srgb, var(--fitx-primary) 35%, var(--fitx-border)); }
 
-.planActions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
-.planStart { min-height: 44px; margin-left: 6px; padding-inline: 16px; }
+.planStart { min-height: 44px; flex: 0 0 auto; margin-left: 8px; padding-inline: 16px; }
 
 .chip,
 .chipDone {
@@ -202,10 +202,6 @@
 
 .chip { background: var(--fitx-surface-variant); color: var(--fitx-text-secondary); }
 .chipDone { background: var(--fitx-success-bg); color: var(--fitx-success); }
-
-@media (max-width: 479px) {
-  .planActions { width: 100%; justify-content: flex-end; }
-}
 
 /* Gym equipment: icon tiles, like an equipment picker. */
 .equipmentCard {

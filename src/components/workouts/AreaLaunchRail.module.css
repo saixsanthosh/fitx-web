@@ -1,0 +1,69 @@
+/* AreaLaunchRail. Theme tokens only (check:colors). Motion is transform only; nothing moves under reduced motion.
+   Phones: a sideways rail that stays inside the page gutter (no bleed, so nothing ever widens the page). */
+.rail {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 4px;
+  margin-inline: -2px;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+.rail::-webkit-scrollbar { display: none; }
+@media (min-width: 768px) {
+  .rail { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); overflow: visible; }
+}
+
+.tile {
+  display: grid;
+  flex: 0 0 96px;
+  justify-items: center;
+  gap: 6px;
+  padding: 0 0 4px;
+  border-radius: 18px;
+  color: var(--fitx-text);
+  text-align: center;
+  scroll-snap-align: start;
+}
+.tile:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+
+.art {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--fitx-border);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 36%, color-mix(in srgb, var(--fitx-surface) 92%, transparent), transparent 72%),
+    var(--fitx-surface-variant);
+}
+/* The body map, cropped to the area (muscle-crops.ts). */
+.figure {
+  position: absolute;
+  top: 0;
+  left: calc((1 - var(--crop-scale, 1)) * 50%);
+  width: calc(var(--crop-scale, 1) * 100%);
+  transform: translate3d(0, calc(var(--crop-top, 0%) * -1), 0);
+}
+.figure.figure > * { max-width: none; }
+
+.label { font-size: 14px; font-weight: 650; line-height: 1.2; }
+.detail { margin-top: -2px; color: var(--fitx-text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+@media (hover: hover) {
+  .tile:hover .art { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); }
+  .tile:hover .label { color: var(--fitx-primary-text); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tile { transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .tile:active { transform: scale(0.96); }
+  .art { transition: border-color 200ms ease; }
+  .label { transition: color 200ms ease; }
+  .figure { transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1); }
+  @media (hover: hover) {
+    .tile:hover .figure { transform: translate3d(0, calc(var(--crop-top, 0%) * -1), 0) scale(1.04); }
+  }
+}

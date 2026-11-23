@@ -1,17 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, Layers } from "lucide-react";
+import { useState, type CSSProperties } from "react";
+import { Layers, ListOrdered } from "lucide-react";
 import { BodyMap } from "@/components/anatomy/BodyMap";
 import { programmeLengthLabel, programmeMeta } from "@/data/programmes/meta";
 import { equipmentLabel } from "@/lib/training/equipment";
 import { FOCUS_AREAS, focusLabel, type FocusArea } from "@/lib/training/focus";
 import { programmeRegionLevels, programmesForArea, slotPrescription, weeklyPattern, type Programme } from "@/lib/training/programmes";
 import { Sheet } from "./Sheet";
+import styles from "./ProgrammeBrowser.module.css";
 
 const WEEKDAYS = [["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4], ["Fri", 5], ["Sat", 6], ["Sun", 0]] as const;
 
-/** The programmes for one context as cards, filterable by body area, each with its days, and a form to start following one. */
+/**
+ * The programmes for one context as compact cards (phase 7.4): where each one's sets go on the body map, its name and
+ * one line of facts. On phones the cards are a sideways rail; from 768 px a grid. "Days" opens the programme's days
+ * in a sheet (with Follow there too); "Follow" opens the form to start following it. Filterable by body area.
+ */
 export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, disabledNote }: {
   programmes: readonly Programme[];
   enrolAvailable: boolean;
@@ -20,7 +25,7 @@ export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, di
   /** Why "Follow" is unavailable, shown under the list. */
   disabledNote?: string;
 }) {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [daysOf, setDaysOf] = useState<Programme | null>(null);
   const [enrolling, setEnrolling] = useState<Programme | null>(null);
   const [area, setArea] = useState<FocusArea | null>(null);
   if (!programmes.length) return null;
@@ -30,69 +35,75 @@ export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, di
   return (
     <div className="space-y-3">
       {areas.length > 1 && (
-        <div role="group" aria-label="Programmes by body area" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div role="group" aria-label="Programmes by body area" className={styles.chips}>
           {[null, ...areas].map((key) => {
             const on = area === key;
-            return <button key={key ?? "all"} type="button" aria-pressed={on} onClick={() => setArea(key)} className={`min-h-11 shrink-0 rounded-full border px-4 text-sm ${on ? "border-fitx-primary bg-fitx-primary/[.08] font-semibold text-fitx-primary-text" : "border-fitx-border text-fitx-text-secondary hover:text-fitx-text"}`}>{key ? focusLabel(key) : "All"}</button>;
+            return <button key={key ?? "all"} type="button" aria-pressed={on} onClick={() => setArea(key)} className={styles.chip}>{key ? focusLabel(key) : "All"}</button>;
           })}
         </div>
       )}
       {area && <p className="sr-only" role="status">{shown.length} programme{shown.length === 1 ? "" : "s"}, the most work for {focusLabel(area).toLowerCase()} first.</p>}
-      <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {shown.map((programme) => {
-          const open = openId === programme.id;
+      <ul className={styles.list} key={area ?? "all"}>
+        {shown.map((programme, index) => {
           const meta = programmeMeta(programme.id);
-          const week = weeklyPattern(programme.defaultWeekdays);
           return (
-            <article key={programme.id} className={`rounded-[18px] border bg-fitx-card p-4 transition-colors motion-reduce:transition-none ${open ? "border-fitx-primary/40 md:col-span-2 xl:col-span-3" : "border-fitx-border hover:border-fitx-primary/30"}`}>
-              <div className="flex items-start gap-3">
-                <div className="w-[88px] shrink-0 rounded-xl bg-fitx-surface-variant p-1.5">
-                  <BodyMap title={`${programme.title}: where its sets go`} levels={programmeRegionLevels(programme)} size="sm" />
+            <li key={programme.id} className={styles.item} style={{ "--rise-delay": `${Math.min(index, 5) * 45}ms` } as CSSProperties}>
+              <article className={styles.card} aria-labelledby={`programme-${programme.id}-title`}>
+                <div className={styles.cardHead}>
+                  <div className={styles.map}>
+                    <BodyMap title={`${programme.title}: where its sets go`} levels={programmeRegionLevels(programme)} size="sm" captions={false} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 id={`programme-${programme.id}-title`} className={styles.name}>{programme.title}</h3>
+                    <p className={styles.facts}>{programmeLengthLabel(meta?.lengthDays)} · about {programme.sessionMinutes} min</p>
+                    <p className={styles.level}>{programme.level}</p>
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-heading text-base font-bold leading-snug tracking-[-.01em]">{programme.title}</h3>
-                  <p className="mt-1 line-clamp-2 text-sm text-fitx-text-secondary">{meta?.objective ?? programme.summary}</p>
+                <div className={styles.cardActions}>
+                  <button type="button" aria-haspopup="dialog" onClick={() => setDaysOf(programme)} className="fitx-button fitx-button-quiet min-h-11 flex-1 px-3 text-sm"><ListOrdered size={15} aria-hidden="true" />Days</button>
+                  <button type="button" aria-haspopup="dialog" disabled={!enrolAvailable || busy} onClick={() => setEnrolling(programme)} className="fitx-button min-h-11 flex-1 px-4 text-sm">Follow</button>
                 </div>
-              </div>
-              <ul className="mt-3 flex flex-wrap gap-1.5 text-xs text-fitx-text-secondary" aria-label="At a glance">
-                <li className="rounded-full bg-fitx-surface-variant px-2.5 py-1">{programmeLengthLabel(meta?.lengthDays)}</li>
-                <li className="rounded-full bg-fitx-surface-variant px-2.5 py-1">{programme.daysPerWeek} days a week, {week.rest} rest</li>
-                <li className="rounded-full bg-fitx-surface-variant px-2.5 py-1">About {programme.sessionMinutes} min</li>
-                <li className="rounded-full bg-fitx-surface-variant px-2.5 py-1 capitalize">{programme.level}</li>
-              </ul>
-              <div className="mt-3 flex gap-2">
-                <button type="button" onClick={() => setOpenId(open ? null : programme.id)} aria-expanded={open} className="fitx-button fitx-button-quiet min-h-11 flex-1 px-3 text-sm">Days<ChevronDown size={14} className={`transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} aria-hidden="true" /></button>
-                <button type="button" disabled={!enrolAvailable || busy} onClick={() => setEnrolling(programme)} className="fitx-button min-h-11 flex-1 px-4 text-sm">Follow</button>
-              </div>
-              {open && (
-                <div className="mt-4 border-t border-fitx-divider pt-3">
-                  <p className="mb-2 text-xs text-fitx-text-secondary">{programme.summary}</p>
-                  <ol className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    {programme.days.map((day, index) => (
-                      <li key={day.key} className="rounded-md bg-fitx-surface-variant p-3">
-                        <p className="text-sm font-medium"><span className="mr-1.5 text-xs tabular-nums text-fitx-text-secondary">Day {index + 1}</span>{day.title}</p>
-                        <ul className="mt-1.5 space-y-0.5 text-xs text-fitx-text-secondary">
-                          {day.slots.filter((slot) => !slot.optional).map((slot, position) => <li key={`${position}-${slot.label ?? ""}`} className="flex justify-between gap-2"><span className="min-w-0 truncate">{slot.label ?? "Exercise"}</span><span className="shrink-0 tabular-nums">{slotPrescription(slot)}</span></li>)}
-                        </ul>
-                      </li>
-                    ))}
-                  </ol>
-                  <p className="mt-3 text-xs text-fitx-text-secondary">Rest days fall on the days you don’t pick.</p>
-                  {programme.builtAround.length > 0 && <p className="mt-2 flex items-center gap-1.5 text-xs text-fitx-text-secondary"><Layers size={13} aria-hidden="true" />Built around {programme.builtAround.map(equipmentLabel).join(", ").toLowerCase()}; exercises adapt to your list.</p>}
-                  <p className="mt-2 text-xs text-fitx-text-secondary">{programme.sourceNotes}</p>
-                </div>
-              )}
-            </article>
+              </article>
+            </li>
           );
         })}
-      </div>
+      </ul>
       {!enrolAvailable && disabledNote && <p className="text-xs text-fitx-text-secondary">{disabledNote}</p>}
+      {daysOf && <DaysSheet programme={daysOf} canFollow={enrolAvailable && !busy} onClose={() => setDaysOf(null)} onFollow={() => { const next = daysOf; setDaysOf(null); setEnrolling(next); }} />}
       {enrolling && <EnrolSheet programme={enrolling} busy={busy} onClose={() => setEnrolling(null)} onConfirm={async (weekdays, time) => {
         const error = await onEnrol(enrolling, weekdays, time);
         if (!error) setEnrolling(null);
         return error;
       }} />}
     </div>
+  );
+}
+
+/** A programme's days: what it is for, each day's exercises with sets and reps, and how it adapts. */
+function DaysSheet({ programme, canFollow, onClose, onFollow }: { programme: Programme; canFollow: boolean; onClose: () => void; onFollow: () => void }) {
+  const meta = programmeMeta(programme.id);
+  const week = weeklyPattern(programme.defaultWeekdays);
+  return (
+    <Sheet title={programme.title} size="lg" onClose={onClose}
+      description={`${programmeLengthLabel(meta?.lengthDays)} · ${programme.daysPerWeek} days a week, ${week.rest} rest · about ${programme.sessionMinutes} min`}
+      footer={<>
+        <button type="button" onClick={onClose} className="fitx-button fitx-button-quiet">Close</button>
+        <button type="button" disabled={!canFollow} onClick={onFollow} className="fitx-button">Follow</button>
+      </>}>
+      <p className="text-sm text-fitx-text-secondary">{meta?.objective ?? programme.summary}</p>
+      <ol className="mt-4 grid gap-2 sm:grid-cols-2">
+        {programme.days.map((day, index) => (
+          <li key={day.key} className="rounded-lg bg-fitx-surface-variant p-3">
+            <p className="text-sm font-medium"><span className="mr-1.5 text-xs tabular-nums text-fitx-text-secondary">Day {index + 1}</span>{day.title}</p>
+            <ul className="mt-1.5 space-y-0.5 text-xs text-fitx-text-secondary">
+              {day.slots.filter((slot) => !slot.optional).map((slot, position) => <li key={`${position}-${slot.label ?? ""}`} className="flex justify-between gap-2"><span className="min-w-0 truncate">{slot.label ?? "Exercise"}</span><span className="shrink-0 tabular-nums">{slotPrescription(slot)}</span></li>)}
+            </ul>
+          </li>
+        ))}
+      </ol>
+      {programme.builtAround.length > 0 && <p className="mt-3 flex items-center gap-1.5 text-xs text-fitx-text-secondary"><Layers size={13} aria-hidden="true" />Built around {programme.builtAround.map(equipmentLabel).join(", ").toLowerCase()}; exercises adapt to your list.</p>}
+      <p className="mt-2 text-xs text-fitx-text-secondary">{programme.sourceNotes}</p>
+    </Sheet>
   );
 }
 

@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowRight, CalendarPlus, Flag, Pause, Play } from "lucide-react";
+import { ArrowRight, CalendarPlus, Flag, LogOut, Pause, Play } from "lucide-react";
 import { programmeLengthLabel, programmeMeta } from "@/data/programmes/meta";
 import { topUpWindow, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
 import { readableDate } from "@/lib/domain/dates";
 import { programmeCalendar, programmeStatus, stripRange, targetSessions, type CalendarDay, type ProgrammeStatus } from "@/lib/training/programme-calendar";
 import type { Programme } from "@/lib/training/programmes";
+import { ActionsMenu, type ActionsMenuItem } from "./ActionsMenu";
+import { sessionsRing } from "./gym-compact";
 import { ProgrammeDayDetails } from "./ProgrammeDayDetails";
 import { ProgrammeDayStrip } from "./ProgrammeDayStrip";
+import styles from "./ProgrammeCard.module.css";
 
 /** The cycle position in words: the next workout (with its day of the cycle), where a paused programme resumes, or done. */
 export function whereYouAre(status: ProgrammeStatus, upNext: CalendarDay | null, paused: boolean): string {
@@ -23,10 +26,27 @@ export function whereYouAre(status: ProgrammeStatus, upNext: CalendarDay | null,
   return `${of(status.nextDayIndex).replace(/^d/, "D")}${status.nextTitle ? ` · ${status.nextTitle}` : ""} is next`;
 }
 
+/** The sessions-done ring: completed workouts only, drawn with a stroke offset (no layout motion). */
+function SessionsRingMark({ done, target }: { done: number; target: number | null }) {
+  const ring = sessionsRing(done, target);
+  const radius = 24;
+  const length = 2 * Math.PI * radius;
+  return (
+    <div role="img" aria-label={ring.label} title="Completed workouts only" className={styles.ring}>
+      <svg viewBox="0 0 56 56" aria-hidden="true" className={styles.ringArt}>
+        <circle cx="28" cy="28" r={radius} className={styles.ringTrack} />
+        {ring.fraction > 0 && <circle cx="28" cy="28" r={radius} className={styles.ringFill} strokeDasharray={length} strokeDashoffset={length * (1 - ring.fraction)} />}
+      </svg>
+      <span className={styles.ringText} aria-hidden="true"><span className={styles.ringValue}>{ring.value}</span>{ring.total && <span className={styles.ringTotal}>{ring.total}</span>}</span>
+    </div>
+  );
+}
+
 /**
- * The programme the member follows, as a journey: what it is for and how long it runs, sessions done (completed
- * workouts only), where they are in its cycle, this week, and a strip of days from a week back to a week ahead with
- * rest days shown as planned recovery. Choosing a day shows it; its workout opens in the plan preview.
+ * The programme the member follows, compact (phase 7.4): a ring of sessions done (completed workouts only) beside its
+ * name and length, one line on where they are and this week, then a strip of days from a week back to a week ahead
+ * (rest days shown as planned recovery). Choosing a day shows it in one row; its workout opens in the plan preview.
+ * One visible action besides the journey link (Pause or Resume); planning ahead and leaving sit in a "more" menu.
  */
 export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false, todayKey, busy, planning = false, activeSession = false, onPreview, onPlanAhead, onLeave, onPause, onResume, onFinish }: {
   programme: Programme;
@@ -58,46 +78,35 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
   const trainingDays = new Set(enrolment.weekdays).size;
   const canPlan = !paused && !plansFailed && !planning && !status.complete
     && topUpWindow({ enrolment, plans, todayKey, target, dayCount: programme.days.length }) !== null;
-  const percent = target ? Math.min(100, Math.round((status.sessionsCompleted / target) * 100)) : 0;
   // The next workout the member will see: today's if it is still to do, else the next planned or projected day.
   const upNext = days.find((day) => day.date >= todayKey && (day.state === "today" || day.state === "planned" || day.state === "projected")) ?? null;
+  const weekLine = paused ? "Your place is kept" : `This week ${status.week.done} of ${status.week.training} done`;
+  const more: ActionsMenuItem[] = [
+    ...(canPlan ? [{ label: busy ? "Planning…" : "Plan the next 7 days", icon: CalendarPlus, onSelect: onPlanAhead, disabled: busy }] : []),
+    { label: "Leave programme", icon: LogOut, onSelect: onLeave, disabled: busy || planning, tone: "danger" as const },
+  ];
 
   return (
-    <section aria-label="Your programme" className="rounded-[20px] border border-fitx-border bg-fitx-card p-4 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.14em] text-fitx-primary-text">Your programme{paused && <span className="rounded-sm bg-fitx-surface-variant px-1.5 py-0.5 text-[10px] tracking-[.08em] text-fitx-text-secondary">Paused</span>}</p>
-          <h3 className="mt-1 font-heading text-xl font-bold tracking-[-.02em]">{programme.title}</h3>
-          <p className="mt-1 text-xs text-fitx-text-secondary">{programmeLengthLabel(meta?.lengthDays)} · {trainingDays} training day{trainingDays === 1 ? "" : "s"} and {7 - trainingDays} rest day{7 - trainingDays === 1 ? "" : "s"} a week</p>
-          {meta?.objective && <p className="mt-1 text-sm text-fitx-text-secondary">{meta.objective}</p>}
+    <section aria-label="Your programme" className={styles.card}>
+      <div className={styles.head}>
+        <SessionsRingMark done={status.sessionsCompleted} target={target || null} />
+        <div className="min-w-0 flex-1">
+          <p className={styles.eyebrow}>Your programme{paused && <span className={styles.paused}>Paused</span>}</p>
+          <h3 className={styles.title}>{programme.title}</h3>
+          <p className={styles.meta}>{programmeLengthLabel(meta?.lengthDays)} · {trainingDays} training day{trainingDays === 1 ? "" : "s"} and {7 - trainingDays} rest day{7 - trainingDays === 1 ? "" : "s"} a week</p>
         </div>
+        <ActionsMenu label="More programme actions" items={more} className={styles.more} />
       </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl bg-fitx-surface-variant p-3">
-          <p className="text-xs text-fitx-text-secondary">Sessions done</p>
-          {target ? <>
-            <p className="mt-1 text-sm font-semibold tabular-nums">{status.sessionsCompleted} of {target}</p>
-            <div className="fitx-progress-track mt-2 h-1.5" aria-hidden="true"><div className="fitx-progress-fill" style={{ width: `${percent}%` }} /></div>
-            <p className="mt-1.5 text-[11px] text-fitx-text-secondary">Completed workouts only.</p>
-          </> : <p className="mt-1 text-sm font-semibold tabular-nums">{status.sessionsCompleted} workout{status.sessionsCompleted === 1 ? "" : "s"}</p>}
-        </div>
-        <div className="rounded-xl bg-fitx-surface-variant p-3">
-          <p className="text-xs text-fitx-text-secondary">Where you are</p>
-          <p className="mt-1 text-sm font-semibold">{whereYouAre(status, upNext, paused)}</p>
-          <p className="mt-1.5 text-[11px] text-fitx-text-secondary">{paused ? "Your place is kept." : `This week: ${status.week.done} of ${status.week.training} workout${status.week.training === 1 ? "" : "s"} done · ${status.week.rest} rest day${status.week.rest === 1 ? "" : "s"}`}</p>
-        </div>
-      </div>
+      <p className={styles.where}><span className="font-semibold text-fitx-text">{whereYouAre(status, upNext, paused)}</span><span aria-hidden="true"> · </span><span className="sr-only">. </span><span className="whitespace-nowrap">{weekLine}</span></p>
 
       {status.complete && !paused && (
-        <div className="mt-4 rounded-lg border border-fitx-success-border bg-fitx-success-bg p-3 text-sm">
-          <p className="font-semibold text-fitx-success">You’ve done all {target} sessions of this plan.</p>
-          <p className="mt-1 text-fitx-text-secondary">Finish it to choose your next programme. Your workouts stay in your history.</p>
-          <button type="button" onClick={onFinish} disabled={busy || planning} className="fitx-button mt-3 min-h-11 text-sm"><Flag size={15} aria-hidden="true" />Finish programme</button>
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-fitx-success-border bg-fitx-success-bg p-3 text-sm">
+          <p className="min-w-0 flex-1 font-semibold text-fitx-success">All {target} sessions done. Finish to choose your next programme.</p>
+          <button type="button" onClick={onFinish} disabled={busy || planning} className="fitx-button min-h-11 text-sm"><Flag size={15} aria-hidden="true" />Finish programme</button>
         </div>
       )}
 
-      <div className="mt-4">
+      <div className="mt-3">
         {plansFailed
           ? <p className="text-sm text-fitx-text-secondary">This week’s programme days couldn’t be loaded.</p>
           : <ProgrammeDayStrip days={days} selected={selected} onSelect={setSelected} label={`${programme.title}: days`}
@@ -105,13 +114,11 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
         {planning && <p role="status" className="mt-2 text-xs text-fitx-text-secondary">Planning your next days…</p>}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Link href="/workouts/programme" className="fitx-button fitx-button-secondary min-h-11 text-sm">See the whole programme<ArrowRight size={15} aria-hidden="true" /></Link>
-        {canPlan && <button type="button" onClick={onPlanAhead} disabled={busy} className="fitx-button fitx-button-quiet min-h-11 text-sm"><CalendarPlus size={15} aria-hidden="true" />{busy ? "Planning…" : "Plan the next 7 days"}</button>}
+      <div className={styles.actions}>
+        <Link href="/workouts/programme" className={styles.journey}>See the whole programme<ArrowRight size={15} aria-hidden="true" /></Link>
         {paused
-          ? <button type="button" onClick={onResume} disabled={busy} className="fitx-button min-h-11 text-sm"><Play size={15} aria-hidden="true" />Resume programme</button>
-          : !status.complete && <button type="button" onClick={onPause} disabled={busy || planning || activeSession} className="fitx-button fitx-button-quiet min-h-11 text-sm"><Pause size={15} aria-hidden="true" />Pause</button>}
-        <button type="button" onClick={onLeave} disabled={busy || planning} className="fitx-button fitx-button-quiet min-h-11 text-sm">Leave programme</button>
+          ? <button type="button" onClick={onResume} disabled={busy} className="fitx-button min-h-11 px-4 text-sm"><Play size={15} aria-hidden="true" />Resume programme</button>
+          : !status.complete && <button type="button" onClick={onPause} disabled={busy || planning || activeSession} className="fitx-button fitx-button-quiet min-h-11 px-4 text-sm"><Pause size={15} aria-hidden="true" />Pause</button>}
       </div>
       {activeSession && !paused && <p className="mt-2 text-xs text-fitx-text-secondary">Pausing waits until your workout in progress is finished.</p>}
     </section>
