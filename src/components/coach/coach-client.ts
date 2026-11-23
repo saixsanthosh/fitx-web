@@ -79,4 +79,6 @@ export const applyAction = (id: string) => call<{ status: "applied"; kind: strin
 export const requestSwap = (actionId: string, note: string) =>
   call<{ swap: CoachSwap; action: CoachActionView; quota: CoachQuota }>("/api/coach/swap", { method: "POST", body: JSON.stringify({ actionId, note: note || null }) });
 export const saveConsent = (shareData: boolean) => call<{ consent: { shareData: boolean } }>("/api/coach/consent", { method: "POST", body: JSON.stringify({ shareData }) });
+/** Agrees again to the current consent screen (the one-time prompt for consents given to an older one). */
+export const renewConsent = () => call<{ consent: { shareData: boolean; version: number } }>("/api/coach/consent", { method: "POST", body: JSON.stringify({ renew: true }) });
 export const deleteCoachData = () => call<{ deleted: true }>("/api/coach/data", { method: "DELETE" });

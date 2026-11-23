@@ -86,3 +86,28 @@
 .panelLayout .hello { padding: 16px 0; }
 .panelLayout .prompts { grid-template-columns: minmax(0, 1fr); }
 .panelLayout .composerDock { position: static; padding: 8px 0 12px; background: var(--fitx-bg); }
+
+/* The one-time prompt for a consent given to an older consent screen (ConsentRenewal). */
+.renewal {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--fitx-border);
+  border-radius: 14px;
+  background: var(--fitx-surface);
+  padding: 14px 16px;
+  color: var(--fitx-text);
+  font-size: .875rem;
+  line-height: 1.5;
+}
+.renewalIcon { margin-top: 2px; color: var(--fitx-primary-text); }
+.renewalBody { display: grid; gap: 4px; min-width: 0; }
+.renewalBody p { color: var(--fitx-text-secondary); }
+.renewalTitle { color: var(--fitx-text); font-size: .95rem; font-weight: 700; }
+.renewalError { color: var(--fitx-danger); }
+.renewalActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; grid-column: 1 / -1; }
+@media (prefers-reduced-motion: no-preference) {
+  .renewal { animation: renewal-in 320ms cubic-bezier(.22, 1, .36, 1) both; }
+}
+@keyframes renewal-in { from { opacity: 0; transform: translateY(-6px); } }

@@ -18,6 +18,13 @@ export type CoachState = "paused" | "not_configured" | "not_available" | "consen
 /** A connected AI service as the member sees it: a name and its data use. Never a key, a URL or a model setting. */
 export type ProviderNotice = { id: ProviderId; name: string; dataUse: string };
 
+/**
+ * What agreeing to the current consent screen would add for a member who agreed to an older one (version 1, before
+ * 23 November 2026): the connected services that may get member data but that screen never named, and whether the
+ * activity totals join the summary. Nothing changes until the member agrees (the coach's one-time prompt).
+ */
+export type ConsentRenewal = { version: number; services: string[]; activities: boolean };
+
 export type CoachStatus = {
   state: CoachState;
   providers: ProviderNotice[];
@@ -36,6 +43,8 @@ export type CoachStatus = {
   threads: CoachThreadSummary[];
   /** Starting points written from the member's own data; empty unless "Use my FITX data" is on (see quick-prompts.ts). */
   quickPrompts: QuickPrompt[];
+  /** Set only for a sharing adult whose consent predates the current screen and would gain something by agreeing. */
+  renewal: ConsentRenewal | null;
 };
 
 /** Each provider's data use, from its own terms as checked on 2026-11-16. The owner should re-check them. */
@@ -64,6 +73,15 @@ const ADDED_AFTER_CONSENT = (terms: string) =>
 /** Cerebras or Mistral while the owner keeps member data away from them (the default). */
 const QUESTIONS_ONLY = (name: string) =>
   `Gets only “Questions only” requests, never the summary of your FITX data or FITX's eating-disorder note, because its free plan may keep or learn from prompts. ${name === "Mistral AI" ? "" : "FITX could not confirm its free tier's terms. "}FITX sends no name, email or account ID.`;
+
+export function consentRenewal(config: AiConfig, consent: Pick<store.Consent, "shareData" | "version">, adult: boolean): ConsentRenewal | null {
+  if (!store.consentOutdated(consent, adult)) return null;
+  const services = configuredProviders(config)
+    .filter((id) => memberDataAllowed(id, config) && !consentCovers(id, consent.version))
+    .map((id) => providerLabel(id, config));
+  const activities = consent.version < store.ACTIVITIES_CONSENT_VERSION;
+  return services.length || activities ? { version: store.CONSENT_VERSION, services, activities } : null;
+}
 
 export function providerNotices(config: AiConfig, consentVersion?: number): ProviderNotice[] {
   return configuredProviders(config).map((id) => {
@@ -111,6 +129,7 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     quotas: [],
     threads: [],
     quickPrompts: [],
+    renewal: null,
   };
   if (!config.enabled) return { ...base, state: "paused", ...(await storedCoachData(db, userId, now)) };
   if (!hasAnyProvider(config)) return { ...base, state: "not_configured", ...(await storedCoachData(db, userId, now)) };
@@ -134,7 +153,8 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
       store.listThreads(db, userId),
       sharing ? personalPrompts(db, userId, sources, now) : Promise.resolve([]),
     ]);
-    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts, ...forConsent };
+    const renewal = consentRenewal(config, consent, facts.adult);
+    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts, ...forConsent, renewal };
   } catch (error) {
     if (error instanceof store.CoachStoreError && error.code === "not_available") return { ...base, state: "not_available", ...age };
     throw error;

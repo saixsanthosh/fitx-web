@@ -73,6 +73,26 @@ export async function saveConsent(db: Db, userId: string, shareData: boolean) {
   if (error) fail(error, "save consent");
 }
 
+/**
+ * Agrees again, to the current consent screen, from the coach's one-time prompt (version-1 consents, given before
+ * 23 November 2026): only the version and the time of agreeing change, so "Use my FITX data" keeps its setting and
+ * nothing else about the member's coach data moves. Returns false when there was no consent to renew.
+ */
+export async function renewConsent(db: Db, userId: string): Promise<boolean> {
+  const { data, error } = await db
+    .from("ai_coach_consents")
+    .update({ consent_version: CONSENT_VERSION, consented_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .select("user_id");
+  if (error) fail(error, "renew consent");
+  return Array.isArray(data) && data.length > 0;
+}
+
+/** Whether a consent was given to an older consent screen and the newer one would change what is shared. */
+export function consentOutdated(consent: Pick<Consent, "shareData" | "version">, adult: boolean): boolean {
+  return consent.shareData && adult && consent.version < CONSENT_VERSION;
+}
+
 export async function updateDataSharing(db: Db, userId: string, shareData: boolean) {
   const { data, error } = await db.from("ai_coach_consents").update({ share_personal_data: shareData, updated_at: new Date().toISOString() }).eq("user_id", userId).select("user_id");
   if (error) fail(error, "update consent");

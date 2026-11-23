@@ -15,6 +15,7 @@ import { CoachUnavailable } from "./CoachUnavailable";
 import { Composer, type ComposerMode } from "./Composer";
 import { ReadAloudToggle, VoiceButton, useReadAloud } from "./CoachVoice";
 import { ConsentPanel } from "./ConsentPanel";
+import { ConsentRenewal } from "./ConsentRenewal";
 import { ConversationList } from "./ConversationList";
 import { formatResetTime } from "./format";
 import type { PlanActions } from "./MealPlanCard";
@@ -396,6 +397,18 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
             </button>
           </div>
         </div>
+
+        {status.renewal && (
+          <ConsentRenewal
+            renewal={status.renewal}
+            onAgreed={() => {
+              setStatus((old) => ({ ...old, renewal: null }));
+              setAnnouncement("Agreed to the updated terms.");
+              // The services' notices and the prompts written from the member's data follow the new consent.
+              void fetchStatus().then((fresh) => setStatus((old) => ({ ...old, providers: fresh.providers, memberDataAvailable: fresh.memberDataAvailable, quickPrompts: fresh.quickPrompts, renewal: fresh.renewal }))).catch(() => {});
+            }}
+          />
+        )}
 
         <section ref={threadBox} aria-label="Conversation" aria-busy={busy || loadingThread} className={styles.thread}>
           {loadingThread ? (

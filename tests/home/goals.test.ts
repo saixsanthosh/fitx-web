@@ -157,6 +157,9 @@ test("templates prefill from the user's own numbers", () => {
   assert.equal(templateTitle({ ...calories, direction: "increase" }), "Eat 1,900 kcal a day");
   const workouts = goalDraft("workouts_week", context);
   assert.deepEqual([workouts.period, workouts.target, workouts.title], ["weekly", "4", "Work out 4 times a week"]);
+  // Until the Workouts setup answered the days (the summary then carries null), nothing is suggested: never a default 3.
+  const unanswered = goalDraft("workouts_week", { ...context, workoutsPerWeek: null });
+  assert.deepEqual([unanswered.target, unanswered.title], ["", "Work out … times a week"]);
   const water = goalDraft("water_day", context);
   assert.deepEqual([water.target, water.title], ["3000", "Drink 3 L of water a day"]);
   const weight = goalDraft("weight", context);

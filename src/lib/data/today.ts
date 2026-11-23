@@ -49,15 +49,16 @@ async function loadDayFood(db: Db, userId: string, localDate: string): Promise<M
 
 export async function loadTodaySummary(db: Db, userId: string, localDate: string, timeZone = browserTimeZone()): Promise<SummaryResult> {
   // The targets the user set in Nutrition; null when there are none or the table is not there yet.
-  const [rpc, targets, food, birthDate, focus] = await Promise.all([
+  const [rpc, targets, food, birthDate, focus, daysAnswered] = await Promise.all([
     db.rpc("fitx_today_summary", { p_local_date: localDate, p_tz: timeZone }),
     loadTargets(db, userId).catch(() => null),
     loadDayFood(db, userId, localDate).catch(() => null),
     loadBirthDate(db, userId),
     // Not in fitx_today_summary: read on its own, so High protein raises Home's protein target as everywhere.
     loadNutritionFocus(db, userId),
+    loadTrainingDaysAnswered(db, userId),
   ]);
-  const complete = (summary: TodaySummary) => withNutritionFocus(withBirthDateAge(summary, birthDate, localDate), focus);
+  const complete = (summary: TodaySummary) => withTrainingDays(withNutritionFocus(withBirthDateAge(summary, birthDate, localDate), focus), daysAnswered);
   if (!rpc.error) {
     const summary = parseTodaySummary(rpc.data);
     if (summary) return { summary: { ...complete(summary), targets }, source: "database", food };
@@ -65,6 +66,32 @@ export async function loadTodaySummary(db: Db, userId: string, localDate: string
   }
   if (!isMissingFunctionError(rpc.error)) throw new DataError("Today's summary could not be loaded.", rpc.error);
   return { summary: { ...complete(await summaryInBrowser(db, userId, localDate, timeZone)), targets }, source: "browser", food };
+}
+
+/**
+ * Whether the member's weekly training days (user_preferences.workouts_per_week) are their own answer. Onboarding no
+ * longer asks for them, yet its first page creates the preferences row, so a new member's row carries the column's
+ * default of 3, and fitx_today_summary returns it. The days count as answered by the Workouts setup's own rule
+ * (training/setup.ts isWorkoutSetupDone, the rule Progress and Profile use): workout_setup_at is set, or a Home or Gym
+ * equipment list is saved. Any read that fails counts as not answered, so a default is never shown as theirs.
+ */
+export async function loadTrainingDaysAnswered(db: Db, userId: string): Promise<boolean> {
+  try {
+    const prefs = await db.from("user_preferences").select("workout_setup_at").eq("user_id", userId).maybeSingle();
+    // Before migration 20261123100020 the column is missing: then only a saved list counts, as in the setup.
+    if (!prefs.error && typeof (prefs.data as { workout_setup_at?: unknown } | null)?.workout_setup_at === "string") return true;
+    if (prefs.error && !isMissingColumnError(prefs.error)) return false;
+    const lists = await db.from("user_equipment_profiles").select("context").eq("user_id", userId).in("context", ["home", "gym"]).limit(1);
+    return !lists.error && (lists.data ?? []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** The summary without the weekly training days while they are only the column default (see loadTrainingDaysAnswered). */
+export function withTrainingDays(summary: TodaySummary, answered: boolean): TodaySummary {
+  if (answered || !summary.preferences || summary.preferences.workoutsPerWeek === null) return summary;
+  return { ...summary, preferences: { ...summary.preferences, workoutsPerWeek: null } };
 }
 
 /** The summary with the member's nutrition goal; a member without a preferences row keeps none (no target is invented). */

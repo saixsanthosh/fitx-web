@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { StubDb, used, type StubCall } from "./support/stub-db";
+import { StubDb, used, type StubCall, type StubResponse } from "./support/stub-db";
 import { loadDashboardLayout, loadTodaySummary, saveDashboardLayout } from "@/lib/data/today";
 import { createGoal, loadGoalOptions, loadGoals } from "@/lib/data/goals";
 import { insertTodo, loadTodos, saveTodoOrder } from "@/lib/data/todo";
@@ -27,10 +27,12 @@ test("the summary comes from one database call (plus the Nutrition targets and t
   assert.equal(result.source, "database");
   assert.equal(result.summary.nutrition.calories, 900);
   // profiles: the birth date only, so the age follows a birthday (the summary's stored age lags until a save);
-  // user_preferences: the nutrition goal only, which the summary does not carry.
-  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles", "user_preferences"]);
+  // user_preferences: the nutrition goal and whether the Workouts setup answered the days, which the summary does not
+  // carry; user_equipment_profiles: a saved list, the setup's other sign (no workout_setup_at in this stub).
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles", "user_equipment_profiles", "user_preferences", "user_preferences"]);
   assert.ok(used(stub.callsTo("profiles")[0], "select", "date_of_birth"));
-  assert.ok(used(stub.callsTo("user_preferences")[0], "select", "nutrition_focus"));
+  assert.ok(stub.callsTo("user_preferences").some((call) => used(call, "select", "nutrition_focus")));
+  assert.ok(stub.callsTo("user_preferences").some((call) => used(call, "select", "workout_setup_at")));
   assert.deepEqual(stub.calls[0].args, { p_local_date: DAY, p_tz: "Asia/Kolkata" });
   assert.ok(used(stub.callsTo("meals")[0], "eq", "date", DAY));
   assert.deepEqual(result.food?.protein, { sum: 40, known: 1, missing: 1 }, "the unknown protein is counted as missing, not as 0 g");
@@ -47,6 +49,24 @@ test("the age comes from the birth date on the member's day; without one, or bef
   assert.equal((await loadTodaySummary(db(noColumn), USER, DAY, null)).summary.profile.age, 17);
   const noAge = new StubDb((call) => (call.name === "fitx_today_summary" ? { data: { local_date: DAY, profile: {} } } : call.name === "profiles" ? { data: { date_of_birth: null } } : undefined));
   assert.equal((await loadTodaySummary(db(noAge), USER, DAY, null)).summary.profile.age, null, "an unknown age stays unknown, never 0");
+});
+
+test("the weekly training days reach Home only once the Workouts setup answered them, never as the column default", async () => {
+  const summary = { local_date: DAY, preferences: { workouts_per_week: 3, daily_water_goal_ml: 2500 } };
+  const read = async (answer: (call: StubCall) => StubResponse | undefined) => (await loadTodaySummary(db(new StubDb((call) => (call.name === "fitx_today_summary" ? { data: summary } : answer(call)))), USER, DAY, null)).summary;
+  const prefs = (data: unknown) => (call: StubCall) => (call.name === "user_preferences" && used(call, "select", "workout_setup_at") ? data as StubResponse : undefined);
+  // A new member: the preferences row exists (onboarding made it) with the default 3, no setup, no list.
+  const fresh = await read(prefs({ data: { workout_setup_at: null } }));
+  assert.equal(fresh.preferences?.workoutsPerWeek, null, "the default 3 is not the member's answer");
+  assert.equal(fresh.preferences?.dailyWaterGoalMl, 2500, "the rest of the preferences stand");
+  const answered = await read(prefs({ data: { workout_setup_at: "2026-11-18T08:00:00Z" } }));
+  assert.equal(answered.preferences?.workoutsPerWeek, 3, "answered in the setup: their own 3");
+  // Before migration 20261123100020 (no column) a saved equipment list counts, as in the setup's own rule.
+  const listed = await read((call) => (call.name === "user_preferences" && used(call, "select", "workout_setup_at") ? { error: { code: "42703", message: "column user_preferences.workout_setup_at does not exist" } }
+    : call.name === "user_equipment_profiles" ? { data: [{ context: "gym" }] } : undefined));
+  assert.equal(listed.preferences?.workoutsPerWeek, 3);
+  const failed = await read(prefs({ error: { code: "57014", message: "canceling statement due to statement timeout" } }));
+  assert.equal(failed.preferences?.workoutsPerWeek, null, "a failed read never shows the default as theirs");
 });
 
 test("the nutrition goal reaches Home's targets; without the column (before migration #41) the standard target stands", async () => {
@@ -95,8 +115,9 @@ test("any other summary failure is reported, not hidden behind the fallback", as
   const stub = new StubDb(() => ({ error: { code: "57014", message: "timeout" } }));
   await assert.rejects(loadTodaySummary(db(stub), USER, DAY, null), DataError);
   assert.equal(stub.callsTo("fitx_today_summary").length, 1);
-  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles", "user_preferences"], "no fallback queries ran");
-  assert.deepEqual(stub.callsTo("user_preferences").map((call) => used(call, "select", "nutrition_focus")), [true], "user_preferences was read only for the nutrition goal");
+  // The setup read failed too (the same error), so it stops there: no equipment-list read.
+  assert.deepEqual(stub.calls.map((call) => call.name).sort(), ["fitx_today_summary", "meals", "nutrition_targets", "profiles", "user_preferences", "user_preferences"], "no fallback queries ran");
+  assert.deepEqual(stub.callsTo("user_preferences").map((call) => (used(call, "select", "nutrition_focus") ? "focus" : used(call, "select", "workout_setup_at") ? "setup" : "other")).sort(), ["focus", "setup"], "user_preferences was read only for the nutrition goal and the setup state, not by the fallback");
   assert.deepEqual(stub.callsTo("profiles").map((call) => used(call, "select", "date_of_birth")), [true], "profiles was read only for the birth date, not by the fallback");
 });
 

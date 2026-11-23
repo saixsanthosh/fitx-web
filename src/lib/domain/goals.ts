@@ -466,7 +466,8 @@ export function goalDraft(template: GoalTemplateKey, context: GoalContext): Goal
   let draft: GoalDraft;
   switch (template) {
     case "workouts_week":
-      draft = { ...base, category: "consistency", metric: "workouts_completed", period: "weekly", unit: "workouts", target: asText(context.workoutsPerWeek ?? 3) };
+      // The member's own weekly days only (null until the Workouts setup answered them: never the column default).
+      draft = { ...base, category: "consistency", metric: "workouts_completed", period: "weekly", unit: "workouts", target: asText(context.workoutsPerWeek) };
       break;
     // No target is suggested: FITX has no number of the member's own to start from.
     case "distance_week":
