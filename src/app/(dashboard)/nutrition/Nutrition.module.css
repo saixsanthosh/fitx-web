@@ -110,9 +110,9 @@
 .shortcut:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 @media (min-width: 1024px) {
   .top { grid-template-columns: minmax(0, 1.6fr) minmax(18rem, 1fr); align-items: stretch; gap: 1.25rem; }
-  .actions { align-content: stretch; grid-template-rows: auto auto 1fr; }
+  .actions { align-content: start; }
   .shortcuts { grid-template-columns: minmax(0, 1fr); }
-  .shortcut { display: flex; min-height: 3.25rem; justify-content: flex-start; gap: .65rem; padding: 0 1rem; }
+  .shortcut { display: flex; min-height: 3.5rem; align-items: center; justify-content: flex-start; gap: .75rem; padding: 0 1.1rem; }
   .shortcut span { color: var(--fitx-text); font-size: .85rem; }
 }
 @media (prefers-reduced-motion: reduce) { .shortcut { transition: none; } .shortcut:active { transform: none; } }

@@ -176,7 +176,7 @@ export const flow = {
       const food = page.locator("section[aria-labelledby='food-title']");
       await food.getByText(/target [\d,]+ kcal/).first().waitFor({ timeout: 20000 });
       const text = await textOf(food);
-      const progress = /Calories\s*([\d,]+)\s*kcal a day.*?target ([\d,]+) kcal/.exec(text);
+      const progress = /Calories\s*([\d,]+)\s*kcal a day.*?target ([\d,]+) kcal/i.exec(text);
       const num = (value) => Number(String(value ?? "").replace(/,/g, ""));
       t.note("calories: nutrition vs progress", { nutrition: nutrition?.slice(1), progress: progress?.slice(1), text: text.slice(0, 300) });
       t.expect(nutrition && progress, "both pages should show calories and the target", text);

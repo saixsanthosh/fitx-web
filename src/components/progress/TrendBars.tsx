@@ -28,7 +28,8 @@ export function TrendBars({ points, label, format, target = null, targetLabel, t
   const id = useId();
   const [picked, setPicked] = useState<number | null>(null);
   const known = points.map((point) => point.value).filter((value): value is number => value !== null);
-  const max = Math.max(...known, target ?? 0, 0);
+  // Headroom above the tallest column (or the target line), so the line and its label never sit on the readout.
+  const max = Math.max(...known, target ?? 0, 0) * 1.15;
   const anyValue = known.some((value) => value > 0);
   const current = picked !== null && picked < points.length ? picked : null;
   const latest = [...points].reverse().find((point) => !point.future) ?? null;

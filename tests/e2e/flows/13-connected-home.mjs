@@ -46,10 +46,10 @@ export const flow = {
       await t.settle(1200);
       const stats = await textOf(overview.locator("dl"));
       t.note("this week", stats);
-      t.expect(/Workouts\s*1\b/.test(stats), "one workout this week: the abandoned one does not count", stats);
-      t.expect(/Volume\s*1,440\b/.test(stats) && /kg/.test(stats), "the finished workout's 3 x 8 x 60 kg", stats);
-      t.expect(/Distance\s*5\.2\b/.test(stats), "the run's distance", stats);
-      t.expect(/Burned\s*320\b[^A-Z]*kcal\s*est\./.test(stats) && /From 1 activity/.test(stats), "calories burned only from the run's recorded estimate, labelled", stats);
+      t.expect(/Workouts\s*1\b/i.test(stats), "one workout this week: the abandoned one does not count", stats);
+      t.expect(/Volume\s*1,440\b/i.test(stats) && /kg/.test(stats), "the finished workout's 3 x 8 x 60 kg", stats);
+      t.expect(/Distance\s*5\.2\b/i.test(stats), "the run's distance", stats);
+      t.expect(/Burned\s*320\b[^a-z]*kcal\s*est\./i.test(stats) && /From 1 activity/.test(stats), "calories burned only from the run's recorded estimate, labelled", stats);
       // The account was made today: there is no last week to set against, so no "vs last week" (never a drop to 0).
       t.expect(!/vs last week|Same as last week/.test(stats), "a member in their first week sees no comparison with last week", stats);
       const link = await page.locator("section[aria-labelledby='training-title'] a[href^='/workouts/history/']").first().getAttribute("href");
@@ -58,8 +58,8 @@ export const flow = {
       t.expect(await page.getByRole("link", { name: /Muscle map/ }).count() > 0, "Progress links to the muscle map");
       const food = await textOf(page.locator("section[aria-labelledby='food-title']"));
       t.note("nutrition on progress", food.slice(0, 300));
-      t.expect(/Calories\s*800\s*kcal a day/.test(food), "today's 380 + 420 kcal, the only logged day", food);
-      t.expect(/Protein\s*14\s*g a day/.test(food) && /left out/.test(food), "the wrap's unknown protein is left out, not counted as 0", food);
+      t.expect(/Calories\s*800\s*kcal a day/i.test(food), "today's 380 + 420 kcal, the only logged day", food);
+      t.expect(/Protein\s*14\s*g a day/i.test(food) && /left out/.test(food), "the wrap's unknown protein is left out, not counted as 0", food);
       await t.checkpoint("progress week");
     });
 
@@ -79,12 +79,12 @@ export const flow = {
       t.note("periods", { before, month, year, days, stats });
       t.expect(before === "This week" && /^[A-Z][a-z]+ \d{4}$/.test(month) && /^\d{4}$/.test(year), "the label follows the period", { before, month, year });
       t.expect(days >= 28 && days <= 31, "the month calendar has a ring for every day", days);
-      t.expect(/Workouts\s*1\b/.test(stats), "the year still counts the one finished workout", stats);
+      t.expect(/Workouts\s*1\b/i.test(stats), "the year still counts the one finished workout", stats);
       await page.getByRole("button", { name: "Previous year" }).click();
       await page.waitForFunction((current) => document.querySelector("[class*='periodLabel']")?.textContent?.trim() === String(Number(current) - 1), year, { timeout: 15000 });
       await t.settle(1200);
       const last = await textOf(page.locator("section[aria-labelledby='overview-title'] dl"));
-      t.expect(/Workouts\s*0\b/.test(last), "last year, before the account, has no workouts", last);
+      t.expect(/Workouts\s*0\b/i.test(last), "last year, before the account, has no workouts", last);
       await t.checkpoint("progress year");
       await page.getByRole("radiogroup", { name: "Period" }).getByText("Week", { exact: true }).click();
     });

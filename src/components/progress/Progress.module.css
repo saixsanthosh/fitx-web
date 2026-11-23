@@ -153,9 +153,9 @@ g[data-tone="plan"] .ringArc { stroke: var(--fitx-gold); }
 .readout strong { color: var(--fitx-text); font-size: .95rem; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .barsPlot { position: relative; display: flex; align-items: flex-end; gap: 3px; border-bottom: 1px solid var(--fitx-divider); border-radius: 4px; touch-action: pan-y; }
 .barsPlot:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 4px; }
-.barSlot { position: relative; display: flex; height: 100%; flex: 1 1 0; min-width: 0; align-items: flex-end; cursor: default; }
+.barSlot { position: relative; display: flex; height: 100%; flex: 1 1 0; min-width: 0; align-items: flex-end; justify-content: center; cursor: default; }
 .barFill {
-  display: block; width: 100%; height: 100%; border-radius: 6px 6px 2px 2px; background: var(--bar); transform-origin: bottom;
+  display: block; width: min(100%, 26px); height: 100%; border-radius: 7px 7px 3px 3px; background: linear-gradient(180deg, var(--bar), color-mix(in srgb, var(--bar) 78%, var(--fitx-card-bg))); transform-origin: bottom;
   transition: transform .7s cubic-bezier(.22, 1, .36, 1), opacity .2s ease; animation: bar-grow .8s cubic-bezier(.22, 1, .36, 1) both;
 }
 .barSlot[data-state="zero"]::after { content: ""; position: absolute; right: 18%; bottom: 0; left: 18%; height: 2px; border-radius: 2px; background: var(--fitx-track); }
@@ -163,7 +163,7 @@ g[data-tone="plan"] .ringArc { stroke: var(--fitx-gold); }
 .barsPlot:hover .barFill, .barsPlot:focus-visible .barFill { opacity: .55; }
 .barSlot[data-picked] .barFill { opacity: 1; }
 .targetLine { position: absolute; right: 0; bottom: 0; left: 0; z-index: 1; border-top: 1px dashed color-mix(in srgb, var(--fitx-text) 35%, transparent); pointer-events: none; transition: transform .7s cubic-bezier(.22, 1, .36, 1); }
-.targetLine span { position: absolute; right: 0; bottom: 2px; border-radius: 6px; background: var(--fitx-card-bg); padding: 0 4px; color: var(--fitx-text-secondary); font-size: .66rem; font-weight: 650; }
+.targetLine span { position: absolute; left: 0; bottom: 2px; border-radius: 6px; background: var(--fitx-card-bg); padding: 0 4px; color: var(--fitx-text-secondary); font-size: .66rem; font-weight: 650; }
 .barsAxis { display: flex; gap: 3px; }
 .barsAxis span { flex: 1 1 0; min-width: 0; overflow: visible; color: var(--fitx-text-disabled); font-size: .66rem; font-weight: 600; text-align: center; white-space: nowrap; }
 @keyframes bar-grow { from { transform: scaleY(0); } }

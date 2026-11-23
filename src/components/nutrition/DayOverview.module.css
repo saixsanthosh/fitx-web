@@ -58,6 +58,13 @@
   .ringNumber { font-size: 1.9rem; }
   .meter { padding: 1.25rem 1rem; }
 }
+@media (max-width: 639px) {
+  .overview { gap: 1rem; }
+  .ring { --ring-size: 7rem; }
+  .ringNumber { font-size: 1.35rem; }
+  .meter { gap: .45rem; padding: .85rem .5rem; }
+  .left strong { font-size: 1.15rem; }
+}
 @media (max-width: 380px) {
   .ring { --ring-size: 7rem; }
   .ringNumber { font-size: 1.3rem; }
