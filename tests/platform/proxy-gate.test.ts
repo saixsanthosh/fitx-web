@@ -87,6 +87,8 @@ describe("proxy: features switched off in Admin", () => {
       ["/home-workout?exercise=squat", "home_workout"],
       ["/activity/record", "activity"],
       ["/activity/import", "activity"],
+      ["/activity/hike", "activity"],
+      ["/activity/paddle", "activity"],
     ]) {
       const response = await proxy(request(path));
       assert.equal(response.status, 200, path);

@@ -487,6 +487,18 @@ export function strengthGains(sessions: readonly LoggedSession[], from: string, 
 export type Highlight = { id: string; tone: "good" | "attention" | "neutral"; text: string };
 
 /**
+ * Whether the member's weekly training days (user_preferences.workouts_per_week) are their own answer. Onboarding
+ * no longer asks for them, yet its first page creates the preferences row, so a new member's row carries the
+ * column's default of 3. The days count as answered only once the Workouts setup is done: training/setup.ts
+ * isWorkoutSetupDone, which a saved Home or Gym list satisfies (the setup saves the lists before the days, and
+ * 20261123100020 backfills workout_setup_at from them). Until then Progress shows no plan ring or plan insight.
+ */
+export function trainingDaysAnswered(context: { hasPreferences: boolean; equipmentLists: { home: { saved: boolean }; gym: { saved: boolean } } } | null): boolean {
+  if (!context?.hasPreferences) return false;
+  return context.equipmentLists.home.saved || context.equipmentLists.gym.saved;
+}
+
+/**
  * Two or three short, true observations about the period: more or fewer workouts than before, the longest streak,
  * how many days food was logged, protein against the target. Only from known numbers; nothing when there is
  * nothing to say.

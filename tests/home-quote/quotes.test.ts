@@ -47,6 +47,27 @@ test("every theme is well stocked and every scene is a real, generated still", (
   assert.equal(sceneFor("rain-track").motion, "rain");
 });
 
+test("the heavy bag stays whole in the phone crop, panning included", () => {
+  // Home's stage on a 390 px phone is about 390 × 716; .camera is inset -6% (1.12 × the stage) and the still
+  // covers it at its focus; the pan keyframes scale it by 1.08 and move it ±2.4% of its width.
+  const { width, height } = HOMESCENES_MEDIA["heavy-bag"];
+  const stage = { w: 390, h: 716 };
+  const layer = { w: stage.w * 1.12, h: stage.h * 1.12 };
+  const scale = Math.max(layer.w / width, layer.h / height);
+  const focusX = Number.parseFloat(SCENES["heavy-bag"].focus) / 100;
+  const imageLeft = -(width * scale - layer.w) * focusX; // the still's left edge, in layer pixels
+  const visible = (shift: number) => {
+    // Stage pixels 0 and 390 in layer pixels, undoing the camera's scale (about its centre) and shift.
+    const toLayer = (x: number) => (x + (layer.w - stage.w) / 2 - layer.w / 2 - shift) / 1.08 + layer.w / 2;
+    return [(toLayer(0) - imageLeft) / scale / width, (toLayer(stage.w) - imageLeft) / scale / width];
+  };
+  const bag = [598 / 1344, 722 / 1344]; // the bag's left and right edges in the still
+  for (const shift of [-0.024 * layer.w, 0, 0.024 * layer.w]) {
+    const [from, to] = visible(shift);
+    assert.ok(from < bag[0] - 0.03 && to > bag[1] + 0.03, `bag at ${bag.map((x) => x.toFixed(3))} but the phone shows ${from.toFixed(3)}–${to.toFixed(3)}`);
+  }
+});
+
 test("quoteById finds a quote and refuses unknown ids", () => {
   assert.equal(quoteById(QUOTES[5].id), QUOTES[5]);
   assert.equal(quoteById("zzz-999"), null);

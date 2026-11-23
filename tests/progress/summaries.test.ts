@@ -87,6 +87,10 @@ describe("the Progress page", () => {
     assert.match(view, /Not known/);
     assert.doesNotMatch(view, /\?\? 0\)? kcal/);
   });
+  test("takes the weekly plan only from a member who answered it in the Workouts setup", () => {
+    assert.match(view, /const plan = context && trainingDaysAnswered\(context\) \? context\.preferences\.workouts_per_week : null;/);
+    assert.doesNotMatch(view, /hasPreferences \? context\.preferences\.workouts_per_week/);
+  });
 });
 
 describe("this week against last week", () => {

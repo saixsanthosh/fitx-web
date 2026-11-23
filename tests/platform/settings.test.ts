@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { BRAND } from "@/config/brand";
+import { SPORT_INFO } from "@/lib/activity/config";
 import {
   FEATURE_KEYS,
   FEATURE_NAMES,
@@ -55,6 +56,10 @@ test("each feature closes its pages and APIs, and nothing else", () => {
   assert.equal(featureForPath("/activity/import"), "activity");
   assert.equal(featureForPath("/activity/record"), "activity");
   assert.equal(featureForPath("/activity/run"), "activity");
+  // Every sport's page closes with the switch, not only Walk, Run and Ride (its Record button is closed too).
+  for (const info of Object.values(SPORT_INFO)) assert.equal(featureForPath(`/activity/${info.slug}`), "activity", info.slug);
+  for (const slug of ["hike", "trail-run", "mountain-bike", "e-bike", "wheelchair", "inline-skate", "paddle"]) assert.equal(featureForPath(`/activity/${slug}`), "activity", slug);
+  assert.equal(featureForPath("/activity/00000000-0000-4000-8000-000000000000"), null, "a saved activity stays open");
   assert.equal(featureForPath("/api/coach/swap", "POST"), "ai_coach");
   assert.equal(featureForPath("/api/coach/actions/abc", "POST"), "ai_coach");
   assert.equal(featureForPath("/api/billing/checkout", "POST"), "subscriptions");

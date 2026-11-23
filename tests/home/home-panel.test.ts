@@ -15,7 +15,8 @@ test("a goal template keeps its new= and always opens Goals on Progress", () => 
   assert.equal(legacyGoalsTarget({ tab: "goals", new: "water_day" }), "/progress?panel=goals&new=water_day");
   assert.equal(legacyGoalsTarget({ tab: "week", new: "protein_day" }), "/progress?panel=goals&new=protein_day");
   assert.equal(legacyGoalsTarget({ tab: "today", new: "<script>" }), "/dashboard", "an unknown template is dropped");
-  assert.equal(goalTemplate("checklist"), "checklist");
+  assert.equal(goalTemplate("checklist"), null, "the Checklist goal went with the To-Do list");
+  assert.equal(legacyGoalsTarget({ tab: "goals", new: "checklist" }), "/progress?panel=goals", "an old Checklist link opens plain Goals");
   assert.equal(goalTemplate("toString"), null);
   assert.equal(progressGoalsHref(), "/progress?panel=goals");
 });

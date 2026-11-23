@@ -2,6 +2,7 @@
 // are in admin/src/components/settings/settings-rules.ts and in fitx_admin_op_save_platform_settings
 // (supabase/migrations/20261121100033_fitx_admin_ops.sql); tests/platform/settings.test.ts keeps them equal.
 import { BRAND } from "@/config/brand";
+import { SPORT_INFO } from "@/lib/activity/config";
 
 export const FEATURE_KEYS = ["ai_coach", "home_workout", "activity", "subscriptions", "support"] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
@@ -77,12 +78,11 @@ export const FEATURE_ROUTES: Record<FeatureKey, ReadonlyArray<{ path: string; me
   // The page lands on /unavailable, which keeps the coach's data controls; /api/coach/{consent,data,status,threads} stay open.
   ai_coach: [{ path: "/ai-coach" }, { path: "/api/coach/chat" }, { path: "/api/coach/swap" }, { path: "/api/coach/actions" }],
   home_workout: [{ path: "/workouts/form-check" }, { path: "/home-workout" }],
-  // Recording and importing; the activity list and each saved activity stay open.
+  // Recording, importing and every sport's page (/activity/<slug>, from SPORT_INFO so a new sport is covered);
+  // the activity list and each saved activity stay open.
   activity: [
     { path: "/activity/record" },
-    { path: "/activity/walk" },
-    { path: "/activity/run" },
-    { path: "/activity/ride" },
+    ...Object.values(SPORT_INFO).map((info) => ({ path: `/activity/${info.slug}` })),
     { path: "/activity/import" },
   ],
   // New checkouts only: /subscription stays open (cancel, payments, refunds) and hides its plans while off.

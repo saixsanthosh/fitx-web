@@ -4,7 +4,7 @@ import type { MealTotals } from "@/lib/domain/meal-totals";
 import type { LoggedSession } from "@/lib/training/muscle-history";
 import {
   calendarDays, comparisonLabel, currentStreak, delta, highlights, indexDays, noHistory, nutritionSeries, periodBuckets, periodFor,
-  periodSummary, previousSummary, strengthGains, trainingSeries, weightView, yearMonths,
+  periodSummary, previousSummary, strengthGains, trainingDaysAnswered, trainingSeries, weightView, yearMonths,
 } from "@/components/progress/period";
 
 // Friday 20 November 2026, on the browser's calendar.
@@ -149,6 +149,18 @@ describe("what a period holds", () => {
     assert.ok(lines.some((line) => line.text === "Longest streak: 4 active days"));
     assert.ok(lines.length <= 3);
     assert.deepEqual(highlights({ period: week, current: periodSummary(week, new Map(), new Map(), true), previous: null, proteinTarget: null, plan: null }), []);
+  });
+  test("the weekly plan is the member's own answer only after the Workouts setup", () => {
+    const lists = (home: boolean, gym: boolean) => ({ home: { saved: home }, gym: { saved: gym } });
+    // Onboarding writes the preferences row (time zone) without asking for days: its 3 is the column default.
+    assert.equal(trainingDaysAnswered({ hasPreferences: true, equipmentLists: lists(false, false) }), false);
+    assert.equal(trainingDaysAnswered({ hasPreferences: false, equipmentLists: lists(true, false) }), false);
+    assert.equal(trainingDaysAnswered(null), false);
+    assert.equal(trainingDaysAnswered({ hasPreferences: true, equipmentLists: lists(true, false) }), true);
+    assert.equal(trainingDaysAnswered({ hasPreferences: true, equipmentLists: lists(false, true) }), true);
+    const current = periodSummary(week, index, foodDays, true);
+    const unanswered = highlights({ period: week, current, previous: null, proteinTarget: null, plan: null });
+    assert.ok(!unanswered.some((line) => line.id === "plan"), "no 'sessions to hit your 3 a week' for a target nobody set");
   });
 });
 

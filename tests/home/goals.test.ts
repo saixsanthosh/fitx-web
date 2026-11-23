@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   CLIENT_METRIC_UNITS,
+  GOAL_TEMPLATES,
   clientGoalValue,
   dailyGoalsMet,
   draftFromGoal,
@@ -94,6 +96,25 @@ test("what is left is said plainly", () => {
   assert.equal(remainingLabel(goal({ metric: "body_weight_kg", direction: "decrease", currentValue: 76, targetValue: 72, startValue: 80 })), "4.0 kg to go");
   assert.equal(remainingLabel(goal({ metric: "body_weight_kg", currentValue: null, targetValue: 72 })), "Log a weigh-in to start");
   assert.equal(remainingLabel(goal({ currentValue: 10, targetValue: 10 })), "Target reached");
+});
+
+test("the Checklist goal is retired with the To-Do list: not offered, and an old one keeps its count", () => {
+  assert.equal(GOAL_TEMPLATES.some((template) => template.key === "checklist"), false);
+  assert.equal(GOAL_TEMPLATES.some((template) => /To-Do/i.test(`${template.label} ${template.hint}`)), false);
+  for (const template of GOAL_TEMPLATES) assert.notEqual(goalDraft(template.key, context).metric, "tasks_completed", template.key);
+  const old = goal({ metric: "tasks_completed", unit: "To-Dos", currentValue: 2, targetValue: 5 });
+  assert.equal(remainingLabel(old), "To-Dos retired", "never '3 To-Dos to go' for a count nothing can raise");
+  assert.equal(remainingLabel(goal({ metric: "tasks_completed", unit: "To-Dos", currentValue: 5, targetValue: 5 })), "Target reached");
+  const draft = draftFromGoal(old);
+  assert.equal(draft.template, "checklist", "an old one still opens in the editor");
+  assert.equal(draft.metric, "tasks_completed");
+  assert.equal(validateGoalDraft(draft).ok, true, "and can still be edited");
+});
+
+test("Goals no longer point to the removed To-Do list", () => {
+  const read = (file: string) => readFileSync(new URL(`../../src/components/home/${file}`, import.meta.url), "utf8");
+  assert.doesNotMatch(read("GoalEditor.tsx"), /To-Do editor|Counts toward/);
+  assert.doesNotMatch(read("GoalsPanel.tsx"), /on your list/);
 });
 
 test("period labels", () => {

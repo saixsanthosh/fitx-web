@@ -5,6 +5,7 @@ import { normalizePreferences, normalizeProfile, targetsFor } from "@/lib/domain
 import { clientMetricForUnit } from "@/lib/domain/goals";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
+import { isWorkoutSetupDone } from "@/lib/training/setup";
 import { isCountedSession, loadLibraryMuscles, regionsTrained, summariseMuscles, type LoggedSession } from "@/lib/training/muscle-history";
 import { allergyRulesFrom, describeAllergies, describeDiet, dietRulesFrom, type AllergyRule, type DietRule } from "./diet-rules";
 import { calorieFloor } from "./safety";
@@ -37,6 +38,12 @@ export type ContextSources = {
    * when they could not be read (no activities table yet), so the summary leaves them out instead of saying none.
    */
   activities?: Array<{ sport: string | null; started_at: string | null; distance_m: number | string | null; moving_seconds: number | null; elevation_gain_m?: number | string | null }> | null;
+  /**
+   * Whether the member has a saved Home or Gym equipment list (user_equipment_profiles). With
+   * preferences.workout_setup_at it says whether the Workouts setup is done (isWorkoutSetupDone), and so whether
+   * the training answers in the preferences row are the member's or the columns' defaults. False when unknown.
+   */
+  equipmentListSaved?: boolean;
 };
 
 /** Facts the server uses for its own checks. Never sent to a model as such. */
@@ -126,13 +133,23 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     return one(supabase.from("profiles").select(columns).eq("id", userId).maybeSingle());
   };
 
+  /** Whether a Home or Gym list is saved; a failed read (no lists table) counts as none. */
+  const listSaved = async () => {
+    try {
+      return (await rows<{ context: string }>(supabase.from("user_equipment_profiles").select("context").eq("user_id", userId).limit(2))).length > 0;
+    } catch {
+      return false;
+    }
+  };
+
   const basics = Promise.all([
     profileRow(),
     one(supabase.from("user_preferences").select("*").eq("user_id", userId).maybeSingle()),
+    listSaved(),
   ]);
   if (!options.full) {
-    const [profile, preferences] = await basics;
-    return { profile, preferences, ...EMPTY_SOURCES };
+    const [profile, preferences, equipmentListSaved] = await basics;
+    return { profile, preferences, ...EMPTY_SOURCES, equipmentListSaved };
   }
 
   /** Activities, or null when they could not be read (never "no activities" for a missing table). */
@@ -145,7 +162,7 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     }
   };
 
-  const [[profile, preferences], weighIns, meals, customFoods, sessions, records, goals, planner, activities] = await Promise.all([
+  const [[profile, preferences, equipmentListSaved], weighIns, meals, customFoods, sessions, records, goals, planner, activities] = await Promise.all([
     basics,
     // Newest first; on the same date the later entry wins (the rule Profile and Progress use).
     rows<ContextSources["weighIns"][number]>(
@@ -180,7 +197,7 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
 
   const recentMuscles = await recentMusclesFrom(supabase, userId, sessions, now, withFallback);
 
-  return { profile, preferences, weighIns, meals, customFoods, sessions, recentMuscles, records, goals, planner, activities };
+  return { profile, preferences, weighIns, meals, customFoods, sessions, recentMuscles, records, goals, planner, activities, equipmentListSaved };
 }
 
 type FetchWithFallback = <T>(newer: () => PromiseLike<{ data: unknown; error: unknown }>, older: () => PromiseLike<{ data: unknown; error: unknown }>) => Promise<T[]>;
@@ -244,6 +261,11 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
   const memberProfile = normalizeProfile(sources.profile, new Date(`${today}T12:00:00`));
   const memberPrefs = normalizePreferences(sources.preferences).values;
   const answered = (key: string) => prefs[key] !== null && prefs[key] !== undefined && prefs[key] !== "";
+  // Onboarding no longer asks where, with what, at which level or how many days a member trains, yet it creates
+  // the preferences row, so until the Workouts setup is done those columns hold their defaults (gym, bodyweight,
+  // beginner, 3 days): the summary then leaves them out rather than tell the coach the member said so.
+  const setupDone = isWorkoutSetupDone({ setupAt: text(prefs.workout_setup_at), hasEquipmentList: sources.equipmentListSaved === true });
+  const daysPerWeek = setupDone ? integer(prefs.workouts_per_week, 1, 7) : null;
 
   // From the birth date on the member's own date: the stored age is only refreshed when the profile is saved.
   const age = integer(profileAge(profile, today), 13, 100);
@@ -318,10 +340,10 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
     goal,
     activity_level: activity,
     training_setup: compact({
-      location: facts.location,
-      equipment: facts.equipment,
-      level: facts.level,
-      days_per_week: integer(prefs.workouts_per_week, 1, 7),
+      location: setupDone ? facts.location : null,
+      equipment: setupDone ? facts.equipment : null,
+      level: setupDone ? facts.level : null,
+      days_per_week: daysPerWeek,
       minutes_per_session: facts.sessionMinutes,
       split: facts.split,
       limitations: limitationsText(prefs),
@@ -341,7 +363,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
     nutrition: nutritionSummary(sources.meals, today),
     my_custom_foods: shortList(sources.customFoods.map((food) => food.name), 15, 40),
     weight_trend: weightTrend(sources.weighIns, today),
-    training_last_28_days: trainingSummary(sources.sessions, sources.recentMuscles, today, integer(prefs.workouts_per_week, 1, 7)),
+    training_last_28_days: trainingSummary(sources.sessions, sources.recentMuscles, today, daysPerWeek),
     personal_records: sources.records
       .filter((record) => cleanText(record.exercise_name, 60))
       .slice(0, 8)

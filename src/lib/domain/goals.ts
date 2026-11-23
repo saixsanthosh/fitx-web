@@ -54,6 +54,12 @@ export const GOAL_METRICS: Record<GoalMetric, MetricInfo> = {
   active_minutes: { label: "Active minutes", unit: "min", source: "Moving time of your activities plus training time of finished workouts", periods: GOAL_PERIODS, directions: ["increase"], category: "fitness" },
 };
 
+/**
+ * Metrics nothing feeds any more: tasks_completed counted To-Dos linked to the goal, and the To-Do list was
+ * removed. Such a goal keeps the count it reached and is never shown as something left to do.
+ */
+export const RETIRED_METRICS: ReadonlySet<GoalMetric> = new Set<GoalMetric>(["tasks_completed"]);
+
 /** The unit a client-measured goal is stored with (as metric 'manual'); reserved, so a custom goal cannot use it. */
 export const CLIENT_METRIC_UNITS: Readonly<Record<ClientMetric, string>> = {
   activity_distance_km: "km (activities)",
@@ -271,6 +277,7 @@ export function progressSummary(goal: Pick<GoalView, "currentValue" | "targetVal
 
 /** What is left, in words: "30 g to go", "550 kcal left", "250 kcal over", "8.2 kg to go", "Done". */
 export function remainingLabel(goal: GoalView, evaluation = evaluateView(goal)): string {
+  if (RETIRED_METRICS.has(goal.metric) && !evaluation.achieved) return "To-Dos retired";
   if (evaluation.state === "no_data") return goal.metric === "body_weight_kg" ? "Log a weigh-in to start" : "";
   if (evaluation.state === "over_limit") return `${formatGoalValue(evaluation.over, goal.metric, goal.unit)} over`;
   if (goal.direction === "limit") return `${formatGoalValue(evaluation.remaining, goal.metric, goal.unit)} left`;
@@ -399,6 +406,11 @@ export type GoalContext = {
   targetWeight: number | null;
 };
 
+/**
+ * The goals a member can create. "checklist" (a tasks_completed goal counting linked To-Dos) is no longer offered:
+ * the To-Do list was removed, so nothing could count toward a new one. A Checklist goal saved before keeps its
+ * template for editing (draftFromGoal) and shows the count it reached (RETIRED_METRICS).
+ */
 export const GOAL_TEMPLATES: ReadonlyArray<{ key: GoalTemplateKey; label: string; hint: string }> = [
   { key: "workouts_week", label: "Workouts per week", hint: "Counts finished workouts, Monday to Sunday" },
   { key: "distance_week", label: "Distance a week", hint: "Adds up your recorded walks, runs, rides and more" },
@@ -407,7 +419,6 @@ export const GOAL_TEMPLATES: ReadonlyArray<{ key: GoalTemplateKey; label: string
   { key: "calories_day", label: "Daily calories", hint: "A calorie target or a limit to stay under" },
   { key: "water_day", label: "Daily water", hint: "Adds up the water you log" },
   { key: "weight", label: "Reach a weight", hint: "Follows your weigh-ins" },
-  { key: "checklist", label: "Checklist", hint: "Counts the To-Dos you link to it" },
   { key: "custom", label: "Custom", hint: "Anything else; you log the progress" },
 ];
 
@@ -482,9 +493,6 @@ export function goalDraft(template: GoalTemplateKey, context: GoalContext): Goal
       };
       break;
     }
-    case "checklist":
-      draft = { ...base, category: "personal", metric: "tasks_completed", period: "long_term", unit: "To-Dos", target: "5" };
-      break;
     default:
       draft = { ...base, category: "fitness", metric: "manual", period: "long_term" };
   }

@@ -27,6 +27,7 @@ function sources(overrides: Record<string, unknown> = {}) {
       equipment: ["dumbbell", "bands"],
       fitness_level: "beginner",
       workouts_per_week: 4,
+      workout_setup_at: "2026-11-02T08:00:00Z",
       session_duration_minutes: 40,
       workout_split: "full_body",
       dietary_preferences: ["Vegetarian"],
@@ -77,6 +78,20 @@ describe("coach context", () => {
     assert.equal(training.sessions_completed, 2);
     assert.equal(training.sessions_planned, 16);
     assert.deepEqual(training.muscles_trained_last_7_days, ["chest", "quadriceps"]);
+  });
+
+  test("leaves out the training answers of a member who has not done the Workouts setup (column defaults, not theirs)", () => {
+    const base = sources();
+    // Onboarding writes the preferences row without asking where, with what or how often: these are the defaults.
+    const preferences = { ...(base.preferences as Record<string, unknown>), workout_setup_at: null, workout_location: "gym", equipment: ["bodyweight"], workouts_per_week: 3 };
+    const fresh = buildCoachContext({ ...base, preferences } as never, NOW);
+    const setup = fresh.summary.training_setup as Record<string, unknown>;
+    for (const key of ["location", "equipment", "level", "days_per_week"]) assert.equal(key in setup, false, key);
+    assert.equal((fresh.summary.training_last_28_days as { sessions_planned?: number | null }).sessions_planned ?? null, null, "no plan to count against");
+    // Before 20261123100020 there is no workout_setup_at: a saved Home or Gym list means the setup is done.
+    const listed = buildCoachContext({ ...base, preferences: { ...preferences, workout_setup_at: undefined }, equipmentListSaved: true } as never, NOW);
+    assert.equal((listed.summary.training_setup as Record<string, unknown>).days_per_week, 3);
+    assert.equal((listed.summary.training_last_28_days as { sessions_planned: number }).sessions_planned, 12);
   });
 
   test("never contains a name, email, account id or exact time, and stays compact", () => {

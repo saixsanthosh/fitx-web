@@ -18,7 +18,7 @@ export const SCENES: Readonly<Record<HomescenesMediaId, Scene>> = {
   "stadium-steps": { id: "stadium-steps", focus: "50% 45%", motion: "rays", drift: "rise" },
   "rain-track": { id: "rain-track", focus: "50% 60%", motion: "rain", drift: "push" },
   "iron-room": { id: "iron-room", focus: "50% 55%", motion: "dust", drift: "pan" },
-  "heavy-bag": { id: "heavy-bag", focus: "62% 45%", motion: "dust", drift: "pan" },
+  "heavy-bag": { id: "heavy-bag", focus: "49% 45%", motion: "dust", drift: "pan" },
   "lake-dawn": { id: "lake-dawn", focus: "50% 55%", motion: "mist", drift: "push" },
   "pine-light": { id: "pine-light", focus: "45% 55%", motion: "rays", drift: "rise" },
   "ridge-sunrise": { id: "ridge-sunrise", focus: "48% 55%", motion: "glow", drift: "rise" },

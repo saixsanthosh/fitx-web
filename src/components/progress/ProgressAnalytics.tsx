@@ -22,7 +22,7 @@ import { BodySection } from "@/app/(dashboard)/progress/BodySection";
 import { MuscleMapLink, RecordsSection } from "@/app/(dashboard)/progress/ProgressCards";
 import {
   MAX_BACK, PERIOD_KINDS, PERIOD_LABELS, calendarDays, comparisonLabel, currentStreak, delta, highlights, indexDays, noHistory,
-  nutritionSeries, periodFor, periodSummary, previousPeriod, previousSummary, strengthGains, trainingSeries, yearMonths,
+  nutritionSeries, periodFor, periodSummary, previousPeriod, previousSummary, strengthGains, trainingDaysAnswered, trainingSeries, yearMonths,
   type Delta, type Period, type PeriodKind, type TrainingMetric,
 } from "./period";
 import { ConcentricRings, DayRing, type Ring } from "./Rings";
@@ -91,7 +91,8 @@ export function ProgressAnalytics({ today }: { today: string }) {
     document.getElementById("home-goals")?.scrollIntoView({ block: "start" });
   }, [wantsGoals, goals.data]);
 
-  const plan = context?.hasPreferences ? context.preferences.workouts_per_week : null;
+  // The days are the member's plan only once they answered them in the Workouts setup (never the column default).
+  const plan = context && trainingDaysAnswered(context) ? context.preferences.workouts_per_week : null;
   const joinedAt = context?.profile?.created_at ?? null;
   const targets = summary.data ? todayTargets(summary.data.summary, goals.data?.goals) : null;
   const calorieTarget = targets?.calories.target ?? null;

@@ -189,11 +189,7 @@ export function GoalsPanel({ date, goals, summary, request }: {
             <button type="button" className="fitx-button fitx-button-danger" onClick={() => void remove(removing)}><Trash2 size={15} aria-hidden="true" />Delete goal</button>
           </>}
         >
-          <p className={styles.confirm}>
-            {removing.linkedTodos > 0
-              ? `${removing.linkedTodos === 1 ? "Its linked To-Do stays" : `Its ${removing.linkedTodos} linked To-Dos stay`} on your list.`
-              : "Pause or complete it instead to keep the history."}
-          </p>
+          <p className={styles.confirm}>Pause or complete it instead to keep the history.</p>
         </Sheet>
       )}
 

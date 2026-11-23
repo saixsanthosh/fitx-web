@@ -10,7 +10,7 @@ const context = (preferences: Record<string, unknown> = {}, profile: Record<stri
   buildCoachContext({
     profile: { age: 34, gender: "female", height: 165, weight: 62, ...profile },
     preferences: { timezone: "Asia/Kolkata", primary_goal: "general_fitness", activity_level: "moderate", workout_location: "home", fitness_level: "intermediate", workouts_per_week: 4, session_duration_minutes: 30, meals_per_day: 4, ...preferences },
-    weighIns: [], meals: [], customFoods: [], sessions: [], recentMuscles: [], records: [], goals: [], planner: [],
+    weighIns: [], meals: [], customFoods: [], sessions: [], recentMuscles: [], records: [], goals: [], planner: [], equipmentListSaved: true,
   } as never, NOW);
 const none = { todayFoods: [], lastWorkout: null, activities: [], goals: [] };
 
