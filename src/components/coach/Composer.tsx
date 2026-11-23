@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowUp, Dumbbell, MessageCircle, Square, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +33,7 @@ export function Composer({
   onStop,
   hint,
   focusKey = 0,
+  voice,
 }: {
   draft: string;
   onDraft: (value: string) => void;
@@ -48,6 +49,8 @@ export function Composer({
   hint: string | null;
   /** Changing this moves focus into the message box (after a suggestion is chosen). */
   focusKey?: number;
+  /** Push to talk and read aloud (CoachVoice), shown beside Send when the browser supports them. */
+  voice?: ReactNode;
 }) {
   const area = useRef<HTMLTextAreaElement>(null);
   const budgetId = useId();
@@ -125,6 +128,7 @@ export function Composer({
           aria-describedby={`${hintId} ${counterId}`}
           className="max-h-[168px] min-h-11 flex-1 resize-none bg-transparent px-2.5 py-2.5 text-[15px] leading-6 text-fitx-text outline-none placeholder:text-fitx-text-disabled"
         />
+        {voice}
         {busy ? (
           <button type="button" onClick={onStop} aria-label="Stop the answer" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text hover:bg-fitx-hover">
             <Square size={15} aria-hidden="true" fill="currentColor" />

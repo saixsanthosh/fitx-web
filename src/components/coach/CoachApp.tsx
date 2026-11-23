@@ -12,6 +12,7 @@ import { CoachRequestError, applyAction, deleteThread, fetchStatus, fetchThread,
 import { CoachSettings } from "./CoachSettings";
 import { CoachUnavailable } from "./CoachUnavailable";
 import { Composer, type ComposerMode } from "./Composer";
+import { ReadAloudToggle, VoiceButton, useReadAloud } from "./CoachVoice";
 import { ConsentPanel } from "./ConsentPanel";
 import { ConversationList } from "./ConversationList";
 import { formatResetTime } from "./format";
@@ -56,6 +57,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   const threadBox = useRef<HTMLElement>(null);
   // Reset times are in the viewer's time zone, which the server can't know: they appear after hydration.
   const hydrated = useHydrated();
+  const readAloud = useReadAloud();
+  const speakReply = readAloud.speak;
 
   // Only accounts whose profile says 18 or over share their data (the server checks this too).
   const mayShare = !status.minor && !status.ageMissing;
@@ -127,8 +130,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     setProblem({ message, retryAt: failure.retryAt });
   }
 
-  async function send() {
-    const text = draft.trim() || (mode === "meal_plan" ? "Plan my meals for today." : mode === "workout_plan" ? "Plan a workout for today." : "");
+  async function send(spoken?: string) {
+    const text = spoken?.trim() || draft.trim() || (mode === "meal_plan" ? "Plan my meals for today." : mode === "workout_plan" ? "Plan a workout for today." : "");
     if (!text || busy) return;
     const localId = `local-${Date.now()}`;
     const sentMode = mode;
@@ -158,6 +161,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       else if (event.type === "message") {
         setMessages((old) => [...old, event.message]);
         recordActions(event.actions);
+        // Read aloud (when the member turned it on): chat replies and safety notes; plans are cards to read.
+        if (event.message.role !== "user" && event.message.task === "chat") speakReply(event.message.content);
         // A plan is long: show its start, not its end, once it is on the page.
         if (event.message.data?.plan) requestAnimationFrame(() => document.getElementById(`coach-message-${event.message.id}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
       } else if (event.type === "done") updateQuota(event.quota);
@@ -377,6 +382,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
             {plansAllowed ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
           </p>
           <div className={styles.tools}>
+            <ReadAloudToggle readAloud={readAloud} />
             <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
               <History size={17} aria-hidden="true" /> History
             </button>
@@ -465,6 +471,14 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
             onStop={() => stopper.current?.abort()}
             hint={quotaHint}
             focusKey={focusKey}
+            voice={
+              <VoiceButton
+                  disabled={busy}
+                  onStart={() => { readAloud.cancel(); setMode("chat"); }}
+                  onTranscript={setDraft}
+                  onFinished={(text) => void send(text)}
+                />
+            }
           />
         </div>
       </div>
