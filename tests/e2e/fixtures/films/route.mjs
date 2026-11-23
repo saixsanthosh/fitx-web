@@ -41,17 +41,24 @@ export async function serveFilmFixture(t, page = t.page) {
 
 /**
  * Records every media play() and whether it went through, in `window.__e2ePlays` (for the sound checks). With
- * `strictAutoplay`, an unmuted play() outside a user gesture (no transient activation) is refused with NotAllowedError,
- * as Safari and a fresh Chrome profile do: headless Chrome lets it through even under its default policy, so the
- * refusal is made here. A play() called synchronously inside a tap still has the activation and goes through.
+ * `strictAutoplay`, an unmuted play() that does not follow a real input (a trusted pointer, click, touch or key event
+ * within the last second) is refused with NotAllowedError, as Safari and a fresh Chrome profile do. Headless Chrome
+ * lets it through even under its default policy, and Playwright's own evaluate calls count as user activation, so
+ * `navigator.userActivation` cannot tell either: the rule is made here from the page's real input events.
  */
 export async function recordMediaPlays(context, { strictAutoplay = false } = {}) {
   await context.addInitScript((strict) => {
     const plays = [];
     Object.defineProperty(window, "__e2ePlays", { value: plays });
+    let gestureUntil = 0;
+    for (const type of ["pointerdown", "pointerup", "click", "touchend", "keydown"]) {
+      window.addEventListener(type, (event) => {
+        if (event.isTrusted) gestureUntil = performance.now() + 1000;
+      }, true);
+    }
     const original = HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play = function play() {
-      const active = navigator.userActivation ? navigator.userActivation.isActive : true;
+      const active = performance.now() < gestureUntil;
       const entry = { src: this.currentSrc || this.src || "", tag: this.tagName.toLowerCase(), muted: this.muted, gesture: active, result: "pending" };
       plays.push(entry);
       const result = strict && !this.muted && !active
