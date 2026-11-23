@@ -11,6 +11,7 @@
 .subnavLink {
   position: relative; display: inline-flex; flex: 1 1 0; min-width: 0; min-height: 44px; align-items: center; justify-content: center; gap: 7px;
   border-radius: 13px; padding: 0 10px; color: var(--fitx-text-secondary); font-size: 14px; font-weight: 600; transition: color .18s ease;
+  column-gap: 10px;
 }
 .subnavLink:hover { color: var(--fitx-text); }
 .subnavLink[aria-current="page"] { color: var(--fitx-text); }
@@ -20,7 +21,7 @@
 .subnavIcon { display: inline-flex; }
 .subnavLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge {
-  position: absolute; top: -8px; right: -11px; z-index: 2; min-width: 18px; height: 18px; border-radius: 999px; padding: 0 5px;
+  position: absolute; top: -9px; right: -7px; z-index: 2; min-width: 18px; height: 18px; border-radius: 999px; padding: 0 5px;
   background: var(--fitx-primary); color: var(--fitx-on-primary); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
 }
 .newPost {
