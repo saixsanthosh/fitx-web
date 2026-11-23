@@ -549,21 +549,41 @@ describe("privacy page", () => {
     const explore = section("Explore");
     assert.match(explore, /\bonly by the followers you approve\b/);
     assert.match(explore, /\bcamera and location details are removed\b/);
-    assert.match(explore, /\bnot shown to the member you report\b/);
-    assert.doesNotMatch(explore, /reviews reports/, "Admin moderation is not part of this release");
+    assert.match(explore, /\bthe member you report is not told who reported them\b/);
+    // Release 2a (wave 2): stories and videos, messages, communities and challenges, the age rules and moderation.
+    const stories = section("Explore stories and videos");
+    assert.match(stories, /\bup to about 49 hours after you shared it\b/);
+    assert.match(stories, /\ba video plays only when you tap it\b/);
+    assert.match(stories, /\beach play counts against a daily budget\b/);
+    assert.match(stories, /\bthe clip may be recorded without sound\b/);
+    const messages = section("Explore messages");
+    assert.match(messages, /\bMessages are not end-to-end encrypted\b/);
+    assert.match(messages, /\bFITX’s server key can read them, so FITX Admin can show a message that someone reports\b/);
+    assert.match(section("Explore communities and challenges"), /\bcounts only your own completed workouts and the activities you record or import\b/);
+    const ages = section("Explore age rules");
+    assert.match(ages, /\bMessages, communities and leaderboards are for members aged 18 and over\b/);
+    assert.match(ages, /“Add your date of birth”/);
+    const moderation = section("Explore reports and moderation");
+    assert.match(moderation, /\bthe copy is kept for 90 days and then deleted\b/);
+    assert.match(moderation, /\beach time a moderator opens a report, FITX Admin records who opened it\b/);
+    assert.match(moderation, /\bnever shown to the member\b/);
+    assert.match(section("Exercise demonstrations"), /\bAI images made with Google’s Gemini image models from real public-domain photos of the same movement\b/);
     const exported = read("src/lib/account/export.ts");
-    for (const table of ["daily_quote_history", "social_profiles", "social_posts", "social_comments", "social_likes", "social_saves", "social_follows", "social_blocks", "social_restricts", "social_reports", "social_notifications"]) {
+    for (const table of ["daily_quote_history", "social_profiles", "social_posts", "social_comments", "social_likes", "social_saves", "social_follows", "social_blocks", "social_restricts", "social_reports", "social_notifications",
+      "social_stories", "social_story_views", "social_story_likes", "social_member_sanctions", "social_messages", "social_conversation_sides",
+      "social_community_members", "social_challenge_entries", "social_challenge_badges"]) {
       assert.match(exported, new RegExp(`table: "${table}"`), `${table} is in Download my data`);
     }
     assert.match(read("src/app/api/account/route.ts"), /removeSocialMediaFiles\(admin, user\.id\)/, "account deletion removes Explore photos");
     assert.match(section("Daily quote"), /\bincluded in “Download my data”/);
     const profile = section("Information you choose to save");
-    assert.match(profile, /\bdemonstration photos you prefer\b/);
+    assert.match(profile, /\bdemonstration model you prefer\b/);
     assert.match(read("supabase/migrations/20261123100020_fitx_workout_setup.sql"), /demo_model/);
     assert.match(read("supabase/migrations/20261123100040_fitx_nutrition_v2.sql"), /nutrition_setup_at/);
     const cookies = read("src/app/(marketing)/cookies/page.tsx");
     assert.match(cookies, /fitx_welcome/);
     assert.match(cookies, /floating AI Coach button/);
+    assert.match(cookies, /fitx-coach-renewal-v2/, "the coach's one-time re-consent answer kept on the device");
     assert.doesNotMatch(page + cookies, /Home workout/, "the old name is gone");
   });
 
