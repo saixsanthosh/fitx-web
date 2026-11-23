@@ -587,6 +587,8 @@ const brandGrade: Partial<Record<Theme, GradeParams>> = {};
  * `clear` (11.8), held to the end (12.6). The DOM `LogoReveal variant="film-end"` forms over it.
  */
 export const BRAND_TAIL = { settle: 0.29, veil: 0.9, clear: 1.2 } as const;
+/** The tail's lens: focused just past the glass at its widest blur, so what is left of the doorway is light, not a shape. */
+const TAIL_FOCUS = { distance: 0.25, aperture: 1.2, maxBlur: 0.05 } as const;
 /** The doorway light (a share of its swell level) still glowing as the tail's fall-off begins. */
 const TAIL_GLOW: Record<Theme, number> = { light: 0.7, dark: 0.32 };
 
@@ -631,7 +633,8 @@ const shotBrand: Shot = {
       camera,
       lighting: lightingFor(ctx, "studio", "rise"),
       grade,
-      focus: { distance: 8, aperture: 0 },
+      // Focused a hand's width from the lens: the doorway behind the veil melts into a soft glow with no edges.
+      focus: TAIL_FOCUS,
       flash,
       fade: { color: BRAND_BG[theme], amount: done ? 1 : settle * BRAND_TAIL.veil + fall * (1 - BRAND_TAIL.veil) },
     };
