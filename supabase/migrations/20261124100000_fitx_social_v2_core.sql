@@ -2672,8 +2672,10 @@ begin
   select o.name, 'orphan' from storage.objects o
   where o.bucket_id = 'social-media' and o.created_at < pg_catalog.now() - interval '6 hours'
     and not exists (select 1 from public.social_profiles p where p.avatar_path = o.name)
-    and not exists (select 1 from public.social_post_media m where m.storage_path = o.name or m.poster_path = o.name)
-    and not exists (select 1 from public.social_stories s where s.storage_path = o.name or s.poster_path = o.name)
+    and not exists (select 1 from public.social_post_media m where m.storage_path = o.name)
+    and not exists (select 1 from public.social_post_media m where m.poster_path = o.name)
+    and not exists (select 1 from public.social_stories s where s.storage_path = o.name)
+    and not exists (select 1 from public.social_stories s where s.poster_path = o.name)
     and not exists (select 1 from public.social_communities c where c.cover_path = o.name)
   on conflict (path) do nothing;
   get diagnostics v_orphans = row_count;

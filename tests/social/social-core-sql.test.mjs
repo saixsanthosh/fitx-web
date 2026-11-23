@@ -236,9 +236,22 @@ describe("Explore part 2 core", { skip }, () => {
       insert into public.social_storage_trash (path, reason) values ('${B}/gone/0.webp', 'removed');
       update public.social_reports set status = 'dismissed', reviewed_at = now() - interval '91 days' where user_id = '${A}' and target_type = 'comment';
       update public.social_notifications set created_at = now() - interval '91 days' where user_id = '${A}';`);
+    // Files in use (a video post's file and poster, a live video story's file and poster) are never orphans, however old.
+    const story = id();
+    const storyFile = `${B}/${story}/0.mp4`;
+    const storyPoster = `${B}/${story}/0p.webp`;
+    pg.exec(`insert into storage.objects (bucket_id, name, metadata) values ('social-media', ${q(storyFile)}, '{"size": 10}'), ('social-media', ${q(storyPoster)}, '{"size": 10}');
+      insert into public.social_stories (id, user_id, kind, storage_path, poster_path, width, height, duration_ms)
+        values ('${story}', '${B}', 'video', ${q(storyFile)}, ${q(storyPoster)}, 720, 1280, 5000);
+      update storage.objects set created_at = now() - interval '7 hours' where bucket_id = 'social-media';`);
+    const inUse = `select o.name from storage.objects o where o.bucket_id = 'social-media'
+        and (exists (select 1 from public.social_post_media m where o.name in (m.storage_path, m.poster_path))
+             or exists (select 1 from public.social_stories s where o.name in (s.storage_path, s.poster_path)))`;
+    assert.ok(pg.json(`select count(*) from (${inUse}) u where u.name like '%p.webp';`) >= 2, "posters of a post and a story are in the bucket");
     const result = pg.json(`select public.fitx_social_hourly();`);
     assert.ok(result.files_queued >= 1 && result.trash_forgotten >= 1 && result.evidence_purged >= 1, JSON.stringify(result));
     assert.equal(pg.json(`select count(*) from public.social_storage_trash where path = ${q(orphan)} and reason = 'orphan';`), 1);
+    assert.equal(pg.json(`select count(*) from public.social_storage_trash t where t.reason = 'orphan' and t.path in (${inUse});`), 0, "files in use are not queued");
     assert.equal(pg.json(`select count(*) from public.social_storage_trash where path = '${B}/gone/0.webp';`), 0);
     assert.equal(pg.json(`select count(*) from public.social_reports where user_id = '${A}' and target_type = 'comment' and evidence is not null;`), 0);
     assert.equal(pg.json(`select count(*) from public.social_notifications where user_id = '${A}';`), 0);

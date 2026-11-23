@@ -1512,7 +1512,7 @@ no row; `social_notifications.actor_id` may now be empty (notices from FITX). Th
 from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
 run changes nothing. After it, #51's Check gives other numbers: use this one.
 
-md5 of the file (`md5 -q`): `48ef4b9727c2c0cb7fd53c167cb839ef`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `331a53b6227287bae204f161bfbfc961`. The session compares it with the file it sends before it runs it.
 
 ```sql
 -- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2, 1
