@@ -101,7 +101,15 @@ export function AuthStage() {
           if (cancelled || !host.current) return;
           scene.current = createLoginScene(host.current, readTheme(), {
             onReady: () => !cancelled && setLoaded("live"),
-            onUnsupported: () => !cancelled && setLoaded("still"),
+            onUnsupported: () => {
+              if (cancelled) return;
+              setLoaded("still");
+              // Give the GPU back as soon as the still frame takes over (after the scene's own failure path returns).
+              queueMicrotask(() => {
+                scene.current?.dispose();
+                scene.current = null;
+              });
+            },
           });
         })
         .catch(() => !cancelled && setLoaded("still"));
