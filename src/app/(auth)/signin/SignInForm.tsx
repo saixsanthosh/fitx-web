@@ -6,7 +6,8 @@ import { AnimatePresence, m } from "framer-motion";
 import { Apple, Eye, EyeOff, LockKeyhole, Mail, Plus } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
-import { GoogleButton, startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
+import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
+import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
 import { useEmailCode } from "@/components/auth/useEmailCode";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
@@ -120,7 +121,15 @@ export default function SignInForm() {
         ) : (
           <m.div key="email" className={s.body} {...slide}>
             <h1 className={s.title}>Sign in</h1>
-            <GoogleButton pending={pending === "google"} disabled={loading} onClick={() => void signInWith("google")} />
+            <GoogleSignIn
+              context="signin"
+              next={requestedNext}
+              disabled={loading}
+              redirectPending={pending === "google"}
+              onRedirect={() => void signInWith("google")}
+              onError={setError}
+              onBusy={(busy) => setPending(busy ? "google" : null)}
+            />
             {notice && !visibleError && <p role="status" className={s.notice}>{notice}</p>}
             {!isSupabaseConfigured && <p role="status" className={s.config}>Supabase environment values are missing here.</p>}
             <div className={s.divider}>or</div>
