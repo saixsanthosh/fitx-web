@@ -152,7 +152,9 @@ export function VideoPicker({ target, onChange, disabled = false }: { target: Vi
     setError(null);
     onChange(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
+      // Without a microphone (or its permission) the clip is recorded without sound rather than not at all.
+      const stream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS)
+        .catch(() => navigator.mediaDevices.getUserMedia({ ...CAMERA_CONSTRAINTS, audio: false }));
       streamRef.current = stream;
       setStage({ kind: "camera", stream, recording: null });
     } catch {
