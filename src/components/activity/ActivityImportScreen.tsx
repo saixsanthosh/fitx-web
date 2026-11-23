@@ -252,6 +252,14 @@ export function ActivityImportScreen() {
   // The newer sports only once the database takes them (migration 20261123100050).
   const v2 = useActivityV2(account.status === "ready" ? account.userId : null);
   const importSports: readonly Sport[] = v2 ? SPORTS : PRIMARY_SPORTS;
+  // Files read before the check finished: once the newer sports are known to be accepted, take the file's own sport.
+  const [v2Applied, setV2Applied] = useState(false);
+  if (v2 === true && !v2Applied) {
+    setV2Applied(true);
+    setEntries((list) => list.map((entry) => (entry.phase === "ready" && !entry.sport && entry.parsed?.sport.kind === "known"
+      ? { ...entry, sport: entry.parsed.sport.sport, preview: previewFor(entry.parsed, entry.parsed.sport.sport) }
+      : entry)));
+  }
   const userId = account.status === "ready" ? account.userId : null;
   const weightKg = account.status === "ready" ? account.weightKg : null;
 
