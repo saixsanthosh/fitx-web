@@ -123,12 +123,12 @@ export function FormCheckApp() {
 
   return (
     <div className="space-y-8">
-      <h1 className="sr-only">Home workout</h1>
+      <h1 className="sr-only">AI Form Check</h1>
       <FormCoach
         key={exercise.id}
         rule={exercise.rule}
         mode="practice"
-        onChangeExercise={() => router.push(HOME_WORKOUT, { scroll: true })}
+        onChangeExercise={() => router.push(FORM_CHECK_PATH, { scroll: true })}
         onFinished={onFinished}
         setNote={lastLogged ? `Kept under Today as set ${lastLogged}. Save the workout when you’re done.` : null}
       />

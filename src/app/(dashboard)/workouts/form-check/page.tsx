@@ -5,9 +5,9 @@ import { FormCheckFacts } from "./FormCheckFacts";
 import { FormCheckApp } from "./FormCheckApp";
 import { FormCheckHero } from "./FormCheckHero";
 
-export const metadata: Metadata = { title: "Home workout" };
+export const metadata: Metadata = { title: "AI Form Check" };
 
-export default function HomeWorkoutPage() {
+export default function FormCheckPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <Suspense

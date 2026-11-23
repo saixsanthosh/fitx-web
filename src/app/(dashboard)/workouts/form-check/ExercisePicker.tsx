@@ -35,7 +35,7 @@ export function ExercisePicker() {
           const facts = exerciseFacts(exercise.rule);
           return (
             <li key={exercise.id}>
-              <Link href={`${HOME_WORKOUT}?exercise=${exercise.id}`} className={`${styles.card} fitx-inverse aspect-[4/5] text-fitx-text`}>
+              <Link href={`${FORM_CHECK_PATH}?exercise=${exercise.id}`} className={`${styles.card} fitx-inverse aspect-[4/5] text-fitx-text`}>
                 {exercise.poster ? (
                   <Image
                     src={exercise.poster.src}
