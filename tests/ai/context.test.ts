@@ -803,3 +803,46 @@ describe("onboarding answers through Profile's readers", () => {
     ]);
   });
 });
+
+describe("coach activity summary and coaching rules", () => {
+  const activities = [
+    { sport: "run", started_at: "2026-11-15T01:00:00Z", distance_m: "5012.4", moving_seconds: 1700, elevation_gain_m: 32 },
+    { sport: "run", started_at: "2026-11-09T01:00:00Z", distance_m: 3000, moving_seconds: 1100, elevation_gain_m: null },
+    { sport: "hike", started_at: "2026-11-01T03:00:00Z", distance_m: null, moving_seconds: 7200, elevation_gain_m: 410 },
+  ];
+
+  test("activities reach the summary only when the consent listed them", () => {
+    const without = buildCoachContext(sources({ activities }) as never, NOW);
+    assert.equal(without.summary.activities_last_28_days, undefined, "a version-1 consent keeps the version-1 summary");
+    const { summary } = buildCoachContext(sources({ activities }) as never, NOW, { activities: true });
+    const block = summary.activities_last_28_days as { count: number; by_sport: Record<string, Record<string, unknown>>; last_activity: string; days_since_last: number };
+    assert.equal(block.count, 3);
+    assert.deepEqual(block.by_sport.run, { count: 2, km: 8, moving_minutes: 47 }, "climb unknown for one run, so not summed");
+    assert.deepEqual(block.by_sport.hike, { count: 1, moving_minutes: 120, climb_m: 410 }, "an unknown distance is left out, never 0 km");
+    assert.equal(block.last_activity, "2026-11-15");
+    assert.equal(block.days_since_last, 2);
+  });
+
+  test("activities that could not be read are left out, not shown as none", () => {
+    const { summary } = buildCoachContext(sources({ activities: null }) as never, NOW, { activities: true });
+    assert.equal(summary.activities_last_28_days, undefined);
+  });
+
+  test("the chat prompt carries the coaching rules: exercise help, progress, motivation, recovery and no shaming", () => {
+    const context = buildCoachContext(sources() as never, NOW);
+    const prompt = chatSystemPrompt({ context, facts: context.facts, sharesData: true });
+    assert.match(prompt, /Exercise help: explain how to do a move/);
+    assert.match(prompt, /If there is too little data, say so instead of guessing/);
+    assert.match(prompt, /Never use generic quotes or invent achievements/);
+    assert.match(prompt, /see a doctor or physiotherapist for pain that lasts more than a few days/);
+    assert.match(prompt, /never blame, shame or use guilt/);
+  });
+
+  test("only a new consent unlocks activities", async () => {
+    const store = await import("@/lib/ai/store");
+    assert.equal(store.CONSENT_VERSION, 2);
+    assert.equal(store.ACTIVITIES_CONSENT_VERSION, 2);
+    const coach = readFileSync(new URL("../../src/lib/ai/coach.ts", import.meta.url), "utf8");
+    assert.equal(coach.match(/activities: consent\.version >= store\.ACTIVITIES_CONSENT_VERSION/g)?.length, 2);
+  });
+});

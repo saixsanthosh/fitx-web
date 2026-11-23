@@ -87,6 +87,7 @@ export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
     `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, ${facts.foodHabitsShared ? "where your meals come from, your nutrition goal, " : ""}cuisines and foods you avoid`,
     "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",
     "The last 4 weeks of workouts, your personal records and active goals, and how many workouts and other planner items you have in the next 7 days",
+    "Your walks, runs, rides and other activities of the last 4 weeks: how many, distance, moving time and climb per sport (never your routes or locations)",
   ];
 }
 

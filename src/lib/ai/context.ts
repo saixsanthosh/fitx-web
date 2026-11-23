@@ -32,6 +32,11 @@ export type ContextSources = {
   goals: Array<{ title: string | null; category: string | null; metric?: string | null; period?: string | null; target_value: number | null; current_value: number | null; unit: string | null; due_on: string | null }>;
   // starts_at is null for an untimed To-Do (Planner v2); local_date is its calendar day.
   planner: Array<{ event_type: string | null; starts_at: string | null; local_date?: string | null }>;
+  /**
+   * Recorded and imported activities of the last 28 days (walks, runs, rides and the other Activity sports); null
+   * when they could not be read (no activities table yet), so the summary leaves them out instead of saying none.
+   */
+  activities?: Array<{ sport: string | null; started_at: string | null; distance_m: number | string | null; moving_seconds: number | null; elevation_gain_m?: number | string | null }> | null;
 };
 
 /** Facts the server uses for its own checks. Never sent to a model as such. */
@@ -73,7 +78,7 @@ export type CoachContext = { facts: MemberFacts; summary: Record<string, unknown
 
 type Db = Pick<SupabaseClient, "from">;
 
-const EMPTY_SOURCES: Omit<ContextSources, "profile" | "preferences"> = { weighIns: [], meals: [], customFoods: [], sessions: [], recentMuscles: [], records: [], goals: [], planner: [] };
+const EMPTY_SOURCES: Omit<ContextSources, "profile" | "preferences"> = { weighIns: [], meals: [], customFoods: [], sessions: [], recentMuscles: [], records: [], goals: [], planner: [], activities: null };
 
 /**
  * Reads everything in parallel. A query that fails (a table not there yet) counts as no data.
@@ -130,7 +135,17 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     return { profile, preferences, ...EMPTY_SOURCES };
   }
 
-  const [[profile, preferences], weighIns, meals, customFoods, sessions, records, goals, planner] = await Promise.all([
+  /** Activities, or null when they could not be read (never "no activities" for a missing table). */
+  const activityRows = async (): Promise<ContextSources["activities"]> => {
+    try {
+      const { data, error } = await supabase.from("activities").select("sport, started_at, distance_m, moving_seconds, elevation_gain_m").eq("user_id", userId).gte("started_at", `${day(28)}T00:00:00Z`).order("started_at", { ascending: false }).limit(200);
+      return !error && Array.isArray(data) ? (data as NonNullable<ContextSources["activities"]>) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const [[profile, preferences], weighIns, meals, customFoods, sessions, records, goals, planner, activities] = await Promise.all([
     basics,
     // Newest first; on the same date the later entry wins (the rule Profile and Progress use).
     rows<ContextSources["weighIns"][number]>(
@@ -160,11 +175,12 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
       () => supabase.from("planner_events").select("event_type, starts_at, local_date").eq("user_id", userId).eq("status", "scheduled").gte("local_date", day(0)).lte("local_date", day(-8)).limit(60),
       () => supabase.from("planner_events").select("event_type, starts_at").eq("user_id", userId).eq("status", "scheduled").gte("starts_at", now.toISOString()).lte("starts_at", new Date(now.getTime() + 7 * 86_400_000).toISOString()).limit(40),
     ),
+    activityRows(),
   ]);
 
   const recentMuscles = await recentMusclesFrom(supabase, userId, sessions, now, withFallback);
 
-  return { profile, preferences, weighIns, meals, customFoods, sessions, recentMuscles, records, goals, planner };
+  return { profile, preferences, weighIns, meals, customFoods, sessions, recentMuscles, records, goals, planner, activities };
 }
 
 type FetchWithFallback = <T>(newer: () => PromiseLike<{ data: unknown; error: unknown }>, older: () => PromiseLike<{ data: unknown; error: unknown }>) => Promise<T[]>;
@@ -215,7 +231,11 @@ async function recentMusclesFrom(supabase: Db, userId: string, sessions: Array<{
  */
 export const FOOD_HABITS_IN_SUMMARY = true;
 
-export function buildCoachContext(sources: ContextSources, now = new Date(), options: { foodHabits?: boolean } = {}): CoachContext {
+/**
+ * `activities`: put the last 4 weeks of activities in the summary. Only for a consent whose screen listed them
+ * (store.ACTIVITIES_CONSENT_VERSION); coach.ts decides.
+ */
+export function buildCoachContext(sources: ContextSources, now = new Date(), options: { foodHabits?: boolean; activities?: boolean } = {}): CoachContext {
   const prefs = sources.preferences ?? {};
   const profile = sources.profile ?? {};
   const timeZone = validTimeZone(text(prefs.timezone)) ?? "UTC";
@@ -344,6 +364,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
       other_events: sources.planner.filter((event) => event.event_type !== "workout").length,
     },
   };
+  if (options.activities && sources.activities) summary.activities_last_28_days = activitySummary(sources.activities, today);
   return { facts, summary };
 }
 
@@ -441,6 +462,38 @@ function trainingSummary(sessions: ContextSources["sessions"], muscles: string[]
     last_session: completed[0] ? dateOnly(completed[0].started_at) : null,
     muscles_trained_last_7_days: muscles.slice(0, 12),
   });
+}
+
+/**
+ * Activities of the last 28 days per sport: how many, distance (km, one decimal) and moving time (minutes), plus the
+ * newest date. Distances are only summed when every activity of that sport has one (unknown is never 0).
+ */
+export function activitySummary(rows: NonNullable<ContextSources["activities"]>, today: string) {
+  const bySport = new Map<string, { count: number; km: number | null; minutes: number; climb_m: number | null }>();
+  for (const row of rows) {
+    const sport = cleanText(row.sport, 20);
+    if (!sport) continue;
+    const entry = bySport.get(sport) ?? { count: 0, km: 0, minutes: 0, climb_m: 0 };
+    entry.count += 1;
+    const metres = knownNumber(row.distance_m) ? Number(row.distance_m) : null;
+    entry.km = entry.km === null || metres === null ? null : entry.km + metres / 1000;
+    entry.minutes += num(row.moving_seconds) / 60;
+    const climb = knownNumber(row.elevation_gain_m) ? Number(row.elevation_gain_m) : null;
+    entry.climb_m = entry.climb_m === null || climb === null ? null : entry.climb_m + climb;
+    bySport.set(sport, entry);
+  }
+  const newest = rows.map((row) => dateOnly(row.started_at)).filter((date): date is string => Boolean(date)).sort().at(-1) ?? null;
+  return {
+    count: [...bySport.values()].reduce((sum, entry) => sum + entry.count, 0),
+    by_sport: Object.fromEntries([...bySport].map(([sport, entry]) => [sport, compact({
+      count: entry.count,
+      km: entry.km === null ? null : round1(entry.km),
+      moving_minutes: Math.round(entry.minutes),
+      climb_m: entry.climb_m === null ? null : Math.round(entry.climb_m),
+    })])),
+    last_activity: newest,
+    days_since_last: newest ? daysBetween(newest, today) : null,
+  };
 }
 
 function budgetText(prefs: Record<string, unknown>): string | null {

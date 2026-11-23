@@ -37,12 +37,21 @@ function fail(error: unknown, what: string): never {
 }
 
 /** `updatedAt`: when the consent was last saved, which is when "Use my FITX data" was last switched. */
-export type Consent = { shareData: boolean; consentedAt: string; updatedAt: string | null };
+export type Consent = { shareData: boolean; consentedAt: string; updatedAt: string | null; version: number };
+
+/**
+ * The consent screen's current wording. Version 2 (wave 1 of the next-level job) adds "your walks, runs and other
+ * activities of the last 4 weeks" to what "Use my FITX data" sends; a member who agreed to version 1 keeps the
+ * version 1 summary (no activities) until they agree again on the consent screen.
+ */
+export const CONSENT_VERSION = 2;
+/** The first consent version whose screen listed activities. */
+export const ACTIVITIES_CONSENT_VERSION = 2;
 
 export async function getConsent(db: Db, userId: string): Promise<Consent | null> {
-  const { data, error } = await db.from("ai_coach_consents").select("share_personal_data, consented_at, updated_at").eq("user_id", userId).maybeSingle();
+  const { data, error } = await db.from("ai_coach_consents").select("share_personal_data, consented_at, updated_at, consent_version").eq("user_id", userId).maybeSingle();
   if (error) fail(error, "read consent");
-  return data ? { shareData: data.share_personal_data !== false, consentedAt: String(data.consented_at), updatedAt: data.updated_at ? String(data.updated_at) : null } : null;
+  return data ? { shareData: data.share_personal_data !== false, consentedAt: String(data.consented_at), updatedAt: data.updated_at ? String(data.updated_at) : null, version: Number(data.consent_version) || 1 } : null;
 }
 
 /**
@@ -60,7 +69,7 @@ export async function saveConsent(db: Db, userId: string, shareData: boolean) {
   const now = new Date().toISOString();
   const { error } = await db
     .from("ai_coach_consents")
-    .upsert({ user_id: userId, consent_version: 1, share_personal_data: shareData, consented_at: now, updated_at: now }, { onConflict: "user_id" });
+    .upsert({ user_id: userId, consent_version: CONSENT_VERSION, share_personal_data: shareData, consented_at: now, updated_at: now }, { onConflict: "user_id" });
   if (error) fail(error, "save consent");
 }
 

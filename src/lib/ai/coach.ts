@@ -207,7 +207,7 @@ export async function runCoachTurn(deps: CoachDeps, input: TurnInput, emit: Emit
       return;
     }
 
-    const full = sharesData ? buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: true }), now) : buildCoachContext(basics, now);
+    const full = sharesData ? buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: true }), now, { activities: consent.version >= store.ACTIVITIES_CONSENT_VERSION }) : buildCoachContext(basics, now);
     const context = careMode ? withoutCalorieNumbers(full) : full;
     // Without "Use my FITX data", the conversation so far is sent only from when it was switched off, so the
     // coach's earlier replies built from the member's data do not go out again.
@@ -429,7 +429,7 @@ export async function runSwap(deps: CoachDeps, input: { actionId: string; note: 
   const item = original?.payload?.item as CoachFoodItem | undefined;
   if (!original || original.kind !== "food" || !item || typeof item.calories !== "number") throw new CoachError("not_found", "That food is no longer in your plan.");
 
-  const context = buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: consent.shareData }), now);
+  const context = buildCoachContext(await loadContextSources(deps.db, deps.userId, now, { full: consent.shareData }), now, { activities: consent.version >= store.ACTIVITIES_CONSENT_VERSION });
   if (store.needsNewConsent(consent, context.facts.adult)) throw unavailableError(deps.config) ?? new CoachError("consent_required", askAgain(context.facts));
   if (!consent.shareData || !context.facts.adult) throw new CoachError("plans_unavailable", "Swaps use your FITX data. Turn on “Use my FITX data” in the coach's settings.");
   const noteSafety = input.note ? screenMessage(input.note, { floor: context.facts.calorieFloor }) : null;

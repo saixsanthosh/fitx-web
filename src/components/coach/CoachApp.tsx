@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dumbbell, Footprints, History, Loader2, MessageCircle, MessageSquarePlus, Settings2, Target, UserRound, Utensils, X } from "lucide-react";
 import { useHydrated } from "@/components/ui/use-hydrated";
+import { capabilityStarters } from "@/lib/ai/capabilities";
 import type { QuickPrompt } from "@/lib/ai/quick-prompts";
 import type { CoachState, CoachStatus } from "@/lib/ai/status";
 import { cn } from "@/lib/utils";
@@ -410,6 +411,15 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
                   </p>
                 )}
               </div>
+              <ul className={styles.skills} aria-label="What the coach can do">
+                {capabilityStarters({ sharesData: plansAllowed }).map((starter) => (
+                  <li key={starter.id}>
+                    <button type="button" onClick={() => choosePrompt({ id: `skill-${starter.id}`, source: "general", context: starter.label, text: starter.text, mode: starter.mode })} className={styles.skill}>
+                      {starter.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
               <ul className={styles.prompts} aria-label="Suggested questions">
                 {prompts.map((prompt) => {
                   const Icon = PROMPT_ICONS[prompt.source];
