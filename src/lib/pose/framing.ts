@@ -180,9 +180,9 @@ export function zoomOf(crop: Crop, aspect: number, viewAspect: number): number {
 }
 
 /**
- * The largest zoom worth showing: up to two screen pixels per camera pixel (so a 1080p picture on a
- * phone can zoom in, a 480p one barely), and never more than 3×. `shownHeight` is the display's height
- * in device pixels when the whole picture is shown.
+ * The largest zoom worth showing, as a multiple of the picture filling the view's height: up to about
+ * two screen pixels per camera pixel (at least 1.5×, so even a small picture can be framed), never more
+ * than 3×. `shownHeight` is how many device pixels the picture's full height covers at zoom 1.
  */
 export function maxZoomFor(pictureHeight: number, shownHeight: number): number {
   if (!(pictureHeight > 0) || !(shownHeight > 0)) return 1;
@@ -311,12 +311,17 @@ function inside(box: BodyBox, crop: Crop): boolean {
   return box.minX >= crop.x && box.maxX <= crop.x + crop.w && box.minY >= crop.y && box.maxY <= crop.y + crop.h;
 }
 
+/** How much the layer is enlarged to show `crop` filling the view. */
+export function cropScale(crop: Crop, baseWidth: number, baseHeight: number, viewWidth: number, viewHeight: number): number {
+  return Math.min(viewWidth / (crop.w * baseWidth), viewHeight / (crop.h * baseHeight));
+}
+
 /**
  * The CSS transform that shows `crop` filling a view of `viewWidth` × `viewHeight`, for a layer that
  * draws the whole picture at `baseWidth` × `baseHeight` from the view's top-left corner.
  */
 export function cropTransform(crop: Crop, baseWidth: number, baseHeight: number, viewWidth: number, viewHeight: number): string {
-  const scale = Math.min(viewWidth / (crop.w * baseWidth), viewHeight / (crop.h * baseHeight));
+  const scale = cropScale(crop, baseWidth, baseHeight, viewWidth, viewHeight);
   const tx = (viewWidth - crop.w * baseWidth * scale) / 2 - crop.x * baseWidth * scale;
   const ty = (viewHeight - crop.h * baseHeight * scale) / 2 - crop.y * baseHeight * scale;
   return `translate3d(${tx.toFixed(2)}px, ${ty.toFixed(2)}px, 0) scale(${scale.toFixed(4)})`;

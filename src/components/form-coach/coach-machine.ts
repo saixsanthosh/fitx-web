@@ -18,7 +18,7 @@ import { landmarkIndex } from "@/lib/pose/landmarks";
 import type { CameraControls, LightLevel } from "@/lib/pose/capture";
 import { automaticControls, displayFilter, exposureLift, lightLevel, meanLuma, pictureLabel, stepDown } from "@/lib/pose/capture";
 import type { FramingAssessment, FramingSpec } from "@/lib/pose/framing";
-import { AutoFramer, cropTransform, maxZoomFor, zoomOf } from "@/lib/pose/framing";
+import { AutoFramer, cropScale, cropTransform, maxZoomFor, zoomOf } from "@/lib/pose/framing";
 import { LandmarkStabiliser } from "@/lib/pose/tracking";
 import type { CaptureProfile, ModelVariant, PerformanceAdvice } from "@/lib/pose/performance";
 import { FrameGovernor, initialProfile, readDeviceHints } from "@/lib/pose/performance";
@@ -459,26 +459,31 @@ export class CoachMachine {
    * Sizes the layer to the whole picture fitted inside the viewport, then moves it so the framing crop
    * fills the viewport. Writes only a transform (and the layer's size when the viewport changes).
    */
-  private applyCrop(run: Run, video: HTMLVideoElement, crop: { x: number; y: number; w: number; h: number }) {
+  /** Returns screen pixels per camera pixel after the crop (for the skeleton's line width), or undefined. */
+  private applyCrop(run: Run, video: HTMLVideoElement, crop: { x: number; y: number; w: number; h: number }): number | undefined {
     const viewport = this.ui.viewport?.();
     const layer = this.ui.layer?.();
-    if (!viewport || !layer || !video.videoWidth) return;
+    if (!viewport || !layer || !video.videoWidth) return undefined;
     const vw = viewport.clientWidth;
     const vh = viewport.clientHeight;
-    if (!vw || !vh) return;
+    if (!vw || !vh) return undefined;
     const fit = Math.min(vw / video.videoWidth, vh / video.videoHeight);
     const bw = video.videoWidth * fit;
     const bh = video.videoHeight * fit;
-    const layout = `${bw.toFixed(1)}x${bh.toFixed(1)}`;
+    const layout = `${bw.toFixed(1)}x${bh.toFixed(1)}:${vw}x${vh}`;
     if (layout !== run.lastLayout) {
       run.lastLayout = layout;
       layer.style.width = `${bw}px`;
       layer.style.height = `${bh}px`;
-      run.framer.setMaxZoom(maxZoomFor(video.videoHeight, bh * (window.devicePixelRatio || 1)));
+      // Zoom is measured from the picture filling the viewport's height (or width); cap it so each camera
+      // pixel covers at most about two screen pixels.
+      const fullH = Math.min(1, video.videoWidth / video.videoHeight / (vw / vh));
+      run.framer.setMaxZoom(maxZoomFor(video.videoHeight, (vh * (window.devicePixelRatio || 1)) / fullH));
     }
     // The layer shows the picture mirrored for selfie cameras, so the crop is mirrored with it.
     const shown = run.mirrored ? { ...crop, x: 1 - crop.x - crop.w } : crop;
     layer.style.transform = cropTransform(shown, bw, bh, vw, vh);
+    return fit * cropScale(shown, bw, bh, vw, vh);
   }
 
   /** Combines framing, light, tracking and speed into one honest verdict on the view. */
@@ -606,11 +611,11 @@ export class CoachMachine {
     const cleaned = detection ? run.stabiliser.stabilise(detection.points, aspect, timestamp) : null;
     if (!detection) run.stabiliser.reset();
     const snapshot = run.session.update({ t: timestamp, points: cleaned?.points ?? null, aspect, world: detection?.world ?? null });
-    this.draw(run, video, cleaned?.smooth ?? null, snapshot.side);
     const viewport = this.ui.viewport?.();
     const viewAspect = viewport && viewport.clientHeight ? viewport.clientWidth / viewport.clientHeight : aspect;
     const { crop, assessment } = run.framer.update(cleaned?.smooth ?? null, timestamp, aspect, viewAspect, run.framing, run.mirrored);
-    this.applyCrop(run, video, crop);
+    const pixelScale = this.applyCrop(run, video, crop);
+    this.draw(run, video, cleaned?.smooth ?? null, snapshot.side, pixelScale);
     this.checkLight(run, video, done);
     this.judgeView(run, snapshot, assessment, zoomOf(crop, aspect, viewAspect), done);
     const meter = this.ui.meter();
@@ -620,7 +625,7 @@ export class CoachMachine {
     if (advice) void this.applyAdvice(run, advice);
   }
 
-  private draw(run: Run, video: HTMLVideoElement, points: PosePoint[] | null, side: Side | null) {
+  private draw(run: Run, video: HTMLVideoElement, points: PosePoint[] | null, side: Side | null, pixelScale?: number) {
     const canvas = this.ui.canvas();
     if (!canvas || !run.palette) return;
     if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
@@ -633,7 +638,7 @@ export class CoachMachine {
       run.focusSide = side;
       run.focus = focusFor(run.rule, side);
     }
-    drawPose(context, points, { palette: run.palette, focus: run.focus, minVisibility: run.rule.minVisibility });
+    drawPose(context, points, { palette: run.palette, focus: run.focus, minVisibility: run.rule.minVisibility, pixelScale });
   }
 
   private react(run: Run, snapshot: CoachSnapshot) {

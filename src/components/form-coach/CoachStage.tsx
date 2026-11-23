@@ -97,7 +97,7 @@ export function CoachStage({ rule, coach, refs: { video: videoRef, canvas: canva
         {view.picture && (
           <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-fitx-border px-2.5 py-1.5 text-xs font-medium text-fitx-text-secondary sm:inline-flex" title="The picture your camera delivers">
             {view.zoomed && <ScanLine size={13} className="text-fitx-primary" aria-hidden="true" />}
-            <span className="sr-only">Camera picture </span>{view.picture}{view.zoomed && <span className="hidden md:inline">, auto-framed</span>}
+            <span><span className="sr-only">Camera picture </span>{view.picture}{view.zoomed && <span className="hidden md:inline">, auto-framed</span>}</span>
           </span>
         )}
         {running && view.light !== "ok" && (

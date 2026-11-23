@@ -43,6 +43,8 @@ export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit 
   const [loop, setLoop] = useState(true);
   const [index, setIndex] = useState(0);
   const [ended, setEnded] = useState(false);
+  /** Which photo is mostly on screen, for its position label. */
+  const [showsEnd, setShowsEnd] = useState(false);
   /** Milliseconds into the demonstration, kept across pauses. */
   const elapsed = useRef(0);
   const stepsId = useId();
@@ -72,6 +74,8 @@ export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit 
     if (startLayer.current) startLayer.current.style.transform = animate ? `scale(${(1 + 0.012 * mix).toFixed(4)})` : "";
     if (bar.current) bar.current.style.transform = `scaleX(${moment.progress.toFixed(3)})`;
     setIndex((current) => (current === moment.index ? current : moment.index));
+    const end = mix >= 0.5;
+    setShowsEnd((current) => (current === end ? current : end));
   }, [script, loop, pair]);
 
   useEffect(() => {
@@ -125,7 +129,7 @@ export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit 
   };
 
   const phase = script?.phases[index] ?? null;
-  const shownFrame = pair ? (phase?.frame === "end" ? end : start) : start ?? end;
+  const shownFrame = pair ? (showsEnd ? end : start) : start ?? end;
   const label = `How to do a ${exercise.rule.name.toLowerCase()}`;
 
   return (
