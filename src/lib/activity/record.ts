@@ -1,4 +1,6 @@
-import { KCAL_METHOD, usableWeight } from "./calories";
+import { bestEfforts, type BestEffort } from "./best-efforts";
+import { usesPace } from "./config";
+import { kcalMethodFor, usableWeight } from "./calories";
 import type { ActivityEngine } from "./engine";
 import { simplify, type Bounds } from "./geo";
 import { encodeRoute, encodeTrackChunk } from "./polyline";
@@ -50,6 +52,11 @@ export type ActivityRecord = {
    * those uploads never send the source columns, so they work before migration 20261119100000.
    */
   source?: ActivitySource;
+  /**
+   * Fastest elapsed time per benchmark distance (best-efforts.ts), from the finished route. Absent on device copies
+   * made by an older app version; saved in activities.best_efforts once migration 20261123100050 is applied.
+   */
+  bestEfforts?: BestEffort[] | null;
   /** For imports: the file's format, the device or app the file names (never guessed) and when it was imported. */
   sourceFormat?: ImportFormat | null;
   sourceDevice?: string | null;
@@ -61,7 +68,7 @@ const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 /** Route simplification tolerance: about the precision of the stored polyline. */
 function toleranceFor(sport: Sport): number {
-  return sport === "ride" ? 4 : 2;
+  return usesPace(sport) ? 2 : 4;
 }
 
 export function simplifiedRoute(segments: readonly (readonly LatLng[])[], sport: Sport): LatLng[][] {
@@ -151,13 +158,14 @@ export function buildActivityRecord(engine: ActivityEngine, options: { clientId:
     avgPaceSecondsPerKm: snapshot.avgPaceSecondsPerKm === null ? null : Math.round(snapshot.avgPaceSecondsPerKm),
     elevationGainM: snapshot.elevationGainM,
     kcal,
-    kcalMethod: kcal === null ? null : KCAL_METHOD,
+    kcalMethod: kcal === null ? null : kcalMethodFor(snapshot.sport),
     weightKg: weight === null ? null : round1(weight),
     gapCount: snapshot.gaps.length,
     gapSeconds: Math.round(snapshot.gapSeconds),
     splits: snapshot.splits,
     gaps: snapshot.gaps,
     timeline,
+    bestEfforts: bestEfforts(snapshot.segments, engine.sport),
     routePolyline: encodeRouteWithin(route, 0),
     sharePolyline: encodeRouteWithin(shared, 0),
     shareBbox: bboxOf(privateBounds(shared)),

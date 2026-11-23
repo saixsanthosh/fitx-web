@@ -1,5 +1,5 @@
 import "server-only";
-import type { AiConfig } from "./config";
+import { CLOUD_PROVIDERS, type AiConfig } from "./config";
 import type { AiTask, ProviderId } from "./types";
 
 /**
@@ -10,6 +10,11 @@ import type { AiTask, ProviderId } from "./types";
  *    prompts to improve Google's products; the paid tier does not.
  *  - GroqCloud lists the gpt-oss models on its free plan (about 30 requests a minute and 1,000 a day).
  *  - OpenRouter's free models end in ":free"; "openrouter/free" picks one of them per request at no charge.
+ * Added 2026-11-23 (not re-checked live: model IDs come from each provider's documentation as FITX last knew it, and an
+ * unknown model only costs one 404 attempt, after which the router leaves it alone for an hour):
+ *  - Cloudflare Workers AI: every "@cf/" model runs inside the daily free allocation on the Workers Free plan, and
+ *    stops (rather than bills) when it is used up. Smoke-tested 2026-11-23: the token is valid.
+ *  - Cerebras and Mistral: free tiers with rate limits; their free plans may use prompts (see mayReadPrompts).
  * Free tiers change. The guard below refuses anything not known to be free unless AI_ALLOW_PAID=true,
  * but the real guarantee is account-side: no billing on the Gemini project, Groq on the Free plan,
  * and no credits on the OpenRouter key.
@@ -18,6 +23,9 @@ import type { AiTask, ProviderId } from "./types";
 export const PROVIDER_LABELS: Record<ProviderId, string> = {
   gemini: "Google Gemini",
   groq: "Groq",
+  cloudflare: "Cloudflare Workers AI",
+  cerebras: "Cerebras",
+  mistral: "Mistral AI",
   openrouter: "OpenRouter",
   ollama: "Ollama (this computer)",
 };
@@ -52,6 +60,13 @@ export function isFreeModel(provider: ProviderId, model: string): boolean {
       return GEMINI_FREE.has(model);
     case "groq":
       return GROQ_FREE.has(model);
+    case "cloudflare":
+      // Account-side: the Workers Free plan has a daily allocation and no billing.
+      return /^@(?:cf|hf)\/[a-z0-9._-]+\/[a-z0-9._-]+$/i.test(model);
+    case "cerebras":
+    case "mistral":
+      // Account-side: the free tier covers its models with rate limits; the owner keeps the account on it.
+      return true;
     case "openrouter":
       return model === "openrouter/free" || /^[a-z0-9._-]+\/[a-z0-9._-]+:free$/i.test(model);
     case "ollama":
@@ -67,21 +82,33 @@ const DEFAULTS: Record<AiTask, Array<[Exclude<ProviderId, "ollama">, string[]]>>
   chat: [
     ["groq", ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]],
     ["gemini", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]],
+    ["cloudflare", ["@cf/openai/gpt-oss-20b", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"]],
+    ["cerebras", ["gpt-oss-120b"]],
+    ["mistral", ["mistral-small-latest"]],
     ["openrouter", ["openrouter/free"]],
   ],
   meal_plan: [
     ["gemini", ["gemini-3.6-flash", "gemini-3.5-flash-lite"]],
     ["groq", ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]],
+    ["cerebras", ["gpt-oss-120b"]],
+    ["mistral", ["mistral-small-latest"]],
+    ["cloudflare", ["@cf/openai/gpt-oss-120b"]],
     ["openrouter", ["openrouter/free"]],
   ],
   workout_plan: [
     ["gemini", ["gemini-3.6-flash", "gemini-3.5-flash-lite"]],
     ["groq", ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]],
+    ["cerebras", ["gpt-oss-120b"]],
+    ["mistral", ["mistral-small-latest"]],
+    ["cloudflare", ["@cf/openai/gpt-oss-120b"]],
     ["openrouter", ["openrouter/free"]],
   ],
   swap: [
     ["gemini", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]],
     ["groq", ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]],
+    ["cerebras", ["gpt-oss-120b"]],
+    ["mistral", ["mistral-small-latest"]],
+    ["cloudflare", ["@cf/openai/gpt-oss-120b"]],
     ["openrouter", ["openrouter/free"]],
   ],
 };
@@ -89,11 +116,19 @@ const DEFAULTS: Record<AiTask, Array<[Exclude<ProviderId, "ollama">, string[]]>>
 export type Candidate = { provider: ProviderId; model: string };
 
 /**
- * Providers whose free tier may use prompts to improve the provider's products or let people read them.
- * Requests carrying a member's FITX summary skip them unless the owner opts in (AI_GEMINI_WITH_MEMBER_DATA).
+ * Providers whose free tier may use prompts to improve the provider's products or let people read them: Gemini's
+ * unpaid tier, Mistral's Experiment plan (may train on prompts unless the account opts out) and Cerebras (FITX could not
+ * confirm its free tier's terms, so it is treated the cautious way). Requests carrying a member's FITX summary skip
+ * them unless the owner opts in (AI_GEMINI_WITH_MEMBER_DATA, AI_CEREBRAS_WITH_MEMBER_DATA, AI_MISTRAL_WITH_MEMBER_DATA).
  */
 export function mayReadPrompts(provider: ProviderId) {
-  return provider === "gemini";
+  return provider === "gemini" || provider === "mistral" || provider === "cerebras";
+}
+
+/** The owner allowed member data on this provider although its free tier may read prompts. */
+export function memberDataAllowed(provider: ProviderId, config: Pick<AiConfig, "geminiWithMemberData" | "memberDataOptIn">) {
+  if (!mayReadPrompts(provider)) return true;
+  return provider === "gemini" ? config.geminiWithMemberData : Boolean(config.memberDataOptIn?.[provider]);
 }
 
 /**
@@ -105,7 +140,7 @@ export function candidatesFor(task: AiTask, config: AiConfig, options: { persona
   const lists: Candidate[][] = [];
   for (const [provider, defaults] of DEFAULTS[task]) {
     if (!config.keys[provider]) continue;
-    if (options.personalData && mayReadPrompts(provider) && !config.geminiWithMemberData) continue;
+    if (options.personalData && !memberDataAllowed(provider, config)) continue;
     const models = config.models[provider] ?? defaults;
     lists.push(models.filter((model) => config.allowPaid || isFreeModel(provider, model)).map((model) => ({ provider, model })));
   }
@@ -119,13 +154,13 @@ export function candidatesFor(task: AiTask, config: AiConfig, options: { persona
 
 /** True when at least one configured provider may receive requests that carry member data. */
 export function canSendMemberData(config: AiConfig) {
-  return (["gemini", "groq", "openrouter"] as const).some((provider) => config.keys[provider] && (!mayReadPrompts(provider) || config.geminiWithMemberData)) || Boolean(config.ollama);
+  return CLOUD_PROVIDERS.some((provider) => config.keys[provider] && memberDataAllowed(provider, config)) || Boolean(config.ollama);
 }
 
 /** Providers that will receive requests, for the consent screen. */
 export function configuredProviders(config: AiConfig): ProviderId[] {
   const providers: ProviderId[] = [];
-  for (const provider of ["gemini", "groq", "openrouter"] as const) if (config.keys[provider]) providers.push(provider);
+  for (const provider of CLOUD_PROVIDERS) if (config.keys[provider]) providers.push(provider);
   if (config.ollama) providers.push("ollama");
   return providers;
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Trophy } from "lucide-react";
-import { SPORT_LABEL } from "@/lib/activity/config";
+import { SPORT_LABEL, usesPace } from "@/lib/activity/config";
 import { formatActivityDate, formatDistance, formatDuration, formatPace, formatSpeed, kmValue } from "@/lib/activity/format";
 import type { ActivitySummary, PeriodTotals } from "@/lib/activity/repository";
 import { BEST_MIN_DISTANCE_M, sportsWithBests, type PeriodKey, type SportBests } from "@/lib/activity/stats";
@@ -63,8 +63,8 @@ function SportBestsRow({ sport, bests, showSport }: { sport: Sport; bests: Sport
         {bests.longest && <BestLink name="Longest" value={formatDistance(bests.longest.value)} activity={bests.longest.activity} />}
         {bests.fastest && (
           <BestLink
-            name={sport === "ride" ? "Fastest average speed" : "Fastest average pace"}
-            value={sport === "ride" ? formatSpeed(bests.fastest.value) : formatPace(bests.fastest.value)}
+            name={usesPace(sport) ? "Fastest average pace" : "Fastest average speed"}
+            value={usesPace(sport) ? formatPace(bests.fastest.value) : formatSpeed(bests.fastest.value)}
             activity={bests.fastest.activity}
           />
         )}

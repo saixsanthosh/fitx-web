@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Check, ChevronLeft, CloudOff, Download, Pencil, RefreshCw, Share2, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
-import { KCAL_METHOD } from "@/lib/activity/calories";
+import { kcalMethodFor } from "@/lib/activity/calories";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { cardDataFor, detailFromEngine, engineOptionsFor, lateKcal, type ActivityDetail } from "@/lib/activity/detail";
 import { cleanTitle, formatActivityDate, localDateKey } from "@/lib/activity/format";
@@ -15,13 +15,15 @@ import { recordingStore } from "@/lib/activity/local-store";
 import { decodeRoute } from "@/lib/activity/polyline";
 import { replayStored } from "@/lib/activity/replay";
 import type { ActivityRecord } from "@/lib/activity/record";
-import { deleteActivity, deleteActivityByClientId, getActivity, getTrackChunks, updateActivity, viewFromRecord, type ActivityView } from "@/lib/activity/repository";
+import { deleteActivity, deleteActivityByClientId, getActivity, getTrackChunks, saveBestEfforts, updateActivity, viewFromRecord, type ActivityView } from "@/lib/activity/repository";
 import { downloadBlob, type CardData } from "@/lib/activity/share-card";
 import { uploadRecording } from "@/lib/activity/sync";
 import type { LatLng } from "@/lib/activity/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { ActivitySourceBadge } from "./ActivitySourceBadge";
+import { ActivityEffortsPanel } from "./BestEfforts";
+import { useStoredEfforts } from "./useActivityV2";
 import { AboutNumbers, ActivityStatsPanel, InterruptionsList, SplitsTable } from "./ActivitySummaryParts";
 import { ElevationProfile } from "./ElevationProfile";
 import { ShareCardDialog } from "./ShareCardDialog";
@@ -123,13 +125,30 @@ export function ActivityDetailScreen({ id }: { id: string }) {
     const supabase = createClient();
     if (!supabase) return;
     let active = true;
-    void updateActivity(supabase, userId, view.id, { kcal: fillKcal, kcalMethod: KCAL_METHOD, weightKg }).then((result) => {
-      if (active && result.status === "ok") setState((previous) => (previous.status === "ready" ? { ...previous, view: { ...previous.view, kcal: fillKcal, kcalMethod: KCAL_METHOD, weightKg } } : previous));
+    void updateActivity(supabase, userId, view.id, { kcal: fillKcal, kcalMethod: kcalMethodFor(view.sport), weightKg }).then((result) => {
+      if (active && result.status === "ok") setState((previous) => (previous.status === "ready" ? { ...previous, view: { ...previous.view, kcal: fillKcal, kcalMethod: kcalMethodFor(view.sport), weightKg } } : previous));
     });
     return () => {
       active = false;
     };
   }, [userId, view, fillKcal, weightKg]);
+
+  // Best efforts worked out from the points: stored on an activity that has none yet (older ones), once only.
+  const [effortsKey, setEffortsKey] = useState(0);
+  const storedEfforts = useStoredEfforts(userId && view && !view.local ? userId : null, effortsKey);
+  const efforts = detail?.efforts;
+  useEffect(() => {
+    if (!userId || !view || view.local || !view.id || !efforts?.length) return;
+    const supabase = createClient();
+    if (!supabase) return;
+    let active = true;
+    void saveBestEfforts(supabase, userId, view.id, efforts).then((result) => {
+      if (active && result.status === "ok") setEffortsKey((key) => key + 1);
+    });
+    return () => {
+      active = false;
+    };
+  }, [userId, view, efforts]);
 
   const kcal = view ? view.kcal ?? fillKcal : null;
   const kcalWeight = view ? view.weightKg ?? (fillKcal !== null ? weightKg : null) : null;
@@ -280,6 +299,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       </div>
 
       {detail?.profile && <ElevationProfile profile={detail.profile} source={view.source} climbM={view.elevationGainM} />}
+      {detail && <ActivityEffortsPanel activityId={view.local ? null : view.id} sport={view.sport} startedAt={view.startedAt} efforts={detail.efforts} stored={storedEfforts} />}
       <SplitsTable view={view} />
       <InterruptionsList view={view} />
       <AboutNumbers view={view} kcal={kcal} kcalWeight={kcalWeight} />

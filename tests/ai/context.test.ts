@@ -397,14 +397,28 @@ describe("privacy page", () => {
       assert.ok(!providers(config, task, true).has("gemini"), `${task} with member data skips Gemini`);
       assert.ok(providers(config, task, true).has("groq") && providers(config, task, true).has("openrouter"), `${task} with member data goes to Groq or OpenRouter`);
     }
-    assert.match(geminiRouting(config), /^Google’s Gemini API only gets requests that carry neither a summary of your FITX data nor that eating-disorder note/);
-    assert.match(geminiRouting(config), /\bChats with your summary or that note, meal and workout plans and food swaps go to Groq or OpenRouter\.$/);
+    assert.match(geminiRouting(config), /^Google’s Gemini API, Cerebras and Mistral AI only get requests that carry neither a summary of your FITX data nor that eating-disorder note/);
+    assert.match(geminiRouting(config), /\bChats with your summary or that note, meal and workout plans and food swaps go to Groq, Cloudflare Workers AI or OpenRouter\.$/);
 
     // With AI_GEMINI_WITH_MEMBER_DATA, Gemini may get them all, and the page says so.
     const optedIn = readAiConfig({ ...keys, AI_GEMINI_WITH_MEMBER_DATA: "true" });
     for (const task of tasks) assert.ok(providers(optedIn, task, true).has("gemini"), `${task} with member data may go to Gemini`);
-    assert.match(geminiRouting(optedIn), /^Google’s Gemini API may get any coach request: chats with your summary or that eating-disorder note, meal and workout plans and food swaps may go to Gemini, Groq or OpenRouter\.$/);
-    assert.doesNotMatch(geminiRouting(optedIn), /\bonly gets\b/);
+    assert.match(geminiRouting(optedIn), /^Cerebras and Mistral AI only get requests that carry neither/);
+    assert.match(geminiRouting(optedIn), /\bgo to Gemini, Groq, Cloudflare Workers AI or OpenRouter\.$/);
+    assert.doesNotMatch(geminiRouting(optedIn), /Google’s Gemini API/);
+
+    // Cerebras and Mistral follow the same rule with their own opt-ins (AI_CEREBRAS_WITH_MEMBER_DATA, AI_MISTRAL_WITH_MEMBER_DATA).
+    const more = { ...keys, CEREBRAS_API_KEY: "cerebras-test", MISTRAL_API_KEY: "mistral-test", CLOUDFLARE_API_TOKEN: "cf-test", CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef" };
+    const cautious = readAiConfig(more);
+    for (const task of tasks) {
+      const member = providers(cautious, task, true);
+      assert.ok(!member.has("cerebras") && !member.has("mistral") && !member.has("gemini"), `${task} with member data skips the cautious services`);
+      assert.ok(member.has("cloudflare"), `${task} with member data may go to Workers AI`);
+    }
+    assert.ok(providers(cautious, "chat", false).has("mistral") && providers(cautious, "chat", false).has("cerebras"));
+    const everyone = readAiConfig({ ...more, AI_GEMINI_WITH_MEMBER_DATA: "true", AI_CEREBRAS_WITH_MEMBER_DATA: "true", AI_MISTRAL_WITH_MEMBER_DATA: "on" });
+    for (const task of tasks) assert.ok(providers(everyone, task, true).has("mistral") && providers(everyone, task, true).has("cerebras"));
+    assert.match(geminiRouting(everyone), /^Any coach request may go to any of these services: .* may go to Gemini, Cerebras, Mistral AI, Groq, Cloudflare Workers AI or OpenRouter\.$/);
 
     // The page renders the sentence for the deployment's own settings, next to Google's terms.
     const coach = section("AI coach");
@@ -428,8 +442,8 @@ describe("privacy page", () => {
     const { geminiRouting } = await import("@/lib/ai/disclosure");
     const optedIn = readAiConfig({ GROQ_API_KEY: "groq-test", AI_GEMINI_WITH_MEMBER_DATA: "true", OLLAMA_BASE_URL: "https://ollama.example.com", OLLAMA_MODEL: "llama3.2", VERCEL_ENV: "production" });
     assert.ok(config.ollama && optedIn.ollama);
-    assert.match(geminiRouting(config), /\bgo to Groq or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
-    assert.match(geminiRouting(optedIn), /\bmay go to Gemini, Groq or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
+    assert.match(geminiRouting(config), /\bgo to Groq, Cloudflare Workers AI or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
+    assert.match(geminiRouting(optedIn), /\bgo to Gemini, Groq, Cloudflare Workers AI or OpenRouter, or to the Ollama server run by FITX’s owner\.$/);
     assert.doesNotMatch(geminiRouting(readAiConfig({ GROQ_API_KEY: "groq-test" })), /Ollama/);
     const coach = section("AI coach");
     assert.match(coach, /\ban Ollama server run by FITX’s owner, when one is set up\b/);
@@ -787,5 +801,48 @@ describe("onboarding answers through Profile's readers", () => {
       "unknown of 50",
       "unknown of 5 kg",
     ]);
+  });
+});
+
+describe("coach activity summary and coaching rules", () => {
+  const activities = [
+    { sport: "run", started_at: "2026-11-15T01:00:00Z", distance_m: "5012.4", moving_seconds: 1700, elevation_gain_m: 32 },
+    { sport: "run", started_at: "2026-11-09T01:00:00Z", distance_m: 3000, moving_seconds: 1100, elevation_gain_m: null },
+    { sport: "hike", started_at: "2026-11-01T03:00:00Z", distance_m: null, moving_seconds: 7200, elevation_gain_m: 410 },
+  ];
+
+  test("activities reach the summary only when the consent listed them", () => {
+    const without = buildCoachContext(sources({ activities }) as never, NOW);
+    assert.equal(without.summary.activities_last_28_days, undefined, "a version-1 consent keeps the version-1 summary");
+    const { summary } = buildCoachContext(sources({ activities }) as never, NOW, { activities: true });
+    const block = summary.activities_last_28_days as { count: number; by_sport: Record<string, Record<string, unknown>>; last_activity: string; days_since_last: number };
+    assert.equal(block.count, 3);
+    assert.deepEqual(block.by_sport.run, { count: 2, km: 8, moving_minutes: 47 }, "climb unknown for one run, so not summed");
+    assert.deepEqual(block.by_sport.hike, { count: 1, moving_minutes: 120, climb_m: 410 }, "an unknown distance is left out, never 0 km");
+    assert.equal(block.last_activity, "2026-11-15");
+    assert.equal(block.days_since_last, 2);
+  });
+
+  test("activities that could not be read are left out, not shown as none", () => {
+    const { summary } = buildCoachContext(sources({ activities: null }) as never, NOW, { activities: true });
+    assert.equal(summary.activities_last_28_days, undefined);
+  });
+
+  test("the chat prompt carries the coaching rules: exercise help, progress, motivation, recovery and no shaming", () => {
+    const context = buildCoachContext(sources() as never, NOW);
+    const prompt = chatSystemPrompt({ context, facts: context.facts, sharesData: true });
+    assert.match(prompt, /Exercise help: explain how to do a move/);
+    assert.match(prompt, /If there is too little data, say so instead of guessing/);
+    assert.match(prompt, /Never use generic quotes or invent achievements/);
+    assert.match(prompt, /see a doctor or physiotherapist for pain that lasts more than a few days/);
+    assert.match(prompt, /never blame, shame or use guilt/);
+  });
+
+  test("only a new consent unlocks activities", async () => {
+    const store = await import("@/lib/ai/store");
+    assert.equal(store.CONSENT_VERSION, 2);
+    assert.equal(store.ACTIVITIES_CONSENT_VERSION, 2);
+    const coach = readFileSync(new URL("../../src/lib/ai/coach.ts", import.meta.url), "utf8");
+    assert.equal(coach.match(/activities: consent\.version >= store\.ACTIVITIES_CONSENT_VERSION/g)?.length, 2);
   });
 });

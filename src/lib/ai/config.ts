@@ -13,8 +13,15 @@ import type { ProviderId } from "./types";
  *                        people at Google, so by default Gemini only gets "Questions only" requests.
  *   GEMINI_API_KEY       Google AI Studio key (free tier while the Cloud project has no billing).
  *   GROQ_API_KEY         GroqCloud key (free plan).
+ *   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+ *                        Workers AI (free daily allocation on the Workers Free plan). Both are needed: the token alone
+ *                        cannot find its account (checked 2026-11-23: the owner's token lists no accounts).
+ *   CEREBRAS_API_KEY     Cerebras Inference key (free tier). Optional.
+ *   MISTRAL_API_KEY      Mistral La Plateforme key (free "Experiment" plan). Optional.
+ *   AI_CEREBRAS_WITH_MEMBER_DATA, AI_MISTRAL_WITH_MEMBER_DATA
+ *                        like AI_GEMINI_WITH_MEMBER_DATA, for those two: off unless set (see registry.ts mayReadPrompts).
  *   OPENROUTER_API_KEY   OpenRouter key; only ":free" models and the free router are used.
- *   AI_GEMINI_MODELS, AI_GROQ_MODELS, AI_OPENROUTER_MODELS
+ *   AI_GEMINI_MODELS, AI_GROQ_MODELS, AI_CLOUDFLARE_MODELS, AI_CEREBRAS_MODELS, AI_MISTRAL_MODELS, AI_OPENROUTER_MODELS
  *                        optional comma-separated model lists that replace the defaults in registry.ts.
  *   OLLAMA_BASE_URL, OLLAMA_MODEL
  *                        optional: an Ollama server the owner runs. An https:// address works everywhere; a
@@ -27,7 +34,11 @@ export type AiConfig = {
   allowPaid: boolean;
   /** Owner opt-in: requests carrying member data may also go to Gemini's unpaid tier. */
   geminiWithMemberData: boolean;
+  /** The same opt-in for the other providers whose free tier may use prompts (Cerebras, Mistral). Absent means off. */
+  memberDataOptIn?: Partial<Record<ProviderId, boolean>>;
   keys: Partial<Record<ProviderId, string>>;
+  /** Cloudflare account that owns the Workers AI token; Workers AI is used only when both are set. */
+  cloudflareAccountId?: string | null;
   models: Partial<Record<ProviderId, string[]>>;
   /** "local": this computer (development); "remote": an https server the owner runs. */
   ollama: { baseUrl: string; model: string; kind: "local" | "remote" } | null;
@@ -50,12 +61,28 @@ export function readAiConfig(env: Env = process.env): AiConfig {
   const gemini = key("GEMINI_API_KEY");
   const groq = key("GROQ_API_KEY");
   const openrouter = key("OPENROUTER_API_KEY");
+  const cloudflare = key("CLOUDFLARE_API_TOKEN");
+  const cerebras = key("CEREBRAS_API_KEY");
+  const mistral = key("MISTRAL_API_KEY");
+  const accountId = (env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
+  const cloudflareAccountId = /^[0-9a-f]{32}$/i.test(accountId) ? accountId : null;
   if (gemini) keys.gemini = gemini;
   if (groq) keys.groq = groq;
+  // A Workers AI token is no use without its account, so it only counts as a provider with one.
+  if (cloudflare && cloudflareAccountId) keys.cloudflare = cloudflare;
+  if (cerebras) keys.cerebras = cerebras;
+  if (mistral) keys.mistral = mistral;
   if (openrouter) keys.openrouter = openrouter;
 
   const models: AiConfig["models"] = {};
-  for (const [provider, name] of [["gemini", "AI_GEMINI_MODELS"], ["groq", "AI_GROQ_MODELS"], ["openrouter", "AI_OPENROUTER_MODELS"]] as const) {
+  for (const [provider, name] of [
+    ["gemini", "AI_GEMINI_MODELS"],
+    ["groq", "AI_GROQ_MODELS"],
+    ["cloudflare", "AI_CLOUDFLARE_MODELS"],
+    ["cerebras", "AI_CEREBRAS_MODELS"],
+    ["mistral", "AI_MISTRAL_MODELS"],
+    ["openrouter", "AI_OPENROUTER_MODELS"],
+  ] as const) {
     const list = modelList(env[name]);
     if (list.length) models[provider] = list;
   }
@@ -64,7 +91,12 @@ export function readAiConfig(env: Env = process.env): AiConfig {
     enabled: !OFF.has((env.AI_COACH_ENABLED ?? "").trim().toLowerCase()),
     allowPaid: ON.has((env.AI_ALLOW_PAID ?? "").trim().toLowerCase()),
     geminiWithMemberData: ON.has((env.AI_GEMINI_WITH_MEMBER_DATA ?? "").trim().toLowerCase()),
+    memberDataOptIn: {
+      cerebras: ON.has((env.AI_CEREBRAS_WITH_MEMBER_DATA ?? "").trim().toLowerCase()),
+      mistral: ON.has((env.AI_MISTRAL_WITH_MEMBER_DATA ?? "").trim().toLowerCase()),
+    },
     keys,
+    cloudflareAccountId: keys.cloudflare ? cloudflareAccountId : null,
     models,
     ollama: ollamaFrom(env),
     siteUrl: siteUrl(env),
@@ -73,14 +105,17 @@ export function readAiConfig(env: Env = process.env): AiConfig {
 
 /** True when at least one provider can be called. */
 export function hasAnyProvider(config: AiConfig) {
-  return Boolean(config.keys.gemini || config.keys.groq || config.keys.openrouter || config.ollama);
+  return Boolean(CLOUD_PROVIDERS.some((provider) => config.keys[provider]) || config.ollama);
 }
+
+/** Every hosted provider, in the order the consent screen lists them. Ollama is separate (a server, not a key). */
+export const CLOUD_PROVIDERS = ["gemini", "groq", "cloudflare", "cerebras", "mistral", "openrouter"] as const satisfies readonly ProviderId[];
 
 function modelList(value: string | undefined) {
   return (value ?? "")
     .split(",")
     .map((item) => item.trim())
-    .filter((item) => /^[A-Za-z0-9._:/-]{1,120}$/.test(item))
+    .filter((item) => /^@?[A-Za-z0-9._:/-]{1,120}$/.test(item))
     .slice(0, 6);
 }
 

@@ -82,9 +82,12 @@ test("without a product name only the maker is named, and an unknown maker is no
   assert.equal(readFit(w.build()).device, null);
 });
 
-test("sports: walking and hiking are walks, cycling a ride, generic for the person to choose, swimming not supported", () => {
+test("sports: walking, hiking, cycling, e-biking, skating and paddling map to FITX sports, generic for the person to choose, swimming not supported", () => {
   assert.deepEqual(readFit(activityFile({ sport: 11 })).sport, { kind: "known", sport: "walk", label: "Walking" });
-  assert.deepEqual(readFit(activityFile({ sport: 17 })).sport, { kind: "known", sport: "walk", label: "Hiking" });
+  assert.deepEqual(readFit(activityFile({ sport: 17 })).sport, { kind: "known", sport: "hike", label: "Hiking" });
+  assert.deepEqual(readFit(activityFile({ sport: 21 })).sport, { kind: "known", sport: "ebike", label: "E-biking" });
+  assert.deepEqual(readFit(activityFile({ sport: 30 })).sport, { kind: "known", sport: "skate", label: "Inline skating" });
+  assert.deepEqual(readFit(activityFile({ sport: 36 })).sport, { kind: "known", sport: "paddle", label: "Kayaking" });
   assert.deepEqual(readFit(activityFile({ sport: 2 })).sport, { kind: "known", sport: "ride", label: "Cycling" });
   assert.deepEqual(readFit(activityFile({ sport: 0 })).sport, { kind: "unknown", label: "Generic activity" });
   assert.deepEqual(readFit(activityFile({ sport: 5 })).sport, { kind: "unsupported", label: "Swimming" });

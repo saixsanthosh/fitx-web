@@ -1,4 +1,4 @@
-import { usesPace } from "./config";
+import { sportFamily, usesPace } from "./config";
 import { formatDuration, kmValue, paceValue, speedValue } from "./format";
 import { decodeRoute } from "./polyline";
 import type { ActivitySource, Sport } from "./types";
@@ -56,7 +56,7 @@ function climbStat(data: CardData): CardStat | null {
 }
 
 function ridePromotesClimb(data: CardData): boolean {
-  return data.sport === "ride" && data.elevationGainM !== null && data.elevationGainM >= RIDE_CLIMB_HERO_M;
+  return sportFamily(data.sport) === "ride" && data.elevationGainM !== null && data.elevationGainM >= RIDE_CLIMB_HERO_M;
 }
 
 /** The headline numbers: distance always, and a ride's big climb. */
@@ -75,7 +75,8 @@ export function cardStats(data: CardData): CardStat[] {
   const speed: CardStat | null = !usesPace(data.sport) && speedText !== "–" ? { key: "speed", label: "Avg speed", value: speedText, unit: "km/h" } : null;
   const climb = ridePromotesClimb(data) ? null : climbStat(data);
   const kcal: CardStat | null = data.kcal !== null && Number.isFinite(data.kcal) ? { key: "kcal", label: "Calories (est.)", value: String(Math.round(data.kcal)), unit: "kcal" } : null;
-  const order = data.sport === "run" ? [pace, moving, climb, kcal] : data.sport === "walk" ? [moving, pace, climb, kcal] : [speed, moving, climb, kcal];
+  const family = sportFamily(data.sport);
+  const order = family === "run" ? [pace, moving, climb, kcal] : family === "walk" ? [moving, pace, climb, kcal] : [speed, moving, climb, kcal];
   return order.filter((stat): stat is CardStat => stat !== null);
 }
 
@@ -87,7 +88,9 @@ export function routeState(data: CardData): "shown" | "hidden" | "none" {
 }
 
 export const ROUTE_HIDDEN_NOTE = "Route hidden near start and finish";
-const SPORT_WORD: Record<Sport, string> = { walk: "WALK", run: "RUN", ride: "RIDE" };
+const SPORT_WORD: Record<Sport, string> = {
+  walk: "WALK", run: "RUN", ride: "RIDE", hike: "HIKE", trail_run: "TRAIL RUN", mtb: "MTB", ebike: "E-BIKE", wheelchair: "WHEELCHAIR", skate: "SKATE", paddle: "PADDLE",
+};
 
 export function cardMeta(data: CardData): string {
   const date = new Date(data.startedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });

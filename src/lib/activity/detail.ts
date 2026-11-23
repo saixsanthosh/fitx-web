@@ -1,3 +1,4 @@
+import { bestEfforts, type BestEffort } from "./best-efforts";
 import { estimateKcal } from "./calories";
 import { elevationProfile, type ElevationProfile } from "./elevation";
 import type { ActivityEngine, EngineOptions } from "./engine";
@@ -26,13 +27,14 @@ export function lateKcal(view: ActivityView | null, weightKg: number | null): nu
 }
 
 /** What an activity page draws from its detailed points: GPX stretches, the route and the elevation profile. */
-export type ActivityDetail = { segments: Fix[][]; route: LatLng[][]; profile: ElevationProfile | null };
+export type ActivityDetail = { segments: Fix[][]; route: LatLng[][]; profile: ElevationProfile | null; efforts: BestEffort[] };
 
 export function detailFromEngine(engine: ActivityEngine): ActivityDetail {
   return {
     segments: engine.acceptedSegments.filter((segment) => segment.length > 1),
     route: engine.segments.map((segment) => segment.map(({ lat, lng }) => ({ lat, lng }))),
     profile: elevationProfile(engine.acceptedSegments, engine.segments),
+    efforts: bestEfforts(engine.segments, engine.sport),
   };
 }
 

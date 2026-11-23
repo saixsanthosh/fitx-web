@@ -1,6 +1,6 @@
 import type { ActivitySummary } from "./repository";
 import { personalBests, type SportBests } from "./stats";
-import { isSport, type Sport } from "./types";
+import { isSport, SPORTS, type Sport } from "./types";
 import { startOfWeek } from "./weeks";
 
 /*
@@ -41,7 +41,7 @@ export type DayBar = {
   bySport: Record<Sport, number>;
 };
 
-const emptyBySport = (): Record<Sport, number> => ({ walk: 0, run: 0, ride: 0 });
+const emptyBySport = (): Record<Sport, number> => Object.fromEntries(SPORTS.map((sport) => [sport, 0])) as Record<Sport, number>;
 
 function addDays(ms: number, days: number): number {
   const date = new Date(ms);

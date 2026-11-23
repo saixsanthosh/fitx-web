@@ -1,7 +1,8 @@
 // Flow 6b: the AI coach's consent screen, which only shows once an AI service is set up. A second app server
 // (E2E_COACH_URL, started by run.mjs) is pointed at support/fake-ollama.mjs on 127.0.0.1, the only provider FITX
 // accepts on localhost, so nothing leaves this machine. The screen starts with no choice made ("Use my FITX data"
-// is not preselected); "Questions only" is stored as not sharing, and the question sent carries no name or e-mail.
+// is not preselected); "Questions only" is stored as not sharing, only the coach jobs that need no data are offered,
+// push to talk explains where speech goes first, and the question sent carries no name or e-mail.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { signInUi, textOf } from "./common.mjs";
@@ -58,6 +59,26 @@ export const flow = {
       t.expect(!/Today ·|Last workout|kcal/.test(suggested), "no prompt built from logs with Questions only", suggested);
       await suggestions.getByRole("button").first().click();
       t.expect((await message.inputValue()).length > 0, "a suggestion fills the message box");
+      // The coach's jobs: with Questions only, just the ones that need no data, in general wording.
+      const skills = page.getByRole("list", { name: "What the coach can do" });
+      const skillText = await textOf(skills);
+      t.note("coach jobs offered", skillText);
+      t.expect(/Exercise help/.test(skillText) && /Recovery check/.test(skillText) && /Daily boost/.test(skillText), "the general jobs are offered", skillText);
+      t.expect(!/Plan a workout|Plan my meals|Analyse my progress/.test(skillText), "jobs that need the member's data are not offered with Questions only", skillText);
+      await skills.getByRole("button", { name: "Recovery check" }).click();
+      t.expect(/when should I see a professional/.test(await message.inputValue()), "a job fills the message box with a general question");
+      // Push to talk explains where speech goes before the microphone is used (Chromium has speech recognition).
+      const talk = page.getByRole("button", { name: "Hold to talk" });
+      if (await talk.isVisible().catch(() => false)) {
+        await talk.click();
+        const explain = page.getByRole("dialog", { name: "Talk to your coach" });
+        await explain.waitFor({ timeout: 5000 });
+        t.expect(/FITX receives only the text/.test(await textOf(explain)), "the voice note says FITX gets only the text");
+        await t.checkpoint("voice privacy note");
+        await explain.getByRole("button", { name: "Not now" }).click();
+      } else {
+        t.note("voice", "no speech recognition in this browser: no microphone button (as designed)");
+      }
       t.expect(/1 AI service ready/.test(await textOf(page.locator("main"))), "the page says which AI services are ready, by name only");
       await t.checkpoint("coach ready");
       await message.fill("How many push-ups should I do as a beginner?");

@@ -3,7 +3,7 @@ import { hasAnyProvider, type AiConfig } from "./config";
 import { buildCoachContext, loadContextSources, type CoachContext, type ContextSources } from "./context";
 import { describeAllergies, describeDiet } from "./diet-rules";
 import { buildQuickPrompts, loadPromptSignals, type QuickPrompt } from "./quick-prompts";
-import { canSendMemberData, configuredProviders, providerLabel } from "./registry";
+import { canSendMemberData, configuredProviders, memberDataAllowed, providerLabel } from "./registry";
 import { CARE_DAYS } from "./safety";
 import * as store from "./store";
 import type { CoachQuota, CoachThreadSummary, ProviderId } from "./types";
@@ -42,6 +42,9 @@ export type CoachStatus = {
 const DATA_USE: Record<ProviderId, string> = {
   gemini: "On Google's free tier, Google may use prompts and replies to improve its products, and people at Google may read them. FITX sends no name, email or account ID.",
   groq: "Groq says it does not keep prompts by default, except short-lived logs for abuse checks (up to 30 days).",
+  cloudflare: "Cloudflare says it does not use prompts or replies sent to Workers AI to train AI models. FITX sends no name, email or account ID.",
+  cerebras: "FITX sends no name, email or account ID. Check Cerebras's own terms for how its free tier keeps prompts.",
+  mistral: "On Mistral's free plan, prompts and replies may be used to train its models unless the FITX account opts out. FITX sends no name, email or account ID.",
   openrouter: "OpenRouter passes the request to a free model. FITX asks it to use only providers that don't collect prompts.",
   ollama: "Runs on this computer for development. Nothing leaves the machine.",
 };
@@ -51,12 +54,21 @@ const OLLAMA_REMOTE = "Runs on a server the FITX owner runs, not an outside AI c
 const GEMINI_QUESTIONS_ONLY =
   "Gets only “Questions only” requests, never the summary of your FITX data or FITX's eating-disorder note: on Google's free tier, Google may use prompts and replies to improve its products, and people at Google may read them. FITX sends no name, email or account ID.";
 
+/** Cerebras or Mistral while the owner keeps member data away from them (the default). */
+const QUESTIONS_ONLY = (name: string) =>
+  `Gets only “Questions only” requests, never the summary of your FITX data or FITX's eating-disorder note, because its free plan may keep or learn from prompts. ${name === "Mistral AI" ? "" : "FITX could not confirm its free tier's terms. "}FITX sends no name, email or account ID.`;
+
 export function providerNotices(config: AiConfig): ProviderNotice[] {
-  return configuredProviders(config).map((id) => ({
-    id,
-    name: providerLabel(id, config),
-    dataUse: id === "gemini" && !config.geminiWithMemberData ? GEMINI_QUESTIONS_ONLY : id === "ollama" && config.ollama?.kind === "remote" ? OLLAMA_REMOTE : DATA_USE[id],
-  }));
+  return configuredProviders(config).map((id) => {
+    const name = providerLabel(id, config);
+    const questionsOnly = !memberDataAllowed(id, config);
+    const dataUse =
+      id === "gemini" && questionsOnly ? GEMINI_QUESTIONS_ONLY
+        : questionsOnly ? QUESTIONS_ONLY(name)
+          : id === "ollama" && config.ollama?.kind === "remote" ? OLLAMA_REMOTE
+            : DATA_USE[id];
+    return { id, name, dataUse };
+  });
 }
 
 /**
@@ -75,6 +87,7 @@ export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
     `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, ${facts.foodHabitsShared ? "where your meals come from, your nutrition goal, " : ""}cuisines and foods you avoid`,
     "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",
     "The last 4 weeks of workouts, your personal records and active goals, and how many workouts and other planner items you have in the next 7 days",
+    "Your walks, runs, rides and other activities of the last 4 weeks: how many, distance, moving time and climb per sport (never your routes or locations)",
   ];
 }
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Info } from "lucide-react";
-import { KCAL_METHOD } from "@/lib/activity/calories";
+import { kcalMethodFor } from "@/lib/activity/calories";
 import { usesPace } from "@/lib/activity/config";
 import { formatDistance, formatDuration, formatPace, formatSpeed, kmValue, paceValue, speedValue } from "@/lib/activity/format";
 import type { ActivityView } from "@/lib/activity/repository";
@@ -102,7 +102,7 @@ export function AboutNumbers({ view, kcal, kcalWeight }: { view: ActivityView; k
   return (
     <section className="fitx-panel space-y-3 p-4 text-xs leading-5 text-fitx-text-secondary sm:p-5" aria-label="About these numbers">
       <p><span className="font-semibold text-fitx-text">Source:</span> {sourceSentence(view)}</p>
-      {kcal !== null && <p><span className="font-semibold text-fitx-text">Calories</span> are an estimate: {view.kcalMethod ?? KCAL_METHOD}{kcalWeight ? ` Weight used: ${kcalWeight} kg.` : ""}</p>}
+      {kcal !== null && <p><span className="font-semibold text-fitx-text">Calories</span> are an estimate: {view.kcalMethod ?? kcalMethodFor(view.sport)}{kcalWeight ? ` Weight used: ${kcalWeight} kg.` : ""}</p>}
       <p><span className="font-semibold text-fitx-text">Moving time</span> leaves out pauses, stops and interruptions; <span className="font-semibold text-fitx-text">elapsed time</span> is start to finish.</p>
       <p><span className="font-semibold text-fitx-text">Privacy:</span> your routes are visible only to you. Share images leave out the area around the start and finish. Detailed GPS points are kept for 90 days; this summary and route stay until you delete them. {MAP_TILES_NOTE}</p>
     </section>

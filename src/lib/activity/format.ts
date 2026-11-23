@@ -67,7 +67,10 @@ export function formatSpeed(metresPerSecond: number | null | undefined): string 
   return value === "–" ? value : `${value} km/h`;
 }
 
-const SPORT_TITLE: Record<Sport, string> = { walk: "walk", run: "run", ride: "ride" };
+const SPORT_TITLE: Record<Sport, string> = {
+  walk: "walk", run: "run", ride: "ride", hike: "hike", trail_run: "trail run", mtb: "mountain bike ride", ebike: "e-bike ride",
+  wheelchair: "wheelchair push", skate: "skate", paddle: "paddle",
+};
 
 /** "Morning run", "Evening ride"… from the local start hour. */
 export function defaultTitle(sport: Sport, startedAt: Date): string {

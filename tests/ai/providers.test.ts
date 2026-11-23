@@ -175,3 +175,29 @@ describe("shared parsing", () => {
     assert.equal(retryAfterHeader(null), undefined);
   });
 });
+
+describe("Workers AI, Cerebras and Mistral adapters", () => {
+  const more = createAdapters(readAiConfig({ CLOUDFLARE_API_TOKEN: "cf-key", CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", CEREBRAS_API_KEY: "c-key", MISTRAL_API_KEY: "m-key" }));
+
+  test("Workers AI calls the OpenAI-compatible endpoint under the account, with the token as a bearer", async () => {
+    const mock = mockFetch(() => openAiText("Hello"));
+    const result = await more.cloudflare!.generate({ model: "@cf/openai/gpt-oss-20b", request, signal: signal(), fetch: mock.fetch });
+    assert.equal(result.text, "Hello");
+    assert.equal(mock.calls[0].url, "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/chat/completions");
+    assert.equal(mock.calls[0].headers.Authorization ?? mock.calls[0].headers.authorization, "Bearer cf-key");
+    assert.equal(mock.calls[0].body?.model, "@cf/openai/gpt-oss-20b");
+    assert.equal(mock.calls[0].body?.include_reasoning, undefined, "no Groq-only fields");
+  });
+
+  test("Cerebras and Mistral use their own endpoints", async () => {
+    const mock = mockFetch(() => openAiText("Hi"));
+    await more.cerebras!.generate({ model: "gpt-oss-120b", request, signal: signal(), fetch: mock.fetch });
+    await more.mistral!.generate({ model: "mistral-small-latest", request, signal: signal(), fetch: mock.fetch });
+    assert.deepEqual(mock.calls.map((call) => call.url), ["https://api.cerebras.ai/v1/chat/completions", "https://api.mistral.ai/v1/chat/completions"]);
+  });
+
+  test("no adapter without a key, and none for a Workers AI token without its account", () => {
+    const none = createAdapters(readAiConfig({ CLOUDFLARE_API_TOKEN: "cf-key" }));
+    assert.deepEqual(Object.keys(none), []);
+  });
+});

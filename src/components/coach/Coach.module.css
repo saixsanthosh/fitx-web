@@ -4,7 +4,7 @@
 .chat { display: flex; min-width: 0; min-height: calc(100dvh - 220px); flex-direction: column; width: 100%; max-width: 760px; margin: 0 auto; }
 
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.mode { display: inline-flex; min-height: 32px; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 999px; padding: 0 12px; color: var(--fitx-text-secondary); font-size: .8rem; font-weight: 600; }
+.mode { display: inline-flex; min-width: 0; white-space: nowrap; min-height: 32px; align-items: center; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 999px; padding: 0 12px; color: var(--fitx-text-secondary); font-size: .8rem; font-weight: 600; }
 .dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 999px; background: var(--fitx-text-disabled); }
 .dotOn { background: var(--fitx-success); }
 .tools { display: flex; align-items: center; gap: 2px; }
@@ -14,6 +14,17 @@
 .helloTitle { color: var(--fitx-text); font-family: var(--font-heading); font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.6rem); font-weight: 800; line-height: 1.05; letter-spacing: -.04em; }
 .services { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 10px; color: var(--fitx-text-secondary); font-size: .78rem; }
 .service { display: inline-flex; align-items: center; gap: 6px; }
+/* What the coach can do: one scrolling row of quiet chips. */
+.skills { display: flex; gap: 8px; margin: -8px -4px 0; padding: 4px; overflow-x: auto; list-style: none; scrollbar-width: none; }
+.skills::-webkit-scrollbar { display: none; }
+.skill {
+  display: inline-flex; min-height: 44px; align-items: center; border: 1px solid var(--fitx-border); border-radius: 999px; background: transparent;
+  padding: 0 16px; color: var(--fitx-text); font-size: .85rem; font-weight: 600; white-space: nowrap;
+  transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+}
+.skill:hover { border-color: color-mix(in srgb, var(--fitx-primary) 55%, var(--fitx-border)); background: var(--fitx-hover); }
+.skill:active { transform: scale(.97); }
+.skill:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .prompts { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .prompt {
   display: grid; width: 100%; min-height: 88px; align-content: start; gap: 8px; border: 1px solid var(--fitx-border); border-radius: 18px;
@@ -64,4 +75,14 @@
   .dots span { animation: none; opacity: .6; }
   .prompt { transition: none; }
   .prompt:active { transform: none; }
+  .skill { transition: none; }
+  .skill:active { transform: none; }
 }
+
+/* Inside the floating AI Coach panel: one column that fills the panel; the conversation scrolls, the composer stays put. */
+.panelLayout { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; gap: 0; }
+.panelLayout .chat { min-height: 0; flex: 1 1 auto; max-width: none; padding-top: 8px; }
+.panelLayout .thread { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
+.panelLayout .hello { padding: 16px 0; }
+.panelLayout .prompts { grid-template-columns: minmax(0, 1fr); }
+.panelLayout .composerDock { position: static; padding: 8px 0 12px; background: var(--fitx-bg); }

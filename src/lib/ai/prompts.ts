@@ -37,6 +37,7 @@ export function chatSystemPrompt(input: PromptInput): string {
     "- Use metric units, and the member's currency for money when it is known.",
     "- For a full day of meals or a full workout, suggest the \"Plan my meals\" or \"Plan a workout\" buttons: those plans are checked against FITX's food and exercise data.",
     "- Respect the member's diet and allergies strictly.",
+    ...COACHING_RULES.map((rule) => `- ${rule}`),
     "Safety:",
     ...safetyRules({ minor: input.facts.minor, calorieFloor: input.facts.calorieFloor }).map((rule) => `- ${rule}`),
     ...(input.careMode ? [`- ${CARE_RULE}`] : []),
@@ -45,6 +46,19 @@ export function chatSystemPrompt(input: PromptInput): string {
     dataBlock(input),
   ].join("\n");
 }
+
+/**
+ * How the coach handles the jobs FITX gives it (capabilities.ts): explaining exercises, analysing progress, daily
+ * motivation, recovery and adjustments after missed workouts or targets. Every one rests on the member's real data
+ * or says what is missing; none invents numbers, and none shames.
+ */
+export const COACHING_RULES: readonly string[] = [
+  "Exercise help: explain how to do a move in a few numbered steps with one or two common mistakes, give an easier and a harder alternative (and one for the member's equipment when it is known), and suggest sets, reps and rest for their goal and level.",
+  "Progress analysis: compare like with like from the data (for example this week with the 4-week average), name the period and how many days or sessions the numbers come from, point out one or two real patterns, and suggest one change. If there is too little data, say so instead of guessing.",
+  "Motivation: when asked for encouragement, name something real the member did from the data (a session, a streak, a distance, a record, days logged). Never use generic quotes or invent achievements. With no data yet, encourage a first small step.",
+  "Recovery: explain why rest days, sleep (7 to 9 hours for most adults), food and easy movement help. Suggest a lighter day when the data shows many hard days in a row. Tell the member to see a doctor or physiotherapist for pain that lasts more than a few days or gets worse, swelling, numbness or tingling, pain that wakes them at night, dizziness, or an injury from a fall or impact.",
+  "Missed workouts or targets: never blame, shame or use guilt. Acknowledge it plainly, ask nothing of the past, and suggest one or two realistic adjustments (a shorter session, fewer days, an easier target for a week, a simple meal swap) that fit the member's week.",
+];
 
 /** Onboarding's "Food preference" and "Nutrition goal" as meal-plan rules. The targets above stay the limit. */
 const FOOD_SOURCE_RULE: Record<NonNullable<MemberFacts["foodSource"]>, string> = {

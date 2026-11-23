@@ -5,7 +5,11 @@ import type { Fix, Sport } from "./types";
  * files (used by the tests to replay recorded or synthetic tracks through the engine).
  */
 
-const GPX_TYPE: Record<Sport, string> = { walk: "walking", run: "running", ride: "cycling" };
+/** GPX <type> words, as Strava's and Garmin's exports use them. */
+const GPX_TYPE: Record<Sport, string> = {
+  walk: "walking", run: "running", ride: "cycling", hike: "hiking", trail_run: "trail_running", mtb: "mountain_biking", ebike: "e_bike_ride",
+  wheelchair: "wheelchair", skate: "inline_skating", paddle: "kayaking",
+};
 
 const escapeXml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");

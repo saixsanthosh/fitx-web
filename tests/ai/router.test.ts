@@ -48,6 +48,20 @@ describe("configuration and the free-only guard", () => {
     assert.ok(allowed.includes("openrouter:openai/gpt-4o"));
   });
 
+  test("Workers AI needs its account ID; Cerebras and Mistral join when their keys are set", () => {
+    const account = "0123456789abcdef0123456789abcdef";
+    assert.equal(readAiConfig({ CLOUDFLARE_API_TOKEN: "cf" }).keys.cloudflare, undefined, "a token without its account is not a provider");
+    assert.equal(readAiConfig({ CLOUDFLARE_API_TOKEN: "cf", CLOUDFLARE_ACCOUNT_ID: "not-an-id" }).keys.cloudflare, undefined);
+    const config = readAiConfig({ CLOUDFLARE_API_TOKEN: "cf", CLOUDFLARE_ACCOUNT_ID: account, CEREBRAS_API_KEY: "c", MISTRAL_API_KEY: "m" });
+    assert.equal(config.cloudflareAccountId, account);
+    assert.deepEqual(candidatesFor("chat", config).map((c) => `${c.provider}:${c.model}`), [
+      "cloudflare:@cf/openai/gpt-oss-20b", "cerebras:gpt-oss-120b", "mistral:mistral-small-latest", "cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    ]);
+    assert.equal(isFreeModel("cloudflare", "@cf/openai/gpt-oss-120b"), true);
+    assert.equal(isFreeModel("cloudflare", "gpt-4o"), false, "only models Cloudflare hosts itself");
+    assert.deepEqual(candidatesFor("chat", readAiConfig({ CLOUDFLARE_API_TOKEN: "cf", CLOUDFLARE_ACCOUNT_ID: account, AI_CLOUDFLARE_MODELS: "@cf/qwen/qwen3-30b-a3b-fp8,openai/gpt-4o" })).map((c) => c.model), ["@cf/qwen/qwen3-30b-a3b-fp8"]);
+  });
+
   test("each task has its own order and providers take turns", () => {
     const config = readAiConfig(KEYS);
     assert.deepEqual(candidatesFor("chat", config).map((c) => `${c.provider}:${c.model}`), [
