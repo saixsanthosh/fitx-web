@@ -51,7 +51,11 @@ export function StoryViewer({ username }: { username: string }) {
 
   useLayoutEffect(() => {
     const element = dialog.current;
-    if (element && !element.open) element.showModal();
+    if (element && !element.open) {
+      element.showModal();
+      // Focus the viewer itself (not its first button), so arrow keys work at once and no control looks pressed.
+      element.focus();
+    }
     return () => { if (element?.open) element.close(); };
   }, []);
   useEffect(() => {
@@ -175,7 +179,7 @@ export function StoryViewer({ username }: { username: string }) {
 
   const name = account?.author.username ?? username;
   return (
-    <dialog ref={dialog} className={styles.viewer} aria-label={`Story by ${name}`} onKeyDown={(event) => {
+    <dialog ref={dialog} className={styles.viewer} aria-label={`Story by ${name}`} tabIndex={-1} onKeyDown={(event) => {
       if (sheet) return;
       if (event.key === "ArrowRight") { event.preventDefault(); go(1); }
       if (event.key === "ArrowLeft") { event.preventDefault(); go(-1); }

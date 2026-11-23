@@ -42,6 +42,7 @@
   background: var(--fitx-stage); color: var(--fitx-on-stage); overflow: hidden;
 }
 .viewer::backdrop { background: var(--fitx-stage); }
+.viewer:focus { outline: none; }
 .viewerInner { position: relative; display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; }
 .frame {
   position: relative; display: flex; width: 100vw; height: 100dvh; flex-direction: column;
