@@ -682,5 +682,6 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .fitx-mark--formation .fitx-mark__piece { animation: none !important; transform: none; opacity: 1; }
+  .fitx-page-enter { animation: none !important; }
   .fitx-logo.is-forming .fitx-wordmark { opacity: 1; }
 }

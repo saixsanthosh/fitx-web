@@ -199,6 +199,12 @@ export function CoachLauncher() {
   function onPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0 || !place) return;
     drag.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, fromX: place.x, fromY: place.y, moved: false };
+    // Captured at once, so a quick flick that leaves the button before it counts as a drag still moves it.
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // The pointer is already gone.
+    }
   }
 
   function onPointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -209,7 +215,6 @@ export function CoachLauncher() {
     if (!current.moved) {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       current.moved = true;
-      event.currentTarget.setPointerCapture(event.pointerId);
       setDragging(true);
     }
     const x = Math.min(window.innerWidth - LAUNCHER_SIZE, Math.max(0, current.fromX + dx));

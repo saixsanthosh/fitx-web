@@ -39,8 +39,8 @@ export const flow = {
         await page.getByRole("button", { name: "More", exact: true }).click();
         const sheet = page.getByRole("dialog", { name: "More" });
         await sheet.waitFor();
-        const groups = await sheet.locator("h3").allInnerTexts();
-        t.expect(groups.join(",").toLowerCase() === "train,track,connect", "More groups the rest as in the sidebar", groups);
+        const groups = await sheet.locator("[data-nav-group]").allInnerTexts();
+        t.expect(groups.join(",").toLowerCase() === "train,track,connect", "More names each section's group, as in the sidebar", groups);
         for (const label of ["Exercise library", "Progress", "AI Coach", "Profile", "Settings", "Help and feedback"]) {
           t.expect((await sheet.getByRole("link", { name: label }).count()) === 1, `${label} is in More`);
         }
@@ -123,7 +123,7 @@ export const flow = {
       await page.mouse.up();
       await page.waitForTimeout(600);
       const dropped = await button.boundingBox();
-      t.expect(dropped.x < viewport.width / 2 && dropped.x <= 30, "dropped on the left, it settles against the left edge", dropped);
+      t.expect(dropped.x < viewport.width / 2 && dropped.x <= 30, `dropped on the left, it settles against the left edge: ${JSON.stringify({ box, dropped })}`);
       t.expect(page.url().endsWith("/dashboard"), "a drag does not open the coach");
       const stored = await page.evaluate(() => window.localStorage.getItem("fitx-coach-launcher-spot"));
       t.expect(stored && JSON.parse(stored)[phone ? "phone" : "desktop"]?.side === "left", "the spot is remembered for this screen size", stored);
@@ -171,8 +171,8 @@ export const flow = {
       await page.getByText("Saved to your account.").waitFor({ timeout: 15000 });
       t.expect((await toggle.getAttribute("aria-checked")) === "false", "off");
       t.expect((await page.getByRole("button", { name: "Open AI Coach" }).count()) === 0, "the button goes at once");
-      const off = await standin.one(`select coach_launcher from public.user_preferences where user_id = '${account.id}'`);
-      t.expect(off?.coach_launcher === false, "stored on the account", off);
+      const off = await standin.one(`select coach_launcher::text coach_launcher from public.user_preferences where user_id = '${account.id}'`);
+      t.expect(off?.coach_launcher === "false", `stored on the account: ${JSON.stringify(off)}`);
       await t.checkpoint("settings coach switch off");
       // Another device (no local cache) follows the account.
       await page.evaluate(() => window.localStorage.removeItem("fitx-coach-launcher"));
@@ -182,8 +182,8 @@ export const flow = {
       await t.goto("/settings", { label: "settings switch on" });
       await toggle.click();
       await page.getByText("Saved to your account.").waitFor({ timeout: 15000 });
-      const on = await standin.one(`select coach_launcher from public.user_preferences where user_id = '${account.id}'`);
-      t.expect(on?.coach_launcher === true, "turned back on", on);
+      const on = await standin.one(`select coach_launcher::text coach_launcher from public.user_preferences where user_id = '${account.id}'`);
+      t.expect(on?.coach_launcher === "true", `turned back on: ${JSON.stringify(on)}`);
       await page.getByRole("button", { name: "Open AI Coach" }).waitFor({ timeout: 15000 });
     });
 

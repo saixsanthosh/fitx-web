@@ -12,6 +12,7 @@ import { NavGlyph } from "./NavGlyph";
 /** Focus screens that hide the bar: the live workout and the activity recorder. */
 const FOCUS_SCREENS = new Set(["/workouts/active", "/activity/record"]);
 const SLOTS = PHONE_TAB_COUNT + 1;
+const MORE_SECTIONS = PHONE_MORE_GROUPS.flatMap((group) => group.items.map((item) => ({ item, group })));
 
 /**
  * Phones (under 768 px): a fixed bar with the four main sections and More. An ember line glides along the top
@@ -77,28 +78,23 @@ export function BottomNav() {
             <h2 id="more-sheet-title" className="font-heading text-base font-semibold text-fitx-text">More</h2>
             <button type="button" onClick={closeSheet} aria-label="Close" className="grid min-h-11 min-w-11 place-items-center rounded-xl text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text"><X size={18} aria-hidden="true" /></button>
           </div>
-          <div className="space-y-3 px-1">
-            {PHONE_MORE_GROUPS.map((group) => (
-              <section key={group.id} aria-labelledby={`more-group-${group.id}`}>
-                <h3 id={`more-group-${group.id}`} className="m-0 px-1.5 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">{group.label}</h3>
-                <ul className="grid grid-cols-2 gap-2">
-                  {group.items.map(({ href, label, icon }) => {
-                    const active = isActivePath(pathname, href);
-                    return (
-                      <li key={href}>
-                        <Link href={href} onClick={closeSheet} aria-current={active ? "page" : undefined}
-                          className={cn("fitx-nav-link flex min-h-[76px] flex-col justify-between gap-3 rounded-2xl border p-3.5 text-[15px] transition-colors",
-                            active ? "border-fitx-primary/40 bg-fitx-primary/10 font-semibold text-fitx-primary-text" : "border-fitx-border bg-fitx-surface text-fitx-text hover:bg-fitx-hover")}>
-                          <NavGlyph icon={icon} size={22} active={active} className={active ? "text-fitx-primary" : "text-fitx-text-secondary"} />
-                          <span className="leading-tight">{label}</span>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            ))}
-          </div>
+          {/* The sections not in the bar, each card carrying its group's name (Train, Track, Connect). */}
+          <ul aria-label="Sections" className={cn("grid gap-2 px-1", MORE_SECTIONS.length % 3 === 0 ? "grid-cols-3" : "grid-cols-2")}>
+            {MORE_SECTIONS.map(({ item: { href, label, shortLabel, icon }, group }) => {
+              const active = isActivePath(pathname, href);
+              return (
+                <li key={href}>
+                  <Link href={href} onClick={closeSheet} aria-current={active ? "page" : undefined} aria-label={label}
+                    className={cn("fitx-nav-link flex h-full min-h-[104px] flex-col justify-between gap-2 rounded-2xl border p-3 transition-colors",
+                      active ? "border-fitx-primary/40 bg-fitx-primary/10 text-fitx-primary-text" : "border-fitx-border bg-fitx-surface text-fitx-text hover:bg-fitx-hover")}>
+                    <span data-nav-group={group.id} className="text-[10px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">{group.label}</span>
+                    <NavGlyph icon={icon} size={22} active={active} className={active ? "text-fitx-primary" : "text-fitx-text-secondary"} />
+                    <span className={cn("text-[14px] leading-tight", active && "font-semibold")}>{shortLabel && MORE_SECTIONS.length % 3 === 0 ? shortLabel : label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
           <ul aria-label="Account" className="mx-1 mt-3 overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface">
             {ACCOUNT_NAV.map(({ href, label, icon }, index) => {
               const active = isActivePath(pathname, href);
