@@ -159,7 +159,7 @@ g[data-tone="plan"] .ringArc { stroke: var(--fitx-gold); }
   transition: transform .7s cubic-bezier(.22, 1, .36, 1), opacity .2s ease; animation: bar-grow .8s cubic-bezier(.22, 1, .36, 1) both;
 }
 .barSlot[data-state="zero"]::after { content: ""; position: absolute; right: 18%; bottom: 0; left: 18%; height: 2px; border-radius: 2px; background: var(--fitx-track); }
-.barSlot[data-state="unknown"]::after { content: ""; position: absolute; right: 12%; bottom: 0; left: 12%; height: 24%; border: 1px dashed var(--fitx-border); border-radius: 6px 6px 2px 2px; }
+.barSlot[data-state="unknown"]::after { content: ""; position: absolute; right: 22%; bottom: 0; left: 22%; height: 0; border-top: 2px dotted var(--fitx-text-disabled); opacity: .7; }
 .barsPlot:hover .barFill, .barsPlot:focus-visible .barFill { opacity: .55; }
 .barSlot[data-picked] .barFill { opacity: 1; }
 .targetLine { position: absolute; right: 0; bottom: 0; left: 0; z-index: 1; border-top: 1px dashed color-mix(in srgb, var(--fitx-text) 35%, transparent); pointer-events: none; transition: transform .7s cubic-bezier(.22, 1, .36, 1); }

@@ -104,7 +104,7 @@
   display: grid; min-height: 4.25rem; min-width: 0; place-content: center; justify-items: center; gap: .3rem; border: 1px solid var(--fitx-border); border-radius: 1rem;
   background: var(--fitx-card-bg); padding: .5rem .35rem; color: var(--fitx-text); transition: border-color .15s ease, transform .15s ease, background-color .15s ease;
 }
-.shortcut span { max-width: 100%; overflow: hidden; color: var(--fitx-text-secondary); font-size: .74rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.shortcut span { max-width: 100%; color: var(--fitx-text-secondary); font-size: .74rem; font-weight: 650; line-height: 1.2; text-align: center; overflow-wrap: anywhere; }
 .shortcut:hover { border-color: var(--fitx-text-disabled); background: var(--fitx-hover); }
 .shortcut:active { transform: scale(.97); }
 .shortcut:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
