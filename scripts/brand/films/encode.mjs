@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } 
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { HEAVY, laneHandle, withLane } from "./lane.mjs";
-import { AVC30_SIZES, BUDGET, ENCODER, avc30Args, crfForBudget, cwebpArgs, hevc60Args, legacyHevcArgs, posterPngArgs } from "./lib/encoders.mjs";
+import { AVC30_SIZES, BUDGET, ENCODER, avc30Args, crfForBudget, cwebpArgs, hevc60Args, legacyHevcArgs, posterPngArgs, reelArgs } from "./lib/encoders.mjs";
 import { CWEBP, FFMPEG } from "./lib/preflight.mjs";
 
 const log = (line) => process.stderr.write(`[encode] ${line}\n`);
@@ -32,8 +32,10 @@ export function parseEncodeArgs(argv) {
     else throw new Error(`unknown flag --${name}`);
   }
   if (!out.master) throw new Error("--master is required");
-  for (const rung of out.rungs) if (!["hevc60", "avc30", "poster"].includes(rung)) throw new Error(`unknown rung ${rung}`);
-  if (!out.legacy && !AVC30_SIZES[out.comp]) throw new Error("--comp must be a composition");
+  for (const rung of out.rungs) if (!["hevc60", "avc30", "poster", "reel"].includes(rung)) throw new Error(`unknown rung ${rung}`);
+  if (out.rungs.includes("reel")) {
+    if (!["landscape", "portrait"].includes(out.comp) || !out.theme) throw new Error("a reel needs --comp=landscape|portrait and --theme");
+  } else if (!out.legacy && !AVC30_SIZES[out.comp]) throw new Error("--comp must be a composition");
   return out;
 }
 
@@ -94,6 +96,11 @@ async function work(request, lane) {
         const started = Date.now();
         await run(FFMPEG, avc30Args({ input: request.master, output: file, comp: request.comp }));
         outputs.avc30 = { file, bytes: statSync(file).size, seconds: (Date.now() - started) / 1000, sha256: sha256(file), fits: statSync(file).size <= BUDGET.avc30 };
+      } else if (rung === "reel") {
+        const file = path.join(dir, `reel-${request.theme}-${request.comp}.mp4`);
+        const started = Date.now();
+        await run(FFMPEG, reelArgs({ input: request.master, output: file, shape: request.comp }));
+        outputs.reel = { file, bytes: statSync(file).size, seconds: (Date.now() - started) / 1000, sha256: sha256(file) };
       } else if (rung === "poster") {
         const png = path.join(dir, `${name}-poster.png`);
         const file = path.join(dir, `${name}.webp`);

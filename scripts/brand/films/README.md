@@ -96,8 +96,10 @@ How a frame is made:
 - `landing-reel`: the landing hero reel (`src/components/landing/film.ts`): intro film time 1.3 to 10.6 s at 30 fps,
   279 frames, in the two shapes the landing serves: `landscape` 1280×720 (the laptop composition) and `portrait`
   540×960 (the phone composition), rendered at 2× and scaled down. It also writes the posters
-  (`poster-<theme>-landscape.webp` 1600×900 and `poster-<theme>-portrait.webp` 720×1280, the reel's first frame) and
-  `team-<theme>.webp` (1600×900, the team walk). The reel masters are then encoded as today's reels (H.264 30 fps).
+  (`poster-<theme>-landscape.webp` 1600×900 and `poster-<theme>-portrait.webp` 720×1280, film time 2.05 s) and
+  `team-<theme>.webp` (1600×900, the team walk at 9.9 s). Those times were recovered by matching the shipped stills
+  against every frame of the shipped 60 fps cuts (mean squared error 1.3, 3.7 and 1.1 on 8-bit grey at 160 px, against
+  90 to 200 for the neighbouring frames). The reel masters are then encoded as today's reels (H.264 30 fps).
 - `login-stills`: the sign-in scene's stills (`public/media/login/still-<theme>-{wide,tall}.webp`, 1600×800 and
   1000×1100). It opens `/signin` in the lab's `next dev`, pins the scene's host to the still's exact size, calls the
   scene's development hook `window.__fitxLoginScene.freeze(5)` (`STILL_SECONDS`) and reads the canvas in the same task,
@@ -114,6 +116,7 @@ heavy.sh node scripts/brand/films/encode.mjs --master=<dir>/laptop-dark/master.m
 | `hevc60` | x265 `slow`, `--tune grain`, CRF from 29 stepped to fit 3.4 MB with `--budget`, keyint 60, level 4.1 high tier, VBV 50000/50000, `pools=4`, `hvc1` |
 | `avc30` | x264 `slow`, High, CRF 27, keyint 30, every other frame, 0.75× size (720×1440, 900×1200, 1200×900, 1440×810, 1440×720) |
 | poster | frame 0 → PNG → `cwebp -q 82` (down in steps of 6 until under 50 KB) |
+| `reel` (`--comp=landscape\|portrait --theme=…`) | the landing reel as shipped: x264 slow, High, CRF 29 landscape / 27 portrait, keyint 250, now tagged BT.709 tv |
 
 All files: `+faststart`, BT.709 primaries, transfer and matrix, tv range. `--legacy` makes the old pipeline's HEVC
 (below) for gate A.
@@ -142,10 +145,13 @@ Read on 2026-11-23 from `public/brand/intro/*` with ffprobe and the encoders' SE
   `hvc1`; x265 4.2 with the **medium** preset's analysis (`rd=3 subme=2 me=1 ref=3 rc-lookahead=20`), `crf=29`,
   `keyint=120 min-keyint=60`, `bframes=4`, `aq-mode=2`, `psy-rd=2.00`, `vbv-maxrate=50000 vbv-bufsize=50000`;
   colour primaries, transfer and matrix untagged (2 = unspecified), range tv; 1.87 Mb/s.
-- **H.264 60** (`-60.mp4`): High, level 4.2, x264 core 165, `crf=27`, `keyint=120 keyint_min=12`, `ref=4`, `subme=8`,
-  `trellis=2`, `rc_lookahead=50`, `me=hex`, `b_adapt=1`; untagged; 3.36 Mb/s.
-- **H.264 30** (`-30.mp4`): 960×540 (portrait 540×960), 358 frames, level 3.0, `crf=29`, `keyint=60 keyint_min=6`,
-  `ref=3`; untagged.
+- **H.264 60** (`-60.mp4`): High, level 4.2, x264 core 165 with the **slow** preset (`subme=8 trellis=2
+  rc_lookahead=50`, `ref` 5 capped to 4 by the level, medium's `me=hex b_adapt=1`), `crf=27`, `keyint=120 keyint_min=12`;
+  untagged; 3.36 Mb/s.
+- **H.264 30** (`-30.mp4`): 960×540 (portrait 540×960), 358 frames, level 3.0, the slow preset, `crf=29`,
+  `keyint=60 keyint_min=6`, `ref=3` (level cap); untagged.
+- **Landing reels** (`public/media/landing-film/reel-*.mp4`): 1280×720 and 540×960, 279 frames at 30 fps, High, level
+  3.1, the slow preset, `crf=29` (landscape) and `crf=27` (portrait), ffmpeg's default keyint 250; untagged.
 - Masters were converted from RGB **without** a colour matrix, so ffmpeg's default applied: BT.601, limited range (the
   shipped files decode correctly only as BT.601).
 - Frames: 715 = film time 0 to 11.9 s inclusive, at `t = n / 60` (the memory notes: the old lab "seeked at 60 fps").

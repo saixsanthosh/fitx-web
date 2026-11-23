@@ -27,7 +27,7 @@ import {
   preflightProblems,
 } from "../../scripts/brand/films/lib/preflight.mjs";
 import { KEEPALIVE_MS, POLL_MS, STALE_MS, acquireLane, laneHandle, releaseHeavySlot, staleReason } from "../../scripts/brand/films/lane.mjs";
-import { AVC30_SIZES, LEGACY, avc30Args, crfForBudget, hevc60Args, legacyHevcArgs } from "../../scripts/brand/films/lib/encoders.mjs";
+import { AVC30_SIZES, LEGACY, avc30Args, crfForBudget, hevc60Args, legacyHevcArgs, reelArgs } from "../../scripts/brand/films/lib/encoders.mjs";
 import { gateA, mixProblems, moovFirst, parseDetect, parseEbur128, parsePsnrStats, parseSsimPsnr, probeProblems, topLevelBoxes, unexpectedIntervals } from "../../scripts/brand/films/lib/checks.mjs";
 
 /** The intro's clock as `describeFilm` gives it (today's 11.9 s timeline). */
@@ -92,6 +92,7 @@ test("the landing reel: film time 1.3 to 10.6 at 30 fps is 279 frames, as shippe
   // The reel's portrait shape is served by the phone composition, its landscape by laptop.
   assert.equal(JOBS["landing-reel"].shapes.portrait.comp, "phone");
   assert.equal(JOBS["landing-reel"].shapes.landscape.comp, "laptop");
+  assert.deepEqual(Object.values(JOBS["landing-reel"].stills).map((still) => [still.time, still.width, still.height]), [[2.05, 1600, 900], [2.05, 720, 1280], [9.9, 1600, 900]]);
   assert.deepEqual(JOBS["login-stills"].frames, { wide: { width: 1600, height: 800 }, tall: { width: 1000, height: 1100 } });
 });
 
@@ -335,6 +336,10 @@ test("encoders: the new rungs carry bt709 tv tags and faststart; the legacy HEVC
   assert.match(legacy, /out_color_matrix=bt601/);
   assert.match(legacy, /-preset medium -crf 29 -x265-params keyint=120:min-keyint=60:bframes=4/);
   assert.equal(LEGACY.h264_30.width, 960);
+  assert.equal(LEGACY.h264_60.preset, "slow");
+  assert.match(reelArgs({ input: "m.mkv", output: "r.mp4", shape: "portrait" }).join(" "), /-preset slow -profile:v high -crf 27 -g 250 -color_primaries bt709/);
+  assert.match(reelArgs({ input: "m.mkv", output: "r.mp4", shape: "landscape" }).join(" "), /-crf 29/);
+  assert.throws(() => reelArgs({ input: "m.mkv", output: "r.mp4", shape: "square" }), /unknown reel shape/);
   assert.equal(crfForBudget(29, 4e6, 3.4 * 1024 * 1024), 30);
   assert.equal(crfForBudget(29, 1e6, 3.4 * 1024 * 1024), 28);
   assert.equal(crfForBudget(29, 3.3 * 1024 * 1024, 3.4 * 1024 * 1024), 29);

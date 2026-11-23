@@ -37,9 +37,25 @@ export const LEGACY = Object.freeze({
     codec: "libx265", preset: "medium", crf: 29, x265: "keyint=120:min-keyint=60:bframes=4:level-idc=4.1:high-tier=1:vbv-maxrate=50000:vbv-bufsize=50000:aq-mode=2:psy-rd=2.0:range=limited",
     tag: "hvc1", matrix: "bt601",
   },
-  h264_60: { codec: "libx264", preset: "medium", crf: 27, x264: "keyint=120:min-keyint=12:ref=4:subme=8:trellis=2:rc-lookahead=50", level: "4.2", matrix: "bt601" },
-  h264_30: { codec: "libx264", preset: "medium", crf: 29, x264: "keyint=60:min-keyint=6:subme=8:trellis=2:rc-lookahead=50", level: "3.0", width: 960, height: 540, matrix: "bt601" },
+  // x264's "slow" preset is exactly subme 8, ref 5 (capped by the level), trellis 2 and lookahead 50 with medium's hex
+  // search and b-adapt 1: what all three strings show.
+  h264_60: { codec: "libx264", preset: "slow", crf: 27, keyint: 120, level: "4.2", matrix: "bt601" },
+  h264_30: { codec: "libx264", preset: "slow", crf: 29, keyint: 60, level: "3.0", width: 960, height: 540, matrix: "bt601" },
+  // The landing reels (public/media/landing-film/reel-*.mp4): the same preset, ffmpeg's default keyint 250, level 3.1.
+  reel: { codec: "libx264", preset: "slow", crf: { landscape: 29, portrait: 27 }, keyint: 250, level: "3.1", fps: 30 },
 });
+
+/** ffmpeg arguments: a landing-reel master (30 fps, already at the reel's size) → the reel, H.264 High, tagged. */
+export function reelArgs({ input, output, shape }) {
+  const e = LEGACY.reel;
+  const crf = e.crf[shape];
+  if (crf === undefined) throw new Error(`unknown reel shape ${shape}`);
+  return [
+    "-hide_banner", "-loglevel", "error", "-y", "-i", input, "-an", "-vf", "format=yuv420p",
+    "-c:v", e.codec, "-preset", e.preset, "-profile:v", "high", "-crf", String(crf), "-g", String(e.keyint),
+    ...BT709_TV, "-movflags", "+faststart", output,
+  ];
+}
 
 const even = (value) => Math.max(2, Math.round(value / 2) * 2);
 

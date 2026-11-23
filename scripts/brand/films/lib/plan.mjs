@@ -39,11 +39,12 @@ export const JOBS = Object.freeze({
       landscape: { comp: "laptop", width: 1280, height: 720 },
       portrait: { comp: "phone", width: 540, height: 960 },
     },
-    // Stills cut from the same render, at the shipped sizes (film times recovered in README.md).
+    // Stills at the shipped sizes and film times (recovered by matching the shipped files against the shipped cut's
+    // frames: both posters are frame 123, t = 2.05 s, in the sprint drive; the team still is frame 594, t = 9.9 s).
     stills: {
-      "poster-landscape": { shape: "landscape", time: 1.3, width: 1600, height: 900, file: "poster-{theme}-landscape.webp" },
-      "poster-portrait": { shape: "portrait", time: 1.3, width: 720, height: 1280, file: "poster-{theme}-portrait.webp" },
-      team: { shape: "landscape", time: 9.6, width: 1600, height: 900, file: "team-{theme}.webp" },
+      "poster-landscape": { shape: "landscape", time: 2.05, width: 1600, height: 900, file: "poster-{theme}-landscape.webp" },
+      "poster-portrait": { shape: "portrait", time: 2.05, width: 720, height: 1280, file: "poster-{theme}-portrait.webp" },
+      team: { shape: "landscape", time: 9.9, width: 1600, height: 900, file: "team-{theme}.webp" },
     },
     ss: 2,
   },

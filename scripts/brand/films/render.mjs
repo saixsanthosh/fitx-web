@@ -300,7 +300,8 @@ async function renderReel({ request, page, sink, lane, logEntry, compDir, shape,
   const spec = def.shapes[shape];
   const loaded = await page.evaluate((args) => window.__fitxLab.load(args), { film: def.film, comp: spec.comp, theme, width: spec.width, height: spec.height, ss: request.ss, sink: sink.url });
   logEntry({ event: "loaded", shape, theme, renderer: loaded.renderer, width: loaded.width, height: loaded.height });
-  const frames = reelPlan(def);
+  // A preview (--step) keeps every step-th reel frame; the encoded reel needs every frame.
+  const frames = reelPlan(def).filter((frame) => frame.index % request.step === 0);
   mkdirSync(compDir, { recursive: true });
   const master = path.join(compDir, "master.mkv");
   const part = `${master}.part.mkv`;
