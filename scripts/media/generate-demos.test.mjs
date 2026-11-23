@@ -8,7 +8,7 @@ import sharp from "sharp";
 import {
   DEFAULT_IMAGE_MODEL, DEMO_MAX_BYTES, capsFor, demoPrompt, demoRequestBody, emptyLedger, encodeDemo, encodedFile, endpointFor, jobKey,
   parseArgs, personaPrompt, planJobs, rawFile, readLedger, referenceFile, requireCaps, runJobs, stopReason, writeLedger, approvedPersonas, personaFile,
-  approvedPersonasFile, sha256, downloadReferences,
+  approvedPersonasFile, sha256, downloadReferences, callCostUsd, CALL_RESERVE_USD, ERROR_CHARGE_USD, IMAGE_PRICES_USD,
 } from "./generate-demos.mjs";
 
 const KEY = "AIzaFAKEFAKEFAKEFAKEFAKEFAKEFAKE12345";
@@ -38,12 +38,13 @@ async function seedReferences(work, items) {
   }
 }
 
-/** A fake generateContent endpoint: records every request, answers with a small image. */
-function fakeModel(image) {
+/** A fake generateContent endpoint: records every request, answers with a small image and its usage counts. */
+function fakeModel(image, usage = { promptTokenCount: 1000, candidatesTokenCount: 1290 }, onCall = () => undefined) {
   const requests = [];
   const fetchImpl = async (url, init) => {
     requests.push({ url, headers: init.headers, body: init.body });
-    return { ok: true, status: 200, text: async () => JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: image.toString("base64") } }] } }] }) };
+    onCall(init);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: image.toString("base64") } }] } }], usageMetadata: usage }) };
   };
   return { requests, fetchImpl };
 }
@@ -153,6 +154,58 @@ test("the call cap and the budget stop a run before the call that would pass the
     assert.equal(byBudget.requests.length, 2, "two calls cost US$0.078; a third would pass US$0.10");
     assert.match(second.stopped, /budget reached/);
     assert.equal(stopReason({ calls: 0, spentUsd: 0 }, { maxCalls: 0, budgetUsd: 10, price: 0.039 }), "call cap reached (0 of 0)");
+  } finally {
+    done();
+  }
+});
+
+test("the hard total (D9): calls are charged from their own token counts, the reserve is held back before each call", async () => {
+  const model = DEFAULT_IMAGE_MODEL;
+  const reserve = CALL_RESERVE_USD[model];
+  assert.ok(reserve > IMAGE_PRICES_USD[model]);
+  assert.equal(callCostUsd(model, { promptTokenCount: 4400, candidatesTokenCount: 1290 }, { imageReturned: true }), 0.0401, "4,400 in and 1,290 out cost US$0.04002, rounded up");
+  assert.equal(callCostUsd(model, { promptTokenCount: 100, candidatesTokenCount: 0 }, { imageReturned: true }), IMAGE_PRICES_USD[model], "an image is never charged less than the image price");
+  assert.equal(callCostUsd(model, { promptTokenCount: 3000, candidatesTokenCount: 0 }, { imageReturned: false }), 0.0009, "an answer without an image, by its own counts");
+  assert.equal(callCostUsd(model, null, { imageReturned: true }), reserve, "no counts: the reserve");
+  assert.equal(callCostUsd(model, { promptTokenCount: 4400, candidatesTokenCount: 1290, thoughtsTokenCount: 100 }, { imageReturned: true }), 0.0431, "thinking tokens count as output");
+
+  const { dir, done } = workDir();
+  try {
+    const items = [item("push_up"), item("plank")];
+    await seedReferences(dir, items);
+    const image = await png(400, 300);
+    // Each call really costs US$0.0401. A flat US$0.039 check would allow a second call at a US$0.08 budget and end at
+    // US$0.0802, past the limit; holding back the reserve stops after one.
+    const held = [];
+    const dear = fakeModel(image, { promptTokenCount: 4400, candidatesTokenCount: 1290 }, () => held.push(readLedger(dir).spentUsd));
+    const args = { ...parseArgs(["--max-calls=100", "--budget-usd=0.08"]), work: dir };
+    const run = await runJobs({ jobs: planJobs(items, args, emptyLedger()), args, ledger: emptyLedger(), key: KEY, fetchImpl: dear.fetchImpl, sharp, personas, log: () => undefined });
+    assert.equal(dear.requests.length, 1);
+    assert.match(run.stopped, /budget reached/);
+    assert.deepEqual(held, [reserve], "while the call is out the ledger holds the reserve");
+    const saved = readLedger(dir);
+    assert.equal(saved.spentUsd, 0.0401);
+    assert.ok(saved.spentUsd <= 0.08);
+    assert.deepEqual(saved.images[jobKey("push_up", "male", 0)].usage, { input: 4400, output: 1290, thoughts: 0 });
+    assert.equal(saved.images[jobKey("push_up", "male", 0)].costUsd, 0.0401);
+
+    // A refused request, an answer without an image and a lost connection are each charged honestly.
+    const answers = [
+      async () => ({ ok: false, status: 429, text: async () => "quota" }),
+      async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ candidates: [{ finishReason: "IMAGE_SAFETY", content: { parts: [] } }], usageMetadata: { promptTokenCount: 3000, candidatesTokenCount: 0 } }) }),
+      async () => { throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }); },
+    ];
+    const charges = [];
+    for (const answer of answers) {
+      const work = mkdtempSync(path.join(dir, "c-"));
+      await seedReferences(work, items);
+      const one = { ...parseArgs(["--model=male", "--max-calls=1", "--budget-usd=1"]), work };
+      await runJobs({ jobs: planJobs([items[0]], one, emptyLedger()), args: one, ledger: emptyLedger(), key: KEY, fetchImpl: answer, sharp, personas, log: () => undefined });
+      const after = readLedger(work);
+      assert.equal(after.images[jobKey("push_up", "male", 0)].status, "failed");
+      charges.push(after.spentUsd);
+    }
+    assert.deepEqual(charges, [ERROR_CHARGE_USD, 0.0009, reserve]);
   } finally {
     done();
   }

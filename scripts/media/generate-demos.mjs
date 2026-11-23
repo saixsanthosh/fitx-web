@@ -33,6 +33,17 @@ export const PRIORITY_FILE = path.join(ROOT, "scripts/media/demos/priority.json"
 export const DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image";
 /** Known prices per image; another model needs the owner's OK and its price recorded here first. */
 export const IMAGE_PRICES_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: COST_PER_IMAGE_USD });
+/**
+ * The owner's spend limit is a hard total (D9), so each call is charged from its own usage counts (input tokens, and every
+ * output token priced as image output), never less than the image price when an image came back. The reserve, the most
+ * one call can cost, is held back before the call: a run stops while the budget still covers the dearest call.
+ */
+export const IMAGE_TOKEN_PRICES_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: Object.freeze({ inputPerMillion: 0.3, outputPerMillion: 30 }) });
+export const CALL_RESERVE_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: 0.045 });
+/** A refused request (an HTTP error: nothing was made) is still charged this much, to stay on the safe side. */
+export const ERROR_CHARGE_USD = 0.002;
+/** A request that has not answered by then is abandoned (and charged the reserve, as it may still be billed). */
+export const CALL_TIMEOUT_MS = 180_000;
 export const endpointFor = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
 /** The byte target of one demonstration file (brief 3.5). The coordinator may raise it to a measured value <= 60 KB. */
@@ -86,12 +97,16 @@ export function requireCaps(args) {
 
 // ---------------------------------------------------------------- prompts and the request
 
-/** Plain, unbranded, not a real person (the persona sheets). */
+/**
+ * Plain, unbranded, not a real person. These describe the two sheets the owner approved (D9: Man 1 and Woman 2, saved as
+ * personas/male.png and personas/female.png), so the words never contradict image 1 of a request.
+ */
 export const PERSONAS = Object.freeze({
-  male: "An athletic man in his late twenties of South Asian appearance, short dark hair, clean-shaven, medium build with visible but natural muscle tone. Plain fitted charcoal T-shirt, plain black training shorts, plain grey trainers. No logos, no text, no jewellery.",
-  female: "An athletic woman in her late twenties of South Asian appearance, dark hair tied back in a low bun, medium build with natural muscle tone. Plain fitted charcoal sports top with a matching long-sleeve layer, plain black full-length leggings, plain grey trainers. No logos, no text, no jewellery.",
+  male: "An athletic man in his late twenties of Indian appearance, short dark hair and a neatly trimmed beard, an athletic but realistic build (not a bodybuilder). A plain charcoal crew-neck T-shirt, plain black training shorts above the knee, plain dark grey trainers with white soles. No logos, no text, no jewellery.",
+  female: "An athletic woman in her late twenties of Indian appearance, dark hair tied back in a low bun, a fit and realistic build. A plain terracotta short-sleeved fitted sports top that covers the midriff, plain black full-length leggings, plain dark grey trainers with white soles. No logos, no text, no jewellery.",
 });
-const STUDIO = "a calm, evenly lit training studio with a plain warm-grey wall, a dark rubber floor and soft daylight from the left";
+/** The approved sheets' own studio, so every frame looks like the same shoot. */
+const STUDIO = "a seamless warm light-grey studio backdrop that curves into the floor, with soft even light from the front and a soft contact shadow under the body";
 const RULES = "Photorealistic photograph, natural skin and fabric, correct anatomy and hands, the whole body and all equipment in frame. No text, letters, numbers, logos, watermarks or overlays.";
 
 export function personaPrompt(model) {
@@ -134,6 +149,28 @@ export function writeLedger(work, ledger, io = defaultIo) {
 
 export const jobKey = (id, model, frame) => `${id}/${model}/${frame}`;
 const round4 = (value) => Math.round(value * 10000) / 10000;
+/** Up to the next 1/10,000 of a dollar, so a charge is never rounded down. */
+const ceil4 = (value) => Math.ceil(Math.round(value * 1e8) / 1e4) / 10000;
+
+/**
+ * What one answered call cost (D9): its own token counts, every output token at the image-output price, and never less
+ * than the image price when an image came back. With no usage counts it is charged the reserve.
+ */
+export function callCostUsd(imageModel, usage, { imageReturned }) {
+  const reserve = CALL_RESERVE_USD[imageModel] ?? IMAGE_PRICES_USD[imageModel];
+  const tokens = IMAGE_TOKEN_PRICES_USD[imageModel];
+  if (!usage || typeof usage !== "object" || !tokens) return reserve;
+  const input = Number(usage.promptTokenCount) || 0;
+  const output = (Number(usage.candidatesTokenCount) || 0) + (Number(usage.thoughtsTokenCount) || 0);
+  const cost = ceil4((input * tokens.inputPerMillion + output * tokens.outputPerMillion) / 1e6);
+  return imageReturned ? Math.max(cost, IMAGE_PRICES_USD[imageModel]) : cost;
+}
+
+/** The usage counts kept in the ledger (numbers only). */
+export function usageSummary(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  return { input: Number(usage.promptTokenCount) || 0, output: Number(usage.candidatesTokenCount) || 0, thoughts: Number(usage.thoughtsTokenCount) || 0 };
+}
 export const sha256 = (buffer) => createHash("sha256").update(buffer).digest("hex");
 
 // ---------------------------------------------------------------- the plan
@@ -242,18 +279,29 @@ export function approvedPersonas(work, models, io = defaultIo) {
 
 // ---------------------------------------------------------------- the model call
 
-/** One generateContent call. Throws with a safe message; the key goes only in the header. */
-export async function callModel({ fetchImpl, key, imageModel, prompt, parts }) {
+/**
+ * One generateContent call: `{ image, usage }`. Throws with a safe message; an HTTP error carries `httpStatus`, and an
+ * answer without an image carries `answered` and its `usage`. The key goes only in the header.
+ */
+export async function requestImage({ fetchImpl, key, imageModel, prompt, parts }) {
   const response = await fetchImpl(endpointFor(imageModel), {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": key },
     body: JSON.stringify(demoRequestBody(prompt, parts)),
+    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`HTTP ${response.status} ${safeError(text, key)}`);
-  const picked = pickImage(JSON.parse(text));
-  if (picked.error) throw new Error(safeError(picked.error, key));
-  return Buffer.from(picked.data, "base64");
+  if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status} ${safeError(text, key)}`), { httpStatus: response.status });
+  const answer = JSON.parse(text);
+  const usage = answer?.usageMetadata ?? null;
+  const picked = pickImage(answer);
+  if (picked.error) throw Object.assign(new Error(safeError(picked.error, key)), { answered: true, usage });
+  return { image: Buffer.from(picked.data, "base64"), usage };
+}
+
+/** One generateContent call, the image only. */
+export async function callModel(options) {
+  return (await requestImage(options)).image;
 }
 
 /**
@@ -261,12 +309,12 @@ export async function callModel({ fetchImpl, key, imageModel, prompt, parts }) {
  * Stops (and says why) before a call would pass --max-calls or --budget-usd.
  */
 export async function runJobs({ jobs, args, ledger, key, fetchImpl, sharp, personas, io = defaultIo, now = () => new Date(), log = console.log }) {
-  const price = IMAGE_PRICES_USD[args.imageModel];
+  const reserve = CALL_RESERVE_USD[args.imageModel] ?? IMAGE_PRICES_USD[args.imageModel];
   const work = args.work;
   let stopped = null;
   for (const job of jobs) {
     const { item, model, frame, key: id } = job;
-    stopped = stopReason(ledger, { maxCalls: args.maxCalls, budgetUsd: args.budgetUsd, price });
+    stopped = stopReason(ledger, { maxCalls: args.maxCalls, budgetUsd: args.budgetUsd, price: reserve });
     if (stopped) break;
     const parts = [personas[model]];
     const refPath = referenceFile(work, item, frame);
@@ -279,22 +327,33 @@ export async function runJobs({ jobs, args, ledger, key, fetchImpl, sharp, perso
       parts.push({ mimeType: "image/png", data: Buffer.from(io.read(startPath)).toString("base64") });
     }
     ledger.calls += 1;
-    ledger.spentUsd = round4(ledger.spentUsd + price);
-    const entry = { id: item.id, model, frame, imageModel: args.imageModel, calls: (ledger.images[id]?.calls ?? 0) + 1, costUsd: round4((ledger.images[id]?.costUsd ?? 0) + price), at: now().toISOString() };
-    ledger.images[id] = { ...entry, status: "failed", reason: "in progress" };
+    const before = ledger.spentUsd;
+    const earlierCost = ledger.images[id]?.costUsd ?? 0;
+    // The reserve is held back while the call is out, so a run killed mid-call never under-counts.
+    ledger.spentUsd = round4(before + reserve);
+    const entry = { id: item.id, model, frame, imageModel: args.imageModel, calls: (ledger.images[id]?.calls ?? 0) + 1, at: now().toISOString() };
+    ledger.images[id] = { ...entry, costUsd: round4(earlierCost + reserve), status: "failed", reason: "in progress" };
     writeLedger(work, ledger, io);
+    let answer = null;
+    let charge = reserve;
     try {
-      const raw = await callModel({ fetchImpl, key, imageModel: args.imageModel, prompt: demoPrompt(item, model, frame), parts });
-      const png = await sharp(raw).png().toBuffer();
+      answer = await requestImage({ fetchImpl, key, imageModel: args.imageModel, prompt: demoPrompt(item, model, frame), parts });
+      charge = callCostUsd(args.imageModel, answer.usage, { imageReturned: true });
+      const png = await sharp(answer.image).png().toBuffer();
       io.mkdir(path.dirname(rawFile(work, item.id, model, frame)));
       io.write(rawFile(work, item.id, model, frame), png);
       const encoded = await encodeDemo(sharp, png);
       io.mkdir(path.dirname(encodedFile(work, item.id, model, frame)));
       io.write(encodedFile(work, item.id, model, frame), encoded.data);
-      ledger.images[id] = { ...entry, status: encoded.ok ? "generated" : "encode-over-target", reason: encoded.ok ? null : `smallest ${encoded.bytes} bytes`, sha256: sha256(encoded.data), bytes: encoded.bytes, quality: encoded.quality, width: encoded.width, height: encoded.height };
-      log(`made ${id} (${encoded.bytes} bytes, q${encoded.quality}; calls ${ledger.calls}, US$${ledger.spentUsd.toFixed(3)})`);
+      ledger.spentUsd = round4(before + charge);
+      ledger.images[id] = { ...entry, costUsd: round4(earlierCost + charge), usage: usageSummary(answer.usage), status: encoded.ok ? "generated" : "encode-over-target", reason: encoded.ok ? null : `smallest ${encoded.bytes} bytes`, sha256: sha256(encoded.data), bytes: encoded.bytes, quality: encoded.quality, width: encoded.width, height: encoded.height };
+      log(`made ${id} (${encoded.bytes} bytes, q${encoded.quality}; calls ${ledger.calls}, US$${ledger.spentUsd.toFixed(4)})`);
     } catch (error) {
-      ledger.images[id] = { ...entry, status: "failed", reason: safeError(error?.message ?? error, key) };
+      // An image that came back was billed in full; an answer without one, by its own counts; a refused request barely;
+      // anything else (a timeout or a lost connection) may still be billed, so it keeps the reserve.
+      if (!answer) charge = error?.httpStatus ? ERROR_CHARGE_USD : error?.answered ? callCostUsd(args.imageModel, error.usage, { imageReturned: false }) : reserve;
+      ledger.spentUsd = round4(before + charge);
+      ledger.images[id] = { ...entry, costUsd: round4(earlierCost + charge), usage: usageSummary(answer?.usage ?? error?.usage), status: "failed", reason: safeError(error?.message ?? error, key) };
       log(`failed ${id}: ${ledger.images[id].reason}`);
     }
     writeLedger(work, ledger, io);
