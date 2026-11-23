@@ -7,10 +7,10 @@ import { BodyMap } from "@/components/anatomy/BodyMap";
 import { getSession, messageFor } from "@/components/tasks/session";
 import { BODY_REGIONS, type RegionKey } from "@/lib/training/anatomy";
 import type { MuscleSummary } from "@/lib/training/muscle-history";
-import styles from "./Progress.module.css";
+import styles from "@/components/progress/Progress.module.css";
 
-const SHOWN = 6;
-const kg = (value: number) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const SHOWN = 4;
+const kg = (value: number) => Number(value).toLocaleString("en-GB", { maximumFractionDigits: 1 });
 
 /** The muscle map, as one link: this week's map in miniature and the muscles worked most. */
 export function MuscleMapLink({ summary }: { summary: MuscleSummary | null }) {
@@ -53,31 +53,25 @@ export function RecordsSection() {
   const shown = records ? (all ? records : records.slice(0, SHOWN)) : [];
 
   return (
-    <section aria-labelledby="records-title" className={styles.panel}>
-      <div className={styles.panelHead}>
-        <h2 id="records-title" className={styles.panelTitle}><Trophy size={17} aria-hidden="true" />Personal records</h2>
-        {records?.length ? <span className={styles.panelNote}>1RM ≈ estimate from your best set</span> : null}
+    <div className="grid gap-2" aria-labelledby="records-title" role="group">
+      <div className={styles.cardHead}>
+        <h3 id="records-title" className={styles.subTitle}><Trophy size={14} aria-hidden="true" /> Personal records</h3>
+        {records?.length ? <span className={styles.cardNote}>1RM ≈ estimate</span> : null}
       </div>
       {error ? <p role="alert" className="fitx-alert fitx-alert-danger">{error} <button type="button" className="fitx-alert-action" onClick={() => void load()}>Try again</button></p>
         : records === null ? <div className={styles.loading} aria-busy="true" aria-label="Loading your personal records" />
           : records.length ? (
             <>
-              <ol className={styles.records}>
-                {shown.map((record, index) => {
+              <ol className={styles.recordList}>
+                {shown.map((record) => {
                   const weight = record.best_weight_kg === null ? null : Number(record.best_weight_kg);
                   const reps = record.best_reps === null ? null : Number(record.best_reps);
                   const oneRep = record.estimated_one_rep_max === null ? null : Number(record.estimated_one_rep_max);
                   return (
                     <li key={record.id}>
-                      <span className={styles.rank}>{index + 1}</span>
-                      <span className={styles.recordName}>
-                        <strong>{record.exercise_name}</strong>
-                        <span>{new Date(record.achieved_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span>
-                      </span>
-                      <span className={styles.recordBest}>
-                        <strong>{weight !== null && weight > 0 ? `${kg(weight)} kg` : "Bodyweight"}{reps !== null ? ` × ${reps}` : ""}</strong>
-                        {oneRep !== null && oneRep > 0 ? <span>1RM ≈ {kg(oneRep)} kg <span className="sr-only">(estimate)</span></span> : null}
-                      </span>
+                      <span className={styles.gainName}>{record.exercise_name}</span>
+                      <span className={styles.gainMeta}>{new Date(record.achieved_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}{oneRep !== null && oneRep > 0 ? <> · 1RM ≈ {kg(oneRep)} kg<span className="sr-only"> (estimate)</span></> : null}</span>
+                      <span className={styles.gainValue} data-flat="">{weight !== null && weight > 0 ? `${kg(weight)} kg` : "Bodyweight"}{reps !== null ? ` × ${reps}` : ""}</span>
                     </li>
                   );
                 })}
@@ -94,6 +88,6 @@ export function RecordsSection() {
               <p>Finish a workout with weights and reps.</p>
             </div>
           )}
-    </section>
+    </div>
   );
 }

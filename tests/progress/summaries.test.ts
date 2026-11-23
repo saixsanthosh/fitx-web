@@ -71,18 +71,21 @@ describe("measurements", () => {
   });
 });
 
-describe("the Progress page stays minimal", () => {
-  const source = (file: string) => readFileSync(new URL(`../../src/app/(dashboard)/progress/${file}`, import.meta.url), "utf8");
-  test("keeps what other screens link to, and drops repeated widgets", () => {
-    const view = source("ProgressView.tsx");
+describe("the Progress page", () => {
+  const route = (file: string) => readFileSync(new URL(`../../src/app/(dashboard)/progress/${file}`, import.meta.url), "utf8");
+  const view = readFileSync(new URL("../../src/components/progress/ProgressAnalytics.tsx", import.meta.url), "utf8");
+  test("keeps what other screens link to: focus next, records, the muscle map, and goals (moved from Home)", () => {
+    assert.match(route("ProgressView.tsx"), /<ProgressAnalytics today=\{today\} \/>/);
     assert.match(view, /id="focus-next"/);
-    assert.match(view, />This week so far</);
     assert.match(view, /<RecordsSection \/>/);
-    assert.match(source("TrendSections.tsx"), />Workouts a week</);
-    assert.match(source("ProgressCards.tsx"), /href="\/progress\/muscles\?period=week"/);
-    // Food averages live on Nutrition and today's macros on Home; Progress does not repeat them.
-    assert.doesNotMatch(view + source("TrendSections.tsx"), /Calories a logged day|Protein a logged day|label: "Calories"/);
-    assert.doesNotMatch(view, /MuscleCard|AllTimeCard/);
+    assert.match(view, /<GoalsPanel date=\{today\}/);
+    assert.match(view, /params\.get\("panel"\) !== "goals"/);
+    assert.match(route("ProgressCards.tsx"), /href="\/progress\/muscles\?period=week"/);
+  });
+  test("labels calories burned as an estimate and never shows an unknown as 0", () => {
+    assert.match(view, /label="Burned"[^\n]*estimate/);
+    assert.match(view, /Not known/);
+    assert.doesNotMatch(view, /\?\? 0\)? kcal/);
   });
 });
 
@@ -99,12 +102,10 @@ describe("this week against last week", () => {
     assert.equal(hasLastWeek("2026-11-13", today), true);
     assert.equal(hasLastWeek("2026-10-01", today), true);
   });
-  test("the band leaves the comparison out when there is none", () => {
-    const source = readFileSync(new URL("../../src/app/(dashboard)/progress/TrendSections.tsx", import.meta.url), "utf8");
-    const view = readFileSync(new URL("../../src/app/(dashboard)/progress/ProgressView.tsx", import.meta.url), "utf8");
-    assert.match(source, /compare \? `\$\{label\}: /);
-    assert.match(view, /compare: hasLastWeek\(from, today\)/);
-    assert.match(view, /derived\?\.compare \? <p className=\{styles\.sectionNote\}>Against the same days last week/);
+  test("the period view leaves the comparison out when the period before was not tracked", () => {
+    const view = readFileSync(new URL("../../src/components/progress/ProgressAnalytics.tsx", import.meta.url), "utf8");
+    assert.match(view, /previousSummary\(period, index, data\.foodDays, activitiesKnown, first\)/);
+    assert.match(view, /change && against \?/);
   });
 });
 

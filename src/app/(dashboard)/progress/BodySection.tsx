@@ -1,74 +1,47 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Plus, Scale } from "lucide-react";
-import { Sparkline } from "@/components/charts/Sparkline";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
+import { WeightLine } from "@/components/progress/WeightLine";
+import { weightView, type Period } from "@/components/progress/period";
+import styles from "@/components/progress/Progress.module.css";
 import { getSession, messageFor } from "@/components/tasks/session";
-import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
-import { latestMeasurements, measurementSaved, weightSummary, type BodyMetricRow, type MeasurementSaved } from "@/lib/data/progress";
+import { latestMeasurements, measurementSaved, type BodyMetricRow, type MeasurementSaved } from "@/lib/data/progress";
 import { localDateKey } from "@/lib/domain/dates";
-import { addDays } from "@/lib/domain/day-keys";
 import { notifyUserContextChanged, syncProfileWeight } from "@/lib/domain/user-context";
 import { WEIGHT_RANGE_KG, weightIn, weightText, weightToKg, weightUnitOf } from "@/lib/domain/weight-display";
-import styles from "./Progress.module.css";
 
-type Range = "30" | "90" | "365" | "0";
-const RANGES: ReadonlyArray<{ value: Range; label: string }> = [
-  { value: "30", label: "30 d" },
-  { value: "90", label: "90 d" },
-  { value: "365", label: "1 yr" },
-  { value: "0", label: "All" },
-];
-const RANGE_WORDS: Record<Exclude<Range, "0">, string> = { "30": "in 30 days", "90": "in 90 days", "365": "in a year" };
-/** Body rows read, newest first. Older rows are not loaded, so a change is named by the date it starts from. */
-const BODY_ROWS = 365;
 const MEASUREMENTS = ["waist", "chest", "hips", "arm", "thigh", "neck"];
-const dayLabel = (key: string, options: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" }) => new Date(`${key}T12:00:00`).toLocaleDateString(undefined, options);
+const dayLabel = (key: string, options: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" }) => new Date(`${key}T12:00:00`).toLocaleDateString("en-GB", options);
 /** "since 3 Jan", with the year when it is not this year's. */
 const sinceLabel = (key: string, today: string) => `since ${dayLabel(key, key.slice(0, 4) === today.slice(0, 4) ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" })}`;
 const signed = (value: number, digits = 1) => `${value > 0 ? "+" : value < 0 ? "−" : "±"}${Math.abs(value).toFixed(digits)}`;
 
 const PROFILE_WEIGHT_NOT_SAVED = "Measurement saved. Your profile weight didn't update.";
 
-/** Weight trend and the newest of each measurement, in the member's unit, with the form to log them in a sheet. */
-export function BodySection() {
+/**
+ * Weight for the chosen period (the weigh-ins in it, drawn by date) and the newest of each measurement, in the
+ * member's unit, with the form to log them in a sheet. The rows are read once by the page (newest first).
+ */
+export function BodySection({ rows, error, onReload, period }: {
+  rows: BodyMetricRow[] | null;
+  error: string;
+  onReload: () => Promise<void> | void;
+  period: Period;
+}) {
   const unit = weightUnitOf(useOptionalUserContext()?.data?.preferences.weight_unit);
-  const [metrics, setMetrics] = useState<BodyMetricRow[] | null>(null);
-  const [error, setError] = useState("");
-  const [range, setRange] = useState<Range>("90");
   const [open, setOpen] = useState(false);
-  const [today] = useState(() => localDateKey());
   // A weigh-in that saved while the profile copy of the weight did not: the kilograms still to bring across.
   const [unsyncedKg, setUnsyncedKg] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const { db, userId } = await getSession();
-      const result = await db.from("body_metrics").select("id,date,weight,body_fat,measurements").eq("user_id", userId)
-        .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(BODY_ROWS);
-      if (result.error) throw result.error;
-      setMetrics((result.data ?? []) as BodyMetricRow[]);
-      setError("");
-    } catch (failure) {
-      setError(messageFor(failure, "Your body measurements could not be loaded."));
-    }
-  }, []);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
-
-  const weight = useMemo(() => weightSummary(metrics ?? [], today, Number(range)), [metrics, today, range]);
-  const everWeighed = useMemo(() => weightSummary(metrics ?? [], today, 0).latest, [metrics, today]);
-  const measures = useMemo(() => latestMeasurements(metrics ?? []), [metrics]);
-  const lastWeight = everWeighed?.kg ?? null;
-  // "All" starts at the oldest weigh-in loaded, which is the first only when every row was read; a range whose
-  // start is older than the oldest row loaded is cut short. Either way the change names the day it starts from.
-  const capped = (metrics?.length ?? 0) >= BODY_ROWS;
-  const oldestLoaded = metrics?.at(-1)?.date ?? null;
-  const cutShort = capped && oldestLoaded !== null && range !== "0" && oldestLoaded > addDays(today, -Number(range));
-  const changeWords = range === "0" || cutShort ? (weight.points[0] ? sinceLabel(weight.points[0].date, today) : "") : RANGE_WORDS[range];
+  const weight = weightView(rows ?? [], period);
+  const everWeighed = weightView(rows ?? [], { ...period, end: period.today }).latest;
+  const measures = latestMeasurements(rows ?? []);
   const lastBodyFat = measures.find((line) => line.name === "body_fat")?.latest ?? null;
+  const shownLatest = weight.latest ?? everWeighed;
 
   const retrySync = async () => {
     if (unsyncedKg === null || syncing) return;
@@ -84,9 +57,9 @@ export function BodySection() {
   };
 
   return (
-    <section aria-labelledby="body-title" className={styles.panel}>
-      <div className={styles.panelHead}>
-        <h2 id="body-title" className={styles.panelTitle}><Scale size={17} aria-hidden="true" />Body</h2>
+    <section aria-labelledby="body-title" className={styles.card}>
+      <div className={styles.cardHead}>
+        <h2 id="body-title" className={styles.cardTitle}><Scale size={17} aria-hidden="true" />Weight</h2>
         <button type="button" className="fitx-button fitx-button-secondary" onClick={() => setOpen(true)}><Plus size={16} aria-hidden="true" />Log measurement</button>
       </div>
 
@@ -96,51 +69,43 @@ export function BodySection() {
           <button type="button" className="fitx-alert-action" disabled={syncing} onClick={() => void retrySync()}>{syncing ? "Trying…" : "Try again"}</button>
         </p>
       ) : null}
-      {error ? <p role="alert" className="fitx-alert fitx-alert-danger">{error} <button type="button" className="fitx-alert-action" onClick={() => void load()}>Try again</button></p>
-        : metrics === null ? <div className={`${styles.loading} ${styles.loadingTall}`} aria-busy="true" aria-label="Loading your body measurements" />
+      {error ? <p role="alert" className="fitx-alert fitx-alert-danger">{error} <button type="button" className="fitx-alert-action" onClick={() => void onReload()}>Try again</button></p>
+        : rows === null ? <div className={styles.loading} aria-busy="true" aria-label="Loading your body measurements" />
           : !everWeighed && !measures.length ? (
             <div className={styles.empty}>
               <strong>No weigh-ins yet</strong>
-              <p>Log your weight to see its trend.</p>
+              <p>Log your weight to see its line here.</p>
             </div>
           ) : (
             <>
-              {everWeighed ? (
-                <div className="grid gap-3">
-                  <div className={styles.weightHead}>
-                    <div>
-                      <p className={styles.chartLabel}>Weight</p>
-                      <p className={styles.weightNow}>{weightText(everWeighed.kg, unit)}<small>{unit}</small></p>
-                      <p className={styles.weightMeta}>
-                        {weight.changeKg !== null
-                          ? <><span className={styles.change}>{signed(weightIn(weight.changeKg, unit))} {unit}</span> {changeWords}</>
-                          : `Logged ${dayLabel(everWeighed.date, { day: "numeric", month: "short", year: "numeric" })}`}
-                      </p>
-                    </div>
-                    <Segmented options={RANGES} value={range} onChange={setRange} label="Time range" />
-                  </div>
-                  {weight.points.length ? (
-                    <Sparkline
-                      values={weight.points.map((point) => weightIn(point.kg, unit))}
-                      label={`Weight from ${dayLabel(weight.points[0].date)} to ${dayLabel(weight.points.at(-1)!.date)}`}
-                      format={(value) => `${value.toFixed(1)} ${unit}`}
-                      startLabel={dayLabel(weight.points[0].date)}
-                      endLabel={dayLabel(weight.points.at(-1)!.date)}
-                      showRange
-                      height={112}
-                    />
-                  ) : <p className={styles.panelNote}>No weigh-ins in this range.</p>}
+              {shownLatest ? (
+                <div className={styles.weightHead}>
+                  <p className={styles.weightNow}>{weightText(shownLatest.kg, unit)}<small>{unit}</small></p>
+                  <p className={styles.weightMeta}>
+                    {weight.changeKg !== null
+                      ? <><span className={styles.change}>{signed(weightIn(weight.changeKg, unit))} {unit}</span> {sinceLabel(weight.points[0].date, period.today)}</>
+                      : `Logged ${dayLabel(shownLatest.date, { day: "numeric", month: "short", year: "numeric" })}`}
+                  </p>
                 </div>
-              ) : <p className={styles.panelNote}>No weigh-ins yet.</p>}
+              ) : null}
+              {weight.points.length >= 2 ? (
+                <WeightLine
+                  points={weight.points.map((point) => ({ date: point.date, kg: weightIn(point.kg, unit) }))}
+                  from={period.from}
+                  to={period.to}
+                  format={(value) => `${value.toFixed(1)} ${unit}`}
+                  label={`Weight from ${dayLabel(weight.points[0].date)} to ${dayLabel(weight.points.at(-1)!.date)}`}
+                />
+              ) : everWeighed ? <p className={styles.cardNote}>{weight.points.length === 1 ? "One weigh-in in this period. Log another to see the line." : "No weigh-ins in this period."}</p> : null}
               {measures.length ? (
                 <div className="grid gap-2">
-                  <h3 className={styles.chartLabel}>Measurements</h3>
+                  <h3 className={styles.subTitle}>Measurements</h3>
                   <ul className={styles.measures}>
                     {measures.map((line) => (
                       <li key={line.name}>
                         <span>{line.name === "body_fat" ? "Body fat" : line.name.replaceAll("_", " ")}</span>
                         <strong>{line.latest.toFixed(1)} {line.unit}</strong>
-                        <small>{line.changeCm !== null && line.since ? `${signed(line.changeCm)} ${sinceLabel(line.since, today)}` : dayLabel(line.date)}</small>
+                        <small>{line.changeCm !== null && line.since ? `${signed(line.changeCm)} ${sinceLabel(line.since, period.today)}` : dayLabel(line.date)}</small>
                       </li>
                     ))}
                   </ul>
@@ -153,13 +118,13 @@ export function BodySection() {
         open={open}
         onClose={() => setOpen(false)}
         unit={unit}
-        lastWeight={lastWeight}
+        lastWeight={everWeighed?.kg ?? null}
         lastBodyFat={lastBodyFat}
         onSaved={async (result) => {
           // Only a new weigh-in settles the profile weight; a waist size alone leaves an earlier notice in place.
           if (result.weighed) setUnsyncedKg(result.unsyncedKg);
           setOpen(false);
-          await load();
+          await onReload();
         }}
       />
     </section>

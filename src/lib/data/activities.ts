@@ -10,7 +10,11 @@ import { pagedRows, startOfDayIso, toNumber } from "./rows";
 
 type Db = Pick<SupabaseClient, "from">;
 
-export type ActivityRow = { id: string; sport: string; startedAt: string; distanceM: number; movingSeconds: number };
+export type ActivityRow = {
+  id: string; sport: string; startedAt: string; distanceM: number; movingSeconds: number;
+  /** Only with `{ kcal: true }`: the recorded calorie estimate (MET x body weight x moving time), null when none was recorded. */
+  kcalEstimate?: number | null;
+};
 export type ActivitiesResult = {
   /** False when this database has no activities table yet. */
   available: boolean;
@@ -19,12 +23,15 @@ export type ActivitiesResult = {
   capped: boolean;
 };
 
-type Row = { id?: unknown; sport?: unknown; started_at?: unknown; distance_m?: unknown; moving_seconds?: unknown };
+type Row = { id?: unknown; sport?: unknown; started_at?: unknown; distance_m?: unknown; moving_seconds?: unknown; kcal_estimate?: unknown };
 
-/** Activities that started on the member's days from `fromKey` to `toKey` (inclusive), oldest first. */
-export async function loadActivitiesBetween(db: Db, userId: string, fromKey: string, toKey: string): Promise<ActivitiesResult> {
+/**
+ * Activities that started on the member's days from `fromKey` to `toKey` (inclusive), oldest first. With
+ * `kcal`, each also carries its recorded calorie estimate (Progress's calories burned).
+ */
+export async function loadActivitiesBetween(db: Db, userId: string, fromKey: string, toKey: string, options: { kcal?: boolean } = {}): Promise<ActivitiesResult> {
   const result = await pagedRows<Row>((from, to) => db.from("activities")
-    .select("id,sport,started_at,distance_m,moving_seconds")
+    .select(options.kcal ? "id,sport,started_at,distance_m,moving_seconds,kcal_estimate" : "id,sport,started_at,distance_m,moving_seconds")
     .eq("user_id", userId)
     .gte("started_at", startOfDayIso(fromKey))
     .lt("started_at", startOfDayIso(addDays(toKey, 1)))
@@ -47,6 +54,7 @@ export async function loadActivitiesBetween(db: Db, userId: string, fromKey: str
         startedAt,
         distanceM: Math.max(0, toNumber(row.distance_m) ?? 0),
         movingSeconds: Math.max(0, toNumber(row.moving_seconds) ?? 0),
+        ...(options.kcal ? { kcalEstimate: toNumber(row.kcal_estimate) } : {}),
       }];
     }),
   };
