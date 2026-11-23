@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { Notice, PageHead, Panel, consoleStyles as ui } from "@/components/console/ui";
 import { ModuleState } from "@/components/module-state";
 import { PendingButton } from "@/components/pending-button";
-import { ADMIN_OPS_MIGRATION, FEATURE_KEYS, FEATURE_LABELS, MAINTENANCE_LIMITS, maintenanceTiming } from "@/components/settings/settings-rules";
+import { ADMIN_OPS_MIGRATION, FEATURE_KEYS, FEATURE_LABELS, LEGACY_FEATURE_KEYS, MAINTENANCE_LIMITS, maintenanceTiming } from "@/components/settings/settings-rules";
 import styles from "@/components/settings/settings.module.css";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
+import { exploreReadiness } from "@/lib/data/explore";
 import { getPlatformSettings } from "@/lib/data/platform";
 import { rootConfigured } from "@/lib/operators";
 import { firstParam } from "@/lib/search-params";
@@ -33,7 +34,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const state = firstParam(params.state);
   const notice = state === "invalid" ? { tone: "error" as const, text: firstParam(params.message).slice(0, 200) || "Check the values and save again." } : NOTICES[state];
   const manage = hasPermission(actor, "settings.manage");
-  const result = await getPlatformSettings();
+  const [result, explore] = await Promise.all([getPlatformSettings(), exploreReadiness()]);
+  // The Explore switches appear once 20261124100020 is applied; until then the database would refuse them.
+  const keys = explore === "ready" ? FEATURE_KEYS : LEGACY_FEATURE_KEYS;
   const env = [
     ["Supabase address", Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL), false],
     ["Supabase publishable key", Boolean(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY), false],
@@ -57,11 +60,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       {result.state === "ready" ? (
         <form action={saveSettings} className={ui.stack}>
           <input type="hidden" name="updated_at" value={result.updatedAt ?? ""} />
+          {explore === "ready" && <input type="hidden" name="explore_keys" value="1" />}
           <fieldset className={styles.fieldset} disabled={!manage}>
             <Panel title="Features" hint="Switched-off pages show a short notice instead" className={ui.rise}>
               <fieldset className={styles.switches}>
                 <legend className="sr-only">Features</legend>
-                {FEATURE_KEYS.map((key) => (
+                {keys.map((key) => (
                   <label className={styles.toggle} key={key}>
                     <span><strong>{FEATURE_LABELS[key].label}</strong><small>{FEATURE_LABELS[key].hint}</small></span>
                     <span className={styles.end}>

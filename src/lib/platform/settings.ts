@@ -1,10 +1,10 @@
 // Platform settings the app reads (written in FITX Admin, Settings). Pure: no I/O. The same keys and limits
-// are in admin/src/components/settings/settings-rules.ts and in fitx_admin_op_save_platform_settings
-// (supabase/migrations/20261121100033_fitx_admin_ops.sql); tests/platform/settings.test.ts keeps them equal.
+// are in admin/src/components/settings/settings-rules.ts and in fitx_admin_op_save_platform_settings (its
+// newest defining migration, 20261124100020_fitx_admin_explore.sql); tests/platform/settings.test.ts keeps them equal.
 import { BRAND } from "@/config/brand";
 import { SPORT_INFO } from "@/lib/activity/config";
 
-export const FEATURE_KEYS = ["ai_coach", "home_workout", "activity", "subscriptions", "support"] as const;
+export const FEATURE_KEYS = ["ai_coach", "home_workout", "activity", "subscriptions", "support", "explore", "explore_video"] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 export type Maintenance = { title: string; body: string; startsAt: string | null; endsAt: string | null };
@@ -15,9 +15,12 @@ export type PlatformSettings = {
   site: { supportEmail: string; instagramUrl: string };
 };
 
-/** Everything on, no maintenance notice, the contact details from src/config/brand.ts. */
+/**
+ * Everything on except Explore videos (off until the owner has checked video posts on real phones), no
+ * maintenance notice, the contact details from src/config/brand.ts. A key the saved row lacks takes its default.
+ */
 export const PLATFORM_DEFAULTS: PlatformSettings = Object.freeze({
-  features: Object.freeze({ ai_coach: true, home_workout: true, activity: true, subscriptions: true, support: true }),
+  features: Object.freeze({ ai_coach: true, home_workout: true, activity: true, subscriptions: true, support: true, explore: true, explore_video: false }),
   maintenance: null,
   site: Object.freeze({ supportEmail: BRAND.supportEmail, instagramUrl: BRAND.instagramUrl }),
 }) as PlatformSettings;
@@ -29,6 +32,8 @@ export const FEATURE_NAMES: Record<FeatureKey, string> = {
   activity: "Activity",
   subscriptions: "Subscriptions",
   support: "Help messages",
+  explore: "Explore",
+  explore_video: "Video posting",
 };
 
 const EMAIL = /^[^@\s<>"]+@[^@\s<>"]+\.[A-Za-z]{2,}$/;
@@ -49,8 +54,9 @@ function time(value: unknown): string | null {
 }
 
 /**
- * A platform_settings row (or anything else) as settings: a switch is off only when saved as false, a
- * maintenance notice needs a title and a message, and contact details fall back to the defaults unless valid.
+ * A platform_settings row (or anything else) as settings: a saved switch is off only when saved as false, a
+ * switch the row does not name takes its default (so a missing explore_video reads off), a maintenance notice
+ * needs a title and a message, and contact details fall back to the defaults unless valid.
  */
 export function parsePlatformSettings(row: unknown): PlatformSettings {
   const source = record(Array.isArray(row) ? row[0] : row);
@@ -60,7 +66,9 @@ export function parsePlatformSettings(row: unknown): PlatformSettings {
   const title = maintenance ? clean(maintenance.title, 120) : "";
   const body = maintenance ? clean(maintenance.body, 600) : "";
   return {
-    features: Object.fromEntries(FEATURE_KEYS.map((key) => [key, features[key] !== false])) as Record<FeatureKey, boolean>,
+    features: Object.fromEntries(
+      FEATURE_KEYS.map((key) => [key, features[key] === undefined ? PLATFORM_DEFAULTS.features[key] : features[key] !== false]),
+    ) as Record<FeatureKey, boolean>,
     maintenance: maintenance && title && body ? { title, body, startsAt: time(maintenance.startsAt), endsAt: time(maintenance.endsAt) } : null,
     site: {
       supportEmail: typeof site.supportEmail === "string" && EMAIL.test(site.supportEmail) && site.supportEmail.length <= 254 ? site.supportEmail : PLATFORM_DEFAULTS.site.supportEmail,
@@ -88,18 +96,42 @@ export const FEATURE_ROUTES: Record<FeatureKey, ReadonlyArray<{ path: string; me
   // New checkouts only: /subscription stays open (cancel, payments, refunds) and hides its plans while off.
   subscriptions: [{ path: "/api/billing/checkout" }],
   support: [{ path: "/api/support", methods: ["POST"] }, { path: "/api/support/reply", methods: ["POST"] }],
+  // Every Explore page; FEATURE_OPEN_PATHS keeps Explore settings open. The database refuses Explore use too
+  // (fitx_social_member), so a stale minute of cached settings never lets new posts through.
+  explore: [{ path: "/explore" }],
+  // The video composer. Signed video links (/api/social/video-links) are refused by the database while videos are
+  // off (fitx_social_video_link_allowed raises social_unavailable, which the route answers with 503); src/proxy.ts
+  // does not run for /api/social, so a gate entry there would never be reached.
+  explore_video: [{ path: "/explore/videos/new" }],
 };
 
-/** The feature a request belongs to, or null. A path matches its entry and anything under it. */
+/**
+ * Paths that stay open while their feature is off, so members can still delete their content, leave, block and
+ * unblock (the database lets those through as well: fitx_social_member_any).
+ */
+export const FEATURE_OPEN_PATHS: Partial<Record<FeatureKey, readonly string[]>> = {
+  explore: ["/explore/settings"],
+};
+
+const under = (pathname: string, path: string) => pathname === path || pathname.startsWith(`${path}/`);
+
+/**
+ * The feature a request belongs to, or null. A path matches its entry and anything under it; when several entries
+ * match, the longest wins (/explore/videos/new is explore_video, /explore/feed is explore), and a path under one of
+ * the winning feature's open paths belongs to no feature.
+ */
 export function featureForPath(pathname: string, method = "GET"): FeatureKey | null {
   const verb = method.toUpperCase();
+  let best: { key: FeatureKey; length: number } | null = null;
   for (const key of FEATURE_KEYS) {
     for (const route of FEATURE_ROUTES[key]) {
       if (route.methods && !route.methods.includes(verb)) continue;
-      if (pathname === route.path || pathname.startsWith(`${route.path}/`)) return key;
+      if (under(pathname, route.path) && (!best || route.path.length > best.length)) best = { key, length: route.path.length };
     }
   }
-  return null;
+  if (!best) return null;
+  if (FEATURE_OPEN_PATHS[best.key]?.some((path) => under(pathname, path))) return null;
+  return best.key;
 }
 
 export function isFeatureKey(value: unknown): value is FeatureKey {

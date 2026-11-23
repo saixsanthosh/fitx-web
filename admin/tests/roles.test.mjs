@@ -26,8 +26,9 @@ function sqlRolePermissions() {
   return table;
 }
 
-test("the TypeScript role table matches fitx_admin_role_permissions in the newest migration (20261121100030)", () => {
-  assert.equal(definers.at(-1).name, "20261121100030_fitx_admin_v2.sql");
+test("the TypeScript role table matches fitx_admin_role_permissions in the newest migration (20261124100020)", () => {
+  assert.equal(definers.at(-1).name, "20261124100020_fitx_admin_explore.sql");
+  assert.deepEqual(definers.map((entry) => entry.name), ["20261118180001_fitx_admin_roles.sql", "20261121100030_fitx_admin_v2.sql", "20261124100020_fitx_admin_explore.sql"]);
   const sql = sqlRolePermissions();
   assert.deepEqual(Object.keys(sql).sort(), [...ADMIN_ROLES].sort());
   for (const role of ADMIN_ROLES) {
@@ -50,12 +51,12 @@ test("operator permission checks use the same role table", () => {
 });
 
 test("the new permissions are granted as the contract says", () => {
-  assert.equal(PERMISSIONS.length, 21);
+  assert.equal(PERMISSIONS.length, 23);
   for (const permission of ["nutrition.manage", "billing.manage", "notifications.send", "settings.manage", "security.view"]) assert.ok(PERMISSIONS.includes(permission), permission);
   const adminLacks = PERMISSIONS.filter((permission) => !can("admin", permission)).sort();
   assert.deepEqual(adminLacks, ["access.manage", "audit.export", "billing.manage", "people.delete", "settings.manage"]);
   assert.deepEqual([...ROLE_PERMISSIONS.content_editor].sort(), ["announcements.manage", "content.manage", "notifications.send", "nutrition.manage", "overview.view"]);
-  assert.deepEqual([...ROLE_PERMISSIONS.support_agent].sort(), ["overview.view", "people.support", "people.view", "support.reply", "support.view"]);
+  assert.deepEqual([...ROLE_PERMISSIONS.support_agent].sort(), ["explore.view", "overview.view", "people.support", "people.view", "support.reply", "support.view"]);
   assert.deepEqual([...ROLE_PERMISSIONS.viewer].sort(), ["overview.view", "reports.view"]);
   assert.equal(PAGE_PERMISSIONS["/nutrition"], "nutrition.manage");
   assert.equal(PAGE_PERMISSIONS["/notifications"], "notifications.send");
@@ -65,6 +66,18 @@ test("the new permissions are granted as the contract says", () => {
   assert.equal(isConsolePath("/audit"), true);
   assert.equal(isConsolePath("https://evil.example"), false);
   assert.equal(isConsolePath("/account"), false);
+});
+
+test("Explore: admins and super-admins moderate, support agents only look (O5 a), editors and viewers see nothing", () => {
+  for (const permission of ["explore.view", "explore.moderate"]) assert.ok(PERMISSIONS.includes(permission), permission);
+  assert.deepEqual(ADMIN_ROLES.filter((role) => can(role, "explore.view")), ["super_admin", "admin", "support_agent"]);
+  assert.deepEqual(ADMIN_ROLES.filter((role) => can(role, "explore.moderate")), ["super_admin", "admin"]);
+  for (const path of ["/explore", "/explore/communities", "/explore/challenges"]) assert.equal(PAGE_PERMISSIONS[path], "explore.view", path);
+  assert.equal(isConsolePath("/explore"), true);
+  // The SQL table gives the same answer (fitx_admin_op_can reads it).
+  const sql = sqlRolePermissions();
+  assert.deepEqual(ADMIN_ROLES.filter((role) => sql[role].includes("explore.moderate")), ["super_admin", "admin"]);
+  assert.deepEqual(ADMIN_ROLES.filter((role) => sql[role].includes("explore.view")), ["super_admin", "admin", "support_agent"]);
 });
 
 test("super-admins hold every permission and every permission belongs to some role", () => {
@@ -87,7 +100,7 @@ test("the most sensitive permissions stay with super-admins", () => {
 test("navigation shows only the pages a role may open", () => {
   assert.deepEqual(allowedPages("viewer"), ["/overview", "/reports"]);
   assert.deepEqual(allowedPages("content_editor"), ["/overview", "/training", "/nutrition", "/announcements", "/notifications"]);
-  assert.deepEqual(allowedPages("support_agent"), ["/overview", "/users", "/support"]);
+  assert.deepEqual(allowedPages("support_agent"), ["/overview", "/users", "/support", "/explore", "/explore/communities", "/explore/challenges"]);
   assert.equal(allowedPages("super_admin").length, Object.keys(PAGE_PERMISSIONS).length);
 });
 
