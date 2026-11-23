@@ -1,4 +1,4 @@
-# Platform database runbook (Phases 1 to 11, the Admin redesign and the "next level" wave 1)
+# Platform database runbook (Phases 1 to 11, the Admin redesign and the "next level" waves 1 and 2)
 
 This runbook applies every pending database change to the production Supabase project, one file at a
 time. It is written for the FITX owner. You do not need to know SQL. "The session" below means the Claude
@@ -12,11 +12,13 @@ anything without your OK for that file.
 - **What is pending:** the six files #46 to #51, `20261123100000` to `20261123100060` (the "next level" job's wave 1:
   the floating AI Coach button setting, Home's quote of the day, the Workouts and Nutrition first-time setups, the
   new Activity sports and best efforts, and Explore), in `supabase/migrations` on `master` once wave 1 is merged
-  (until then on the branch `claude/next`). That folder is the source of truth. Sections 2 and 3 still list all 51
-  files, so each summary and Check stays next to its file.
+  (until then on the branch `claude/next`). That folder is the source of truth. Then #52, `20261124100000` (wave 2:
+  Explore, part 2 core), on the branch `claude/next2` until wave 2 is merged; it is not applied anywhere yet and needs
+  #51. Sections 2 and 3 still list all 52 files, so each summary and Check stays next to its file.
 - **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #46, #47, #48, #49, #50 and #51 in that order
-  (section 3), then section 6.3 and 6.1. Start 5 to 10 belong to the first sitting, before #1; they are kept as
-  its record and need not be run again.
+  (section 3), then #52 (before the wave-2 deploy: nothing in wave 1 needs it, so it may come in a later sitting),
+  then section 6.3 and 6.1. Start 5 to 10 belong to the first sitting, before #1; they are kept as its record and
+  need not be run again.
 - **Other runbook:** `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
 
 ## 0. How each step works
@@ -42,8 +44,10 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only the six pending files, #46 to #51, and only from `master` (or `claude/next` before the merge).
-  Never #1 to #45 again: production has them, and #7 must never run a second time. Never a copy from another
+- Only the pending files, #46 to #52, and only from `master` (or `claude/next`, and `claude/next2` for #52, before
+  the merge). Never #1 to #45 again: production has them, and #7 must never run a second time. Once #52 is applied,
+  never #51 again either (except after #52's undo, section 5): it would put back part 1's Explore functions and read
+  policies over #52's. Never a copy from another
   branch or worktree, never the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from the
   repository), and never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
   production already has (section 1.8).
@@ -51,13 +55,14 @@ For each file, in the order of section 2:
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Apply #46 to #51 in one sitting, then deploy the app (section 6.4) the same day.
+- Pick a quiet time. Apply #46 to #51 in one sitting, then deploy the app (section 6.4) the same day; #52 goes before the wave-2 deploy.
 - The live app keeps working throughout: #46 to #51 add columns, Home's quote tables, Explore's own tables,
   functions and bucket, and a wider sport rule, and change no row the live app reads (#48 and #49 only fill their
   own new columns: #48 marks every member who finished onboarding as set up for Workouts, once, on the run that adds
   the column; #49 marks members with a diet). The new app checks for each file and works without the ones not
-  applied yet.
-- #47 (50 KB) and #51 (90 KB) are larger than the files the connector took reliably. The session sends them with
+  applied yet. #52 adds Explore part 2's tables and columns and rewrites part 1's Explore functions and three read
+  policies in place, under the same names and arguments, so wave 1's Explore keeps working after it; it deletes no row.
+- #47 (50 KB), #51 (90 KB) and #52 (147 KB) are larger than the files the connector took reliably. The session sends them with
   the staged, md5-checked method it used for #42 to #45 (each part stored and compared, then the whole file run
   once and recorded under its own number), or through the SQL editor (section 0.2), recording each one with the
   same Record query as #12, with that file's number and name.
@@ -114,12 +119,12 @@ fitx_share_access_and_index` and `20261116093902 fitx_admin_control_plane`, whic
 to #45 of section 2, each under its file's number and name (History 1 ran after each earlier sitting; #42 to #45
 were recorded under their own numbers when they were applied). The last row is `20261121100040
 fitx_security_hardening`. If there are other rows, a row with a time instead of a file's number, or a row for #46 to
-#51, stop and compare them with section 2 first.
+#52, stop and compare them with section 2 first.
 
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the six pending files that are already there. Expect: no rows
+-- Start 2: changes from the seven pending files that are already there. Expect: no rows
 select m.file, m.object
 from (values
   ('20261123100000', 'column', 'user_preferences.coach_launcher'),
@@ -127,7 +132,8 @@ from (values
   ('20261123100020', 'column', 'user_preferences.workout_setup_at'),
   ('20261123100040', 'column', 'user_preferences.nutrition_setup_at'),
   ('20261123100050', 'column', 'activities.best_efforts'),
-  ('20261123100060', 'table', 'social_posts')
+  ('20261123100060', 'table', 'social_posts'),
+  ('20261124100000', 'table', 'social_stories')
 ) as m (file, kind, object)
 where case m.kind
   when 'table' then to_regclass('public.' || m.object) is not null
@@ -376,6 +382,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 49 | `20261123100040_fitx_nutrition_v2` | The Nutrition first-time setup: when it was answered. | Additive, fills `nutrition_setup_at` for members with a diet saved · yes | #7 | Nutrition setup asked once | Until it is applied the setup counts as done when a diet is saved. |
 | 50 | `20261123100050_fitx_coach_activity_v2` | Seven more Activity sports (hike, trail run, mountain bike, e-bike, wheelchair, inline skate, paddle) and each activity's best efforts. | Additive (a wider sport rule in place of the old one) · yes | #26 | The new sports on Record and import; best efforts saved with each activity | Until it is applied the app offers walk, run and ride only and works best efforts out on the activity page. Before an undo, delete or change activities of the new sports (section 5). |
 | 51 | `20261123100060_fitx_social_v1` | Explore, part 1: profiles, follows and follow requests, photo posts, hashtags, likes, saves, comments, blocks, restrictions, reports and notifications (15 tables), 57 functions, the private `social-media` bucket with 3 storage policies, rate counters and write limits. | Additive · yes | #45 (its write limits) | Explore | Large (90 KB): section 0.1. Until it is applied Explore says it needs the next update; everything else works as before. Its bucket is emptied and deleted in Dashboard → Storage, not with SQL (section 5). |
+| 52 | `20261124100000_fitx_social_v2_core` | Explore, part 2 core: stories (with views and likes), member sanctions, the storage trash, conversations and messages, communities and members, challenges (templates, entries, badges) and the moderation record (15 tables); moderation states on posts and comments; item-level visibility, sanctions, age bands and the Explore switch enforced in the database; report evidence; video posts; the bucket also takes `video/mp4`; the hourly clean-up job `fitx-social-hourly`; Realtime inbox pings. 25 new functions, 36 of #51's rewritten under the same names and arguments, the notification settings save from 5 to 9 parameters. | Additive (one relaxed rule: a notification may name no member) · yes | #51; #41 (date of birth), #42 (operator links), #43 (the Explore switch), #45 (its write limits); #27's pg_cron for the hourly job (skipped without the `cron` schema) | Explore part 2 (stories, video, groups, challenges, moderation) | Large (147 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore keeps working with it. Once it is applied, never run #51 again (section 0.1). It deletes no row. |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1362,7 +1369,7 @@ select
 ```
 
 66 is two triggers on each of the 33 tables members write directly. If `broadcast_tables` is not 0, a table was added
-to Realtime outside these files: tell the session. Run later, after #47 and #51, `write_limit_triggers` is higher: they add the
+to Realtime outside these files: tell the session. Run later, after #47, #51 and #52, `write_limit_triggers` is higher: they add the
 same limits to their own tables.
 
 ### #46 `20261123100000_fitx_shell_prefs`
@@ -1474,6 +1481,47 @@ select (select count(*) from pg_tables where schemaname = 'public' and tablename
        (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid where c.relname like 'social\_%' and t.tgname like 'fitx\_write\_budget\_%') as budget_triggers;
 ```
 
+### #52 `20261124100000_fitx_social_v2_core`
+
+Explore, part 2 core (wave 2). Fifteen new tables, all with row level security: stories (24 hours, photo or video)
+with their views and likes, member sanctions, the storage trash, conversations with their two sides and messages,
+communities and their members, challenges with their templates, entries and badges, and the moderation record. The
+group tables get only own-row read policies for now (a member's own messages, sides, memberships, entries and
+badges); the challenge templates, the trash and the moderation record have no policy and no grant to members at all
+(service role and `security definer` functions only, section 6.1). Posts and comments get a moderation state
+(visible, limited or hidden); an active Explore sanction stops the member's own Explore use and hides their posts,
+comments and stories from everyone else; age bands come from the date of birth (else the age), and members without a
+date of birth can add one once; Admin's Explore switch (`platform_settings`) is enforced in the database, with
+deleting, blocking, reporting and settings kept open. Reports keep an evidence snapshot (removed 90 days after
+review), a report now goes through across a block, and restricting is rate limited. Video posts (one video of at most
+30 seconds) follow Admin's `explore_video` switch; the `social-media` bucket also takes `video/mp4` (still 3 MB a
+file); signed video links have a daily play budget. 25 new functions; 36 of #51's functions are rewritten under the
+same names and arguments, and #51's read policies on posts, post photos and comments now call the item-level helpers;
+`fitx_social_save_notification_prefs` goes from 5 to 9 parameters (the four new ones have defaults, so wave 1's call
+still works). New tables members write have #45's write limits (16 more triggers). On production it also schedules
+the hourly clean-up job `fitx-social-hourly` (expired stories, orphan files, old report evidence and notifications;
+files leave the bucket only through the server's sweep) and adds the Realtime policy `social_inbox_read`. It deletes
+no row; `social_notifications.actor_id` may now be empty (notices from FITX). A second run changes nothing. After it,
+#51's Check gives other numbers: use this one.
+
+```sql
+-- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9
+select (select count(*) from pg_tables where schemaname = 'public' and tablename like 'social\_%' and rowsecurity) as tables_with_rls,
+       (select count(*) from pg_policies where (schemaname = 'public' and tablename like 'social\_%') or (schemaname = 'storage' and policyname like 'social\_media\_%')) as policies,
+       (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%') as functions,
+       (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%' and prosecdef and not coalesce(proconfig, '{}') @> array['search_path=""']) as definer_without_search_path,
+       (select count(*) from storage.buckets where id = 'social-media' and not public and file_size_limit = 3145728 and allowed_mime_types = array['image/webp','image/jpeg','video/mp4']) as bucket,
+       (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid where c.relname like 'social\_%' and t.tgname like 'fitx\_write\_budget\_%') as budget_triggers,
+       (select count(*) from information_schema.columns where table_schema = 'public' and table_name like 'social\_%' and column_name = 'moderation_state') as moderation_columns,
+       (select string_agg(pronargs::text, ',') from pg_proc where pronamespace = 'public'::regnamespace and proname = 'fitx_social_save_notification_prefs') as prefs_save_args;
+```
+
+Before #52 it gives `15, 18, 57, 0, 0, 28, 0, 5`. On production the session then also checks the job and the Realtime
+policy, expecting `1, 1`: `select (select count(*) from cron.job where jobname = 'fitx-social-hourly') as hourly_job,
+(select count(*) from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname =
+'social_inbox_read') as inbox_policy;` (the test copy has neither pg_cron nor Realtime). A 0 there means pg_cron or
+Realtime was off when #52 ran: tell the session; #52 can be run again once it is on.
+
 ## 4. If a migration fails part-way
 
 1. **Stop.** Do not apply the next file. The live app keeps working, and the new app waits for each file.
@@ -1524,7 +1572,8 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
-| 51 | First empty the `social-media` bucket and then delete it in Dashboard → Storage (Storage refuses to delete a bucket that still holds files, and its files are deleted with the Storage API, not with SQL). Then the SQL below. Deletes every Explore profile, post, comment, like, save, follow, block, restriction, report and notification, its functions and its storage policies; Explore then says it needs the next update. |
+| 52 | First run its Before undo query: if it is not 0, the session lists those files (stories, video posts and their posters, community covers, and files already waiting in the trash) and you delete them in Dashboard → Storage, or they stay in the bucket with nothing pointing at them. Then the SQL below, then remove #52's history row, then run #51's file once more through the SQL editor (section 0.2, steps 1 to 3, without its Record query: #51's history row is still there): that puts back part 1's function bodies, its three read policies, the five-parameter notification settings save and the bucket's two file types. Deletes every story, message, conversation, community, challenge, badge, sanction and moderation record, report evidence, video and text posts, FITX notices and notifications and reports of the new kinds; Explore works as after #51. |
+| 51 | Undo #52 first. First empty the `social-media` bucket and then delete it in Dashboard → Storage (Storage refuses to delete a bucket that still holds files, and its files are deleted with the Storage API, not with SQL). Then the SQL below. Deletes every Explore profile, post, comment, like, save, follow, block, restriction, report and notification, its functions and its storage policies; Explore then says it needs the next update. |
 | 50 | First run its Before undo query: if it is not 0, delete those activities (or change their sport to walk, run or ride) or the last step fails. Then the SQL below. Drops every saved best effort and puts back the walk, run and ride rule; the app offers those three only again. |
 | 49 | SQL below. Drops when each member answered the Nutrition setup; the app then counts the setup as done when a diet is saved. The answers stay. |
 | 48 | SQL below. Drops the setup time, the demonstration model choice and exercise media's model and caption; the app then counts the setup as done for members with an equipment list, and the model follows the profile's sex. |
@@ -1533,7 +1582,7 @@ feature off in the app is usually better than an undo.
 | 45 | SQL below. Puts back the share function for signed-out visitors, members' rights on experience 2.0's four tables and the workouts broadcast, and drops the photo and write limits (with their counts) and the published-programmes rule. |
 | 44 | SQL below, then delete the `food-media` bucket (and the photos in it) in Dashboard → Storage, not with SQL. Admin's Workouts, Nutrition, Subscriptions and Reports then say they need the update; exercises, foods and plans already saved stay. |
 | 43 | First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. The Dashboard's active counts keep counting walks, runs and rides; to count them as before, run #32's file again. Audit rows it wrote stay: the audit log is permanent. |
-| 42 | Undo #44 and #43 first. SQL below. Drops the operators, their sessions and sign-in attempts, the operator functions and the operator columns on support and announcements, and puts back the role table of #30; Admin then refuses every sign-in. The two audit columns `actor_operator_id` and `actor_username` stay, so the log keeps who did what. |
+| 42 | Undo #52 (its sanctions and moderation record link to operators), #44 and #43 first. SQL below. Drops the operators, their sessions and sign-in attempts, the operator functions and the operator columns on support and announcements, and puts back the role table of #30; Admin then refuses every sign-in. The two audit columns `actor_operator_id` and `actor_username` stay, so the log keeps who did what. |
 | 41 | SQL below. Drops members' birth dates (their age stays as last saved), food preference and nutrition goal, and turns Maintain weight goals into General fitness, which has the same calorie target. |
 | 40 | Nothing to undo on production: the table came with experience 2.0 (1.8) and #40 changes nothing there; leave its history row. On a new project only, `drop table if exists public.exercise_favorites;` drops every member's saved exercises, and the app keeps new ones on the device again. |
 | 39 | SQL below. Drops every member's exercise notes; the exercise page hides its note box again. |
@@ -1568,6 +1617,66 @@ feature off in the app is usually better than an undo.
 | 3 | SQL below. The app then treats every account as having seen the film. |
 | 2 | SQL below. On production the five fields came with experience 2.0 (1.8) and hold the live app's targets and set times, so it drops only #2's five range checks. |
 | 1 | SQL below. Drops the saved active time and stretch start; open workouts keep their clock in the browser again. On production `paused_at` came with experience 2.0 (1.8), so it stays, but emptied: otherwise #1, applied again later, would show each workout that was paused at the undo as paused with no time. |
+
+```sql
+-- Before undo 20261124100000: files in the social-media bucket that only #52's rows point to. Expect: 0
+select count(*) as files_to_delete_first from storage.objects o
+where o.bucket_id = 'social-media'
+  and (exists (select 1 from public.social_stories s where o.name in (s.storage_path, s.poster_path))
+       or exists (select 1 from public.social_post_media m join public.social_posts p on p.id = m.post_id
+                  where (p.kind <> 'photo' and o.name = m.storage_path) or o.name = m.poster_path)
+       or exists (select 1 from public.social_communities c where o.name = c.cover_path)
+       or exists (select 1 from public.social_storage_trash t where o.name = t.path));
+```
+
+```sql
+-- Undo 20261124100000 (writes; then remove its history row and run #51's file once more, as the table above says)
+begin;
+do $u$ begin if pg_catalog.to_regnamespace('cron') is not null then
+  execute $e$select cron.unschedule(jobid) from cron.job where jobname = 'fitx-social-hourly'$e$; end if; end $u$;
+do $u$ begin if pg_catalog.to_regclass('realtime.messages') is not null then drop policy if exists social_inbox_read on realtime.messages; end if; end $u$;
+drop function if exists public.fitx_social_save_notification_prefs(boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean);
+drop function if exists public.fitx_social_sees_post(uuid, uuid), public.fitx_social_sees_comment_row(uuid, uuid),
+  public.fitx_social_sees_story(uuid, uuid), public.fitx_social_sees_community(uuid, uuid), public.fitx_social_post_listed(uuid),
+  public.fitx_social_viewer_sees_comment_row(uuid), public.fitx_social_viewer_sees_story(uuid), public.fitx_social_viewer_sees_community(uuid),
+  public.fitx_social_member_any(), public.fitx_social_age_band(uuid), public.fitx_social_set_birth_date(date),
+  public.fitx_social_insert_post(uuid, uuid, text, text, jsonb, text, jsonb, uuid, uuid), public.fitx_social_caps(),
+  public.fitx_social_video_link_allowed(text[]), public.fitx_social_ping(uuid, text, uuid),
+  public.fitx_social_create_story(uuid, text, text, text, integer, integer, integer, text), public.fitx_social_delete_story(uuid),
+  public.fitx_social_story_tray(), public.fitx_social_stories(uuid), public.fitx_social_view_story(uuid),
+  public.fitx_social_story_viewers(uuid), public.fitx_social_set_story_like(uuid, boolean),
+  public.fitx_social_my_content(timestamptz, integer), public.fitx_social_delete_all_content(), public.fitx_social_hourly() cascade;
+delete from public.social_notifications where actor_id is null or type not in ('follow', 'follow_request', 'follow_accepted', 'like', 'comment', 'reply', 'mention');
+delete from public.social_reports where target_type not in ('post', 'comment', 'account');
+delete from public.social_posts where kind <> 'photo';
+drop table if exists public.social_moderation_actions, public.social_challenge_badges, public.social_challenge_entries,
+  public.social_challenge_templates, public.social_messages, public.social_conversation_sides, public.social_conversations,
+  public.social_community_members, public.social_story_likes, public.social_story_views, public.social_member_sanctions,
+  public.social_storage_trash cascade;
+alter table public.social_posts drop constraint if exists social_posts_community_id_fkey, drop constraint if exists social_posts_challenge_id_fkey;
+drop table if exists public.social_challenges, public.social_communities, public.social_stories cascade;
+alter table public.social_posts drop column if exists moderation_state, drop column if exists moderated_at;
+alter table public.social_comments drop column if exists moderation_state, drop column if exists moderated_at;
+alter table public.social_post_media drop column if exists poster_path;
+alter table public.social_notifications drop column if exists story_id, drop column if exists conversation_id,
+  drop column if exists community_id, drop column if exists challenge_id;
+alter table public.social_notifications alter column actor_id set not null;
+alter table public.social_reports drop column if exists evidence, drop column if exists evidence_purge_at;
+alter table public.social_profiles drop column if exists dm_policy, drop column if exists birth_date_added_at;
+alter table public.social_notification_prefs drop column if exists stories, drop column if exists challenges,
+  drop column if exists communities, drop column if exists messages;
+alter table public.social_posts drop constraint if exists social_posts_kind_check, add constraint social_posts_kind_check check (kind in ('photo'));
+alter table public.social_post_media drop constraint if exists social_post_media_kind_check, add constraint social_post_media_kind_check check (kind in ('image'));
+alter table public.social_notifications drop constraint if exists social_notifications_type_check, add constraint social_notifications_type_check
+  check (type in ('follow', 'follow_request', 'follow_accepted', 'like', 'comment', 'reply', 'mention'));
+alter table public.social_notifications drop constraint if exists social_notifications_entity_type_check,
+  add constraint social_notifications_entity_type_check check (entity_type in ('profile', 'post', 'comment'));
+alter table public.social_reports drop constraint if exists social_reports_target_type_check,
+  add constraint social_reports_target_type_check check (target_type in ('post', 'comment', 'account'));
+drop index if exists public.social_notifications_created_idx, public.social_posts_community_idx, public.social_posts_challenge_idx,
+  public.social_reports_target_idx;
+commit;
+```
 
 ```sql
 -- Undo 20261123100060 (writes; empty and delete the social-media bucket in Dashboard → Storage first)
@@ -2066,7 +2175,7 @@ select relname from pg_class where relnamespace = 'public'::regnamespace and rel
 ```
 
 ```sql
--- Final 2: tables with row level security but no policy. Expect exactly these ten, on purpose: admin_login_attempts, admin_operators, admin_web_sessions, ai_coach_limits, ai_coach_usage_events, billing_provider_events, billing_reconciliation_runs, fitx_admin_audit_logs, fitx_member_write_budget, fitx_rate_limits
+-- Final 2: tables with row level security but no policy. Expect exactly these thirteen, on purpose: admin_login_attempts, admin_operators, admin_web_sessions, ai_coach_limits, ai_coach_usage_events, billing_provider_events, billing_reconciliation_runs, fitx_admin_audit_logs, fitx_member_write_budget, fitx_rate_limits, social_challenge_templates, social_moderation_actions, social_storage_trash
 select c.relname from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'r' and c.relrowsecurity
   and not exists (select 1 from pg_policy p where p.polrelid = c.oid)
 order by 1;
@@ -2083,10 +2192,10 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 Before #45 it listed experience 2.0's `get_activity_share`, which #45 locks down (section 1.8). Any row: tell the
 session.
 
-Then run Start 2 again: now it lists all six rows.
+Then run Start 2 again: now it lists all seven rows.
 
-The ten tables in Final 2 are reached only by database functions or the server key, which is why they have
-no policy. Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
+The thirteen tables in Final 2 are reached only by database functions or the server key, which is why they have
+no policy (the last three, from #52, are Explore's challenge templates, moderation record and storage trash). Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
 expected. Tell the session about any other new finding.
 
 ### 6.2 Food search smoke test
@@ -2103,8 +2212,8 @@ the repository already carry the numbers production recorded. The three changes 
 numbers and no file; the queries below leave their rows alone. One of them, the old Admin draft, has the same
 name as #29, `fitx_admin_control_plane`, which is why they leave those three out. Give each new row its file's
 number once, after the last file. It writes to the history table only. #1 to #45 already carry their numbers
-(History 1 ran after each earlier sitting), so in this sitting it changes only the rows of #46 to #51 that the
-connector recorded under a time: six rows at most.
+(History 1 ran after each earlier sitting), so in this sitting it changes only the rows of #46 to #52 that the
+connector recorded under a time: seven rows at most.
 
 ```sql
 -- History 0: files recorded twice. Expect: no rows
@@ -2147,7 +2256,7 @@ from (values
   ('20261121100040', 'fitx_security_hardening'), ('20261123100000', 'fitx_shell_prefs'),
   ('20261123100010', 'fitx_onboarding_v4'), ('20261123100020', 'fitx_workout_setup'),
   ('20261123100040', 'fitx_nutrition_v2'), ('20261123100050', 'fitx_coach_activity_v2'),
-  ('20261123100060', 'fitx_social_v1')
+  ('20261123100060', 'fitx_social_v1'), ('20261124100000', 'fitx_social_v2_core')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and h.version not in ('20261002172610', '20261002172706', '20261116093902')
@@ -2155,7 +2264,7 @@ where h.name = f.name and h.version <> f.version
 ```
 
 ```sql
--- History 2: expect 68 rows in version order: the 14 September ones, the three of section 1.8 and the 51 files of section 2, with their numbers and names
+-- History 2: expect 69 rows in version order: the 14 September ones, the three of section 1.8 and the 52 files of section 2, with their numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
@@ -2176,7 +2285,8 @@ Set the variables in section 7 first. Then ship the new app (the redesign, `clau
 (`admin`). If Admin's build is skipped because of its path filter, redeploy it as in `admin/README.md`,
 "Automatic deployments and path filters". Apply #42 to #44 before Admin is redeployed: without #42, Admin refuses
 every sign-in. For the "next level" wave 1, apply #46 to #51 first, then deploy `claude/next` merged into `master`; the
-app checks for each of them and works without the ones not applied yet.
+app checks for each of them and works without the ones not applied yet. For wave 2, apply #52 before deploying
+`claude/next2`; wave 1's app keeps working with #52 in place.
 
 ### 6.5 First super-admin
 

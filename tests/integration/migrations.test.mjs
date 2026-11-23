@@ -96,7 +96,8 @@ const PENDING = MIGRATIONS.filter((name) => name >= FIRST_PENDING);
 /**
  * The newest file production has applied since its copy was made (2026-11-21; tests/integration/applied-migrations
  * .test.mjs pins those files). The runbook's earlier sittings applied the pending files up to it and recorded them
- * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest, #46 to #51.
+ * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest, #46 to #52 (#52, wave
+ * 2's first file, is not applied anywhere yet).
  */
 const LAST_APPLIED = "20261121100040";
 const APPLIED_SINCE = PENDING.filter((name) => name.slice(0, 14) <= LAST_APPLIED);
@@ -120,6 +121,9 @@ const NO_POLICY_BY_DESIGN = {
   admin_web_sessions: "Admin sessions (token hashes only); read and written by service_role from the Admin server (20261121100030)",
   admin_login_attempts: "Admin sign-in attempts (hashed username and IP keys); written only by the security definer fitx_admin_login_* functions, read by service_role (20261121100030)",
   fitx_member_write_budget: "each member's hourly write totals; written only by the security definer fitx_member_write_budget() trigger, so members cannot read or reset them, read by service_role (20261121100040)",
+  social_challenge_templates: "FITX-written challenge templates, set in Admin through service_role (which bypasses RLS); members never read them, only the challenges made from them, in social_challenges (20261124100000)",
+  social_moderation_actions: "Explore's moderation record (operators in Admin, community moderators); written and read by service_role and the security definer moderation functions, never by members (20261124100000)",
+  social_storage_trash: "Explore files waiting to be removed through the Storage API; queued only by the security definer fitx_social_hourly() (the fitx-social-hourly job, service_role only), read and cleared by service_role from the server's sweep (20261124100000)",
 };
 
 // Migrations that cannot safely be applied a second time: the error they stop at, or the changes they
@@ -166,6 +170,25 @@ const KNOWN_RERUN_PROBLEMS = {
     reason:
       "run again it puts back its Dashboard counts, which leave out walks, runs and rides (production has it applied, so the " +
       "file stays as it is); 20261121100033, run again after it, restores the counts that include them",
+  },
+  "20261123100060_fitx_social_v1.sql": {
+    changes: [
+      /^added function public\.fitx_social_save_notification_prefs\(p_follows boolean, p_follow_requests boolean, p_likes boolean, p_comments boolean, p_mentions boolean\): /,
+      new RegExp(
+        "^changed function public\\.fitx_social_(" +
+          "add_comment|browse|can_comment|can_read_object|comments|create_post|delete_comment|delete_post|feed|me|member|" +
+          "notification_prefs|notification_visible|notifications|notify|notify_mentions|post|post_json|report|safety_lists|" +
+          "save_profile|saved|search|sees_comment|sees_posts|set_block|set_like|set_restrict|set_save|suggestions|trending|" +
+          'unfollow|update_post|upload_allowed|viewer_sees_comment|viewer_sees_post)\\([^)]*\\): definition "[0-9a-f]{32}" -> "[0-9a-f]{32}"$',
+      ),
+      /^changed policy public\.(social_posts|social_post_media|social_comments)\.\1_read: using "(?:[^"\\]|\\.)*" -> "(?:[^"\\]|\\.)*"$/,
+    ],
+    reason:
+      "run again after 20261124100000 it puts back part 1's definitions of the 36 Explore functions and the three read policies " +
+      "(social_posts_read, social_post_media_read, social_comments_read) that 20261124100000 rewrites for moderation, sanctions " +
+      "and item-level visibility, and adds back the five-parameter fitx_social_save_notification_prefs beside the nine-parameter " +
+      "one; production has it applied, so its history never runs it again, and it must never be pasted into the SQL editor again " +
+      "while 20261124100000 is in place (only after section 5's undo of #52); 20261124100000, run again after it, restores everything",
   },
 };
 
@@ -621,7 +644,8 @@ const RUNBOOK_PINNED = {
     ["2707381", "Kidney beans, from dried, no added fat"], ["2707382", "Kidney beans, from canned, fat added"],
   ].map(([id, name]) => ({ id, name, has_rajma: true }))],
   "Final 2": [["admin_login_attempts", "admin_operators", "admin_web_sessions", "ai_coach_limits", "ai_coach_usage_events", "billing_provider_events",
-    "billing_reconciliation_runs", "fitx_admin_audit_logs", "fitx_member_write_budget", "fitx_rate_limits"].map((relname) => ({ relname }))],
+    "billing_reconciliation_runs", "fitx_admin_audit_logs", "fitx_member_write_budget", "fitx_rate_limits", "social_challenge_templates",
+    "social_moderation_actions", "social_storage_trash"].map((relname) => ({ relname }))],
   "History 2": [byVersion([...PRODUCTION_ROWS, ...PENDING.map(historyRow)])],
 };
 
@@ -635,7 +659,7 @@ const runbookNotRun = ({ cron }) => ({
  * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #45): the
  * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
  * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 62 rows, the
- * connector records #46 to #51 under their times, then History 0 to 2. `ask` runs a runbook query and keeps its
+ * connector records #46 to #52 under their times, then History 0 to 2. `ask` runs a runbook query and keeps its
  * result; returns whether History 1 ran both times.
  */
 /** The day after the newest pending file's date (yyyymmdd), the simulated day the connector applies them. */
