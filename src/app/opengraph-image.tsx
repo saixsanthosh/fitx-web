@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { FITX_MARK_D, FITX_MARK_VIEWBOX } from "@/components/brand/logo/geometry";
 
 export const alt = "FITX: training, nutrition and progress in one place";
 export const size = { width: 1200, height: 630 };
@@ -12,11 +13,8 @@ export default function OpenGraphImage() {
   return new ImageResponse(
     <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", width: "100%", height: "100%", padding: 72, background: "#F7F7F4", color: ink }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <svg width="64" height="64" viewBox="0 0 64 64" fill="none" stroke={ink} strokeWidth="5.5" strokeLinecap="square">
-          <path d="M10 13H54" />
-          <path d="M32 13V54" />
-          <path d="M10 29H32" />
-          <path d="M32 31L53 52M32 52L53 31" />
+        <svg width="72" height="72" viewBox={FITX_MARK_VIEWBOX}>
+          <path fill={ink} d={FITX_MARK_D} />
         </svg>
         <div style={{ display: "flex", fontSize: 54, fontWeight: 800, letterSpacing: -5 }}>FITX</div>
         <div style={{ display: "flex", width: 1, height: 40, marginLeft: 14, background: "#C7C9C1" }} />

@@ -3,9 +3,9 @@
  *
  * The mark is straight-edged: an F whose top bar is a barbell (three plates loaded on its right end), a stem
  * that doubles as the T, and an X whose long stroke cuts through the stem. Every corner below was measured on
- * the 1254 x 1254 px original, not traced: the edge pixels of each side were fitted with a least-squares line
- * and neighbouring lines intersected (scripts/brand/measure-logo.mjs repeats it). Rendered back at 1254 px the
- * pieces differ from the original by 0.46% of the mark's pixels, all of it anti-aliasing at the edges, except
+ * the 1254 x 1254 px original, not traced: the edge pixels of each side were fitted with a straight line and
+ * neighbouring lines intersected. scripts/brand/check-logo-geometry.mjs renders the pieces back at 1254 px over
+ * the original: they differ by about 0.5% of the mark's pixels, all of it anti-aliasing along the edges, except
  * for one deliberate change: the outer lower leg of the X ends in a clean corner where the original has a soft
  * curved hook (an artefact of the image, about 6 px wide).
  *
@@ -32,6 +32,8 @@ export type FitxMarkPieceId =
 /** The original's pixels that land on the viewBox origin, so the mark sits centred in a 600-unit square. */
 const ORIGIN_X = 304.2;
 const ORIGIN_Y = 353;
+/** Where the viewBox origin sits on the original artwork (for checks that draw the mark back over it). */
+export const FITX_MARK_ORIGIN = { x: ORIGIN_X, y: ORIGIN_Y } as const;
 
 /** Measured corners in logo.jpeg pixels (y down). */
 const MEASURED: readonly MeasuredPiece[] = [
