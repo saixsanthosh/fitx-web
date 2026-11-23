@@ -12,7 +12,7 @@ import { InsightList } from "@/components/widgets/InsightList";
 import { useGoalsData, useResource, useTodaySummary } from "@/components/widgets/useHomeData";
 import { WidgetError } from "@/components/widgets/WidgetCard";
 import { formatDurationWords } from "@/lib/activity/format";
-import { firstTrackedDay, loadAllTimeTotals, loadBodyRows, loadProgressRows, type BodyMetricRow } from "@/lib/data/progress";
+import { firstTrackedDay, loadAllTimeTotals, loadBodyRows, loadProgressRows, loadRecentWorkouts, type BodyMetricRow } from "@/lib/data/progress";
 import { addDays, keyToLocalDate } from "@/lib/domain/day-keys";
 import { GOAL_TEMPLATES, type GoalTemplateKey } from "@/lib/domain/goals";
 import { improveNext, proteinTargetFrom } from "@/lib/domain/insights";
@@ -62,6 +62,8 @@ export function ProgressAnalytics({ today }: { today: string }) {
     const { db, userId } = await getSession();
     return loadProgressRows(db, userId, addDays(today, -INSIGHT_DAYS), today);
   }, [today]);
+  const loadLatest = useCallback(async () => { const { db, userId } = await getSession(); return loadRecentWorkouts(db, userId, 3); }, []);
+  const latest = useResource(loadLatest, "Your recent workouts could not be loaded.");
   const body = useResource<BodyMetricRow[]>(loadBody, "Your body measurements could not be loaded.");
   const totals = useResource(loadTotals, "Your totals could not be loaded.");
   const recent = useResource(loadRecent, "Your recent logs could not be loaded.");
@@ -272,6 +274,22 @@ export function ProgressAnalytics({ today }: { today: string }) {
                 emptyText={metric === "workouts" ? "No workouts in this period" : metric === "volume" ? "Nothing lifted in this period" : "No activities in this period"}
               />
             ) : <div className={styles.loading} aria-busy="true" aria-label="Loading your training" />}
+            {latest.data?.length ? (
+              <ul className={styles.recent} aria-label="Recent workouts">
+                {latest.data.map((workout) => (
+                  <li key={workout.id}>
+                    <Link href={`/workouts/history/${workout.id}`} className={styles.recentRow}>
+                      <span className={styles.recentText}>
+                        <strong>{workout.name}</strong>
+                        <span>{new Date(workout.startedAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}{workout.trainingSeconds !== null ? ` · ${workout.trainingSeconds < 60 ? "under 1 min" : formatDurationWords(workout.trainingSeconds)}` : ""}</span>
+                      </span>
+                      <span className={styles.recentVolume}>{workout.volumeKg === null ? <span aria-label="No weighted sets">—</span> : `${num(workout.volumeKg)} kg`}</span>
+                      <ChevronRight size={16} aria-hidden="true" className={styles.muted} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <Link href="/workouts/history" className={styles.link}>Workout history<ChevronRight size={15} aria-hidden="true" /></Link>
           </section>
 

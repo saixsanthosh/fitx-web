@@ -1,13 +1,15 @@
-// Flow 13: the connected experience. A member with a finished workout, an abandoned one, a run and food with an
-// unknown protein value opens Home: the Today ring leads and says what its totals leave out; Today's plan and
-// Muscles this week, added in Customise, count the run and only the finished workout's muscles. Progress shows this week (with no comparison in the member's first week),
-// Focus next and the trends, and a measurement logged there in pounds is saved in kg and becomes the profile weight; /progress/muscles lists the share of the work, and choosing a muscle shows the
+// Flow 13: the connected experience, on Progress (Home keeps only the greeting and the daily quote). A member with a
+// finished workout, an abandoned one, a run with a recorded calorie estimate and food with an unknown protein value
+// opens Progress: this week counts only the finished workout and the run, calories burned are the run's estimate and
+// say so, there is no comparison in the member's first week, the Month and Year filters change the period and the
+// charts, each recent workout links to its record, and a measurement logged there in pounds is saved in kg and
+// becomes the profile weight; /progress/muscles lists the share of the work, and choosing a muscle shows the
 // workout behind it with a link to its record. Nothing is counted from the abandoned workout.
 import { signInUi, textOf } from "./common.mjs";
 
 export const flow = {
   id: "13-connected-home",
-  title: "Connected Home and Progress: today's plan, muscles from logged sets, trends and focus next",
+  title: "Connected Progress: this week from logs only, period filters, weigh-in in pounds, muscle analytics",
   async run(t, { standin }) {
     const page = await t.open();
     const account = await standin.createAccount({ name: "Meera Iyer", tag: "connected", profile: { weight: 64, target_weight: 60 } });
@@ -28,71 +30,63 @@ export const flow = {
         select ${user}, s.id, 'barbell_back_squat', 'Barbell Back Squat', 0 from s returning id)
       insert into public.workout_sets (user_id, session_exercise_id, set_number, reps, weight_kg, completed_at)
         select ${user}, e.id, n, 5, 80, now() - interval '290 minutes' from e, generate_series(1, 3) n;
-      insert into public.activities (user_id, client_id, sport, title, started_at, ended_at, elapsed_seconds, moving_seconds, distance_m)
-        values (${user}, gen_random_uuid(), 'run', 'Morning run', now() - interval '3 hours', now() - interval '150 minutes', 1800, 1740, 5200);
+      insert into public.activities (user_id, client_id, sport, title, started_at, ended_at, elapsed_seconds, moving_seconds, distance_m, kcal_estimate)
+        values (${user}, gen_random_uuid(), 'run', 'Morning run', now() - interval '3 hours', now() - interval '150 minutes', 1800, 1740, 5200, 320);
       insert into public.meals (user_id, date, meal, food_name, calories, protein, carbs, fat, nutrition_snapshot)
         values (${user}, (now() at time zone 'Asia/Kolkata')::date, 'Breakfast', 'Oats with milk', 380, 14, 60, 8, '{"value_basis":"compiled"}'),
                (${user}, (now() at time zone 'Asia/Kolkata')::date, 'Lunch', 'Packaged wrap', 420, null, null, 12, '{"value_basis":"label","missing":["protein","carbs"]}');`);
     t.note("seeded", { finished: finished?.id });
     await signInUi(t, account);
 
-    await t.step("Today's plan, added in Customise, counts this week's run", async () => {
-      await t.goto("/dashboard", { label: "home" });
-      const first = await page.locator("[data-widget]").evaluateAll((items) => items.map((item) => item.getAttribute("data-widget")));
-      t.expect(first[0] === "today", "the Today ring should lead Home", first);
-      t.expect(!first.includes("plan") && !first.includes("muscles"), "a new Home starts minimal", first);
-      await page.getByRole("button", { name: "Customise" }).click();
-      const sheet = page.getByRole("dialog", { name: "Customise Home" });
-      await sheet.getByRole("button", { name: "Add Today's plan to Home" }).click();
-      await sheet.getByRole("button", { name: "Add Muscles this week to Home" }).click();
-      await sheet.getByText("Saved", { exact: true }).waitFor({ timeout: 15000 });
-      await sheet.getByRole("button", { name: "Done" }).click();
-      const plan = page.locator("[data-widget=plan]");
-      await plan.locator("ol[aria-label^='Workouts and activities']").waitFor({ timeout: 20000 });
-      const order = await page.locator("[data-widget]").evaluateAll((items) => items.map((item) => item.getAttribute("data-widget")));
-      const text = await textOf(plan);
-      t.note("home order and plan", { order, text: text.slice(0, 400) });
-      t.expect(order[0] === "today" && order.includes("plan"), "the ring stays first and Today's plan is added", order);
-      t.expect(/1 activity, 5\.20 km/.test(text), "the run should count in this week's line", text);
-      t.expect(/1 workout\b/.test(text), "only the finished workout counts this week", text);
-      await t.checkpoint("home with today's plan");
-    });
-
-    await t.step("Muscles this week shows the finished workout's muscles only", async () => {
-      const muscles = page.locator("[data-widget=muscles]");
-      await muscles.getByText("Chest").first().waitFor({ timeout: 20000 });
-      const text = await textOf(muscles);
-      t.note("muscles widget", text);
-      t.expect(/Chest/.test(text) && /3 direct/.test(text), "bench press sets count for the chest", text);
-      t.expect(!/Quadriceps/.test(text), "the abandoned squat sets must not count", text);
-    });
-
-    await t.step("Today says which totals leave a food out", async () => {
-      const today = page.locator("[data-widget=today]");
-      await today.getByText(/kcal/).first().waitFor({ timeout: 15000 });
-      const text = await textOf(today);
-      t.note("today widget", text);
-      t.expect(/1 food has no protein value/.test(text), "the unknown protein should be named, not counted as 0", text);
-      t.expect(/Scan barcode/.test(text) && /Log food/.test(text), "the log and scan shortcuts should be there", text);
-    }, { soft: true });
-
-    await t.step("Progress shows this week, no comparison in the first week, and links each workout to its record", async () => {
+    await t.step("Progress shows this week from the finished workout and the run, with no comparison in the first week", async () => {
       await t.goto("/progress", { label: "progress" });
-      await page.getByRole("heading", { name: "This week so far" }).waitFor({ timeout: 20000 });
-      await page.getByText("Workouts a week").first().waitFor({ timeout: 20000 });
-      const band = await textOf(page.locator("dl[aria-label='This week so far']"));
-      t.note("week band", band);
-      t.expect(/workouts\s*1\b/i.test(band), "one workout this week", band);
-      t.expect(/distance\s*5\.2/i.test(band), "the run's distance", band);
-      // The account was made today: there is no last week to set against, so no "Last week: 0" comparison.
-      t.expect(!/Last (week|Monday):/.test(band), "a member in their first week sees no comparison with last week", band);
-      t.expect(await page.getByText("Against the same days last week").count() === 0, "no comparison note in the first week");
-      const link = await page.locator("a[href^='/workouts/history/']").first().getAttribute("href");
+      const overview = page.locator("section[aria-labelledby='overview-title']");
+      await overview.locator("dl").getByText("Workouts").waitFor({ timeout: 20000 });
+      await page.locator("section[aria-labelledby='training-title'] a[href^='/workouts/history/']").first().waitFor({ timeout: 20000 });
+      await t.settle(1200);
+      const stats = await textOf(overview.locator("dl"));
+      t.note("this week", stats);
+      t.expect(/Workouts\s*1\b/.test(stats), "one workout this week: the abandoned one does not count", stats);
+      t.expect(/Volume\s*1,440\b/.test(stats) && /kg/.test(stats), "the finished workout's 3 x 8 x 60 kg", stats);
+      t.expect(/Distance\s*5\.2\b/.test(stats), "the run's distance", stats);
+      t.expect(/Burned\s*320\b[^A-Z]*kcal\s*est\./.test(stats) && /From 1 activity/.test(stats), "calories burned only from the run's recorded estimate, labelled", stats);
+      // The account was made today: there is no last week to set against, so no "vs last week" (never a drop to 0).
+      t.expect(!/vs last week|Same as last week/.test(stats), "a member in their first week sees no comparison with last week", stats);
+      const link = await page.locator("section[aria-labelledby='training-title'] a[href^='/workouts/history/']").first().getAttribute("href");
       t.expect(link === `/workouts/history/${finished?.id}`, "the recent workout should open its record", { link });
       t.expect(await page.locator("#focus-next").count() === 1, "Focus next should be on Progress");
       t.expect(await page.getByRole("link", { name: /Muscle map/ }).count() > 0, "Progress links to the muscle map");
-      t.expect(await page.getByText("Calories a logged day").count() === 0, "food averages stay on Nutrition, not repeated on Progress");
-      await t.checkpoint("progress trends");
+      const food = await textOf(page.locator("section[aria-labelledby='food-title']"));
+      t.note("nutrition on progress", food.slice(0, 300));
+      t.expect(/Calories\s*800\s*kcal a day/.test(food), "today's 380 + 420 kcal, the only logged day", food);
+      t.expect(/Protein\s*14\s*g a day/.test(food) && /left out/.test(food), "the wrap's unknown protein is left out, not counted as 0", food);
+      await t.checkpoint("progress week");
+    });
+
+    await t.step("the Month and Year filters change the period and the charts", async () => {
+      const label = page.locator("[class*='periodLabel']");
+      const before = (await label.innerText()).trim();
+      await page.getByRole("radiogroup", { name: "Period" }).getByText("Month", { exact: true }).click();
+      await page.waitForFunction(() => /\d{4}$/.test(document.querySelector("[class*='periodLabel']")?.textContent?.trim() ?? ""), null, { timeout: 15000 });
+      const month = (await label.innerText()).trim();
+      const days = await page.locator("ol[aria-label^='Days of'] > li[aria-label]").count();
+      await t.checkpoint("progress month");
+      await page.getByRole("radiogroup", { name: "Period" }).getByText("Year", { exact: true }).click();
+      await page.locator("ol[aria-label^='Active days each month']").waitFor({ timeout: 15000 });
+      await t.settle(1200);
+      const year = (await label.innerText()).trim();
+      const stats = await textOf(page.locator("section[aria-labelledby='overview-title'] dl"));
+      t.note("periods", { before, month, year, days, stats });
+      t.expect(before === "This week" && /^[A-Z][a-z]+ \d{4}$/.test(month) && /^\d{4}$/.test(year), "the label follows the period", { before, month, year });
+      t.expect(days >= 28 && days <= 31, "the month calendar has a ring for every day", days);
+      t.expect(/Workouts\s*1\b/.test(stats), "the year still counts the one finished workout", stats);
+      await page.getByRole("button", { name: "Previous year" }).click();
+      await page.waitForFunction((current) => document.querySelector("[class*='periodLabel']")?.textContent?.trim() === String(Number(current) - 1), year, { timeout: 15000 });
+      await t.settle(1200);
+      const last = await textOf(page.locator("section[aria-labelledby='overview-title'] dl"));
+      t.expect(/Workouts\s*0\b/.test(last), "last year, before the account, has no workouts", last);
+      await t.checkpoint("progress year");
+      await page.getByRole("radiogroup", { name: "Period" }).getByText("Week", { exact: true }).click();
     });
 
     await t.step("Log measurement: a weigh-in in pounds and a waist size, saved in kg and made the profile weight", async () => {
