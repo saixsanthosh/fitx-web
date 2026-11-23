@@ -65,7 +65,7 @@
 .unsent { border: 1px dashed var(--fitx-border); background: transparent !important; color: var(--fitx-text-secondary) !important; font-style: italic; }
 .bubbleRow { display: flex; max-width: 100%; align-items: center; gap: 2px; }
 .mine .bubbleRow { flex-direction: row-reverse; }
-.content { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.content { display: flex; min-width: 0; flex: 0 1 auto; flex-direction: column; gap: 4px; }
 .mine .content { align-items: flex-end; }
 .more {
   display: inline-flex; width: 36px; height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 12px;
@@ -76,7 +76,7 @@
 .stamp { padding: 0 6px; color: var(--fitx-text-secondary); font-size: 11px; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
 
-.shared { width: min(300px, 70vw); overflow: hidden; border: 1px solid var(--fitx-border); border-radius: 18px; background: var(--fitx-card-bg); color: var(--fitx-text); }
+.shared { display: block; width: 300px; max-width: 100%; overflow: hidden; border: 1px solid var(--fitx-border); border-radius: 18px; background: var(--fitx-card-bg); color: var(--fitx-text); }
 .shared:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .sharedHead { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 13px; font-weight: 650; }
 .sharedCaption { display: -webkit-box; overflow: hidden; padding: 8px 10px 10px; color: var(--fitx-text-secondary); font-size: 13px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
