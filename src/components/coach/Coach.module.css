@@ -65,3 +65,11 @@
   .prompt { transition: none; }
   .prompt:active { transform: none; }
 }
+
+/* Inside the floating AI Coach panel: one column that fills the panel; the conversation scrolls, the composer stays put. */
+.panelLayout { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; gap: 0; }
+.panelLayout .chat { min-height: 0; flex: 1 1 auto; max-width: none; padding-top: 8px; }
+.panelLayout .thread { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
+.panelLayout .hello { padding: 16px 0; }
+.panelLayout .prompts { grid-template-columns: minmax(0, 1fr); }
+.panelLayout .composerDock { position: static; padding: 8px 0 12px; background: var(--fitx-bg); }

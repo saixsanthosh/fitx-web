@@ -1,0 +1,50 @@
+/* The AI Coach panel: a bottom sheet on phones, a side panel from 768 px. Theme tokens only; transform and opacity motion. */
+.panel {
+  position: fixed; inset: auto 0 0 0; margin: 0; width: 100%; max-width: none; height: min(90dvh, 820px); max-height: none;
+  border: 0; padding: 0; background: transparent; color: var(--fitx-text); overflow: visible;
+}
+.panel::backdrop { background: color-mix(in srgb, var(--fitx-scrim) 52%, transparent); backdrop-filter: blur(2px); }
+.panel[open] .sheet { animation: sheet-in .42s cubic-bezier(.2, .9, .25, 1) both; }
+.panel[open]::backdrop { animation: fade-in .28s ease-out both; }
+.panel[data-closing] .sheet { animation: sheet-out .22s cubic-bezier(.4, 0, 1, 1) both; }
+.panel[data-closing]::backdrop { animation: fade-out .22s ease-in both; }
+
+.sheet {
+  display: flex; height: 100%; flex-direction: column; border: 1px solid var(--fitx-border); border-bottom: 0; border-radius: 24px 24px 0 0;
+  background: var(--fitx-bg); box-shadow: 0 -24px 60px -28px color-mix(in srgb, var(--fitx-scrim) 70%, transparent);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.grabber { align-self: center; width: 40px; height: 4px; margin-top: 8px; border-radius: 999px; background: var(--fitx-divider); }
+.head { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 16px; border-bottom: 1px solid var(--fitx-divider); }
+.mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 10px; background: var(--fitx-primary); color: var(--fitx-on-primary); }
+.title { flex: 1 1 auto; font-family: var(--font-heading); font-size: 1.05rem; font-weight: 750; letter-spacing: -.02em; }
+.icon {
+  display: grid; width: 44px; height: 44px; place-items: center; border-radius: 12px; color: var(--fitx-text-secondary);
+  transition: background-color .16s ease, color .16s ease;
+}
+.icon:hover { background: var(--fitx-hover); color: var(--fitx-text); }
+.icon:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.body { position: relative; display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px; }
+.loading { display: inline-flex; align-items: center; gap: 10px; padding: 28px 0; color: var(--fitx-text-secondary); font-size: .9rem; }
+
+@media (min-width: 768px) {
+  .panel { inset: 0 0 0 auto; width: min(460px, 100vw); height: 100dvh; }
+  .sheet { border: 0; border-left: 1px solid var(--fitx-border); border-radius: 0; box-shadow: -24px 0 60px -30px color-mix(in srgb, var(--fitx-scrim) 70%, transparent); }
+  .grabber { display: none; }
+  .head { padding: 12px 10px 12px 20px; }
+  .body { padding: 0 20px; }
+  .panel[open] .sheet { animation-name: side-in; }
+  .panel[data-closing] .sheet { animation-name: side-out; }
+}
+
+@keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes sheet-out { from { transform: translateY(0); } to { transform: translateY(100%); } }
+@keyframes side-in { from { transform: translateX(100%); opacity: .6; } to { transform: translateX(0); opacity: 1; } }
+@keyframes side-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: .6; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel[open] .sheet, .panel[open]::backdrop, .panel[data-closing] .sheet, .panel[data-closing]::backdrop { animation: none; }
+  .icon { transition: none; }
+}

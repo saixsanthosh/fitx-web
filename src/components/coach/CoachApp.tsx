@@ -25,7 +25,14 @@ type Problem = { message: string; retryAt?: string };
 
 const UNAVAILABLE = new Set<CoachState>(["paused", "not_configured", "not_available"]);
 
-export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
+/**
+ * variant "page": the AI Coach page (conversation rail on wide screens, the window scrolls).
+ * variant "panel": inside the floating AI Coach panel (CoachPanel): one column that scrolls on its own.
+ * prompt: text another page asked to put in the message box (never sent without the member pressing Send);
+ * a new key puts it in again.
+ */
+export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: { initialStatus: CoachStatus; variant?: "page" | "panel"; prompt?: { text: string; key: number } }) {
+  const inPanel = variant === "panel";
   const [status, setStatus] = useState(initialStatus);
   const [shareData, setShareData] = useState(initialStatus.consent?.shareData ?? false);
   const [threads, setThreads] = useState<CoachThreadSummary[]>(initialStatus.threads);
@@ -46,6 +53,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   const [focusKey, setFocusKey] = useState(0);
   const stopper = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const threadBox = useRef<HTMLElement>(null);
   // Reset times are in the viewer's time zone, which the server can't know: they appear after hydration.
   const hydrated = useHydrated();
 
@@ -55,10 +63,23 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   const busy = pending !== null;
 
   const scrollToEnd = useCallback(() => {
-    const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 320;
+    const box = inPanel ? threadBox.current : null;
+    const nearBottom = box
+      ? box.scrollTop + box.clientHeight >= box.scrollHeight - 320
+      : window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 320;
     if (nearBottom) end.current?.scrollIntoView({ block: "end" });
-  }, []);
+  }, [inPanel]);
   useEffect(scrollToEnd, [messages, pending, scrollToEnd]);
+
+  // A prompt from another page (or the voice button) fills the box; the member still presses Send.
+  const promptKey = openWith?.key;
+  const promptText = openWith?.text;
+  useEffect(() => {
+    if (promptKey === undefined || !promptText) return;
+    setMode("chat");
+    setDraft(promptText);
+    setFocusKey((key) => key + 1);
+  }, [promptKey, promptText]);
 
   const recordActions = useCallback((actions: CoachActionView[]) => {
     setActionStates((old) => ({ ...old, ...Object.fromEntries(actions.map((action) => [action.id, action.status])) }));
@@ -335,8 +356,8 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
   );
 
   return (
-    <div className={styles.layout}>
-      <aside className={styles.rail} aria-label="Conversations and limits">
+    <div className={cn(styles.layout, inPanel && styles.panelLayout)}>
+      {!inPanel && <aside className={styles.rail} aria-label="Conversations and limits">
         <div className={styles.railInner}>
           <div className={styles.railList}>{list}</div>
           {(chatQuota || planQuota) && (
@@ -347,7 +368,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
             </div>
           )}
         </div>
-      </aside>
+      </aside>}
 
       <div className={styles.chat}>
         <div className={styles.bar}>
@@ -356,10 +377,10 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
             {plansAllowed ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
           </p>
           <div className={styles.tools}>
-            <button type="button" onClick={() => setHistoryOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text lg:hidden">
+            <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
               <History size={17} aria-hidden="true" /> History
             </button>
-            <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text lg:hidden">
+            <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className={cn("grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
               <MessageSquarePlus size={18} aria-hidden="true" />
             </button>
             <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Coach settings" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
@@ -368,7 +389,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
           </div>
         </div>
 
-        <section aria-label="Conversation" aria-busy={busy || loadingThread} className={styles.thread}>
+        <section ref={threadBox} aria-label="Conversation" aria-busy={busy || loadingThread} className={styles.thread}>
           {loadingThread ? (
             <p className={styles.thinking}><Loader2 size={16} aria-hidden="true" className="animate-spin" /> Opening conversation…</p>
           ) : messages.length === 0 && !pending ? (
@@ -448,7 +469,7 @@ export function CoachApp({ initialStatus }: { initialStatus: CoachStatus }) {
         </div>
       </div>
 
-      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)}>{list}</HistoryDrawer>
+      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} closeWhenWide={!inPanel}>{list}</HistoryDrawer>
 
       {settings}
       <p className="sr-only" aria-live="polite">{announcement}</p>
@@ -485,7 +506,7 @@ function quotaText(quota: CoachQuota, noun: "messages" | "plans", nextAt: string
  * Conversations on phones and tablets: a native modal dialog, so focus moves into it, Tab stays inside,
  * Escape closes it and focus returns to the History button.
  */
-function HistoryDrawer({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
+function HistoryDrawer({ open, onClose, closeWhenWide, children }: { open: boolean; onClose: () => void; closeWhenWide: boolean; children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -497,14 +518,14 @@ function HistoryDrawer({ open, onClose, children }: { open: boolean; onClose: ()
 
   // The drawer is for narrow screens; widening the window to the desktop layout closes it.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !closeWhenWide) return;
     const wide = window.matchMedia("(min-width: 1024px)");
-    const closeWhenWide = () => {
+    const closeIfWide = () => {
       if (wide.matches) onClose();
     };
-    wide.addEventListener("change", closeWhenWide);
-    return () => wide.removeEventListener("change", closeWhenWide);
-  }, [open, onClose]);
+    wide.addEventListener("change", closeIfWide);
+    return () => wide.removeEventListener("change", closeIfWide);
+  }, [open, onClose, closeWhenWide]);
 
   return (
     <dialog
