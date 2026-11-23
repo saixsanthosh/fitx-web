@@ -47,3 +47,10 @@ test("the old mark's geometry is gone from the app, Admin and the brand files (t
   }
   assert.equal(hits.trim(), "");
 });
+
+test("robots: Explore and the old social path stay out of search, like every member page", async () => {
+  const { default: robots } = await import("@/app/robots");
+  const rules = robots().rules;
+  const disallow = (Array.isArray(rules) ? rules[0] : rules).disallow as string[];
+  for (const path of ["/explore", "/social", "/dashboard", "/home-workout"]) assert.ok(disallow.includes(path), path);
+});
