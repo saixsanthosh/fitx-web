@@ -1,3 +1,5 @@
+import { INTRO_COOKIE_NAME, readCookie } from "@/lib/onboarding/post-sequence";
+import { filmSeenRecently } from "./films/welcome-runtime";
 import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT } from "./introKeys";
 
 type Events = Pick<EventTarget, "addEventListener" | "removeEventListener">;
@@ -44,4 +46,13 @@ export function accountFilmClaimedElsewhere(target: AccountFilmWindow = window a
     return false;
   }
   return latest !== null && latest !== mine;
+}
+
+/**
+ * D1: the welcome film started on this device less than 7 days ago (FILM_SEEN_KEY) but the device still says
+ * `fitx_intro=play`, so its /api/intro/complete did not get through (both tries failed). IntroCompletionReporter then
+ * tries again on this app page load; the server's answer sets "seen", which ends the retries.
+ */
+export function welcomeReportPending(cookies: string, seen: string | null, now: number = Date.now()): boolean {
+  return readCookie(cookies, INTRO_COOKIE_NAME) === "play" && filmSeenRecently(seen, now);
 }

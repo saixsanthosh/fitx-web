@@ -3,21 +3,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useReducedMotionSafe } from "@/components/motion";
 import { Logo } from "@/components/ui/Logo";
+import { manifestFor } from "@/components/brand/films/manifest";
 import { POST_ONBOARDING_FILM } from "@/components/onboarding/post-onboarding-film";
 import { logoHoldMs, postOnboardingSteps, type PostStep } from "@/lib/onboarding/post-sequence";
 import styles from "./PostOnboarding.module.css";
 
 /**
- * What plays once onboarding is finished (owner's phase 4, steps 4 to 6): the post-onboarding film (wave 2; none
- * yet), then the FITX logo reveal, then `onDone` (which loads Home). Skipped entirely when the device still owes
- * the account its intro film, which ends on the logo itself. A Skip button is always there, and each step ends on
- * its own, so nobody is held up.
+ * What plays once onboarding is finished (owner's phase 4, steps 4 to 6), then `onDone` (which loads Home): the
+ * welcome film once its cuts exist (it ends on the logo; D1), otherwise the FITX logo reveal, or nothing when the
+ * device still owes the account its intro film, which ends on the logo itself. A Skip button is always there, and
+ * each step ends on its own, so nobody is held up.
  */
-export function PostOnboardingSequence({ onDone }: { onDone: () => void }) {
+export function PostOnboardingSequence({ onDone, firstName = null }: { onDone: () => void; firstName?: string | null }) {
   const reduced = useReducedMotionSafe();
   // Shown only after onboarding's last save, in the browser, so the cookie can be read on the first render.
   const [steps] = useState<PostStep[]>(() =>
-    typeof document === "undefined" ? ["logo"] : postOnboardingSteps({ cookies: document.cookie, hasFilm: POST_ONBOARDING_FILM !== null }));
+    typeof document === "undefined"
+      ? ["logo"]
+      : postOnboardingSteps({ cookies: document.cookie, hasFilm: POST_ONBOARDING_FILM !== null && manifestFor("welcome") !== null }));
   const [index, setIndex] = useState(0);
   const finished = useRef(false);
   const skipRef = useRef<HTMLButtonElement>(null);
@@ -49,7 +52,7 @@ export function PostOnboardingSequence({ onDone }: { onDone: () => void }) {
   if (!step) return <div className={styles.stage} aria-hidden="true" />;
 
   const Film = POST_ONBOARDING_FILM;
-  if (step === "film" && Film) return <Film onEnd={next} />;
+  if (step === "film" && Film) return <Film onEnd={next} firstName={firstName} />;
 
   return (
     <div className={`${styles.stage} ${reduced ? styles.still : ""}`} role="dialog" aria-modal="true" aria-label="Welcome to FITX">

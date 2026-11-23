@@ -1,14 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { Logo } from "@/components/ui/Logo";
+import { firstName as firstNameOf } from "@/lib/onboarding/form";
 import { FILM_DURATION, STAGE, STAGE_START, stageAt } from "./intro/timeline";
 import { FitxIntroVideo } from "./FitxIntroVideo";
 import { BrandEndCard, DebugBackdrop, FilmGraphics } from "./IntroFilmOverlay";
 import { clampStage, type FilmFreeze } from "./introOverlayTiming";
 import { accountFilmClaimedElsewhere } from "./accountFilm";
 import { focusAfterFilm } from "./introFocus";
-import { INTRO_PENDING_EVENT, VISITOR_FILM_SEEN_KEY } from "./introKeys";
+import { FILM_POSTER_VAR, INTRO_PENDING_EVENT, REPLAY_EVENT, VISITOR_FILM_SEEN_KEY } from "./introKeys";
+import { FILM_ATTR, FILM_CUT_ATTR, pickComposition, type FilmId } from "./films/compositions";
+import { filmAllowed, manifestFor, posterIn, type FilmAudio } from "./films/manifest";
+import { useFilmSound } from "./films/filmSound";
+import { SoundControl } from "./films/SoundControl";
+import { WelcomeFilm } from "./films/WelcomeFilm";
 import styles from "./CinematicIntro.module.css";
 
 type Playback = "idle" | "loading" | "three" | "static";
@@ -18,7 +25,6 @@ type Theme = "light" | "dark";
 type IntroSceneComponent = typeof import("./FitxIntroScene")["FitxIntroScene"];
 type DebugConfig = { freeze: FilmFreeze | null; image: string | null };
 
-const REPLAY_EVENT = "fitx:intro:replay";
 /**
  * How long the logo may hold while the live film prepares before the intro switches to the
  * pre-rendered cut (Chrome on a recent laptop is ready in ~2 s; slower GPUs/drivers are not).
@@ -33,20 +39,15 @@ const VIDEO_READY_TIMEOUT_MS = 6000;
  */
 const WATCHDOG_MS = 8000;
 
-type NavigatorHints = Navigator & {
-  connection?: { saveData?: boolean; effectiveType?: string };
-};
-
 /**
- * Whether to play the film at all. The video plays smoothly on any device (low-end phones get the
- * light cut), so only an explicit "save data" request or a 2G connection skips it: the static mark
- * shows instead. The live render (`?intro=live`) has its own device checks (`detectQuality`) and
- * falls back to the video.
+ * Which film a request plays: the one asked for (Replay's `detail.film`), else the one the head script claimed
+ * (`data-fitx-film`). The welcome film only while its cuts exist; asking for it without them plays nothing.
  */
-function filmAllowed(): boolean {
-  const connection = (navigator as NavigatorHints).connection;
-  if (connection?.saveData === true) return false;
-  return !(connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g");
+function filmToPlay(requested: FilmId | undefined): FilmId | null {
+  const wanted: FilmId = requested ?? (document.documentElement.getAttribute(FILM_ATTR) === "welcome" ? "welcome" : "intro");
+  if (wanted === "intro") return "intro";
+  if (manifestFor("welcome")) return "welcome";
+  return requested === "welcome" ? null : "intro";
 }
 
 /**
@@ -116,9 +117,11 @@ function readDebugConfig(): DebugConfig | null {
 }
 
 /**
- * The branded welcome film, layered over the page. It plays when the head script marked it pending
+ * The branded films, layered over the page. The intro plays when the head script marked it pending
  * (a signed-out visit to the home page, once per device; once per account on an app page; or `?intro=…`),
- * also when a tab that loaded hidden is first shown, and on Replay.
+ * also when a tab that loaded hidden is first shown, and on Replay. Once the welcome film's cuts exist (D1), the
+ * account's film is the welcome film (WelcomeFilm, with its own Skip and Sound), and so are `?intro=welcome` and
+ * "Replay welcome film". The intro's "Sound" control shows only when its manifest has sound.
  */
 export function CinematicIntro() {
   const [playback, setPlayback] = useState<Playback>("idle");
@@ -146,6 +149,12 @@ export function CinematicIntro() {
   const watchdogTimer = useRef<number | null>(null);
   const filmPlayingRef = useRef(false);
   const debugActive = useRef(false);
+  const [film, setFilm] = useState<FilmId>("intro");
+  const [welcomeFocus, setWelcomeFocus] = useState(false);
+  const [introAudio, setIntroAudio] = useState<FilmAudio | null>(null);
+  const [introVideo, setIntroVideo] = useState<HTMLVideoElement | null>(null);
+  const user = useOptionalUserContext();
+  const memberName = firstNameOf(user?.data?.profile?.name);
 
   const clearWatchdog = useCallback(() => {
     if (watchdogTimer.current !== null) window.clearTimeout(watchdogTimer.current);
@@ -156,6 +165,7 @@ export function CinematicIntro() {
   const releasePage = useCallback(() => {
     document.documentElement.removeAttribute("data-fitx-intro");
     document.documentElement.removeAttribute("data-fitx-intro-ready");
+    document.documentElement.removeAttribute(FILM_ATTR);
     releaseInert(inertMarked.current);
     clearWatchdog();
     filmPlayingRef.current = false;
@@ -215,9 +225,11 @@ export function CinematicIntro() {
     readinessTimer.current = window.setTimeout(showStaticFallback, VIDEO_READY_TIMEOUT_MS);
   }, [showStaticFallback]);
 
-  const begin = useCallback((force: boolean) => {
+  const begin = useCallback((force: boolean, requested?: FilmId) => {
     if (activeRef.current) return;
     if (!force && document.documentElement.dataset.fitxIntro !== "pending") return;
+    const chosenFilm = filmToPlay(requested);
+    if (!chosenFilm) return;
     // The account's film opened in several tabs at the same moment: only the tab that claimed it last plays it.
     if (!force && accountFilmClaimedElsewhere()) {
       document.documentElement.removeAttribute("data-fitx-intro");
@@ -248,10 +260,29 @@ export function CinematicIntro() {
     const startTheme = readTheme();
     // The opening-frame poster (CSS) follows this, also on Replay.
     document.documentElement.dataset.fitxIntroTheme = startTheme;
+    // The film claimed, the composition its cut is for and that composition's poster (the head script does the same
+    // for the films it opens; a replay comes here first).
+    const manifest = manifestFor(chosenFilm);
+    const comp = pickComposition(window.innerWidth, window.innerHeight, manifest?.comps);
+    const poster = posterIn(manifest, startTheme, comp);
+    document.documentElement.setAttribute(FILM_ATTR, chosenFilm);
+    document.documentElement.setAttribute(FILM_CUT_ATTR, comp);
+    if (poster) document.documentElement.style.setProperty(FILM_POSTER_VAR, `url("${poster}")`);
+    setFilm(chosenFilm);
+    setIntroAudio(chosenFilm === "intro" ? manifestFor("intro")?.audio ?? null : null);
     setTheme(startTheme);
     setStage(0);
     setRun((value) => value + 1);
     setLeaving(false);
+    if (chosenFilm === "welcome") {
+      // WelcomeFilm decides its own case (reduced motion, Save-Data, the film) and keeps its own clocks.
+      setWelcomeFocus(focusSkipOnShow.current);
+      focusSkipOnShow.current = false;
+      sourceRef.current = "video";
+      setSource("video");
+      setPlayback("loading");
+      return;
+    }
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     // Save-Data and 2G get the static mark straight away instead of downloading the film.
     const film = !reduced && filmAllowed();
@@ -357,7 +388,10 @@ export function CinematicIntro() {
   }, [armWatchdog]);
 
   useEffect(() => {
-    const onReplay = () => begin(true);
+    const onReplay = (event: Event) => {
+      const requested = (event as CustomEvent<{ film?: FilmId } | null>).detail?.film;
+      begin(true, requested === "welcome" ? "welcome" : undefined);
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (activeRef.current && event.key === "Escape") finish();
     };
@@ -398,8 +432,11 @@ export function CinematicIntro() {
     };
   }, [begin, clearWatchdog, finish]);
 
+  // The intro's sound (none until its manifest has some): muted by default, a stored "on" tried as the film starts.
+  const sound = useFilmSound(film === "intro" && source === "video" ? introVideo : null, introAudio, { held: false, ending: leaving });
   const filmStage = clampStage(stage);
-  const filmPlaying = playback === "three";
+  const welcome = film === "welcome" && playback !== "idle";
+  const filmPlaying = playback === "three" && !welcome;
   const brandStage = filmStage >= STAGE.brand;
   const freeze = debug?.freeze ?? null;
   const className = [
@@ -428,7 +465,8 @@ export function CinematicIntro() {
       {debug && <DebugBackdrop image={debug.image} theme={theme} />}
       {/* The film's opening frame from the first paint (bootstrap "pending") until the film covers it. */}
       {!debug && <div className={styles.poster} aria-hidden="true" />}
-      {(playback === "loading" || filmPlaying) && source === "live" && IntroScene && !debug && (
+      {welcome && <WelcomeFilm onEnd={finish} firstName={memberName} record={false} focusSkip={welcomeFocus} />}
+      {!welcome && (playback === "loading" || filmPlaying) && source === "live" && IntroScene && !debug && (
         <IntroScene
           theme={theme}
           onStage={onFilmStage}
@@ -437,7 +475,7 @@ export function CinematicIntro() {
           onUnsupported={switchToVideo}
         />
       )}
-      {(playback === "loading" || filmPlaying) && source === "video" && !debug && (
+      {!welcome && (playback === "loading" || filmPlaying) && source === "video" && !debug && (
         <FitxIntroVideo
           key={`video-${run}`}
           theme={theme}
@@ -446,6 +484,7 @@ export function CinematicIntro() {
           onComplete={finish}
           onUnsupported={showStaticFallback}
           onHold={onVideoHold}
+          onVideo={setIntroVideo}
         />
       )}
 
@@ -455,11 +494,18 @@ export function CinematicIntro() {
         <BrandEndCard key={`brand-${run}`} stage={filmStage} freeze={freeze} logoClassName={styles.logo} />
       )}
 
-      <div className={styles.topline}>
-        <button ref={skipRef} className={styles.skip} type="button" onClick={finish} aria-keyshortcuts="Escape" data-fitx-skip>
-          <span>Skip intro</span><kbd aria-hidden="true">ESC</kbd>
-        </button>
-      </div>
+      {/* WelcomeFilm brings its own Skip: exactly one Skip control is in the page at any time. While the head script
+          holds a claimed welcome film (before the app starts it), this one says so (CSS, from data-fitx-film). */}
+      {!welcome && (
+        <div className={styles.topline}>
+          {!debug && (playback === "loading" || filmPlaying) && source === "video" && <SoundControl sound={sound} />}
+          <button ref={skipRef} className={styles.skip} type="button" onClick={finish} aria-keyshortcuts="Escape" data-fitx-skip>
+            <span className={styles.skipIntro}>Skip intro</span>
+            <span className={styles.skipWelcome}>Skip welcome film</span>
+            <kbd aria-hidden="true">ESC</kbd>
+          </button>
+        </div>
+      )}
 
       {/* Only when the film cannot play (reduced motion, unsupported device): the static mark. */}
       {playback === "static" && (

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { activeSting } from "../films/manifest";
+import { playReturnSting } from "../films/sting";
 import { LogoReveal } from "./LogoReveal";
 import styles from "./ReturningLogin.module.css";
 
@@ -31,6 +33,28 @@ export function ReturningLogin() {
     const root = document.documentElement;
     if (root.getAttribute("data-fitx-loader") === WELCOME_LOADER) root.removeAttribute("data-fitx-loader");
   }, []);
+
+  // The sting (BRIEF-2 3.4): once, as the reveal starts, only with film sound turned on (null until S6: silent).
+  useEffect(() => {
+    // Hydration renders with the server's guess (active); only a page the head script really marked plays it.
+    if (!active || !welcoming()) return;
+    let storage: Storage | null = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+      storage = null;
+    }
+    playReturnSting({
+      sting: activeSting(),
+      storage,
+      reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      createAudio: (src) => {
+        const audio = new Audio(src);
+        audio.preload = "auto";
+        return audio;
+      },
+    });
+  }, [active]);
 
   useEffect(() => {
     if (!active) return;

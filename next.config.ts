@@ -173,6 +173,21 @@ export function cameraRedirects(hasFormCheckPage: boolean) {
   ];
 }
 
+/**
+ * The film fixture (src/components/brand/films/fixture.ts) is for the e2e build only: a Vercel production build with
+ * NEXT_PUBLIC_FITX_FILM_FIXTURE=1 is refused, so the fixture's test pattern can never ship (BRIEF-2 3.4).
+ */
+export function assertFilmFixtureAllowed(env: Record<string, string | undefined>) {
+  if (env.NEXT_PUBLIC_FITX_FILM_FIXTURE === "1" && env.VERCEL_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_FITX_FILM_FIXTURE=1 is for the e2e build only; unset it for production builds.");
+  }
+}
+
+assertFilmFixtureAllowed(process.env);
+
+/** The films' encoded cuts, posters and sound (public/brand/films/<film>/<rev8>/): a new revision is a new URL. */
+export const FILM_CACHE_RULE = { source: "/brand/films/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] };
+
 const HAS_FORM_CHECK_PAGE = existsSync(path.join(process.cwd(), "src/app/(dashboard)/workouts/form-check/page.tsx"));
 
 const nextConfig: NextConfig = {
@@ -204,6 +219,7 @@ const nextConfig: NextConfig = {
       // The form coach's self-hosted pose runtime and models (public/models/pose): versioned folder names,
       // so a new version is a new URL and the 11 MB runtime is downloaded once.
       { source: "/models/pose/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+      FILM_CACHE_RULE,
     ];
   },
 };

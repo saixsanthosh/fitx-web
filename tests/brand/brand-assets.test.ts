@@ -37,10 +37,10 @@ test("the share image and the manifest use the new mark", () => {
   assert.match(manifest, /fitx-app-icon-maskable\.png", sizes: "512x512", type: "image\/png", purpose: "maskable"/);
 });
 
-test("the old mark's geometry is gone from the app, Admin and the brand files (the intro film is re-rendered in wave 2)", () => {
+test("the old mark's geometry is gone from the app, Admin and the brand files (the films S6 renders are left out)", () => {
   let hits = "";
   try {
-    hits = execFileSync("git", ["grep", "-n", "-I", "-E", "M10 13H54|M32 31L53 52", "--", "src", "admin/src", "public/brand", ":!public/brand/intro"], { encoding: "utf8" });
+    hits = execFileSync("git", ["grep", "-n", "-I", "-E", "M10 13H54|M32 31L53 52", "--", "src", "admin/src", "public/brand", ":!public/brand/films"], { encoding: "utf8" });
   } catch {
     hits = "";
   }

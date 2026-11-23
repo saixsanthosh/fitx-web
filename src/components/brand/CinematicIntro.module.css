@@ -82,12 +82,26 @@
   :global(:root[data-fitx-intro-theme="dark"]) .poster { background-image: url("/brand/intro/fitx-intro-dark-portrait.webp"); }
 }
 
+/*
+ * The poster of the composition being served: the head script, CinematicIntro and FilmVideo set --fitx-film-poster
+ * from the manifest by the viewport's aspect, so a square window gets the landscape frame its cut has. The
+ * orientation rules above are only the fallback before any film has been opened.
+ */
+:global(:root[data-fitx-film-cut]) .poster,
+:global(:root[data-fitx-film-cut][data-fitx-intro-theme="dark"]) .poster { background-image: var(--fitx-film-poster); }
+
+/* Skip's label follows the film the head script claimed, before the app starts it. */
+.skipWelcome { display: none; }
+:global(:root[data-fitx-film="welcome"]) .skipIntro { display: none; }
+:global(:root[data-fitx-film="welcome"]) .skipWelcome { display: inline; }
+
 .topline {
   top: calc(24px + env(safe-area-inset-top));
   right: max(4vw, calc(24px + env(safe-area-inset-right)));
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
 }
 
 .skip {
@@ -175,7 +189,8 @@
 
 /* Portrait mattes are thin: during the film a slimmer pill (same 44px+ hit area) sits inside the top bar. */
 @media (orientation: portrait) {
-  .cine .skip { min-height: 36px; }
+  .cine .skip,
+  .cine .topline [data-fitx-film-sound] { min-height: 36px; }
   .cine.intro .topline { top: calc(4px + env(safe-area-inset-top)); }
 }
 

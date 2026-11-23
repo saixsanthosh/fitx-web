@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { accountFilmClaimedElsewhere, whenAccountFilmOpens, type AccountFilmWindow } from "@/components/brand/accountFilm";
+import { readFileSync } from "node:fs";
+import { accountFilmClaimedElsewhere, welcomeReportPending, whenAccountFilmOpens, type AccountFilmWindow } from "@/components/brand/accountFilm";
 import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT } from "@/components/brand/introKeys";
 
 /** <html> as the head script leaves it (`data-fitx-intro-gate`), and the window it announces on. */
@@ -73,4 +74,15 @@ test("plays as usual whenever another claim can't be seen", () => {
   assert.equal(accountFilmClaimedElsewhere(tab(undefined, "1800000000000.11")), false, "this page opened no account film");
   assert.equal(accountFilmClaimedElsewhere(tab("1800000000000.11", null)), false, "nothing stored (storage cleared, or signed out since)");
   assert.equal(accountFilmClaimedElsewhere(tab("1800000000000.11", new Error("SecurityError"))), false, "storage blocked");
+});
+
+test("D1: the welcome film's report is retried while the seen flag is under 7 days old and the device still says play", () => {
+  const now = Date.parse("2026-11-24T12:00:00.000Z");
+  const seen = "2026-11-24T10:00:00.000Z";
+  assert.equal(welcomeReportPending("fitx_auth=1; fitx_intro=play", seen, now), true, "both tries failed: try again");
+  assert.equal(welcomeReportPending("fitx_auth=1; fitx_intro=seen", seen, now), false, "the server answered: done");
+  assert.equal(welcomeReportPending("fitx_intro=play", null, now), false, "no welcome film here: the account gate handles it");
+  assert.equal(welcomeReportPending("fitx_intro=play", "2026-11-10T10:00:00.000Z", now), false, "older than 7 days");
+  const reporter = readFileSync(new URL("../../src/components/brand/IntroCompletionReporter.tsx", import.meta.url), "utf8");
+  assert.match(reporter, /if \(welcomeReportPending\(document\.cookie, seen\)\) report\(\);/);
 });

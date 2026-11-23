@@ -28,3 +28,21 @@ export const ACCOUNT_FILM_STARTED_KEY = "fitx-intro-account";
  * tests the literal value.
  */
 export const RETURNING_WELCOME_COOKIE = "fitx_welcome";
+
+/**
+ * localStorage: when the welcome film (or its reduced-motion or reveal-only stand-in) started on this device, as an
+ * ISO time (D1). The account gate skips the film for FILM_SEEN_MS after it, so a failed /api/intro/complete never
+ * replays it on /dashboard, and IntroCompletionReporter retries that call while the device still says "play".
+ */
+export const FILM_SEEN_KEY = "fitx-film-seen";
+
+export const FILM_SEEN_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Window event that replays a film: `detail?: { film?: "intro" | "welcome" }`; no detail means the intro.
+ * Dispatched by IntroReplayControl, handled by CinematicIntro.
+ */
+export const REPLAY_EVENT = "fitx:intro:replay";
+
+/** CSS custom property on <html> holding `url("<poster>")` of the film being opened (introBootstrap.ts, CinematicIntro). */
+export const FILM_POSTER_VAR = "--fitx-film-poster";
