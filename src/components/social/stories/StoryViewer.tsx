@@ -396,18 +396,19 @@ function StoryMedia({ story, viewerId, muted, stopped, onReady, onEnd, onMissing
 
   const markShown = () => { setShown(true); onReady(); };
   const alt = story.caption ? `Story: ${story.caption}` : "Story";
+  const fill = story.height >= story.width * 1.5 ? styles.mediaFill : "";
   return (
     <div className={`${styles.media} ${styles.enter}`}>
       {story.kind === "image" && photo && (
         // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed link to a private photo
-        <img src={photo} alt={alt} className={`${styles.mediaImg} ${shown ? styles.mediaReady : ""}`} onLoad={markShown} onError={onMissing} decoding="async" />
+        <img src={photo} alt={alt} className={`${styles.mediaImg} ${fill} ${shown ? styles.mediaReady : ""}`} onLoad={markShown} onError={onMissing} decoding="async" />
       )}
       {story.kind === "video" && video && (
         <video
           ref={videoRef}
           src={video}
           poster={photo ?? undefined}
-          className={`${styles.mediaVideo} ${shown ? styles.mediaReady : ""}`}
+          className={`${styles.mediaVideo} ${fill} ${shown ? styles.mediaReady : ""}`}
           playsInline
           muted={muted}
           preload="auto"

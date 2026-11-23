@@ -48,7 +48,11 @@ async function checkMp4(blob: Blob, target: VideoTarget): Promise<{ info: Mp4Inf
  * (one retry at a lower rate if it comes out too large); the camera records straight to MP4. Browsers that cannot
  * write MP4 (Firefox) say so (O2 a). Nothing is uploaded here.
  */
-export function VideoPicker({ target, onChange, disabled = false }: { target: VideoTarget; onChange: (video: PreparedVideo | null) => void; disabled?: boolean }) {
+export function VideoPicker({ target, onChange, disabled = false, preview: showPreview = true }: {
+  target: VideoTarget; onChange: (video: PreparedVideo | null) => void; disabled?: boolean;
+  /** False when the page shows the clip itself (the story composer's 9:16 frame). */
+  preview?: boolean;
+}) {
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
   const [startMs, setStartMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -285,7 +289,7 @@ export function VideoPicker({ target, onChange, disabled = false }: { target: Vi
 
       {stage.kind === "ready" && (
         <div className={styles.panel}>
-          <video ref={preview} className={styles.ready} src={stage.video.url} controls playsInline muted preload="metadata" aria-label="Your video" />
+          {showPreview && <video ref={preview} className={styles.ready} src={stage.video.url} controls playsInline muted preload="metadata" aria-label="Your video" />}
           <p className={styles.readyMeta}>{clock(stage.video.durationMs)} · {(stage.video.blob.size / (1024 * 1024)).toFixed(1)} MB of {Math.round(SOCIAL_LIMITS.fileBytes / (1024 * 1024))} MB</p>
           <button type="button" className="fitx-button fitx-button-secondary self-start" onClick={reset} disabled={disabled}><RotateCcw size={16} aria-hidden="true" />Choose another</button>
         </div>

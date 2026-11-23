@@ -100,12 +100,13 @@ export function StoryComposer() {
     <div className="flex flex-col gap-6">
       <PageHeader title="New story" />
       <div className={styles.compose}>
-        <figure className={styles.preview} aria-label="Story preview">
+        {/* While a video is being chosen or recorded, the picker shows it; the frame comes back once it is ready. */}
+        {(kind !== "video" || video) && <figure className={styles.preview} aria-label="Story preview">
           {kind === "photo" && photo && (
             // eslint-disable-next-line @next/next/no-img-element -- a local preview of the photo being shared
             <img src={photo.url} alt="Your story photo" className={styles.previewMedia} />
           )}
-          {kind === "video" && video && <video src={video.url} className={styles.previewMedia} muted playsInline loop autoPlay aria-label="Your story video" />}
+          {kind === "video" && video && <video src={video.url} className={styles.previewMedia} muted playsInline loop autoPlay aria-label="Your video" />}
           {!ready && (
             <span className={styles.previewEmpty}>
               <ImagePlus size={30} aria-hidden="true" />
@@ -113,7 +114,7 @@ export function StoryComposer() {
             </span>
           )}
           {ready && caption.trim() && <figcaption className={styles.previewCaption}>{caption.trim()}</figcaption>}
-        </figure>
+        </figure>}
 
         <div className="flex flex-col gap-5">
           {!kind && (
@@ -138,7 +139,7 @@ export function StoryComposer() {
               )}
             </div>
           )}
-          {kind === "video" && <VideoPicker target="story" onChange={setVideo} disabled={busy} />}
+          {kind === "video" && <VideoPicker target="story" onChange={setVideo} disabled={busy} preview={false} />}
 
           {kind && (
             <div className={exploreStyles.form}>
