@@ -107,6 +107,18 @@ describe("loading", () => {
     assert.ok(selects[1].columns!.includes("diet_type") && !selects[1].columns!.includes("food_source"));
   });
 
+  test("reads when the Workouts setup was saved, and works before 20261123100020 adds the column", async () => {
+    fake.tables.user_preferences[0].workout_setup_at = "2026-11-23T08:00:00Z";
+    const saved = await loadUserContext(client(), USER);
+    assert.equal(saved.data!.workoutSetupAt, "2026-11-23T08:00:00Z");
+    fake.missingColumns.user_preferences = ["workout_setup_at"];
+    const before = await loadUserContext(client(), USER);
+    assert.equal(before.error, null);
+    assert.equal(before.data!.workoutSetupAt, null);
+    assert.deepEqual(before.data!.schema, { preferencesV2: true, onboardingV3: true }, "the older answers still load");
+    assert.equal(before.data!.preferences.food_budget_level, "tight");
+  });
+
   test("with no weigh-ins the profile weight is used; with no preferences row, defaults", async () => {
     fake.tables.body_metrics = [];
     fake.tables.user_preferences = [];

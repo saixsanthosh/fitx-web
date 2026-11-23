@@ -83,6 +83,8 @@ export type PreferenceColumnV2 = (typeof PREFERENCE_COLUMNS_V2)[number];
 export const PROFILE_COLUMNS_V3 = ["date_of_birth"] as const;
 export const PREFERENCE_COLUMNS_V3 = ["food_source", "nutrition_focus"] as const;
 export type PreferenceColumnV3 = (typeof PREFERENCE_COLUMNS_V3)[number];
+/** Added by migration 20261123100020_fitx_workout_setup; read only (the Workouts setup writes it, training/setup.ts). */
+export const PREFERENCE_COLUMNS_V4 = ["workout_setup_at"] as const;
 export type OptionalPreferenceColumn = PreferenceColumnV2 | PreferenceColumnV3;
 
 /**
@@ -165,6 +167,8 @@ export type UserContextData = {
   preferences: PreferenceValues;
   /** False until a user_preferences row exists (the values above are then defaults). */
   hasPreferences: boolean;
+  /** When the Workouts setup was last saved (user_preferences.workout_setup_at); null when not, or before its migration. */
+  workoutSetupAt: string | null;
   /** Stored values that are not part of the vocabulary, kept so screens can mention them. */
   legacy: { dietaryPreferences: string[]; unknownEquipment: string[] };
   /** Home and Gym equipment as Workouts sees it. */
@@ -279,7 +283,7 @@ export function targetsFor(profile: ProfileValues | null, preferences: Preferenc
 }
 
 export async function loadUserContext(supabase: SupabaseClient, user: { id: string; email?: string | null }): Promise<LoadResult> {
-  const preferenceTiers = [PREFERENCE_COLUMNS_V2, PREFERENCE_COLUMNS_V3] as const;
+  const preferenceTiers = [PREFERENCE_COLUMNS_V2, PREFERENCE_COLUMNS_V3, PREFERENCE_COLUMNS_V4] as const;
   const [profileOutcome, preferenceOutcome, weighInResult, equipmentResult] = await Promise.all([
     withColumnTiers([PROFILE_COLUMNS_V3], (kept) =>
       supabase.from("profiles").select([...PROFILE_COLUMNS, ...(kept ? PROFILE_COLUMNS_V3 : [])].join(",")).eq("id", user.id).maybeSingle(),
@@ -331,6 +335,7 @@ export async function loadUserContext(supabase: SupabaseClient, user: { id: stri
       profile,
       preferences,
       hasPreferences: Boolean(preferenceResult.data),
+      workoutSetupAt: typeof preferenceRow?.workout_setup_at === "string" && preferenceRow.workout_setup_at ? preferenceRow.workout_setup_at : null,
       legacy,
       equipmentLists,
       latestWeighIn,

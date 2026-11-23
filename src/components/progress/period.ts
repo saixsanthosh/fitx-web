@@ -19,6 +19,7 @@ import { knownTotal, type MealTotals } from "@/lib/domain/meal-totals";
 import { isCountedSet, isCountedSession, type LoggedSession } from "@/lib/training/muscle-history";
 import { estimateOneRepMax } from "@/lib/training/one-rep-max";
 import { isLiftSet, isTimedPrescription } from "@/lib/training/sets";
+import { isWorkoutSetupDone } from "@/lib/training/setup";
 
 export const PERIOD_KINDS = ["week", "month", "year"] as const;
 export type PeriodKind = (typeof PERIOD_KINDS)[number];
@@ -489,13 +490,17 @@ export type Highlight = { id: string; tone: "good" | "attention" | "neutral"; te
 /**
  * Whether the member's weekly training days (user_preferences.workouts_per_week) are their own answer. Onboarding
  * no longer asks for them, yet its first page creates the preferences row, so a new member's row carries the
- * column's default of 3. The days count as answered only once the Workouts setup is done: training/setup.ts
- * isWorkoutSetupDone, which a saved Home or Gym list satisfies (the setup saves the lists before the days, and
- * 20261123100020 backfills workout_setup_at from them). Until then Progress shows no plan ring or plan insight.
+ * column's default of 3. The days count as answered only once the Workouts setup is done, by its own rule
+ * (training/setup.ts isWorkoutSetupDone): workout_setup_at is set (20261123100020 backfills it for members the
+ * old onboarding asked), or a Home or Gym list is saved. Until then Progress shows no plan ring or plan insight.
  */
-export function trainingDaysAnswered(context: { hasPreferences: boolean; equipmentLists: { home: { saved: boolean }; gym: { saved: boolean } } } | null): boolean {
+export function trainingDaysAnswered(context: {
+  hasPreferences: boolean;
+  workoutSetupAt: string | null;
+  equipmentLists: { home: { saved: boolean }; gym: { saved: boolean } };
+} | null): boolean {
   if (!context?.hasPreferences) return false;
-  return context.equipmentLists.home.saved || context.equipmentLists.gym.saved;
+  return isWorkoutSetupDone({ setupAt: context.workoutSetupAt, hasEquipmentList: context.equipmentLists.home.saved || context.equipmentLists.gym.saved });
 }
 
 /**

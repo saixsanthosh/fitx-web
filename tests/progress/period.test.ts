@@ -152,12 +152,14 @@ describe("what a period holds", () => {
   });
   test("the weekly plan is the member's own answer only after the Workouts setup", () => {
     const lists = (home: boolean, gym: boolean) => ({ home: { saved: home }, gym: { saved: gym } });
+    const member = (hasPreferences: boolean, workoutSetupAt: string | null, home = false, gym = false) => ({ hasPreferences, workoutSetupAt, equipmentLists: lists(home, gym) });
     // Onboarding writes the preferences row (time zone) without asking for days: its 3 is the column default.
-    assert.equal(trainingDaysAnswered({ hasPreferences: true, equipmentLists: lists(false, false) }), false);
-    assert.equal(trainingDaysAnswered({ hasPreferences: false, equipmentLists: lists(true, false) }), false);
+    assert.equal(trainingDaysAnswered(member(true, null)), false);
+    assert.equal(trainingDaysAnswered(member(false, null, true)), false);
     assert.equal(trainingDaysAnswered(null), false);
-    assert.equal(trainingDaysAnswered({ hasPreferences: true, equipmentLists: lists(true, false) }), true);
-    assert.equal(trainingDaysAnswered({ hasPreferences: true, equipmentLists: lists(false, true) }), true);
+    assert.equal(trainingDaysAnswered(member(true, "2026-11-23T08:00:00Z")), true, "setup saved (or backfilled for the old onboarding)");
+    assert.equal(trainingDaysAnswered(member(true, null, true)), true, "a saved Home list, before the migration");
+    assert.equal(trainingDaysAnswered(member(true, null, false, true)), true, "a saved Gym list");
     const current = periodSummary(week, index, foodDays, true);
     const unanswered = highlights({ period: week, current, previous: null, proteinTarget: null, plan: null });
     assert.ok(!unanswered.some((line) => line.id === "plan"), "no 'sessions to hit your 3 a week' for a target nobody set");
