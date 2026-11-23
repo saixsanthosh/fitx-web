@@ -484,7 +484,9 @@ export class CoachMachine {
   /** Combines framing, light, tracking and speed into one honest verdict on the view. */
   private judgeView(run: Run, snapshot: CoachSnapshot, framing: FramingAssessment, zoom: number, now: number) {
     let reason: string | null = null;
-    if (framing.quality === "poor" && framing.hint) reason = framing.hint;
+    // Nobody in view yet is not a fault of the view: the caption already says "Step into view".
+    if (framing.issue === "no-body" || snapshot.status === "searching") reason = null;
+    else if (framing.quality === "poor" && framing.hint) reason = framing.hint;
     else if (snapshot.status === "unclear") reason = snapshot.guidance;
     else if (run.light === "dim" && snapshot.status !== "active") reason = "The room is too dark for the camera to see you clearly. Turn on a light or face a window.";
     if (reason) run.poorSince ??= now;
