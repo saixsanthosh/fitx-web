@@ -120,8 +120,8 @@ export function HomeCollection({ catalog, owned, level, model, onPlan, equipment
         <FormCheckLink />
       </div>
 
-      <section aria-labelledby="home-areas-title" className="grid gap-3">
-        <div className="flex items-end justify-between gap-3">
+      <section aria-labelledby="home-areas-title" className="grid grid-cols-1 gap-3">
+        <div className="flex min-w-0 items-end justify-between gap-3">
           <h2 id="home-areas-title" className={styles.heading}>Target muscles</h2>
           <button type="button" onClick={onEditEquipment} className={styles.kitLink}>
             <span className="truncate">{equipmentSummary}</span><span className="shrink-0 font-semibold text-fitx-primary-text">Edit</span>
@@ -131,7 +131,7 @@ export function HomeCollection({ catalog, owned, level, model, onPlan, equipment
           onChange={(next) => { setArea(next[0] ?? null); setLimit(PAGE); }} />
       </section>
 
-      <section aria-labelledby="home-collection-title" className="grid gap-3">
+      <section aria-labelledby="home-collection-title" className="grid grid-cols-1 gap-3">
         <div className="flex items-baseline justify-between gap-3">
           <h2 id="home-collection-title" className={styles.heading}>{area ? FOCUS_AREA_INFO[area].label : "Home exercises"}</h2>
           <p className="m-0 text-xs tabular-nums text-fitx-text-secondary" aria-live="polite">{items.length.toLocaleString()} you can do</p>
