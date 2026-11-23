@@ -9,7 +9,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { SOCIAL_BUCKET, relativeTime, socialApi, toSocialError, type SocialAuthor, type SocialStory } from "@/lib/social";
 import { forgetPhotoUrls } from "@/lib/social/media-urls";
 import { STORY_REPLY } from "@/lib/social/slots";
-import { firstUnseen, seenByLabel, stepStory, storyPlayMs, timeLeft, viewerOrder, type StoryCursor } from "@/lib/social/stories";
+import { firstUnseen, isTextEntry, seenByLabel, stepStory, storyPlayMs, timeLeft, viewerOrder, type StoryCursor } from "@/lib/social/stories";
 import { videoLink } from "@/lib/social/video/links";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "../Avatar";
@@ -42,6 +42,8 @@ export function StoryViewer({ username }: { username: string }) {
   const [sheet, setSheet] = useState<"viewers" | "delete" | "report" | null>(null);
   const [muted, setMuted] = useState(true);
   const [ready, setReady] = useState(false);
+  /** The story whose reply box has focus or a draft: that story holds still until the reply is sent or left. */
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const viewed = useRef(new Set<string>());
 
   const close = useCallback(() => {
@@ -119,8 +121,10 @@ export function StoryViewer({ username }: { username: string }) {
 
   const go = useCallback((dir: 1 | -1) => {
     if (!at) return;
-    setReady(false);
     const next = stepStory(counts, at, dir);
+    // Back from the very first story stays on it: nothing changes, so the story keeps playing (its media stays ready).
+    if (next && next.user === at.user && next.story === at.story) return;
+    setReady(false);
     if (account && account.author.id && (next === null || next.user !== at.user) && dir === 1) traySeen(account.author.id);
     if (!next) { close(); return; }
     if (next.user !== at.user) {
@@ -139,7 +143,8 @@ export function StoryViewer({ username }: { username: string }) {
     });
   }, [db, story]);
 
-  const stopped = paused || holding || sheet !== null || !ready;
+  const replying = story !== null && replyingTo === story.id;
+  const stopped = paused || holding || sheet !== null || !ready || replying;
   const Reply = STORY_REPLY;
 
   const replaceStory = (next: SocialStory) => setAccounts((list) => list.map((item, index) => (
@@ -180,7 +185,8 @@ export function StoryViewer({ username }: { username: string }) {
   const name = account?.author.username ?? username;
   return (
     <dialog ref={dialog} className={styles.viewer} aria-label={`Story by ${name}`} tabIndex={-1} onKeyDown={(event) => {
-      if (sheet) return;
+      // The arrows move the caret in the reply box (and any other field), never the story.
+      if (sheet || isTextEntry(event.target)) return;
       if (event.key === "ArrowRight") { event.preventDefault(); go(1); }
       if (event.key === "ArrowLeft") { event.preventDefault(); go(-1); }
     }}>
@@ -268,7 +274,17 @@ export function StoryViewer({ username }: { username: string }) {
               ) : (
                 <>
                   <span className={styles.footGap}>
-                    {Reply && account && <Reply storyId={story.id} ownerId={account.author.id} onSent={() => toast.success("Reply sent")} />}
+                    {/* Keyed by story: a draft never carries over to another story or another account's owner. */}
+                    {Reply && account && (
+                      <Reply key={story.id} storyId={story.id} ownerId={account.author.id}
+                        onActiveChange={(active) => setReplyingTo((current) => (active ? story.id : current === story.id ? null : current))}
+                        onSent={() => {
+                          toast.success("Reply sent");
+                          // Back to the viewer: the story plays on and the arrow keys move it again.
+                          setReplyingTo(null);
+                          dialog.current?.focus();
+                        }} />
+                    )}
                   </span>
                   <button type="button" className={styles.stageButton} aria-label="Like story" aria-pressed={story.liked} onClick={() => void toggleLike()}>
                     <Heart size={22} aria-hidden="true" fill={story.liked ? "currentColor" : "none"} />

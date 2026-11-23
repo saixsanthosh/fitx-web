@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SendHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import type { StoryReplyProps } from "@/lib/social/slots";
@@ -11,12 +11,26 @@ import styles from "./Messages.module.css";
 
 /**
  * The STORY_REPLY slot (social-stories' viewer, on the dark stage): a reply to another member's story, sent as a
- * message with the story attached. Adults only (O1 a); nothing shows on the member's own story.
+ * message with the story attached. Adults only (O1 a); nothing shows on the member's own story. While the box has
+ * focus or holds a draft it tells the viewer (`onActiveChange`), which holds the story still; the viewer keys it by
+ * story, so a draft is never sent to another story's owner.
  */
-export function StoryReply({ storyId, ownerId, onSent }: StoryReplyProps) {
+export function StoryReply({ storyId, ownerId, onSent, onActiveChange }: StoryReplyProps) {
   const { db, userId, me } = useReadyExplore();
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const active = focused || body !== "";
+  const report = useRef(onActiveChange);
+  useEffect(() => { report.current = onActiveChange; });
+  const reported = useRef(false);
+  useEffect(() => {
+    if (active === reported.current) return;
+    reported.current = active;
+    report.current?.(active);
+  }, [active]);
+  // Leaving this story (another story, or the viewer closing) ends the reply.
+  useEffect(() => () => { if (reported.current) report.current?.(false); }, []);
   if (ownerId === userId || me.age_band !== "adult") return null;
   const text = body.trim();
 
@@ -26,7 +40,7 @@ export function StoryReply({ storyId, ownerId, onSent }: StoryReplyProps) {
     try {
       await messagesApi.send(db, ownerId, text, { storyId });
       setBody("");
-      toast.success("Reply sent");
+      // The viewer says "Reply sent" (one toast) and moves focus back to the story.
       onSent();
     } catch (failure) {
       toast.error(messageErrorText(failure));
@@ -36,7 +50,9 @@ export function StoryReply({ storyId, ownerId, onSent }: StoryReplyProps) {
   }
 
   return (
-    <form className={styles.replyBar} onSubmit={(event) => { event.preventDefault(); void send(); }}>
+    <form className={styles.replyBar} onSubmit={(event) => { event.preventDefault(); void send(); }}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}>
       <input
         className={styles.replyInput}
         aria-label="Reply to story"

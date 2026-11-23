@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  firstUnseen, markTraySeen, ringFor, seenByLabel, stepStory, storyFilePath, storyPlayMs, STORY_PHOTO_MS, timeLeft, viewerOrder,
+  firstUnseen, isTextEntry, markTraySeen, ringFor, seenByLabel, stepStory, storyFilePath, storyPlayMs, STORY_PHOTO_MS, timeLeft, viewerOrder,
 } from "@/lib/social/stories";
 import type { StoryTrayEntry } from "@/lib/social/types";
 
@@ -113,4 +113,26 @@ test("video controls never render while explore_video is off (no dead controls)"
   const player = source("src/components/social/videos/PostVideo.tsx");
   assert.match(player, /"Play video"/);
   assert.match(player, /preload="none"/, "the player fetches nothing until tapped");
+});
+
+test("a reply is never sent to the wrong member: typing holds the story, arrows stay in the box, drafts stay with their story", () => {
+  // Keys typed in a field belong to the field, never to the viewer's arrow-key navigation.
+  assert.equal(isTextEntry({ tagName: "INPUT" }), true);
+  assert.equal(isTextEntry({ tagName: "TEXTAREA" }), true);
+  assert.equal(isTextEntry({ tagName: "SELECT" }), true);
+  assert.equal(isTextEntry({ tagName: "DIV", isContentEditable: true }), true);
+  assert.equal(isTextEntry({ tagName: "DIALOG", isContentEditable: false }), false);
+  assert.equal(isTextEntry({ tagName: "BUTTON" }), false);
+  assert.equal(isTextEntry(null), false);
+  const viewer = source("src/components/social/stories/StoryViewer.tsx");
+  // The dialog's arrow keys skip fields.
+  assert.match(viewer, /if \(sheet \|\| isTextEntry\(event\.target\)\) return;/);
+  // A photo story does not move on while its reply has focus or a draft.
+  assert.match(viewer, /const stopped = [^;]*\breplying\b[^;]*;/);
+  // The reply box is keyed by story, so its draft (and recipient) never carries over to the next story.
+  assert.match(viewer, /<Reply key=\{story\.id\} storyId=\{story\.id\} ownerId=\{account\.author\.id\}/);
+  // One "Reply sent", from the viewer.
+  const reply = source("src/components/social/messages/StoryReply.tsx");
+  assert.doesNotMatch(reply, /toast\.success/);
+  assert.match(reply, /onActiveChange/);
 });

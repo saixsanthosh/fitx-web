@@ -187,6 +187,46 @@ export const flow = {
       t.expect(await tray.getByRole("link", { name: `Story by ${miraName}, new` }).count() === 0, "the ring shows it as seen");
     });
 
+    await t.step("Theo replies to Mira's story: typing holds it, the arrow keys move the caret, and the reply reaches Mira", async () => {
+      // Her photo story is the last in his tray: had it moved on after 5 s, the viewer would close (or, with another
+      // account next, the draft would go to that member). It must hold while he types, and the reply must reach Mira.
+      const tray = page.getByRole("region", { name: "Stories" });
+      await tray.getByRole("link", { name: new RegExp(`^Story by ${miraName}`) }).click({ timeout: 20000 });
+      const viewer = page.getByRole("dialog", { name: `Story by ${miraName}` });
+      await viewer.getByRole("img", { name: `Story: ${caption}` }).waitFor({ timeout: 15000 });
+      const story = await standin.one(`select id from public.social_stories where user_id = '${mira.id}' and kind = 'image'`);
+      const text = `Strong pace ${tag()}`;
+      const box = viewer.getByRole("textbox", { name: "Reply to story" });
+      await box.click();
+      await box.pressSequentially(text, { delay: 40 });
+      const caretAt = () => box.evaluate((input) => input.selectionStart);
+      const before = await caretAt();
+      await page.keyboard.press("ArrowLeft");
+      await page.keyboard.press("ArrowLeft");
+      t.expect(await caretAt() === before - 2, "ArrowLeft moves the caret in the reply box", { before, after: await caretAt() });
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("ArrowRight");
+      // Longer than a photo story's 5 s.
+      await page.waitForTimeout(6500);
+      t.expect(new URL(page.url()).pathname === `/explore/stories/${miraName}`, "the story holds while Theo types (no move on, no close)", page.url());
+      t.expect(await viewer.getByRole("img", { name: `Story: ${caption}` }).count() === 1, "Mira's story is still on screen");
+      t.expect(await box.inputValue() === text, "the draft is intact", await box.inputValue());
+      await sawOverflow(t, "story reply");
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_send_message") && r.ok(), { timeout: 15000 }),
+        viewer.getByRole("button", { name: "Send", exact: true }).click(),
+      ]);
+      await page.getByText("Reply sent", { exact: true }).first().waitFor({ timeout: 10000 });
+      await page.waitForTimeout(400);
+      t.expect(await page.getByText("Reply sent", { exact: true }).count() === 1, "one \"Reply sent\" toast", await page.getByText("Reply sent", { exact: true }).count());
+      const sent = await settled(standin, `select m.story_id, s.user_id owner, (c.user_low = '${mira.id}' or c.user_high = '${mira.id}') to_mira
+        from public.social_messages m join public.social_conversations c on c.id = m.conversation_id left join public.social_stories s on s.id = m.story_id
+        where m.user_id = '${theo.id}' and m.body = '${text}'`, (r) => Boolean(r));
+      t.expect(sent?.story_id === story?.id && sent?.owner === mira.id && sent?.to_mira === true, "the reply reaches Mira with her story attached", sent);
+      // Sent: the story plays on (back to the viewer) and, as the last one, closes the viewer.
+      await page.waitForURL((url) => url.pathname === "/explore", { timeout: 15000 });
+    });
+
     await t.step("Mira reads \"Seen by 1\" and who viewed it", async () => {
       await switchTo(t, mira, `/explore/stories/${miraName}`);
       const viewer = page.getByRole("dialog", { name: `Story by ${miraName}` });

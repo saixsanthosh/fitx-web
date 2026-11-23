@@ -70,6 +70,17 @@ export function viewerOrder(tray: readonly StoryTrayEntry[] | null, username: st
   return [username, ...names.slice(at + 1)];
 }
 
+/**
+ * True when a key event comes from a field (an input, a text area, a select or editable content): the story viewer then
+ * leaves the arrow keys to it, so moving the caret in the reply box never changes the story.
+ */
+export function isTextEntry(target: unknown): boolean {
+  if (!target || typeof target !== "object") return false;
+  const element = target as { tagName?: unknown; isContentEditable?: unknown };
+  if (element.isContentEditable === true) return true;
+  return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.tagName === "SELECT";
+}
+
 /** For the owner: how long the story has left ("23 h left", "40 min left", "Ending now"). */
 export function timeLeft(expiresAt: string, now: number = Date.now()): string {
   const ms = new Date(expiresAt).getTime() - now;

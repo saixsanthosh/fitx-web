@@ -43,6 +43,9 @@ export const SHARE_TARGETS: ComponentType<ShareTargetsProps> | null = SendTo;
 export type ProfileActionsProps = { userId: string; username: string };
 export const PROFILE_ACTIONS: ComponentType<ProfileActionsProps> | null = MessageButton;
 
-/** social-stories' story viewer renders this under a story (social-groups: a reply sent as a message). */
-export type StoryReplyProps = { storyId: string; ownerId: string; onSent: () => void };
+/**
+ * social-stories' story viewer renders this under a story (social-groups: a reply sent as a message), keyed by story.
+ * `onActiveChange(true)` while the reply has focus or a draft: the viewer holds that story still until it is false.
+ */
+export type StoryReplyProps = { storyId: string; ownerId: string; onSent: () => void; onActiveChange?: (active: boolean) => void };
 export const STORY_REPLY: ComponentType<StoryReplyProps> | null = StoryReply;
