@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Dumbbell } from "lucide-react";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import {
+  DEMO_LABEL,
   demoCoverFrame,
   FREE_EXERCISE_DB_PHOTO_COUNT,
   freeExerciseDbRef,
@@ -41,7 +42,7 @@ export function ExerciseThumbnail({ exerciseId, name, src }: { exerciseId: strin
     <div className="relative h-full w-full overflow-hidden bg-fitx-surface-variant">
       <Image
         src={url}
-        alt={`${name}, photo`}
+        alt={url === demo ? `${name}, ${DEMO_LABEL}` : `${name}, photo`}
         fill
         sizes="(max-width: 640px) 92vw, (max-width: 1280px) 46vw, 30vw"
         unoptimized={!isOptimizableImageUrl(url, SUPABASE_URL)}

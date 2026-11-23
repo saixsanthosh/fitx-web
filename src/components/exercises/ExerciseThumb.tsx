@@ -16,8 +16,10 @@ type ExerciseThumbProps = Omit<ThumbSourceInput, "supabaseUrl"> & {
 };
 
 /**
- * A square, rounded thumbnail of an exercise's first photo. Lazy-loaded. Without a photo, or when it
- * fails to load, it shows the equipment icon (when `equipment` is given) or the exercise's initials.
+ * A square, rounded thumbnail of an exercise's first photo. Lazy-loaded. When it shows FITX's AI
+ * demonstration (the member's model's start frame), a corner tag says so ("AI", or "AI demo" on the
+ * large size); the alt text carries the full label. Without a photo, or when it fails to load, it shows
+ * the equipment icon (when `equipment` is given) or the exercise's initials.
  */
 export function ExerciseThumb({ size = "md", equipment, className = "", ...source }: ExerciseThumbProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -50,6 +52,15 @@ export function ExerciseThumb({ size = "md", equipment, className = "", ...sourc
       ) : (
         <span role="img" aria-label={`${source.name}: no photo`} className="font-heading font-extrabold tracking-wide" style={{ fontSize: Math.max(12, Math.round(px * 0.34)) }}>
           {exerciseInitials(source.name)}
+        </span>
+      )}
+      {showPhoto && found.aiDemo && (
+        <span
+          aria-hidden="true"
+          data-ai-demo-tag
+          className="pointer-events-none absolute bottom-0.5 left-0.5 rounded-[3px] bg-fitx-scrim/70 px-1 text-[8px] font-semibold uppercase leading-3 tracking-[.08em] text-fitx-on-inverse"
+        >
+          {size === "lg" ? "AI demo" : "AI"}
         </span>
       )}
     </span>

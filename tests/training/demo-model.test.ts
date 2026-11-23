@@ -119,7 +119,7 @@ describe("media follows the member's model, with Free Exercise DB as the fallbac
 
   test("ExerciseCover's swap: the chosen model's start frame replaces the card photo; otherwise the photo stays", () => {
     const base = { exerciseId: "push_up", name: "Push-Up", src: `${PINNED_PHOTO_BASE}Pushups/0.jpg` };
-    assert.deepEqual(thumbSource({ ...base, demo: { index: parsed, model: "female" } }), { url: demoFramePath("female", "push_up", 0), alt: "Push-Up, AI demonstration", aiDemo: true });
+    assert.deepEqual(thumbSource({ ...base, demo: { index: parsed, model: "female" } }), { url: demoFramePath("female", "push_up", 0), alt: "Push-Up, AI demonstration made from a real photo of the movement", aiDemo: true });
     assert.equal(thumbSource({ ...base, demo: { index: parsed, model: null } })?.url, base.src);
     assert.equal(thumbSource({ ...base, demo: { index: null, model: "female" } })?.url, base.src, "while the index loads");
     assert.equal(thumbSource({ ...base, exerciseId: "plank", demo: { index: parsed, model: "female" } })?.url, base.src, "female missing: the photo");
@@ -201,6 +201,22 @@ describe("every surface reads the index the same way (source)", () => {
     assert.match(read("components/exercises/detail/GuidePanel.tsx"), /exerciseId=\{exercise\.id\}/);
     assert.match(read("components/form-check/DemoReel.tsx"), /demoForLibraryIds\(demos, exercise\.rule\.libraryIds, model\)/);
     assert.match(read("lib/training/use-demo-model.ts"), /fetch\(DEMO_INDEX_PATH/);
+  });
+
+  test("every surface that shows an AI demonstration frame says so, visibly and to screen readers", () => {
+    // The square thumbnails (Today, the builder, Up next, the session record, pickers, alternatives, muscles).
+    const thumb = read("components/exercises/ExerciseThumb.tsx");
+    assert.match(thumb, /\{showPhoto && found\.aiDemo && \(/);
+    assert.match(thumb, /aria-hidden="true"\s+data-ai-demo-tag/);
+    assert.match(thumb, /\{size === "lg" \? "AI demo" : "AI"\}/);
+    assert.match(thumb, /alt=\{found\.alt\}/);
+    // Cards and the Home collection.
+    assert.match(read("components/exercises/ExerciseCover.tsx"), /\{showPhoto && found\.aiDemo && <span[^>]*>AI demo<\/span>\}/);
+    assert.match(read("components/workouts/HomeCollection.tsx"), />AI demo</);
+    // The grid thumbnail's alt matches its tag.
+    const media = read("components/exercises/ExerciseMedia.tsx");
+    assert.match(media, /alt=\{url === demo \? `\$\{name\}, \$\{DEMO_LABEL\}` : `\$\{name\}, photo`\}/);
+    assert.match(media, /\{url === demo \? "AI demo" : "Photo"\}/);
   });
 
   test("the committed index is a valid, empty index until demonstrations are accepted", () => {

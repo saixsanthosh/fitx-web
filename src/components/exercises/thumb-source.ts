@@ -1,4 +1,4 @@
-import { demoCoverFrame, resolveExerciseMedia, withDemoMedia, type DemoIndex, type DemoModelKey, type ExerciseMedia, type ExerciseMediaRow } from "@/lib/training/media";
+import { DEMO_LABEL, demoCoverFrame, resolveExerciseMedia, withDemoMedia, type DemoIndex, type DemoModelKey, type ExerciseMedia, type ExerciseMediaRow } from "@/lib/training/media";
 
 export type ThumbSourceInput = {
   exerciseId: string;
@@ -22,7 +22,7 @@ export type ThumbSourceInput = {
  */
 export function thumbSource(input: ThumbSourceInput): { url: string; alt: string; aiDemo: boolean } | null {
   const frame = demoCoverFrame(input.demo?.index, input.exerciseId, input.demo?.model ?? null);
-  if (frame) return { url: frame, alt: `${input.name}, AI demonstration`, aiDemo: true };
+  if (frame) return { url: frame, alt: `${input.name}, ${DEMO_LABEL}`, aiDemo: true };
   if (input.src) return { url: input.src, alt: `${input.name}, photo`, aiDemo: false };
   const base = input.media ?? resolveExerciseMedia({ exerciseId: input.exerciseId, name: input.name, sourceRef: input.sourceRef, rows: input.rows, supabaseUrl: input.supabaseUrl });
   const media = input.demo ? withDemoMedia(base, { exerciseId: input.exerciseId, name: input.name, index: input.demo.index, model: input.demo.model }) : base;
