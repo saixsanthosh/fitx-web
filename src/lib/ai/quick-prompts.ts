@@ -46,8 +46,14 @@ const oneDecimal = (value: number) => (Math.round(value * 10) / 10).toLocaleStri
 const known = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const numeric = (value: unknown) => (value === null || value === undefined || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null);
 
-const SPORT_PAST: Record<string, string> = { walk: "walked", run: "ran", ride: "rode" };
-const SPORT_PLURAL: Record<string, [string, string]> = { walk: ["walk", "walks"], run: ["run", "runs"], ride: ["ride", "rides"] };
+const SPORT_PAST: Record<string, string> = {
+  walk: "walked", run: "ran", ride: "rode", hike: "hiked", trail_run: "ran", mtb: "rode", ebike: "rode", wheelchair: "pushed", skate: "skated", paddle: "paddled",
+};
+const SPORT_PLURAL: Record<string, [string, string]> = {
+  walk: ["walk", "walks"], run: ["run", "runs"], ride: ["ride", "rides"], hike: ["hike", "hikes"], trail_run: ["trail run", "trail runs"],
+  mtb: ["mountain bike ride", "mountain bike rides"], ebike: ["e-bike ride", "e-bike rides"], wheelchair: ["wheelchair push", "wheelchair pushes"],
+  skate: ["skate", "skates"], paddle: ["paddle", "paddles"],
+};
 
 function dayName(iso: string, today: string, timeZone: string) {
   const date = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));

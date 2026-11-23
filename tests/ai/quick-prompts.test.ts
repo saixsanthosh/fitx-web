@@ -76,4 +76,11 @@ describe("quick prompts", () => {
     assert.ok(buildQuickPrompts(context(), busy, { plansAllowed: false }).every((prompt) => prompt.mode === "chat"));
     assert.deepEqual(buildQuickPrompts(context({}, { age: 16 }), busy, { plansAllowed: true }), []);
   });
+
+  test("the newer Activity sports read naturally in the week's prompt", () => {
+    const prompts = buildQuickPrompts(context(), { ...none, activities: [{ sport: "hike", distanceM: 6200 }, { sport: "hike", distanceM: 4000 }] }, { plansAllowed: true });
+    const activity = prompts.find((prompt) => prompt.id === "activity-week");
+    assert.equal(activity?.context, "Activity · 2 hikes, 10.2 km in 7 days");
+    assert.equal(activity?.text, "I hiked 10.2 km this week. How should I fit it around my training?");
+  });
 });
