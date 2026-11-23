@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
-import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
+import { ChevronDown } from "lucide-react";
+import { EquipmentTile } from "@/components/equipment/EquipmentTile";
 import { EQUIPMENT, type TrainingContext } from "@/lib/training/taxonomy";
 import styles from "./Library.module.css";
 
@@ -22,7 +22,7 @@ const SHORT_LABELS: Record<string, string> = {
 const label = (key: string) => SHORT_LABELS[key] ?? EQUIPMENT.find((item) => item.key === key)?.label ?? key;
 
 /**
- * "What do you have?": equipment as illustrated toggle tiles (aria-pressed). "No equipment" means body weight only
+ * "What do you have?": equipment as photo toggle tiles (aria-pressed; EquipmentTile). "No equipment" means body weight only
  * and clears the rest; choosing an item clears "No equipment". Less common items sit behind "More equipment",
  * except any that are selected. The common items depend on where the member trains. On phones the tiles are one
  * row that scrolls sideways, like Focus above it, so the results stay close to the top; a grid from 640 px.
@@ -48,20 +48,7 @@ export function EquipmentGrid({ value, onChange, context, disabled = false }: {
     onChange(EQUIPMENT.map((item) => item.key).filter((item) => next.has(item)));
   };
   const tile = (key: string, on: boolean, text: string, onClick: () => void) => (
-    <button
-      key={key}
-      type="button"
-      aria-pressed={on}
-      disabled={disabled}
-      onClick={onClick}
-      className={`relative flex h-full min-h-[92px] w-[104px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-center text-xs font-medium leading-tight transition-colors motion-reduce:transition-none disabled:opacity-60 sm:w-full ${on ? "border-fitx-primary bg-fitx-primary/10 text-fitx-text" : "border-fitx-border bg-fitx-surface text-fitx-text-secondary hover:border-fitx-primary/45 hover:text-fitx-text"}`}
-    >
-      <span className={on ? "text-fitx-primary" : ""}><EquipmentIcon name={key} size={30} /></span>
-      <span>{text}</span>
-      <span aria-hidden="true" className={`absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full ${on ? "bg-fitx-primary text-fitx-on-primary" : "border border-fitx-border bg-fitx-surface"}`}>
-        {on && <Check size={12} strokeWidth={3} />}
-      </span>
-    </button>
+    <EquipmentTile key={key} equipmentKey={key} label={text} on={on} onClick={onClick} disabled={disabled} size="sm" />
   );
   return (
     <div className="grid gap-2">

@@ -19,6 +19,9 @@ export const flow = {
 
     await t.step("build a gym workout by body area", async () => {
       await t.goto("/workouts", { label: "workouts" });
+      // The To-Do week view is gone (its address opens Workouts), so Your plans has no "Week" link any more.
+      await page.getByRole("heading", { name: "Your plans" }).waitFor({ timeout: 20000 });
+      t.expect((await page.getByRole("link", { name: "Week", exact: true }).count()) === 0, "no Week link to the removed week view");
       await page.getByRole("group", { name: "Train by area" }).getByRole("button", { name: /^Chest/ }).click();
       const builder = page.getByRole("dialog", { name: "Build by body area" });
       await builder.waitFor();

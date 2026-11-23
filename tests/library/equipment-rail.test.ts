@@ -9,6 +9,8 @@ test("the library's equipment is a phone rail and a grid from sm", () => {
   assert.match(group, /\$\{styles\.rail\}/);
   assert.match(group, /\bflex\b[\s\S]*\boverflow-x-auto\b/);
   assert.match(group, /\bsm:grid\b[\s\S]*\bsm:overflow-visible\b/);
-  assert.match(source, /w-\[104px\] shrink-0/, "tiles keep a fixed width in the rail");
-  assert.match(source, /sm:w-full/, "and fill their cell in the grid");
+  assert.match(source, /size="sm"/, "the rail uses the narrow tile");
+  const css = readFileSync(new URL("../../src/components/equipment/EquipmentTile.module.css", import.meta.url), "utf8");
+  assert.match(css, /\.sm \{ width: 6\.5rem; flex-shrink: 0;/, "tiles keep a fixed width (104 px) in the rail");
+  assert.match(css, /@media \(min-width: 640px\) \{\s*\.sm \{ width: auto; \}/, "and fill their cell in the grid");
 });

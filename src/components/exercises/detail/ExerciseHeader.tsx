@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, Bookmark, BookmarkCheck, ScanLine } from "lucide-react";
 import { BodyMap } from "@/components/anatomy/BodyMap";
 import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
+import { HOME_WORKOUT } from "@/config/routes";
 import { exerciseRegions } from "@/lib/training/anatomy";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { equipmentLabel } from "@/lib/training/equipment";
@@ -67,8 +68,9 @@ export function ExerciseHeader({ exercise, summary, cameraRuleId, saved, onToggl
           <div className="flex flex-wrap gap-2 pt-1">
             <Link href={addToWorkoutHref(exercise.id)} className="fitx-button">Add to a workout<ArrowRight size={15} aria-hidden="true" /></Link>
             {cameraRuleId && (
-              <Link href={`/home-workout?exercise=${encodeURIComponent(cameraRuleId)}`} className="fitx-button fitx-button-secondary">
-                <ScanLine size={15} aria-hidden="true" />Practise with camera
+              // The AI Form Check entry (brief 3.5); the integrator swaps in formcheck's FormCheckEntry after the merge.
+              <Link href={`${HOME_WORKOUT}?exercise=${encodeURIComponent(cameraRuleId)}`} aria-label="AI Form Check" className="fitx-button fitx-button-secondary">
+                <ScanLine size={15} aria-hidden="true" />AI Form Check
               </Link>
             )}
             {saved !== null && (

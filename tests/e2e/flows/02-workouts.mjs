@@ -1,4 +1,4 @@
-// Flow 2: Workouts (gym only: no Home and Gym switch). Gym equipment edited and saved; a gym programme followed
+// Flow 2: Workouts (the Gym tab; flow 18 covers Home and the setup). Gym equipment edited and saved; a gym programme followed
 // (today planned and shown as Today's workout with its exercises), today's day opened from the programme card in
 // its plan preview and begun there; a set logged with reps and load, an exercise
 // swapped, the session paused and resumed, then finished: history, personal records and today's planner item
@@ -45,11 +45,15 @@ export const flow = {
     let sessionId = null;
     await signInUi(t, account);
 
-    await t.step("Workouts is for the gym: no Home and Gym switch", async () => {
+    await t.step("Workouts has Home and Gym tabs; a member who trains at both opens on Gym", async () => {
       await t.goto("/workouts", { label: "workouts" });
       await page.getByRole("heading", { name: "Workouts", level: 1 }).waitFor();
       await page.getByRole("heading", { name: "Gym equipment" }).waitFor();
-      t.expect((await page.getByRole("tab", { name: /Home Workout|Gym Workout/ }).count()) === 0, "the Home and Gym switch should be gone");
+      const modes = page.getByRole("tablist", { name: "Workout mode" });
+      t.expect((await modes.getByRole("tab").count()) === 2, "the Home and Gym tabs are at the top");
+      t.expect((await modes.getByRole("tab", { name: "Gym" }).getAttribute("aria-selected")) === "true", "Gym is open for a member who trains at both");
+      // The member has a saved home list, so the first-time setup counts as done and stays out of the way.
+      t.expect((await page.getByRole("region", { name: "Where do you train?" }).count()) === 0, "no setup for a member with a saved list");
       t.expect((await page.getByRole("heading", { name: "Your home equipment" }).count()) === 0, "home equipment is not on this page");
       await page.getByRole("region", { name: "Today" }).getByText("Nothing planned today").waitFor();
       t.expect((await page.getByRole("group", { name: "Train by area" }).getByRole("button").count()) >= 8, "every body area should be offered");

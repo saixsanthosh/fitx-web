@@ -268,3 +268,25 @@
 }
 
 @keyframes live { 50% { opacity: 0.35; transform: scale(0.8); } }
+
+/* Home and Gym (phase 7): the mode panel keeps the page's block rhythm inside its animated wrapper. */
+.modePanel > * > * + * { margin-top: var(--fitx-space-block); }
+
+/* Home mode: today's planned workout as one slim row above the home collection. */
+.homeToday {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border: 1px solid var(--fitx-border);
+  border-radius: 16px;
+  background: var(--fitx-card-bg);
+}
+.homeTodayWhen {
+  display: block;
+  color: var(--fitx-primary-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
