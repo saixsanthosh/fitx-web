@@ -96,7 +96,7 @@ export function buildImportRecord(
   const built = buildActivityRecord(engine, { clientId: options.clientId, title: cleanTitle(named, fallback), weightKg: options.weightKg, log });
   if (built.elapsedSeconds > 48 * 3600) throw new ImportError("too-long", "This activity is longer than 48 hours, the most FITX keeps for one activity.");
   if (built.distanceM > 1_000_000) throw new ImportError("too-far", "This activity is longer than 1,000 km, the most FITX keeps for one activity.");
-  if (built.avgSpeedMps !== null && built.avgSpeedMps > 50) throw new ImportError("unsupported-sport", "This activity is faster than a walk, run or ride can be.");
+  if (built.avgSpeedMps !== null && built.avgSpeedMps > 50) throw new ImportError("unsupported-sport", "This activity is faster than any sport FITX records.");
   if (!engine.acceptedSegments.some((segment) => segment.length > 1)) {
     throw new ImportError("no-points", "None of this file’s points were precise enough to draw a route.");
   }

@@ -287,10 +287,10 @@ export function readFit(bytes: Uint8Array): ParsedImport {
     throw new ImportError("not-activity", "This FIT file isn’t a recorded activity (it may be a course, a workout plan or device settings).");
   }
   if (sessions.length > 1) {
-    throw new ImportError("not-activity", "This file holds several sessions (a multisport activity). FITX imports one walk, run or ride per file.");
+    throw new ImportError("not-activity", "This file holds several sessions (a multisport activity). FITX imports one activity per file.");
   }
   if (!points.length) {
-    throw new ImportError("no-points", "This FIT file has no GPS points (an indoor or treadmill session?). FITX imports walks, runs and rides with a recorded route.");
+    throw new ImportError("no-points", "This FIT file has no GPS points (an indoor or treadmill session?). FITX imports activities with a recorded route.");
   }
 
   const session = sessions[0] ?? null;

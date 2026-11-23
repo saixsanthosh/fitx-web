@@ -43,7 +43,7 @@ export const EXPORT_HELP: readonly ExportHelp[] = [
       "Save export.zip to Files, then tap it in Files to unpack it.",
       "Open apple_health_export, then workout-routes, and pick the route .gpx files you want.",
     ],
-    note: "Route files don’t say the sport, so you choose walk, run or ride for each. Apple Health can’t be connected to a website, so files are the way in.",
+    note: "Route files don’t say the sport, so you choose it for each. Apple Health can’t be connected to a website, so files are the way in.",
   },
   {
     id: "other",

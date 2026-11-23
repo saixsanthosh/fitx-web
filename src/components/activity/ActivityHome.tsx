@@ -88,7 +88,7 @@ export function ActivityHome() {
   if (account.status === "loading") return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading activity…</div>;
   if (account.status === "unconfigured") return <EmptyState title="Activity tracking isn’t connected" description="FITX is not connected to its database on this site." />;
   if (account.status === "error") return <AccountError />;
-  if (account.status === "signed-out") return <EmptyState title="Sign in to track activities" description="Walks, runs and rides are saved to your account." action={<Link href="/signin?next=/activity" className="fitx-button min-h-11">Sign in</Link>} />;
+  if (account.status === "signed-out") return <EmptyState title="Sign in to track activities" description="Your activities are saved to your account." action={<Link href="/signin?next=/activity" className="fitx-button min-h-11">Sign in</Link>} />;
 
   const { history, statRows, now, unfinished, waiting, timeline } = feed;
   const totals = statRows && now !== null ? periodTotals(statRows, now) : null;

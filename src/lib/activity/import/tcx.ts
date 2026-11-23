@@ -141,7 +141,7 @@ export function readTcx(xml: string): ParsedImport {
   endSegment();
 
   if (!activities) throw new ImportError("not-activity", "This TCX file has no recorded activity (it may be a course or a workout plan).");
-  if (!segments.length) throw new ImportError("no-points", "This TCX file has no GPS points (an indoor or treadmill session?). FITX imports walks, runs and rides with a recorded route.");
+  if (!segments.length) throw new ImportError("no-points", "This TCX file has no GPS points (an indoor or treadmill session?). FITX imports activities with a recorded route.");
 
   // Lap totals count only when every lap has the value (a lap without one is unknown, not 0).
   const totals: DeviceTotals | null = laps.length

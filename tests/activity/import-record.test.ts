@@ -281,7 +281,7 @@ test("the result summary counts each outcome in plain words", () => {
   assert.equal(summariseResults([
     { kind: "imported", id: "1" }, { kind: "imported", id: "2" }, { kind: "already", id: "3" }, { kind: "skipped", reason: "overlap" },
     { kind: "unsupported", label: "Swimming" }, { kind: "failed", reason: "x" },
-  ]), "2 imported, 1 already in FITX, 1 skipped, 1 not a walk, run or ride, 1 not imported.");
+  ]), "2 imported, 1 already in FITX, 1 skipped, 1 not a sport FITX records, 1 not imported.");
   assert.equal(summariseResults([]), "Nothing was imported.");
 });
 
@@ -289,4 +289,22 @@ test("device distance: the session total, else the last cumulative reading, else
   assert.equal(deviceDistance(parsed([line({ seconds: 10 })], { totals: { distanceM: 31, timerSeconds: null, elapsedSeconds: null, ascentM: null, kcal: null } })), 31);
   assert.equal(deviceDistance(parsed([line({ seconds: 10 })])), 30);
   assert.equal(deviceDistance(parsed([line({ seconds: 10 }).map((p) => ({ ...p, distanceM: null }))])), null);
+});
+
+test("import and Activity copy covers every sport FITX records, not only walks, runs and rides", async () => {
+  const { readFileSync } = await import("node:fs");
+  const files = [
+    "src/components/activity/ActivityImportScreen.tsx",
+    "src/components/activity/ActivityHome.tsx",
+    "src/components/activity/import-help.ts",
+    "src/lib/activity/import/plan.ts",
+    "src/lib/activity/import/to-record.ts",
+    "src/lib/activity/import/fit.ts",
+    "src/lib/activity/import/tcx.ts",
+  ];
+  for (const file of files) {
+    const text = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /walk, run or ride|walks, runs and rides/i, `${file}: hikes, trail runs and the other sports are offered once 20261123100050 is applied`);
+  }
+  assert.equal(summariseResults([{ kind: "unsupported", label: "Swimming" }]), "1 not a sport FITX records.");
 });

@@ -126,7 +126,7 @@ function CheckLine({ entry, check, names, checking, unchecked, onConfirm }: { en
   if (!check || check.kind === "ready") {
     return entry.sport
       ? <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-fitx-success"><Check size={14} aria-hidden="true" />Ready to import</p>
-      : <p className="mt-3 text-xs font-medium text-fitx-text-secondary">Choose walk, run or ride to import it.</p>;
+      : <p className="mt-3 text-xs font-medium text-fitx-text-secondary">Choose a sport to import it.</p>;
   }
   if (check.kind === "already") {
     const href = check.activity.local ? `/activity/local-${check.activity.clientId}` : check.activity.id ? `/activity/${check.activity.id}` : null;
@@ -165,7 +165,7 @@ function ResultLine({ result }: { result: ImportResult }) {
     return <p className="mt-3 flex items-center gap-1.5 text-sm text-fitx-text-secondary"><Info size={16} aria-hidden="true" className="text-fitx-info" />{result.reason === "overlap" ? "Skipped: it overlaps another activity." : "Skipped: the same activity is in another file."}</p>;
   }
   if (result.kind === "unsupported") {
-    return <p className="mt-3 flex items-center gap-1.5 text-sm text-fitx-text-secondary"><CircleAlert size={16} aria-hidden="true" />Not imported: {result.label} isn’t a walk, run or ride.</p>;
+    return <p className="mt-3 flex items-center gap-1.5 text-sm text-fitx-text-secondary"><CircleAlert size={16} aria-hidden="true" />Not imported: {result.label} isn’t a sport FITX records.</p>;
   }
   return <p className="mt-3 flex gap-1.5 text-sm text-fitx-danger"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />Not imported: {result.reason}</p>;
 }
@@ -232,7 +232,7 @@ function FileCard({ entry, check, names, onSport, onConfirm, onRemove, busy, che
 }
 
 /**
- * Import walks, runs and rides from files a watch or another app exported (GPX, TCX, FIT, also
+ * Import activities from files a watch or another app exported (GPX, TCX, FIT, also
  * .gz). Files are read on this device; only the derived activity is saved, through the same
  * idempotent save as FITX's own recordings, so importing a file twice never duplicates it.
  */
@@ -500,7 +500,7 @@ export function ActivityImportScreen() {
   if (account.status === "loading") return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading…</div>;
   if (account.status === "unconfigured") return <EmptyState title="Imports aren’t connected" description="FITX is not connected to its database on this site." />;
   if (account.status === "error") return <AccountError />;
-  if (account.status === "signed-out") return <EmptyState title="Sign in to import activities" description="Imported walks, runs and rides are saved to your account." action={<Link href="/signin?next=/activity/import" className="fitx-button min-h-11">Sign in</Link>} />;
+  if (account.status === "signed-out") return <EmptyState title="Sign in to import activities" description="Imported activities are saved to your account." action={<Link href="/signin?next=/activity/import" className="fitx-button min-h-11">Sign in</Link>} />;
 
   const open = gate === "ready";
   return (

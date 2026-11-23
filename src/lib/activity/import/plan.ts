@@ -113,7 +113,7 @@ export type ImportResult =
   | { kind: "unsupported"; label: string }
   | { kind: "failed"; reason: string };
 
-/** "3 imported, 1 already in FITX, 1 skipped (overlaps another activity), 1 not a walk, run or ride, 1 failed." */
+/** "3 imported, 1 already in FITX, 1 skipped (overlaps another activity), 1 not a sport FITX records, 1 failed." */
 export function summariseResults(results: readonly ImportResult[]): string {
   const count = (kind: ImportResult["kind"]) => results.filter((result) => result.kind === kind).length;
   const parts: string[] = [];
@@ -125,7 +125,7 @@ export function summariseResults(results: readonly ImportResult[]): string {
   if (imported) parts.push(`${imported} imported`);
   if (already) parts.push(`${already} already in FITX`);
   if (skipped) parts.push(`${skipped} skipped`);
-  if (unsupported) parts.push(`${unsupported} not a walk, run or ride`);
+  if (unsupported) parts.push(`${unsupported} not a sport FITX records`);
   if (failed) parts.push(`${failed} not imported`);
   return parts.length ? `${parts.join(", ")}.` : "Nothing was imported.";
 }
