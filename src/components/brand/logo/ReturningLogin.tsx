@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { LogoReveal } from "./LogoReveal";
 import styles from "./ReturningLogin.module.css";
 
@@ -14,35 +14,32 @@ export const WELCOME_LOADER = "welcome";
  * first paint. On any other page load it removes itself as soon as the app starts. Skip, Escape or the end of the
  * reveal give the page back; the head script also gives it back on its own after 2.6 s if the app never starts.
  */
+const subscribe = (onChange: () => void) => {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-fitx-loader"] });
+  return () => observer.disconnect();
+};
+const welcoming = () => document.documentElement.getAttribute("data-fitx-loader") === WELCOME_LOADER;
+// The server cannot know: it renders the reveal (hidden by CSS unless the head script marks the page).
+const onServer = () => true;
+
 export function ReturningLogin() {
-  const [active, setActive] = useState(true);
+  // Follows the head script's mark: gone once Skip, Escape, the end of the reveal or the script's own limit clear it.
+  const active = useSyncExternalStore(subscribe, welcoming, onServer);
 
   const release = useCallback(() => {
     const root = document.documentElement;
     if (root.getAttribute("data-fitx-loader") === WELCOME_LOADER) root.removeAttribute("data-fitx-loader");
-    setActive(false);
   }, []);
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (root.getAttribute("data-fitx-loader") !== WELCOME_LOADER) {
-      setActive(false);
-      return;
-    }
-    // Skip or Escape before the app started, or the head script's own time limit, already gave the page back.
-    const observer = new MutationObserver(() => {
-      if (root.getAttribute("data-fitx-loader") !== WELCOME_LOADER) setActive(false);
-    });
-    observer.observe(root, { attributes: true, attributeFilter: ["data-fitx-loader"] });
+    if (!active) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") release();
     };
     document.addEventListener("keydown", onKey);
-    return () => {
-      observer.disconnect();
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [release]);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [active, release]);
 
   if (!active) return null;
   return (

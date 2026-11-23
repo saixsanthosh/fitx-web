@@ -1,0 +1,83 @@
+/*
+ * The menu icons' motion (nav-icons/index.ts). Each plays when the pointer rests on its link or the keyboard
+ * focuses it, and once when its section becomes the current page; every keyframe starts and ends at the icon's
+ * resting drawing, so an interrupted motion never leaves it out of shape. Transform and opacity only, about
+ * half a second, natural easing (no bounce). Still with reduced motion. Links carry `fitx-nav-link`.
+ */
+.fitx-navicon * { transform-box: fill-box; }
+
+:is(.fitx-nav-link:hover, .fitx-nav-link:focus-visible, .fitx-nav-link[aria-current="page"]) .fitx-navicon__roof {
+  animation: fitx-navicon-roof 560ms cubic-bezier(.22, 1, .36, 1) both;
+}
+:is(.fitx-nav-link:hover, .fitx-nav-link:focus-visible, .fitx-nav-link[aria-current="page"]) .fitx-navicon__door {
+  transform-origin: 50% 100%;
+  animation: fitx-navicon-door 560ms cubic-bezier(.22, 1, .36, 1) 80ms both;
+}
+
+:is(.fitx-nav-link:hover, .fitx-nav-link:focus-visible, .fitx-nav-link[aria-current="page"]) .fitx-navicon__lift {
+  transform-origin: 50% 50%;
+  animation: fitx-navicon-lift 640ms cubic-bezier(.45, 0, .25, 1) both;
+}
+
+:is(.fitx-nav-link:hover, .fitx-nav-link:focus-visible, .fitx-nav-link[aria-current="page"]) :is(.fitx-navicon__steam-a, .fitx-navicon__steam-b, .fitx-navicon__steam-c) {
+  animation: fitx-navicon-steam 900ms cubic-bezier(.33, 0, .2, 1) both;
+}
+.fitx-navicon__steam-b { animation-delay: 120ms !important; }
+.fitx-navicon__steam-c { animation-delay: 240ms !important; }
+
+:is(.fitx-nav-link:hover, .fitx-nav-link:focus-visible, .fitx-nav-link[aria-current="page"]) :is(.fitx-navicon__dot-a, .fitx-navicon__dot-b, .fitx-navicon__dot-c) {
+  animation: fitx-navicon-type 520ms cubic-bezier(.45, 0, .55, 1) 2 both;
+}
+.fitx-navicon__dot-b { animation-delay: 110ms !important; }
+.fitx-navicon__dot-c { animation-delay: 220ms !important; }
+
+:is(.fitx-nav-link:hover, .fitx-nav-link:focus-visible, .fitx-nav-link[aria-current="page"]) :is(.fitx-navicon__bar-a, .fitx-navicon__bar-b, .fitx-navicon__bar-c) {
+  transform-origin: 50% 100%;
+  animation: fitx-navicon-bar 520ms cubic-bezier(.22, 1, .36, 1) both;
+}
+.fitx-navicon__bar-b { animation-delay: 90ms !important; }
+.fitx-navicon__bar-c { animation-delay: 180ms !important; }
+
+.fitx-navicon__page { opacity: 0; transform-origin: 0% 50%; }
+:is(.fitx-nav-link:hover, .fitx-nav-link:focus-visible, .fitx-nav-link[aria-current="page"]) .fitx-navicon__page {
+  animation: fitx-navicon-page 720ms cubic-bezier(.45, 0, .25, 1) both;
+}
+
+.fitx-navicon__needle { transform-origin: 50% 50%; }
+:is(.fitx-nav-link:hover, .fitx-nav-link:focus-visible, .fitx-nav-link[aria-current="page"]) .fitx-navicon__needle {
+  animation: fitx-navicon-needle 1100ms cubic-bezier(.3, 0, .3, 1) both;
+}
+
+/* Lucide icons (the account entries): a small lift; Settings' gear turns a tooth. */
+.fitx-navglyph { transition: transform 260ms cubic-bezier(.22, 1, .36, 1); }
+.fitx-nav-link:is(:hover, :focus-visible) .fitx-navglyph { transform: translateY(-1px); }
+.fitx-nav-link[href="/settings"]:is(:hover, :focus-visible) .fitx-navglyph { transform: rotate(60deg); }
+
+@keyframes fitx-navicon-roof { 40% { transform: translateY(-2.4px); } }
+@keyframes fitx-navicon-door { 30% { transform: scaleY(.35); opacity: .4; } }
+@keyframes fitx-navicon-lift { 45% { transform: translateY(-3px) rotate(-7deg); } 60% { transform: translateY(-3px) rotate(-7deg); } }
+@keyframes fitx-navicon-steam {
+  35% { opacity: 0; transform: translateY(-2.5px); }
+  36% { opacity: 0; transform: translateY(2.5px); }
+}
+@keyframes fitx-navicon-type { 50% { transform: translateY(-1.8px); } }
+@keyframes fitx-navicon-bar { from { transform: scaleY(.18); } }
+@keyframes fitx-navicon-page {
+  from { opacity: 0; transform: none; }
+  12% { opacity: 1; }
+  55% { transform: scaleX(.08) skewY(-8deg); }
+  88% { opacity: 1; transform: scaleX(-1); }
+  to { opacity: 0; transform: scaleX(-1); }
+}
+@keyframes fitx-navicon-needle {
+  25% { transform: rotate(-38deg); }
+  50% { transform: rotate(18deg); }
+  72% { transform: rotate(-7deg); }
+  88% { transform: rotate(2deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fitx-navicon *, .fitx-navglyph { animation: none !important; transition: none !important; }
+  .fitx-nav-link .fitx-navglyph { transform: none !important; }
+  .fitx-navicon__page { opacity: 0 !important; }
+}

@@ -74,7 +74,7 @@ export const flow = {
       t.expect(!wrong.length, "signed-in visits should land on /dashboard", wrong);
     });
 
-    await t.step("signed in: the menu has Home workout, not Goals or Form coach, and the header has no search box", async () => {
+    await t.step("signed in: the menu has no Home workout, AI Form Check, Goals or Form coach, and the header has no search box", async () => {
       await t.goto("/dashboard", { label: "menu check" });
       const nav = page.getByRole("navigation", { name: "Main navigation" }).filter({ visible: true }).first();
       const labels = (await nav.getByRole("link").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
@@ -82,8 +82,9 @@ export const flow = {
       t.expect(!labels.some((text) => /^Goals$/.test(text)), "Goals should no longer be in the menu", labels);
       t.expect(!labels.some((text) => /Form coach/i.test(text)), "Form coach should be renamed", labels);
       const phone = (page.viewportSize()?.width ?? 0) < 768;
-      // Phones show four tabs and keep Home workout in More; tablets and desktops list it in the sidebar.
-      if (!phone) t.expect(labels.some((text) => /Home workout/.test(text)), "Home workout should be in the sidebar", labels);
+      // AI Form Check (once Home workout) is reached from Workouts, not the menu (phase 15).
+      t.expect(!labels.some((text) => /Home workout|Form Check/i.test(text)), "Home workout and AI Form Check are not menu entries", labels);
+      if (!phone) t.expect(labels.includes("Exercise library") && labels.includes("AI Coach"), "the sidebar lists every section", labels);
       t.expect((await nav.getByRole("link", { name: /Activity/ }).locator("svg[data-pose]").count()) === 1, "Activity should use the animated icon");
       const searchboxes = await page.getByRole("searchbox").count();
       t.expect(searchboxes === 0, `Home should have no search box now the header search is gone (found ${searchboxes})`);

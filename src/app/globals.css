@@ -400,6 +400,47 @@ a { color: inherit; text-decoration: none; }
   .fitx-brand-formation > p { font-size: .52rem; letter-spacing: .08em; white-space: nowrap; }
   .fitx-intro-replay { padding-left: 3px; font-size: .54rem; }
 }
+/* A switch (role="switch", aria-checked): 48 x 28 px track inside a 44 px target, the thumb slides across. */
+.fitx-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 52px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.fitx-switch::before {
+  content: "";
+  width: 48px;
+  height: 28px;
+  margin: 0 2px;
+  border-radius: 999px;
+  background: var(--fitx-track);
+  box-shadow: inset 0 0 0 1px var(--fitx-border);
+  transition: background-color 200ms ease;
+}
+.fitx-switch[aria-checked="true"]::before { background: var(--fitx-primary); box-shadow: none; }
+.fitx-switch__thumb {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin-top: -11px;
+  border-radius: 999px;
+  background: var(--fitx-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--fitx-scrim) 28%, transparent);
+  transition: transform 220ms cubic-bezier(.22, 1, .36, 1);
+}
+.fitx-switch[aria-checked="true"] .fitx-switch__thumb { transform: translateX(20px); background: var(--fitx-on-primary); }
+
+/* Page transitions in the app ((dashboard)/template.tsx): a short fade, applied only while it runs. */
+.fitx-page-enter { animation: fitx-page-in 260ms cubic-bezier(.22, 1, .36, 1) backwards; }
+@keyframes fitx-page-in { from { opacity: 0; } }
+
 @keyframes fitx-mark-piece { from { transform: translate(var(--fx, 0), var(--fy, 0)); } to { transform: none; } }
 @keyframes fitx-mark-plate { from { transform: translate(var(--fx, 0), var(--fy, 0)); opacity: 0; } 35% { opacity: 1; } to { transform: none; opacity: 1; } }
 @keyframes fitx-wordmark-form { from { opacity: 0; transform: translateX(-0.18em); } to { opacity: 1; transform: none; } }
