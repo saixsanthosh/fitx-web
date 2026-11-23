@@ -108,6 +108,55 @@
   color: var(--fitx-text-secondary);
 }
 
+/* The frame's own caption: one line of steady height, so the controls never jump when it changes. */
+.frameCaption {
+  display: block;
+  min-height: 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--fitx-text);
+}
+.captionText {
+  display: block;
+  animation: demo-caption-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes demo-caption-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* "Demonstration model": a two-way switch under the controls. */
+.models {
+  margin-top: 0.5rem;
+  display: inline-flex;
+  gap: 0.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--fitx-border);
+  background: var(--fitx-surface);
+  padding: 0.1875rem;
+}
+.model {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 2.75rem;
+  min-width: 5rem;
+  border-radius: 999px;
+  padding: 0 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fitx-text-secondary);
+  cursor: pointer;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+.model:hover { color: var(--fitx-text); }
+.modelOn { background: var(--fitx-strong-bg); color: var(--fitx-on-strong); }
+.modelOn:hover { color: var(--fitx-on-strong); }
+.modelInput { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.model:has(.modelInput:focus-visible) { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
-  .frame, .drift.active, .control, .dotMark { transition: none; transform: none; }
+  .frame, .drift.active, .control, .dotMark, .model { transition: none; transform: none; }
+  .captionText { animation: none; }
 }

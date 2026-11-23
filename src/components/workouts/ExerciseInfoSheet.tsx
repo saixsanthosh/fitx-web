@@ -11,6 +11,7 @@ import { exerciseRegions, listRegions } from "@/lib/training/anatomy";
 import { equipmentLabel, missingEquipment } from "@/lib/training/equipment";
 import { loadExerciseDetail, type ExerciseDetail } from "@/lib/training/exercise-detail";
 import type { DemoModelKey } from "@/lib/training/media";
+import { useDemoModel } from "@/lib/training/use-demo-model";
 import { CATEGORY_LABELS, MUSCLE_GROUP_LABELS } from "@/lib/training/taxonomy";
 import { Sheet } from "./Sheet";
 
@@ -21,7 +22,7 @@ type Loaded = { status: "found"; detail: ExerciseDetail } | { status: "missing" 
  * equipment it needs (and what is missing from the member's list), and its written steps as catalogued. The full
  * page is one link away. Text and media come from the exercise library only.
  */
-export function ExerciseInfoSheet({ exerciseId, name, owned, listName, fullPageLink = true, model = null, extra, onClose }: {
+export function ExerciseInfoSheet({ exerciseId, name, owned, listName, fullPageLink = true, model: given, extra, onClose }: {
   exerciseId: string;
   /** Offer the exercise's own page (off in the builder, where leaving would lose an unsaved workout). */
   fullPageLink?: boolean;
@@ -31,13 +32,14 @@ export function ExerciseInfoSheet({ exerciseId, name, owned, listName, fullPageL
   owned?: ReadonlySet<string> | null;
   /** "home" or "gym": which list `owned` is. */
   listName?: string;
-  /** The member's demonstration model, for media that has male and female variants. */
+  /** The member's demonstration model, when the page knows it; otherwise the page's one setup read decides. */
   model?: DemoModelKey | null;
   /** Shown under the demonstration (the AI Form Check entry on Workouts' Home mode). */
   extra?: ReactNode;
   onClose: () => void;
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const model = useDemoModel(given);
   const [attempt, setAttempt] = useState(0);
   const ids = useId();
 
@@ -45,12 +47,12 @@ export function ExerciseInfoSheet({ exerciseId, name, owned, listName, fullPageL
     let active = true;
     const supabase = createClient();
     if (!supabase) { void Promise.resolve().then(() => { if (active) setLoaded({ status: "error" }); }); return () => { active = false; }; }
-    void loadExerciseDetail(supabase, exerciseId, SUPABASE_URL, model).then((result) => {
+    void loadExerciseDetail(supabase, exerciseId, SUPABASE_URL, given ?? null).then((result) => {
       if (!active) return;
       setLoaded(result.status === "found" ? { status: "found", detail: result.detail } : result.status === "missing" ? { status: "missing" } : { status: "error" });
     });
     return () => { active = false; };
-  }, [exerciseId, attempt, model]);
+  }, [exerciseId, attempt, given]);
 
   const detail = loaded?.status === "found" ? loaded.detail : null;
   const exercise = detail?.exercise;
@@ -70,7 +72,7 @@ export function ExerciseInfoSheet({ exerciseId, name, owned, listName, fullPageL
       {loaded?.status === "error" && <p role="alert" className="fitx-alert">This exercise couldn’t be loaded. Check your connection and try again.<button type="button" className="fitx-alert-action" onClick={() => { setLoaded(null); setAttempt((value) => value + 1); }}>Try again</button></p>}
       {detail && exercise && regions && (
         <div className="space-y-5">
-          <ExerciseDemoPlayer key={exercise.id} media={detail.media} name={exercise.name} />
+          <ExerciseDemoPlayer key={exercise.id} media={detail.media} name={exercise.name} exerciseId={exercise.id} model={model} />
           {extra}
           {detail.description && <p className="text-sm leading-6 text-fitx-text-secondary">{detail.description}</p>}
 

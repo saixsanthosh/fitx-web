@@ -4,8 +4,10 @@ import Image from "next/image";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Pause, Play, Repeat, RotateCcw } from "lucide-react";
 import { usePageVisible, useReducedMotionSafe } from "@/components/motion";
-import type { HomeExercise } from "@/lib/home-workout/catalog";
+import type { DemoPhoto, HomeExercise } from "@/lib/home-workout/catalog";
 import { demoScript, momentAt, phaseStart } from "@/lib/home-workout/demo-script";
+import { DEMO_LABEL, demoForLibraryIds } from "@/lib/training/media";
+import { useDemoIndexData, useDemoModel } from "@/lib/training/use-demo-model";
 import { cn } from "@/lib/utils";
 import styles from "./DemoReel.module.css";
 
@@ -28,6 +30,9 @@ interface DemoReelProps {
  * the turnaround and back; with one photo, it stays on screen labelled with the position it shows.
  * Play, pause, replay and loop are always at hand; it starts paused when reduced motion is asked for
  * (stepping through then cuts instead of fading), and it rests while off screen or in a hidden tab.
+ * When FITX's AI demonstration exists for one of the exercise's library ids in the member's model
+ * (public/media/demos/index.json), its start and end frames take the photos' place, labelled as an AI
+ * demonstration; the timed captions stay the same.
  */
 export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit = "cover", className }: DemoReelProps) {
   const script = useMemo(() => demoScript(exercise.id), [exercise.id]);
@@ -49,7 +54,19 @@ export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit 
   const elapsed = useRef(0);
   const stepsId = useId();
   const large = size === "lg";
-  const { start, end } = exercise.photos;
+  const demos = useDemoIndexData();
+  const model = useDemoModel();
+  const demo = useMemo(() => demoForLibraryIds(demos, exercise.rule.libraryIds, model), [demos, exercise.rule.libraryIds, model]);
+  const [demoFailed, setDemoFailed] = useState(false);
+  const aiDemo = !!demo && !demoFailed;
+  const { start, end } = useMemo((): { start: DemoPhoto | null; end: DemoPhoto | null } => {
+    if (!demo || demoFailed) return exercise.photos;
+    const frame = (src: string, which: "start" | "end"): DemoPhoto => ({
+      image: { src, width: 1200, height: 900, alt: `${exercise.rule.name}, ${which} of the movement (${DEMO_LABEL.toLowerCase()})`, blurDataURL: "" },
+      label: which === "start" ? "Start" : "End",
+    });
+    return { start: frame(demo.frames[0], "start"), end: frame(demo.frames[1], "end") };
+  }, [demo, demoFailed, exercise.photos, exercise.rule.name]);
   const pair = !!start && !!end;
   const wantsPlay = choice ?? !reduced;
   const playing = !!script && wantsPlay && !ended && visible && inView;
@@ -136,12 +153,12 @@ export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit 
     <figure ref={holder} aria-label={label} className={cn("fitx-inverse relative isolate h-full w-full overflow-hidden bg-fitx-bg text-fitx-text", className)}>
       {start && (
         <div ref={startLayer} className={styles.layer}>
-          <Image src={start.image.src} alt={start.image.alt} fill sizes={large ? "(min-width: 1024px) 46vw, 100vw" : "240px"} placeholder="blur" blurDataURL={start.image.blurDataURL} priority={priority} className={fit === "cover" ? "object-cover object-[50%_35%]" : "object-contain"} />
+          <Image src={start.image.src} alt={start.image.alt} fill sizes={large ? "(min-width: 1024px) 46vw, 100vw" : "240px"} {...imageSource(start, aiDemo, () => setDemoFailed(true))} priority={priority} className={fit === "cover" ? "object-cover object-[50%_35%]" : "object-contain"} />
         </div>
       )}
       {end && (
         <div ref={endLayer} className={styles.layer} style={{ opacity: start ? 0 : 1 }}>
-          <Image src={end.image.src} alt={end.image.alt} fill sizes={large ? "(min-width: 1024px) 46vw, 100vw" : "240px"} placeholder="blur" blurDataURL={end.image.blurDataURL} priority={priority && !start} className={fit === "cover" ? "object-cover object-[50%_35%]" : "object-contain"} />
+          <Image src={end.image.src} alt={end.image.alt} fill sizes={large ? "(min-width: 1024px) 46vw, 100vw" : "240px"} {...imageSource(end, aiDemo, () => setDemoFailed(true))} priority={priority && !start} className={fit === "cover" ? "object-cover object-[50%_35%]" : "object-contain"} />
         </div>
       )}
       {!start && !end && (
@@ -160,6 +177,11 @@ export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit 
       {shownFrame && (
         <span className={cn("absolute left-3 top-3 rounded-full border border-fitx-border bg-fitx-bg/70 font-semibold backdrop-blur-sm", large ? "px-2.5 py-1 text-[11px]" : "px-2 py-0.5 text-[10px]")}>
           {shownFrame.label}
+        </span>
+      )}
+      {aiDemo && (
+        <span className={cn("absolute right-3 top-3 rounded-full border border-fitx-border bg-fitx-bg/70 font-semibold backdrop-blur-sm", large ? "px-2.5 py-1 text-[11px]" : "px-2 py-0.5 text-[10px]")}>
+          <span aria-hidden="true">AI demo</span><span className="sr-only">{DEMO_LABEL}</span>
         </span>
       )}
 
@@ -219,4 +241,14 @@ export function DemoReel({ exercise, size = "lg", maxFps, priority = false, fit 
       )}
     </figure>
   );
+}
+
+/**
+ * next/image props for a frame: the checked photos are static imports with a blur placeholder; an AI demonstration
+ * is a ready-sized WebP served as it is (`unoptimized`, no transformation), and a failed one gives way to the photos.
+ */
+function imageSource(photo: DemoPhoto, aiDemo: boolean, onDemoError: () => void) {
+  return aiDemo
+    ? { unoptimized: true, placeholder: "empty" as const, onError: onDemoError }
+    : { placeholder: "blur" as const, blurDataURL: photo.image.blurDataURL };
 }

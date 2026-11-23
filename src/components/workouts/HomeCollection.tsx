@@ -4,7 +4,8 @@
  * Workouts' Home mode (phase 7): the home exercises the member can do with their home equipment, by body area,
  * as compact photo cards (name, target muscles, equipment). A card opens the exercise's demonstration, muscles
  * and steps in a side sheet, with the AI Form Check entry beside the demonstration. Hovering a card blends to the
- * movement's second photo, so the card previews the movement (opacity only).
+ * movement's second photo, so the card previews the movement (opacity only). Cards follow the member's
+ * demonstration model when FITX's AI demonstration exists for the exercise (marked "AI demo").
  */
 import Image from "next/image";
 import { useMemo, useState } from "react";
@@ -18,7 +19,8 @@ import { equipmentLabel } from "@/lib/training/equipment";
 import { muscleWords } from "@/lib/training/exercise-guide";
 import { FOCUS_AREA_INFO, type FocusArea } from "@/lib/training/focus";
 import { homeAreaCounts, homeCollection } from "@/lib/training/home-collection";
-import { isOptimizableImageUrl, resolveExerciseMedia, type DemoModelKey } from "@/lib/training/media";
+import { isOptimizableImageUrl, resolveExerciseMedia, withDemoMedia, type DemoModelKey } from "@/lib/training/media";
+import { useDemoIndexData, useDemoModel } from "@/lib/training/use-demo-model";
 import type { Level } from "@/lib/training/taxonomy";
 import { cn } from "@/lib/utils";
 import { ExerciseInfoSheet } from "./ExerciseInfoSheet";
@@ -33,8 +35,12 @@ function musclesLine(exercise: CatalogExercise): string {
   return unique.slice(0, 3).map((word) => word[0].toUpperCase() + word.slice(1)).join(" · ");
 }
 
-function HomeCard({ exercise, onOpen, index }: { exercise: CatalogExercise; onOpen: () => void; index: number }) {
-  const stills = useMemo(() => resolveExerciseMedia({ exerciseId: exercise.id, name: exercise.name, sourceRef: exercise.source_ref, rows: null }).stills, [exercise]);
+function HomeCard({ exercise, onOpen, index, model: given }: { exercise: CatalogExercise; onOpen: () => void; index: number; model: DemoModelKey | null }) {
+  const demos = useDemoIndexData();
+  const model = useDemoModel(given);
+  // The member's model's AI demonstration when the index has one, else the real photos (never two people mixed).
+  const stills = useMemo(() => withDemoMedia(resolveExerciseMedia({ exerciseId: exercise.id, name: exercise.name, sourceRef: exercise.source_ref, rows: null }),
+    { exerciseId: exercise.id, name: exercise.name, index: demos, model }).stills, [exercise, demos, model]);
   const [failed, setFailed] = useState<readonly string[]>([]);
   const shown = stills.filter((still) => !failed.includes(still.url)).slice(0, 2);
   return (
@@ -46,6 +52,7 @@ function HomeCard({ exercise, onOpen, index }: { exercise: CatalogExercise; onOp
               unoptimized={!isOptimizableImageUrl(still.url, SUPABASE_URL)} className={cn(styles.photo, position === 1 && styles.second)}
               onError={() => setFailed((current) => [...current, still.url])} />
           )) : <span className={styles.noPhoto}><EquipmentIcon name={exercise.required_equipment[0] ?? "none"} size={30} /></span>}
+          {shown[0]?.aiDemo && <span className={styles.aiTag}>AI demo</span>}
         </span>
         <span className={styles.body}>
           <span className={styles.name}>{exercise.name}</span>
@@ -108,7 +115,7 @@ export function HomeCollection({ catalog, owned, level, model, onPlan, equipment
         </div>
         {items.length ? (
           <ul key={area ?? "all"} className={styles.grid}>
-            {shown.map((exercise, index) => <HomeCard key={exercise.id} exercise={exercise} index={index} onOpen={() => setOpen(exercise)} />)}
+            {shown.map((exercise, index) => <HomeCard key={exercise.id} exercise={exercise} index={index} model={model} onOpen={() => setOpen(exercise)} />)}
           </ul>
         ) : (
           <p className={styles.empty}>Nothing for this area fits your home equipment yet. Add equipment, or try another area.</p>

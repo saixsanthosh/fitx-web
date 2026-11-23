@@ -98,6 +98,8 @@ describe("storage and source URLs", () => {
     assert.equal(isOptimizableImageUrl(`${SUPABASE}/rest/v1/exercise_media`, SUPABASE), false);
     assert.equal(isOptimizableImageUrl("https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Pullups/0.jpg", SUPABASE), false);
     assert.equal(isOptimizableImageUrl("https://cdn.example.org/a.jpg", SUPABASE), false);
+    // FITX's demonstration files ship ready-sized and are served as they are (D6: no Vercel transformations).
+    assert.equal(isOptimizableImageUrl("/media/demos/female/push_up/0.webp", SUPABASE), false);
   });
 });
 

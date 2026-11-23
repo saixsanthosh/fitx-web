@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ImageOff, Repeat, RotateCcw } from "lucide-react";
-import { mediaCreditLines, type ExerciseMedia, type MediaItem } from "@/lib/training/media";
+import { demoModelsFor, mediaCreditLines, withDemoMedia, type DemoModelKey, type ExerciseMedia, type MediaItem } from "@/lib/training/media";
+import { chooseDemoModel, useDemoIndexData, useDemoModel } from "@/lib/training/use-demo-model";
 import { DemoLoop } from "./DemoLoop";
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
@@ -19,15 +20,29 @@ export function usePrefersReducedMotion() {
 }
 
 /**
- * Shows an exercise's demonstration: a muted video loop when a verified one exists (none do yet), else its real
- * photos played as a looping demonstration (DemoLoop), clearly labelled as photos with no verified video.
+ * Shows an exercise's demonstration: a muted video loop when a verified one exists (none do yet), else its two frames
+ * played as a looping demonstration (DemoLoop): FITX's AI demonstration for the member's model when the demonstration
+ * index has one (pass `exerciseId`), else the real photos, each clearly labelled, with no verified video.
  * `layout`:
  *  - "single" (default: the live workout and sheets): the compact player.
  *  - "sequence" (the exercise page): the full player with its caption.
+ * `model` is the member's model when the page already knows it; otherwise the page's one setup read decides.
  * Give it a `key` per exercise.
  */
-export function ExerciseDemoPlayer({ media, name, layout = "single" }: { media: ExerciseMedia; name: string; layout?: "single" | "sequence" }) {
+export function ExerciseDemoPlayer({ media: given, name, layout = "single", exerciseId, model: preferred }: {
+  media: ExerciseMedia;
+  name: string;
+  layout?: "single" | "sequence";
+  /** The exercise's id, so its demonstrations (public/media/demos/index.json) can be shown. */
+  exerciseId?: string;
+  model?: DemoModelKey | null;
+}) {
   const [failedVideos, setFailedVideos] = useState<string[]>([]);
+  const index = useDemoIndexData();
+  const model = useDemoModel(preferred);
+  const media = exerciseId ? withDemoMedia(given, { exerciseId, name, index, model }) : given;
+  const models = exerciseId ? demoModelsFor(index, exerciseId) : [];
+  const shownModel = media.stills.find((still) => still.aiDemo)?.model ?? null;
   const video = media.videos.find((item) => !failedVideos.includes(item.url));
   // One wrapper, so a parent's space-y spacing applies (the figures inside reset their own margins).
   return (
@@ -38,7 +53,8 @@ export function ExerciseDemoPlayer({ media, name, layout = "single" }: { media: 
       ) : !media.stills.length ? (
         <MediaUnavailable failed={false} demonstration={layout === "sequence"} />
       ) : (
-        <DemoLoop stills={media.stills} name={name} size={layout === "single" ? "compact" : "full"}
+        <DemoLoop key={shownModel ?? "photos"} stills={media.stills} name={name} size={layout === "single" ? "compact" : "full"}
+          models={models} model={shownModel} onModelChange={(next) => { void chooseDemoModel(next); }}
           whenEmpty={<MediaUnavailable failed demonstration={layout === "sequence"} />} />
       )}
     </div>

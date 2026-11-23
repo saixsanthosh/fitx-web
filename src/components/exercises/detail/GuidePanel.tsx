@@ -63,7 +63,7 @@ export function GuidePanel({ detail, steps, equipment, signedIn, note, onShowAlt
     <div className="space-y-6">
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] lg:gap-6">
         <div className="min-w-0 space-y-5">
-          <ExerciseDemoPlayer key={exercise.id} media={media} name={exercise.name} layout="sequence" />
+          <ExerciseDemoPlayer key={exercise.id} media={media} name={exercise.name} layout="sequence" exerciseId={exercise.id} />
           <ExerciseSteps steps={steps} />
           <Benefits exercise={exercise} />
         </div>

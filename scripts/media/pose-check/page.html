@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>FITX pose check</title></head>
+<body>
+<script type="module">
+// Runs MediaPipe PoseLandmarker (IMAGE mode, the bundled full model, CPU) on each image the harness asks for.
+import { FilesetResolver, PoseLandmarker } from "/vendor/vision_bundle.mjs";
+const fileset = { wasmLoaderPath: "/wasm/vision_wasm_internal.js", wasmBinaryPath: "/wasm/vision_wasm_internal.wasm" };
+const landmarker = await PoseLandmarker.createFromOptions(fileset, {
+  baseOptions: { modelAssetPath: "/model/pose_landmarker_full.task", delegate: "CPU" },
+  runningMode: "IMAGE",
+  numPoses: 1,
+  minPoseDetectionConfidence: 0.5,
+  minPosePresenceConfidence: 0.5,
+});
+window.detectPose = async (url) => {
+  const image = new Image();
+  image.src = url;
+  await image.decode();
+  const result = landmarker.detect(image);
+  const pose = result.landmarks?.[0];
+  return pose ? pose.map((point) => ({ x: point.x, y: point.y, z: point.z, visibility: point.visibility ?? 0 })) : null;
+};
+window.poseReady = true;
+void FilesetResolver;
+</script>
+</body>
+</html>
