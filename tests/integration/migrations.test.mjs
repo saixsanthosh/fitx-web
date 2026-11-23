@@ -96,8 +96,8 @@ const PENDING = MIGRATIONS.filter((name) => name >= FIRST_PENDING);
 /**
  * The newest file production has applied since its copy was made (2026-11-23; tests/integration/applied-migrations
  * .test.mjs pins those files). The runbook's earlier sittings applied the pending files up to it and recorded them
- * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest, #52 (wave 2's first
- * file, not applied anywhere yet).
+ * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest, #52 to #54 (wave 2's
+ * three files, not applied anywhere yet).
  */
 const LAST_APPLIED = "20261123100060";
 const APPLIED_SINCE = PENDING.filter((name) => name.slice(0, 14) <= LAST_APPLIED);
@@ -162,14 +162,28 @@ const KNOWN_RERUN_PROBLEMS = {
   "20261118180001_fitx_admin_roles.sql": {
     changes: [/^changed function public\.fitx_admin_role_permissions\(p_role text\): /],
     reason:
-      "run again it puts back its 16-permission role table; 20261121100030, run again after it, restores the 21-permission table " +
-      "that fitx_admin_op_can uses",
+      "run again it puts back its 16-permission role table; 20261124100020 (Explore's Admin file, the newest to define it), run " +
+      "again after it, restores the 23-permission table that fitx_admin_op_can uses",
   },
   "20261118180003_fitx_admin_metrics.sql": {
     changes: [/^changed function public\.fitx_admin_(metrics\(\)|daily_trends\(p_days integer\)): /],
     reason:
       "run again it puts back its Dashboard counts, which leave out walks, runs and rides (production has it applied, so the " +
       "file stays as it is); 20261121100033, run again after it, restores the counts that include them",
+  },
+  "20261121100030_fitx_admin_v2.sql": {
+    changes: [/^changed function public\.fitx_admin_role_permissions\(p_role text\): /],
+    reason:
+      "run again after 20261124100020 it puts back its 21-permission role table, without explore.view and explore.moderate; " +
+      "20261124100020, run again after it, restores the 23-permission table",
+  },
+  "20261121100033_fitx_admin_ops.sql": {
+    changes: [
+      /^changed function public\.fitx_admin_op_save_platform_settings\(p_operator_id uuid, p_features jsonb, p_maintenance jsonb, p_site jsonb, p_expected_updated_at timestamp with time zone\): /,
+    ],
+    reason:
+      "run again after 20261124100020 it puts back the five-switch settings save, which refuses explore and explore_video; " +
+      "20261124100020, run again after it, restores the seven-switch save",
   },
   "20261123100060_fitx_social_v1.sql": {
     changes: [
@@ -659,7 +673,7 @@ const runbookNotRun = ({ cron }) => ({
  * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #51): the
  * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
  * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 68 rows, the
- * connector records #52 under its time, then History 0 to 2. `ask` runs a runbook query and keeps its
+ * connector records #52 to #54 under their times, then History 0 to 2. `ask` runs a runbook query and keeps its
  * result; returns whether History 1 ran both times.
  */
 /** The day after the newest pending file's date (yyyymmdd), the simulated day the connector applies them. */
@@ -980,6 +994,21 @@ test("the runbook applies and records every pending migration, and only those", 
   const history = runbook.match(/-- History 1 \(writes, once\)[^]*?\) as f \(version, name\)/)?.[0] ?? "";
   const recorded = [...history.matchAll(/\('(\d{14})', '([a-z0-9_]+)'\)/g)].map((match) => `${match[1]}_${match[2]}.sql`);
   assert.deepEqual(recorded, PENDING, "History 1 gives every pending migration its own version and name");
+});
+
+test("the runbook gives each file of this sitting the md5 of its final text, for the staged, md5-checked apply", () => {
+  const runbook = readFileSync(RUNBOOK, "utf8");
+  assert.ok(THIS_SITTING.length > 0, "this sitting applies at least one file");
+  for (const name of THIS_SITTING) {
+    const heading = `### #${PENDING.indexOf(name) + 1} \`${name.slice(0, -".sql".length)}\``;
+    const start = runbook.indexOf(heading);
+    assert.ok(start >= 0, `section 3 has ${heading}`);
+    const end = runbook.indexOf("\n#", start + heading.length);
+    const section = runbook.slice(start, end === -1 ? undefined : end);
+    const stated = section.match(/md5 of the file \(`md5 -q`\): `([0-9a-f]{32})`/)?.[1];
+    const actual = createHash("md5").update(readFileSync(path.join(MIGRATIONS_DIR, name))).digest("hex");
+    assert.equal(stated, actual, `${name}: the runbook's md5 must be the file's (md5 -q ${name})`);
+  }
 });
 
 test("nothing in the app, Admin or the scripts uses what production's hand-applied changes left behind", () => {

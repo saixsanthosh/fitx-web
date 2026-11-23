@@ -1,6 +1,6 @@
 -- FITX Admin: Explore moderation, communities and challenges (wave 2, migration M3; runbook #54). Builds on
 -- 20261124100000_fitx_social_v2_core.sql (#52), which creates every table this file works on, and uses
--- 20261124100010_fitx_social_v2_groups.sql (#53) when it is there (the challenge close).
+-- 20261124100010_fitx_social_v2_groups.sql (#53) when it is there (the challenge close calls its tick).
 --
 -- What it adds (it creates no table; one index):
 --   * Two Admin permissions, explore.view and explore.moderate: super-admins and admins get both, support agents
@@ -14,8 +14,9 @@
 --     target, tells each reporter FITX reviewed it (report_reviewed), keeps the evidence 90 days after review, records
 --     the moderation row and writes the audit row (codes, ids and counts only, never text).
 --   * Communities and challenges written by FITX in Admin (O3 a): fitx_admin_op_save_community,
---     fitx_admin_op_set_community_role, fitx_admin_op_save_challenge, fitx_admin_op_close_challenge (with the groups
---     file's final sync when it is applied) and fitx_admin_op_save_challenge_template.
+--     fitx_admin_op_set_community_role, fitx_admin_op_save_challenge, fitx_admin_op_close_challenge (the groups file's
+--     fitx_social_challenge_tick(id) when it is applied: a final sync, the close and the badges) and
+--     fitx_admin_op_save_challenge_template.
 --   * fitx_admin_explore_meter(): storage per bucket and per kind of Explore file, the database size, signed video
 --     bytes today against the cap, the clean-up queue, the hourly job's last run and the open reports.
 --   Every function is security definer with an empty search_path, executable by service_role only.
@@ -645,8 +646,9 @@ begin
 end;
 $function$;
 
--- Closes a challenge now: the groups file's final close (sync every member, rank, badges, notices) when it is applied,
--- else a final sync of every member when that function exists; then closed_at. Returns closed_at.
+-- Closes a challenge now: the groups file's fitx_social_challenge_tick(id) when it is applied (a final sync of every
+-- member, then the close, the ranks, the badges and their notices, for this challenge only); then closed_at, which the
+-- tick has already set (or, without the groups file, this sets it). Returns closed_at.
 create or replace function public.fitx_admin_op_close_challenge(p_operator_id uuid, p_id uuid)
 returns timestamptz
 language plpgsql
@@ -655,7 +657,6 @@ set search_path = ''
 as $function$
 declare
   v_challenge public.social_challenges%rowtype;
-  v_member uuid;
   v_closed timestamptz;
   v_participants integer;
   v_route text := 'none';
@@ -670,14 +671,9 @@ begin
   if v_challenge.closed_at is not null then
     raise exception using errcode = '22023', message = 'explore_challenge_closed';
   end if;
-  if pg_catalog.to_regprocedure('public.fitx_social_challenge_close(uuid)') is not null then
-    v_route := 'close';
-    perform public.fitx_social_challenge_close(p_id);
-  elsif pg_catalog.to_regprocedure('public.fitx_social_challenge_sync(uuid, uuid)') is not null then
-    v_route := 'sync';
-    for v_member in select e.user_id from public.social_challenge_entries e where e.challenge_id = p_id loop
-      perform public.fitx_social_challenge_sync(p_id, v_member);
-    end loop;
+  if pg_catalog.to_regprocedure('public.fitx_social_challenge_tick(uuid)') is not null then
+    v_route := 'tick';
+    perform public.fitx_social_challenge_tick(p_id);
   end if;
   update public.social_challenges c set closed_at = coalesce(c.closed_at, pg_catalog.now()) where c.id = p_id returning c.closed_at into v_closed;
   select pg_catalog.count(*)::integer into v_participants from public.social_challenge_entries e where e.challenge_id = p_id;

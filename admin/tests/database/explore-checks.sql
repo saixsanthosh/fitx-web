@@ -473,6 +473,13 @@ begin
   exception when sqlstate 'P0002' then null; end;
   closed := public.fitx_admin_op_close_challenge(admin_id, challenge);
   if closed is null or (select closed_at from public.social_challenges where id = challenge) <> closed then raise exception 'close must set closed_at'; end if;
+  -- The close is the groups file's tick for this challenge (#53: final sync, close, badges), never a second close path.
+  if (select details->>'final_sync' from public.fitx_admin_audit_logs where action = 'explore_challenge_closed' and resource_id = challenge::text) is distinct from 'tick' then
+    raise exception 'the close runs fitx_social_challenge_tick(id)';
+  end if;
+  if (select last_synced_at from public.social_challenges where id = challenge) is distinct from closed then
+    raise exception 'the tick synced and closed the challenge in the same call';
+  end if;
   begin perform public.fitx_admin_op_close_challenge(admin_id, challenge); raise exception 'a closed challenge closed again';
   exception when sqlstate '22023' then null; end;
   begin perform public.fitx_admin_op_save_challenge(admin_id, challenge, 'weekly', 'Reopen', 'workouts', null, null, monday, monday + interval '7 days'); raise exception 'a closed challenge was edited';

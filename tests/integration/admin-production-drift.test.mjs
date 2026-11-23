@@ -19,8 +19,8 @@
 //     their two indexes;
 //   * the Admin files can be applied a second time on both without errors or changes, apart from
 //     KNOWN_RERUN_CHANGES: 20261118180001 puts back its role table and 20261118180003 its Dashboard counts,
-//     and 20261121100030 and 20261121100033, run again after them, must give back exactly the database the
-//     first pass ended with;
+//     and 20261121100033 and 20261124100020 (the newest definer of the role table), run again after them, must
+//     give back exactly the database the first pass ended with;
 //   * the Phase 10 database checks (admin/tests/database/phase10-checks.sql) pass on both;
 //   * on production, while a request holds the accounts table, 20261118180000 gives up after about 3 seconds
 //     and leaves nothing, rather than queue every sign-in behind its lock, and applies once the table is free.
@@ -76,10 +76,13 @@ const KNOWN_RERUN_CHANGES = [
   {
     from: ADMIN.find((name) => name.startsWith("20261118180001_")),
     functions: ["fitx_admin_role_permissions(text)"],
-    restoredBy: MIGRATIONS.find((name) => name.startsWith("20261121100030_")),
+    // The newest file that defines the role table (now 20261124100020, the 23-permission table with Explore's two).
+    restoredBy: MIGRATIONS.filter((name) =>
+      /create or replace function public\.fitx_admin_role_permissions\(/.test(readFileSync(path.join(MIGRATIONS_DIR, name), "utf8"))).at(-1),
     reason:
       "20261118180001 run again puts back its 16-permission role table, and the later Phase 10 files leave it so; " +
-      "20261121100030, run again after it, restores the 21-permission table that fitx_admin_op_can uses",
+      "20261124100020 (the newest file that defines it), run again after it, restores the 23-permission table that " +
+      "fitx_admin_op_can uses",
   },
   {
     from: ADMIN.find((name) => name.startsWith("20261118180003_")),

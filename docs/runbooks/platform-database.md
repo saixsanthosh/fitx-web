@@ -12,13 +12,14 @@ anything without your OK for that file.
   2026-11-23 sitting applied #46 to #51 (the "next level" job's wave 1) with the staged, md5-checked method of
   section 0.1: every Check gave its Expect line and Final 1 to 3 passed. #49 and #50 ran without their standalone
   `begin;` and `commit;` lines, which that method leaves out; their history rows hold the files' full text.
-- **What is pending:** the one file #52, `20261124100000` (the "next level" job's wave 2: Explore, part 2 core), in
-  `supabase/migrations` on `master` once wave 2 is merged (until then on the branch `claude/next2`). That folder is
-  the source of truth. It is not applied anywhere yet and needs #51. Sections 2 and 3 still list all 52 files, so
-  each summary and Check stays next to its file.
-- **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #52 (section 3), before the wave-2 deploy,
-  then section 6.3 and 6.1. Start 5 to 10 belong to the first sitting, before #1; they are kept as its record and
-  need not be run again.
+- **What is pending:** the three files #52 to #54, `20261124100000` to `20261124100020` (the "next level" job's
+  wave 2: Explore part 2 core, Explore's groups, and Admin's Explore section), in `supabase/migrations` on `master`
+  once wave 2 is merged (until then on the branch `claude/next2`). That folder is the source of truth. They are not
+  applied anywhere yet; #52 needs #51, #53 needs #52, and #54 needs #52 and #53. Sections 2 and 3 still list all 54
+  files, so each summary and Check stays next to its file.
+- **This sitting:** section 1 (Start 1 to 4, 1.1's backup, and Start 5 for pg_cron: 1.5), then #52, #53 and #54 in
+  that order (section 3), before the wave-2 deploy, then section 6.3 and 6.1. Start 6 to 10 belong to the first
+  sitting, before #1; they are kept as its record and need not be run again.
 - **Other runbook:** `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
 
 ## 0. How each step works
@@ -44,9 +45,11 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only the pending file, #52, and only from `master` (or `claude/next2` before the merge). Never #1 to #51 again:
-  production has them, and #7 must never run a second time. Once #52 is applied, #51 must never run again either
-  (except after #52's undo, section 5): it would put back part 1's Explore functions and read policies over #52's.
+- Only the pending files, #52 to #54, and only from `master` (or `claude/next2` before the merge). Never #1 to #51
+  again: production has them, and #7 must never run a second time. Once #52 is applied, #51 must never run again
+  either (except after #52's undo, section 5): it would put back part 1's Explore functions and read policies over
+  #52's. Once #54 is applied, never #42 or #43 again: they would put back the 21-permission role table and the
+  five-switch settings save (#54, run again, restores both).
   Never a copy from another
   branch or worktree, never the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from the
   repository), and never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
@@ -55,15 +58,16 @@ For each file, in the order of section 2:
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Apply #52, then deploy wave 2 (section 6.4) the same day.
+- Pick a quiet time. Apply #52, #53 and #54, then deploy wave 2 (section 6.4) the same day.
 - The live app keeps working throughout: #52 adds Explore part 2's tables and columns and rewrites part 1's Explore
   functions and three read policies in place, under the same names and arguments, so wave 1's Explore (live since
-  2026-11-23) keeps working after it; it deletes no row. The new app checks for each file and works without the ones
-  not applied yet.
-- #52 (147 KB) is larger than the files the connector took reliably. The session sends it with the staged,
-  md5-checked method it used for #42 to #51 (each part stored and compared, then the whole file run once and
-  recorded under its own number), or through the SQL editor (section 0.2), recording it with the same Record query
-  as #12, with that file's number and name.
+  2026-11-23) keeps working after it; it deletes no row. #53 and #54 add only functions and two indexes (and, on
+  production, the hourly challenge job); they change no row. The new app checks for each file and works without the
+  ones not applied yet.
+- #52 (147 KB), #53 (70 KB) and #54 (47 KB) are larger than the files the connector took reliably. The session sends
+  each with the staged, md5-checked method it used for #42 to #51 (each part stored and compared, then the whole file
+  run once and recorded under its own number; section 3 gives each file's md5), or through the SQL editor (section
+  0.2), recording it with the same Record query as #12, with that file's number and name.
 
 ### 0.2 The six large files: SQL editor
 
@@ -116,16 +120,18 @@ changes applied by hand (section 1.8: `20261002172610 fitx_experience_2_0`, `202
 fitx_share_access_and_index` and `20261116093902 fitx_admin_control_plane`, which comes between #2 and #3), and #1
 to #51 of section 2, each under its file's number and name (History 1 ran after each earlier sitting; #42 to #51
 were recorded under their own numbers when they were applied). The last row is `20261123100060 fitx_social_v1`. If
-there are other rows, a row with a time instead of a file's number, or a row for #52, stop and compare them with
+there are other rows, a row with a time instead of a file's number, or a row for #52, #53 or #54, stop and compare them with
 section 2 first.
 
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the pending file that are already there. Expect: no rows
+-- Start 2: changes from the three pending files that are already there. Expect: no rows
 select m.file, m.object
 from (values
-  ('20261124100000', 'table', 'social_stories')
+  ('20261124100000', 'table', 'social_stories'),
+  ('20261124100010', 'function', 'fitx_social_send_message(uuid,text,uuid,uuid)'),
+  ('20261124100020', 'function', 'fitx_admin_explore_meter()')
 ) as m (file, kind, object)
 where case m.kind
   when 'table' then to_regclass('public.' || m.object) is not null
@@ -168,7 +174,11 @@ select has_table_privilege(current_user, 'auth.sessions', 'DELETE') as can_end_s
 
 ### 1.5 Extensions and search path
 
-First sitting only (before #17 and #27, both applied); nothing in #42 to #45 needs them.
+Start 5 and 6 were for the first sitting (before #17 and #27, both applied). One thing matters again in this
+sitting: **pg_cron must be on before #52 and #53**, because each schedules a job (`fitx-social-hourly` and
+`fitx-challenge-hourly`). It has been on since #27 (2026-11-18); if Start 5 shows no `installed_version` for
+`pg_cron`, switch it on as in section 3, #27, before #52. Without it both files still apply, skip their jobs, and
+must be run again once it is on (section 3, #52 and #53).
 
 ```sql
 -- Start 5: the two extensions the files use. Expect: two rows, pg_cron and pg_trgm (installed or not)
@@ -375,6 +385,8 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 50 | `20261123100050_fitx_coach_activity_v2` | Seven more Activity sports (hike, trail run, mountain bike, e-bike, wheelchair, inline skate, paddle) and each activity's best efforts. | Additive (a wider sport rule in place of the old one) · yes | #26 | The new sports on Record and import; best efforts saved with each activity | Until it is applied the app offers walk, run and ride only and works best efforts out on the activity page. Before an undo, delete or change activities of the new sports (section 5). |
 | 51 | `20261123100060_fitx_social_v1` | Explore, part 1: profiles, follows and follow requests, photo posts, hashtags, likes, saves, comments, blocks, restrictions, reports and notifications (15 tables), 57 functions, the private `social-media` bucket with 3 storage policies, rate counters and write limits. | Additive · yes | #45 (its write limits) | Explore | Large (90 KB): section 0.1. Until it is applied Explore says it needs the next update; everything else works as before. Its bucket is emptied and deleted in Dashboard → Storage, not with SQL (section 5). |
 | 52 | `20261124100000_fitx_social_v2_core` | Explore, part 2 core: stories (with views and likes), member sanctions, the storage trash, conversations and messages, communities and members, challenges (templates, entries, badges) and the moderation record (15 tables); moderation states on posts and comments; item-level visibility, sanctions, age bands and the Explore switch enforced in the database; report evidence; video posts; the bucket also takes `video/mp4`; the hourly clean-up job `fitx-social-hourly`; Realtime inbox pings. 25 new functions, 36 of #51's rewritten under the same names and arguments, the notification settings save from 5 to 9 parameters. | Additive (one relaxed rule: a notification may name no member) · yes | #51; #41 (date of birth), #42 (operator links), #43 (the Explore switch), #45 (its write limits); #27's pg_cron for the hourly job (skipped without the `cron` schema) | Explore part 2 (stories, video, groups, challenges, moderation) | Large (147 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore keeps working with it. Once it is applied, never run #51 again (section 0.1). It deletes no row. |
+| 53 | `20261124100010_fitx_social_v2_groups` | Explore part 2 groups: direct messages (requests, who can message you, blocks, unsend, a stop on repeated text, unread counts, Realtime pings), communities run by FITX (directory, private requests, member posts and discussions, removal by a community's moderators), challenges with values computed only from the member's own workouts and activities, opt-in leaderboards for adults, "Completed" and "Top 3" badges, templates that open a challenge each week and month, and the hourly job `fitx-challenge-hourly`. 24 new functions and one index; no table, policy or trigger. | Additive · yes | #52 (all its tables and helpers); #27's pg_cron for the job (skipped without the `cron` schema) | Explore messages, communities and challenges | Large (70 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore does not call it. It changes no row. |
+| 54 | `20261124100020_fitx_admin_explore` | Admin's Explore section: the `explore.view` and `explore.moderate` permissions (the role table recreated with 23 permissions; support agents view only); the `explore` and `explore_video` switches in the settings save; moderating reports (dismiss, take for review, limit, hide, unhide, remove, clear photo or bio, warn, suspend, lift), each closing the reports, telling the reporters, keeping evidence 90 days and writing the audit row in one transaction; FITX's communities, their moderators, challenges (closed through #53's `fitx_social_challenge_tick`), templates; the Free-plan meter. No table; one index. | Additive · yes | #52 (every table it uses); #42 and #43 (the functions it recreates); #53 (the challenge close) | Admin's Explore section; the Explore switches in Settings | Large (47 KB): section 0.1. Before the wave-2 deploy. Once it is applied, never run #42 or #43 again (section 0.1). |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1493,8 +1505,11 @@ same names and arguments, and #51's read policies on posts, post photos and comm
 still works). New tables members write have #45's write limits (16 more triggers). On production it also schedules
 the hourly clean-up job `fitx-social-hourly` (expired stories, orphan files, old report evidence and notifications;
 files leave the bucket only through the server's sweep) and adds the Realtime policy `social_inbox_read`. It deletes
-no row; `social_notifications.actor_id` may now be empty (notices from FITX). A second run changes nothing. After it,
-#51's Check gives other numbers: use this one.
+no row; `social_notifications.actor_id` may now be empty (notices from FITX). The username `new` is kept for FITX
+from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
+run changes nothing. After it, #51's Check gives other numbers: use this one.
+
+md5 of the file (`md5 -q`): `0a5527e9723998586d6958d92252a7ac`. The session compares it with the file it sends before it runs it.
 
 ```sql
 -- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9
@@ -1513,6 +1528,81 @@ policy, expecting `1, 1`: `select (select count(*) from cron.job where jobname =
 (select count(*) from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname =
 'social_inbox_read') as inbox_policy;` (the test copy has neither pg_cron nor Realtime). A 0 there means pg_cron or
 Realtime was off when #52 ran: tell the session; #52 can be run again once it is on.
+
+Run after #53 instead of right after #52, this Check gives `30, 30, 106, 0, 1, 44, 5, 9` (#53 adds 24 functions; the
+rest does not move).
+
+### #53 `20261124100010_fitx_social_v2_groups`
+
+Explore part 2's groups (wave 2): 24 functions, one index and one scheduled job, on #52's tables; it creates no table,
+policy or trigger and changes no row. Direct messages: both people must be adults (18 and over, by the date of birth;
+no date of birth counts as under 18), a block either way stops sending and hides the conversation, "who can message
+you" (everyone, people you follow, mutual follows, or no one new), a first message from someone the member does not
+follow arrives as a request (one message, a notice that names nobody, no links), limits on new conversations and
+messages, a stop on the same text sent to several people, "Unsend" (the text is blanked), story replies, and unread
+counts (unknown is empty, never 0). Messages are not end-to-end encrypted: the service key, and so Admin's evidence view
+for a reported message, can read them. Communities are made by FITX in Admin (#54); members join (a private one asks
+first), post and start discussions; a community's moderators can hide a post in their own community only, which is
+recorded. Challenges count only the member's own completed workouts and activities from when they joined (a run saved
+as both counts once), the leaderboard shows only adults who switched it on, and "Completed" and "Top 3" badges (Top 3
+only with 10 or more on the board) are given when a challenge closes, 2 hours after its end. On production it also
+schedules `fitx-challenge-hourly` (minute 23 of every hour): it brings every entry up to date, closes ended challenges
+and opens each template's challenge for the week (Monday) and month (the 1st), India time. A second run changes nothing.
+
+md5 of the file (`md5 -q`): `667c84bd91aa5e5222b986457acaea7f`. The session compares it with the file it sends before it runs it.
+
+```sql
+-- Check 20261124100010: expect 24, 0, 0, 0, 22, 1, 106
+with fns as (select p.oid, p.proname from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = any (array[
+  'fitx_social_send_message', 'fitx_social_conversations', 'fitx_social_messages', 'fitx_social_answer_conversation',
+  'fitx_social_mark_conversation_read', 'fitx_social_unsend_message', 'fitx_social_set_dm_policy', 'fitx_social_unread_counts',
+  'fitx_social_communities', 'fitx_social_community', 'fitx_social_community_posts', 'fitx_social_join_community',
+  'fitx_social_answer_community_request', 'fitx_social_leave_community', 'fitx_social_create_group_post',
+  'fitx_social_moderator_remove_post', 'fitx_social_challenges', 'fitx_social_challenge', 'fitx_social_join_challenge',
+  'fitx_social_leave_challenge', 'fitx_social_set_leaderboard', 'fitx_social_challenge_board', 'fitx_social_challenge_sync',
+  'fitx_social_challenge_tick']))
+select (select count(*) from fns) as group_functions,
+       (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%' and prosecdef and not coalesce(proconfig, '{}') @> array['search_path=""']) as definer_without_search_path,
+       (select count(*) from fns where has_function_privilege('anon', oid, 'execute')) as callable_by_anon,
+       (select count(*) from fns where proname in ('fitx_social_challenge_sync', 'fitx_social_challenge_tick') and has_function_privilege('authenticated', oid, 'execute')) as internal_callable_by_members,
+       (select count(*) from fns where has_function_privilege('authenticated', oid, 'execute')) as member_functions,
+       (select count(*) from pg_indexes where schemaname = 'public' and indexname = 'workout_sessions_user_completed_idx') as challenge_index,
+       (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'fitx\_social\_%') as explore_functions;
+```
+
+Before #53 (after #52) it gives `0, 0, 0, 0, 0, 0, 82`. On production the session then also checks the job,
+expecting `1`: `select count(*) as challenge_job from cron.job where jobname = 'fitx-challenge-hourly';` (the test copy
+has no pg_cron). A 0 there means pg_cron was off when #53 ran: tell the session; #53 can be run again once it is on.
+
+### #54 `20261124100020_fitx_admin_explore`
+
+Admin's Explore section (wave 2): 8 functions, one index, and two Admin functions recreated; it creates no table and
+changes no row. The role table is recreated with 23 permissions: `explore.view` and `explore.moderate` for super-admins
+and admins, `explore.view` only for support agents, neither for content editors and viewers. The settings save also
+takes the `explore` switch (on unless saved off) and `explore_video` (off unless saved on); nothing else in it changes.
+Moderation of a report (dismiss, take for review, limit, hide, unhide, remove, clear the photo or bio, warn, suspend
+from Explore, messages or uploads for 7 days, 30 days or until lifted, lift) checks the permission, changes the item or
+the account, closes every open report on it, tells each reporter that FITX reviewed it, keeps the evidence 90 days
+after the review, keeps the moderator's note in the moderation record only (never shown to the member, never in the
+audit row) and writes the audit row, all in one transaction. FITX's communities (with covers and moderators),
+challenges and templates are saved here; "Close challenge" runs #53's `fitx_social_challenge_tick` for that challenge
+(a final count of every entry, the close, the ranks and the badges). The Free-plan meter reads storage per bucket and
+per kind of Explore file, the database size, today's signed video bytes, the clean-up queue and the hourly job's last
+run. Every function runs as its owner with an empty search path and only the server key can call it. A second run
+changes nothing.
+
+md5 of the file (`md5 -q`): `df1e1ae952b048616c431fcb77ece54d`. The session compares it with the file it sends before it runs it.
+
+```sql
+-- Check 20261124100020: expect 8, 23, 6, 1, 1
+select (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('fitx_admin_op_moderate', 'fitx_admin_op_save_community', 'fitx_admin_op_set_community_role', 'fitx_admin_op_save_challenge', 'fitx_admin_op_close_challenge', 'fitx_admin_op_save_challenge_template', 'fitx_admin_explore_meter', 'fitx_admin_explore_reason_words')) as explore_functions,
+       (select cardinality(public.fitx_admin_role_permissions('super_admin'))) as super_admin_permissions,
+       (select cardinality(public.fitx_admin_role_permissions('support_agent'))) as support_permissions,
+       (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname = 'fitx_admin_op_save_platform_settings' and prosrc like '%''explore_video''%') as save_takes_explore,
+       (select count(*) from pg_indexes where schemaname = 'public' and indexname = 'social_reports_target_user_idx') as report_user_index;
+```
+
+Before #54 (after #53) it gives `0, 21, 5, 0, 0`.
 
 ## 4. If a migration fails part-way
 
@@ -1564,7 +1654,9 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
-| 52 | First run its Before undo query: if it is not 0, the session lists those files (stories, video posts and their posters, community covers, and files already waiting in the trash) and you delete them in Dashboard → Storage, or they stay in the bucket with nothing pointing at them. Then the SQL below, then remove #52's history row, then run #51's file once more through the SQL editor (section 0.2, steps 1 to 3, without its Record query: #51's history row is still there): that puts back part 1's function bodies, its three read policies, the five-parameter notification settings save and the bucket's two file types. Deletes every story, message, conversation, community, challenge, badge, sanction and moderation record, report evidence, video and text posts, FITX notices and notifications and reports of the new kinds; Explore works as after #51. |
+| 54 | SQL below, then remove #54's history row, then run #43's file once more (`20261121100033_fitx_admin_ops`, through the SQL editor, section 0.2 steps 1 to 3, without a Record query: #43's history row is still there): that puts back the five-switch settings save. Drops the 8 functions and the index, and puts back the 21-permission role table; Admin's Explore section then says it needs a database update. The saved `explore` and `explore_video` switches stay in `platform_settings`, where the app still reads them; reports, sanctions and moderation records stay too. |
+| 53 | Undo #54 first (its challenge close calls #53). SQL below, then remove #53's history row. Drops the 24 functions, the index and the hourly challenge job; the tables and their rows stay (they are #52's), and posts a community moderator hid stay hidden. Explore's messages, communities and challenges then say they need the next update. |
+| 52 | Undo #54 and #53 first. First run its Before undo query: if it is not 0, the session lists those files (stories, video posts and their posters, community covers, and files already waiting in the trash) and you delete them in Dashboard → Storage, or they stay in the bucket with nothing pointing at them. Then the SQL below, then remove #52's history row, then run #51's file once more through the SQL editor (section 0.2, steps 1 to 3, without its Record query: #51's history row is still there): that puts back part 1's function bodies, its three read policies, the five-parameter notification settings save and the bucket's two file types. Deletes every story, message, conversation, community, challenge, badge, sanction and moderation record, report evidence, video and text posts, FITX notices and notifications and reports of the new kinds; Explore works as after #51. |
 | 51 | Undo #52 first. First empty the `social-media` bucket and then delete it in Dashboard → Storage (Storage refuses to delete a bucket that still holds files, and its files are deleted with the Storage API, not with SQL). Then the SQL below. Deletes every Explore profile, post, comment, like, save, follow, block, restriction, report and notification, its functions and its storage policies; Explore then says it needs the next update. |
 | 50 | First run its Before undo query: if it is not 0, delete those activities (or change their sport to walk, run or ride) or the last step fails. Then the SQL below. Drops every saved best effort and puts back the walk, run and ride rule; the app offers those three only again. |
 | 49 | SQL below. Drops when each member answered the Nutrition setup; the app then counts the setup as done when a diet is saved. The answers stay. |
@@ -1573,8 +1665,8 @@ feature off in the app is usually better than an undo.
 | 46 | SQL below. Drops the switch's stored value: the button shows again for everyone, and the switch applies on each device only. |
 | 45 | SQL below. Puts back the share function for signed-out visitors, members' rights on experience 2.0's four tables and the workouts broadcast, and drops the photo and write limits (with their counts) and the published-programmes rule. |
 | 44 | SQL below, then delete the `food-media` bucket (and the photos in it) in Dashboard → Storage, not with SQL. Admin's Workouts, Nutrition, Subscriptions and Reports then say they need the update; exercises, foods and plans already saved stay. |
-| 43 | First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. The Dashboard's active counts keep counting walks, runs and rides; to count them as before, run #32's file again. Audit rows it wrote stay: the audit log is permanent. |
-| 42 | Undo #52 (its sanctions and moderation record link to operators), #44 and #43 first. SQL below. Drops the operators, their sessions and sign-in attempts, the operator functions and the operator columns on support and announcements, and puts back the role table of #30; Admin then refuses every sign-in. The two audit columns `actor_operator_id` and `actor_username` stay, so the log keeps who did what. |
+| 43 | Undo #54 first (it recreates #43's settings save). First run its Before undo query: if it is not 0, move those Help requests to another category (for example `update public.support_requests set category = 'problem' where category = 'complaint';`, writes) or the last step fails. Then the SQL below. Drops the platform settings (every feature is on again and the website information falls back to the brand's) and every notice sent to chosen accounts. The Dashboard's active counts keep counting walks, runs and rides; to count them as before, run #32's file again. Audit rows it wrote stay: the audit log is permanent. |
+| 42 | Undo #54 (it recreates #42's role table), #53, #52 (its sanctions and moderation record link to operators), #44 and #43 first. SQL below. Drops the operators, their sessions and sign-in attempts, the operator functions and the operator columns on support and announcements, and puts back the role table of #30; Admin then refuses every sign-in. The two audit columns `actor_operator_id` and `actor_username` stay, so the log keeps who did what. |
 | 41 | SQL below. Drops members' birth dates (their age stays as last saved), food preference and nutrition goal, and turns Maintain weight goals into General fitness, which has the same calorie target. |
 | 40 | Nothing to undo on production: the table came with experience 2.0 (1.8) and #40 changes nothing there; leave its history row. On a new project only, `drop table if exists public.exercise_favorites;` drops every member's saved exercises, and the app keeps new ones on the device again. |
 | 39 | SQL below. Drops every member's exercise notes; the exercise page hides its note box again. |
@@ -1609,6 +1701,46 @@ feature off in the app is usually better than an undo.
 | 3 | SQL below. The app then treats every account as having seen the film. |
 | 2 | SQL below. On production the five fields came with experience 2.0 (1.8) and hold the live app's targets and set times, so it drops only #2's five range checks. |
 | 1 | SQL below. Drops the saved active time and stretch start; open workouts keep their clock in the browser again. On production `paused_at` came with experience 2.0 (1.8), so it stays, but emptied: otherwise #1, applied again later, would show each workout that was paused at the undo as paused with no time. |
+
+```sql
+-- Undo 20261124100020 (writes; then remove its history row and run #43's file once more, as the table above says)
+begin;
+drop function if exists public.fitx_admin_op_moderate(uuid, uuid, text, text, text, timestamptz, text, uuid),
+  public.fitx_admin_op_save_community(uuid, uuid, text, text, text, text, text),
+  public.fitx_admin_op_set_community_role(uuid, uuid, uuid, text),
+  public.fitx_admin_op_save_challenge(uuid, uuid, text, text, text, text, numeric, timestamptz, timestamptz, uuid),
+  public.fitx_admin_op_close_challenge(uuid, uuid),
+  public.fitx_admin_op_save_challenge_template(uuid, uuid, text, text, text, text, numeric, boolean),
+  public.fitx_admin_explore_meter(), public.fitx_admin_explore_reason_words(text);
+drop index if exists public.social_reports_target_user_idx;
+create or replace function public.fitx_admin_role_permissions(p_role text) returns text[] language sql immutable
+  set search_path = '' as $f$ select case p_role
+  when 'super_admin' then array['overview.view', 'reports.view', 'people.view', 'people.support', 'people.suspend', 'people.delete', 'support.view', 'support.reply', 'content.manage', 'announcements.manage', 'audit.view', 'audit.export', 'access.view', 'access.manage', 'settings.view', 'billing.view', 'nutrition.manage', 'billing.manage', 'notifications.send', 'settings.manage', 'security.view']
+  when 'admin' then array['overview.view', 'reports.view', 'people.view', 'people.support', 'people.suspend', 'support.view', 'support.reply', 'content.manage', 'announcements.manage', 'audit.view', 'access.view', 'settings.view', 'billing.view', 'nutrition.manage', 'notifications.send', 'security.view']
+  when 'support_agent' then array['overview.view', 'people.view', 'people.support', 'support.view', 'support.reply']
+  when 'content_editor' then array['overview.view', 'content.manage', 'announcements.manage', 'nutrition.manage', 'notifications.send']
+  when 'viewer' then array['overview.view', 'reports.view'] else array[]::text[] end $f$;
+commit;
+```
+
+```sql
+-- Undo 20261124100010 (writes; then remove its history row)
+begin;
+do $u$ begin if pg_catalog.to_regnamespace('cron') is not null then
+  execute $e$select cron.unschedule(jobid) from cron.job where jobname = 'fitx-challenge-hourly'$e$; end if; end $u$;
+drop function if exists public.fitx_social_send_message(uuid, text, uuid, uuid), public.fitx_social_conversations(timestamptz, text),
+  public.fitx_social_messages(uuid, timestamptz, uuid), public.fitx_social_answer_conversation(uuid, boolean),
+  public.fitx_social_mark_conversation_read(uuid), public.fitx_social_unsend_message(uuid), public.fitx_social_set_dm_policy(text),
+  public.fitx_social_unread_counts(), public.fitx_social_communities(text), public.fitx_social_community(text),
+  public.fitx_social_community_posts(uuid, timestamptz, uuid), public.fitx_social_join_community(uuid),
+  public.fitx_social_answer_community_request(uuid, uuid, boolean), public.fitx_social_leave_community(uuid),
+  public.fitx_social_create_group_post(uuid, text, jsonb, jsonb, uuid, uuid), public.fitx_social_moderator_remove_post(uuid, text),
+  public.fitx_social_challenges(text), public.fitx_social_challenge(uuid), public.fitx_social_join_challenge(uuid),
+  public.fitx_social_leave_challenge(uuid), public.fitx_social_set_leaderboard(uuid, boolean), public.fitx_social_challenge_board(uuid),
+  public.fitx_social_challenge_sync(uuid, uuid), public.fitx_social_challenge_tick(uuid);
+drop index if exists public.workout_sessions_user_completed_idx;
+commit;
+```
 
 ```sql
 -- Before undo 20261124100000: files in the social-media bucket that only #52's rows point to. Expect: 0
@@ -2184,7 +2316,7 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 Before #45 it listed experience 2.0's `get_activity_share`, which #45 locks down (section 1.8). Any row: tell the
 session.
 
-Then run Start 2 again: now it lists its one row.
+Then run Start 2 again: now it lists its three rows.
 
 The thirteen tables in Final 2 are reached only by database functions or the server key, which is why they have
 no policy (the last three, from #52, are Explore's challenge templates, moderation record and storage trash). Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
@@ -2204,8 +2336,8 @@ the repository already carry the numbers production recorded. The three changes 
 numbers and no file; the queries below leave their rows alone. One of them, the old Admin draft, has the same
 name as #29, `fitx_admin_control_plane`, which is why they leave those three out. Give each new row its file's
 number once, after the last file. It writes to the history table only. #1 to #51 already carry their numbers
-(History 1 ran after each earlier sitting), so in this sitting it changes only the row of #52 if the connector
-recorded it under a time: one row at most.
+(History 1 ran after each earlier sitting), so in this sitting it changes only the rows of #52, #53 and #54 that the
+connector recorded under a time: three rows at most.
 
 ```sql
 -- History 0: files recorded twice. Expect: no rows
@@ -2248,7 +2380,8 @@ from (values
   ('20261121100040', 'fitx_security_hardening'), ('20261123100000', 'fitx_shell_prefs'),
   ('20261123100010', 'fitx_onboarding_v4'), ('20261123100020', 'fitx_workout_setup'),
   ('20261123100040', 'fitx_nutrition_v2'), ('20261123100050', 'fitx_coach_activity_v2'),
-  ('20261123100060', 'fitx_social_v1'), ('20261124100000', 'fitx_social_v2_core')
+  ('20261123100060', 'fitx_social_v1'), ('20261124100000', 'fitx_social_v2_core'),
+  ('20261124100010', 'fitx_social_v2_groups'), ('20261124100020', 'fitx_admin_explore')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and h.version not in ('20261002172610', '20261002172706', '20261116093902')
@@ -2256,7 +2389,7 @@ where h.name = f.name and h.version <> f.version
 ```
 
 ```sql
--- History 2: expect 69 rows in version order: the 14 September ones, the three of section 1.8 and the 52 files of section 2, with their numbers and names
+-- History 2: expect 71 rows in version order: the 14 September ones, the three of section 1.8 and the 54 files of section 2, with their numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
@@ -2277,8 +2410,8 @@ Set the variables in section 7 first. Then ship the new app (the redesign, `clau
 (`admin`). If Admin's build is skipped because of its path filter, redeploy it as in `admin/README.md`,
 "Automatic deployments and path filters". Apply #42 to #44 before Admin is redeployed: without #42, Admin refuses
 every sign-in. For the "next level" wave 1, apply #46 to #51 first, then deploy `claude/next` merged into `master`; the
-app checks for each of them and works without the ones not applied yet (both done on 2026-11-23). For wave 2, apply #52 before deploying
-`claude/next2`; wave 1's app keeps working with #52 in place.
+app checks for each of them and works without the ones not applied yet (both done on 2026-11-23). For wave 2, apply #52, #53 and #54 before
+deploying `claude/next2` (release 2a) and Admin; wave 1's app and Admin keep working with them in place.
 
 ### 6.5 First super-admin
 
