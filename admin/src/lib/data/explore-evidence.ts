@@ -56,7 +56,7 @@ export async function readEvidence(admin: AdminClient, targetType: TargetType, s
       body = str(snapshot.caption);
       push("Author", snapshot.author ? `@${snapshot.author}` : null);
       push("Place", snapshot.location);
-      push("Kind", snapshot.kind);
+      if (snapshot.kind === "video" || snapshot.kind === "text") push("Kind", snapshot.kind === "video" ? "Video post" : "Discussion");
       const items = Array.isArray(snapshot.media) ? snapshot.media.slice(0, 10) : [];
       for (const item of items as Array<Record<string, unknown>>) {
         const video = item.kind === "video";

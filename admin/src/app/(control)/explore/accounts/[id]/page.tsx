@@ -82,8 +82,7 @@ export default async function ExploreAccountPage({ params, searchParams }: { par
               <ul className={styles.list}>
                 {account.reportsAgainst.map((report) => (
                   <li key={report.id} className={styles.item}>
-                    <Link className={styles.link} href={`/explore/reports/${report.id}`}>
-                      <span aria-hidden="true" />
+                    <Link className={`${styles.link} ${styles.plain}`} href={`/explore/reports/${report.id}`}>
                       <span className={styles.top}>
                         <span className={styles.title}>{TARGET_LABELS[report.targetType]}: {REASON_LABELS[report.reason]}</span>
                         <time className={styles.when} dateTime={report.createdAt}>{formatIstDateTime(report.createdAt)}</time>

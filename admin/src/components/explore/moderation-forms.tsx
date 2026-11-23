@@ -27,10 +27,10 @@ function Hidden({ target }: { target: Target }) {
   );
 }
 
-function ReasonField({ defaultReason }: { defaultReason?: ReportReason }) {
+function ReasonField({ defaultReason, label = "Reason (the member and the audit log see only its name)" }: { defaultReason?: ReportReason; label?: string }) {
   return (
     <label>
-      Reason (the member and the audit log see only its name)
+      {label}
       <select name="reason" defaultValue={defaultReason ?? "other"}>
         {REPORT_REASONS.map((reason) => <option key={reason} value={reason}>{REASON_LABELS[reason]}</option>)}
       </select>
@@ -56,7 +56,7 @@ export function ModerationForms({ target, actions, defaultReason, allowSuspend, 
   return (
     <div className={styles.stack}>
       {(soft.length > 0 || allowDismiss || allowClaim) && (
-        <form action={moderate} className="stack-form">
+        <form action={moderate} className={`stack-form ${styles.compact}`}>
           <Hidden target={target} />
           {soft.some((action) => action !== "unhide") && <ReasonField defaultReason={defaultReason} />}
           <label>Note for moderators (optional, never shown to the member)<textarea name="note" maxLength={1000} rows={2} /></label>
@@ -69,14 +69,18 @@ export function ModerationForms({ target, actions, defaultReason, allowSuspend, 
           </div>
         </form>
       )}
-      {hard.map((action) => (
-        <form key={action} action={moderate} className={`stack-form ${styles.inline}`}>
-          <Hidden target={target} />
-          <input type="hidden" name="action" value={action} />
-          <input type="hidden" name="reason" value={defaultReason ?? "other"} />
-          <ConfirmSubmit label={ACTION_LABELS[action]} confirmLabel={`${ACTION_LABELS[action]}: cannot be undone`} />
-        </form>
-      ))}
+      {hard.length > 0 && (
+        <div className={styles.buttons}>
+          {hard.map((action) => (
+            <form key={action} action={moderate}>
+              <Hidden target={target} />
+              <input type="hidden" name="action" value={action} />
+              <input type="hidden" name="reason" value={defaultReason ?? "other"} />
+              <ConfirmSubmit label={ACTION_LABELS[action]} confirmLabel={`${ACTION_LABELS[action]}: cannot be undone`} />
+            </form>
+          ))}
+        </div>
+      )}
       {allowSuspend && (
         <form action={moderate} className="stack-form">
           <Hidden target={target} />
@@ -85,7 +89,7 @@ export function ModerationForms({ target, actions, defaultReason, allowSuspend, 
             <label>Suspend<select name="sanction" defaultValue="explore">{SANCTION_KINDS.map((kind) => <option key={kind} value={kind}>{SANCTION_LABELS[kind]}</option>)}</select></label>
             <label>For<select name="length" defaultValue="7d">{SUSPENSION_LENGTHS.map((length) => <option key={length} value={length}>{SUSPENSION_LABELS[length]}</option>)}</select></label>
           </div>
-          <ReasonField defaultReason={defaultReason} />
+          <ReasonField defaultReason={defaultReason} label="Reason for the suspension" />
           <PendingButton className="danger-button" pendingLabel="Suspending…">Suspend from Explore</PendingButton>
         </form>
       )}

@@ -56,12 +56,12 @@ export default async function CommunityPage({ params, searchParams }: { params: 
       <form action={saveCommunity} className={`stack-form ${ui.rise}`}>
         {community && <input type="hidden" name="id" value={community.id} />}
         <Panel title="Details">
-          <fieldset className="stack-form" disabled={!moderator}>
+          <fieldset className={`stack-form ${styles.fieldset}`} disabled={!moderator}>
             <label>Name<input name="name" required maxLength={COMMUNITY_LIMITS.name} defaultValue={community?.name ?? ""} /></label>
             <label>Address<input name="slug" maxLength={COMMUNITY_LIMITS.slugMax} pattern="[a-z0-9][a-z0-9\-]{1,38}[a-z0-9]" defaultValue={community?.slug ?? ""} aria-describedby="slug-note" /></label>
             <p className="field-note" id="slug-note">Lower-case letters, digits and dashes. Leave it empty to make one from the name.</p>
             <label>Description<textarea name="description" maxLength={COMMUNITY_LIMITS.description} rows={3} defaultValue={community?.description ?? ""} /></label>
-            <label>Who can join<select name="visibility" defaultValue={community?.visibility ?? "public"}><option value="public">Public: any adult member joins</option><option value="private">Private: moderators accept each request</option></select></label>
+            <label>Who can join<select name="visibility" defaultValue={community?.visibility ?? "public"}><option value="public">Public: adults join freely</option><option value="private">Private: by request</option></select></label>
             <CoverPicker currentUrl={cover} />
             {community?.coverPath && <label className="check-label"><input type="checkbox" name="remove_cover" />Remove the cover</label>}
           </fieldset>
