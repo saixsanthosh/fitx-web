@@ -440,3 +440,6 @@ function gymGrade(ctx: FilmContext) {
 }
 
 export const ACT2_SHOTS: Shot[] = [shotPlate, shotChalk, shotPull, shotDrop];
+
+/** Staging data for the lab's projection checks (framing vs overlay zones); not used at runtime. */
+export const ACT2_LAB = { PLATE_TRACK, CHALK_TRACK, PULL_TRACK, DROP_TRACK, LIFT_CLOCK, PLATE, COLLAR, CLAP_FILM, DROP_IMPACT };

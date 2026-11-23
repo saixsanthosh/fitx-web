@@ -5,6 +5,7 @@
  */
 
 import type * as THREE from "three";
+import type { FilmComposition } from "../../films/compositions";
 import type { CharacterInstance } from "../character/assemble";
 import type { CharacterId } from "../character/types";
 import type { GradeParams, IntroPost } from "../fx/post";
@@ -28,8 +29,23 @@ export interface FilmContext {
   /** Assembled characters; a shot only runs once every id in `shot.cast` is present. */
   cast: Partial<Record<CharacterId, CharacterInstance>>;
   theme: Theme;
-  /** True on portrait screens; shots keep subjects nearer the optical centre. */
+  /** True on portrait screens; shots keep subjects nearer the optical centre. Derived from `aspect` (< 0.85). */
   portrait: boolean;
+  /** The authored composition this frame is rendered for (`pickComposition` of the render size). */
+  composition: FilmComposition;
+  /** Render aspect ratio (width / height) of this frame. */
+  aspect: number;
+}
+
+/** The name the film-def contract (BRIEF-2 3.2) uses for the context every shot receives. */
+export type ShotContext = FilmContext;
+
+/** A subject's world-space box for the lab's framing checks; `must` subjects stay inside the protected box. */
+export interface SubjectBox {
+  id: string;
+  min: [number, number, number];
+  max: [number, number, number];
+  must: boolean;
 }
 
 export interface ShotFrame {
@@ -73,4 +89,19 @@ export interface Shot {
   enter(ctx: FilmContext, frame: ShotFrame): void;
   /** Pose everything for this exact frame and return the camera, light, grade and effects. */
   update(ctx: FilmContext, frame: ShotFrame): ShotView;
+  /**
+   * Lab only: the shot's subjects at this frame, as world-space boxes (called after `update`, never at runtime).
+   * Optional: a shot without it has no framing check yet.
+   */
+  subjects?(ctx: ShotContext, frame: ShotFrame): readonly SubjectBox[];
+}
+
+/**
+ * A shot inside a `FilmDef` (film-def.ts): a `Shot` of any film (its id is the film's own) with its place on the
+ * film's clock. The director plays `FilmDef.shots` in order; `start` and `end` are film time in seconds.
+ */
+export interface ShotModule extends Omit<Shot, "id"> {
+  id: string;
+  start: number;
+  end: number;
 }
