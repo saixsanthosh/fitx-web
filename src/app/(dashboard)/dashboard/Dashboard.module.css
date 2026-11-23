@@ -1,7 +1,7 @@
 /* Home before the browser knows the member's day: the same dark stage DailyHome draws, without words. */
 .placeholder {
-  min-height: max(500px, calc(100svh - 156px - env(safe-area-inset-bottom)));
-  margin: -16px -16px 0;
+  min-height: max(500px, calc(100svh - 128px - env(safe-area-inset-bottom)));
+  margin: -16px -16px -28px;
   background: var(--fitx-stage);
 }
 

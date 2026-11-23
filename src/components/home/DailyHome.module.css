@@ -5,8 +5,9 @@
 .home {
   position: relative;
   display: flex;
-  min-height: max(500px, calc(100svh - 156px - env(safe-area-inset-bottom)));
-  margin: -16px -16px 0;
+  /* On a phone it runs down to the tab bar: the main area's bottom padding is the bar plus 28 px. */
+  min-height: max(500px, calc(100svh - 128px - env(safe-area-inset-bottom)));
+  margin: -16px -16px -28px;
   overflow: hidden;
   background: var(--fitx-stage);
   color: var(--fitx-on-stage);
@@ -40,7 +41,7 @@
   overflow-wrap: anywhere;
   color: var(--fitx-on-stage);
   font-family: var(--font-heading), sans-serif;
-  font-size: clamp(2rem, 7.4vw, 3.6rem);
+  font-size: clamp(2rem, 4.6vw + .9rem, 3.6rem);
   font-weight: 800;
   letter-spacing: -.045em;
   line-height: 1.04;
@@ -69,7 +70,7 @@
 .text p {
   color: var(--fitx-on-stage);
   font-family: var(--font-heading), sans-serif;
-  font-size: clamp(1.65rem, 6.4vw, 3rem);
+  font-size: clamp(1.6rem, 4vw + .6rem, 3rem);
   font-weight: 700;
   letter-spacing: -.03em;
   line-height: 1.14;

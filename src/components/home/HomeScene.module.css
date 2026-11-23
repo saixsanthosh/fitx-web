@@ -47,7 +47,7 @@
 .rain span {
   position: absolute;
   inset: -160px 0 0;
-  background-image: repeating-linear-gradient(102deg, transparent 0 22px, color-mix(in srgb, var(--fitx-on-stage) 16%, transparent) 22px 23px, transparent 23px 61px);
+  background-image: repeating-linear-gradient(102deg, transparent 0 22px, color-mix(in srgb, var(--fitx-on-stage) 11%, transparent) 22px 23px, transparent 23px 61px);
   background-size: 100% 140px;
   animation: rain .9s linear infinite;
 }

@@ -41,7 +41,7 @@ export const flow = {
         page.waitForURL("**/onboarding", { timeout: 30000 }),
         page.getByRole("button", { name: "Create account with email" }).click(),
       ]);
-      await page.getByRole("heading", { level: 1, name: "Personal details" }).waitFor();
+      await page.getByRole("heading", { level: 1, name: "About you" }).waitFor();
       const row = await standin.one(`select u.id, p.name, p.onboarded from auth.users u join public.profiles p on p.id = u.id where u.email = '${account.email}'`);
       t.expect(row && row.onboarded === "f", "a profile row should exist and not be onboarded yet", row);
       userId = row.id;
