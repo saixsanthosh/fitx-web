@@ -54,7 +54,9 @@ For each file, in the order of section 2:
 - Pick a quiet time. Apply #46 to #51 in one sitting, then deploy the app (section 6.4) the same day.
 - The live app keeps working throughout: #46 to #51 add columns, Home's quote tables, Explore's own tables,
   functions and bucket, and a wider sport rule, and change no row the live app reads (#48 and #49 only fill their
-  own new columns). The new app checks for each file and works without the ones not applied yet.
+  own new columns: #48 marks every member who finished onboarding as set up for Workouts, once, on the run that adds
+  the column; #49 marks members with a diet). The new app checks for each file and works without the ones not
+  applied yet.
 - #47 (50 KB) and #51 (90 KB) are larger than the files the connector took reliably. The session sends them with
   the staged, md5-checked method it used for #42 to #45 (each part stored and compared, then the whole file run
   once and recorded under its own number), or through the SQL editor (section 0.2), recording each one with the
@@ -370,7 +372,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 45 | `20261121100040_fitx_security_hardening` | The security review: signed-out visitors lose experience 2.0's share function and members its four unused tables; workouts are no longer broadcast; members' photo uploads and how much each member can write an hour and a day get limits; members can join published programmes only. | Takes privileges away, adds limits · yes | The tables it limits: September files, #8, #11, #14, #18, #25, #26, #35, #39, #40 |  Phase 15 hardening | No change members notice: the limits are far above normal use. Until it is applied, the app works as before. |
 | 46 | `20261123100000_fitx_shell_prefs` | The "Floating AI Coach button" setting on the account (`user_preferences.coach_launcher`, on by default). | Additive · yes | September files | Settings → "Floating AI Coach button" saved to the account, on every device | Until it is applied the switch says it applies on this device only. |
 | 47 | `20261123100010_fitx_onboarding_v4` | Home's quote of the day: a library of 372 quotes, the quote each member was shown on each day, and the function that picks it. | Additive · yes | #45 (its write limits) | The same quote on every device, never repeated while unseen ones remain; in "Download my data" | Large (50 KB): section 0.1. Until it is applied Home keeps the quote history in the browser. |
-| 48 | `20261123100020_fitx_workout_setup` | The Workouts first-time setup: when it was finished and the demonstration model (male or female); a model and a caption on exercise media for wave 2. | Additive, fills `workout_setup_at` for members with an equipment list · yes | #11, #13 | Workouts setup asked once, the model choice saved | Until it is applied the setup counts as done for members with an equipment list, and the model follows the profile's sex. |
+| 48 | `20261123100020_fitx_workout_setup` | The Workouts first-time setup: when it was finished and the demonstration model (male or female); a model and a caption on exercise media for wave 2. | Additive, fills `workout_setup_at` for onboarded members (once, when the column is added) and for members with an equipment list · yes | #11, #13 | Workouts setup asked once, the model choice saved | Until it is applied the setup counts as done for members with an equipment list, and the model follows the profile's sex. |
 | 49 | `20261123100040_fitx_nutrition_v2` | The Nutrition first-time setup: when it was answered. | Additive, fills `nutrition_setup_at` for members with a diet saved · yes | #7 | Nutrition setup asked once | Until it is applied the setup counts as done when a diet is saved. |
 | 50 | `20261123100050_fitx_coach_activity_v2` | Seven more Activity sports (hike, trail run, mountain bike, e-bike, wheelchair, inline skate, paddle) and each activity's best efforts. | Additive (a wider sport rule in place of the old one) · yes | #26 | The new sports on Record and import; best efforts saved with each activity | Until it is applied the app offers walk, run and ride only and works best efforts out on the activity page. Before an undo, delete or change activities of the new sports (section 5). |
 | 51 | `20261123100060_fitx_social_v1` | Explore, part 1: profiles, follows and follow requests, photo posts, hashtags, likes, saves, comments, blocks, restrictions, reports and notifications (15 tables), 57 functions, the private `social-media` bucket with 3 storage policies, rate counters and write limits. | Additive · yes | #45 (its write limits) | Explore | Large (90 KB): section 0.1. Until it is applied Explore says it needs the next update; everything else works as before. Its bucket is emptied and deleted in Dashboard → Storage, not with SQL (section 5). |
@@ -1401,8 +1403,12 @@ not yet) and `user_preferences.demo_model` (`male`, `female`, or null to follow 
 check `user_preferences_demo_model_check`. The setup's other answers use columns that exist already. For wave 2's
 demonstration media it adds `exercise_media.model` and `exercise_media.caption` (at most 280 characters), with the
 named checks `exercise_media_model_check` and `exercise_media_caption_check`; the unique key on `exercise_media`
-stays. It sets `workout_setup_at` to now for members who already have an equipment list, so nobody who set up
-training is asked again, and changes no other row. A second run changes nothing.
+stays. So that nobody who already answered the training questions is asked again, it sets `workout_setup_at` to now
+(a) on the run that adds the column, and only then, for every member who has finished onboarding (`profiles.onboarded`:
+the old onboarding asked where they train, their experience, days and equipment, and saved no equipment list for a gym
+member who kept the full-gym default), and (b) on every run, for members who have a saved equipment list. It changes
+no other row. A second run changes nothing for members already marked; a member who joins after the deploy is still
+asked once. (An undo followed by a new run after the deploy would mark everyone onboarded by then.)
 
 ```sql
 -- Check 20261123100020: expect 4
