@@ -38,12 +38,20 @@ export function ExerciseDemoPlayer({ media: given, name, layout = "single", exer
   model?: DemoModelKey | null;
 }) {
   const [failedVideos, setFailedVideos] = useState<string[]>([]);
+  // A choice that could not be saved still applies on this page; the member is told it will not last.
+  const [unsaved, setUnsaved] = useState(false);
+  const choice = useRef(0);
   const index = useDemoIndexData();
   const model = useDemoModel(preferred);
   const media = exerciseId ? withDemoMedia(given, { exerciseId, name, index, model }) : given;
   const models = exerciseId ? demoModelsFor(index, exerciseId) : [];
   const shownModel = media.stills.find((still) => still.aiDemo)?.model ?? null;
   const video = media.videos.find((item) => !failedVideos.includes(item.url));
+  const changeModel = (next: DemoModelKey) => {
+    const mine = ++choice.current;
+    setUnsaved(false);
+    void chooseDemoModel(next).then(({ stored }) => { if (mine === choice.current) setUnsaved(!stored); });
+  };
   // One wrapper, so a parent's space-y spacing applies (the figures inside reset their own margins).
   return (
     <div className="min-w-0">
@@ -53,9 +61,15 @@ export function ExerciseDemoPlayer({ media: given, name, layout = "single", exer
       ) : !media.stills.length ? (
         <MediaUnavailable failed={false} demonstration={layout === "sequence"} />
       ) : (
-        <DemoLoop key={shownModel ?? "photos"} stills={media.stills} name={name} size={layout === "single" ? "compact" : "full"}
-          models={models} model={shownModel} onModelChange={(next) => { void chooseDemoModel(next); }}
+        // Not keyed by model: switching person keeps the same DemoLoop (and the focused radio), only the frames change.
+        <DemoLoop stills={media.stills} name={name} size={layout === "single" ? "compact" : "full"}
+          models={models} model={shownModel} onModelChange={changeModel}
           whenEmpty={<MediaUnavailable failed demonstration={layout === "sequence"} />} />
+      )}
+      {models.length > 1 && (
+        <p role="status" className={unsaved ? "m-0 mt-2 text-xs leading-5 text-fitx-text-secondary" : "sr-only"}>
+          {unsaved ? "Your choice could not be saved, so it applies on this page only." : ""}
+        </p>
       )}
     </div>
   );

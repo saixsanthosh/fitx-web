@@ -94,6 +94,11 @@ describe("DemoLoop and the player (source)", () => {
     assert.match(loop, /const chooser = onModelChange && models\.length > 1;/);
     assert.match(loop, /type="radio"/);
     assert.match(player, /models=\{models\} model=\{shownModel\} onModelChange=/);
+    // Switching person keeps the same DemoLoop, so the focused radio keeps focus (no key by model, no remount).
+    assert.doesNotMatch(player, /<DemoLoop key=/);
+    // A choice that could not be saved says so; it still applies on this page.
+    assert.match(player, /setUnsaved\(!stored\)/);
+    assert.match(player, /Your choice could not be saved, so it applies on this page only\./);
     assert.match(css, /\.model \{[^}]*min-height: 2\.75rem/, "44 px targets");
   });
 

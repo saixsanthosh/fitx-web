@@ -94,6 +94,39 @@ export const flow = {
       }
       t.expect(stored === "male", `the choice is saved (got ${stored})`);
       await t.checkpoint("exercise page, male demonstration");
+      // With the keyboard: the radio keeps focus through each switch (the loop is not rebuilt), so the arrows go on
+      // moving between the two people.
+      const focusedModel = () => page.evaluate(() => {
+        const active = document.activeElement;
+        return active instanceof HTMLInputElement && active.type === "radio" ? active.value : null;
+      });
+      const savedAs = async (want) => {
+        let value = null;
+        for (let i = 0; i < 20 && value !== want; i += 1) {
+          value = (await standin.one(`select demo_model from public.user_preferences where user_id = '${account.id}'`))?.demo_model ?? null;
+          if (value !== want) await page.waitForTimeout(250);
+        }
+        return value;
+      };
+      t.expect(await focusedModel() === "male", "Male has focus after choosing it", await focusedModel());
+      await page.keyboard.press("ArrowRight");
+      await figure.locator(`img[src*='${frame("female", 0)}']`).waitFor({ timeout: 10000 });
+      t.expect(await group.getByRole("radio", { name: "Female", exact: true }).isChecked(), "the arrow key chooses Female");
+      t.expect(await focusedModel() === "female", "focus stays on the radio group (Female)", await focusedModel());
+      t.expect(await savedAs("female") === "female", "the keyboard choice is saved");
+      await page.keyboard.press("ArrowRight");
+      await figure.locator(`img[src*='${frame("male", 0)}']`).waitFor({ timeout: 10000 });
+      t.expect(await focusedModel() === "male", "focus stays on the radio group (Male)", await focusedModel());
+      t.expect(await savedAs("male") === "male", "back to Male, saved");
+      // A choice that cannot be saved still applies on this page, and says it will not last.
+      await page.route("**/rest/v1/user_preferences**", (route) => (route.request().method() === "GET" ? route.fallback() : route.fulfill({ status: 500, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ message: "stand-in failure" }) })));
+      await page.keyboard.press("ArrowRight");
+      await figure.locator(`img[src*='${frame("female", 0)}']`).waitFor({ timeout: 10000 });
+      await page.getByRole("status").filter({ hasText: "Your choice could not be saved, so it applies on this page only." }).waitFor({ timeout: 10000 });
+      t.expect(await focusedModel() === "female", "focus stays after a failed save", await focusedModel());
+      t.expect(await savedAs("male") === "male", "the stored choice is unchanged");
+      await t.checkpoint("exercise page, choice not saved");
+      await page.unroute("**/rest/v1/user_preferences**");
       await t.goto("/exercises", { label: "library after the switch" });
       const box = page.getByRole("main").getByRole("searchbox", { name: "Search exercises" });
       await box.fill("bench press");
