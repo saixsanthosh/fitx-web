@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { homePanel } from "@/config/routes";
+import { WORKOUTS_HREF } from "@/components/home/home-panel";
 
-/** The Planner is the week plan on Home. */
+/** The Planner went with the To-Do list; planned workouts are in Workouts. */
 export default function PlannerPage() {
-  redirect(homePanel("week"));
+  redirect(WORKOUTS_HREF);
 }

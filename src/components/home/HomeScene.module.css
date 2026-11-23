@@ -1,0 +1,125 @@
+/* Home's cinemagraph. Every movement is a transform or an opacity change on its own layer, so it stays smooth
+   on modest phones; nothing animates while the tab is hidden or with reduced motion. */
+.scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--fitx-stage);
+}
+
+.plate { position: absolute; inset: 0; }
+
+.camera {
+  position: absolute;
+  inset: -6%;
+  will-change: transform;
+  animation: 46s ease-in-out infinite alternate;
+}
+
+.push { animation-name: push; }
+.rise { animation-name: rise; }
+.pan { animation-name: pan; }
+
+@keyframes push { from { transform: scale(1) translate3d(0, 0, 0); } to { transform: scale(1.1) translate3d(0, -1.2%, 0); } }
+@keyframes rise { from { transform: scale(1.06) translate3d(0, 2%, 0); } to { transform: scale(1.04) translate3d(0, -2.2%, 0); } }
+@keyframes pan { from { transform: scale(1.08) translate3d(-2.4%, 0, 0); } to { transform: scale(1.08) translate3d(2.4%, -.6%, 0); } }
+
+/* Dust motes rising slowly through the light. */
+.dust { position: absolute; inset: 0; }
+.dust span {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--fitx-on-stage) 85%, transparent), transparent 70%);
+  opacity: 0;
+  animation: mote 14s linear infinite;
+}
+
+@keyframes mote {
+  0% { opacity: 0; transform: translate3d(0, 0, 0); }
+  20% { opacity: .55; }
+  80% { opacity: .35; }
+  100% { opacity: 0; transform: translate3d(14px, -90px, 0); }
+}
+
+/* Two sheets of fine rain at different speeds. */
+.rain { position: absolute; inset: 0; overflow: hidden; }
+.rain span {
+  position: absolute;
+  inset: -160px 0 0;
+  background-image: repeating-linear-gradient(102deg, transparent 0 22px, color-mix(in srgb, var(--fitx-on-stage) 16%, transparent) 22px 23px, transparent 23px 61px);
+  background-size: 100% 140px;
+  animation: rain .9s linear infinite;
+}
+
+.rain span + span { opacity: .55; background-size: 100% 90px; animation-name: rain-far; animation-duration: 1.3s; }
+
+/* Each sheet moves exactly one tile of its pattern per loop, so the loop never jumps. */
+@keyframes rain { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(0, 140px, 0); } }
+@keyframes rain-far { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(0, 90px, 0); } }
+
+/* Mist drifting across water. */
+.mist { position: absolute; inset: 0; overflow: hidden; }
+.mist span {
+  position: absolute;
+  left: -50%;
+  width: 200%;
+  height: 34%;
+  top: 46%;
+  background: radial-gradient(ellipse at 30% 50%, color-mix(in srgb, var(--fitx-on-stage) 13%, transparent), transparent 60%),
+    radial-gradient(ellipse at 75% 55%, color-mix(in srgb, var(--fitx-on-stage) 10%, transparent), transparent 55%);
+  animation: mist 38s ease-in-out infinite alternate;
+}
+
+.mist span + span { top: 60%; height: 28%; opacity: .7; animation-duration: 52s; animation-direction: alternate-reverse; }
+
+@keyframes mist { from { transform: translate3d(-8%, 0, 0); } to { transform: translate3d(8%, -2%, 0); } }
+
+/* Light shafts that breathe as the clouds pass. */
+.rays { position: absolute; inset: 0; overflow: hidden; }
+.rays span {
+  position: absolute;
+  inset: -30% -20%;
+  background: repeating-linear-gradient(115deg, transparent 0 9%, color-mix(in srgb, var(--fitx-on-stage) 7%, transparent) 9% 12%, transparent 12% 20%);
+  mix-blend-mode: screen;
+  transform-origin: 20% 0;
+  animation: rays 16s ease-in-out infinite alternate;
+}
+
+@keyframes rays {
+  from { opacity: .35; transform: rotate(-1.2deg) translate3d(-1%, 0, 0); }
+  to { opacity: .9; transform: rotate(1.2deg) translate3d(1%, 0, 0); }
+}
+
+/* A low sun gathering strength on the horizon. */
+.glow { position: absolute; inset: 0; overflow: hidden; }
+.glow span {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  width: 70vmax;
+  height: 70vmax;
+  margin: -35vmax 0 0 -35vmax;
+  background: radial-gradient(circle, color-mix(in srgb, var(--fitx-ember) 26%, transparent), transparent 55%);
+  mix-blend-mode: screen;
+  animation: glow 12s ease-in-out infinite alternate;
+}
+
+@keyframes glow { from { opacity: .35; transform: scale(.9); } to { opacity: .8; transform: scale(1.08); } }
+
+/* The wash that keeps the words readable: darker at the top behind the greeting and at the foot behind the
+   quote, lighter through the middle where the picture breathes. */
+.shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fitx-tile-scrim) 70%, transparent) 0%, color-mix(in srgb, var(--fitx-tile-scrim) 18%, transparent) 30%, color-mix(in srgb, var(--fitx-tile-scrim) 22%, transparent) 48%, color-mix(in srgb, var(--fitx-tile-scrim) 86%, transparent) 100%),
+    radial-gradient(ellipse at 20% 90%, color-mix(in srgb, var(--fitx-tile-scrim) 45%, transparent), transparent 60%);
+}
+
+.scene[data-paused] *, .scene[data-paused] *::before { animation-play-state: paused; }
+.scene[data-still] .camera { animation: none; transform: scale(1.02); }
+
+@media (prefers-reduced-motion: reduce) {
+  .camera, .dust span, .rain span, .mist span, .rays span, .glow span { animation: none; }
+}

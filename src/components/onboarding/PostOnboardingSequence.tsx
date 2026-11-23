@@ -15,7 +15,9 @@ import styles from "./PostOnboarding.module.css";
  */
 export function PostOnboardingSequence({ onDone }: { onDone: () => void }) {
   const reduced = useReducedMotionSafe();
-  const [steps, setSteps] = useState<PostStep[] | null>(null);
+  // Shown only after onboarding's last save, in the browser, so the cookie can be read on the first render.
+  const [steps] = useState<PostStep[]>(() =>
+    typeof document === "undefined" ? ["logo"] : postOnboardingSteps({ cookies: document.cookie, hasFilm: POST_ONBOARDING_FILM !== null }));
   const [index, setIndex] = useState(0);
   const finished = useRef(false);
   const skipRef = useRef<HTMLButtonElement>(null);
@@ -26,16 +28,13 @@ export function PostOnboardingSequence({ onDone }: { onDone: () => void }) {
     onDone();
   }, [onDone]);
 
-  // Read the cookie after mount (the server cannot know it at render time).
+  // Nothing to play (the account film is pending and ends on the logo itself): straight on.
   useEffect(() => {
-    const planned = postOnboardingSteps({ cookies: document.cookie, hasFilm: POST_ONBOARDING_FILM !== null });
-    if (!planned.length) done();
-    else setSteps(planned);
-  }, [done]);
+    if (!steps.length) done();
+  }, [steps, done]);
 
-  const step = steps?.[index] ?? null;
+  const step = steps[index] ?? null;
   const next = useCallback(() => {
-    if (!steps) return;
     if (index + 1 >= steps.length) done();
     else setIndex(index + 1);
   }, [steps, index, done]);

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { homePanel } from "@/config/routes";
+import { HOME_HREF } from "@/components/home/home-panel";
 
-/** Tasks live in the To-Do list on Home. */
+/** The To-Do list was removed from FITX (its stored rows stay in the data export); the old address opens Home. */
 export default function TasksPage() {
-  redirect(homePanel("todo"));
+  redirect(HOME_HREF);
 }

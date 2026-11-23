@@ -4,39 +4,25 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, m } from "framer-motion";
-import {
-  ArrowLeft, ArrowRight, BicepsFlexed, Building2, Check, CircleHelp, CookingPot, Drumstick, Dumbbell, Egg, Flame, Footprints,
-  HeartPulse, House, Leaf, RotateCcw, Salad, Scale, Shuffle, Sofa, Sprout, Store, Target, TrendingDown, Wheat,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CircleHelp, Mars, RotateCcw, UserRound, Venus } from "lucide-react";
 import { DeleteAccount } from "@/components/account/DeleteAccount";
 import { LogoutButton } from "@/components/app/LogoutButton";
-import { EquipmentGrid } from "@/components/equipment/EquipmentGrid";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
-import { ChoiceTiles, type TileOption } from "@/components/onboarding/ChoiceTiles";
+import { ChoiceTiles } from "@/components/onboarding/ChoiceTiles";
+import { MeasureDial } from "@/components/onboarding/MeasureDial";
 import styles from "@/components/onboarding/Onboarding.module.css";
-import { FoodArt, NotGiven, PersonalArt, PersonalReadouts, Readout, TrainingArt } from "@/components/onboarding/StageArt";
-import { BirthDateField, ChipGroup, HeightField, TagInput, TextField, WeightField, focusFirstInvalid } from "@/components/profile/ProfileControls";
+import { PhotoChoices, type PhotoOption } from "@/components/onboarding/PhotoChoices";
+import { PostOnboardingSequence } from "@/components/onboarding/PostOnboardingSequence";
+import { NotGiven, PersonalArt, PersonalReadouts, Readout, StagePhoto } from "@/components/onboarding/StageArt";
+import { BirthDateField, TextField, focusFirstInvalid } from "@/components/profile/ProfileControls";
 import { Logo } from "@/components/ui/Logo";
-import { Segmented } from "@/components/ui/Segmented";
+import { ONBOARDING_MEDIA } from "@/data/onboarding-media";
 import { calculateNutritionTargets } from "@/lib/domain/nutrition";
 import {
   ACTIVITY_BAND_OPTIONS,
-  ALLERGY_OPTIONS,
-  DIET_OPTIONS,
-  FOOD_RULE_OPTIONS,
-  FOOD_SOURCE_OPTIONS,
   GOAL_OPTIONS,
-  LIMITATION_OPTIONS,
-  MAX_CUSTOM_LIMITATIONS,
-  MAX_FOOD_DISLIKES,
-  MAX_LIMITATION_LENGTH,
   NAME_MAX_LENGTH,
-  NUTRITION_FOCUS_OPTIONS,
-  ONBOARDING_DAYS_PER_WEEK,
-  ONBOARDING_DIETS,
   ONBOARDING_GOALS,
-  ONBOARDING_LOCATION_OPTIONS,
-  ONBOARDING_MEAL_OPTIONS,
   SEX_OPTIONS,
   activityBand,
   activityForBand,
@@ -45,80 +31,61 @@ import {
   formatWeight,
   optionLabel,
   type ActivityBand,
-  type DietType,
-  type Experience,
-  type FoodSource,
   type Goal,
-  type NutritionFocus,
-  type TrainingLocation,
+  type Sex,
 } from "@/lib/domain/profile-options";
 import { ensureProfileRow, loadUserContext, logWeighIn, savePreferences, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import {
   ONBOARDING_PAGES,
+  firstName,
   initialOnboardingForm,
   pageSave,
   unavailableGoals,
   validatePage,
-  withDraftsAdded,
   type OnboardingErrors,
   type OnboardingForm,
   type OnboardingPage,
 } from "@/lib/onboarding/form";
 import { createClient } from "@/lib/supabase/client";
-import { saveEquipmentProfile } from "@/lib/training/data";
-import { sortEquipmentKeys } from "@/lib/training/equipment";
 
-const ICON = 20;
-
-const GOAL_ICONS: Record<string, ReactNode> = {
-  muscle_gain: <BicepsFlexed size={ICON} />,
-  weight_loss: <TrendingDown size={ICON} />,
-  strength: <Dumbbell size={ICON} />,
-  general_fitness: <HeartPulse size={ICON} />,
-  maintain_weight: <Scale size={ICON} />,
+const GOAL_PHOTOS: Readonly<Record<string, keyof typeof ONBOARDING_MEDIA>> = {
+  muscle_gain: "goal-muscle",
+  weight_loss: "goal-loss",
+  strength: "goal-strength",
+  general_fitness: "goal-fitness",
+  maintain_weight: "goal-maintain",
 };
-const GOAL_TILES = ONBOARDING_GOALS.map((value) => ({ value, label: optionLabel(GOAL_OPTIONS, value) ?? value, icon: GOAL_ICONS[value], disabledHint: "Arrives with the next update" }));
+const GOAL_HINTS: Readonly<Record<string, string>> = {
+  muscle_gain: "Build size",
+  weight_loss: "Lean down steadily",
+  strength: "Lift heavier",
+  general_fitness: "Feel fitter all round",
+  maintain_weight: "Hold steady",
+};
+const GOAL_CARDS: PhotoOption<Goal>[] = ONBOARDING_GOALS.map((value) => ({
+  value,
+  label: optionLabel(GOAL_OPTIONS, value) ?? value,
+  hint: GOAL_HINTS[value],
+  photo: ONBOARDING_MEDIA[GOAL_PHOTOS[value]],
+  disabledHint: "Arrives with the next update",
+}));
 
-const ACTIVITY_ICONS: Record<ActivityBand, ReactNode> = { low: <Sofa size={ICON} />, moderate: <Footprints size={ICON} />, high: <Flame size={ICON} /> };
-const ACTIVITY_TILES = ACTIVITY_BAND_OPTIONS.map((option) => ({ ...option, icon: ACTIVITY_ICONS[option.value] }));
+const ACTIVITY_PHOTOS: Readonly<Record<ActivityBand, keyof typeof ONBOARDING_MEDIA>> = { low: "activity-low", moderate: "activity-moderate", high: "activity-high" };
+const ACTIVITY_CARDS: PhotoOption<ActivityBand>[] = ACTIVITY_BAND_OPTIONS.map((option) => ({ ...option, photo: ONBOARDING_MEDIA[ACTIVITY_PHOTOS[option.value]] }));
 
-/** Three rising bars with the first `level` filled: the experience levels at a glance. */
-function LevelBars({ level }: { level: 1 | 2 | 3 }) {
-  return (
-    <svg width={ICON} height={ICON} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
-      {[0, 1, 2].map((index) => (
-        <rect key={index} x={2.5 + index * 5.5} y={13 - index * 4.5} width="4" height={5 + index * 4.5} rx="1.2" fillOpacity={index < level ? 1 : 0.28} />
-      ))}
-    </svg>
-  );
-}
+const SEX_ICONS: Record<Sex, ReactNode> = { male: <Mars size={20} />, female: <Venus size={20} />, other: <UserRound size={20} /> };
+const SEX_TILES = SEX_OPTIONS.map(({ value, label }) => ({ value, label, icon: SEX_ICONS[value] }));
 
-const EXPERIENCE_TILES: TileOption<Experience>[] = [
-  { value: "beginner", label: "Beginner", hint: "New or returning", icon: <LevelBars level={1} /> },
-  { value: "intermediate", label: "Intermediate", hint: "6+ months regular", icon: <LevelBars level={2} /> },
-  { value: "advanced", label: "Advanced", hint: "Years of structure", icon: <LevelBars level={3} /> },
-];
-
-const LOCATION_ICONS: Record<string, ReactNode> = { gym: <Dumbbell size={ICON} />, home: <House size={ICON} />, both: <Building2 size={ICON} /> };
-const LOCATION_TILES = ONBOARDING_LOCATION_OPTIONS.map((option) => ({ ...option, icon: LOCATION_ICONS[option.value] }));
-
-const DIET_ICONS: Record<string, ReactNode> = { vegetarian: <Leaf size={ICON} />, non_vegetarian: <Drumstick size={ICON} />, vegan: <Sprout size={ICON} />, eggetarian: <Egg size={ICON} /> };
-const DIET_TILES = ONBOARDING_DIETS.map((value) => ({ value, label: optionLabel(DIET_OPTIONS, value) ?? value, icon: DIET_ICONS[value] }));
-
-const SOURCE_ICONS: Record<FoodSource, ReactNode> = { home: <CookingPot size={ICON} />, outside: <Store size={ICON} />, both: <Shuffle size={ICON} /> };
-const SOURCE_TILES = FOOD_SOURCE_OPTIONS.map((option) => ({ ...option, icon: SOURCE_ICONS[option.value] }));
-
-const FOCUS_ICONS: Record<NutritionFocus, ReactNode> = { high_protein: <Target size={ICON} />, balanced: <Salad size={ICON} />, none: <Wheat size={ICON} /> };
-const FOCUS_TILES = NUTRITION_FOCUS_OPTIONS.map((option) => ({ ...option, icon: FOCUS_ICONS[option.value] }));
-
-const SEX_TILES = SEX_OPTIONS.map(({ value, label }) => ({ value, label }));
-const MEAL_TILES = ONBOARDING_MEAL_OPTIONS.map(({ value, label }) => ({ value, label }));
-const DAY_TILES = ONBOARDING_DAYS_PER_WEEK.map((value) => ({ value, label: String(value) }));
+const LEDE: Record<OnboardingPage, string> = {
+  you: "Three quick steps and FITX is yours.",
+  body: "Slide, tap or type. Change it any time in Profile.",
+  goal: "Pick what matters most right now.",
+};
 
 export function OnboardingFlow() {
   const router = useRouter();
   const reduced = useReducedMotionSafe();
-  const [phase, setPhase] = useState<"loading" | "ready" | "load_failed" | "unavailable">("loading");
+  const [phase, setPhase] = useState<"loading" | "ready" | "load_failed" | "unavailable" | "welcome">("loading");
   const [context, setContext] = useState<UserContextData | null>(null);
   const [form, setForm] = useState<OnboardingForm | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
@@ -126,7 +93,6 @@ export function OnboardingFlow() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [reload, setReload] = useState(0);
-  const [kitView, setKitView] = useState<"gym" | "home">("gym");
   const heading = useRef<HTMLHeadingElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const movedPage = useRef(false);
@@ -155,6 +121,7 @@ export function OnboardingFlow() {
         setPhase("load_failed");
         return;
       }
+      // Answers already given are never asked again: an onboarded account goes straight to Home.
       if (result.data.profile?.onboarded) {
         router.replace("/dashboard");
         return;
@@ -166,7 +133,6 @@ export function OnboardingFlow() {
       const metadataName = typeof metadata?.name === "string" ? metadata.name : typeof metadata?.full_name === "string" ? metadata.full_name : "";
       setContext(result.data);
       setForm(initialOnboardingForm(result.data, metadataName));
-      setKitView(result.data.preferences.workout_location === "home" ? "home" : "gym");
       setPhase("ready");
     })();
     return () => {
@@ -194,10 +160,10 @@ export function OnboardingFlow() {
   const age = form ? ageFromBirthDate(form.birthDate) : null;
   const targets = useMemo(() => {
     if (!form) return null;
-    // The nutrition goal is stored only with onboarding v3; before it, Home shows the standard target too.
-    const focus = schema.onboardingV3 ? form.nutritionFocus : null;
+    // Nutrition's own setup asks for the member's focus; one already stored counts here too, as on every screen.
+    const focus = schema.onboardingV3 ? context?.preferences.nutrition_focus ?? null : null;
     return calculateNutritionTargets({ age, gender: form.gender, height: form.heightCm, weight: form.weightKg }, form.activity, form.goal, focus);
-  }, [form, age, schema]);
+  }, [form, age, schema, context]);
 
   async function savePage(current: OnboardingPage, values: OnboardingForm) {
     const supabase = createClient();
@@ -205,12 +171,7 @@ export function OnboardingFlow() {
     const userId = context.userId;
     const fail = (error: { code?: string } | null) =>
       error?.code === "23514" ? "One of these answers isn't accepted yet. Choose another for now." : "We couldn't save this page. Check your connection and try again.";
-    const plan = pageSave(current, values, {
-      schema,
-      legacyDiet: context.legacy.dietaryPreferences,
-      unknownEquipment: context.legacy.unknownEquipment,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    });
+    const plan = pageSave(current, values, { schema, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
     if (plan.profile) {
       let saved = await updateProfileRow(supabase, userId, plan.profile);
       // Without the right to set the birth date yet, the age (worked out from it) still saves.
@@ -225,20 +186,9 @@ export function OnboardingFlow() {
           : fail(saved.error);
       }
     }
-    const prefs = await savePreferences(supabase, userId, plan.preferences, { v2: schema.preferencesV2, v3: schema.onboardingV3 });
-    if (prefs.error) return fail(prefs.error);
-    if (context.equipmentLists.available) {
-      const lists = context.equipmentLists;
-      const same = (a: readonly string[], b: readonly string[]) => sortEquipmentKeys(a).join() === sortEquipmentKeys(b).join();
-      if (plan.equipment.home) {
-        const listed = await saveEquipmentProfile(supabase, userId, "home", plan.equipment.home);
-        if (listed.error) return fail(listed.error);
-      }
-      // The gym list starts as a fully equipped gym; it is saved once it is changed (or was saved before).
-      if (plan.equipment.gym && (lists.gym.saved || !same(plan.equipment.gym, lists.gym.keys))) {
-        const listed = await saveEquipmentProfile(supabase, userId, "gym", plan.equipment.gym);
-        if (listed.error) return fail(listed.error);
-      }
+    if (Object.keys(plan.preferences).length) {
+      const prefs = await savePreferences(supabase, userId, plan.preferences, { v2: schema.preferencesV2, v3: schema.onboardingV3 });
+      if (prefs.error) return fail(prefs.error);
     }
     return null;
   }
@@ -248,7 +198,7 @@ export function OnboardingFlow() {
     if (!supabase || !context) return "Your session has ended. Sign in again to continue.";
     const done = await updateProfileRow(supabase, context.userId, { onboarded: true });
     if (done.error) return "We couldn't finish setting up your account. Please try again.";
-    // The weight typed here becomes the current weight: logged when there is no weigh-in yet, or when it
+    // The weight given here becomes the current weight: logged when there is no weigh-in yet, or when it
     // differs from the newest one (an older account's history), never twice for the same value.
     const prior = await supabase.from("body_metrics").select("weight").eq("user_id", context.userId).not("weight", "is", null)
       .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -261,9 +211,7 @@ export function OnboardingFlow() {
 
   async function advance() {
     if (!form || saving) return;
-    // Text typed into a tag field but not added still counts.
-    const values = withDraftsAdded(form);
-    const found = validatePage(page, values, schema);
+    const found = validatePage(page, form, schema);
     setErrors(found);
     setSaveError("");
     if (Object.keys(found).length) {
@@ -272,18 +220,16 @@ export function OnboardingFlow() {
       return;
     }
     setSaving(true);
-    const problem = (await savePage(page, values)) ?? (isLast ? await finish(values) : null);
+    const problem = (await savePage(page, form)) ?? (isLast ? await finish(form) : null);
     if (problem) {
       setSaving(false);
       setSaveError(problem);
       return;
     }
     if (isLast) {
-      // A full page load, so the head script can play the account's one-time intro on the first dashboard visit.
-      window.location.assign("/dashboard");
+      setPhase("welcome");
       return;
     }
-    setForm(values);
     setSaving(false);
     movedPage.current = true;
     setPageIndex((index) => index + 1);
@@ -296,6 +242,10 @@ export function OnboardingFlow() {
     setPageIndex((index) => Math.max(0, index - 1));
   }
 
+  if (phase === "welcome") {
+    // A full page load, so the head script can play the account's one-time intro on the first Home visit.
+    return <PostOnboardingSequence onDone={() => window.location.assign("/dashboard")} />;
+  }
   if (phase === "loading") {
     return (
       <Frame>
@@ -319,13 +269,11 @@ export function OnboardingFlow() {
     );
   }
 
-  const v2 = schema.preferencesV2;
-  const v3 = schema.onboardingV3;
   const meta = ONBOARDING_PAGES[pageIndex];
   const total = ONBOARDING_PAGES.length;
   const goalLabel = optionLabel(GOAL_OPTIONS, form.goal) ?? <NotGiven />;
-  const visibleKit = form.location === "home" ? form.homeEquipment : form.location === "gym" ? form.gymEquipment : [...new Set([...form.gymEquipment, ...form.homeEquipment])];
-  const kitShown: "gym" | "home" = form.location === "both" ? kitView : form.location === "home" ? "home" : "gym";
+  const name = firstName(form.name);
+  const stagePhoto = page === "goal" ? ONBOARDING_MEDIA[GOAL_PHOTOS[form.goal] ?? "stage"] : ONBOARDING_MEDIA.stage;
   const pageMotion = reduced
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.15 } }
     : { initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -12, transition: { duration: DURATION.fast } }, transition: { duration: DURATION.base, ease: EASE.out } };
@@ -340,41 +288,36 @@ export function OnboardingFlow() {
       </header>
 
       <div className={styles.layout}>
-        {/* The stage: the page title, and what the answers so far add up to, drawn. */}
+        {/* The stage: the page title over a slowly drifting photograph, and what the answers so far add up to. */}
         <section data-onboarding-stage="" className={`${styles.stage} px-4 pb-5 pt-5 sm:px-8 sm:pb-7 lg:flex lg:flex-col lg:px-12 lg:py-10`} aria-labelledby="onboarding-title">
+          <StagePhoto photo={stagePhoto} dim={page === "body"} />
           <div className="flex items-start justify-between gap-4 lg:block">
             <div className="min-w-0">
               <p className="text-[.6875rem] font-semibold uppercase tracking-[.16em] text-fitx-on-stage-secondary">Step {pageIndex + 1} of {total}</p>
               <h1 id="onboarding-title" ref={heading} tabIndex={-1} className={`${styles.title} mt-2 text-[2rem] text-fitx-on-stage outline-none sm:text-[2.6rem] lg:text-[3.4rem]`}>{meta.title}</h1>
+              <p className={`${styles.lede} mt-2`}>{page === "you" && name ? `Hi ${name}. ` : ""}{LEDE[page]}</p>
             </div>
             <span aria-hidden="true" className={`${styles.stepNumber} hidden sm:block lg:hidden`}>0{pageIndex + 1}</span>
           </div>
           <AnimatePresence mode="wait" initial={false}>
             <m.div key={page} {...pageMotion} className={`${styles.stageBody} mt-5 lg:mt-8`}>
-              {page === "personal" && <>
+              {page === "you" && (
+                <dl className="grid min-w-0 grid-cols-2 gap-x-5 gap-y-4 lg:mt-auto">
+                  <Readout label="Name" value={name ?? <NotGiven />} />
+                  <Readout label="Age" value={age === null ? <NotGiven /> : `${age} yrs`} />
+                </dl>
+              )}
+              {page === "body" && <>
                 <div className={`${styles.art} order-2 sm:order-1`}><PersonalArt heightCm={form.heightCm} /></div>
-                <div className="order-1 min-w-0 flex-1 sm:order-2 lg:flex-none">
-                  <PersonalReadouts age={age} height={formatHeight(form.heightCm, form.heightUnit)} weight={formatWeight(form.weightKg, form.weightUnit)} goal={goalLabel} kcal={targets?.calories ?? null} />
-                </div>
-              </>}
-              {page === "food" && <>
-                <div className={`${styles.art} order-2 sm:order-1`}><FoodArt meals={form.meals} icon={form.diet ? <DietIcon diet={form.diet} /> : <Salad size={34} />} /></div>
                 <dl className="order-1 grid min-w-0 flex-1 grid-cols-2 gap-x-5 gap-y-4 sm:order-2 lg:flex-none">
-                  <Readout label="Diet" value={optionLabel(DIET_OPTIONS, form.diet) ?? <NotGiven />} />
-                  <Readout label="Meals a day" value={form.meals >= 5 ? "5+" : String(form.meals)} />
-                  {v3 && <Readout label="Food" value={optionLabel(FOOD_SOURCE_OPTIONS, form.foodSource) ?? <NotGiven />} />}
-                  {v3 && <Readout label="Focus" value={optionLabel(NUTRITION_FOCUS_OPTIONS, form.nutritionFocus) ?? <NotGiven />} />}
+                  <Readout label="Height" value={formatHeight(form.heightCm, form.heightUnit) ?? <NotGiven />} />
+                  <Readout label="Weight" value={formatWeight(form.weightKg, form.weightUnit) ?? <NotGiven />} />
+                  <Readout label="Target" value={formatWeight(form.targetWeightKg, form.weightUnit) ?? <NotGiven />} />
                 </dl>
               </>}
-              {page === "training" && (
-                <div className="flex w-full flex-col gap-5 lg:flex-1 lg:justify-between">
-                  <TrainingArt days={form.days} kit={visibleKit} homeBodyweight={form.location !== "gym" && form.homeEquipment.length === 0} />
-                  <dl className="grid min-w-0 grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4 lg:grid-cols-2">
-                    <Readout label="Where" value={optionLabel(ONBOARDING_LOCATION_OPTIONS, form.location) ?? <NotGiven />} />
-                    <Readout label="Days a week" value={String(form.days)} />
-                    <Readout label="Level" value={EXPERIENCE_TILES.find((tile) => tile.value === form.experience)?.label ?? <NotGiven />} />
-                    <Readout label="Equipment" value={visibleKit.length ? `${visibleKit.length} ${visibleKit.length === 1 ? "item" : "items"}` : "Bodyweight"} />
-                  </dl>
+              {page === "goal" && (
+                <div className="min-w-0 flex-1 lg:mt-auto lg:flex-none">
+                  <PersonalReadouts age={age} height={formatHeight(form.heightCm, form.heightUnit)} weight={formatWeight(form.weightKg, form.weightUnit)} goal={goalLabel} kcal={targets?.calories ?? null} />
                 </div>
               )}
             </m.div>
@@ -384,84 +327,27 @@ export function OnboardingFlow() {
         <div className="min-w-0">
           <form ref={formRef} noValidate onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void advance(); }} className="mx-auto w-full max-w-[680px]">
             <AnimatePresence mode="wait" initial={false}>
-              <m.div key={page} {...pageMotion} className="px-4 sm:px-8 lg:px-12">
-                {page === "personal" && <>
-                  <Block title="Basics">
-                    <TextField label="Name" value={form.name} onChange={(value) => update("name", value)} error={errors.name} autoComplete="name" maxLength={NAME_MAX_LENGTH} required />
-                    <BirthDateField value={form.birthDate} onChange={(value) => update("birthDate", value)} error={errors.birthDate} />
-                    <ChoiceTiles legend="Gender" options={SEX_TILES} value={form.gender} onChange={(value) => update("gender", value)} columns="grid-cols-3" variant="compact" error={errors.gender} />
-                  </Block>
-                  <Block title="Body">
-                    <div className="grid gap-5 sm:grid-cols-2">
-                      <HeightField cm={form.heightCm} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => update("heightUnit", unit)} error={errors.heightCm} required showUnits={v2} />
-                      <WeightField label="Current weight" kg={form.weightKg} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.weightKg} required showUnits={v2} />
-                    </div>
-                    <WeightField label="Target weight" kg={form.targetWeightKg} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.targetWeightKg} showUnits={v2} />
-                  </Block>
-                  <Block title="Goal">
-                    <ChoiceTiles legend="Primary goal" options={GOAL_TILES} value={form.goal} onChange={(value: Goal) => update("goal", value)} disabledValues={unavailableGoals(schema)} error={errors.goal} />
-                    <ChoiceTiles legend="Fitness experience" options={EXPERIENCE_TILES} value={form.experience} onChange={(value) => update("experience", value)} columns="grid-cols-3" variant="tile" />
-                    <ChoiceTiles legend="Activity level" options={ACTIVITY_TILES} value={activityBand(form.activity)} onChange={(band) => update("activity", activityForBand(band, form.activity))} columns="grid-cols-3" />
-                    <ChoiceTiles legend="Workout setup" options={LOCATION_TILES} value={form.location} onChange={(value: TrainingLocation) => { update("location", value); if (value !== "both") setKitView(value === "home" ? "home" : "gym"); }} columns="grid-cols-3" variant="tile" />
-                  </Block>
-                  <Block title="Diet and safety">
-                    <ChoiceTiles legend="Diet" options={DIET_TILES} value={form.diet} onChange={(value: DietType) => update("diet", value)} columns="grid-cols-2" variant="row" />
-                    <ChipGroup legend="Food allergies" hint="Leave empty if you have none." options={ALLERGY_OPTIONS} values={form.allergies} onChange={(values) => update("allergies", values)} />
-                    {v2 && <>
-                      <ChipGroup legend="Injuries or limitations" options={LIMITATION_OPTIONS} values={form.limitations} onChange={(values) => update("limitations", values)} />
-                      <TagInput legend="Anything else to work around?" values={form.customLimitations} onChange={(values) => update("customLimitations", values)} draft={form.limitationDraft} onDraftChange={(value) => update("limitationDraft", value)} addLabel="Add limitation" placeholder="For example a recent surgery" maxLength={MAX_LIMITATION_LENGTH} max={MAX_CUSTOM_LIMITATIONS} />
-                    </>}
-                  </Block>
+              <m.div key={page} {...pageMotion} className="space-y-7 px-4 py-7 sm:px-8 sm:py-9 lg:px-12">
+                {page === "you" && <>
+                  <TextField label="Name" value={form.name} onChange={(value) => update("name", value)} error={errors.name} autoComplete="name" maxLength={NAME_MAX_LENGTH} required />
+                  <ChoiceTiles legend="Gender" options={SEX_TILES} value={form.gender} onChange={(value) => update("gender", value)} columns="grid-cols-3" variant="tile" error={errors.gender} />
+                  <BirthDateField value={form.birthDate} onChange={(value) => update("birthDate", value)} error={errors.birthDate} />
                 </>}
 
-                {page === "food" && <>
-                  <Block title="Diet preference">
-                    <ChoiceTiles legend="Which describes you best?" options={DIET_TILES} value={form.diet} onChange={(value: DietType) => update("diet", value)} columns="grid-cols-2 sm:grid-cols-4" error={errors.diet} />
-                  </Block>
-                  <Block title="Allergies">
-                    <ChipGroup legend="Food allergies or intolerances" hint="Choose all that apply." options={ALLERGY_OPTIONS} values={form.allergies} onChange={(values) => update("allergies", values)} />
-                    <TagInput legend="Other allergies" values={form.customAllergies} onChange={(values) => update("customAllergies", values)} draft={form.allergyDraft} onDraftChange={(value) => update("allergyDraft", value)} addLabel="Add allergy" placeholder="For example kiwi" />
-                  </Block>
-                  {v2 && (
-                    <Block title="Restrictions">
-                      <ChipGroup legend="Rules you follow" options={FOOD_RULE_OPTIONS} values={form.foodRules} onChange={(values) => update("foodRules", values)} />
-                      <TagInput legend="Foods you avoid" values={form.dislikes} onChange={(values) => update("dislikes", values)} draft={form.dislikeDraft} onDraftChange={(value) => update("dislikeDraft", value)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />
-                    </Block>
-                  )}
-                  <Block title="Habits">
-                    <ChoiceTiles legend="Meals per day" options={MEAL_TILES} value={form.meals} onChange={(value) => update("meals", value)} columns="grid-cols-4" variant="number" />
-                    {v3 && <ChoiceTiles legend="Food preference" options={SOURCE_TILES} value={form.foodSource} onChange={(value) => update("foodSource", value)} columns="grid-cols-3" />}
-                    {v3 && <ChoiceTiles legend="Nutrition goal" hint="High protein raises your daily protein target." options={FOCUS_TILES} value={form.nutritionFocus} onChange={(value) => update("nutritionFocus", value)} columns="grid-cols-3" />}
-                  </Block>
+                {page === "body" && <>
+                  <MeasureDial kind="height" label="Height" value={form.heightCm} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => update("heightUnit", unit)} error={errors.heightCm} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.weightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
                 </>}
 
-                {page === "training" && <>
-                  <Block title="Location">
-                    <ChoiceTiles legend="Workout location" options={LOCATION_TILES} value={form.location} onChange={(value: TrainingLocation) => { update("location", value); setKitView(value === "home" ? "home" : "gym"); }} columns="grid-cols-3" />
-                  </Block>
-                  <Block title="Equipment" hint="Select all that apply.">
-                    {form.location === "both" && (
-                      <Segmented label="Equipment for" block options={[{ value: "gym", label: "Gym" }, { value: "home", label: "Home" }]} value={kitView} onChange={setKitView} />
-                    )}
-                    <AnimatePresence mode="wait" initial={false}>
-                      <m.div key={kitShown} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0.15 : DURATION.fast }}>
-                        {kitShown === "home"
-                          ? <EquipmentGrid context="home" label="Home equipment" value={form.homeEquipment} onChange={(keys) => update("homeEquipment", keys)} />
-                          : <EquipmentGrid context="gym" label="Gym equipment" value={form.gymEquipment} onChange={(keys) => update("gymEquipment", keys)} />}
-                      </m.div>
-                    </AnimatePresence>
-                  </Block>
-                  <Block title="Experience">
-                    <ChoiceTiles legend="Workout experience" options={EXPERIENCE_TILES} value={form.experience} onChange={(value) => update("experience", value)} columns="grid-cols-3" />
-                  </Block>
-                  <Block title="Availability">
-                    <ChoiceTiles legend="Days a week" options={DAY_TILES} value={form.days} onChange={(value) => update("days", value)} columns="grid-cols-6" variant="number" error={errors.days} />
-                  </Block>
+                {page === "goal" && <>
+                  <PhotoChoices legend="Primary goal" options={GOAL_CARDS} value={form.goal} onChange={(value) => update("goal", value)} disabledValues={unavailableGoals(schema)} error={errors.goal} />
+                  <PhotoChoices legend="Activity level" layout="three" options={ACTIVITY_CARDS} value={activityBand(form.activity)} onChange={(band) => update("activity", activityForBand(band, form.activity))} />
                 </>}
               </m.div>
             </AnimatePresence>
 
-            <div className={`${styles.actions} mt-4 px-4 pt-3 sm:px-8 lg:px-12`}>
+            <div className={`${styles.actions} px-4 pt-3 sm:px-8 lg:px-12`}>
               {saveError && <p role="alert" className="fitx-alert fitx-alert-danger mb-3">{saveError}</p>}
               <div className="flex items-center gap-2">
                 {pageIndex > 0 && (
@@ -489,14 +375,6 @@ export function OnboardingFlow() {
   );
 }
 
-function DietIcon({ diet }: { diet: DietType }) {
-  const size = 34;
-  if (diet === "non_vegetarian") return <Drumstick size={size} />;
-  if (diet === "vegan") return <Sprout size={size} />;
-  if (diet === "eggetarian") return <Egg size={size} />;
-  return <Leaf size={size} />;
-}
-
 /** Three labelled segments; the current one fills. */
 function Progress({ index }: { index: number }) {
   const reduced = useReducedMotionSafe();
@@ -520,17 +398,6 @@ function Progress({ index }: { index: number }) {
         ))}
       </ol>
     </div>
-  );
-}
-
-/** A titled group of questions on a page. */
-function Block({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
-  return (
-    <section className={`${styles.section} py-7 sm:py-9`}>
-      <h2 className="text-lg font-semibold tracking-[-.02em] text-fitx-text">{title}</h2>
-      {hint && <p className="mt-1 text-sm text-fitx-text-secondary">{hint}</p>}
-      <div className="mt-5 space-y-6">{children}</div>
-    </section>
   );
 }
 
