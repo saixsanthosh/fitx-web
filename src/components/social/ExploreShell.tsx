@@ -4,14 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { m } from "framer-motion";
-import { Bell, Compass, Newspaper, Plus, RefreshCw, UserRound } from "lucide-react";
+import { Bell, Clapperboard, Compass, MessageCircle, Newspaper, CirclePause, RefreshCw, UserRound, UsersRound, type LucideIcon } from "lucide-react";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { useReducedMotionSafe } from "@/components/motion/useReducedMotionSafe";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EXPLORE_MEDIA } from "@/data/explore-media";
-import { suggestUsername } from "@/lib/social";
+import { suggestUsername, suspensionText } from "@/lib/social";
+import { EXPLORE_RAIL, RAIL_BADGES, railEntries, railKeyFor, type RailKey } from "@/lib/social/rail";
 import { ExploreProvider, useExplore } from "./ExploreContext";
 import { ProfileForm } from "./ProfileForm";
+import { NewPostButton } from "./create/CreateSheet";
 import styles from "./Explore.module.css";
 
 /** Explore's frame: the member's session and profile, the first-time profile step, and Explore's own navigation. */
@@ -24,7 +26,8 @@ export function ExploreShell({ children }: { children: ReactNode }) {
 }
 
 function Gate({ children }: { children: ReactNode }) {
-  const { status, refresh } = useExplore();
+  const { status, refresh, me } = useExplore();
+  const pathname = usePathname() ?? "/explore";
   if (status === "loading") {
     return (
       <div className={styles.shell} aria-busy="true" aria-label="Loading Explore">
@@ -41,6 +44,32 @@ function Gate({ children }: { children: ReactNode }) {
   if (status === "error") {
     return <Status title="Explore did not load" text="Check your connection and try again." action={<button type="button" className="fitx-button fitx-button-secondary" onClick={() => void refresh()}><RefreshCw size={16} aria-hidden="true" />Try again</button>} />;
   }
+  if (status === "paused" || status === "suspended") {
+    // Settings stay open, so members can still delete their content, block and report (the database allows those).
+    const title = status === "paused" ? "Explore is paused" : "Your Explore account is paused";
+    const text = status === "paused"
+      ? "FITX has paused Explore for now. Your posts are safe, and you can still manage or delete them."
+      : `${suspensionText(me?.suspension?.until)} You can still see and delete your posts and stories, and unblock people.`;
+    if (me?.profile && pathname.startsWith("/explore/settings")) {
+      return (
+        <div className={styles.shell}>
+          <div className={`${styles.closedBanner} ${styles.narrow}`} role="status">
+            <span className={styles.closedTitle}>{title}</span>
+            <span>{text}</span>
+          </div>
+          {children}
+        </div>
+      );
+    }
+    return (
+      <Status
+        title={title}
+        text={text}
+        icon={CirclePause}
+        action={me?.profile ? <Link className="fitx-button fitx-button-secondary" href="/explore/settings">Manage or delete my Explore content</Link> : undefined}
+      />
+    );
+  }
   if (status === "setup") return <Setup />;
   return (
     <div className={styles.shell}>
@@ -50,12 +79,12 @@ function Gate({ children }: { children: ReactNode }) {
   );
 }
 
-function Status({ title, text, action }: { title: string; text?: string; action?: ReactNode }) {
+function Status({ title, text, action, icon: Icon = Compass }: { title: string; text?: string; action?: ReactNode; icon?: LucideIcon }) {
   return (
     <div className={styles.shell}>
       <PageHeader title="Explore" />
       <div className={`${styles.empty} ${styles.narrow}`}>
-        <span className={styles.emptyMark}><Compass size={26} aria-hidden="true" /></span>
+        <span className={styles.emptyMark}><Icon size={26} aria-hidden="true" /></span>
         <h2 className={styles.emptyTitle}>{title}</h2>
         {text && <p className={styles.emptyText}>{text}</p>}
         {action}
@@ -98,12 +127,13 @@ function Setup() {
   );
 }
 
-const LINKS = [
-  { key: "feed", href: "/explore", label: "Feed", icon: Newspaper, match: (path: string) => path === "/explore" },
-  { key: "discover", href: "/explore/discover", label: "Discover", icon: Compass, match: (path: string) => path.startsWith("/explore/discover") },
-  { key: "activity", href: "/explore/notifications", label: "Notifications", icon: Bell, match: (path: string) => path.startsWith("/explore/notifications") },
-] as const;
+const RAIL_ICONS: Record<RailKey, LucideIcon> = {
+  feed: Newspaper, discover: Compass, videos: Clapperboard, community: UsersRound, messages: MessageCircle,
+};
 
+type NavItem = { key: string; href: string; label: string; icon: LucideIcon; active: boolean; badge?: RailKey };
+
+/** Explore's rail: the ready entries of EXPLORE_RAIL, then Notifications and the member's profile, and "New post". */
 function ExploreNav() {
   const pathname = usePathname() ?? "/explore";
   const reduced = useReducedMotionSafe();
@@ -111,8 +141,10 @@ function ExploreNav() {
   const username = me?.profile?.username ?? "";
   const unread = (me?.unread ?? 0) + (me?.requests ?? 0);
   const profileHref = `/explore/u/${username}`;
-  const items = [
-    ...LINKS.map((link) => ({ ...link, active: link.match(pathname) })),
+  const current = railKeyFor(pathname, EXPLORE_RAIL);
+  const items: NavItem[] = [
+    ...railEntries().map((entry) => ({ key: entry.key, href: entry.href, label: entry.label, icon: RAIL_ICONS[entry.key], active: current === entry.key, badge: entry.key })),
+    { key: "activity", href: "/explore/notifications", label: "Notifications", icon: Bell, active: pathname.startsWith("/explore/notifications") },
     { key: "profile", href: profileHref, label: "Profile", icon: UserRound, active: pathname === profileHref || pathname.startsWith("/explore/settings") },
   ];
   return (
@@ -121,19 +153,21 @@ function ExploreNav() {
         {items.map((item) => {
           const Icon = item.icon;
           const badge = item.key === "activity" && unread > 0;
+          const RailBadge = item.badge ? RAIL_BADGES[item.badge] : undefined;
           return (
             <Link key={item.key} href={item.href} className={styles.subnavLink} aria-current={item.active ? "page" : undefined} aria-label={badge ? `${item.label}, ${unread} new` : item.label}>
               {item.active && <m.span layoutId={reduced ? undefined : "explore-nav-marker"} className={styles.subnavMarker} transition={{ type: "spring", stiffness: 420, damping: 36 }} />}
               <span className={styles.subnavIcon}>
                 <Icon size={19} aria-hidden="true" />
                 {badge && <span className={styles.badge} aria-hidden="true">{unread > 99 ? "99+" : unread}</span>}
+                {RailBadge && <RailBadge />}
               </span>
               <span className={styles.subnavLabel}>{item.label}</span>
             </Link>
           );
         })}
       </div>
-      <Link href="/explore/new" className={styles.newPost} aria-label="New post"><Plus size={19} aria-hidden="true" /><span className={styles.newPostLabel}>New post</span></Link>
+      <NewPostButton videosOn={me?.videos === true} />
     </nav>
   );
 }

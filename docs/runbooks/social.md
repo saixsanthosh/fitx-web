@@ -1,4 +1,4 @@
-# Explore (social), part 1
+# Explore (social)
 
 Explore is FITX's social space: profiles, follows (private accounts approve), photo posts, likes, comments with
 replies, saves, sharing, Discover (search, topics, trending, people to follow), notifications, reports, blocks and
@@ -74,7 +74,58 @@ The database rows go with the login (foreign keys cascade). The photos must be r
 `removeSocialMediaFiles(admin, userId)` from `src/lib/account/deletion.ts`, called in `/api/account` next to
 `removeUserFiles` (integrator edit).
 
-## Not in part 1
+## Part 2 core (wave 2, `20261124100000_fitx_social_v2_core.sql`, runbook #52)
 
-Videos and short videos (no reliable browser re-encode without new packages), stories, challenges, communities,
-direct messages, push or e-mail notifications (notifications are in the app only), and Admin moderation screens.
+Applied **before** the wave-2 deploy; wave-1 clients keep working in between (`tests/social/compat-sql.test.mjs`).
+It creates every wave-2 Explore table (stories, sanctions, the storage trash, conversations and messages,
+communities, challenges, the moderation record) and every shared helper; the groups file (#53) and the Admin file
+(#54) add only functions, policies and jobs.
+
+- **Item-level visibility.** `fitx_social_sees_post`, `_sees_comment_row`, `_sees_story`, `_sees_community` and
+  `_post_listed` decide what one member sees of one item; every read of another member's posts, comments or stories
+  uses them (`tests/social/item-helpers.test.mjs` fails otherwise). `tests/social/safety-matrix-sql.test.mjs` checks
+  each viewer (self, stranger, pending, follower, blocked either way, restricted, community member, teen, unknown
+  age) against each owner state (active, suspended, deleted) and content state.
+- **Moderation states** on posts, comments, stories, messages and communities: `visible`; `limited` (owner,
+  accepted followers and, in a community, its accepted members only; out of Discover, trending, hashtags, topics,
+  search, suggestions, the Videos feed and non-followers' story trays); `hidden` (the owner only, shown as "Hidden
+  by FITX"). Admin (#54) sets them.
+- **Sanctions** (`social_member_sanctions`, set in Admin): `explore` (the member's Explore use stops with
+  `social_suspended`, their content is hidden from everyone else), `dm`, `upload`. Deleting, blocking, unblocking,
+  reporting, unfollowing, settings reads and "Your Explore content" stay open while suspended, and while Explore is
+  switched off (`platform_settings.features.explore = false`; a missing key means on).
+- **Age (O1 a):** `fitx_social_age_band` from `profiles.date_of_birth`, else `profiles.age`. Under 13: no Explore
+  profile. No date of birth: teen rules until the member adds one in Explore settings ("Add your date of birth",
+  `fitx_social_set_birth_date`, once; `social_profiles.birth_date_added_at` records it for Admin). Messages,
+  communities and leaderboards need 18+ (#53 enforces them and raises `social_age_restricted` with the band as hint).
+- **Reports** snapshot the item (`evidence`, at most 8 KB; O4 a: a message report holds that one message) and accept
+  content addressed to the reporter across a block. Evidence is removed 90 days after review (O8 a).
+- **Videos** (`explore_video`, off unless saved as true): one video of at most 30 s per post (15 s for a story) at
+  `<uid>/<id>/0.mp4` with its poster at `<uid>/<id>/0p.webp`. A member's own key never signs another member's
+  `.mp4`: `/api/social/video-links` asks `fitx_social_video_link_allowed`, which counts 40 plays a day per member and
+  the project's daily play bytes.
+- **Caps (O9 a), owner-tunable:** `fitx_social_caps()` returns them. To change one, run in the SQL editor:
+
+```sql
+create or replace function public.fitx_social_caps() returns jsonb language sql immutable set search_path = '' as $f$
+  select pg_catalog.jsonb_build_object('social_media_bytes', 471859200, 'video_bytes', 262144000,
+    'story_bytes', 62914560, 'video_play_bytes_per_day', 78643200);
+$f$;
+```
+
+  (450 MB of Explore files, of which 250 MB videos and posters and 60 MB live stories; 75 MB of video plays a day.)
+- **New limits:** stories 10 an hour, 20 a calendar day and 10 in any 24 hours; videos 2 an hour and 3 a day (also
+  3 `.mp4` uploads in 24 hours and 20 kept); video plays 40 a day; restricting 30 an hour and 100 a day.
+- **Clean-up:** the pg_cron job `fitx-social-hourly` (minute 7) runs `fitx_social_hourly()`: expired stories without
+  an open report are deleted and their files queued in `social_storage_trash`; files older than 6 hours that nothing
+  refers to are queued; trash rows whose file is gone are forgotten; report evidence is removed 90 days after review;
+  notifications older than 90 days are deleted. Files leave the bucket only through the Storage API, by
+  `/api/social/sweep` (daily Vercel cron). Check it: `select public.fitx_social_hourly();` (service role) and
+  `select * from cron.job_run_details where command like '%fitx_social_hourly%' order by start_time desc limit 5;`.
+- **Realtime:** `fitx_social_ping` sends ids only to the private topic `social:inbox:<uid>`; a failing ping never
+  fails a write.
+
+## Not yet
+
+Push or e-mail notifications (notifications are in the app only). Stories, short videos, challenges, communities,
+direct messages and the Admin screens arrive with the wave-2 streams after part 2 core.

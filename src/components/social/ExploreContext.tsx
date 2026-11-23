@@ -4,7 +4,16 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getSession, sessionProblem, type Session } from "@/components/tasks/session";
 import { socialApi, toSocialError, type SocialMe } from "@/lib/social";
 
-export type ExploreStatus = "loading" | "signed_out" | "not_configured" | "unavailable" | "error" | "setup" | "ready";
+export type ExploreStatus = "loading" | "signed_out" | "not_configured" | "unavailable" | "error" | "setup" | "ready"
+  // Wave 2: Explore switched off in Admin, or the member's Explore account suspended (settings stay open).
+  | "paused" | "suspended";
+
+/** The status a fitx_social_me() answer leads to. */
+export function statusFor(me: SocialMe): ExploreStatus {
+  if (me.explore === false) return "paused";
+  if (me.suspension) return "suspended";
+  return me.profile ? "ready" : "setup";
+}
 
 type ExploreValue = {
   status: ExploreStatus;
@@ -43,7 +52,7 @@ export function ExploreProvider({ children }: { children: ReactNode }) {
       if (mine !== ticket.current) return;
       setSession(current);
       setMeState(next);
-      setStatus(next.profile ? "ready" : "setup");
+      setStatus(statusFor(next));
       ready.current = true;
     } catch (error) {
       if (mine !== ticket.current || quiet) return;
@@ -54,7 +63,7 @@ export function ExploreProvider({ children }: { children: ReactNode }) {
 
   const setMe = useCallback((next: SocialMe) => {
     setMeState(next);
-    setStatus(next.profile ? "ready" : "setup");
+    setStatus(statusFor(next));
   }, []);
 
   useEffect(() => {
@@ -80,7 +89,9 @@ export function useExplore(): ExploreValue {
 
 /** For screens shown only once the member has a profile. */
 export function useReadyExplore() {
-  const { session, me, refresh, setMe } = useExplore();
+  const { session, me, refresh, setMe, status } = useExplore();
   if (!session || !me?.profile) throw new Error("Explore is not ready");
-  return { db: session.db, userId: session.userId, me, profile: me.profile, refresh, setMe };
+  /** Set while Explore is closed to the member: only settings, their own content and safety tools work. */
+  const closed = status === "paused" || status === "suspended" ? status : null;
+  return { db: session.db, userId: session.userId, me, profile: me.profile, refresh, setMe, closed };
 }

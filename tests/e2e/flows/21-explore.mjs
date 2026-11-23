@@ -3,7 +3,9 @@
 // sees nothing until Ben accepts from his notifications. Then Asha sees the post in her feed, likes, saves and
 // comments; Ben sees those notifications, replies, edits his caption, posts and deletes a second post (its photos
 // leave the bucket); Asha finds the hashtag, reports the post, blocks Ben (follows end, his profile is hidden) and
-// unblocks him from Explore settings. /social now leads to /explore.
+// unblocks him from Explore settings. /social now leads to /explore. Wave 2 (20261124100000): Ben blocks Asha and still
+// reports her account; a suspended Asha reads why and reaches her settings; Chen, whom FITX has no date of birth for,
+// adds it in Explore settings; with Explore switched off in Admin, Ben still deletes his own post from Explore settings.
 import { signInUi, textOf } from "./common.mjs";
 import { makePng } from "../support/png.mjs";
 
@@ -42,6 +44,7 @@ async function sawOverflow(t, name) {
 
 export const flow = {
   id: "21-explore",
+  sizes: ["phone", "tablet", "desktop"],
   title: "Explore: profiles, private follow approval, photo posts, likes, comments, saves, edits, deletes, search, reports, blocks, notifications",
   async run(t, { standin, size }) {
     const page = await t.open();
@@ -241,9 +244,95 @@ export const flow = {
       t.expect(!/\b(kg|kcal|bpm)\b/i.test(text), "no health data appears in Explore", text.slice(0, 300));
     });
 
+    await t.step("Ben blocks Asha and still reports her account", async () => {
+      await switchTo(t, ben);
+      await t.goto(`/explore/u/${ashaName}`, { label: "ben blocks asha" });
+      await page.getByRole("button", { name: "Account options" }).click();
+      await page.getByRole("button", { name: "Block", exact: true }).click();
+      await page.getByRole("dialog", { name: `Block @${ashaName}?` }).getByRole("button", { name: "Block", exact: true }).click();
+      await page.getByText("You blocked this account").waitFor({ timeout: 15000 });
+      await page.getByRole("button", { name: "Account options" }).click();
+      await page.getByRole("button", { name: "Report account" }).click();
+      const report = page.getByRole("dialog", { name: "Report account" });
+      await report.getByText("Bullying or harassment", { exact: true }).click();
+      await report.getByRole("button", { name: "Send report" }).click();
+      await page.getByText("Report sent. Thank you.").waitFor({ timeout: 15000 });
+      const stored = await settled(standin, `select reason, evidence->>'username' username from public.social_reports where user_id = '${ben.id}' and target_type = 'account' and target_id = '${asha.id}'`, (r) => Boolean(r));
+      t.expect(stored?.reason === "harassment" && stored?.username === ashaName, "a report after a block is stored, with the account as evidence", stored);
+      await t.goto("/explore/settings", { label: "ben unblocks asha" });
+      await page.locator("section[aria-labelledby=settings-safety]").getByRole("button", { name: `Unblock @${ashaName}` }).click();
+      await page.locator("section[aria-labelledby=settings-safety]").getByText("You have not blocked or restricted anyone.").waitFor({ timeout: 15000 });
+    });
+
+    await t.step("a suspended member reads why, and can still reach Explore settings", async () => {
+      await standin.sql(`insert into public.social_member_sanctions (user_id, kind, until, reason_code) values ('${asha.id}', 'explore', now() + interval '7 days', 'spam')`);
+      try {
+        await switchTo(t, asha);
+        await page.getByRole("heading", { name: "Your Explore account is paused" }).waitFor({ timeout: 20000 });
+        // Open the page again so the screenshot shows it rather than the sign-in reveal on top of it.
+        await t.goto("/explore", { label: "suspended" });
+        await page.getByRole("heading", { name: "Your Explore account is paused" }).waitFor({ timeout: 20000 });
+        await page.getByText(/FITX has paused your Explore account until \d{1,2} \w+ \d{4}\./).waitFor();
+        t.expect(await page.getByRole("navigation", { name: "Explore" }).count() === 0, "no Explore navigation while suspended");
+        await sawOverflow(t, "suspended");
+        await page.getByRole("link", { name: "Manage or delete my Explore content" }).click();
+        await page.getByRole("heading", { level: 1, name: "Explore settings" }).waitFor({ timeout: 15000 });
+        await page.getByRole("heading", { name: "Your Explore content" }).waitFor({ timeout: 15000 });
+        t.expect(await page.getByRole("heading", { name: "Profile" }).count() === 0, "profile editing is closed while suspended");
+        await sawOverflow(t, "suspended settings");
+      } finally {
+        await standin.sql(`update public.social_member_sanctions set lifted_at = now() where user_id = '${asha.id}'`);
+      }
+    });
+
+    await t.step("a member with no date of birth adds it in Explore settings", async () => {
+      const chen = await standin.createAccount({ name: "Chen Liu", tag: "explore-chen" });
+      await standin.sql(`update public.profiles set age = null, date_of_birth = null where id = '${chen.id}'`);
+      await switchTo(t, chen);
+      await setUpProfile(t, `chen_${tag()}`, { isPrivate: false });
+      await t.goto("/explore/settings", { label: "chen settings" });
+      const section = page.locator("section#birth-date");
+      await section.getByRole("heading", { name: "Date of birth" }).waitFor({ timeout: 15000 });
+      await sawOverflow(t, "date of birth");
+      await section.getByLabel("Date of birth").fill("2015-03-01");
+      await section.getByText("Explore is for members aged 13 and over.").waitFor();
+      t.expect(await section.getByRole("button", { name: "Add your date of birth" }).isDisabled(), "an under-13 date cannot be saved");
+      await section.getByLabel("Date of birth").fill("1994-06-15");
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_set_birth_date") && r.ok()), section.getByRole("button", { name: "Add your date of birth" }).click()]);
+      await page.getByText("Date of birth saved").waitFor({ timeout: 15000 });
+      const row = await settled(standin, `select date_of_birth::text dob, age, (select (birth_date_added_at is not null)::text from public.social_profiles where user_id = '${chen.id}') stamped from public.profiles where id = '${chen.id}'`, (r) => r?.dob === "1994-06-15");
+      t.expect(row?.dob === "1994-06-15" && row?.stamped === "true", "the date is stored once and stamped for Admin", row);
+      await page.locator("section#birth-date").waitFor({ state: "detached", timeout: 15000 });
+    });
+
+    await t.step("with Explore switched off, Ben still deletes his own post from Explore settings", async () => {
+      await standin.sql(`update public.platform_settings set features = features || '{"explore": false}'::jsonb where id = 1`);
+      try {
+        await switchTo(t, ben);
+        await page.getByRole("heading", { name: "Explore is paused" }).waitFor({ timeout: 20000 });
+        await t.goto("/explore", { label: "explore paused" });
+        await page.getByRole("heading", { name: "Explore is paused" }).waitFor({ timeout: 20000 });
+        await sawOverflow(t, "explore paused");
+        await page.getByRole("link", { name: "Manage or delete my Explore content" }).click();
+        await page.getByRole("heading", { name: "Your Explore content" }).waitFor({ timeout: 15000 });
+        await page.getByRole("status").getByText("Explore is paused").waitFor();
+        await sawOverflow(t, "paused settings");
+        await page.getByRole("list", { name: "Your posts" }).getByRole("button", { name: /^Delete post: Leg day done/ }).click();
+        await page.getByRole("dialog", { name: "Delete this post?" }).getByRole("button", { name: "Delete", exact: true }).click();
+        await page.getByText("Post deleted").waitFor({ timeout: 15000 });
+        const left = await settled(standin, `select (select count(*) from public.social_posts where id = '${postId}')::int posts,
+          (select count(*) from storage.objects where bucket_id = 'social-media' and name like '${ben.id}/${postId}/%')::int files`, (r) => Number(r?.posts) === 0 && Number(r?.files) === 0);
+        t.expect(Number(left?.posts) === 0 && Number(left?.files) === 0, "the post and its photos are gone while Explore is off", left);
+      } finally {
+        await standin.sql(`update public.platform_settings set features = features - 'explore' where id = 1`);
+      }
+    });
+
     if (size === "desktop") {
       await t.step("at 768 px (tablet) Discover, a profile and settings fit without sideways scroll", async () => {
         await page.setViewportSize({ width: 768, height: 1024 });
+        // The wave-2 steps end as Ben; this step looks at Ben's private profile as Asha.
+        await switchTo(t, asha);
         await t.goto("/explore/discover", { label: "tablet discover" });
         await page.getByRole("heading", { level: 1, name: "Discover" }).waitFor({ timeout: 15000 });
         await sawOverflow(t, "tablet discover");

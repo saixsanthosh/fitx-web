@@ -6,6 +6,7 @@ import { Bell } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fullDate, nextCursor, relativeTime, socialApi, toSocialError, type Cursor, type SocialAuthor, type SocialNotification } from "@/lib/social";
+import { notificationHref, notificationText } from "@/lib/social/text";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
 import { FollowButton } from "./FollowButton";
@@ -16,21 +17,10 @@ import styles from "./Explore.module.css";
 
 const PAGE = 30;
 
-export function notificationText(note: Pick<SocialNotification, "type" | "snippet">): string {
-  switch (note.type) {
-    case "follow": return "started following you.";
-    case "follow_request": return "asked to follow you.";
-    case "follow_accepted": return "accepted your follow request.";
-    case "like": return "liked your post.";
-    case "comment": return note.snippet ? `commented: ${note.snippet}` : "commented on your post.";
-    case "reply": return note.snippet ? `replied: ${note.snippet}` : "replied to your comment.";
-    case "mention": return note.snippet ? `mentioned you: ${note.snippet}` : "mentioned you in a post.";
-  }
-}
 
 /** Follow requests to answer, then likes, comments, replies, mentions and follows, newest first. */
 export function NotificationsView() {
-  const { db, userId, refresh } = useReadyExplore();
+  const { db, userId, refresh, profile } = useReadyExplore();
   const requests = useAsync(() => socialApi.requests(db), [db]);
   const list = usePaged<SocialNotification, NonNullable<Cursor>>(`notes:${userId}`, async (cursor) => {
     const items = await socialApi.notifications(db, cursor, PAGE);
@@ -70,22 +60,31 @@ export function NotificationsView() {
       )}
       {notes.length > 0 && (
         <ul className="flex flex-col gap-1" aria-label="Notifications">
-          {notes.map((note) => (
-            <li key={note.id} className={`${styles.note_} ${note.read ? "" : styles.noteUnread}`}>
-              <Link href={`/explore/u/${note.actor.username}`} aria-label={note.actor.display_name}><Avatar user={note.actor} size={44} /></Link>
-              <p className={styles.noteText}>
-                <Link href={`/explore/u/${note.actor.username}`} className="font-semibold">{note.actor.username}</Link>{" "}
-                {note.post_id ? <Link href={`/explore/p/${note.post_id}${note.comment_id ? "#comments" : ""}`}>{notificationText(note)}</Link> : notificationText(note)}{" "}
-                <time className={styles.time} dateTime={note.created_at} title={fullDate(note.created_at)}>{relativeTime(note.created_at)}</time>
-                {!note.read && <span className="sr-only"> (new)</span>}
-              </p>
-              {note.thumb && note.post_id ? (
-                <Link href={`/explore/p/${note.post_id}`} className={styles.noteThumb} aria-label="Open post"><SocialPhoto path={note.thumb} alt="" ratio={1} /></Link>
-              ) : (note.type === "follow" || note.type === "follow_accepted") ? (
-                <FollowButton db={db} userId={note.actor.id} username={note.actor.username} state={note.following} compact />
-              ) : null}
-            </li>
-          ))}
+          {notes.map((note) => {
+            const href = notificationHref(note, profile.username);
+            const text = notificationText(note);
+            const actor = note.actor;
+            return (
+              <li key={note.id} className={`${styles.note_} ${note.read ? "" : styles.noteUnread}`}>
+                {actor ? (
+                  <Link href={`/explore/u/${actor.username}`} aria-label={actor.display_name}><Avatar user={actor} size={44} /></Link>
+                ) : (
+                  <span className={styles.fitxMark} aria-hidden="true">FITX</span>
+                )}
+                <p className={styles.noteText}>
+                  {actor && <><Link href={`/explore/u/${actor.username}`} className="font-semibold">{actor.username}</Link>{" "}</>}
+                  {href ? <Link href={href}>{text}</Link> : text}{" "}
+                  <time className={styles.time} dateTime={note.created_at} title={fullDate(note.created_at)}>{relativeTime(note.created_at)}</time>
+                  {!note.read && <span className="sr-only"> (new)</span>}
+                </p>
+                {note.thumb && href ? (
+                  <Link href={href} className={styles.noteThumb} aria-label={note.post_id ? "Open post" : "Open"}><SocialPhoto path={note.thumb} alt="" ratio={1} /></Link>
+                ) : actor && (note.type === "follow" || note.type === "follow_accepted") ? (
+                  <FollowButton db={db} userId={actor.id} username={actor.username} state={note.following} compact />
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
       <div ref={sentinel} className={styles.sentinel} aria-hidden="true" />

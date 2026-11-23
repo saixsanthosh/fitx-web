@@ -5,8 +5,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { toSocialError } from "./errors";
 import type {
-  CommentPolicy, Cursor, FollowListEntry, FollowState, MyProfile, NotificationPrefs, ProfilePage, ReportReason, ReportTarget,
-  SearchResult, SocialComment, SocialMe, SocialNotification, SocialPost, Suggestion,
+  AgeBand, CommentPolicy, Cursor, FollowListEntry, FollowState, MyContent, MyProfile, NotificationPrefs, ProfilePage, ReportReason,
+  ReportTarget, SearchResult, SocialComment, SocialMe, SocialNotification, SocialPost, SocialStory, StoryTrayEntry, Suggestion,
 } from "./types";
 import type { SocialAuthor } from "./types";
 
@@ -49,7 +49,7 @@ export const socialApi = {
     call<string>(db, "fitx_social_report", { p_target_type: target, p_target_id: id, p_reason: reason, p_details: details }),
 
   createPost: (db: Db, input: { id: string; caption: string; location: string; topics: string[]; commentPolicy: CommentPolicy;
-    media: { path: string; width: number; height: number; alt: string }[] }) =>
+    media: { path: string; width: number; height: number; alt: string; kind?: "image" | "video"; poster_path?: string; duration_ms?: number }[] }) =>
     call<SocialPost>(db, "fitx_social_create_post", {
       p_post_id: input.id, p_caption: input.caption, p_location: input.location, p_topics: input.topics,
       p_comment_policy: input.commentPolicy, p_media: input.media,
@@ -86,10 +86,35 @@ export const socialApi = {
   notifications: (db: Db, cursor: Cursor, limit = 30) => call<SocialNotification[]>(db, "fitx_social_notifications", { ...page(cursor), p_limit: limit }),
   markRead: (db: Db) => call<number>(db, "fitx_social_mark_read"),
   notificationPrefs: (db: Db) => call<NotificationPrefs>(db, "fitx_social_notification_prefs"),
+  /** The wave-2 keys are sent only when known, so the call also works against a wave-1 database (five parameters). */
   saveNotificationPrefs: (db: Db, prefs: NotificationPrefs) =>
     call<NotificationPrefs>(db, "fitx_social_save_notification_prefs", {
       p_follows: prefs.follows, p_follow_requests: prefs.follow_requests, p_likes: prefs.likes, p_comments: prefs.comments,
       p_mentions: prefs.mentions,
+      ...(prefs.stories === undefined ? {} : { p_stories: prefs.stories }),
+      ...(prefs.challenges === undefined ? {} : { p_challenges: prefs.challenges }),
+      ...(prefs.communities === undefined ? {} : { p_communities: prefs.communities }),
+      ...(prefs.messages === undefined ? {} : { p_messages: prefs.messages }),
     }),
   safetyLists: (db: Db) => call<{ blocked: SocialAuthor[]; restricted: SocialAuthor[] }>(db, "fitx_social_safety_lists"),
+
+  // Wave 2 core (20261124100000).
+  /** Adds the member's date of birth once (ages 13 to 120). Returns the new age band. */
+  setBirthDate: (db: Db, isoDate: string) => call<AgeBand>(db, "fitx_social_set_birth_date", { p_date: isoDate }),
+  myContent: (db: Db, before: string | null = null, limit = 30) => call<MyContent>(db, "fitx_social_my_content", { p_before_at: before, p_limit: limit }),
+  /** Deletes every post, video, story and comment; returns the file paths, which the caller deletes from the bucket. */
+  deleteAllContent: (db: Db) => call<string[]>(db, "fitx_social_delete_all_content"),
+  /** Returns the story's file paths, which the caller deletes from the bucket. */
+  deleteStory: (db: Db, id: string) => call<string[]>(db, "fitx_social_delete_story", { p_story: id }),
+  storyTray: (db: Db) => call<StoryTrayEntry[]>(db, "fitx_social_story_tray"),
+  stories: (db: Db, userId: string) => call<SocialStory[]>(db, "fitx_social_stories", { p_user: userId }),
+  viewStory: (db: Db, id: string) => call<boolean>(db, "fitx_social_view_story", { p_story: id }),
+  storyViewers: (db: Db, id: string) => call<{ user: SocialAuthor; viewed_at: string; liked: boolean }[]>(db, "fitx_social_story_viewers", { p_story: id }),
+  setStoryLike: (db: Db, id: string, like: boolean) => call<{ liked: boolean }>(db, "fitx_social_set_story_like", { p_story: id, p_like: like }),
+  createStory: (db: Db, input: { id: string; kind: "image" | "video"; path: string; posterPath: string | null; width: number; height: number;
+    durationMs: number | null; caption: string }) =>
+    call<SocialStory>(db, "fitx_social_create_story", {
+      p_story_id: input.id, p_kind: input.kind, p_path: input.path, p_poster_path: input.posterPath, p_width: input.width,
+      p_height: input.height, p_duration_ms: input.durationMs, p_caption: input.caption,
+    }),
 };

@@ -87,6 +87,23 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   { table: "social_reports", label: "Explore reports you made", owner: "user_id", order: "id" },
   { table: "social_notifications", label: "Explore notifications", owner: "user_id", order: "id" },
   { table: "social_notification_prefs", label: "Explore notification settings", owner: "user_id", order: "user_id" },
+  // Wave 2 (20261124100000; the group tables fill once 20261124100010 adds their policies).
+  { table: "social_stories", label: "Explore stories", owner: "user_id", order: "id" },
+  { table: "social_story_views", label: "Explore stories you viewed", owner: "user_id", order: "story_id" },
+  { table: "social_story_likes", label: "Explore stories you liked", owner: "user_id", order: "story_id" },
+  // Members may read only these columns of their own sanctions (not which FITX operator set them).
+  {
+    table: "social_member_sanctions",
+    label: "Explore restrictions FITX placed on your account",
+    owner: "user_id",
+    order: "id",
+    columns: "id,user_id,kind,until,reason_code,created_at,lifted_at",
+  },
+  { table: "social_messages", label: "Explore messages you sent", owner: "user_id", order: "id" },
+  { table: "social_conversation_sides", label: "Your Explore conversations (read and mute settings)", owner: "user_id", order: "conversation_id" },
+  { table: "social_community_members", label: "Explore communities you joined or asked to join", owner: "user_id", order: "community_id" },
+  { table: "social_challenge_entries", label: "Explore challenges you joined", owner: "user_id", order: "challenge_id" },
+  { table: "social_challenge_badges", label: "Explore challenge badges", owner: "user_id", order: ["challenge_id", "kind"] },
 ];
 
 export const MEDIA_BUCKET = "fitx-user-media";

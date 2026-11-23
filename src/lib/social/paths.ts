@@ -21,3 +21,20 @@ export function avatarPath(userId: string, type: PhotoType, stamp: number = Date
 export function isUuid(value: string): boolean {
   return UUID.test(value);
 }
+
+/** <user id>/<post or story id>/<position>p.webp: a video's poster (wave 2). */
+export function posterPath(userId: string, id: string, position = 0): string {
+  if (!UUID.test(userId) || !UUID.test(id) || !Number.isInteger(position) || position < 0 || position > 9) throw new Error("Invalid photo path");
+  return `${userId}/${id}/${position}p.webp`;
+}
+
+/**
+ * The still that stands for a post in grids and tiles: the first photo, a video's poster (never the .mp4, which only
+ * the server signs), or null for a text post.
+ */
+export function postCoverPath(post: { kind?: string; media: readonly { path: string; kind?: string; poster_path?: string | null }[] }): string | null {
+  const first = post.media[0];
+  if (!first) return null;
+  if (first.kind === "video" || post.kind === "video") return first.poster_path ?? null;
+  return first.path;
+}

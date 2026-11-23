@@ -20,6 +20,19 @@ export const SOCIAL_LIMITS = {
   postsPerHour: 10,
   postsPerDay: 25,
   uploadsPerDay: 60,
+  // Wave 2 (20261124100000). Owner-tunable caps live in fitx_social_caps(); these are what the app says.
+  storyCaptionChars: 200,
+  /** A story lives this long. */
+  storyHours: 24,
+  storyVideoMs: 15_000,
+  postVideoMs: 30_000,
+  storiesPerDay: 10,
+  videoUploadsPerDay: 3,
+  videosKept: 20,
+  restrictsPerHour: 30,
+  minimumAge: 13,
+  /** Messages, communities and leaderboards (O1 a). */
+  adultAge: 18,
 } as const;
 
 export const SOCIAL_BUCKET = "social-media";
