@@ -167,6 +167,20 @@ test("every per-user table is exported, or left out on purpose", () => {
   assert.equal(ACCESS.get("fitx_rate_limits"), "none");
 });
 
+test("Explore reports leave out the evidence snapshot, which holds other members' messages, captions and bios", () => {
+  const reports = EXPORT_TABLES.find((spec) => spec.table === "social_reports");
+  assert.ok(reports?.columns, "social_reports must list its columns, never select *");
+  const { plain, embeds } = parseSelect(reports.columns);
+  assert.equal(embeds.length, 0);
+  assert.ok(TABLES.get("social_reports")?.columns.has("evidence"), "the snapshot column exists (20261124100000)");
+  for (const column of ["evidence", "evidence_purge_at"]) assert.ok(!plain.includes(column), `social_reports.${column} is exported`);
+  // Every other column of the member's own report is still there.
+  assert.deepEqual(
+    [...TABLES.get("social_reports")!.columns].filter((column) => !["evidence", "evidence_purge_at"].includes(column)).sort(),
+    [...plain].sort(),
+  );
+});
+
 test("each table is exported once, under its own label", () => {
   assert.equal(new Set(EXPORT_TABLES.map((spec) => spec.table)).size, EXPORT_TABLES.length);
   assert.equal(new Set(EXPORT_TABLES.map((spec) => spec.label)).size, EXPORT_TABLES.length);

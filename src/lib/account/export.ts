@@ -84,7 +84,15 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   { table: "social_comments", label: "Explore comments", owner: "user_id", order: "id" },
   { table: "social_blocks", label: "Explore accounts you blocked", owner: "user_id", order: "blocked_id" },
   { table: "social_restricts", label: "Explore accounts you restricted", owner: "user_id", order: "restricted_id" },
-  { table: "social_reports", label: "Explore reports you made", owner: "user_id", order: "id" },
+  // Not the evidence snapshot (20261124100000): it holds the reported item, someone else's message, caption or bio,
+  // and the export holds only what the member wrote (O7 a).
+  {
+    table: "social_reports",
+    label: "Explore reports you made",
+    owner: "user_id",
+    order: "id",
+    columns: "id,user_id,target_type,target_id,target_user_id,reason,details,status,created_at,reviewed_at",
+  },
   { table: "social_notifications", label: "Explore notifications", owner: "user_id", order: "id" },
   { table: "social_notification_prefs", label: "Explore notification settings", owner: "user_id", order: "user_id" },
   // Wave 2 (20261124100000; the group tables fill once 20261124100010 adds their policies).
