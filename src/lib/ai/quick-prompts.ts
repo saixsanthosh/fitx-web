@@ -117,6 +117,16 @@ function foodPrompt({ facts, summary }: CoachContext, foods: PromptSignals["toda
   };
 }
 
+/** The Workouts setup's answers as the coach summary carries them: absent until the setup is done (context.ts). */
+function setupAnswers(summary: CoachContext["summary"]): { location: string | null; level: string | null; days: number | null } {
+  const setup = (summary.training_setup ?? {}) as { location?: unknown; level?: unknown; days_per_week?: unknown };
+  return {
+    location: typeof setup.location === "string" ? setup.location : null,
+    level: typeof setup.level === "string" ? setup.level : null,
+    days: typeof setup.days_per_week === "number" && setup.days_per_week > 0 ? setup.days_per_week : null,
+  };
+}
+
 function trainingPrompt({ facts, summary }: CoachContext, last: PromptSignals["lastWorkout"]): QuickPrompt | null {
   const today = facts.today;
   const recent = last && Date.parse(`${today}T23:59:59Z`) - Date.parse(last.startedAt) <= 14 * 86_400_000 ? last : null;
@@ -130,8 +140,11 @@ function trainingPrompt({ facts, summary }: CoachContext, last: PromptSignals["l
       mode: "workout_plan",
     };
   }
-  const days = (summary.training_setup as { days_per_week?: number } | undefined)?.days_per_week ?? null;
-  const place = facts.location === "home" ? "home" : facts.location === "both" ? "home or gym" : "gym";
+  const setup = setupAnswers(summary);
+  const place = setup.location === "home" ? "home" : setup.location === "both" ? "home or gym" : setup.location === "gym" ? "gym" : null;
+  // Before the Workouts setup the place, level and days are only defaults: nothing here to plan from.
+  if (!place) return null;
+  const days = setup.days;
   return {
     id: "training-start",
     source: "training",
@@ -196,10 +209,13 @@ function foodAnswersPrompt({ facts, summary }: CoachContext): QuickPrompt | null
 
 /** Age (from the birth date), experience and weekly availability. */
 function setupPrompt({ facts, summary }: CoachContext): QuickPrompt | null {
-  const days = (summary.training_setup as { days_per_week?: number } | undefined)?.days_per_week ?? null;
+  const { days, level: rawLevel } = setupAnswers(summary);
   if (facts.age === null && !days) return null;
-  const level = facts.level.replace(/_/g, " ");
-  const who = facts.age !== null ? `I'm ${facts.age} and ${/^[aeiou]/i.test(level) ? "an" : "a"} ${level}` : `I'm ${/^[aeiou]/i.test(level) ? "an" : "a"} ${level}`;
+  const level = rawLevel ? rawLevel.replace(/_/g, " ") : null;
+  const article = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a");
+  const who = facts.age !== null
+    ? level ? `I'm ${facts.age} and ${article(level)} ${level}` : `I'm ${facts.age}`
+    : level ? `I'm ${article(level)} ${level}` : "I train";
   return {
     id: "setup",
     source: "setup",

@@ -35,6 +35,22 @@ describe("quick prompts", () => {
     assert.equal(training.context, "Training · 4 days a week, home");
   });
 
+  test("before the Workouts setup no prompt states the default place, level or days", () => {
+    const fresh = buildCoachContext({
+      profile: { age: 29, gender: "female", height: 165, weight: 62 },
+      preferences: { timezone: "Asia/Kolkata", primary_goal: "general_fitness", workout_location: "gym", fitness_level: "beginner", workouts_per_week: 3, session_duration_minutes: 45 },
+      weighIns: [], meals: [], customFoods: [], sessions: [], recentMuscles: [], records: [], goals: [], planner: [], equipmentListSaved: false,
+    } as never, NOW);
+    const prompts = buildQuickPrompts(fresh, { ...none, todayFoods: null }, { plansAllowed: true });
+    assert.equal(prompts.find((prompt) => prompt.id === "training-start"), undefined);
+    const setup = prompts.find((prompt) => prompt.id === "setup")!;
+    assert.equal(setup.text, "I'm 29. What should I focus on this month?");
+    assert.equal(setup.context, "Age 29");
+    assert.doesNotMatch(JSON.stringify(prompts), /beginner|gym|3 days/);
+    const done = buildQuickPrompts(context({}, { age: 29 }), { ...none, todayFoods: null }, { plansAllowed: true });
+    assert.equal(done.find((prompt) => prompt.id === "setup")!.text, "I'm 29 and an intermediate with 4 days a week. What should I focus on this month?");
+  });
+
   test("a goal with an unknown current value names no number", () => {
     const prompts = buildQuickPrompts(context(), { ...none, goals: [{ title: "Run 10 km", targetValue: 10, currentValue: null, unit: "km", dueOn: "2027-01-31" }] }, { plansAllowed: true });
     const goal = prompts.find((prompt) => prompt.source === "goal")!;
