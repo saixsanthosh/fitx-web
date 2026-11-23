@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { toast } from "sonner";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, BookOpen, ChevronLeft, ListChecks, PackageSearch, Plus, ScanBarcode, Search } from "lucide-react";
+import { progressGoals } from "@/config/routes";
 import { BarcodeScanner } from "@/components/app/BarcodeScanner";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { DayOverview } from "@/components/nutrition/DayOverview";
@@ -74,7 +75,7 @@ const NO_CAPABILITIES: NutritionCapabilities = { customFoodsV2: false, templates
 /** Search answers hold the user's own foods, so the browser must not answer from its cache. */
 const SEARCH_FETCH: RequestInit = { cache: "no-store" };
 /** Where Nutrition's "Set a water goal" goes: the goal editor on Progress, on the daily water template. */
-const WATER_GOAL_HREF = "/progress?panel=goals&new=water_day";
+const WATER_GOAL_HREF = progressGoals({ new: "water_day" });
 
 function sourceText(source: SourceStatus) {
   if (source.status === "ok") return `${source.label} · ${source.count}`;

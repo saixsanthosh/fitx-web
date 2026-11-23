@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { progressGoals } from "@/config/routes";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FakeQueryClient } from "../support/fake-query-client.ts";
 import {
@@ -110,7 +111,8 @@ test("Nutrition asks once, honours Later, offers the edit, and sends the water g
   assert.match(page, /writeSnooze\(userId, localDateKey\(\)\)/, "Later is remembered on this device");
   assert.match(page, /writeSnooze\(userId, null\)/, "saving clears it");
   assert.match(page, />Food preferences</);
-  assert.match(page, /"\/progress\?panel=goals&new=water_day"/);
+  assert.match(page, /WATER_GOAL_HREF = progressGoals\(\{ new: "water_day" \}\)/, "the shared route helper builds the water goal link");
+  assert.equal(progressGoals({ new: "water_day" }), "/progress?panel=goals&new=water_day");
   assert.doesNotMatch(page, /homePanel\(/);
   assert.match(sheet, /mode === "first"\s*\n?\s*\? <button type="button" className=\{styles\.back\} onClick=\{onLater\}>Later<\/button>/);
 });
