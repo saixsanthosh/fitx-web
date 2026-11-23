@@ -219,10 +219,12 @@ export const flow = {
       await page.getByText("Reply sent", { exact: true }).first().waitFor({ timeout: 10000 });
       await page.waitForTimeout(400);
       t.expect(await page.getByText("Reply sent", { exact: true }).count() === 1, "one \"Reply sent\" toast", await page.getByText("Reply sent", { exact: true }).count());
-      const sent = await settled(standin, `select m.story_id, s.user_id owner, (c.user_low = '${mira.id}' or c.user_high = '${mira.id}') to_mira
+      const sent = await settled(standin, `select m.story_id::text as story_id, s.user_id::text as owner_id, m.body as body, (c.user_low = '${mira.id}' or c.user_high = '${mira.id}')::text as to_mira
         from public.social_messages m join public.social_conversations c on c.id = m.conversation_id left join public.social_stories s on s.id = m.story_id
-        where m.user_id = '${theo.id}' and m.body = '${text}'`, (r) => Boolean(r));
-      t.expect(sent?.story_id === story?.id && sent?.owner === mira.id && sent?.to_mira === true, "the reply reaches Mira with her story attached", sent);
+        where m.user_id = '${theo.id}' order by m.created_at desc limit 1`, (r) => Boolean(r));
+      t.note("story reply", { sent, story: story?.id, mira: mira.id });
+      t.expect(sent?.body === text, "the reply is stored as typed", sent);
+      t.expect(sent?.story_id === String(story?.id) && sent?.owner_id === mira.id && sent?.to_mira === "true", "the reply reaches Mira with her story attached", sent);
       // Sent: the story plays on (back to the viewer) and, as the last one, closes the viewer.
       await page.waitForURL((url) => url.pathname === "/explore", { timeout: 15000 });
     });
