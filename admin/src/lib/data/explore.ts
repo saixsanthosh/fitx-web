@@ -104,7 +104,8 @@ export type QueueRow = {
 };
 
 export type QueueResult =
-  | { state: "ready"; rows: QueueRow[]; total: number; hasNext: boolean; counts: Record<ReportStatus, number> }
+  /** counts: reports per status; null when that count could not be read (never 0 for "could not count"). */
+  | { state: "ready"; rows: QueueRow[]; total: number; hasNext: boolean; counts: Record<ReportStatus, number | null> }
   | NotReady;
 
 /** The queue: oldest first while waiting, newest first for closed and all reports. */
@@ -140,7 +141,14 @@ export async function listReports(filters: QueueFilters): Promise<QueueResult> {
   ]);
   const waitingCount = new Map<string, number>();
   for (const row of (waiting.data ?? []) as Row[]) waitingCount.set(String(row.target_id), (waitingCount.get(String(row.target_id)) ?? 0) + 1);
-  const counts = Object.fromEntries(REPORT_STATUSES.map((status, index) => [status, statusCounts[index].count ?? 0])) as Record<ReportStatus, number>;
+  const counts = Object.fromEntries(REPORT_STATUSES.map((status, index) => {
+    const { count, error } = statusCounts[index];
+    if (error || typeof count !== "number") {
+      logServerError("data.explore_report_counts", error ?? { message: `no count for ${status}` });
+      return [status, null];
+    }
+    return [status, count];
+  })) as Record<ReportStatus, number | null>;
   const total = list.count ?? rows.length;
   return {
     state: "ready",

@@ -26,7 +26,11 @@ export default async function ExploreQueuePage({ searchParams }: { searchParams:
   const filters = parseQueueFilters(params);
   const [result, meter] = await Promise.all([listReports(filters), getExploreMeter()]);
   const notice = exploreNotice(firstParam(params.notice));
-  const waiting = result.state === "ready" ? result.counts.open + result.counts.reviewing : null;
+  // A count that could not be read is null and shows as "Not known", never as 0.
+  const waiting = result.state === "ready" && result.counts.open !== null && result.counts.reviewing !== null
+    ? result.counts.open + result.counts.reviewing
+    : null;
+  const countText = (count: number | null) => (count === null ? "Not known" : count.toLocaleString("en-IN"));
 
   return (
     <div className="page-stack">
@@ -36,9 +40,9 @@ export default async function ExploreQueuePage({ searchParams }: { searchParams:
         <div className={styles.layout}>
           <section className={`table-panel ${ui.rise}`} aria-label="Reports">
             <nav className="filter-tabs" aria-label="Status">
-              <Link aria-current={filters.status === "waiting" ? "page" : undefined} href={queueHref(filters, { status: "waiting", page: 1 })}>Waiting <b>{waiting}</b></Link>
+              <Link aria-current={filters.status === "waiting" ? "page" : undefined} href={queueHref(filters, { status: "waiting", page: 1 })}>Waiting <b>{countText(waiting)}</b></Link>
               {REPORT_STATUSES.map((status) => (
-                <Link key={status} aria-current={filters.status === status ? "page" : undefined} href={queueHref(filters, { status, page: 1 })}>{STATUS_LABELS[status]} <b>{result.counts[status]}</b></Link>
+                <Link key={status} aria-current={filters.status === status ? "page" : undefined} href={queueHref(filters, { status, page: 1 })}>{STATUS_LABELS[status]} <b>{countText(result.counts[status])}</b></Link>
               ))}
               <Link aria-current={filters.status === "all" ? "page" : undefined} href={queueHref(filters, { status: "all", page: 1 })}>All</Link>
             </nav>
