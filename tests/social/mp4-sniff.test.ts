@@ -93,6 +93,16 @@ test("fragment durations fall back to tfhd's default, then trex's", () => {
   assert.equal(result.info.durationMs, 5000);
 });
 
+test("MediaRecorder's shape: mvhd and mdhd hold only the first frame; the fragments' sum wins", () => {
+  // As Chrome writes it: mdhd says one frame (1,672 ticks at 30,000 a second, about 56 ms), the fragments say 2.6 s.
+  const moov = box("moov", mvhd(1000, 56), trak(1, "vide", "avc1", 30_000, 1672, 640, 360), box("mvex", trex(1, 0)));
+  const frag = (n: number) => join(box("moof", box("mfhd", full(0, 0), u32(1)), traf(1, { samples: n, perSample: Array(n).fill(1000) })), box("mdat", zeros(16)));
+  const result = sniffMp4(join(ftyp(), moov, frag(48), frag(30)));
+  assert.ok(result.ok);
+  assert.equal(result.info.durationMs, 2600);
+  assert.equal(Math.round(result.info.tracks[0].durationMs ?? 0), 2600);
+});
+
 test("mehd gives the fragmented length when mvhd has none", () => {
   const moov = box("moov", mvhd(1000, 0), trak(1, "vide", "avc1", 30_000, 0, 640, 360), box("mvex", mehd(4200), trex(1, 1000)));
   const result = sniffMp4(join(ftyp(), moov));

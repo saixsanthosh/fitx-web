@@ -161,18 +161,20 @@ export function sniffMp4(input: Uint8Array | ArrayBuffer): SniffResult {
       }
     }
   }
+  // In a fragmented file the header lengths cover only the samples in moov (Chrome's MediaRecorder writes its first
+  // frame's length there), so the fragments' sum wins whenever it is longer.
   for (const track of tracks) {
     const ticks = fragmentTicks.get(track.id);
-    if (ticks && track.timescale > 0 && track.durationMs === null) track.durationMs = (ticks / track.timescale) * 1000;
+    if (ticks && track.timescale > 0) track.durationMs = Math.max(track.durationMs ?? 0, (ticks / track.timescale) * 1000);
   }
 
+  const lengths = tracks.map((track) => track.durationMs).filter((value): value is number => value !== null);
+  const longestTrack = lengths.length ? Math.max(...lengths) : null;
   let durationMs: number | null = null;
   if (movieScale > 0 && movieDuration > 0 && movieDuration < 0xffffffff) durationMs = (movieDuration / movieScale) * 1000;
-  else if (movieScale > 0 && fragmentDuration > 0) durationMs = (fragmentDuration / movieScale) * 1000;
-  else {
-    const lengths = tracks.map((track) => track.durationMs).filter((value): value is number => value !== null);
-    durationMs = lengths.length ? Math.max(...lengths) : null;
-  }
+  if (movieScale > 0 && fragmentDuration > 0) durationMs = Math.max(durationMs ?? 0, (fragmentDuration / movieScale) * 1000);
+  if (fragmentTicks.size && longestTrack !== null) durationMs = Math.max(durationMs ?? 0, longestTrack);
+  if (durationMs === null) durationMs = longestTrack;
 
   const video = tracks.find((track) => track.kind === "video");
   const audio = tracks.find((track) => track.kind === "audio");
