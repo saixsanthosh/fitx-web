@@ -8,7 +8,7 @@ import sharp from "sharp";
 import {
   DEFAULT_IMAGE_MODEL, DEMO_MAX_BYTES, capsFor, demoPrompt, demoRequestBody, emptyLedger, encodeDemo, encodedFile, endpointFor, jobKey,
   parseArgs, personaPrompt, planJobs, rawFile, readLedger, referenceFile, requireCaps, runJobs, stopReason, writeLedger, approvedPersonas, personaFile,
-  approvedPersonasFile, sha256, downloadReferences, callCostUsd, CALL_RESERVE_USD, ERROR_CHARGE_USD, IMAGE_PRICES_USD,
+  approvedPersonasFile, sha256, downloadReferences, callCostUsd, CALL_RESERVE_USD, ERROR_CHARGE_USD, IMAGE_PRICES_USD, pickFinalImage,
 } from "./generate-demos.mjs";
 
 const KEY = "AIzaFAKEFAKEFAKEFAKEFAKEFAKEFAKE12345";
@@ -86,7 +86,10 @@ test("arguments: caps are required for any run that may call the model; unknown 
   assert.throws(() => requireCaps(parseArgs(["--max-calls=10"])), /--max-calls and --budget-usd/);
   assert.doesNotThrow(() => requireCaps(parseArgs(["--dry-run"])));
   assert.doesNotThrow(() => requireCaps(parseArgs(["--max-calls=10", "--budget-usd=0.5"])));
-  assert.throws(() => parseArgs(["--image-model=gemini-3-pro-image"]), /owner's OK/);
+  assert.throws(() => parseArgs(["--image-model=gemini-nano-banana-2.1"]), /owner's OK/, "a model without a recorded price is refused");
+  assert.equal(parseArgs(["--image-model=gemini-3-pro-image"]).imageModel, "gemini-3-pro-image", "recorded with the owner's OK (D9)");
+  assert.equal(parseArgs(["--image-model=gemini-3.1-flash-image"]).imageModel, "gemini-3.1-flash-image");
+  assert.match(parseArgs(["--jobs=jobs.json"]).jobs, /jobs\.json$/);
   assert.throws(() => parseArgs(["--set=everything"]), /--set=/);
   assert.throws(() => parseArgs(["--model=both-ish"]), /--model=/);
   assert.deepEqual(parseArgs(["--set=ids:a,b", "--model=female", "--limit=3"]).set, "ids:a,b");
@@ -265,6 +268,32 @@ test("a temporary refusal (503, 429) is asked again after a wait; each refusal i
   } finally {
     done();
   }
+});
+
+test("Gemini 3 image models: the final image (never an interim thought image), the 1K size, and their own token prices", () => {
+  const answer = { candidates: [{ content: { parts: [
+    { thought: true, inlineData: { mimeType: "image/png", data: "VEhPVUdIVA==" } },
+    { text: "thinking about the pose" },
+    { inlineData: { mimeType: "image/png", data: "RklOQUw=" } },
+  ] } }] };
+  assert.deepEqual(pickFinalImage(answer), { mimeType: "image/png", data: "RklOQUw=" });
+  assert.match(pickFinalImage({ candidates: [{ content: { parts: [{ thought: true, inlineData: { mimeType: "image/png", data: "VA==" } }] } }] }).error, /only interim thought images/);
+  assert.equal(pickFinalImage({ candidates: [{ finishReason: "IMAGE_OTHER", content: { parts: [] } }] }).error, "IMAGE_OTHER");
+
+  assert.equal(demoRequestBody("p", [], "gemini-3-pro-image").generationConfig.imageConfig.imageSize, "1K");
+  assert.equal(demoRequestBody("p", [], "gemini-3.1-flash-image").generationConfig.imageConfig.imageSize, "1K");
+  assert.equal(demoRequestBody("p", []).generationConfig.imageConfig.imageSize, undefined, "gemini-2.5-flash-image takes no size");
+
+  // Pro: 1,200 input at US$2, 1,120 image tokens at US$120, 30 text and 500 thinking tokens at US$12 a million.
+  const pro = { promptTokenCount: 1200, candidatesTokenCount: 1150, thoughtsTokenCount: 500, candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1120 }, { modality: "TEXT", tokenCount: 30 }] };
+  assert.equal(callCostUsd("gemini-3-pro-image", pro, { imageReturned: true }), 0.1432, "0.0024 + 0.1344 + 0.00636 = 0.14316, rounded up");
+  // Without per-modality counts every candidate token is charged as image.
+  const { candidatesTokensDetails, ...bare } = pro;
+  void candidatesTokensDetails;
+  assert.equal(callCostUsd("gemini-3-pro-image", bare, { imageReturned: true }), 0.1464);
+  // Nano Banana 2: 1,000 input at US$0.50, 1,120 image tokens at US$60, 400 thinking at US$3.
+  assert.equal(callCostUsd("gemini-3.1-flash-image", { promptTokenCount: 1000, candidatesTokenCount: 1120, thoughtsTokenCount: 400, candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1120 }] }, { imageReturned: true }), 0.0689);
+  assert.ok(CALL_RESERVE_USD["gemini-3-pro-image"] > 0.1464 && CALL_RESERVE_USD["gemini-3.1-flash-image"] > 0.0689, "each reserve covers a dear call");
 });
 
 test("resume: a second run carries on from the ledger and never redoes a made frame; failures are retried", async () => {

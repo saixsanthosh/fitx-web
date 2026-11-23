@@ -22,7 +22,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { COST_PER_IMAGE_USD, DEFAULT_KEY_FILE, pickImage, readKey, safeError } from "./generate-images.mjs";
+import { COST_PER_IMAGE_USD, DEFAULT_KEY_FILE, readKey, safeError } from "./generate-images.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(HERE, "../..");
@@ -32,14 +32,28 @@ export const PRIORITY_FILE = path.join(ROOT, "scripts/media/demos/priority.json"
 
 export const DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image";
 /** Known prices per image; another model needs the owner's OK and its price recorded here first. */
-export const IMAGE_PRICES_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: COST_PER_IMAGE_USD });
+/**
+ * Known prices per image (standard tier, 1K output). Another model needs the owner's OK and its price recorded here first.
+ * The owner's OK for the two Gemini 3 image models: 2026-11-23 ("u do everything", prompt.md), prices from Google's pricing
+ * page that day: Nano Banana 2 (gemini-3.1-flash-image) US$0.067 per 1K image, Nano Banana Pro (gemini-3-pro-image) US$0.134.
+ */
+export const IMAGE_PRICES_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: COST_PER_IMAGE_USD, "gemini-3.1-flash-image": 0.067, "gemini-3-pro-image": 0.134 });
 /**
  * The owner's spend limit is a hard total (D9), so each call is charged from its own usage counts (input tokens, and every
  * output token priced as image output), never less than the image price when an image came back. The reserve, the most
  * one call can cost, is held back before the call: a run stops while the budget still covers the dearest call.
  */
-export const IMAGE_TOKEN_PRICES_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: Object.freeze({ inputPerMillion: 0.3, outputPerMillion: 30 }) });
-export const CALL_RESERVE_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: 0.045 });
+export const IMAGE_TOKEN_PRICES_USD = Object.freeze({
+  // gemini-2.5-flash-image: every output token at the image rate (no thinking).
+  [DEFAULT_IMAGE_MODEL]: Object.freeze({ inputPerMillion: 0.3, outputPerMillion: 30 }),
+  // Gemini 3 image models think; thinking and text are billed at the text rate, images at the image rate, and interim
+  // "thought images" are not billed (Google's pricing and image-generation pages, 2026-11-23).
+  "gemini-3.1-flash-image": Object.freeze({ inputPerMillion: 0.5, textOutputPerMillion: 3, imageOutputPerMillion: 60 }),
+  "gemini-3-pro-image": Object.freeze({ inputPerMillion: 2, textOutputPerMillion: 12, imageOutputPerMillion: 120 }),
+});
+export const CALL_RESERVE_USD = Object.freeze({ [DEFAULT_IMAGE_MODEL]: 0.045, "gemini-3.1-flash-image": 0.1, "gemini-3-pro-image": 0.2 });
+/** The Gemini 3 image models take an output size; 1K is enough for the 1200 px WebP (and is the cheapest full size). */
+export const IMAGE_SIZE = Object.freeze({ "gemini-3.1-flash-image": "1K", "gemini-3-pro-image": "1K" });
 /** A refused request (an HTTP error: nothing was made) is still charged this much, to stay on the safe side. */
 export const ERROR_CHARGE_USD = 0.002;
 /** A request that has not answered by then is abandoned (and charged the reserve, as it may still be billed). */
@@ -67,7 +81,7 @@ const START_USABLE = new Set(["generated", "pose-pass", "needs-eye", "accepted"]
 // ---------------------------------------------------------------- arguments
 
 export function parseArgs(argv) {
-  const args = { set: "priority", model: "both", limit: null, maxCalls: null, budgetUsd: null, imageModel: DEFAULT_IMAGE_MODEL, dryRun: false, resume: false, personas: false, downloadRefs: false, work: DEFAULT_WORK_DIR };
+  const args = { set: "priority", model: "both", limit: null, maxCalls: null, budgetUsd: null, imageModel: DEFAULT_IMAGE_MODEL, dryRun: false, resume: false, personas: false, downloadRefs: false, work: DEFAULT_WORK_DIR, jobs: null };
   for (const arg of argv) {
     const [flag, value = ""] = arg.split(/=(.*)/s);
     if (flag === "--dry-run") args.dryRun = true;
@@ -81,6 +95,7 @@ export function parseArgs(argv) {
     else if (flag === "--budget-usd") args.budgetUsd = Number(value);
     else if (flag === "--image-model") args.imageModel = value;
     else if (flag === "--work") args.work = path.resolve(value);
+    else if (flag === "--jobs") args.jobs = path.resolve(value);
     else throw new Error(`Unknown argument ${arg}`);
   }
   if (!/^(priority|all|ids:[A-Za-z0-9_,-]+)$/.test(args.set)) throw new Error("--set=priority, --set=all or --set=ids:<id,id>");
@@ -140,10 +155,27 @@ export function demoPrompt(item, model, frame) {
 }
 
 /** The generateContent body: the prompt, then each reference image in order. The key is never part of it. */
-export function demoRequestBody(prompt, parts) {
+export function demoRequestBody(prompt, parts, imageModel = DEFAULT_IMAGE_MODEL) {
   const content = [{ text: prompt }];
   for (const part of parts) content.push({ inline_data: { mime_type: part.mimeType, data: part.data } });
-  return { contents: [{ role: "user", parts: content }], generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: DEMO_ASPECT } } };
+  const imageConfig = { aspectRatio: DEMO_ASPECT, ...(IMAGE_SIZE[imageModel] ? { imageSize: IMAGE_SIZE[imageModel] } : {}) };
+  return { contents: [{ role: "user", parts: content }], generationConfig: { responseModalities: ["IMAGE"], imageConfig } };
+}
+
+/**
+ * The final image of an answer. Gemini 3 image models may send interim "thought images" (parts marked thought) before
+ * the final one; those are never used. Returns { mimeType, data } or { error }.
+ */
+export function pickFinalImage(answer) {
+  const parts = answer?.candidates?.[0]?.content?.parts ?? [];
+  const images = parts.filter((part) => (part.inlineData ?? part.inline_data)?.data);
+  const final = images.filter((part) => part.thought !== true).at(-1);
+  if (final) {
+    const data = final.inlineData ?? final.inline_data;
+    return { mimeType: data.mimeType ?? data.mime_type ?? "image/png", data: data.data };
+  }
+  const reason = answer?.candidates?.[0]?.finishReason ?? answer?.promptFeedback?.blockReason ?? (images.length ? "only interim thought images" : "no image in the answer");
+  return { error: String(reason) };
 }
 
 // ---------------------------------------------------------------- the ledger
@@ -175,8 +207,19 @@ export function callCostUsd(imageModel, usage, { imageReturned }) {
   const tokens = IMAGE_TOKEN_PRICES_USD[imageModel];
   if (!usage || typeof usage !== "object" || !tokens) return reserve;
   const input = Number(usage.promptTokenCount) || 0;
-  const output = (Number(usage.candidatesTokenCount) || 0) + (Number(usage.thoughtsTokenCount) || 0);
-  const cost = ceil4((input * tokens.inputPerMillion + output * tokens.outputPerMillion) / 1e6);
+  const candidates = Number(usage.candidatesTokenCount) || 0;
+  const thoughts = Number(usage.thoughtsTokenCount) || 0;
+  let dollars;
+  if (tokens.outputPerMillion !== undefined) {
+    dollars = input * tokens.inputPerMillion + (candidates + thoughts) * tokens.outputPerMillion;
+  } else {
+    // Image tokens at the image rate (from the per-modality counts; without them every candidate token counts as image),
+    // everything else the answer produced, thinking included, at the text rate.
+    const details = Array.isArray(usage.candidatesTokensDetails) ? usage.candidatesTokensDetails : null;
+    const imageTokens = details ? details.filter((detail) => detail?.modality === "IMAGE").reduce((sum, detail) => sum + (Number(detail.tokenCount) || 0), 0) : candidates;
+    dollars = input * tokens.inputPerMillion + imageTokens * tokens.imageOutputPerMillion + (Math.max(0, candidates - imageTokens) + thoughts) * tokens.textOutputPerMillion;
+  }
+  const cost = ceil4(dollars / 1e6);
   return imageReturned ? Math.max(cost, IMAGE_PRICES_USD[imageModel]) : cost;
 }
 
@@ -301,14 +344,14 @@ export async function requestImage({ fetchImpl, key, imageModel, prompt, parts }
   const response = await fetchImpl(endpointFor(imageModel), {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify(demoRequestBody(prompt, parts)),
+    body: JSON.stringify(demoRequestBody(prompt, parts, imageModel)),
     signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
   });
   const text = await response.text();
   if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status} ${safeError(text, key)}`), { httpStatus: response.status });
   const answer = JSON.parse(text);
   const usage = answer?.usageMetadata ?? null;
-  const picked = pickImage(answer);
+  const picked = pickFinalImage(answer);
   if (picked.error) throw Object.assign(new Error(safeError(picked.error, key)), { answered: true, usage });
   return { image: Buffer.from(picked.data, "base64"), usage };
 }
@@ -464,7 +507,12 @@ async function main(argv) {
     return;
   }
 
-  const jobs = planJobs(items, args, ledger);
+  let jobs = planJobs(items, args, ledger);
+  if (args.jobs) {
+    // Only the listed frames ("<id>/<male|female>/<0|1>"), still only those the ledger has not made (or marked failed).
+    const wanted = new Set(JSON.parse(readFileSync(args.jobs, "utf8")));
+    jobs = jobs.filter((job) => wanted.has(job.key));
+  }
   const caps = capsFor(jobs.length, IMAGE_PRICES_USD[args.imageModel]);
   console.log(`${items.length} exercises, ${jobs.length} images to make (${models.join(" and ")}); brief cap ${caps.calls} calls, US$${caps.usdFirstTry.toFixed(2)} at first try, US$${caps.usdCap.toFixed(2)} capped`);
   console.log(`ledger so far: ${ledger.calls} calls, US$${ledger.spentUsd.toFixed(3)}`);
