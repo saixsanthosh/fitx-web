@@ -37,6 +37,8 @@ export function NotificationsView() {
     return { items, next: nextCursor(items, PAGE) };
   });
   const sentinel = useSentinel(list.more, !list.done && list.status === "ready");
+  // Waiting requests are answered in their own section above, so the list leaves them out.
+  const notes = list.items.filter((note) => note.type !== "follow_request");
   const marked = useRef(false);
   useEffect(() => {
     if (marked.current || list.status !== "ready") return;
@@ -59,16 +61,16 @@ export function NotificationsView() {
       )}
       {list.status === "loading" && <div className={styles.skeleton} style={{ height: 280 }} aria-hidden="true" />}
       {list.status === "error" && !list.items.length && <p className={styles.alert} role="alert">{list.error}</p>}
-      {list.status === "ready" && !list.items.length && !requests.data?.length && (
+      {list.status === "ready" && !notes.length && !requests.data?.length && (
         <div className={styles.empty}>
           <span className={styles.emptyMark}><Bell size={26} aria-hidden="true" /></span>
           <h2 className={styles.emptyTitle}>Nothing new</h2>
           <p className={styles.emptyText}>Likes, comments, mentions and follows show here.</p>
         </div>
       )}
-      {list.items.length > 0 && (
+      {notes.length > 0 && (
         <ul className="flex flex-col gap-1" aria-label="Notifications">
-          {list.items.map((note) => (
+          {notes.map((note) => (
             <li key={note.id} className={`${styles.note_} ${note.read ? "" : styles.noteUnread}`}>
               <Link href={`/explore/u/${note.actor.username}`} aria-label={note.actor.display_name}><Avatar user={note.actor} size={44} /></Link>
               <p className={styles.noteText}>

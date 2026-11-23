@@ -124,9 +124,11 @@ function ExploreNav() {
           return (
             <Link key={item.key} href={item.href} className={styles.subnavLink} aria-current={item.active ? "page" : undefined} aria-label={badge ? `${item.label}, ${unread} new` : item.label}>
               {item.active && <m.span layoutId={reduced ? undefined : "explore-nav-marker"} className={styles.subnavMarker} transition={{ type: "spring", stiffness: 420, damping: 36 }} />}
-              <Icon size={19} aria-hidden="true" className={styles.subnavIcon} />
+              <span className={styles.subnavIcon}>
+                <Icon size={19} aria-hidden="true" />
+                {badge && <span className={styles.badge} aria-hidden="true">{unread > 99 ? "99+" : unread}</span>}
+              </span>
               <span className={styles.subnavLabel}>{item.label}</span>
-              {badge && <span className={styles.badge} aria-hidden="true">{unread > 99 ? "99+" : unread}</span>}
             </Link>
           );
         })}

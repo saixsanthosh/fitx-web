@@ -17,9 +17,10 @@
 .subnavLink:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .subnavMarker { position: absolute; inset: 0; z-index: 0; border-radius: 13px; background: var(--fitx-surface-variant); }
 .subnavLabel, .subnavIcon { position: relative; z-index: 1; }
+.subnavIcon { display: inline-flex; }
 .subnavLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge {
-  position: absolute; top: 5px; right: calc(50% - 20px); z-index: 2; min-width: 18px; height: 18px; border-radius: 999px; padding: 0 5px;
+  position: absolute; top: -8px; right: -11px; z-index: 2; min-width: 18px; height: 18px; border-radius: 999px; padding: 0 5px;
   background: var(--fitx-primary); color: var(--fitx-on-primary); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
 }
 .newPost {
@@ -29,12 +30,14 @@
 .newPost:hover { background: var(--fitx-primary-bright); }
 .newPost:active { transform: scale(.97); }
 .newPost:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
-@media (max-width: 639px) {
+/* Labels need room: icons only on phones and narrow tablets (the links keep their names for screen readers). */
+@media (max-width: 959px) {
   .subnavLabel { display: none; }
   .subnavLink { padding: 0; }
+}
+@media (max-width: 639px) {
   .newPostLabel { display: none; }
   .newPost { width: 44px; justify-content: center; padding: 0; }
-  .badge { right: calc(50% - 22px); }
 }
 
 /* Layout: a centred feed with a side column from 1024 px. */
