@@ -97,7 +97,7 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
         </div>
         <ActionsMenu label="More programme actions" items={more} className={styles.more} />
       </div>
-      <p className={styles.where}><span className="font-semibold text-fitx-text">{whereYouAre(status, upNext, paused)}</span><span aria-hidden="true"> · </span><span className="sr-only">. </span>{weekLine}</p>
+      <p className={styles.where}><span className="font-semibold text-fitx-text">{whereYouAre(status, upNext, paused)}</span><span aria-hidden="true"> · </span><span className="sr-only">. </span><span className="whitespace-nowrap">{weekLine}</span></p>
 
       {status.complete && !paused && (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-fitx-success-border bg-fitx-success-bg p-3 text-sm">

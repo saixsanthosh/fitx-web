@@ -29,6 +29,7 @@
  *  legend     Shows a key under the figures for the two-tone and heat modes.
  *  showLabel  Shows the name of the hovered or focused region (else the selected one) under the figures.
  *             Default: on in picker mode.
+ *  captions   "Front" and "Back" under a pair of figures (default true); false for small thumbnails.
  *  reveal     Highlighted regions fade in one after another when the map first renders (primary first, then
  *             secondary, then heat levels). Opacity only; nothing moves with reduced motion. Default off.
  *  className  Extra class on the root element.
@@ -53,6 +54,8 @@ export type BodyMapProps = {
   legend?: boolean;
   showLabel?: boolean;
   reveal?: boolean;
+  /** Shows "Front" and "Back" under a pair of figures (default true); false for a thumbnail too small for them. */
+  captions?: boolean;
   className?: string;
 };
 
@@ -66,7 +69,7 @@ function level01(value: number | undefined): number {
 }
 
 export function BodyMap({
-  title, view = "both", levels, primary, secondary, selected = null, onSelect, size = "md", legend = false, showLabel, reveal = false, className,
+  title, view = "both", levels, primary, secondary, selected = null, onSelect, size = "md", legend = false, showLabel, reveal = false, captions = true, className,
 }: BodyMapProps) {
   const [hovered, setHovered] = useState<RegionKey | null>(null);
   const [focused, setFocused] = useState<RegionKey | null>(null);
@@ -157,7 +160,7 @@ export function BodyMap({
           {art.details.map((d, index) => <path key={`detail-${index}`} className={styles.plate} d={d} />)}
           {BODY_REGIONS.map((key) => region(side, key))}
         </svg>
-        {views.length > 1 && <span className={styles.caption} aria-hidden="true">{VIEW_NAMES[side]}</span>}
+        {views.length > 1 && captions && <span className={styles.caption} aria-hidden="true">{VIEW_NAMES[side]}</span>}
       </div>
     );
   };

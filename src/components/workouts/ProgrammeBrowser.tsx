@@ -51,7 +51,7 @@ export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, di
               <article className={styles.card} aria-labelledby={`programme-${programme.id}-title`}>
                 <div className={styles.cardHead}>
                   <div className={styles.map}>
-                    <BodyMap title={`${programme.title}: where its sets go`} levels={programmeRegionLevels(programme)} size="sm" />
+                    <BodyMap title={`${programme.title}: where its sets go`} levels={programmeRegionLevels(programme)} size="sm" captions={false} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 id={`programme-${programme.id}-title`} className={styles.name}>{programme.title}</h3>

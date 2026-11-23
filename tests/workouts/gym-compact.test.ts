@@ -121,6 +121,11 @@ describe("the Gym tab's layout contracts", () => {
     assert.match(browser, /aria-haspopup="dialog" onClick=\{\(\) => setDaysOf\(programme\)\}/);
     assert.match(browser, />Follow<\/button>/);
     assert.doesNotMatch(browser, /aria-expanded=\{open\}/, "the days no longer unfold inside the list");
+    // The card's body map is a thumbnail: no "Front" and "Back" captions crowding it (BodyMap keeps them by default).
+    assert.match(browser, /size="sm" captions=\{false\} \/>/);
+    const map = read("src/components/anatomy/BodyMap.tsx");
+    assert.match(map, /captions = true,/);
+    assert.match(map, /\{views\.length > 1 && captions && <span className=\{styles\.caption\}/);
   });
   test("Today lists at most four exercises; the preview lists them all", () => {
     assert.equal(TODAY_ROWS_SHOWN, 4);
