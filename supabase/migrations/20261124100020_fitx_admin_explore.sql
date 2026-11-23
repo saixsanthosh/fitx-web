@@ -7,7 +7,8 @@
 --     explore.view only (O5 a), content editors and viewers neither. fitx_admin_role_permissions is recreated with the
 --     23-permission table (admin/src/lib/roles.ts keeps the same table; admin/tests/roles.test.mjs compares them).
 --   * Two feature switches, explore (on unless saved off) and explore_video (off unless saved on): the settings save
---     fitx_admin_op_save_platform_settings is recreated with its key list extended; nothing else in it changes.
+--     fitx_admin_op_save_platform_settings is recreated with its key list extended, and a switch the caller leaves out
+--     now keeps its saved value (Admin leaves out the two Explore switches while it cannot read Explore's state).
 --   * fitx_admin_op_moderate: the Admin queue's actions on a report (dismiss, claim, limit, hide, unhide, remove,
 --     clear_avatar, clear_bio, warn, suspend, lift), and the account record's actions without a report. In one
 --     transaction it checks explore.moderate, changes the content or the account, closes every open report on the
@@ -25,7 +26,10 @@
 -- deletes no row and changes no table.
 --
 -- Undo (Admin then reads Explore as "needs a database update"; the saved explore and explore_video switches stay in
--- platform_settings, where the app still reads them):
+-- platform_settings, where the app still reads them, but only until the next settings save: #43's save, run again
+-- after this, replaces the whole object with its five switches, and a missing explore reads as on. If Explore was
+-- switched off, set it off again after each settings save until this file is back:
+-- update public.platform_settings set features = features || '{"explore": false}' where id = 1;):
 --   begin;
 --   drop function if exists public.fitx_admin_op_moderate(uuid, uuid, text, text, text, timestamptz, text, uuid),
 --     public.fitx_admin_op_save_community(uuid, uuid, text, text, text, text, text),
@@ -91,6 +95,7 @@ declare
   v_instagram text;
   maintenance_summary jsonb;
   previous_summary jsonb;
+  v_features jsonb;
 begin
   if not public.fitx_admin_op_can(p_operator_id, 'settings.manage') then
     raise exception using errcode = '42501', message = 'Settings permission required';
@@ -148,8 +153,16 @@ begin
     raise exception using errcode = '40001', message = 'platform_settings_changed';
   end if;
 
+  -- A switch the caller did not send keeps its saved value: Admin leaves out explore and explore_video while it cannot
+  -- read Explore's state, and a missing explore reads as on, so replacing the whole object would switch Explore on.
+  v_features := coalesce((select pg_catalog.jsonb_object_agg(e.key, e.value)
+                          from pg_catalog.jsonb_each(case when pg_catalog.jsonb_typeof(previous.features) = 'object'
+                                                          then previous.features else '{}'::jsonb end) e
+                          where e.key = any (feature_keys) and pg_catalog.jsonb_typeof(e.value) = 'boolean'), '{}'::jsonb)
+                || p_features;
+
   update public.platform_settings
-  set features = p_features, maintenance = p_maintenance, site = p_site,
+  set features = v_features, maintenance = p_maintenance, site = p_site,
       updated_at = pg_catalog.clock_timestamp(), updated_by_operator_id = p_operator_id
   where id = 1
   returning updated_at into saved_at;
@@ -165,7 +178,7 @@ begin
   perform public.fitx_admin_op_log_event(p_operator_id, 'platform_settings_updated', 'platform_settings', '1',
     pg_catalog.jsonb_build_object(
       'before', pg_catalog.jsonb_build_object('features', previous.features, 'maintenance', previous_summary, 'site', previous.site),
-      'after', pg_catalog.jsonb_build_object('features', p_features, 'maintenance', maintenance_summary, 'site', p_site)));
+      'after', pg_catalog.jsonb_build_object('features', v_features, 'maintenance', maintenance_summary, 'site', p_site)));
   return saved_at;
 end;
 $function$;

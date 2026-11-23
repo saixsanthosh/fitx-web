@@ -116,7 +116,19 @@ begin
                  and details -> 'after' -> 'features' ->> 'explore' = 'false') then
     raise exception 'the save must still be audited with the switches';
   end if;
-  -- Leave Explore on and videos off for the checks below.
+  -- A save without the Explore keys (Admin's form while it cannot read Explore's state) keeps the saved switches:
+  -- a missing explore reads as on, so dropping it would switch Explore back on.
+  perform public.fitx_admin_op_save_platform_settings(root_id,
+    '{"ai_coach": false, "home_workout": true, "activity": true, "subscriptions": true, "support": true}', null, site, null);
+  if (select features from public.platform_settings where id = 1) <> '{"ai_coach": false, "home_workout": true, "activity": true, "subscriptions": true, "support": true, "explore": false, "explore_video": true}'::jsonb then
+    raise exception 'a save without the Explore keys must keep the saved Explore switches: %', (select features from public.platform_settings where id = 1);
+  end if;
+  if not exists (select 1 from public.fitx_admin_audit_logs where action = 'platform_settings_updated' and actor_operator_id = root_id
+                 and details -> 'after' -> 'features' ->> 'ai_coach' = 'false' and details -> 'after' -> 'features' ->> 'explore' = 'false') then
+    raise exception 'the audit row must hold the switches as saved';
+  end if;
+  -- Leave Explore on, videos off and the coach on for the checks below.
+  perform public.fitx_admin_op_save_platform_settings(root_id, '{"ai_coach": true}', null, site, null);
   perform public.fitx_admin_op_save_platform_settings(root_id, '{"explore": true, "explore_video": false}', null, site, null);
 end $$;
 \echo ok settings save: explore and explore_video accepted, unknown keys refused, settings.manage needed

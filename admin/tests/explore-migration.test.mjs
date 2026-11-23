@@ -100,3 +100,12 @@ test("the settings save keeps its signature and only gains the two Explore keys"
   assert.match(save, /feature_keys constant text\[\] := array\['ai_coach', 'home_workout', 'activity', 'subscriptions', 'support', 'explore', 'explore_video'\];/);
   assert.match(body, /fitx_admin_op_save_platform_settings\(\s*p_operator_id uuid,\s*p_features jsonb,\s*p_maintenance jsonb,\s*p_site jsonb,\s*p_expected_updated_at timestamptz default null\s*\)/);
 });
+
+test("the settings save keeps a saved switch the caller leaves out, so a save without the Explore keys never turns Explore on", () => {
+  const save = definition("fitx_admin_op_save_platform_settings");
+  assert.match(save, /pg_catalog\.jsonb_each\(case when pg_catalog\.jsonb_typeof\(previous\.features\) = 'object'/);
+  assert.match(save, /where e\.key = any \(feature_keys\)[^;]*\|\| p_features;/);
+  assert.match(save, /set features = v_features,/);
+  assert.doesNotMatch(save, /set features = p_features/);
+  assert.match(save, /'after', pg_catalog\.jsonb_build_object\('features', v_features,/);
+});
