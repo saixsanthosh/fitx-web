@@ -192,6 +192,11 @@ function Safety() {
   );
 }
 
+/** "23 Nov 2026". */
+function shortDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 /** Removes files from the social-media bucket in batches (Storage takes up to 1,000 a call). */
 async function removeFiles(paths: readonly string[]) {
   const storage = createClient()?.storage;
@@ -239,7 +244,7 @@ function BirthDate() {
     <section id="birth-date" className={styles.panel} aria-labelledby="settings-birth-date">
       <h2 id="settings-birth-date" className={styles.panelTitle}>Date of birth</h2>
       <p className={`${styles.note} mb-3`}>
-        FITX has no date of birth for you, so messages, communities and leaderboards stay closed. Add it once to use them if you are {SOCIAL_LIMITS.adultAge} or over. It is never shown on your profile.
+        Some parts of Explore are for members aged {SOCIAL_LIMITS.adultAge} and over, and FITX has no date of birth for you. Add it once; it is never shown on your profile.
       </p>
       <form className="flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); if (!problem && value) void save(); }}>
         <label className="flex flex-col gap-1.5">
@@ -305,12 +310,12 @@ function YourContent() {
                 <span className={styles.contentText}>
                   <span className={styles.contentTitle}>{label}</span>
                   <span className={styles.contentMeta}>
-                    {post.kind === "video" ? "Video" : post.kind === "text" ? "Discussion" : "Photo post"} · <time dateTime={post.created_at}>{fullDate(post.created_at)}</time>
+                    {post.kind === "video" ? "Video" : post.kind === "text" ? "Discussion" : "Photo post"} · <time dateTime={post.created_at} title={fullDate(post.created_at)}>{shortDate(post.created_at)}</time>
                     {post.moderation === "hidden" ? " · Hidden by FITX" : post.moderation === "limited" ? " · Limited by FITX" : ""}
                   </span>
                 </span>
                 <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={() => setPending({ kind: "post", id: post.id, label })} aria-label={`Delete post: ${label}`}>
-                  <Trash2 size={16} aria-hidden="true" />Delete
+                  <Trash2 size={16} aria-hidden="true" /><span className={styles.deleteLabel}>Delete</span>
                 </button>
               </li>
             );
@@ -329,10 +334,10 @@ function YourContent() {
                 </span>
                 <span className={styles.contentText}>
                   <span className={styles.contentTitle}><Sparkles size={13} aria-hidden="true" className="mr-1 inline" />{label}</span>
-                  <span className={styles.contentMeta}>{story.live ? `Live until ${fullDate(story.expires_at)}` : "Ended"}{story.moderation === "hidden" ? " · Hidden by FITX" : ""}</span>
+                  <span className={styles.contentMeta}>{story.live ? `Live until ${new Date(story.expires_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "Ended"}{story.moderation === "hidden" ? " · Hidden by FITX" : ""}</span>
                 </span>
                 <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={() => setPending({ kind: "story", id: story.id, label })} aria-label={`Delete story: ${label}`}>
-                  <Trash2 size={16} aria-hidden="true" />Delete
+                  <Trash2 size={16} aria-hidden="true" /><span className={styles.deleteLabel}>Delete</span>
                 </button>
               </li>
             );
@@ -342,8 +347,11 @@ function YourContent() {
       {data && total > 0 && (
         <div className="mt-4 flex flex-col gap-2">
           <p className={styles.note}>
-            {[plural(data.counts.posts, "post"), plural(data.counts.stories, "story", "stories"), plural(data.counts.comments, "comment")].join(", ")}.
-            Your profile, follows and settings stay.
+            {[
+              data.counts.posts ? plural(data.counts.posts, "post") : null,
+              data.counts.stories ? plural(data.counts.stories, "story", "stories") : null,
+              data.counts.comments ? plural(data.counts.comments, "comment") : null,
+            ].filter(Boolean).join(", ")}. Your profile, follows and settings stay.
           </p>
           <div><button type="button" className={styles.dangerButton} onClick={() => setPending({ kind: "all" })}><Trash2 size={16} aria-hidden="true" />Delete all my Explore content</button></div>
         </div>

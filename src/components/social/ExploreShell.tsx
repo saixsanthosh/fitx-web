@@ -53,7 +53,7 @@ function Gate({ children }: { children: ReactNode }) {
     if (me?.profile && pathname.startsWith("/explore/settings")) {
       return (
         <div className={styles.shell}>
-          <div className={styles.closedBanner} role="status">
+          <div className={`${styles.closedBanner} ${styles.narrow}`} role="status">
             <span className={styles.closedTitle}>{title}</span>
             <span>{text}</span>
           </div>

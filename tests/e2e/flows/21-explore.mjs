@@ -269,6 +269,9 @@ export const flow = {
       try {
         await switchTo(t, asha);
         await page.getByRole("heading", { name: "Your Explore account is paused" }).waitFor({ timeout: 20000 });
+        // Open the page again so the screenshot shows it rather than the sign-in reveal on top of it.
+        await t.goto("/explore", { label: "suspended" });
+        await page.getByRole("heading", { name: "Your Explore account is paused" }).waitFor({ timeout: 20000 });
         await page.getByText(/FITX has paused your Explore account until \d{1,2} \w+ \d{4}\./).waitFor();
         t.expect(await page.getByRole("navigation", { name: "Explore" }).count() === 0, "no Explore navigation while suspended");
         await sawOverflow(t, "suspended");
@@ -307,6 +310,8 @@ export const flow = {
       try {
         await switchTo(t, ben);
         await page.getByRole("heading", { name: "Explore is paused" }).waitFor({ timeout: 20000 });
+        await t.goto("/explore", { label: "explore paused" });
+        await page.getByRole("heading", { name: "Explore is paused" }).waitFor({ timeout: 20000 });
         await sawOverflow(t, "explore paused");
         await page.getByRole("link", { name: "Manage or delete my Explore content" }).click();
         await page.getByRole("heading", { name: "Your Explore content" }).waitFor({ timeout: 15000 });
@@ -326,6 +331,8 @@ export const flow = {
     if (size === "desktop") {
       await t.step("at 768 px (tablet) Discover, a profile and settings fit without sideways scroll", async () => {
         await page.setViewportSize({ width: 768, height: 1024 });
+        // The wave-2 steps end as Ben; this step looks at Ben's private profile as Asha.
+        await switchTo(t, asha);
         await t.goto("/explore/discover", { label: "tablet discover" });
         await page.getByRole("heading", { level: 1, name: "Discover" }).waitFor({ timeout: 15000 });
         await sawOverflow(t, "tablet discover");
