@@ -1,5 +1,6 @@
 import type { ActivitySummary, PeriodTotals } from "./repository";
 import { totalsOf } from "./repository";
+import { usesPace } from "./config";
 import { SPORTS, type Sport } from "./types";
 import { startOfWeek } from "./weeks";
 
@@ -59,7 +60,7 @@ export type Best = { activity: ActivitySummary; value: number };
 export type SportBests = {
   /** The longest distance, metres. */
   longest: Best | null;
-  /** Walks and runs: the lowest average pace (seconds per km). Rides: the highest average speed (m/s). */
+  /** Pace sports (walks, runs…): the lowest average pace (seconds per km). Speed sports (rides…): the highest average speed (m/s). */
   fastest: Best | null;
 };
 
@@ -75,7 +76,7 @@ export function personalBests(rows: readonly ActivitySummary[]): Record<Sport, S
     const bests = result[row.sport];
     if (row.distanceM > 0 && (!bests.longest || row.distanceM > bests.longest.value)) bests.longest = { activity: row, value: row.distanceM };
     if (row.distanceM < BEST_MIN_DISTANCE_M || !(row.movingSeconds > 0)) continue;
-    if (row.sport === "ride") {
+    if (!usesPace(row.sport)) {
       if (validSpeed(row.avgSpeedMps) && (!bests.fastest || row.avgSpeedMps > bests.fastest.value)) bests.fastest = { activity: row, value: row.avgSpeedMps };
     } else if (validPace(row.avgPaceSecondsPerKm) && (!bests.fastest || row.avgPaceSecondsPerKm < bests.fastest.value)) {
       bests.fastest = { activity: row, value: row.avgPaceSecondsPerKm };

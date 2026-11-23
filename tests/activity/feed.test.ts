@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { SPORTS } from "@/lib/activity/types";
 import { barScale, figuresStatus, matchesFilter, parseSportFilter, recentWeeks, sportSummary, weekBySport, weekDays } from "@/lib/activity/feed";
+
+/** Every sport at 0 km: the bySport maps list all of them. */
+const NONE = Object.fromEntries(SPORTS.map((sport) => [sport, 0]));
 import type { ActivitySummary } from "@/lib/activity/repository";
 import type { Sport } from "@/lib/activity/types";
 
@@ -40,7 +44,7 @@ test("this week's days run Monday to Sunday and add up each day's activities by 
   assert.equal(days[0].dayStart, new Date(2026, 10, 16).getTime());
   assert.equal(days[6].dayStart, new Date(2026, 10, 22).getTime());
   assert.deepEqual(days.map((day) => day.distanceM), [5000, 0, 14000, 0, 0, 0, 3000]);
-  assert.deepEqual(days[2].bySport, { walk: 2000, run: 0, ride: 12000 });
+  assert.deepEqual(days[2].bySport, { ...NONE, walk: 2000, ride: 12000 });
   assert.equal(days[2].count, 2);
   assert.deepEqual(weekDays(rows, NOW, "ride").map((day) => day.distanceM), [0, 0, 12000, 0, 0, 0, 0]);
 });
@@ -99,7 +103,7 @@ test("a sport with nothing recorded has zero distance but no average (shown as a
 
 test("the sport launchers show this week's distance per sport", () => {
   const rows = [row("run", at(2026, 10, 17), 5000, 1500), row("run", at(2026, 10, 18), 2000, 600), row("ride", at(2026, 10, 10), 20000, 3600)];
-  assert.deepEqual(weekBySport(rows, NOW), { walk: 0, run: 7000, ride: 0 });
+  assert.deepEqual(weekBySport(rows, NOW), { ...NONE, run: 7000 });
 });
 
 test("statistics are loading or failed, not 'nothing logged', until rows arrive", () => {

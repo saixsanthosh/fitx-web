@@ -14,12 +14,13 @@ import { IMPORT_LIMITS, ImportError, type ParsedImport } from "@/lib/activity/im
 import { timeRange } from "@/lib/activity/import/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
 import { activitySourcesReady, countTrackChunks, findActivitiesBetween, findActivitiesByClientIds, saveImportedActivity, type ActivityView } from "@/lib/activity/repository";
-import { SPORTS, type Sport } from "@/lib/activity/types";
+import { PRIMARY_SPORTS, SPORTS, type Sport } from "@/lib/activity/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
 import { EXPORT_HELP } from "./import-help";
 import { SportIcon } from "./sports";
+import { useActivityV2 } from "./useActivityV2";
 import { useActivityAccount } from "./useActivityAccount";
 
 type Gate = "checking" | "ready" | "needs-update" | "unavailable" | "error";
@@ -93,15 +94,15 @@ function computeChecks(entries: readonly Entry[], existing: readonly KnownActivi
   return checks;
 }
 
-function SportChoice({ entry, onChoose }: { entry: Entry; onChoose: (sport: Sport) => void }) {
+function SportChoice({ entry, onChoose, importSports }: { entry: Entry; onChoose: (sport: Sport) => void; importSports: readonly Sport[] }) {
   const said = entry.parsed?.sport;
   return (
     <div className="mt-3">
       <p className="text-xs text-fitx-text-secondary">
         {said?.kind === "known" ? `The file says ${said.label.toLowerCase()}. Change it if that’s wrong.` : said?.label ? `The file says “${said.label}”. Choose what it was:` : "The file doesn’t say the sport. Choose what it was:"}
       </p>
-      <div className="mt-2 grid grid-cols-3 gap-2" role="group" aria-label={`Sport for ${entry.name}`}>
-        {SPORTS.map((sport) => (
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5" role="group" aria-label={`Sport for ${entry.name}`}>
+        {importSports.map((sport) => (
           <button key={sport} type="button" aria-pressed={entry.sport === sport} onClick={() => onChoose(sport)}
             className={cn("flex min-h-11 items-center justify-center gap-1.5 rounded-lg border text-sm font-medium transition-colors", entry.sport === sport ? "border-fitx-primary bg-fitx-primary/10 text-fitx-primary-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-text")}>
             <SportIcon sport={sport} size={16} />{SPORT_LABEL[sport]}
@@ -169,7 +170,7 @@ function ResultLine({ result }: { result: ImportResult }) {
   return <p className="mt-3 flex gap-1.5 text-sm text-fitx-danger"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />Not imported: {result.reason}</p>;
 }
 
-function FileCard({ entry, check, names, onSport, onConfirm, onRemove, busy, checking = false, unchecked = false }: { entry: Entry; check: ImportCheck | undefined; names: Map<string, string>; onSport: (sport: Sport) => void; onConfirm: (value: boolean) => void; onRemove: () => void; busy: boolean; checking?: boolean; unchecked?: boolean }) {
+function FileCard({ entry, check, names, onSport, onConfirm, onRemove, busy, checking = false, unchecked = false, importSports }: { entry: Entry; check: ImportCheck | undefined; names: Map<string, string>; importSports: readonly Sport[]; onSport: (sport: Sport) => void; onConfirm: (value: boolean) => void; onRemove: () => void; busy: boolean; checking?: boolean; unchecked?: boolean }) {
   const parsed = entry.parsed;
   const preview = entry.preview;
   const deviceDiffers = preview && preview.deviceDistanceM !== null && Math.abs(preview.deviceDistanceM - preview.distanceM) > Math.max(50, preview.distanceM * 0.01);
@@ -217,10 +218,10 @@ function FileCard({ entry, check, names, onSport, onConfirm, onRemove, busy, che
       ) : entry.phase === "failed" ? (
         <p className="mt-3 flex gap-1.5 text-sm text-fitx-danger"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />{entry.error}</p>
       ) : entry.phase === "unsupported" && parsed?.sport.kind === "unsupported" ? (
-        <p className="mt-3 flex gap-1.5 text-sm text-fitx-text-secondary"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />{parsed.sport.label} isn’t a walk, run or ride, so FITX can’t import it.</p>
+        <p className="mt-3 flex gap-1.5 text-sm text-fitx-text-secondary"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />{parsed.sport.label} isn’t one of the sports FITX records, so it can’t be imported.</p>
       ) : entry.phase === "ready" && check?.kind !== "already" && check?.kind !== "same-file" && check?.kind !== "incomplete" ? (
         <>
-          <SportChoice entry={entry} onChoose={onSport} />
+          <SportChoice entry={entry} onChoose={onSport} importSports={importSports} />
           <CheckLine entry={entry} check={check} names={names} checking={checking} unchecked={unchecked} onConfirm={onConfirm} />
         </>
       ) : entry.phase === "ready" ? (
@@ -248,6 +249,9 @@ export function ActivityImportScreen() {
   // The account couldn't be checked for repeats and overlaps: nothing is imported until it has been.
   const [lookupFailed, setLookupFailed] = useState(false);
   const counter = useRef(0);
+  // The newer sports only once the database takes them (migration 20261123100050).
+  const v2 = useActivityV2(account.status === "ready" ? account.userId : null);
+  const importSports: readonly Sport[] = v2 ? SPORTS : PRIMARY_SPORTS;
   const userId = account.status === "ready" ? account.userId : null;
   const weightKg = account.status === "ready" ? account.weightKg : null;
 
@@ -352,7 +356,8 @@ export function ActivityImportScreen() {
         if (parsed.sport.kind === "unsupported") {
           next = { ...entry, phase: "unsupported", parsed, clientId };
         } else {
-          const sport = parsed.sport.kind === "known" ? parsed.sport.sport : null;
+          // A sport this database can't take yet is left for the person to choose.
+          const sport = parsed.sport.kind === "known" && importSports.includes(parsed.sport.sport) ? parsed.sport.sport : null;
           next = { ...entry, phase: "ready", parsed, clientId, sport, preview: sport ? previewFor(parsed, sport) : null };
         }
       } catch (error) {
@@ -498,7 +503,7 @@ export function ActivityImportScreen() {
       </div>
       <header>
         <h1 className="text-[26px] font-bold leading-tight tracking-[-.03em] text-fitx-text sm:text-[30px]">Import activities</h1>
-        <p className="mt-1.5 max-w-2xl text-sm leading-6 text-fitx-text-secondary">Bring in walks, runs and rides recorded on a watch or another app, as GPX, TCX or FIT files. FITX reads them on this device and saves each activity once, however many times you import it.</p>
+        <p className="mt-1.5 max-w-2xl text-sm leading-6 text-fitx-text-secondary">Bring in activities recorded on a watch or another app, as GPX, TCX or FIT files. FITX reads them on this device and saves each activity once, however many times you import it.</p>
       </header>
 
       {gate === "checking" && <div className="h-40 animate-pulse rounded-xl bg-fitx-surface-variant" aria-hidden="true" />}
@@ -544,8 +549,8 @@ export function ActivityImportScreen() {
           {unknownSport > 1 && !importing && (
             <div className="fitx-panel p-4">
               <p className="text-sm text-fitx-text">{unknownSport} files don’t say their sport. Set them all to:</p>
-              <div className="mt-2 grid grid-cols-3 gap-2" role="group" aria-label="Sport for files that don’t say">
-                {SPORTS.map((sport) => (
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5" role="group" aria-label="Sport for files that don’t say">
+                {importSports.map((sport) => (
                   <button key={sport} type="button" onClick={() => chooseSportForUnknown(sport)} className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-fitx-border text-sm font-medium text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-text">
                     <SportIcon sport={sport} size={16} />{SPORT_LABEL[sport]}
                   </button>
@@ -560,6 +565,7 @@ export function ActivityImportScreen() {
                 entry={entry}
                 check={checks.get(entry.key)}
                 names={names}
+                importSports={importSports}
                 busy={importing}
                 checking={reading}
                 unchecked={lookupFailed}

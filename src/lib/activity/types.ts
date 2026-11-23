@@ -1,15 +1,27 @@
 /**
- * Shared types for FITX activity tracking (walk, run, ride).
+ * Shared types for FITX activity tracking (walks, runs, rides and the other GPS sports).
  *
  * Everything in src/lib/activity is plain TypeScript with erasable syntax only, so the engine,
  * codecs and maths run unchanged in the browser and under `node --test`.
  */
 
-export type Sport = "walk" | "run" | "ride";
-export const SPORTS: readonly Sport[] = ["walk", "run", "ride"];
+/**
+ * The sports FITX records with GPS. `walk`, `run` and `ride` are the original three (every database has them);
+ * the rest need migration 20261123100050 (activities_sport_check), so saving one before it is applied is a
+ * permanent rejection that keeps the activity on the device (repository.ts).
+ */
+export type Sport = "walk" | "run" | "ride" | "hike" | "trail_run" | "mtb" | "ebike" | "wheelchair" | "skate" | "paddle";
+/** Every sport: the original three first, then the newer ones (the sport chooser groups them: config.ts SPORT_GROUPS). */
+export const SPORTS: readonly Sport[] = ["walk", "run", "ride", "hike", "trail_run", "mtb", "ebike", "wheelchair", "skate", "paddle"];
+/** The three every page leads with; the other sports appear once used or chosen. */
+export const PRIMARY_SPORTS: readonly Sport[] = ["walk", "run", "ride"];
+/** Sports every database accepts, before migration 20261123100050. */
+export const ORIGINAL_SPORTS: readonly Sport[] = PRIMARY_SPORTS;
+
+const SPORT_SET: ReadonlySet<string> = new Set(SPORTS);
 
 export function isSport(value: unknown): value is Sport {
-  return value === "walk" || value === "run" || value === "ride";
+  return typeof value === "string" && SPORT_SET.has(value);
 }
 
 /**

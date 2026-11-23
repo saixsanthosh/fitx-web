@@ -16,7 +16,7 @@ import { recordingStore } from "@/lib/activity/local-store";
 import { deleteAllActivities } from "@/lib/activity/repository";
 import { periods, periodTotals, personalBests, weekChange } from "@/lib/activity/stats";
 import { strengthTotals } from "@/lib/activity/strength";
-import { SPORTS } from "@/lib/activity/types";
+import { PRIMARY_SPORTS, SPORTS, type Sport } from "@/lib/activity/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
@@ -26,11 +26,14 @@ import { SPORT_PLURAL, SportBadge, sportHref, SPORT_TONE } from "./sports";
 import { useActivityAccount } from "./useActivityAccount";
 import { useActivityFeed } from "./useActivityFeed";
 import { WeekProgress } from "./WeekProgress";
+import { BestEffortsOverview } from "./BestEfforts";
+import { useActivityV2, useStoredEfforts } from "./useActivityV2";
 
-const FILTERS = [
-  { value: "all" as const, label: "All" },
-  ...SPORTS.map((sport) => ({ value: sport, label: SPORT_PLURAL[sport] })),
-];
+/** All, the three main sports, then any other sport the member has recorded (or the address asks for). */
+function filtersFor(used: ReadonlySet<Sport>, current: SportFilter) {
+  const sports = SPORTS.filter((sport) => PRIMARY_SPORTS.includes(sport) || used.has(sport) || sport === current);
+  return [{ value: "all" as const, label: "All" }, ...sports.map((sport) => ({ value: sport, label: SPORT_PLURAL[sport] }))];
+}
 
 export function ActivityHome() {
   const account = useActivityAccount();
@@ -47,6 +50,8 @@ export function ActivityHome() {
   const [notice, setNotice] = useState("");
   const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
   const deleteAllTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const v2 = useActivityV2(userId);
+  const storedEfforts = useStoredEfforts(userId);
 
   function chooseFilter(next: SportFilter) {
     setPicked(next === addressFilter ? null : next);
@@ -76,7 +81,7 @@ export function ActivityHome() {
     }
     await clearDeviceActivityData(store, userId);
     setConfirmDeleteAll(false);
-    setNotice(result.status === "unavailable" ? "Activity data on this device was deleted." : "All your walks, runs and rides and their routes were deleted.");
+    setNotice(result.status === "unavailable" ? "Activity data on this device was deleted." : "All your activities and their routes were deleted.");
     await feed.reload(userId);
   }
 
@@ -92,6 +97,9 @@ export function ActivityHome() {
   const bests = statRows ? personalBests(statRows) : null;
   const hasAnything = (statRows?.length ?? 0) > 0 || timeline.entries.length > 0;
   const sportWeek = statRows && now !== null ? weekBySport(statRows, now) : null;
+  const used = new Set((statRows ?? []).map((row) => row.sport));
+  // The newer sports once the database takes them (or once the member has any, imported before an undo).
+  const moreSports = SPORTS.filter((sport) => !PRIMARY_SPORTS.includes(sport) && (v2 === true || used.has(sport)));
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -126,7 +134,7 @@ export function ActivityHome() {
 
         <nav aria-label="Sports">
           <Stagger className="grid grid-cols-3 gap-2 sm:gap-3">
-            {SPORTS.map((sport) => (
+            {PRIMARY_SPORTS.map((sport) => (
               <StaggerItem key={sport} className="h-full">
                 <Link
                   href={sportHref(sport)}
@@ -143,6 +151,19 @@ export function ActivityHome() {
               </StaggerItem>
             ))}
           </Stagger>
+          {moreSports.length > 0 && (
+            <ul className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0" aria-label="More sports">
+              {moreSports.map((sport) => (
+                <li key={sport} className="shrink-0">
+                  <Link href={sportHref(sport)} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-fitx-border bg-fitx-card py-1 pl-1.5 pr-4 text-sm font-medium text-fitx-text transition-colors hover:border-fitx-primary/40">
+                    <SportBadge sport={sport} size={32} />
+                    {SPORT_LABEL[sport]}
+                    {sportWeek && sportWeek[sport] > 0 && <span className="tabular-nums text-fitx-text-secondary">{formatDistance(sportWeek[sport])}</span>}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </nav>
 
         {totals && hasAnything && now !== null && (
@@ -178,7 +199,7 @@ export function ActivityHome() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 id="feed-title" className="font-heading text-xl font-bold tracking-[-.02em] text-fitx-text">Your activities</h2>
             <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-              <Segmented options={FILTERS} value={filter} onChange={chooseFilter} label="Show" />
+              <Segmented options={filtersFor(used, filter)} value={filter} onChange={chooseFilter} label="Show" />
             </div>
           </div>
           <FeedList
@@ -194,6 +215,7 @@ export function ActivityHome() {
           {filter === "all" && feed.sessions.status === "missing" && history.status === "ready" && <p className="text-xs text-fitx-text-secondary">Strength sessions couldn’t load here. They’re in Workouts.</p>}
         </section>
 
+        <BestEffortsOverview state={storedEfforts} />
         {bests && <PersonalBestsPanel bests={bests} />}
 
         <details className="group rounded-2xl border border-fitx-border bg-fitx-card">
@@ -212,7 +234,7 @@ export function ActivityHome() {
             </ul>
             {confirmDeleteAll ? (
               <div className="mt-4 rounded-xl border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="delete-all-question">
-                <p id="delete-all-question" className="text-sm font-semibold text-fitx-danger">Delete every walk, run and ride, with their routes and GPS points, in your account and on this device? Strength sessions aren’t affected. This can’t be undone.</p>
+                <p id="delete-all-question" className="text-sm font-semibold text-fitx-danger">Delete every activity, with its route and GPS points, in your account and on this device? Strength sessions aren’t affected. This can’t be undone.</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" ref={focusOnMount} onClick={() => { setConfirmDeleteAll(false); window.setTimeout(() => deleteAllTriggerRef.current?.focus(), 0); }} className="fitx-button fitx-button-secondary min-h-11">Keep my data</button>
                   <button type="button" onClick={() => void deleteAll()} className="fitx-button fitx-button-danger min-h-11"><Trash2 size={15} aria-hidden="true" />Delete everything</button>

@@ -185,13 +185,21 @@ test("TCX sports and refusals", () => {
   assert.throws(() => readTcx(`<TrainingCenterDatabase><Activities><Activity Sport="Running"><Lap><Track><Trackpoint><Time>${iso(0)}</Time></Trackpoint></Track></Lap></Activity></Activities></TrainingCenterDatabase>`), (error: unknown) => error instanceof ImportError && error.code === "no-points");
 });
 
-test("free-text sports: plain words map to walk, run or ride; other sports are refused; the rest is for the person to choose", () => {
-  assert.deepEqual(sportFromLabel("Trail Running"), { kind: "known", sport: "run", label: "Trail Running" });
-  assert.deepEqual(sportFromLabel("trail_running"), { kind: "known", sport: "run", label: "trail running" });
-  assert.deepEqual(sportFromLabel("hiking"), { kind: "known", sport: "walk", label: "hiking" });
+test("free-text sports: plain words map to FITX's GPS sports; other sports are refused; the rest is for the person to choose", () => {
+  assert.deepEqual(sportFromLabel("Trail Running"), { kind: "known", sport: "trail_run", label: "Trail Running" });
+  assert.deepEqual(sportFromLabel("trail_running"), { kind: "known", sport: "trail_run", label: "trail running" });
+  assert.deepEqual(sportFromLabel("Running"), { kind: "known", sport: "run", label: "Running" });
+  assert.deepEqual(sportFromLabel("hiking"), { kind: "known", sport: "hike", label: "hiking" });
+  assert.deepEqual(sportFromLabel("walking"), { kind: "known", sport: "walk", label: "walking" });
   assert.deepEqual(sportFromLabel("Road Cycling"), { kind: "known", sport: "ride", label: "Road Cycling" });
+  assert.deepEqual(sportFromLabel("mountain_biking"), { kind: "known", sport: "mtb", label: "mountain biking" });
+  assert.deepEqual(sportFromLabel("E-Bike Ride"), { kind: "known", sport: "ebike", label: "E Bike Ride" });
+  assert.deepEqual(sportFromLabel("inline_skating"), { kind: "known", sport: "skate", label: "inline skating" });
+  assert.deepEqual(sportFromLabel("kayaking"), { kind: "known", sport: "paddle", label: "kayaking" });
+  assert.deepEqual(sportFromLabel("Wheelchair"), { kind: "known", sport: "wheelchair", label: "Wheelchair" });
   assert.deepEqual(sportFromLabel("open_water_swimming"), { kind: "unsupported", label: "open water swimming" });
-  assert.deepEqual(sportFromLabel("E-Bike Ride"), { kind: "unknown", label: "E Bike Ride" });
+  assert.deepEqual(sportFromLabel("Swim and run"), { kind: "unsupported", label: "Swim and run" }, "another sport named anywhere is not FITX's");
+  assert.deepEqual(sportFromLabel("ice_skating"), { kind: "unsupported", label: "ice skating" });
   assert.deepEqual(sportFromLabel("9"), { kind: "unknown", label: "9" });
   assert.deepEqual(sportFromLabel(""), { kind: "unknown", label: null });
 });

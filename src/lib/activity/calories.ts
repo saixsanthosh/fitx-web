@@ -68,11 +68,31 @@ function interpolateTable(table: ReadonlyArray<readonly [number, number]>, speed
   return table[table.length - 1][1];
 }
 
-/** MET for moving at `speedMps` in `sport`. */
+/**
+ * Which table a sport is costed with, or null for no estimate. Hikes use the walking table and trail runs the
+ * running table, and mountain biking the road cycling table: those tables are for level, firm ground, so the
+ * method sentence says the estimate is likely low on hills and rough ground. E-bikes (the motor's share is
+ * unknown), wheelchairs, inline skating and paddling have no estimate: FITX has no checked speed table for them
+ * in this Compendium, and calories are never guessed.
+ */
+type Table = "walking" | "running" | "cycling";
+const KCAL_TABLE: Record<Sport, Table | null> = {
+  walk: "walking", run: "running", ride: "cycling",
+  hike: "walking", trail_run: "running", mtb: "cycling",
+  ebike: null, wheelchair: null, skate: null, paddle: null,
+};
+
+/** True when FITX estimates calories for this sport. */
+export function estimatesKcal(sport: Sport): boolean {
+  return KCAL_TABLE[sport] !== null;
+}
+
+/** MET for moving at `speedMps` in `sport` (sports without an estimate are costed as walking; estimateKcal never asks). */
 export function metFor(sport: Sport, speedMps: number): number {
   const speed = Number.isFinite(speedMps) && speedMps > 0 ? speedMps : 0;
-  if (sport === "ride") return interpolateTable(CYCLING, speed);
-  if (sport === "run" && speed >= RUNNING_MIN_SPEED) return interpolateTable(RUNNING, speed);
+  const table = KCAL_TABLE[sport];
+  if (table === "cycling") return interpolateTable(CYCLING, speed);
+  if (table === "running" && speed >= RUNNING_MIN_SPEED) return interpolateTable(RUNNING, speed);
   return interpolateTable(WALKING, speed);
 }
 
@@ -86,13 +106,25 @@ export function usableWeight(weightKg: unknown): number | null {
 export const KCAL_METHOD =
   "MET for your speed in each kilometre (2024 Adult Compendium of Physical Activities, adult values) × body weight × moving time.";
 
+const ROUGH_GROUND: Partial<Record<Sport, string>> = {
+  hike: "walking",
+  trail_run: "running",
+  mtb: "road cycling",
+};
+
+/** The method sentence for a sport: the general one, plus which table and why it may be low for off-road sports. */
+export function kcalMethodFor(sport: Sport): string {
+  const table = ROUGH_GROUND[sport];
+  return table ? `${KCAL_METHOD} Uses the ${table} values for level, firm ground, so it is likely low on hills and rough ground.` : KCAL_METHOD;
+}
+
 /**
  * Estimated kcal for parts of an activity (each kilometre split, plus the last part), or null
  * without a usable body weight. Stopped and paused time is not counted.
  */
 export function estimateKcal(sport: Sport, parts: ReadonlyArray<{ distanceM: number; movingSeconds: number }>, weightKg: unknown): number | null {
   const weight = usableWeight(weightKg);
-  if (weight === null) return null;
+  if (weight === null || !estimatesKcal(sport)) return null;
   let kcal = 0;
   for (const part of parts) {
     if (!(part.movingSeconds > 0)) continue;

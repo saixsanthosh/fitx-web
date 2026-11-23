@@ -6,7 +6,7 @@ import { ChevronLeft, Play, RefreshCw } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { EASE } from "@/components/motion";
 import { StatRow, StatTile } from "@/components/ui/StatTile";
-import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
+import { SPORT_LABEL, SPORT_NOUN, sportFamily, usesPace } from "@/lib/activity/config";
 import { sportSummary } from "@/lib/activity/feed";
 import { durationFigure, paceValue } from "@/lib/activity/format";
 import { personalBests } from "@/lib/activity/stats";
@@ -14,15 +14,28 @@ import type { Sport } from "@/lib/activity/types";
 import { AccountError } from "./AccountError";
 import { PersonalBestsPanel } from "./ActivityStats";
 import { FeedList } from "./FeedList";
-import { recordHref, SPORT_PLURAL, SportIcon } from "./sports";
+import { recordHref, SPORT_PLURAL, SportIcon, sportHref } from "./sports";
 import { useActivityAccount } from "./useActivityAccount";
 import { useActivityFeed } from "./useActivityFeed";
+import { BestEffortsOverview } from "./BestEfforts";
+import { useStoredEfforts } from "./useActivityV2";
 
 /** FITX's own line art per sport: a short loop for walks, a longer out-and-back for runs, a sweeping road for rides. */
 const ROUTE_ART: Record<Sport, string> = {
   walk: "M40 150 C 70 92, 128 84, 160 112 S 236 168, 268 120 S 300 54, 248 42 S 150 60, 120 30",
   run: "M24 160 C 64 150, 76 96, 116 92 S 170 128, 204 96 S 232 30, 276 40 S 320 92, 296 132 S 236 168, 200 150",
   ride: "M10 140 C 70 140, 90 60, 150 60 S 220 150, 280 120 S 320 40, 340 30",
+  // A switchback climb to a summit.
+  hike: "M30 170 C 80 165, 120 150, 90 132 S 120 104, 170 110 S 210 92, 160 76 S 196 46, 250 52 S 300 30, 320 22",
+  // A wandering single track.
+  trail_run: "M18 150 C 52 168, 86 120, 110 128 S 140 170, 176 140 S 196 80, 236 92 S 268 140, 300 110 S 316 50, 336 40",
+  // Short, steep zigzags.
+  mtb: "M14 160 C 40 150, 60 120, 88 128 S 112 96, 140 100 S 160 64, 196 74 S 214 40, 252 48 S 290 22, 336 26",
+  ebike: "M10 150 C 80 150, 110 90, 170 90 S 240 130, 290 100 S 330 50, 342 36",
+  wheelchair: "M30 150 C 90 150, 120 110, 180 112 S 260 140, 300 100 S 320 60, 330 40",
+  skate: "M10 120 C 60 60, 110 160, 160 110 S 230 50, 270 100 S 320 150, 342 80",
+  // A shoreline crossing.
+  paddle: "M14 120 C 60 100, 100 140, 150 118 S 220 90, 260 110 S 310 130, 342 100",
 };
 
 const km = (n: number) => n.toFixed(2);
@@ -64,11 +77,12 @@ export function SportScreen({ sport }: { sport: Sport }) {
   const account = useActivityAccount();
   const userId = account.status === "ready" ? account.userId : null;
   const feed = useActivityFeed(userId, sport);
+  const efforts = useStoredEfforts(userId);
 
   if (account.status === "loading") return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading…</div>;
   if (account.status === "unconfigured") return <EmptyState title="Activity tracking isn’t connected" description="FITX is not connected to its database on this site." />;
   if (account.status === "error") return <AccountError />;
-  if (account.status === "signed-out") return <EmptyState title={`Sign in to track ${SPORT_PLURAL[sport].toLowerCase()}`} description="Your activities are saved to your account." action={<Link href={`/signin?next=/activity/${sport}`} className="fitx-button min-h-11">Sign in</Link>} />;
+  if (account.status === "signed-out") return <EmptyState title={`Sign in to track ${SPORT_PLURAL[sport].toLowerCase()}`} description="Your activities are saved to your account." action={<Link href={`/signin?next=${sportHref(sport)}`} className="fitx-button min-h-11">Sign in</Link>} />;
 
   const summary = feed.statRows && feed.now !== null ? sportSummary(feed.statRows, sport, feed.now) : null;
   const known = summary !== null;
@@ -95,16 +109,17 @@ export function SportScreen({ sport }: { sport: Sport }) {
           <StatRow>
             <StatTile label="This week" value={known ? summary.weekDistanceM / 1000 : null} unit="km" format={km} hint={known ? `${summary.weekCount} ${summary.weekCount === 1 ? SPORT_NOUN[sport] : SPORT_PLURAL[sport].toLowerCase()}` : undefined} />
             <StatTile label="All time" value={known ? summary.distanceM / 1000 : null} unit="km" format={km} hint={known ? `${summary.count} ${summary.count === 1 ? SPORT_NOUN[sport] : SPORT_PLURAL[sport].toLowerCase()}` : undefined} />
-            {sport === "ride"
-              ? <StatTile label="Average speed" value={summary?.avgSpeedMps != null ? summary.avgSpeedMps * 3.6 : null} unit="km/h" format={(n) => n.toFixed(1)} />
-              : <StatTile label="Average pace" value={summary?.avgPaceSecondsPerKm ?? null} unit="/km" format={(n) => paceValue(n)} />}
-            {sport === "walk"
-              ? <StatTile label="Time walking" value={walking?.value ?? null} unit={walking?.unit} format={walking?.format} />
-              : <StatTile label={sport === "run" ? "Longest run" : "Longest ride"} value={longest} unit="km" format={km} />}
+            {usesPace(sport)
+              ? <StatTile label="Average pace" value={summary?.avgPaceSecondsPerKm ?? null} unit="/km" format={(n) => paceValue(n)} />
+              : <StatTile label="Average speed" value={summary?.avgSpeedMps != null ? summary.avgSpeedMps * 3.6 : null} unit="km/h" format={(n) => n.toFixed(1)} />}
+            {sportFamily(sport) === "walk"
+              ? <StatTile label={sport === "walk" ? "Time walking" : "Moving time"} value={walking?.value ?? null} unit={walking?.unit} format={walking?.format} />
+              : <StatTile label={`Longest ${SPORT_NOUN[sport]}`} value={longest} unit="km" format={km} />}
           </StatRow>
         )}
       </section>
 
+      <BestEffortsOverview state={efforts} only={sport} />
       {feed.statRows && <PersonalBestsPanel bests={personalBests(feed.statRows)} only={sport} />}
 
       <section aria-labelledby="sport-history-title" className="space-y-4">

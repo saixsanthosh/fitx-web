@@ -88,6 +88,7 @@ export class FakeDb implements SupabaseLike {
       lt: (column: string, value: string) => { filters.push((row) => String(row[column]) < value); return builder; },
       gt: (column: string, value: string) => { filters.push((row) => String(row[column]) > value); return builder; },
       gte: (column: string, value: string) => { filters.push((row) => String(row[column]) >= value); return builder; },
+      is: (column: string, value: unknown) => { filters.push((row) => (value === null ? row[column] === null || row[column] === undefined : row[column] === value)); return builder; },
       not: (column: string) => { filters.push((row) => row[column] !== null && row[column] !== undefined); return builder; },
       order: (column: string, opts: { ascending: boolean }) => { orders.push({ column, ascending: opts.ascending }); return builder; },
       limit: (n: number) => { limit = n; return builder; },

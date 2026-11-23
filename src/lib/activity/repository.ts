@@ -1,7 +1,8 @@
-import { columnList, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { columnList, omitColumns, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { effortsFromJson, effortsToJson, type BestEffort } from "./best-efforts";
 import { isMissingColumnError, isMissingFunctionError } from "@/lib/supabase/errors";
 import type { ActivityRecord, TrackChunk } from "./record";
-import { isImportFormat, isSport, type ActivitySource, type ControlEvent, type Gap, type ImportFormat, type Split, type Sport } from "./types";
+import { isImportFormat, isSport, SPORTS, type ActivitySource, type ControlEvent, type Gap, type ImportFormat, type Split, type Sport } from "./types";
 
 /*
  * Reading and writing activities in Supabase (public.activities, public.activity_track_chunks;
@@ -305,8 +306,13 @@ export function rowFromRecord(record: ActivityRecord, userId: string): Row {
     point_count: record.pointCount,
     chunk_count: record.chunks.length,
     engine_version: record.engineVersion,
+    // Only when worked out; saveRowAndChunks drops it again on a database without migration 20261123100050.
+    ...(Array.isArray(record.bestEfforts) ? { best_efforts: effortsToJson(record.bestEfforts) } : {}),
   };
 }
+
+/** Added by migration 20261123100050; writes fall back without it until it is applied. */
+export const V2_COLUMNS = ["best_efforts"] as const;
 
 const CHUNK_BATCH = 6;
 
@@ -318,9 +324,10 @@ const CHUNK_BATCH = 6;
 async function saveRowAndChunks(client: SupabaseLike, userId: string, record: ActivityRecord, keepChunks = false): Promise<{ result: DbResult<{ id: string }>; created: string | null }> {
   let created: string | null = null;
   try {
-    const inserted = await table(client, "activities")
-      .upsert(rowFromRecord(record, userId), { onConflict: "user_id,client_id", ignoreDuplicates: true })
-      .select("id");
+    const row = rowFromRecord(record, userId);
+    const { result: inserted } = await withOptionalColumns(V2_COLUMNS, (withV2) => table(client, "activities")
+      .upsert(withV2 ? row : omitColumns(row, V2_COLUMNS), { onConflict: "user_id,client_id", ignoreDuplicates: true })
+      .select("id"));
     if (inserted.error) return { result: failure(inserted.error), created };
     let id = Array.isArray(inserted.data) && inserted.data.length ? str((inserted.data[0] as Row).id) : "";
     if (id) created = id;
@@ -467,7 +474,7 @@ export async function listActivitySummaries(client: SupabaseLike, userId: string
 export type PeriodTotals = { count: number; distanceM: number; movingSeconds: number; bySport: Record<Sport, { count: number; distanceM: number }> };
 
 export function totalsOf(activities: ReadonlyArray<Pick<ActivityView, "sport" | "distanceM" | "movingSeconds">>): PeriodTotals {
-  const totals: PeriodTotals = { count: 0, distanceM: 0, movingSeconds: 0, bySport: { walk: { count: 0, distanceM: 0 }, run: { count: 0, distanceM: 0 }, ride: { count: 0, distanceM: 0 } } };
+  const totals: PeriodTotals = { count: 0, distanceM: 0, movingSeconds: 0, bySport: Object.fromEntries(SPORTS.map((sport) => [sport, { count: 0, distanceM: 0 }])) as PeriodTotals["bySport"] };
   for (const activity of activities) {
     totals.count++;
     totals.distanceM += activity.distanceM;
@@ -594,5 +601,64 @@ export async function latestWeight(client: SupabaseLike, userId: string): Promis
     return profile.error ? null : num((profile.data as Row | null)?.weight);
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Activity v2 (migration 20261123100050): the newer sports and stored best efforts.
+
+/** Clients whose database has (true) or lacks (false) migration 20261123100050. */
+const v2Ready = new WeakMap<object, boolean>();
+
+/**
+ * Whether migration 20261123100050 is applied: its best_efforts column answers a select. Until it is, the newer
+ * sports are not offered (the database would refuse them) and best efforts are only worked out on activity pages.
+ * "unavailable" (no activities table, or a network error) counts as not ready.
+ */
+export async function activityV2Ready(client: SupabaseLike, userId: string): Promise<boolean> {
+  const known = v2Ready.get(client);
+  if (known !== undefined) return known;
+  try {
+    const result = await table(client, "activities").select("id,best_efforts").eq("user_id", userId).limit(1);
+    if (result.error) {
+      if (isMissingColumnError(result.error) || isMissingTableError(result.error)) v2Ready.set(client, false);
+      return false;
+    }
+    v2Ready.set(client, true);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type StoredEfforts = { id: string; sport: Sport; startedAt: number; efforts: BestEffort[] };
+
+/** Every activity with stored best efforts (newest first, at most STATS_MAX_ROWS); "unavailable" before the migration. */
+export async function listBestEfforts(client: SupabaseLike, userId: string): Promise<DbResult<StoredEfforts[]>> {
+  try {
+    const result = await table(client, "activities").select("id,sport,started_at,best_efforts").eq("user_id", userId).not("best_efforts", "is", null)
+      .order("started_at", { ascending: false }).limit(STATS_MAX_ROWS);
+    if (result.error) return failure(result.error);
+    const rows = Array.isArray(result.data) ? (result.data as Row[]) : [];
+    return {
+      status: "ok",
+      data: rows.flatMap((row) => {
+        const efforts = effortsFromJson(row.best_efforts);
+        const startedAt = Date.parse(str(row.started_at));
+        return isSport(row.sport) && efforts && Number.isFinite(startedAt) ? [{ id: str(row.id), sport: row.sport, startedAt, efforts }] : [];
+      }),
+    };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** Stores best efforts worked out later (an activity page replaying an older activity's points). */
+export async function saveBestEfforts(client: SupabaseLike, userId: string, id: string, efforts: readonly BestEffort[]): Promise<DbResult<null>> {
+  try {
+    const result = await table(client, "activities").update({ best_efforts: effortsToJson(efforts) }).eq("user_id", userId).eq("id", id).is("best_efforts", null);
+    return result.error ? failure(result.error) : { status: "ok", data: null };
+  } catch (error) {
+    return failure(error);
   }
 }
