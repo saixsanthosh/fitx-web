@@ -92,7 +92,12 @@ try {
   await waitFor(async () => existsSync(path.join(OUT, "standin.json")), "the Supabase stand-in", 120000);
   const info = JSON.parse(readFileSync(path.join(OUT, "standin.json"), "utf8"));
 
-  const appEnv = { NEXT_PUBLIC_SUPABASE_URL: DB_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: info.anonKey, SUPABASE_SECRET_KEY: info.serviceRoleKey };
+  // NEXT_PUBLIC_FITX_FILM_FIXTURE lets a page that also has the cookie fitx_film_fixture=1 use the fixture film manifest
+  // (BRIEF-2 3.4): only flows that set the cookie see it. It is for this local build only, never a production one.
+  const appEnv = {
+    NEXT_PUBLIC_SUPABASE_URL: DB_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: info.anonKey, SUPABASE_SECRET_KEY: info.serviceRoleKey,
+    NEXT_PUBLIC_FITX_FILM_FIXTURE: "1",
+  };
   const marker = path.join(ROOT, ".next", "e2e-build.json");
   const built = existsSync(path.join(ROOT, ".next", "BUILD_ID")) && existsSync(marker) && readFileSync(marker, "utf8") === JSON.stringify(appEnv);
   if (args.build === "true" || !built) {

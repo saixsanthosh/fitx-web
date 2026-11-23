@@ -21,10 +21,19 @@ export const SIZES = {
     viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
     userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36",
   },
+  tablet: {
+    viewport: { width: 820, height: 1180 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
+    userAgent: "Mozilla/5.0 (iPad; CPU OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+  },
   desktop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
 };
 
-export async function launchChrome(playwright, { executablePath, appHost, dbHost }) {
+/**
+ * Headless system Chrome that resolves only the app and the stand-in. `autoplayPolicy` is Chrome's
+ * `--autoplay-policy` value; "default" leaves the flag out, so Chrome's own policy applies (media with sound needs a
+ * user gesture). `fakeMedia` gives the page a fake camera and microphone and answers their permission prompts.
+ */
+export async function launchChrome(playwright, { executablePath, appHost, dbHost, autoplayPolicy = "no-user-gesture-required", fakeMedia = false }) {
   const keep = [appHost, dbHost].map((host) => host.split(":")[0]);
   return playwright.chromium.launch({
     executablePath,
@@ -34,7 +43,8 @@ export async function launchChrome(playwright, { executablePath, appHost, dbHost
       `--host-resolver-rules=MAP * ~NOTFOUND, ${keep.map((host) => `EXCLUDE ${host}`).join(", ")}, EXCLUDE localhost, EXCLUDE *.localhost`,
       "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication,CertificateTransparencyComponentUpdater",
       "--disable-sync", "--no-pings", "--disable-domain-reliability",
-      "--autoplay-policy=no-user-gesture-required",
+      ...(autoplayPolicy === "default" ? [] : [`--autoplay-policy=${autoplayPolicy}`]),
+      ...(fakeMedia ? ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] : []),
     ],
   });
 }
