@@ -1,3 +1,4 @@
 {
-  "ignoreCommand": "node admin/scripts/vercel-ignore.mjs fitx"
+  "ignoreCommand": "node admin/scripts/vercel-ignore.mjs fitx",
+  "crons": [{ "path": "/api/social/sweep", "schedule": "17 4 * * *" }]
 }
