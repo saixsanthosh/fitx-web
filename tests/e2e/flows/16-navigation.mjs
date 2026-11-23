@@ -4,7 +4,7 @@
 // opening the coach, the Settings switch stored on the account), and a returning member's logo reveal.
 import { signInUi, textOf } from "./common.mjs";
 
-const MAIN = ["Home", "Workouts", "Nutrition", "Activity", "AI Coach", "Progress", "Exercise library"];
+const MAIN = ["Home", "Workouts", "Nutrition", "Activity", "AI Coach", "Progress", "Exercise library", "Explore"];
 
 async function launcherBox(page) {
   const button = page.getByRole("button", { name: "Open AI Coach" });
@@ -39,9 +39,15 @@ export const flow = {
         await page.getByRole("button", { name: "More", exact: true }).click();
         const sheet = page.getByRole("dialog", { name: "More" });
         await sheet.waitFor();
-        const groups = await sheet.locator("[data-nav-group]").allInnerTexts();
-        t.expect(groups.join(",").toLowerCase() === "train,track,connect", "More names each section's group, as in the sidebar", groups);
-        for (const label of ["Exercise library", "Progress", "AI Coach", "Profile", "Settings", "Help and feedback"]) {
+        const groups = (await sheet.locator("[data-nav-group]").allInnerTexts()).map((text) => text.trim().toLowerCase());
+        t.expect(groups.join(",") === "train,track,connect,connect", "More names each section's group, as in the sidebar", groups);
+        // Four section cards (Library, Progress, AI Coach, Explore) sit in two columns of two.
+        const cards = await sheet.getByRole("list", { name: "Sections" }).getByRole("listitem").evaluateAll((items) => items.map((item) => {
+          const box = item.getBoundingClientRect();
+          return { x: Math.round(box.x), y: Math.round(box.y) };
+        }));
+        t.expect(cards.length === 4 && new Set(cards.map(({ x }) => x)).size === 2 && new Set(cards.map(({ y }) => y)).size === 2, "four cards in two columns", cards);
+        for (const label of ["Exercise library", "Progress", "AI Coach", "Explore", "Profile", "Settings", "Help and feedback"]) {
           t.expect((await sheet.getByRole("link", { name: label }).count()) === 1, `${label} is in More`);
         }
         await page.waitForTimeout(400);
@@ -152,9 +158,20 @@ export const flow = {
 
     await t.step("it opens the coach, and is not shown on the coach page or the focus screens", async () => {
       await t.goto("/progress", { label: "open coach" });
-      await page.getByRole("button", { name: "Open AI Coach" }).click();
-      await page.waitForURL("**/ai-coach", { timeout: 20000 });
+      const launcher = page.getByRole("button", { name: "Open AI Coach" });
+      await launcher.click();
+      // The panel host takes the open event: the coach opens over the page instead of leaving it.
+      const panel = page.getByRole("dialog", { name: "AI Coach" });
+      await panel.waitFor({ state: "visible", timeout: 20000 });
+      t.expect(page.url().endsWith("/progress"), "the coach opens over the page, which stays", page.url());
       await t.settle();
+      await t.checkpoint("coach panel", { fullPage: false });
+      await panel.getByRole("button", { name: "Close AI Coach" }).click();
+      await panel.waitFor({ state: "hidden", timeout: 10000 });
+      const refocused = await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Open AI Coach", null, { timeout: 5000 })
+        .then(() => true, () => false);
+      t.expect(refocused, "closing the panel gives focus back to the coach button");
+      await t.goto("/ai-coach", { label: "coach page" });
       t.expect((await page.getByRole("button", { name: "Open AI Coach" }).count()) === 0, "not shown on the coach page");
       for (const path of ["/activity/record", "/workouts/form-check"]) {
         await t.goto(path, { label: `hidden on ${path}` });

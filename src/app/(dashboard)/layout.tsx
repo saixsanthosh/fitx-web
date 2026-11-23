@@ -8,6 +8,7 @@ import { UserContextProvider } from "@/components/app/UserContextProvider";
 import { CinematicIntro } from "@/components/brand/CinematicIntro";
 import { IntroCompletionReporter } from "@/components/brand/IntroCompletionReporter";
 import { CoachLauncher } from "@/components/layout/CoachLauncher";
+import { CoachPanelHost } from "@/components/coach/CoachPanelHost";
 import "@/components/layout/nav-icons/nav-icons.css";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
@@ -31,6 +32,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <BottomNav />
         {/* The floating AI Coach button: draggable, dismissable for this page load, off for good in Settings. */}
         <CoachLauncher />
+        {/* Takes the launcher's fitx:coach-open event and opens the AI Coach panel (loaded on first open). */}
+        <CoachPanelHost />
         <SessionKeeper />
         <IntroCompletionReporter />
       </div>

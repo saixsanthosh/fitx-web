@@ -30,10 +30,10 @@ export type NavItem = {
 };
 
 /**
- * Explore (FITX's social space, phase 14) has its icon and its place in the menu now; the integrator turns it on
- * when the Explore stream is merged, so the menu never links to a page that is not there yet.
+ * Explore (FITX's social space, phase 14) is in the menu, in the Connect group after AI Coach. The switch stays so
+ * the menu can drop it again without touching the groups.
  */
-export const NAV_INCLUDES_EXPLORE = false;
+export const NAV_INCLUDES_EXPLORE = true;
 
 const HOME: NavItem = { href: "/dashboard", label: "Home", icon: HomeNavIcon };
 const WORKOUTS: NavItem = { href: "/workouts", label: "Workouts", icon: WorkoutsNavIcon };
@@ -42,7 +42,7 @@ const ACTIVITY: NavItem = { href: "/activity", label: "Activity", icon: Activity
 const COACH: NavItem = { href: "/ai-coach", label: "AI Coach", shortLabel: "Coach", icon: CoachNavIcon };
 const PROGRESS: NavItem = { href: "/progress", label: "Progress", icon: ProgressNavIcon };
 const LIBRARY: NavItem = { href: "/exercises", label: "Exercise library", shortLabel: "Library", icon: LibraryNavIcon };
-/** Explore's entry, ready for when NAV_INCLUDES_EXPLORE is on. */
+/** Explore's entry, shown while NAV_INCLUDES_EXPLORE is on. */
 export const EXPLORE_NAV: NavItem = { href: EXPLORE, label: "Explore", icon: ExploreNavIcon };
 
 /**

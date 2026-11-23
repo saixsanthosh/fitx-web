@@ -8,21 +8,23 @@ const PRIVATE = [
   "/activity/00000000-0000-4000-8000-000000000000", "/progress", "/goals", "/goals?tab=week", "/planner", "/profile", "/settings", "/help",
   "/exercises", "/exercises/00000000-0000-4000-8000-000000000000", "/home-workout", "/form-coach", "/onboarding", "/achievements", "/ai-coach",
   "/subscription", "/tasks", "/social", "/admin", "/activity/import", "/exercises/muscles", "/workouts/programme", "/workouts/history",
-  "/workouts/history/00000000-0000-4000-8000-000000000000", "/progress/muscles",
+  "/workouts/history/00000000-0000-4000-8000-000000000000", "/progress/muscles", "/workouts/form-check", "/explore",
 ];
 const APP_PAGES = [
   "/dashboard", "/workouts", "/nutrition", "/nutrition/sources", "/activity", "/progress", "/goals", "/goals?tab=week", "/planner",
-  "/profile", "/settings", "/help", "/exercises", "/home-workout", "/form-coach", "/form-coach?exercise=bodyweight_squat", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
+  "/profile", "/settings", "/help", "/exercises", "/home-workout", "/home-workout?exercise=bodyweight_squat", "/form-coach",
+  "/form-coach?exercise=bodyweight_squat", "/workouts/form-check", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/explore", "/admin",
   "/activity/import", "/exercises/muscles", "/workouts/programme", "/workouts/history", "/progress/muscles",
 ];
 /** Retired routes that now redirect on purpose (their page.tsx calls redirect(), or next.config.ts redirects them). */
 const MOVED = {
-  "/goals": "/dashboard?panel=goals", "/goals?tab=week": "/dashboard?panel=week", "/planner": "/dashboard?panel=week",
-  "/tasks": "/dashboard?panel=todo", "/achievements": "/progress", "/social": "/dashboard", "/admin": "/dashboard",
-  "/form-coach": "/home-workout", "/form-coach?exercise=bodyweight_squat": "/home-workout?exercise=bodyweight_squat",
+  "/goals": "/progress?panel=goals", "/goals?tab=week": "/workouts", "/planner": "/workouts",
+  "/tasks": "/dashboard", "/achievements": "/progress", "/social": "/explore", "/admin": "/dashboard",
+  "/home-workout": "/workouts/form-check", "/home-workout?exercise=bodyweight_squat": "/workouts/form-check?exercise=bodyweight_squat",
+  "/form-coach": "/workouts/form-check", "/form-coach?exercise=bodyweight_squat": "/workouts/form-check?exercise=bodyweight_squat",
 };
 /** Moved before sign-in too (next.config.ts redirects run before the proxy), so sign-in returns to the new page. */
-const SIGNED_OUT_NEXT = { "/form-coach": "/home-workout" };
+const SIGNED_OUT_NEXT = { "/home-workout": "/workouts/form-check", "/form-coach": "/workouts/form-check" };
 const PUBLIC_PAGES = ["/", "/features", "/pricing", "/about", "/for-gyms", "/privacy", "/terms", "/cookies", "/refunds", "/signin", "/signup", "/forgot-password"];
 
 export const flow = {
@@ -54,12 +56,12 @@ export const flow = {
     });
 
     const account = await standin.createAccount({ name: "Ravi Menon", tag: "routing" });
-    await t.step("sign in with next= lands on the requested page (an old Goals link, now Home's week plan)", async () => {
+    await t.step("sign in with next= lands on the requested page (an old Goals week link, now Workouts)", async () => {
       await signInUi(t, account, { next: "/goals?tab=week" });
-      await page.waitForURL("**/dashboard?panel=week", { timeout: 15000 }).catch(() => undefined);
+      await page.waitForURL("**/workouts", { timeout: 15000 }).catch(() => undefined);
       const url = new URL(page.url());
-      t.expect(url.pathname === "/dashboard" && url.searchParams.get("panel") === "week", `expected /dashboard?panel=week after sign-in, got ${url.pathname}${url.search}`);
-      await t.checkpoint("week plan after sign-in with next");
+      t.expect(url.pathname === "/workouts" && !url.search, `expected /workouts after sign-in, got ${url.pathname}${url.search}`);
+      await t.checkpoint("workouts after sign-in with next");
     });
 
     await t.step("signed in: / and the sign-in pages go to the dashboard", async () => {

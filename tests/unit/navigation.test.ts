@@ -13,9 +13,9 @@ import { EXPLORE, FORM_CHECK, HOME_PANELS, HOME_WORKOUT, homePanel, progressGoal
 
 test("main sections, in the phone's order; Goals, Home workout and AI Form Check are not menu entries", () => {
   assert.deepEqual(MAIN_NAV.map(({ href }) => href), [
-    "/dashboard", "/workouts", "/nutrition", "/activity", "/ai-coach", "/progress", "/exercises",
+    "/dashboard", "/workouts", "/nutrition", "/activity", "/ai-coach", "/progress", "/exercises", "/explore",
   ]);
-  assert.deepEqual(MAIN_NAV.map(({ label }) => label), ["Home", "Workouts", "Nutrition", "Activity", "AI Coach", "Progress", "Exercise library"]);
+  assert.deepEqual(MAIN_NAV.map(({ label }) => label), ["Home", "Workouts", "Nutrition", "Activity", "AI Coach", "Progress", "Exercise library", "Explore"]);
   assert.equal(MAIN_NAV.find(({ href }) => href === "/ai-coach")?.shortLabel, "Coach");
   assert.equal(MAIN_NAV.find(({ href }) => href === "/exercises")?.shortLabel, "Library");
   for (const gone of ["/goals", "/planner", "/tasks", HOME_WORKOUT, "/form-coach", FORM_CHECK]) {
@@ -27,20 +27,20 @@ test("main sections, in the phone's order; Goals, Home workout and AI Form Check
 test("grouped: Home on its own, then Train, Track and Connect; every main section in exactly one group", () => {
   assert.deepEqual(NAV_GROUPS.map(({ id, label }) => [id, label]), [["home", null], ["train", "Train"], ["track", "Track"], ["connect", "Connect"]]);
   assert.deepEqual(NAV_GROUPS.map(({ items }) => items.map(({ href }) => href)), [
-    ["/dashboard"], ["/workouts", "/exercises", "/activity"], ["/nutrition", "/progress"], ["/ai-coach"],
+    ["/dashboard"], ["/workouts", "/exercises", "/activity"], ["/nutrition", "/progress"], ["/ai-coach", "/explore"],
   ]);
   const grouped = NAV_GROUPS.flatMap(({ items }) => items.map(({ href }) => href));
   assert.deepEqual([...grouped].sort(), MAIN_NAV.map(({ href }) => href).sort());
 });
 
-test("Explore has its icon and slot, switched off until the integrator turns it on", () => {
-  assert.equal(NAV_INCLUDES_EXPLORE, false);
+test("Explore is in the menu, with its own icon, after AI Coach in Connect", () => {
+  assert.equal(NAV_INCLUDES_EXPLORE, true);
   assert.equal(EXPLORE, "/explore");
   assert.deepEqual([EXPLORE_NAV.href, EXPLORE_NAV.label], ["/explore", "Explore"]);
   assert.equal(isAppNavIcon(EXPLORE_NAV.icon), true);
-  assert.ok(!MAIN_NAV.includes(EXPLORE_NAV));
-  const withExplore = navGroups(true);
-  assert.deepEqual(withExplore.find(({ id }) => id === "connect")?.items.map(({ href }) => href), ["/ai-coach", "/explore"]);
+  assert.ok(MAIN_NAV.includes(EXPLORE_NAV));
+  assert.equal(MAIN_NAV.at(-1), EXPLORE_NAV, "last in the phone order, so the four tabs stay as they are");
+  assert.deepEqual(navGroups(false).find(({ id }) => id === "connect")?.items.map(({ href }) => href), ["/ai-coach"], "the switch can still take it out");
 });
 
 test("every main section has its own drawn, animated icon; lucide icons are told apart from app icons", () => {
@@ -64,7 +64,7 @@ test("the phone bar shows four sections and everything else is in More, grouped,
   assert.deepEqual([...everywhere].sort(), [...MAIN_NAV, ...ACCOUNT_NAV].map(({ href }) => href).sort());
   assert.equal(new Set(everywhere).size, everywhere.length, "no entry appears twice");
   assert.deepEqual(PHONE_MORE_GROUPS.map(({ id, items }) => [id, items.map(({ href }) => href)]), [
-    ["train", ["/exercises"]], ["track", ["/progress"]], ["connect", ["/ai-coach"]],
+    ["train", ["/exercises"]], ["track", ["/progress"]], ["connect", ["/ai-coach", "/explore"]],
   ]);
 });
 
@@ -72,7 +72,7 @@ test("the phone bar's highlighted slot: a tab, More for everything in it, none e
   assert.equal(phoneSlot("/dashboard"), 0);
   assert.equal(phoneSlot("/workouts/builder"), 1);
   assert.equal(phoneSlot("/activity/import"), 3);
-  for (const path of ["/progress", "/ai-coach", "/exercises/abc", "/settings", "/profile", "/help"]) assert.equal(phoneSlot(path), PHONE_TAB_COUNT, path);
+  for (const path of ["/progress", "/ai-coach", "/explore", "/explore/discover", "/exercises/abc", "/settings", "/profile", "/help"]) assert.equal(phoneSlot(path), PHONE_TAB_COUNT, path);
   for (const path of ["/subscription", "/achievements"]) assert.equal(phoneSlot(path), -1, path);
 });
 
