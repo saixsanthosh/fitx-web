@@ -174,6 +174,11 @@ export function CoachLauncher() {
       window.clearInterval(slow);
       window.clearTimeout(settle);
       if (frame) window.cancelAnimationFrame(frame);
+      // Forget the spot: when the button comes back (the keyboard closes, a page without it is left) it is placed
+      // for the page as it is then, instead of appearing where it last was and gliding across, over the control
+      // that was just pressed, which then lost the release and the click. On a page change the new spot is set
+      // in the same commit, so the button does not blink.
+      setPlace(null);
     };
   }, [hidden, pathname, layout]);
 
