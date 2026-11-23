@@ -36,7 +36,6 @@ export function isEstimateEntry(entry: MealEntry): boolean {
  * unknown values (they are never counted as 0 g) and say so.
  */
 export function MealLog({ entries, title, loading, busy, templatesReady, sections, onEdit, onDelete, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
-  const estimates = entries.filter(isEstimateEntry).length;
   const unknown = sumKnown(entries).unknown;
   const lacking = (["protein", "carbs", "fat"] as const).filter((key) => unknown[key] > 0);
   return (
@@ -49,8 +48,8 @@ export function MealLog({ entries, title, loading, busy, templatesReady, section
           <button type="button" className={styles.textButton} onClick={onAddSection}><Plus size={13} className="mr-1 inline" aria-hidden="true"/>Add a meal</button>
         </div>
       </div>
-      {(estimates > 0 || lacking.length > 0) && <p className={diary.note}>
-        {estimates > 0 && `Includes ${estimates} ${estimates === 1 ? "estimate" : "estimates"}. `}
+      {/* The day's overview already counts the estimates; the diary names only the values left out. */}
+      {lacking.length > 0 && <p className={diary.note}>
         {lacking.length > 0 && `${lacking.map((key) => `${unknown[key]} without ${MACRO_LABEL[key]}`).join(", ")}: left out of totals, not counted as 0 g.`}
       </p>}
       {loading && !entries.length ? <p className={styles.muted}>Loading meals…</p> : entries.length === 0 ? (

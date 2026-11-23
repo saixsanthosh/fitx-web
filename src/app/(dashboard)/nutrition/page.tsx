@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, BookOpen, ChevronLeft, PackageSearch, Plus, ScanBarcode, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, ChevronLeft, ListChecks, PackageSearch, Plus, ScanBarcode, Search } from "lucide-react";
 import { BarcodeScanner } from "@/components/app/BarcodeScanner";
+import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { DayOverview } from "@/components/nutrition/DayOverview";
 import { CustomFoodForm, type CustomFoodPrefill } from "@/components/nutrition/CustomFoodForm";
 import { EntryEditor, type EntryChange } from "@/components/nutrition/EntryEditor";
@@ -16,6 +17,7 @@ import { MealLog } from "@/components/nutrition/MealLog";
 import { MyFoods } from "@/components/nutrition/MyFoods";
 import { NameDialog } from "@/components/nutrition/NameDialog";
 import { NutritionHistory } from "@/components/nutrition/NutritionHistory";
+import { NutritionSetup, type SetupMode } from "@/components/nutrition/NutritionSetup";
 import type { AmountPrompt } from "@/components/nutrition/PortionPicker";
 import { Routines } from "@/components/nutrition/Routines";
 import { TargetsEditor } from "@/components/nutrition/TargetsEditor";
@@ -23,14 +25,13 @@ import ui from "@/components/nutrition/FoodUi.module.css";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
-import { homePanel } from "@/config/routes";
 import { useHydrated } from "@/components/ui/use-hydrated";
 import { createClient } from "@/lib/supabase/client";
 import { loadGoals } from "@/lib/data/goals";
 import { dailyGoalFor, type GoalView } from "@/lib/domain/goals";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
-import { profileAge } from "@/lib/domain/profile-options";
-import { loadBirthDate } from "@/lib/domain/user-context";
+import { legacyDietaryPreferences, profileAge } from "@/lib/domain/profile-options";
+import { loadBirthDate, notifyUserContextChanged } from "@/lib/domain/user-context";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
@@ -40,6 +41,7 @@ import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
 import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
+import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, writeSnooze, type NutritionSetupAnswers } from "@/lib/food/setup";
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
   buildMealValues, sameMeal, clearTargets, customFoodResult, deleteTemplate, detectCapabilities, entryUpdate, foodFromEntry, frequentFromEntries, insertEntries, isEstimateSnapshot, loadCustomFoods,
@@ -71,6 +73,8 @@ const NO_AMOUNT = parseFoodQuery("");
 const NO_CAPABILITIES: NutritionCapabilities = { customFoodsV2: false, templates: false, targets: false, customExtra: false };
 /** Search answers hold the user's own foods, so the browser must not answer from its cache. */
 const SEARCH_FETCH: RequestInit = { cache: "no-store" };
+/** Where Nutrition's "Set a water goal" goes: the goal editor on Progress, on the daily water template. */
+const WATER_GOAL_HREF = "/progress?panel=goals&new=water_day";
 
 function sourceText(source: SourceStatus) {
   if (source.status === "ok") return `${source.label} · ${source.count}`;
@@ -161,6 +165,12 @@ export default function NutritionPage() {
   const [foodForm, setFoodForm] = useState<{ editing: CustomFoodRow | null; prefill: CustomFoodPrefill | null } | null>(null);
   const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null);
   const [targetsOpen, setTargetsOpen] = useState(false);
+  const context = useOptionalUserContext()?.data ?? null;
+  /** The first-time setup (or its later edit): asked once, when no answer is saved and "Later" is not in force. */
+  const [setup, setSetup] = useState<{ open: boolean; mode: SetupMode }>({ open: false, mode: "first" });
+  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupError, setSetupError] = useState("");
+  const setupChecked = useRef(false);
   const dateKey = localDateKey(date);
 
   const load = useCallback(async () => {
@@ -171,6 +181,14 @@ export default function NutritionPage() {
     if (!auth.user) { setError("Sign in to track food and water."); setLoading(false); return; }
     const uid = auth.user.id;
     setUserId(uid);
+    // Once per page view: a member who has not answered the food questions (and did not choose Later on this
+    // device in the last few days) gets the setup. A read that fails never asks again by mistake.
+    if (!setupChecked.current) {
+      setupChecked.current = true;
+      void loadSetupState(supabase, uid).then((state) => {
+        if (!state.done && !snoozed(readSnooze(uid), localDateKey())) setSetup({ open: true, mode: "first" });
+      }, () => undefined);
+    }
     const caps = await detectCapabilities(supabase);
     setCapabilities(caps);
     const [mealResult, waterResult, profileResult, prefsResult, custom, targets, savedTemplates, goalViews, birthDate] = await Promise.all([
@@ -797,6 +815,35 @@ export default function NutritionPage() {
     });
   }
 
+  /** Saves the setup answers; the diet filter in Log food follows the new diet. */
+  async function finishSetup(answers: NutritionSetupAnswers) {
+    const supabase = createClient();
+    if (!supabase || !userId) return;
+    setSetupBusy(true); setSetupError("");
+    try {
+      const saved = await saveSetup(supabase, userId, answers, {
+        schema: context?.schema ?? { preferencesV2: true, onboardingV3: true },
+        legacyDiet: context?.legacy.dietaryPreferences ?? [],
+      });
+      if (saved.error) { setSetupError("Your answers could not be saved. Please try again."); return; }
+      writeSnooze(userId, null);
+      setSetup((current) => ({ ...current, open: false }));
+      notifyUserContextChanged();
+      if (answers.diet) { dietFilterSet.current = true; setDietFilter(dietFilterFor(legacyDietaryPreferences(answers.diet, []))); }
+      toast.success(setup.mode === "first" ? "Nutrition is set up." : "Saved your food preferences.");
+    } catch {
+      setSetupError("Your answers could not be saved. Please try again.");
+    } finally {
+      setSetupBusy(false);
+    }
+  }
+
+  /** "Later": closes the setup on this device for a few days; Food preferences still opens it. */
+  function laterSetup() {
+    if (userId) writeSnooze(userId, localDateKey());
+    setSetup((current) => ({ ...current, open: false }));
+  }
+
   const visibleSources = sources.filter((source) => source.status !== "not_used");
   const estimateCount = entries.filter(isEstimateSnapshot).length;
   const showBrowse = searchMode === "browse";
@@ -851,25 +898,33 @@ export default function NutritionPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title="Nutrition" actions={<>
+      <PageHeader title="Nutrition" actions={
         <div className={styles.day} role="group" aria-label="Day">
           <button type="button" onClick={() => shiftDate(-1)} aria-label="Previous day" className={styles.dayButton}><ArrowLeft size={16} aria-hidden="true"/></button>
           <span className={styles.dayLabel}>{dayLabels.picker}</span>
           <button type="button" onClick={() => shiftDate(1)} aria-label="Next day" className={styles.dayButton}><ArrowRight size={16} aria-hidden="true"/></button>
         </div>
-        <button type="button" onClick={() => openLog()} className={`fitx-button ${styles.logButton}`}><Plus size={17} aria-hidden="true"/>Log food</button>
-      </>}/>
+      }/>
 
-      <DayOverview summaryLabel={dayLabels.summary} heading={dayLabels.heading} totals={totals} target={target} targetSource={targetSourceText}
-        hasOwnTargets={Boolean(manualTargets)} estimateCount={estimateCount} onTargets={() => setTargetsOpen(true)}
-        water={{ ml: waterMl, target: waterTarget, busy, goalHref: homePanel("goals", { new: "water_day" }), onAdd: (ml) => void addWater(ml) }}/>
+      <div className={styles.top}>
+        <DayOverview summaryLabel={dayLabels.summary} heading={dayLabels.heading} totals={totals} target={target} targetSource={targetSourceText}
+          hasOwnTargets={Boolean(manualTargets)} estimateCount={estimateCount} onTargets={() => setTargetsOpen(true)}
+          water={{ ml: waterMl, target: waterTarget, busy, goalHref: WATER_GOAL_HREF, onAdd: (ml) => void addWater(ml) }}/>
 
-      {!logOpen && <form onSubmit={(event) => void quickSearch(event)} className={styles.quick} role="search" aria-label="Quick add">
-        <Search size={18} aria-hidden="true" className={styles.quickIcon}/>
-        <input className={styles.quickInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search food, e.g. 3 idli" aria-label="Search foods" enterKeyHint="search"/>
-        <button type="submit" className={styles.quickGo} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
-        <button type="button" className={styles.quickScan} onClick={() => { openLog({ mode: "barcode" }); setScannerOpen(true); }} aria-label="Scan a barcode"><ScanBarcode size={18} aria-hidden="true"/></button>
-      </form>}
+        <div className={styles.actions}>
+          <button type="button" onClick={() => openLog()} className={`fitx-button ${styles.logButton}`}><Plus size={19} aria-hidden="true"/>Log food</button>
+          {!logOpen && <form onSubmit={(event) => void quickSearch(event)} className={styles.quick} role="search" aria-label="Quick add">
+            <Search size={18} aria-hidden="true" className={styles.quickIcon}/>
+            <input className={styles.quickInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="3 idli, 150 g rice, 200 ml milk" aria-label="Search foods" enterKeyHint="search"/>
+            <button type="submit" className={styles.quickGo} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
+          </form>}
+          <div className={styles.shortcuts}>
+            <button type="button" className={styles.shortcut} onClick={() => { openLog({ mode: "barcode" }); setScannerOpen(true); }} aria-label="Scan a barcode"><ScanBarcode size={18} aria-hidden="true"/><span>Scan</span></button>
+            <button type="button" className={styles.shortcut} onClick={() => openLog({ quiet: true })}><BookOpen size={18} aria-hidden="true"/><span>Food database</span></button>
+            <button type="button" className={styles.shortcut} onClick={() => { setSetupError(""); setSetup({ open: true, mode: "edit" }); }}><ListChecks size={18} aria-hidden="true"/><span>Food preferences</span></button>
+          </div>
+        </div>
+      </div>
 
       <nav aria-label="Nutrition sections" className={styles.tabs}>
         {tabs.map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} aria-current={tab === value ? "page" : undefined} className={styles.tab}>{label}</button>)}
@@ -971,6 +1026,9 @@ export default function NutritionPage() {
         initial={namePrompt.kind === "section" ? "" : namePrompt.initial} busy={busy} onCancel={() => { setNamePrompt(null); restoreLog(); }} onSave={(name) => void saveNamed(name)}/>}
       {householdOpen && <HouseholdMeasures sizes={household} onCancel={() => { setHouseholdOpen(false); restoreLog(); }}
         onSave={(sizes) => { saveHousehold(sizes); setHousehold(sizes); setHouseholdOpen(false); restoreLog(); }}/>}
+      <NutritionSetup open={setup.open} mode={setup.mode} busy={setupBusy} error={setupError}
+        initial={initialSetupAnswers(context?.hasPreferences ? context.preferences : null)}
+        onSave={(answers) => void finishSetup(answers)} onLater={laterSetup} onClose={() => setSetup((current) => ({ ...current, open: false }))}/>
       {targetsOpen && <TargetsEditor estimated={estimated} manual={manualTargets} ready={capabilities.targets} busy={busy} onClose={() => setTargetsOpen(false)}
         onSave={(next) => void updateTargets(next)} onReset={() => void updateTargets(null)}/>}
     </div>

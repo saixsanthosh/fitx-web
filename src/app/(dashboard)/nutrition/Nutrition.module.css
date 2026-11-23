@@ -87,10 +87,32 @@
 }
 @media (max-width: 420px) {
   .dayLabel { min-width: 6.5rem; font-size: .75rem; }
-  .logButton { flex: 1 1 auto; }
+
 }
 @media (prefers-reduced-motion: reduce) {
   .listItem { animation: none; }
   .tab::after,.quick,.camera { transition: none; }
   .camera:active { transform: none; }
 }
+
+/* The day's overview and the logging actions: one column on phones, side by side from 1024 px. */
+.top { display: grid; min-width: 0; gap: 1rem; }
+.actions { display: grid; min-width: 0; align-content: start; gap: .75rem; }
+.actions .logButton { width: 100%; min-height: 3.25rem; justify-content: center; gap: .5rem; font-size: 1rem; font-weight: 700; }
+.shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+.shortcut {
+  display: grid; min-height: 4.25rem; min-width: 0; place-content: center; justify-items: center; gap: .3rem; border: 1px solid var(--fitx-border); border-radius: 1rem;
+  background: var(--fitx-card-bg); padding: .5rem .35rem; color: var(--fitx-text); transition: border-color .15s ease, transform .15s ease, background-color .15s ease;
+}
+.shortcut span { max-width: 100%; color: var(--fitx-text-secondary); font-size: .74rem; font-weight: 650; line-height: 1.2; text-align: center; overflow-wrap: anywhere; }
+.shortcut:hover { border-color: var(--fitx-text-disabled); background: var(--fitx-hover); }
+.shortcut:active { transform: scale(.97); }
+.shortcut:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+@media (min-width: 1024px) {
+  .top { grid-template-columns: minmax(0, 1.6fr) minmax(18rem, 1fr); align-items: stretch; gap: 1.25rem; }
+  .actions { align-content: start; }
+  .shortcuts { grid-template-columns: minmax(0, 1fr); }
+  .shortcut { display: flex; min-height: 3.5rem; align-items: center; justify-content: flex-start; gap: .75rem; padding: 0 1.1rem; }
+  .shortcut span { color: var(--fitx-text); font-size: .85rem; }
+}
+@media (prefers-reduced-motion: reduce) { .shortcut { transition: none; } .shortcut:active { transform: none; } }

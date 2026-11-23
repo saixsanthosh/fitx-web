@@ -1,0 +1,34 @@
+{
+  "set": "nutrition",
+  "style": "Photoreal editorial food photograph, shot straight down from above on a matte charcoal stone surface, one soft window light from the upper left, gentle natural shadows, true-to-life colour and texture, appetising and calm, premium and uncluttered. The food sits in plain matte ceramic bowls and plates in the centre with generous dark space around it. No people, hands, cutlery brands, text, letters, numbers, logos, labels, packaging or watermarks anywhere.",
+  "images": [
+    {
+      "id": "diet-vegetarian",
+      "aspect": "1:1",
+      "longEdge": 640,
+      "alt": "A vegetarian South Indian meal: idli, sambar, coconut chutney, dal and vegetables",
+      "prompt": "A vegetarian South Indian meal: three soft white idlis on a plate, a small bowl of sambar with vegetables, a small bowl of white coconut chutney, a bowl of yellow dal and a small bowl of green beans stir-fried with grated coconut. No meat, fish or eggs."
+    },
+    {
+      "id": "diet-eggetarian",
+      "aspect": "1:1",
+      "longEdge": 640,
+      "alt": "An eggetarian meal: a masala omelette, halved boiled eggs, whole-wheat toast and sliced vegetables",
+      "prompt": "A vegetarian meal with eggs: a folded Indian masala omelette flecked with onion, tomato and coriander, two boiled eggs cut in half showing the yolks, two slices of whole-wheat toast and a few slices of cucumber and tomato. No meat or fish."
+    },
+    {
+      "id": "diet-non-vegetarian",
+      "aspect": "1:1",
+      "longEdge": 640,
+      "alt": "A non-vegetarian meal: grilled chicken pieces, a fish curry and steamed rice",
+      "prompt": "A non-vegetarian Indian meal: a plate of grilled tandoori-style chicken pieces with lemon wedges, a bowl of red Kerala fish curry with pieces of fish, a bowl of steamed white rice and a few onion rings."
+    },
+    {
+      "id": "diet-vegan",
+      "aspect": "1:1",
+      "longEdge": 640,
+      "alt": "A vegan meal: chickpea curry, brown rice, roasted vegetables and a cucumber salad",
+      "prompt": "A fully plant-based meal with no dairy, eggs, meat or fish: a bowl of chickpea curry (chana masala) garnished with coriander, a bowl of brown rice, a plate of roasted pumpkin, peppers and broccoli, and a small bowl of cucumber and tomato salad."
+    }
+  ]
+}

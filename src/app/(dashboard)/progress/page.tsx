@@ -3,7 +3,7 @@ import { ProgressView } from "./ProgressView";
 
 export const metadata: Metadata = { title: "Progress" };
 
-/** /progress: trends, what to focus on next, muscles, totals, records and body measurements. */
+/** /progress: a week, month or year of training, food, weight, records and goals, from the member's own logs. */
 export default function ProgressPage() {
   return <ProgressView />;
 }

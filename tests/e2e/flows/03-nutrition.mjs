@@ -4,6 +4,7 @@
 // size switch changes the numbers, each is logged; recent foods come back first; "Hide non-veg" is on and hides
 // chicken; a custom food is saved with a photo; today becomes a routine applied to tomorrow; own targets are saved;
 // the scanner offers "Type the number"; and a barcode lookup with the internet blocked says it couldn't be checked.
+// Today's calories and the target match on Progress (Home no longer shows food).
 import { kolkataDate, signInUi, textOf } from "./common.mjs";
 import { makePng } from "../support/png.mjs";
 
@@ -164,22 +165,24 @@ export const flow = {
       await closeLog(page);
     });
 
-    await t.step("Home and Nutrition agree on today's calories and the estimated target", async () => {
+    await t.step("Progress and Nutrition agree on today's calories and the estimated target", async () => {
       await t.goto("/nutrition", { label: "nutrition estimate" });
       // The day's food and targets load after the page: wait for "eaten / target kcal" before reading it.
       await page.locator("section[aria-label^='Nutrition summary']").getByText(/\/\s*[\d,]+\s*kcal/).first().waitFor({ timeout: 15000 });
       const overview = await textOf(page.locator("section[aria-label^='Nutrition summary']"));
       const nutrition = /([\d,]+)\s*\/\s*([\d,]+)\s*kcal/.exec(overview);
-      await t.goto("/dashboard", { label: "home totals" });
-      const today = page.locator("[data-widget=today]");
-      await today.getByText("kcal").first().waitFor({ timeout: 15000 });
-      const home = /Calories[^\d]*([\d,]+)\s*\/\s*([\d,]+)\s*kcal/.exec(await textOf(today));
+      await t.goto("/progress", { label: "progress nutrition" });
+      // Only today has food this week, so the week's average a logged day is today's total.
+      const food = page.locator("section[aria-labelledby='food-title']");
+      await food.getByText(/target [\d,]+ kcal/).first().waitFor({ timeout: 20000 });
+      const text = await textOf(food);
+      const progress = /Calories\s*([\d,]+)\s*kcal a day.*?target ([\d,]+) kcal/i.exec(text);
       const num = (value) => Number(String(value ?? "").replace(/,/g, ""));
-      t.note("calories: nutrition vs home", { nutrition: nutrition?.slice(1), home: home?.slice(1) });
-      t.expect(nutrition && home, "both pages should show eaten / target kcal");
-      t.expect(Math.abs(num(nutrition[1]) - num(home[1])) <= 1, `today's calories differ: Nutrition ${nutrition[1]} vs Home ${home[1]}`);
-      t.expect(num(nutrition[2]) === num(home[2]), `the estimated calorie target differs: Nutrition ${nutrition[2]} vs Home ${home[2]}`);
-      await t.checkpoint("home with logged food");
+      t.note("calories: nutrition vs progress", { nutrition: nutrition?.slice(1), progress: progress?.slice(1), text: text.slice(0, 300) });
+      t.expect(nutrition && progress, "both pages should show calories and the target", text);
+      t.expect(Math.abs(num(nutrition[1]) - num(progress[1])) <= 1, `today's calories differ: Nutrition ${nutrition[1]} vs Progress ${progress[1]}`);
+      t.expect(num(nutrition[2]) === num(progress[2]), `the estimated calorie target differs: Nutrition ${nutrition[2]} vs Progress ${progress[2]}`);
+      await t.checkpoint("progress with logged food");
       await t.goto("/nutrition", { label: "back to nutrition" });
     }, { soft: true });
 
@@ -267,10 +270,12 @@ export const flow = {
       t.note("overview with own targets", overview.slice(0, 500));
       t.expect(/2,000|2000/.test(overview), "the overview should use the 2,000 kcal target");
       await t.checkpoint("own targets");
-      await t.goto("/dashboard", { label: "home with own targets" });
-      const today = await textOf(page.locator("[data-widget=today]"));
-      t.note("home today widget with own targets", today);
-      t.expect(/2,000|2000/.test(today), "Home should use the 2,000 kcal target the member set");
+      await t.goto("/progress", { label: "progress with own targets" });
+      const food = page.locator("section[aria-labelledby='food-title']");
+      await food.getByText(/target [\d,]+ kcal/).first().waitFor({ timeout: 20000 });
+      const progressText = await textOf(food);
+      t.note("progress nutrition with own targets", progressText.slice(0, 300));
+      t.expect(/target 2,000 kcal/.test(progressText), "Progress should use the 2,000 kcal target the member set", progressText);
       await t.goto("/nutrition", { label: "nutrition after targets" });
     });
 

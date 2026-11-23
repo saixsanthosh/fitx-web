@@ -12,6 +12,7 @@ import { loadMuscleHistory, type LoggedSession } from "@/lib/training/muscle-his
 import { loadActivitiesBetween } from "./activities";
 import { loadFoodDays } from "./meals";
 import { DataError } from "./missing-schema";
+import { isMissingColumnError } from "@/lib/domain/schema-fallback";
 import { pagedRows, toNumber } from "./rows";
 
 type Db = SupabaseClient;
@@ -60,6 +61,63 @@ export async function loadTrendRows(db: Db, userId: string, today: string, weeks
     foodCapped: food?.capped ?? false,
     from,
   };
+}
+
+/** The rows behind the period views: workouts, activities (with their calorie estimates) and food from `from` to `to`. */
+export type ProgressRows = Omit<TrendRows, "activities"> & {
+  activities: Array<TrendActivity & { kcalEstimate: number | null }> | null;
+  to: string;
+};
+
+/** Sessions read for the period views; more are cut, newest kept, and the page says so. */
+export const PROGRESS_MAX_SESSIONS = 600;
+
+async function activitiesWithKcal(db: Db, userId: string, from: string, to: string) {
+  try {
+    return await loadActivitiesBetween(db, userId, from, to, { kcal: true });
+  } catch (failure) {
+    // A database whose activities predate the calorie estimate: the same rows without it.
+    if (failure instanceof DataError && isMissingColumnError(failure.cause, ["kcal_estimate"])) return loadActivitiesBetween(db, userId, from, to);
+    throw failure;
+  }
+}
+
+/**
+ * Loads `from` to `to` (inclusive) for Progress's week, month and year views (the page asks for the period and the
+ * one before it, for comparisons). Activities and food that cannot be read are unknown, never empty.
+ */
+export async function loadProgressRows(db: Db, userId: string, from: string, to: string): Promise<ProgressRows> {
+  const [history, activities, food] = await Promise.all([
+    loadMuscleHistory(db, userId, { since: startOf(from), maxSessions: PROGRESS_MAX_SESSIONS }),
+    activitiesWithKcal(db, userId, from, to).catch(() => null),
+    loadFoodDays(db, userId, from, to).catch(() => null),
+  ]);
+  if (history.error) throw new DataError("Your workouts could not be loaded.", history.error);
+  return {
+    sessions: history.sessions,
+    sessionsCapped: history.truncated,
+    activities: activities?.available
+      ? activities.activities.map(({ startedAt, distanceM, movingSeconds, kcalEstimate }) => ({ startedAt, distanceM, movingSeconds, kcalEstimate: kcalEstimate ?? null }))
+      : null,
+    activitiesState: activities === null ? "error" : activities.available ? "ok" : "unavailable",
+    activitiesCapped: activities?.capped ?? false,
+    foodDays: food?.days ?? new Map(),
+    foodError: food === null,
+    foodCapped: food?.capped ?? false,
+    from,
+    to,
+  };
+}
+
+/** Weigh-ins and measurements read for Progress, newest first. */
+export const BODY_ROWS = 400;
+
+/** The member's newest body rows (weight, body fat, tape measurements), newest first. */
+export async function loadBodyRows(db: Db, userId: string, limit = BODY_ROWS): Promise<BodyMetricRow[]> {
+  const result = await db.from("body_metrics").select("id,date,weight,body_fat,measurements").eq("user_id", userId)
+    .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
+  if (result.error) throw new DataError("Your body measurements could not be loaded.", result.error);
+  return (result.data ?? []) as BodyMetricRow[];
 }
 
 export type AllTimeTotals = {
