@@ -262,6 +262,8 @@ const shotsFor = (sheet) => {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const final = Boolean(args.final);
+  // A final always has the timeline's own length (FILM_DURATION), so the mix matches the encoded film.
+  if (final && args["intro-duration"]) throw new Error("--intro-duration is for previews only; a final uses FILM_DURATION");
   const dir = audioDir(args["audio-dir"]);
   const sources = verifiedSources(dir);
   const sheets = sheetsFor(args);
