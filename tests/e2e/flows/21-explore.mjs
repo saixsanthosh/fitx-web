@@ -32,7 +32,7 @@ async function sawOverflow(t, name) {
 export const flow = {
   id: "21-explore",
   title: "Explore: profiles, private follow approval, photo posts, likes, comments, saves, edits, deletes, search, reports, blocks, notifications",
-  async run(t, { standin }) {
+  async run(t, { standin, size }) {
     const page = await t.open();
     const ben = await standin.createAccount({ name: "Ben Okafor", tag: "explore-ben", profile: { gender: "male" } });
     const asha = await standin.createAccount({ name: "Asha Rao", tag: "explore-asha" });
@@ -226,5 +226,20 @@ export const flow = {
       const text = await textOf(page.locator("main"));
       t.expect(!/\b(kg|kcal|bpm)\b/i.test(text), "no health data appears in Explore", text.slice(0, 300));
     });
+
+    if (size === "desktop") {
+      await t.step("at 768 px (tablet) Discover, the post and a profile fit without sideways scroll", async () => {
+        await page.setViewportSize({ width: 768, height: 1024 });
+        await t.goto("/explore/discover", { label: "tablet discover" });
+        await page.getByRole("heading", { level: 1, name: "Discover" }).waitFor({ timeout: 15000 });
+        await sawOverflow(t, "tablet discover");
+        await t.goto(`/explore/p/${postId}`, { label: "tablet post" });
+        await page.locator("article").first().waitFor({ timeout: 15000 });
+        await sawOverflow(t, "tablet post");
+        await t.goto(`/explore/u/${benName}`, { label: "tablet profile" });
+        await page.getByRole("heading", { level: 1, name: "Ben Okafor" }).waitFor({ timeout: 15000 });
+        await sawOverflow(t, "tablet profile");
+      });
+    }
   },
 };
