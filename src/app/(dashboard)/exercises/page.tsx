@@ -478,7 +478,7 @@ export default function ExerciseLibraryPage() {
       </section>
 
       <p className="text-center text-[11px] leading-5 text-fitx-text-secondary">
-        Photos and steps adapted from <a className="text-fitx-primary-text underline underline-offset-2" href={FREE_EXERCISE_DB_SOURCE_URL} target="_blank" rel="noreferrer">Free Exercise DB</a> (public domain). Demonstrations play its real photos; no exercise has a verified video yet.
+        Photos and steps adapted from <a className="text-fitx-primary-text underline underline-offset-2" href={FREE_EXERCISE_DB_SOURCE_URL} target="_blank" rel="noreferrer">Free Exercise DB</a> (public domain). Cards marked AI demo show FITX’s AI demonstrations, made from those real photos of the same movement; the rest show the photos themselves. No exercise has a verified video yet.
       </p>
       </div>
       </ModePanel>

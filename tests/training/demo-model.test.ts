@@ -244,6 +244,12 @@ describe("every surface reads the index the same way (source)", () => {
     assert.match(media, /\{url === demo \? "AI demo" : "Photo"\}/);
   });
 
+  test("the library footer names the AI demonstrations made from the real photos, not wave 1's photos-only line", () => {
+    const page = read("app/(dashboard)/exercises/page.tsx");
+    assert.doesNotMatch(page, /Demonstrations play its real photos/);
+    assert.match(page, /Cards marked AI demo show FITX’s AI demonstrations, made from those real photos of the same movement; the rest show the photos themselves\. No exercise has a verified video yet\./);
+  });
+
   test("the committed index is a valid, empty index until demonstrations are accepted", () => {
     const committed = JSON.parse(readFileSync(new URL("../../public/media/demos/index.json", import.meta.url), "utf8"));
     const parsed = parseDemoIndex(committed);
