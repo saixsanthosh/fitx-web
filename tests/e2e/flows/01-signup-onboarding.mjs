@@ -171,7 +171,7 @@ export const flow = {
       t.expect(row?.onboarded === "t", "profile should be onboarded");
       t.expect(row.date_of_birth === BIRTH_DATE && row.age === String(expectedAge), "date of birth saved, with the age it gives", row);
       t.expect(row.gender === "female" && Number(row.height) === 162 && Number(row.weight) === 68.5 && Number(row.target_weight) === 62, "body answers saved", row);
-      t.expect(row.primary_goal === "weight_loss" && row.activity_level === "moderate" && row.timezone === "Asia/Kolkata", "goal, activity and time zone saved", row);
+      t.expect(row.primary_goal === "weight_loss" && row.activity_level === "moderate" && ["Asia/Kolkata", "Asia/Calcutta"].includes(row.timezone), "goal, activity and time zone saved", row);
       t.expect(row.diet_type === null && row.food_source === null && row.nutrition_focus === null && row.kit_lists === "0", "no food or equipment answers were asked or written", row);
       t.expect(/68\.5/.test(row.weigh_ins ?? ""), "a starting weigh-in logged", row);
       t.expect(row.shown_quote && quoteText.includes(row.shown_quote.slice(0, 20)), "the quote shown is the one stored for today", { row: row.shown_quote, quoteText });
