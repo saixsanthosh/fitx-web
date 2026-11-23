@@ -47,6 +47,19 @@ function obstacles(self: HTMLElement | null): Rect[] {
   return rects;
 }
 
+/**
+ * An open modal sheet drawn in the page (role="dialog" with aria-modal, not a top-layer <dialog>). The button sits
+ * above the page, so it would float over the sheet and its content: it waits until the sheet closes.
+ */
+function modalOpen(): boolean {
+  for (const element of Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]'))) {
+    if (element.closest("dialog")) continue;
+    const rect = element.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return true;
+  }
+  return false;
+}
+
 /** Controls the button must not sit on: anything a member clicks, types into or watches. */
 const CONTROL = "a[href], button, input, select, textarea, label, summary, video, canvas, iframe, [role=button], [role=link], [role=slider], [role=switch], [role=tab], [role=checkbox], [role=radio], [tabindex]:not([tabindex='-1'])";
 
@@ -79,7 +92,7 @@ const typing = (element: Element | null) =>
  * The floating AI Coach button (phase 15). Small and draggable: it rests against the left or right edge where the
  * member drops it (remembered per phone, tablet and desktop size), keeps clear of the bottom bar and of anything
  * marked `data-coach-avoid` and of any button, link or field it would otherwise sit on, and hides on the coach page, onboarding and the focus screens (live workout, AI Form
- * Check camera, activity recorder), and on phones while the keyboard is up. "Hide AI Coach button" hides it for this
+ * Check camera, activity recorder), while a modal sheet is open, and on phones while the keyboard is up. "Hide AI Coach button" hides it for this
  * page load only (back on refresh); Settings turns it off for good. Pressing it opens the coach panel through the
  * fitx:coach-open event, or the AI Coach page when no panel is mounted.
  */
@@ -120,9 +133,10 @@ export function CoachLauncher() {
   const layout = useCallback(() => {
     if (drag.current?.moved) return;
     const viewport = { width: window.innerWidth, height: window.innerHeight };
-    // Clear of the marked bars first, then of any control the spot would cover, a few times over.
+    // Clear of the marked bars first, then of any control the spot would cover, a few times over. None while a
+    // modal sheet is open.
     const avoid = obstacles(root.current);
-    let next = placeLauncher(spot.current, viewport, avoid);
+    let next = modalOpen() ? null : placeLauncher(spot.current, viewport, avoid);
     for (let pass = 0; next && pass < 4; pass += 1) {
       const under = controlsUnder(next, root.current);
       if (!under.length) break;
