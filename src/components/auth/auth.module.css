@@ -147,6 +147,8 @@
   flex: 1 1 auto;
   min-width: 0;
   flex-direction: column;
+  /* The form's rise-in starts 10 px low: clip it, so the page never scrolls while it plays. */
+  overflow: clip;
 }
 
 .panelInner {

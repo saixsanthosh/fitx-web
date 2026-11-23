@@ -36,7 +36,8 @@ function readVerdict() {
 function readTiltSupport(): "ask" | "auto" | "none" {
   const api = orientationApi();
   if (!api || !window.matchMedia("(pointer: coarse)").matches) return "none";
-  return typeof api.requestPermission === "function" ? "ask" : "auto";
+  // Only Safari on iPhone and iPad holds motion back until a tap; other browsers share it (or ask on their own).
+  return typeof api.requestPermission === "function" && isAppleMobile() ? "ask" : "auto";
 }
 
 /** The page's effective theme (a saved choice on <html data-theme>, else the device's). */
