@@ -217,13 +217,21 @@
   background: var(--fitx-card-bg);
 }
 
+/* One sideways row of photos on phones and tablets (far shorter than a grid); a grid beside Your plans from 1024 px. */
 .equipmentGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  display: flex;
   gap: 8px;
   margin: 0;
-  padding: 0;
+  padding: 0 0 2px;
+  overflow-x: auto;
   list-style: none;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+.equipmentGrid::-webkit-scrollbar { display: none; }
+.equipmentGrid > * { flex: 0 0 76px; scroll-snap-align: start; }
+@media (min-width: 1024px) {
+  .equipmentGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); overflow: visible; }
 }
 
 .equipmentItem {
@@ -231,9 +239,8 @@
   min-width: 0;
   justify-items: center;
   gap: 6px;
-  padding: 12px 6px 10px;
+  padding: 4px 2px 6px;
   border-radius: 14px;
-  background: var(--fitx-surface-variant);
   color: var(--fitx-text);
   text-align: center;
 }
@@ -268,3 +275,27 @@
 }
 
 @keyframes live { 50% { opacity: 0.35; transform: scale(0.8); } }
+
+/* Home and Gym (phase 7): the mode panel keeps the page's block rhythm inside its animated wrapper. */
+.modePanel > * > * + * { margin-top: var(--fitx-space-block); }
+
+/* Home mode: today's planned workout as one slim row above the home collection. */
+.homeToday {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border: 1px solid var(--fitx-border);
+  border-radius: 16px;
+  background: var(--fitx-card-bg);
+}
+.homeTodayWhen {
+  display: block;
+  color: var(--fitx-primary-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.credit { color: var(--fitx-text-secondary); font-size: 11px; line-height: 1.5; text-align: center; }

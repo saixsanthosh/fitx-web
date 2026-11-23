@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { homePanel } from "@/config/routes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, CalendarDays, ChevronDown, Copy, Info, Pencil, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowRight, CalendarDays, ChevronDown, Copy, Info, Pencil, Plus, RotateCcw, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
-import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
+import { EquipmentThumb } from "@/components/equipment/EquipmentTile";
 import { Reveal } from "@/components/motion";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Section } from "@/components/ui/Section";
 import { FocusTiles } from "@/components/training/FocusTiles";
+import { HomeCollection } from "@/components/workouts/HomeCollection";
+import { ModePanel, ModeTabs } from "@/components/workouts/ModeTabs";
+import { WorkoutSetupFlow } from "@/components/workouts/WorkoutSetupFlow";
+import { setupLaterKey } from "@/components/workouts/setup-steps";
 import { BuilderRow } from "@/components/workouts/BuilderRow";
 import { EquipmentPicker } from "@/components/workouts/EquipmentPicker";
 import { ExerciseInfoSheet } from "@/components/workouts/ExerciseInfoSheet";
@@ -34,6 +37,8 @@ import { bestSet, formatBestSet, loadExerciseHistory, previousPerformance } from
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { focusCounts, listFocusAreas, parseFocusParam, type FocusArea } from "@/lib/training/focus";
 import { generateDay, generateFocusDay } from "@/lib/training/generator";
+import { loadWorkoutSetup, modeForLocation, resolveDemoModel, type WorkoutSetup } from "@/lib/training/setup";
+import { initialMode, modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
 import { contextForLocation, planSummary } from "@/lib/training/plan-summary";
 import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
@@ -200,7 +205,7 @@ export default function WorkoutsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [creatorOpen, setCreatorOpen] = useState(false);
-  const [mode, setMode] = useState<BuilderMode>("auto");
+  const [builderMode, setBuilderMode] = useState<BuilderMode>("auto");
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   // The edited plan's date when it was opened: its own planner event is the one on that day.
   const [editingPlannedFor, setEditingPlannedFor] = useState<string | null>(null);
@@ -226,8 +231,15 @@ export default function WorkoutsPage() {
   const [planCursor, setPlanCursor] = useState<PlanPageCursor | null>(null);
   const [loadingMorePlans, setLoadingMorePlans] = useState(false);
   const [listDayKey, setListDayKey] = useState("");
-  // The page is for the gym; home training lives on Home workout. A followed home programme still shows here.
+  // Home and Gym (phase 7): the Gym mode keeps plans, programmes and history; Home lists the home exercises.
   const context: TrainingContext = "gym";
+  const [mode, setMode] = useState<WorkoutMode>("gym");
+  const [modeMove, setModeMove] = useState<1 | -1 | 0>(0);
+  const modeChosen = useRef(false);
+  // The first-time setup (brief 3.4): null until loaded or when it could not be read.
+  const [setup, setSetup] = useState<WorkoutSetup | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [setupLater, setSetupLater] = useState(false);
   const [profiles, setProfiles] = useState<EquipmentProfiles>({ home: null, gym: null, available: false });
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [enrolAvailable, setEnrolAvailable] = useState(false);
@@ -282,7 +294,7 @@ export default function WorkoutsPage() {
       const query = supabase.from("workout_plans").select("id", { count: "exact" }).eq("user_id", uid).in("status", PLAN_LIST_STATUSES);
       return (onlyOwnPlans ? query.is("programme_enrolment_id", null) : query).limit(1);
     };
-    const [catalogResult, preferencesResult, planPage, historyResult, activeResult, completedCount, planCount, exerciseCount, targetsProbe, linkedPlan, profileResult, programmeResult, enrolmentResult, recent] = await Promise.all([
+    const [catalogResult, preferencesResult, planPage, historyResult, activeResult, completedCount, planCount, exerciseCount, targetsProbe, linkedPlan, profileResult, programmeResult, enrolmentResult, recent, setupResult] = await Promise.all([
       loadCatalog(supabase),
       supabase.from("user_preferences").select("workout_location,equipment,fitness_level,session_duration_minutes,workout_split").eq("user_id", uid).maybeSingle(),
       fetchPlanPage(supabase, uid, todayKey, FIRST_PLAN_PAGE),
@@ -299,6 +311,7 @@ export default function WorkoutsPage() {
       loadProgrammes(supabase),
       loadCurrentEnrolment(supabase, uid),
       fetchRecentExerciseDays(supabase, uid),
+      loadWorkoutSetup(supabase, uid),
     ]);
     const failure = [catalogResult, preferencesResult, planPage, historyResult, activeResult].find((result) => result.error);
     if (failure?.error) { setError("Workouts could not load. Check your connection and try again."); setLoading(false); return; }
@@ -320,6 +333,12 @@ export default function WorkoutsPage() {
     setEquipmentLoadFailed(Boolean(profileResult.error));
     setProgrammeLoadFailed(Boolean(enrolmentResult.error || enrolmentPlans.error));
     setRecentDays(recent);
+    setSetup(setupResult.setup);
+    // The mode opens once: the address (?mode=), else the one used last on this device, else where they train.
+    if (!modeChosen.current) {
+      modeChosen.current = true;
+      setMode(initialMode({ requested: new URLSearchParams(window.location.search).get("mode"), stored: readStoredMode(), location: setupResult.setup?.location ?? prefs.workout_location }));
+    }
     // A linked plan from a later page is shown first; it is not repeated when its page loads.
     setPlans(linkedPlan && !planPage.rows.some((plan) => plan.id === linkedPlan.id) ? [linkedPlan, ...planPage.rows] : planPage.rows);
     setPlanCursor(planPage.next);
@@ -366,6 +385,39 @@ export default function WorkoutsPage() {
 
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
+  // "Later" on the first-time setup holds on this device until the member opens the setup themselves.
+  useEffect(() => {
+    if (!userId) return;
+    void Promise.resolve().then(() => {
+      try { setSetupLater(window.localStorage.getItem(setupLaterKey(userId)) === "1"); } catch { setSetupLater(false); }
+    });
+  }, [userId]);
+
+  function changeMode(next: WorkoutMode) {
+    if (next === mode) return;
+    setModeMove(modeDirection(mode, next));
+    setMode(next);
+    writeStoredMode(next);
+    const params = new URLSearchParams(window.location.search);
+    params.set("mode", next);
+    window.history.replaceState(null, "", `/workouts?${params.toString()}`);
+  }
+
+  function laterSetup() {
+    setSetupLater(true);
+    try { window.localStorage.setItem(setupLaterKey(userId), "1"); } catch { /* storage unavailable: hidden for this visit */ }
+  }
+
+  function setupSaved(next: WorkoutSetup) {
+    const firstTime = !setup?.done;
+    setSetup(next);
+    setProfiles(next.profiles);
+    setPreferences((current) => ({ ...current, workout_location: next.location, fitness_level: next.level, equipment: next.profiles.home ?? current.equipment }));
+    setSetupOpen(false);
+    setNotice("Setup saved. Workouts now follows your answers.");
+    if (firstTime) changeMode(modeForLocation(next.location));
+  }
+
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("exercise");
     // A link to a merged duplicate adds the exercise it was merged into.
@@ -374,7 +426,7 @@ export default function WorkoutsPage() {
     void Promise.resolve().then(() => {
       const exercise = catalog.find((item) => item.id === exerciseId);
       if (!exercise) return;
-      setMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle("Custom workout"); setPlanNotes(""); setSplit(preferences.workout_split || "full_body"); setPlanLocation(preferences.workout_location || "gym");
+      setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle("Custom workout"); setPlanNotes(""); setSplit(preferences.workout_split || "full_body"); setPlanLocation(preferences.workout_location || "gym");
       setPlannedFor(localDateKey());
       setPreview([plannedFrom(exercise, 0)]); setAutoNote("");
       setCreatorOpen(true);
@@ -477,11 +529,11 @@ export default function WorkoutsPage() {
   const builderContext = contextForLocation(planLocation);
   const builderOwned = useMemo(() => ownedFor(builderContext), [ownedFor, builderContext]);
   const focusDetails = useMemo(() => {
-    if (!creatorOpen || mode !== "focus") return undefined;
+    if (!creatorOpen || builderMode !== "focus") return undefined;
     const details: Partial<Record<FocusArea, string>> = {};
     for (const [area, count] of Object.entries(focusCounts(catalog, builderOwned)) as Array<[FocusArea, { doable: number | null }]>) details[area] = `${(count.doable ?? 0).toLocaleString()} you can do`;
     return details;
-  }, [creatorOpen, mode, catalog, builderOwned]);
+  }, [creatorOpen, builderMode, catalog, builderOwned]);
 
   /** The authored days an Auto plan draws from: the user's split at the gym, a home track at home. */
   function autoProgramme(target: TrainingContext): Programme | undefined {
@@ -530,7 +582,7 @@ export default function WorkoutsPage() {
   }
 
   function openCreator(nextMode: BuilderMode, target: TrainingContext = context, areas: readonly FocusArea[] = []) {
-    setMode(nextMode);
+    setBuilderMode(nextMode);
     setEditingPlanId(null); setEditingProgrammeDay(false);
     setTitle(nextMode === "auto" ? "Personalised workout" : "Custom workout");
     setPlanNotes("");
@@ -551,8 +603,8 @@ export default function WorkoutsPage() {
 
   /** Switching how a new workout starts: a split regenerates; body areas regenerate once chosen; Blank keeps the rows. */
   function switchMode(next: BuilderMode) {
-    if (next === mode) return;
-    setMode(next);
+    if (next === builderMode) return;
+    setBuilderMode(next);
     const target = contextForLocation(planLocation);
     if (next === "auto") applyAuto(target, autoDay, autoSeed);
     else if (next === "focus" && focusAreas.length) applyFocus(target, focusAreas, autoSeed);
@@ -587,7 +639,7 @@ export default function WorkoutsPage() {
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     }).map((row, sort_order) => ({ ...row, sort_order }));
     if (!nextPreview.length) return setError("The movements from that workout are no longer in the library.");
-    setMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
+    setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
     setPlanLocation("gym"); setPlannedFor(localDateKey()); setTime("18:00"); setAutoNote("");
     setPreview(nextPreview); setCreatorOpen(true);
     if (nextPreview.length < rows.length) setNotice(`${rows.length - nextPreview.length} movement${rows.length - nextPreview.length === 1 ? " is" : "s are"} no longer in the library and ${rows.length - nextPreview.length === 1 ? "was" : "were"} left out.`);
@@ -607,6 +659,8 @@ export default function WorkoutsPage() {
     setEquipmentSaving(false);
     if (result.error) return setError("Your equipment list couldn’t be saved. Check your connection and try again.");
     setProfiles((current) => ({ ...current, [equipmentEditor.context]: equipmentEditor.keys }));
+    // A saved list counts as setup done (brief 3.4), so the first-visit setup steps aside.
+    setSetup((current) => current ? { ...current, profiles: { ...current.profiles, [equipmentEditor.context]: equipmentEditor.keys }, done: true } : current);
     setEquipmentEditor(null);
   }
 
@@ -769,7 +823,7 @@ export default function WorkoutsPage() {
     if (rows.length && !nextPreview.length) {
       setSaving(false); setError("The saved movements are no longer available in the active library."); return;
     }
-    setMode("custom"); setEditingPlanId(planId); setEditingPlannedFor(planRow.planned_for || null); setTitle(planRow.title); setPlanNotes(planRow.notes || ""); setSplit(planRow.split); setPlanLocation(planRow.workout_location || "gym");
+    setBuilderMode("custom"); setEditingPlanId(planId); setEditingPlannedFor(planRow.planned_for || null); setTitle(planRow.title); setPlanNotes(planRow.notes || ""); setSplit(planRow.split); setPlanLocation(planRow.workout_location || "gym");
     setEditingProgrammeDay(Boolean(planRow.programme_enrolment_id && planRow.planned_for));
     // A To-Do workout linked to the plan has its own time: prefer the scheduled event on the plan's day.
     const planDay = planRow.planned_for;
@@ -794,7 +848,7 @@ export default function WorkoutsPage() {
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     });
     if (!nextPreview.length) { setSaving(false); setError("The saved movements are no longer available in the active library."); return; }
-    setMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
+    setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
     setAutoNote(""); setPreview(nextPreview); setCreatorOpen(true); setSaving(false);
   }
 
@@ -992,7 +1046,7 @@ export default function WorkoutsPage() {
   const gymEquipment = equipmentFor(profiles, "gym", preferences.equipment);
   const gymProgrammes = programmes.filter((programme) => programme.context === "gym");
   const enrolledProgramme = followedProgramme(programmes, enrolment);
-  const builderProgramme = mode === "auto" && !editingPlanId ? autoProgramme(builderContext) : undefined;
+  const builderProgramme = builderMode === "auto" && !editingPlanId ? autoProgramme(builderContext) : undefined;
   const rowToSwap = swapIndex !== null ? preview[swapIndex] : undefined;
   const builderSummary = planSummary(preview);
   const previewProgramme = enrolment && enrolledProgramme
@@ -1007,13 +1061,19 @@ export default function WorkoutsPage() {
   const loadedToday = todayCard && todayRows?.planId === todayCard.id ? todayRows : null;
   const doneToday = sessions.find((session) => localDateKey(new Date(session.started_at)) === todayKey) ?? null;
   const hiddenEquipment = Math.max(0, gymEquipment.keys.length - EQUIPMENT_SHOWN);
+  const homeEquipment = equipmentFor(profiles, "home", preferences.equipment);
+  const homeOwned = expandOwnedEquipment(homeEquipment.keys);
+  const demoModel = setup ? resolveDemoModel(setup.demoModel, setup.gender) : null;
 
   return (
     <div className={styles.page}>
       <div className={styles.stack}>
-      <PageHeader title="Workouts" eyebrow="Gym"
+      <PageHeader title="Workouts"
         meta={counts.completed !== null && counts.completed > 0 ? `${counts.completed.toLocaleString()} workout${counts.completed === 1 ? "" : "s"} done` : undefined}
-        actions={<button type="button" className={`fitx-button ${styles.headerAction}`} onClick={() => openCreator("focus")}><Plus size={18} aria-hidden="true" />New workout</button>} />
+        actions={<>
+          {setup && <button type="button" className={`fitx-button fitx-button-secondary ${styles.headerAction}`} onClick={() => setSetupOpen(true)} aria-haspopup="dialog"><Settings2 size={17} aria-hidden="true" />Workout setup</button>}
+          <button type="button" className={`fitx-button ${styles.headerAction}`} onClick={() => openCreator("focus", mode)}><Plus size={18} aria-hidden="true" />New workout</button>
+        </>} />
       {error && <p role="alert" className="fitx-alert fitx-alert-danger px-3 py-2 text-sm">{error}</p>}
       {notice && <p role="status" className={styles.notice}><Info size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info"/><span>{notice}</span></p>}
       {(equipmentLoadFailed || programmeLoadFailed) && <p role="status" className="fitx-alert">
@@ -1024,6 +1084,28 @@ export default function WorkoutsPage() {
       </p>}
       {activeSession && <div className={styles.activeSession}><span className={styles.livePulse} aria-hidden="true" /><div className="min-w-0 flex-1"><p className="text-sm font-semibold">Workout in progress</p><p className="truncate text-xs text-fitx-text-secondary">{activeSession.name} · started {readableDate(new Date(activeSession.started_at), { hour: "numeric", minute: "2-digit" })}</p></div><Link className="fitx-button min-h-11 shrink-0" href={"/workouts/active?session=" + activeSession.id}>Continue<ArrowRight size={16} aria-hidden="true"/></Link></div>}
 
+      {setup && !setup.done && !setupLater && !setupOpen && (
+        <WorkoutSetupFlow setup={{ ...setup, profiles }} userId={userId} legacyWords={preferences.equipment} variant="inline" onSaved={setupSaved} onLater={laterSetup} />
+      )}
+
+      <ModeTabs mode={mode} onChange={changeMode} panelId="workouts-mode-panel" idPrefix="workouts" />
+
+      <ModePanel mode={mode} direction={modeMove} id="workouts-mode-panel" labelledBy={`workouts-tab-${mode}`} className={styles.modePanel}>
+      {mode === "home" ? (
+        <>
+          {todayCard && today.kind !== "none" && (
+            <div className={styles.homeToday}>
+              <span className="min-w-0 flex-1"><span className={styles.homeTodayWhen}>{todayCard.when}</span><span className={styles.itemTitle}>{todayCard.title}</span></span>
+              <button type="button" aria-haspopup="dialog" className={`fitx-button ${styles.planStart}`} onClick={() => setPreviewPlanId(todayCard.id)}>Start<ArrowRight size={15} aria-hidden="true" /></button>
+            </div>
+          )}
+          <HomeCollection catalog={catalog} owned={homeOwned} level={level} model={demoModel}
+            onPlan={(area) => openCreator(area ? "focus" : "auto", "home", area ? [area] : [])}
+            equipmentSummary={homeEquipment.keys.length ? homeEquipment.keys.map(equipmentLabel).join(", ") : "No equipment"}
+            onEditEquipment={() => setEquipmentEditor({ context: "home", keys: homeEquipment.keys })} />
+        </>
+      ) : (
+      <>
       <div className={styles.topGrid}>
         <Section title={today.kind === "next" ? "Up next" : "Today"} id="today" className={styles.todaySection}>
           {todayCard
@@ -1067,7 +1149,7 @@ export default function WorkoutsPage() {
 
       <Reveal amount={0.12}>
         <Section title="Train by area" id="areas" action={<Link href="/exercises" className={styles.textLink}>Library<ArrowRight size={14} aria-hidden="true" /></Link>}>
-          <FocusTiles value={[]} onChange={() => undefined} onLaunch={(area) => openCreator("focus", "gym", [area])} layout="rail" label="Train by area" />
+          <FocusTiles value={[]} onChange={() => undefined} onLaunch={(area) => openCreator("focus", "gym", [area])} layout="rail" label="Train by area" credit={false} />
         </Section>
       </Reveal>
 
@@ -1091,7 +1173,8 @@ export default function WorkoutsPage() {
       )}
 
       <div className={styles.bottomGrid}>
-        <Section title="Your plans" id="plans" action={<Link href={homePanel("week")} className={styles.textLink}>Week<ArrowRight size={14} aria-hidden="true" /></Link>}>
+        {/* No "Week" link: the To-Do week view is gone and its address now opens this page (brief 3.7). */}
+        <Section title="Your plans" id="plans">
           {plans.length ? (
             <div className={styles.planList}>
               {plans.map((plan) => (
@@ -1126,8 +1209,8 @@ export default function WorkoutsPage() {
         <Section title="Gym equipment" id="equipment">
           <div className={styles.equipmentCard}>
             <ul className={styles.equipmentGrid} aria-label={`${gymEquipment.keys.length} items on your gym list`}>
-              {gymEquipment.keys.length === 0 && <li className={styles.equipmentItem}><EquipmentIcon name="none" size={26} /><span>Body weight</span></li>}
-              {gymEquipment.keys.slice(0, EQUIPMENT_SHOWN).map((key) => <li key={key} className={styles.equipmentItem}><EquipmentIcon name={key} size={26} /><span>{equipmentLabel(key)}</span></li>)}
+              {gymEquipment.keys.length === 0 && <li className={styles.equipmentItem}><EquipmentThumb equipmentKey="none" size={52} /><span>Body weight</span></li>}
+              {gymEquipment.keys.slice(0, EQUIPMENT_SHOWN).map((key) => <li key={key} className={styles.equipmentItem}><EquipmentThumb equipmentKey={key} size={52} /><span>{equipmentLabel(key)}</span></li>)}
               {hiddenEquipment > 0 && <li className={`${styles.equipmentItem} ${styles.equipmentMore}`}><span className={styles.equipmentCount}>+{hiddenEquipment}</span><span>more</span></li>}
             </ul>
             <div className={styles.equipmentFoot}>
@@ -1137,15 +1220,19 @@ export default function WorkoutsPage() {
           </div>
         </Section>
       </div>
+      </>
+      )}
+      </ModePanel>
+      <p className={styles.credit}>Exercise photos: Free Exercise DB (public domain).</p>
       </div>
 
       {creatorOpen && <div className="fixed inset-0 z-50 flex items-end justify-center bg-fitx-scrim/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="builder-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreatorOpen(false); }}><div ref={builderRef} className="max-h-[94dvh] w-full max-w-4xl overflow-y-auto rounded-t-[22px] border border-fitx-border bg-fitx-elevated shadow-2xl sm:max-h-[90dvh] sm:rounded-[22px]">
         <div className="p-4 sm:p-6">
-          <div className="mb-5 flex items-start justify-between gap-3"><div className="min-w-0"><h2 id="builder-title" className="font-heading text-2xl font-bold tracking-[-.03em]">{editingPlanId ? "Edit workout plan" : mode === "auto" ? "Build from your split" : mode === "focus" ? "Build by body area" : "Create a workout"}</h2>{builderProgramme && <p className="mt-1 text-sm text-fitx-text-secondary">From {builderProgramme.title}</p>}</div><button type="button" onClick={() => setCreatorOpen(false)} aria-label="Close workout builder" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18} aria-hidden="true"/></button></div>
+          <div className="mb-5 flex items-start justify-between gap-3"><div className="min-w-0"><h2 id="builder-title" className="font-heading text-2xl font-bold tracking-[-.03em]">{editingPlanId ? "Edit workout plan" : builderMode === "auto" ? "Build from your split" : builderMode === "focus" ? "Build by body area" : "Create a workout"}</h2>{builderProgramme && <p className="mt-1 text-sm text-fitx-text-secondary">From {builderProgramme.title}</p>}</div><button type="button" onClick={() => setCreatorOpen(false)} aria-label="Close workout builder" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18} aria-hidden="true"/></button></div>
           {!editingPlanId && <div role="group" aria-label="Start from" className="mb-5 grid grid-cols-3 gap-1 rounded-xl border border-fitx-border bg-fitx-surface-variant p-1 sm:inline-grid">
-            {BUILDER_MODES.map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => switchMode(value)} className={`min-h-11 rounded-lg px-3 text-sm font-semibold ${mode === value ? "bg-fitx-surface text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>{label}</button>)}
+            {BUILDER_MODES.map(([value, label]) => <button key={value} type="button" aria-pressed={builderMode === value} onClick={() => switchMode(value)} className={`min-h-11 rounded-lg px-3 text-sm font-semibold ${builderMode === value ? "bg-fitx-surface text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>{label}</button>)}
           </div>}
-          {mode === "focus" && !editingPlanId && <div className="mb-5">
+          {builderMode === "focus" && !editingPlanId && <div className="mb-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold">{focusAreas.length ? `Training: ${listFocusAreas(focusAreas)}` : "What to train"}</p>
               {focusAreas.length > 0 && <button type="button" aria-expanded={focusPickerOpen} onClick={() => setFocusPickerOpen((open) => !open)} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">{focusPickerOpen ? "Done choosing" : "Change areas"}</button>}
@@ -1164,13 +1251,13 @@ export default function WorkoutsPage() {
               <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Training split<select className="fitx-field" value={split} onChange={(event) => setSplit(event.target.value)}><option value="full_body">Full body</option><option value="upper_lower">Upper / lower</option><option value="push_pull_legs">Push / pull / legs</option><option value="bro_split">Bro split</option>{split.startsWith("home_") && <><option value="home_bodyweight">Home bodyweight</option><option value="home_dumbbell">Home dumbbells</option></>}<option value="custom">Custom</option></select></label>
               <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Notes<input className="fitx-field" maxLength={500} value={planNotes} onChange={(event) => setPlanNotes(event.target.value)} placeholder="Optional" /></label>
               {/* New workouts are for the gym; an older home plan keeps its place until it is moved here. */}
-              {planLocation !== "gym" && <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Where<select className="fitx-field" value={planLocation} onChange={(event) => { setPlanLocation(event.target.value); const target = contextForLocation(event.target.value); if (!editingPlanId && mode === "auto") applyAuto(target, autoDay, autoSeed); if (!editingPlanId && mode === "focus" && focusAreas.length) applyFocus(target, focusAreas, autoSeed); }}><option value="gym">Gym</option><option value="home">Home</option><option value="outdoor">Outdoor</option><option value="both">Home or gym</option></select></label>}
+              {planLocation !== "gym" && <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Where<select className="fitx-field" value={planLocation} onChange={(event) => { setPlanLocation(event.target.value); const target = contextForLocation(event.target.value); if (!editingPlanId && builderMode === "auto") applyAuto(target, autoDay, autoSeed); if (!editingPlanId && builderMode === "focus" && focusAreas.length) applyFocus(target, focusAreas, autoSeed); }}><option value="gym">Gym</option><option value="home">Home</option><option value="outdoor">Outdoor</option><option value="both">Home or gym</option></select></label>}
             </div>
           </details>
           <div className="mt-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">Exercise order <span className="font-normal text-fitx-text-secondary">· {preview.length}</span></h3>
-              {((builderProgramme) || (mode === "focus" && !editingPlanId && focusAreas.length > 0)) && <button type="button" onClick={() => { const seed = autoSeed + 1; setAutoSeed(seed); if (mode === "focus") applyFocus(builderContext, focusAreas, seed); else applyAuto(builderContext, autoDay, seed); }} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">Regenerate plan</button>}
+              {((builderProgramme) || (builderMode === "focus" && !editingPlanId && focusAreas.length > 0)) && <button type="button" onClick={() => { const seed = autoSeed + 1; setAutoSeed(seed); if (builderMode === "focus") applyFocus(builderContext, focusAreas, seed); else applyAuto(builderContext, autoDay, seed); }} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">Regenerate plan</button>}
             </div>
             {preview.length > 0 && <p className="mb-3 text-xs text-fitx-text-secondary" aria-live="polite">{builderSummary.exercises} exercise{builderSummary.exercises === 1 ? "" : "s"} · {builderSummary.totalSets} sets{builderSummary.estimateMinutes ? ` · ≈ ${builderSummary.estimateMinutes} min (estimate)` : ""}</p>}
             {autoNote && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{autoNote}</span></p>}
@@ -1179,7 +1266,7 @@ export default function WorkoutsPage() {
               <BuilderRow key={item.exercise.id} item={item} index={index} count={preview.length} owned={builderOwned} listName={builderContext} showTargets={showTargets} lastTime={lastTimes.get(item.exercise.id)}
                 onMove={(direction) => movePreview(index, direction)} onUpdate={(field, value) => updatePreview(index, field, value)} onUpdateTarget={(field, raw) => updateOptionalTarget(index, field, raw)}
                 onSwap={() => setSwapIndex(index)} onRemove={() => setPreview((rows) => removeRow(rows, item.exercise.id))} onInfo={() => setInfoExercise(item.exercise)} />
-            ))}</ol> : <p className="rounded-xl border border-dashed border-fitx-border px-4 py-5 text-sm text-fitx-text-secondary">{mode === "focus" && !editingPlanId && !focusAreas.length ? "Pick an area above or add exercises below." : "Add exercises below."}</p>}
+            ))}</ol> : <p className="rounded-xl border border-dashed border-fitx-border px-4 py-5 text-sm text-fitx-text-secondary">{builderMode === "focus" && !editingPlanId && !focusAreas.length ? "Pick an area above or add exercises below." : "Add exercises below."}</p>}
           </div>
           <LibraryPicker catalog={catalog} selectedIds={selected} owned={builderOwned} listName={builderContext} full={preview.length >= MAX_PLAN_EXERCISES} onToggle={toggleSelected} onInfo={setInfoExercise} />
           {error && <p role="alert" className="fitx-alert fitx-alert-danger mt-4 px-3 py-2 text-sm">{error}</p>}
@@ -1192,6 +1279,9 @@ export default function WorkoutsPage() {
       {previewPlanId && userId && <PlanPreviewSheet planId={previewPlanId} userId={userId} catalog={catalog} ownedFor={ownedFor} todayKey={listDayKey || localDateKey()} programme={previewProgramme}
         activeSession={activeSession ? { id: activeSession.id, name: activeSession.name } : null} starting={starting === previewPlanId} includeTargets={targetsSupported !== false}
         onBegin={startWorkout} onEdit={(planId) => { setPreviewPlanId(null); void editPlan(planId); }} onClose={() => setPreviewPlanId(null)} />}
+      {setupOpen && setup && <Sheet title="Workout setup" size="lg" onClose={() => setSetupOpen(false)}>
+        <WorkoutSetupFlow setup={{ ...setup, profiles }} userId={userId} legacyWords={preferences.equipment} variant="sheet" onSaved={setupSaved} />
+      </Sheet>}
       {equipmentEditor && <Sheet title={equipmentEditor.context === "home" ? "Your home equipment" : "Your gym equipment"} size="lg" onClose={() => setEquipmentEditor(null)}
         description={equipmentEditor.context === "home" ? "Workouts and swaps use only what you pick." : "Remove anything your gym lacks."}
         footer={<><button type="button" onClick={() => setEquipmentEditor(null)} className="fitx-button fitx-button-quiet">Cancel</button><button type="button" disabled={equipmentSaving || !profiles.available || equipmentLoadFailed} onClick={() => void saveEquipment()} className="fitx-button">{equipmentSaving ? "Saving…" : "Save list"}</button></>}>

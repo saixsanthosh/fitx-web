@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Bookmark, Dumbbell, House, PersonStanding, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ArrowRight, Bookmark, PersonStanding, SlidersHorizontal, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ActiveFilters } from "@/components/exercises/discovery/ActiveFilters";
 import { DiscoverySection } from "@/components/exercises/discovery/DiscoverySection";
@@ -11,7 +11,8 @@ import { ExerciseResultCard, mainMuscleLabel } from "@/components/exercises/disc
 import { FilterPanel } from "@/components/exercises/discovery/FilterPanel";
 import { NoResults } from "@/components/exercises/discovery/NoResults";
 import { SearchField } from "@/components/exercises/discovery/SearchField";
-import { FocusTiles } from "@/components/training/FocusTiles";
+import { MuscleRail } from "@/components/training/MuscleRail";
+import { ModePanel, ModeTabs } from "@/components/workouts/ModeTabs";
 import { clearRecentSearches, forgetSearch, readRecentExercises, readRecentSearches, rememberSearch } from "@/lib/domain/exercise-preferences";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
@@ -22,6 +23,7 @@ import { survivingExerciseIds } from "@/lib/training/exercise-merges";
 import { FOCUS_AREAS } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
+import { modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
 import styles from "@/components/exercises/discovery/Library.module.css";
 import { buildVocabulary, highlightRanges, suggestSpelling } from "@/lib/training/search-terms";
 import { rankSubstitutes } from "@/lib/training/substitutions";
@@ -103,6 +105,14 @@ export default function ExerciseLibraryPage() {
     if (canonical !== new URLSearchParams(current).toString()) replaceSearch(canonical);
   }, []);
   useEffect(() => { void Promise.resolve().then(() => setSections(readSections())); }, []);
+  // Home or Gym carries over from Workouts on this device when the address does not say (phase 12).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("context") || params.has("location") || readStoredMode() !== "home") return;
+    params.set("context", "home");
+    replaceSearch(params.toString());
+  }, []);
+  const [modeMove, setModeMove] = useState<1 | -1 | 0>(0);
   useEffect(() => {
     if (!userId) return;
     void Promise.resolve().then(() => {
@@ -113,6 +123,13 @@ export default function ExerciseLibraryPage() {
 
   const navigate = useCallback((next: LibraryState) => replaceSearch(writeLibraryState(next)), []);
   const update = (patch: Partial<LibraryState>) => navigate({ ...state, ...patch });
+  const switchContext = (next: WorkoutMode) => {
+    if (next === state.context) return;
+    setModeMove(modeDirection(state.context, next));
+    setListNote(null);
+    writeStoredMode(next);
+    update({ context: next, have: null });
+  };
   const toggleSection = (key: keyof Sections) => setSections((current) => {
     const next = { ...current, [key]: !current[key] };
     writeSections(next);
@@ -134,6 +151,7 @@ export default function ExerciseLibraryPage() {
   const query = useMemo(() => libraryQuery(view, saved.ids), [view, saved.ids]);
   const result = useMemo(() => (exercises && savedReady ? queryCatalog(exercises, query, { owned, level }) : null), [exercises, savedReady, query, owned, level]);
   const viewKey = writeLibraryState(view);
+  const filterKey = writeLibraryState({ ...view, q: "" });
   const shownCount = limit.key === viewKey ? limit.count : PAGE_SIZE;
   const visible = useMemo(() => result?.items.slice(0, shownCount) ?? [], [result, shownCount]);
   const updating = state !== view;
@@ -252,6 +270,9 @@ export default function ExerciseLibraryPage() {
         className="mb-5 sm:mb-7"
       />
 
+      <ModeTabs mode={state.context} onChange={switchContext} panelId="library-mode-panel" idPrefix="library" label="Exercise library mode" className="mb-5 sm:mb-7" />
+
+      <ModePanel mode={state.context} direction={modeMove} id="library-mode-panel" labelledBy={`library-tab-${state.context}`}>
       <div className="space-y-6 sm:space-y-8">
       <section aria-label="Search and filters" className="grid gap-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
@@ -312,24 +333,15 @@ export default function ExerciseLibraryPage() {
 
       {!searching && (
         <section aria-labelledby="focus-title" className="grid gap-3">
-          <h2 id="focus-title" className="m-0 font-heading text-lg font-semibold tracking-[-.02em]">Focus</h2>
-          <FocusTiles value={state.focus} onChange={(focus) => update({ focus })} details={focusDetails} layout="rail" credit={false} />
+          <h2 id="focus-title" className="m-0 font-heading text-lg font-semibold tracking-[-.02em]">Target muscles</h2>
+          <MuscleRail value={state.focus} onChange={(focus) => update({ focus })} details={focusDetails} label="Focus areas" />
         </section>
       )}
 
       {!searching && (
         <DiscoverySection id="equipment" title="Equipment" open={sections.equipment} onToggle={() => toggleSection("equipment")}
           summary={account.status === "loading" ? "Loading your lists…" : account.status === "error" && !haveKeys ? "Your lists could not be loaded." : haveKeys ? `${state.have ? "This search" : list?.saved ? `Your ${contextName} list` : `Starting ${contextName} list`}: ${equipmentListText(haveKeys)}` : "Sign in to match your equipment."}
-          actions={(
-            <div role="group" aria-label="Where you train" className="grid grid-cols-2 gap-1 rounded-full border border-fitx-border bg-fitx-surface-variant p-1">
-              {(["home", "gym"] as const).map((value) => (
-                <button key={value} type="button" aria-pressed={state.context === value} onClick={() => { setListNote(null); update({ context: value, have: null }); }}
-                  className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors motion-reduce:transition-none ${state.context === value ? "bg-fitx-card text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>
-                  {value === "home" ? <House size={15} aria-hidden="true" /> : <Dumbbell size={15} aria-hidden="true" />}{value === "home" ? "Home" : "Gym"}
-                </button>
-              ))}
-            </div>
-          )}>
+>
           <div className="grid gap-4">
             <EquipmentGrid value={account.status === "ready" ? haveKeys : null} onChange={setHave} context={state.context} disabled={account.status !== "ready"} />
             <div className="flex flex-col gap-3 border-t border-fitx-divider pt-3 sm:flex-row sm:items-center sm:justify-between">
@@ -444,7 +456,8 @@ export default function ExerciseLibraryPage() {
           )
         ) : (
           <>
-            <div className={`grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 sm:gap-4 motion-reduce:transition-none xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}>
+            {/* Keyed by the filters (not the search text), so the cards rise in again when a category or filter changes. */}
+            <div key={filterKey} className={`grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 sm:gap-4 motion-reduce:transition-none xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}>
               {visible.map((item, index) => (
                 <Fragment key={item.exercise.id}>
                   {result.assistFrom === index && (
@@ -465,9 +478,10 @@ export default function ExerciseLibraryPage() {
       </section>
 
       <p className="text-center text-[11px] leading-5 text-fitx-text-secondary">
-        Photos and steps adapted from <a className="text-fitx-primary-text underline underline-offset-2" href={FREE_EXERCISE_DB_SOURCE_URL} target="_blank" rel="noreferrer">Free Exercise DB</a>. Stills, not demonstrations.
+        Photos and steps adapted from <a className="text-fitx-primary-text underline underline-offset-2" href={FREE_EXERCISE_DB_SOURCE_URL} target="_blank" rel="noreferrer">Free Exercise DB</a> (public domain). Demonstrations play its real photos; no exercise has a verified video yet.
       </p>
       </div>
+      </ModePanel>
     </div>
   );
 }

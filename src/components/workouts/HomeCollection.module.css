@@ -1,0 +1,98 @@
+/* Workouts' Home mode. Transform and opacity only for motion; nothing moves under reduced motion. */
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+@media (min-width: 768px) { .wrap { gap: 2rem; } }
+
+/* minmax(0, 1fr): a long line in the AI Form Check card truncates instead of widening the page on phones. */
+.lead { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; }
+.lead > * { min-width: 0; }
+@media (min-width: 640px) { .lead { grid-template-columns: auto minmax(0, 1fr); align-items: stretch; } }
+.plan { justify-content: center; }
+
+.heading { margin: 0; font-family: var(--font-heading, inherit); font-size: 1.125rem; font-weight: 700; letter-spacing: -0.02em; color: var(--fitx-text); }
+
+.kitLink {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 60%;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--fitx-text-secondary);
+}
+
+/* The AI Form Check entry: one quiet card, and a chip inside an exercise. */
+.formCard {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--fitx-border);
+  background: var(--fitx-surface);
+  padding: 0.625rem 0.875rem;
+  transition: border-color 200ms ease, transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.formCard:hover { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); }
+.formCard:active { transform: scale(0.99); }
+.formIcon { display: grid; place-items: center; height: 2.25rem; width: 2.25rem; flex-shrink: 0; border-radius: 0.75rem; background: color-mix(in srgb, var(--fitx-primary) 12%, transparent); color: var(--fitx-primary-text); }
+.formChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--fitx-border);
+  background: var(--fitx-surface);
+  padding: 0 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fitx-text);
+}
+.formChip:hover { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); }
+.formChip svg:first-child { color: var(--fitx-primary-text); }
+
+.grid { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.625rem; }
+@media (min-width: 640px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.875rem; } }
+@media (min-width: 1024px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.cardItem { --rise-delay: 0ms; min-width: 0; }
+.card {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid var(--fitx-border);
+  background: var(--fitx-surface);
+  text-align: left;
+  transition: border-color 220ms ease, transform 260ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.card:hover { border-color: color-mix(in srgb, var(--fitx-primary) 40%, var(--fitx-border)); transform: translate3d(0, -2px, 0); box-shadow: 0 16px 32px -26px color-mix(in srgb, var(--fitx-scrim) 70%, transparent); }
+.card:active { transform: scale(0.985); }
+.card:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+
+.cover { position: relative; display: block; aspect-ratio: 4 / 3; background: var(--fitx-surface-variant); }
+.photo { object-fit: cover; transition: opacity 520ms cubic-bezier(0.65, 0, 0.35, 1); }
+.second { opacity: 0; }
+.card:hover .second, .card:focus-visible .second { opacity: 1; }
+.noPhoto { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fitx-text-disabled); }
+
+.body { display: grid; min-width: 0; gap: 0.25rem; padding: 0.625rem 0.75rem 0.75rem; }
+.name { font-size: 0.875rem; font-weight: 650; line-height: 1.25; color: var(--fitx-text); }
+.muscles { font-size: 0.6875rem; color: var(--fitx-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.125rem; }
+.kitItem { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 999px; background: var(--fitx-surface-variant); padding: 0.125rem 0.5rem; font-size: 0.6875rem; color: var(--fitx-text-secondary); }
+
+.empty { margin: 0; border-radius: 1rem; border: 1px dashed var(--fitx-border); padding: 1.25rem 1rem; font-size: 0.875rem; color: var(--fitx-text-secondary); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .cardItem { animation: rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: var(--rise-delay); }
+}
+@keyframes rise { from { opacity: 0; transform: translate3d(0, 12px, 0); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .photo, .formCard { transition: none; }
+  .card:hover, .card:active, .formCard:active { transform: none; }
+}

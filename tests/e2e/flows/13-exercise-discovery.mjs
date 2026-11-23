@@ -1,4 +1,4 @@
-// Flow 13: Exercise discovery. An older single-value link (?muscle=chest) opens filtered and its chip removes the
+// Flow 13: Exercise discovery. The Home and Gym tabs switch the library's place and its equipment. An older single-value link (?muscle=chest) opens filtered and its chip removes the
 // filter; smart search finds the bench press from "benchpress" and the push-up from "press-up"; a focus area plus
 // "No equipment" at home puts what the member can do first and offers "Try instead" and "Add anyway" for the rest;
 // "Only show what I can do" hides the rest; an exercise is saved and the Saved filter shows it; Browse by muscle
@@ -45,7 +45,10 @@ export const flow = {
 
     await t.step("a focus area and no equipment at home: what the member can do first, alternatives for the rest", async () => {
       await page.getByRole("group", { name: "Focus areas" }).getByRole("button", { name: /^Chest/ }).click();
-      await page.getByRole("group", { name: "Where you train" }).getByRole("button", { name: "Home" }).click();
+      // Home and Gym are the tabs at the top of the library (phase 12).
+      const homeTab = page.getByRole("tablist", { name: "Exercise library mode" }).getByRole("tab", { name: "Home" });
+      await homeTab.click();
+      t.expect((await homeTab.getAttribute("aria-selected")) === "true", "the Home tab is selected");
       // On phones the equipment is one sideways row, like Focus, so it does not push the results a screen down.
       const equipment = page.getByRole("group", { name: "Equipment you have" });
       if ((page.viewportSize()?.width ?? 1440) < 640) {

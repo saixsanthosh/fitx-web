@@ -26,6 +26,11 @@ export const EXERCISE_MEDIA_COLUMNS = ["exercise_id", "kind", "position", "stora
 export type ExerciseMediaKind = "still" | "video_loop";
 
 /** An exercise_media row as PostgREST returns it. */
+/** exercise_media.model (20261123100020): which demonstration model a photo or video shows. */
+export type DemoModelKey = "male" | "female";
+/** Read when 20261123100020 is applied; left out of the select until then. */
+export const EXERCISE_MEDIA_OPTIONAL_COLUMNS = ["model", "caption"] as const;
+
 export type ExerciseMediaRow = {
   exercise_id: string;
   kind: string;
@@ -36,10 +41,17 @@ export type ExerciseMediaRow = {
   alt?: string | null;
   attribution?: string | null;
   license?: string | null;
+  /** Added by 20261123100020 (wave-2 media): 'male', 'female' or null. */
+  model?: string | null;
+  caption?: string | null;
 };
 
 export type MediaItem = {
   kind: ExerciseMediaKind;
+  /** A short caption shown with the media (exercise_media.caption, or a stand-in's note), else absent. */
+  caption?: string;
+  /** The demonstration model shown (exercise_media.model), when the row names one. */
+  model?: DemoModelKey;
   url: string;
   alt: string;
   position: number;
@@ -56,6 +68,30 @@ export type ExerciseMedia = {
   videos: MediaItem[];
   /** "table": exercise_media rows; "pinned": the Free Exercise DB fallback; "none": nothing to show. */
   origin: "table" | "pinned" | "none";
+  /** Set when the photos show a closely related variation (PHOTO_STAND_INS): what they show, said plainly. */
+  standIn?: string;
+};
+
+/**
+ * The image audit (phase 12): seven FITX starter exercises have no Free Exercise DB entry of their own. Six of them
+ * show the public-domain photos of the same movement done a slightly different way, always with a note saying what
+ * the photos show. Each was chosen from the upstream instructions, which describe the same joint actions:
+ *  - cable_fly: the Cable Crossover is the standing cable fly from high pulleys;
+ *  - split_squat: the same split squat holding dumbbells (Free Exercise DB's "Split Squats" is a jump, so not used);
+ *  - dumbbell_rdl: the stiff-legged dumbbell deadlift, a hip hinge with soft knees and the same dumbbells;
+ *  - step_up: the same step-up holding dumbbells;
+ *  - band_row: the seated cable row, the same horizontal pull against a cable instead of a band;
+ *  - calf_raise: the same standing calf raise holding dumbbells on a low board.
+ * jumping_jack has none: no public-domain photo shows it (Star Jump is a different movement, and the generated
+ * home-workout image has the feet together with the arms overhead, which is wrong), so it shows no photo.
+ */
+export const PHOTO_STAND_INS: Readonly<Record<string, { ref: string; note: string }>> = {
+  cable_fly: { ref: "Cable_Crossover", note: "Photos show the cable crossover: the same fly from high pulleys." },
+  split_squat: { ref: "Split_Squat_with_Dumbbells", note: "Photos show the same split squat holding dumbbells." },
+  dumbbell_rdl: { ref: "Stiff-Legged_Dumbbell_Deadlift", note: "Photos show the stiff-legged dumbbell deadlift, a near-identical hip hinge." },
+  step_up: { ref: "Dumbbell_Step_Ups", note: "Photos show the same step-up holding dumbbells." },
+  band_row: { ref: "Seated_Cable_Rows", note: "Photos show the seated cable row: the same pull on a cable machine." },
+  calf_raise: { ref: "Standing_Dumbbell_Calf_Raise", note: "Photos show the same calf raise holding dumbbells on a low step." },
 };
 
 const SOURCE_REF = /^[A-Za-z0-9_-]{1,160}$/;
@@ -140,13 +176,15 @@ export function groupMediaRows(rows: readonly ExerciseMediaRow[]): Map<string, E
 }
 
 function pinnedStills(exerciseId: string, name: string, sourceRef: string | null | undefined): MediaItem[] {
-  const ref = freeExerciseDbRef(exerciseId, sourceRef);
+  const standIn = freeExerciseDbRef(exerciseId, sourceRef) ? null : PHOTO_STAND_INS[exerciseId] ?? null;
+  const ref = freeExerciseDbRef(exerciseId, sourceRef) ?? standIn?.ref ?? null;
   if (!ref) return [];
   return Array.from({ length: FREE_EXERCISE_DB_PHOTO_COUNT }, (_, position) => ({
     kind: "still" as const,
     url: pinnedPhotoUrl(ref, position),
-    alt: `${name}, photo ${position + 1} of ${FREE_EXERCISE_DB_PHOTO_COUNT}`,
+    alt: `${name}, photo ${position + 1} of ${FREE_EXERCISE_DB_PHOTO_COUNT}${standIn ? " (a closely related variation)" : ""}`,
     position,
+    ...(standIn ? { caption: standIn.note } : {}),
     selfHosted: false,
     attribution: FREE_EXERCISE_DB_ATTRIBUTION,
     license: FREE_EXERCISE_DB_LICENSE,
@@ -164,6 +202,8 @@ export function resolveExerciseMedia(input: {
   sourceRef?: string | null;
   rows?: readonly ExerciseMediaRow[] | null;
   supabaseUrl?: string | null;
+  /** The member's demonstration model (resolveDemoModel); rows for the other model are left out when theirs exist. */
+  model?: DemoModelKey | null;
 }): ExerciseMedia {
   const items: MediaItem[] = [];
   for (const row of input.rows ?? []) {
@@ -171,8 +211,12 @@ export function resolveExerciseMedia(input: {
     const served = mediaRowUrl(row, input.supabaseUrl);
     if (!served) continue;
     const position = Number.isFinite(Number(row.position)) ? Number(row.position) : 0;
+    const caption = typeof row.caption === "string" ? row.caption.trim().slice(0, 280) : "";
+    const model = row.model === "male" || row.model === "female" ? row.model : null;
     items.push({
       kind: row.kind,
+      ...(caption ? { caption } : {}),
+      ...(model ? { model } : {}),
       url: served.url,
       alt: row.alt?.trim() || `${input.name}, ${row.kind === "still" ? "photo" : "video"} ${position + 1}`,
       position,
@@ -182,11 +226,27 @@ export function resolveExerciseMedia(input: {
     });
   }
   items.sort((a, b) => a.position - b.position);
-  const stills = items.filter((item) => item.kind === "still");
-  const videos = items.filter((item) => item.kind === "video_loop");
+  const chosen = forModel(items, input.model ?? null);
+  const stills = chosen.filter((item) => item.kind === "still");
+  const videos = chosen.filter((item) => item.kind === "video_loop");
   if (items.length) return { stills: stills.length ? stills : pinnedStills(input.exerciseId, input.name, input.sourceRef), videos, origin: "table" };
   const pinned = pinnedStills(input.exerciseId, input.name, input.sourceRef);
-  return { stills: pinned, videos: [], origin: pinned.length ? "pinned" : "none" };
+  const standIn = pinned[0]?.caption;
+  return { stills: pinned, videos: [], origin: pinned.length ? "pinned" : "none", ...(standIn ? { standIn } : {}) };
+}
+
+/**
+ * The items for one demonstration model, per kind: media tied to no model always stays; of the male and female
+ * variants, the member's model is kept when that kind has it, else the other one (never both, so a loop never
+ * switches person half-way). With no model chosen, female and male variants keep the first model listed.
+ */
+export function forModel(items: readonly MediaItem[], model: DemoModelKey | null): MediaItem[] {
+  const keep = new Map<ExerciseMediaKind, DemoModelKey | null>();
+  for (const kind of ["still", "video_loop"] as const) {
+    const models = items.filter((item) => item.kind === kind && item.model).map((item) => item.model as DemoModelKey);
+    keep.set(kind, model && models.includes(model) ? model : models[0] ?? null);
+  }
+  return items.filter((item) => !item.model || item.model === keep.get(item.kind));
 }
 
 /**
