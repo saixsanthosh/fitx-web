@@ -73,6 +73,14 @@ export const flow = {
       await page.getByRole("tab", { name: /Form Check/ }).click();
       await page.locator("#capabilities").evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
       await page.locator("[data-form-trace]").waitFor({ timeout: 5000 });
+      const place = await page.evaluate(() => {
+        const card = document.querySelector('#capabilities [data-card="form"]')?.getBoundingClientRect();
+        const photo = document.querySelector('#capabilities [data-card="form"] img')?.parentElement?.getBoundingClientRect();
+        const trace = document.querySelector("[data-form-trace]")?.getBoundingClientRect();
+        return { photoLeft: Math.round((photo?.left ?? 0) - (card?.left ?? 0)), traceRight: Math.round((trace?.right ?? 0) - (card?.left ?? 0)) };
+      });
+      t.note("form check card at 820 px", place);
+      t.expect(place.photoLeft > 120 && place.traceRight <= place.photoLeft + 24, "the trace fills the side beside the photo, never over the athlete", place);
       await fadesSettled(page);
       const card = await t.checkpoint("landing form check card", { fullPage: false, settle: false });
       t.expect(!card.overflow?.overflow, "the deck fits", card.overflow);

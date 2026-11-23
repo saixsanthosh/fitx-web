@@ -436,10 +436,11 @@
     filter: blur(28px) saturate(1.1);
     opacity: .5;
   }
-  .formTrace { display: grid; right: auto; left: 24px; width: 272px; }
+  /* Two classes, so this beats the overlay card's own top-right placement further down. */
+  .overlayCard.formTrace { display: grid; right: auto; left: 24px; width: 272px; }
 }
 @media (min-width: 1024px) {
-  .formTrace { left: 32px; top: 32px; width: 300px; }
+  .overlayCard.formTrace { left: 32px; top: 32px; width: 300px; }
 }
 @media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
   .deckCard[data-card="form"][data-moving="true"] .formAmbient { animation: deck-push 14s linear both; }

@@ -157,6 +157,7 @@ export const flow = {
       else {
         t.expect(wide.photoLeft > 120, "the portrait photo leaves room on the left of a wide card", wide);
         t.expect(wide.ambient && wide.trace, "that room carries the photo's colours and the knee-angle trace", wide);
+        t.expect(wide.traceRight <= wide.photoLeft + 24, "the trace sits beside the photo, never over the athlete", wide);
         t.expect(/Knee angle/.test(wide.traceText) && /Example/.test(wide.traceText), "the trace says what it is and that it is an example", wide);
       }
       await fadesSettled(page);
