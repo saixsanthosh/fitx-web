@@ -584,7 +584,7 @@ export function ActivityImportScreen() {
             ))}
           </ul>
           {open && settled && (
-            <div className="sticky bottom-20 z-10 rounded-xl border border-fitx-border bg-fitx-elevated p-3 shadow-lg md:bottom-4">
+            <div data-coach-avoid="" className="sticky bottom-20 z-10 rounded-xl border border-fitx-border bg-fitx-elevated p-3 shadow-lg md:bottom-4">
               <button type="button" onClick={() => void importAll()} disabled={importing || reading || toImport.length === 0} className="fitx-button min-h-12 w-full">
                 {importing ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Importing…</> : toImport.length ? `Import ${toImport.length} ${toImport.length === 1 ? "activity" : "activities"}` : "Nothing to import yet"}
               </button>
