@@ -7,10 +7,11 @@
   padding: 0.125rem 1rem 0.25rem;
   scrollbar-width: none;
   scroll-snap-type: x proximity;
+  scroll-padding-inline: 1rem;
 }
 .rail::-webkit-scrollbar { display: none; }
 @media (min-width: 640px) {
-  .rail { margin-inline: 0; padding-inline: 0; }
+  .rail { margin-inline: 0; padding-inline: 0; scroll-padding-inline: 0; }
 }
 @media (min-width: 1024px) {
   .rail { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); overflow: visible; }

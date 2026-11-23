@@ -10,8 +10,19 @@ const tabs = (page, name) => page.getByRole("tablist", { name });
 /** How far the page is wider than the device: a phone zooms out to fit wide content, so innerWidth alone hides it. */
 const overflow = async (page) => {
   const width = page.viewportSize()?.width ?? 0;
-  return page.evaluate((device) => Math.max(document.documentElement.scrollWidth, window.innerWidth) - device, width);
+  return page.evaluate((device) => {
+    const by = Math.max(document.documentElement.scrollWidth, window.innerWidth) - device;
+    if (by <= 0) return by;
+    // Name the widest elements, to find the cause (inside a sideways rail is fine: the rail scrolls).
+    const offenders = [...document.querySelectorAll("body *")]
+      .map((element) => ({ element, right: element.getBoundingClientRect().right, width: element.getBoundingClientRect().width }))
+      .filter((item) => item.right > device + 0.5 && item.width > 0 && !item.element.closest("[class*='rail'], [class*='Rail']"))
+      .sort((a, b) => b.right - a.right).slice(0, 6)
+      .map((item) => `${item.element.tagName.toLowerCase()}.${String(item.element.className).slice(0, 60)} right=${Math.round(item.right)} w=${Math.round(item.width)}`);
+    return { by, offenders };
+  }, width);
 };
+const fits = (result) => typeof result === "number" && result <= 0;
 
 export const flow = {
   id: "18-workout-setup",
@@ -30,7 +41,7 @@ export const flow = {
       await setup.waitFor({ timeout: 20000 });
       t.expect((await setup.getByRole("group", { name: "Where you train" }).getByRole("button").count()) === 3, "Home, Gym and Both are offered");
       const sideways = await overflow(page);
-      t.expect(sideways <= 0, "the page should not scroll sideways", { sideways });
+      t.expect(fits(sideways), "the page should not scroll sideways", { sideways });
       await t.checkpoint("setup inline");
       await setup.getByRole("button", { name: "Later" }).click();
       await setup.waitFor({ state: "detached", timeout: 5000 });
@@ -96,7 +107,7 @@ export const flow = {
       const cards = page.locator("section[aria-labelledby=home-collection-title] li button");
       t.expect((await cards.count()) > 0, "home chest exercises are listed");
       const sideways = await overflow(page);
-      t.expect(sideways <= 0, "the Home tab should not scroll sideways", { sideways });
+      t.expect(fits(sideways), "the Home tab should not scroll sideways", { sideways });
       await t.checkpoint("home tab chest");
       await cards.first().click();
       const sheet = page.getByRole("dialog");
@@ -106,6 +117,8 @@ export const flow = {
       const replay = sheet.getByRole("button", { name: "Replay demonstration" });
       const unloaded = sheet.getByText("The photos could not be loaded");
       await Promise.race([replay.waitFor({ timeout: 20000 }), unloaded.waitFor({ timeout: 20000 })]).catch(() => undefined);
+      // The player shows first and gives way to the message once both photos have failed: let that settle.
+      await page.waitForTimeout(2500);
       if (await replay.count()) {
         const sheetText = await textOf(sheet);
         t.expect(/No verified video yet/.test(sheetText), "the demonstration says plainly that no verified video exists", sheetText.slice(0, 300));
@@ -147,7 +160,7 @@ export const flow = {
       await t.goto("/workouts?mode=home", { label: "workouts 768" });
       await page.getByRole("heading", { name: "Home exercises" }).waitFor({ timeout: 20000 });
       const sideways = await overflow(page);
-      t.expect(sideways <= 0, "no sideways scroll at 768 px", { sideways });
+      t.expect(fits(sideways), "no sideways scroll at 768 px", { sideways });
       await t.checkpoint("workouts home 768");
       await t.goto("/exercises", { label: "library 768" });
       await tabs(page, "Exercise library mode").waitFor({ timeout: 20000 });
