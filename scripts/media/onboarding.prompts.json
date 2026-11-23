@@ -1,13 +1,15 @@
 {
   "set": "onboarding",
-  "style": "Photoreal editorial fitness photograph, natural and unposed, shot on a full-frame camera with a 50mm lens, soft warm natural light, deep charcoal shadows, gentle film grain, true-to-life textures. Colour palette: warm off-white, charcoal, muted sage and a single terracotta ember accent (#C44933). The subject fills the centre of the frame with a little calm space around it. No text, letters, numbers, logos, brand marks, watermarks, screens or signage anywhere; clothing and equipment are plain and unbranded. Any person is seen in part, from behind or in soft profile, never posing for the camera, and is not a real or famous person.",
+  "style": "Photoreal editorial fitness photograph, natural and unposed, shot on a full-frame camera with a 50mm lens, soft warm natural light, deep charcoal shadows, gentle film grain, true-to-life textures. Colour palette: warm off-white, charcoal, muted sage and a single terracotta ember accent. The subject fills the centre of the frame with a little calm space around it. No text, letters, numbers, logos, brand marks, watermarks, screens or signage anywhere; clothing and equipment are plain and unbranded. Any person is seen in part, from behind or in soft profile, never posing for the camera, and is not a real or famous person.",
   "images": [
     {
       "id": "stage",
       "aspect": "4:5",
       "longEdge": 1600,
       "alt": "An empty gym at dawn, warm light streaming through haze across a single bench",
-      "prompt": "An empty, premium gym at dawn. Warm light streams through tall windows on the right and through a soft haze, falling across a single plain flat bench in the lower centre of the frame. The upper half of the frame is calm, dim and softly lit, the floor a dark polished concrete. No people, no machines with screens."
+      "prompt": "An empty, premium gym at dawn. Warm light streams through tall windows on the right and through a soft haze, falling across a single plain flat bench in the lower centre of the frame. The upper half of the frame is calm, dim and softly lit, the floor a dark polished concrete. No people, no machines with screens.",
+      "note": "The model printed the accent colour's hex code on the bench rail; the retouch copies a clean stretch of the rail over it.",
+      "retouch": [{"x": 0.57589, "y": 0.71354, "w": 0.07589, "h": 0.01215, "from": {"x": 0.49777, "y": 0.71354}, "feather": 3}]
     },
     {
       "id": "goal-muscle",

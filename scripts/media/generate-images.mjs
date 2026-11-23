@@ -56,14 +56,19 @@ export function composePrompt(manifest, image) {
   return `${body}\n\n${manifest.style}`;
 }
 
+/** A hex colour code in a prompt (the model can print it on the picture, as it once did on a bench rail). */
+export const HEX_COLOUR = /#[0-9a-f]{3,8}\b/i;
+
 export function validateManifest(manifest) {
   const ids = new Set();
   if (!Array.isArray(manifest.images) || !manifest.images.length) throw new Error("The manifest has no images");
+  if (HEX_COLOUR.test(manifest.style ?? "")) throw new Error("The style names a hex colour code; describe the colour in words");
   if (manifest.images.length > MAX_IMAGES) throw new Error(`At most ${MAX_IMAGES} images per set`);
   for (const image of manifest.images) {
     if (!/^[a-z0-9-]+$/.test(image.id ?? "")) throw new Error(`Bad image id ${image.id}`);
     if (ids.has(image.id)) throw new Error(`Duplicate image id ${image.id}`);
     if (!image.prompt || !image.alt) throw new Error(`${image.id}: prompt and alt are required`);
+    if (HEX_COLOUR.test(image.prompt)) throw new Error(`${image.id}: the prompt names a hex colour code; describe the colour in words`);
     if (!/^\d+:\d+$/.test(image.aspect ?? "")) throw new Error(`${image.id}: aspect like 4:5`);
     if (image.ref && !ids.has(image.ref)) throw new Error(`${image.id}: ref ${image.ref} must come earlier`);
     if ((image.longEdge ?? 0) > 2400) throw new Error(`${image.id}: long edge at most 2400 px`);
@@ -129,21 +134,77 @@ async function generate({ manifest, image, key, rawDir, ledger }) {
   writeFileSync(ledgerPath(rawDir), JSON.stringify(ledger, null, 2));
 }
 
-/** Pixel boxes from fractions of the frame, clamped inside it. */
+/**
+ * Pixel boxes from fractions of the frame, clamped inside it. A box may also name `from` (the top-left corner, as
+ * fractions, of a clean patch of the same size to copy over the box instead of blurring it), `feather` (pixels over
+ * which the patch fades into the photo) and `ellipse` (patch only the ellipse inside the box).
+ */
 export function retouchBoxes(width, height, retouch) {
-  return retouch.map(({ x, y, w, h, sigma = 12 }) => {
+  return retouch.map(({ x, y, w, h, sigma = 12, from, feather, ellipse }) => {
     const left = Math.max(0, Math.round(x * width));
     const top = Math.max(0, Math.round(y * height));
-    return { left, top, width: Math.max(1, Math.min(width - left, Math.round(w * width))), height: Math.max(1, Math.min(height - top, Math.round(h * height))), sigma };
+    const box = { left, top, width: Math.max(1, Math.min(width - left, Math.round(w * width))), height: Math.max(1, Math.min(height - top, Math.round(h * height))), sigma };
+    if (from) {
+      box.from = {
+        left: Math.max(0, Math.min(width - box.width, Math.round(from.x * width))),
+        top: Math.max(0, Math.min(height - box.height, Math.round(from.y * height))),
+      };
+    }
+    if (feather) box.feather = feather;
+    if (ellipse) box.ellipse = true;
+    return box;
   });
 }
 
-/** Softens small areas (stray lettering the model drew despite the prompt) with a heavy blur; returns a buffer. */
+/** How much of the patch shows at pixel (px, py) inside a box: 1 well inside, fading to 0 at the edge over `feather`. */
+export function retouchWeight(box, px, py) {
+  const feather = Math.max(0, box.feather ?? 0);
+  let inside;
+  if (box.ellipse) {
+    const rx = box.width / 2;
+    const ry = box.height / 2;
+    const dx = (px + 0.5 - box.left - rx) / rx;
+    const dy = (py + 0.5 - box.top - ry) / ry;
+    const r = Math.sqrt(dx * dx + dy * dy);
+    if (r >= 1) return 0;
+    inside = (1 - r) * Math.min(rx, ry);
+  } else {
+    if (px < box.left || py < box.top || px >= box.left + box.width || py >= box.top + box.height) return 0;
+    inside = Math.min(px - box.left + 0.5, py - box.top + 0.5, box.left + box.width - px - 0.5, box.top + box.height - py - 0.5);
+  }
+  return feather ? Math.max(0, Math.min(1, inside / feather)) : 1;
+}
+
+/** Copies a clean patch (or a blurred copy of the photo) into each masked box, blended by retouchWeight. */
+async function maskedPatches(sharp, png, boxes) {
+  const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+  const { width, channels } = info;
+  const original = Buffer.from(data);
+  for (const box of boxes) {
+    const source = box.from ? original : (await sharp(png).blur(box.sigma).raw().toBuffer());
+    for (let py = box.top; py < box.top + box.height; py += 1) {
+      for (let px = box.left; px < box.left + box.width; px += 1) {
+        const weight = retouchWeight(box, px, py);
+        if (!weight) continue;
+        const sx = box.from ? box.from.left + (px - box.left) : px;
+        const sy = box.from ? box.from.top + (py - box.top) : py;
+        const at = (py * width + px) * channels;
+        const from = (sy * width + sx) * channels;
+        for (let c = 0; c < Math.min(3, channels); c += 1) data[at + c] = Math.round(weight * source[from + c] + (1 - weight) * data[at + c]);
+      }
+    }
+  }
+  return sharp(data, { raw: info }).png().toBuffer();
+}
+
+/** Softens small areas (stray lettering the model drew despite the prompt) with a heavy blur or a clean patch; returns a buffer. */
 async function retouched(sharp, rawFile, retouch) {
   if (!retouch?.length) return rawFile;
   const meta = await sharp(rawFile).metadata();
   const patches = [];
+  const masked = [];
   for (const box of retouchBoxes(meta.width, meta.height, retouch)) {
+    if (box.from || box.feather || box.ellipse) { masked.push(box); continue; }
     const pad = Math.ceil(box.sigma * 3);
     const outer = { left: Math.max(0, box.left - pad), top: Math.max(0, box.top - pad) };
     outer.width = Math.min(meta.width - outer.left, box.width + 2 * pad);
@@ -152,7 +213,9 @@ async function retouched(sharp, rawFile, retouch) {
     const inner = await sharp(blurred).extract({ left: box.left - outer.left, top: box.top - outer.top, width: box.width, height: box.height }).toBuffer();
     patches.push({ input: inner, left: box.left, top: box.top });
   }
-  return sharp(rawFile).composite(patches).png().toBuffer();
+  if (!masked.length) return sharp(rawFile).composite(patches).png().toBuffer();
+  const base = patches.length ? await sharp(rawFile).composite(patches).png().toBuffer() : await sharp(rawFile).png().toBuffer();
+  return maskedPatches(sharp, base, masked);
 }
 
 /** Encodes one raw file to WebP under the byte budget; returns its size and a tiny blur placeholder. */

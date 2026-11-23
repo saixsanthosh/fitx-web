@@ -1,6 +1,6 @@
 {
   "set": "explore",
-  "style": "Photoreal editorial sports photograph, natural and unposed, shot on a full-frame camera with a 50mm lens, soft directional light, deep charcoal shadows, gentle film grain, true-to-life textures. Colour palette: warm off-white, charcoal, muted sage and a single terracotta ember accent (#C44933). No text, letters, numbers, logos, brand marks, watermarks or signage anywhere in the image; clothing and equipment are plain and unbranded. Any person is anonymous (face turned away, cropped or in shadow) and not a real or famous person.",
+  "style": "Photoreal editorial sports photograph, natural and unposed, shot on a full-frame camera with a 50mm lens, soft directional light, deep charcoal shadows, gentle film grain, true-to-life textures. Colour palette: warm off-white, charcoal, muted sage and a single terracotta ember accent. No text, letters, numbers, logos, brand marks, watermarks or signage anywhere in the image; clothing and equipment are plain and unbranded. Any person is anonymous (face turned away, cropped or in shadow) and not a real or famous person.",
   "images": [
     {
       "id": "bodybuilding",
@@ -35,7 +35,9 @@
       "aspect": "4:5",
       "longEdge": 1200,
       "alt": "An empty gym floor with a squat rack and cable machine in pools of light",
-      "prompt": "Wide view of an empty, quiet strength gym at dusk: a plain steel squat rack with a racked barbell in the foreground, a cable machine and benches behind it, each standing in its own pool of warm overhead light, the rest of the floor falling into deep charcoal. Rubber floor tiles with a subtle sheen."
+      "prompt": "Wide view of an empty, quiet strength gym at dusk: a plain steel squat rack with a racked barbell in the foreground, a cable machine and benches behind it, each standing in its own pool of warm overhead light, the rest of the floor falling into deep charcoal. Rubber floor tiles with a subtle sheen.",
+      "note": "The model drew garbled lettering round the rim of the red plate; the retouch smooths the plate face.",
+      "retouch": [{"x": 0.39174, "y": 0.48785, "w": 0.04464, "h": 0.02257, "sigma": 4, "ellipse": true, "feather": 3}, {"x": 0.42411, "y": 0.49826, "w": 0.01786, "h": 0.03472, "sigma": 4, "ellipse": true, "feather": 3}, {"x": 0.38951, "y": 0.51562, "w": 0.02455, "h": 0.0191, "sigma": 4, "ellipse": true, "feather": 3}, {"x": 0.39286, "y": 0.52431, "w": 0.04911, "h": 0.0191, "sigma": 4, "ellipse": true, "feather": 3}]
     },
     {
       "id": "nutrition",

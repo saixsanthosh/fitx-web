@@ -12,7 +12,7 @@ export const EQUIPMENT_MEDIA = {
   "squat-rack": { src: "/media/equipment/squat-rack.webp", width: 640, height: 640, alt: "A black power rack", blurDataURL: "data:image/webp;base64,UklGRlgAAABXRUJQVlA4IEwAAABQAgCdASoQABAAA4BaJZQCdAYp5zo8uZu2kAAA/gSgQLm+YaKhc64BsoQXzhvssG/uujkdlUY7umyy830oORkg2Va6Tr9GzvlUAAAA" },
   "cable-machine": { src: "/media/equipment/cable-machine.webp", width: 640, height: 640, alt: "A cable crossover machine", blurDataURL: "data:image/webp;base64,UklGRk4AAABXRUJQVlA4IEIAAACQAQCdASoQABAAA4BaJYwCdAB0vBIA/YqWwDeGuaA73w4KQrNfXoWk3uS0afX78os5eG+3+MiHYimWPj6rTS3oAAA=" },
   "machine": { src: "/media/equipment/machine.webp", width: 640, height: 640, alt: "A seated leg press machine", blurDataURL: "data:image/webp;base64,UklGRlwAAABXRUJQVlA4IFAAAADwAQCdASoQABAAA4BaJZQCdAC89GSfmgAA+0rK7pmeMr+j0hq1iLE9djxBK0T9cWqWOdYzf8xQg0FQ5G6rnWya/aMUc8katJMbOvOTD67AAA==" },
-  "smith-machine": { src: "/media/equipment/smith-machine.webp", width: 640, height: 640, alt: "A Smith machine", blurDataURL: "data:image/webp;base64,UklGRlgAAABXRUJQVlA4IEwAAAAQAgCdASoQABAAA4BaJYwCdAECmNt6Z2AAAPexsXb9UoPraFHOW7Dbgf3CgO1JqQbxsKNraCnJAwmfMS9k3E3mPkSc8q0biZD2AAAA" },
+  "smith-machine": { src: "/media/equipment/smith-machine.webp", width: 640, height: 640, alt: "A Smith machine", blurDataURL: "data:image/webp;base64,UklGRkwAAABXRUJQVlA4IEAAAACwAQCdASoQABAAA4BaJZQCdADFBSTAAP7eo+5oMHkz1vvqSswl1dY0XDRs++QlZCp2d7HUsjJrJ7P+dqdGgAAA" },
   "cardio-machine": { src: "/media/equipment/cardio-machine.webp", width: 640, height: 640, alt: "A rowing machine", blurDataURL: "data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAQCdASoQABAAA4BaJYwCdACKf0FsAAD+gQQLZPNR2pviruHGWj1Lw17Xb6RGludJ/qaGXGbEMVNNZK+HbJrC+pFJeICwAAA=" },
 } as const satisfies Record<string, SiteImage>;
 
