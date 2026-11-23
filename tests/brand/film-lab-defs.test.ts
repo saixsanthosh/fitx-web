@@ -35,21 +35,21 @@ test("the registry lists exactly the two films, each loaded on demand", () => {
   assert.doesNotMatch(registry, /^import [^t].*from "\.\.\/films\/welcome/m, "the registry never imports a welcome file statically");
 });
 
-test("the welcome stub: one black 12.0 s shot, no cast, no compositions, on the C0 timeline", async () => {
+test("the welcome film: six shots with their cast on the C0 timeline, all five compositions, plain-JSON description", async () => {
   const welcome = await FILM_DEFS.welcome();
   assert.equal(welcome.id, "welcome");
   assert.equal(welcome.duration, WELCOME_DURATION);
   assert.equal(welcome.duration, 12);
   assert.deepEqual([...welcome.stageStart], [...WELCOME_STAGE_START]);
-  assert.equal(welcome.shots.length, 1);
-  assert.deepEqual([welcome.shots[0].start, welcome.shots[0].end], [0, 12]);
-  assert.deepEqual([...welcome.shots[0].cast], []);
-  assert.deepEqual([...welcome.cast], []);
-  assert.deepEqual([...welcome.comps], []);
+  assert.equal(welcome.shots.length, 6);
+  assert.deepEqual([welcome.shots[0].start, welcome.shots[welcome.shots.length - 1].end], [0, 12]);
+  assert.deepEqual([...welcome.shots[0].cast], [], "the opening shot needs nobody");
+  assert.deepEqual([...welcome.cast], ["maya", "leo", "dre"]);
+  assert.deepEqual([...welcome.comps], ["phone", "tablet-p", "tablet-l", "laptop", "desktop"]);
   assert.deepEqual(checkFilmDef(welcome), []);
   const described = describeFilm(welcome);
   assert.deepEqual(JSON.parse(JSON.stringify(described)), described, "the description is plain JSON");
-  assert.equal(described.shots[0].subjects, false);
+  assert.ok(described.shots.every((shot) => shot.subjects), "every shot has framing subjects");
 });
 
 test("the intro's clock passes the definition check, and the helpers agree with timeline.ts", () => {
