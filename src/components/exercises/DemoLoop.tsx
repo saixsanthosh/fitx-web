@@ -61,6 +61,8 @@ type DemoLoopProps = {
   className?: string;
   /** Shown when every photo fails to load. */
   whenEmpty?: ReactNode;
+  /** Called when a still fails to load (the player gives a failed AI demonstration way to the real photos). */
+  onStillError?: (still: MediaItem) => void;
   /** The models this exercise's demonstration has; with both, the "Demonstration model" choice shows. */
   models?: readonly DemoModelKey[];
   /** The model on screen (checked in the choice). */
@@ -68,7 +70,7 @@ type DemoLoopProps = {
   onModelChange?: (model: DemoModelKey) => void;
 };
 
-export function DemoLoop({ stills, name, size = "full", className, whenEmpty = null, models = [], model = null, onModelChange }: DemoLoopProps) {
+export function DemoLoop({ stills, name, size = "full", className, whenEmpty = null, models = [], model = null, onModelChange, onStillError }: DemoLoopProps) {
   const reducedMotion = useReducedMotionSafe();
   const radioName = useId();
   const [failed, setFailed] = useState<readonly string[]>([]);
@@ -121,7 +123,10 @@ export function DemoLoop({ stills, name, size = "full", className, whenEmpty = n
             unoptimized={!isOptimizableImageUrl(still.url, SUPABASE_URL)}
             className={cn(styles.frame, index === frame && styles.active, running && styles.drift)}
             style={{ "--demo-blend": `${blend}ms` } as CSSProperties}
-            onError={() => setFailed((current) => (current.includes(still.url) ? current : [...current, still.url]))}
+            onError={() => {
+              setFailed((current) => (current.includes(still.url) ? current : [...current, still.url]));
+              onStillError?.(still);
+            }}
           />
         ))}
         <span className={styles.badge}><VideoOff size={13} aria-hidden="true" />No verified video yet</span>

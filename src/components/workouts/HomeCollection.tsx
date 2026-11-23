@@ -36,8 +36,11 @@ function musclesLine(exercise: CatalogExercise): string {
 }
 
 function HomeCard({ exercise, onOpen, index, model: given }: { exercise: CatalogExercise; onOpen: () => void; index: number; model: DemoModelKey | null }) {
-  const demos = useDemoIndexData();
+  const demoIndex = useDemoIndexData();
   const model = useDemoModel(given);
+  // A demonstration frame that fails to load gives way to the real photos (the whole pair).
+  const [demoFailed, setDemoFailed] = useState(false);
+  const demos = demoFailed ? null : demoIndex;
   // The member's model's AI demonstration when the index has one, else the real photos (never two people mixed).
   const stills = useMemo(() => withDemoMedia(resolveExerciseMedia({ exerciseId: exercise.id, name: exercise.name, sourceRef: exercise.source_ref, rows: null }),
     { exerciseId: exercise.id, name: exercise.name, index: demos, model }).stills, [exercise, demos, model]);
@@ -50,7 +53,7 @@ function HomeCard({ exercise, onOpen, index, model: given }: { exercise: Catalog
           {shown.length ? shown.map((still, position) => (
             <Image key={still.url} src={still.url} alt="" fill sizes="(min-width: 1024px) 240px, (min-width: 640px) 30vw, 46vw"
               unoptimized={!isOptimizableImageUrl(still.url, SUPABASE_URL)} className={cn(styles.photo, position === 1 && styles.second)}
-              onError={() => setFailed((current) => [...current, still.url])} />
+              onError={() => (still.aiDemo ? setDemoFailed(true) : setFailed((current) => [...current, still.url]))} />
           )) : <span className={styles.noPhoto}><EquipmentIcon name={exercise.required_equipment[0] ?? "none"} size={30} /></span>}
           {shown[0]?.aiDemo && <span className={styles.aiTag}>AI demo</span>}
         </span>

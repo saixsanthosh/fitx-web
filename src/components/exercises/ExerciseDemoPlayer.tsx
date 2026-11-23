@@ -22,7 +22,8 @@ export function usePrefersReducedMotion() {
 /**
  * Shows an exercise's demonstration: a muted video loop when a verified one exists (none do yet), else its two frames
  * played as a looping demonstration (DemoLoop): FITX's AI demonstration for the member's model when the demonstration
- * index has one (pass `exerciseId`), else the real photos, each clearly labelled, with no verified video.
+ * index has one (pass `exerciseId`), else the real photos, each clearly labelled, with no verified video. A
+ * demonstration frame that fails to load gives way to the real photos (the whole pair, so one loop never mixes people).
  * `layout`:
  *  - "single" (default: the live workout and sheets): the compact player.
  *  - "sequence" (the exercise page): the full player with its caption.
@@ -41,8 +42,11 @@ export function ExerciseDemoPlayer({ media: given, name, layout = "single", exer
   // A choice that could not be saved still applies on this page; the member is told it will not last.
   const [unsaved, setUnsaved] = useState(false);
   const choice = useRef(0);
-  const index = useDemoIndexData();
+  const demoIndex = useDemoIndexData();
   const model = useDemoModel(preferred);
+  // Once an AI demonstration frame fails to load, the exercise's own photos (dropped while the demonstration shows) return.
+  const [demoFailed, setDemoFailed] = useState(false);
+  const index = demoFailed ? null : demoIndex;
   const media = exerciseId ? withDemoMedia(given, { exerciseId, name, index, model }) : given;
   const models = exerciseId ? demoModelsFor(index, exerciseId) : [];
   const shownModel = media.stills.find((still) => still.aiDemo)?.model ?? null;
@@ -59,11 +63,12 @@ export function ExerciseDemoPlayer({ media: given, name, layout = "single", exer
         <VideoLoop key={video.url} video={video} poster={media.stills[0] ?? null} name={name}
           onError={() => setFailedVideos((current) => (current.includes(video.url) ? current : [...current, video.url]))} />
       ) : !media.stills.length ? (
-        <MediaUnavailable failed={false} demonstration={layout === "sequence"} />
+        <MediaUnavailable failed={demoFailed} demonstration={layout === "sequence"} />
       ) : (
         // Not keyed by model: switching person keeps the same DemoLoop (and the focused radio), only the frames change.
         <DemoLoop stills={media.stills} name={name} size={layout === "single" ? "compact" : "full"}
           models={models} model={shownModel} onModelChange={changeModel}
+          onStillError={(still) => { if (still.aiDemo) setDemoFailed(true); }}
           whenEmpty={<MediaUnavailable failed demonstration={layout === "sequence"} />} />
       )}
       {models.length > 1 && (

@@ -127,6 +127,31 @@ describe("media follows the member's model, with Free Exercise DB as the fallbac
     assert.deepEqual(demoModelsFor(parsed, "plank"), ["male"]);
   });
 
+  test("both demonstration frames fail to load: the player and the Home card show the real photos again", () => {
+    // While the demonstration shows, the Free Exercise DB photos are dropped (never two people in one loop) ...
+    const female = withDemoMedia(photos, { exerciseId: "push_up", name: "Push-Up", index: parsed, model: "female" });
+    assert.ok(female.stills.length === 2 && female.stills.every((still) => still.aiDemo));
+    // ... so once DemoLoop has dropped both failed frames nothing of them is left to show.
+    const failed = new Set(female.stills.map((still) => still.url));
+    assert.equal(female.stills.filter((still) => !failed.has(still.url)).length, 0);
+    // The surfaces then merge with no index, which gives back the photos that were dropped.
+    const fallback = withDemoMedia(photos, { exerciseId: "push_up", name: "Push-Up", index: null, model: "female" });
+    assert.ok(fallback.stills.length === 2, "the two photos");
+    assert.ok(fallback.stills.every((still) => !still.aiDemo && still.url.startsWith(PINNED_PHOTO_BASE) && !failed.has(still.url)));
+
+    const read = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
+    const player = read("components/exercises/ExerciseDemoPlayer.tsx");
+    assert.match(player, /const index = demoFailed \? null : demoIndex;/);
+    assert.match(player, /onStillError=\{\(still\) => \{ if \(still\.aiDemo\) setDemoFailed\(true\); \}\}/);
+    // An exercise with only a demonstration (no photos) that fails says the media could not be loaded.
+    assert.match(player, /<MediaUnavailable failed=\{demoFailed\}/);
+    const loop = read("components/exercises/DemoLoop.tsx");
+    assert.match(loop, /onStillError\?\.\(still\);/);
+    const home = read("components/workouts/HomeCollection.tsx");
+    assert.match(home, /const demos = demoFailed \? null : demoIndex;/);
+    assert.match(home, /onError=\{\(\) => \(still\.aiDemo \? setDemoFailed\(true\) : setFailed\(/);
+  });
+
   test("the Form Check reel uses the first library id the index has for the member's model", () => {
     const found = demoForLibraryIds(parsed, ["missing", "plank", "push_up"], "male");
     assert.equal(found?.exerciseId, "plank");

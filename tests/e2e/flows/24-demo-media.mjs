@@ -1,8 +1,9 @@
 // Flow 24: FITX's AI demonstrations (wave 2, D6). The demonstration index and its files are stood in for by this flow
 // alone (page routes serving a fixture index and small local PNGs at the demo paths, male and female, start and end),
 // so nothing fake is ever committed: the library card and the exercise page show the member's chosen model, the
-// caption changes with the frame, the honest label is shown, "Demonstration model" switches person and is saved, and
-// an exercise with no demonstration keeps the Free Exercise DB photos (the fallback) with no model choice.
+// caption changes with the frame, the honest label is shown, "Demonstration model" switches person and is saved, an
+// exercise with no demonstration keeps the Free Exercise DB photos (the fallback) with no model choice, and a
+// demonstration whose files fail to load gives way to those photos.
 import { makePng } from "../support/png.mjs";
 import { signInUi, textOf } from "./common.mjs";
 
@@ -147,6 +148,36 @@ export const flow = {
       const unloaded = await page.getByText("The photos could not be loaded").count();
       t.expect(photos + unloaded > 0, "the real photos, or the honest message when they cannot load");
       await t.checkpoint("exercise without a demonstration");
+    });
+
+    await t.step("a demonstration whose files fail to load gives way to the real photos, with no model choice", async () => {
+      // The index still lists the exercise, but both of its frames (either model) now fail.
+      const failing = `**/media/demos/*/${EXERCISE}/*.webp`;
+      await page.route(failing, (route) => route.fulfill({ status: 404, body: "" }));
+      // Remembers whether the photo demonstration was ever put on screen (the harness blocks outside hosts, so the
+      // photos themselves may then fail and the page says so; before this fallback the photos were never tried).
+      await page.addInitScript((name) => {
+        window.__fitxPhotoFigure = false;
+        new MutationObserver((records) => {
+          for (const record of records) for (const node of record.addedNodes) {
+            if (!(node instanceof Element)) continue;
+            const figures = [node, ...node.querySelectorAll("figure")];
+            if (figures.some((figure) => figure.getAttribute("aria-label") === `${name}: photo demonstration`)) window.__fitxPhotoFigure = true;
+          }
+        }).observe(document, { childList: true, subtree: true });
+      }, NAME);
+      await t.goto(`/exercises/${EXERCISE}`, { label: "demonstration files failing" });
+      await page.getByRole("heading", { level: 1 }).waitFor({ timeout: 20000 });
+      const fellBack = await page.waitForFunction(() => window.__fitxPhotoFigure === true, null, { timeout: 15000 }).then(() => true, () => false);
+      t.expect(fellBack, "the Free Exercise DB photos replaced the failed demonstration");
+      await page.waitForTimeout(500);
+      t.expect((await page.getByRole("figure", { name: `${NAME}: AI demonstration` }).count()) === 0, "no AI demonstration is left on screen");
+      t.expect((await page.getByRole("radiogroup", { name: "Demonstration model" }).count()) === 0, "no model choice for frames that cannot show");
+      const photos = await page.getByRole("figure", { name: `${NAME}: photo demonstration` }).count();
+      const unloaded = await page.getByText("The photos could not be loaded").count();
+      t.expect(photos + unloaded > 0, "the real photos, or the honest message when they cannot load either");
+      await t.checkpoint("failed demonstration, photos instead");
+      await page.unroute(failing);
     });
   },
 };
