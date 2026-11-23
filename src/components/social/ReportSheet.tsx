@@ -19,9 +19,11 @@ export const REPORT_REASONS: { value: ReportReason; label: string }[] = [
   { value: "other", label: "Something else" },
 ];
 
-const NOUN: Record<ReportTarget, string> = { post: "post", comment: "comment", account: "account" };
+const NOUN: Record<ReportTarget, string> = {
+  post: "post", comment: "comment", account: "account", story: "story", message: "message", community: "community", challenge: "challenge",
+};
 
-/** Reports a post, comment or account to FITX's moderators. The member who posted it is not told who reported. */
+/** Reports a post, comment, account, story, message, community or challenge to FITX's moderators. The member who posted it is not told who reported. */
 export function ReportSheet({ db, target, onClose }: { db: Db; target: { type: ReportTarget; id: string } | null; onClose: () => void }) {
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [details, setDetails] = useState("");

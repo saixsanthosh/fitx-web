@@ -7,10 +7,10 @@ import { Hash, Heart, Loader2, Search, X } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EXPLORE_MEDIA, type ExploreMediaId } from "@/data/explore-media";
 import { compactCount, isTopic, matchTopics, nextCursor, socialApi, topicLabel, TOPICS, type Cursor, type SearchResult, type SocialPost } from "@/lib/social";
+import { DISCOVER_VIDEOS } from "@/lib/social/slots";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
-import { PostGrid, tileLabel } from "./PostGrid";
-import { SocialPhoto } from "./SocialPhoto";
+import { PostGrid, TileCover, tileLabel } from "./PostGrid";
 import { Suggestions } from "./Suggestions";
 import { useAsync } from "./useAsync";
 import { usePaged, useSentinel } from "./usePaged";
@@ -46,12 +46,19 @@ export function DiscoverView() {
         {!query.trim() && (
           <>
             <TopicTiles active={tag ? null : topic} onPick={(key) => setFilter({ topic: key === topic ? null : key })} />
+            {!tag && !topic && <FitnessVideos />}
             {tag ? <TagPosts tag={tag} onClear={() => setFilter({})} /> : <Browse topic={topic} />}
           </>
         )}
       </div>
     </>
   );
+}
+
+/** "Fitness videos" (P14.3), once short videos ship: social-stories fills DISCOVER_VIDEOS; until then nothing shows. */
+function FitnessVideos() {
+  const Videos = DISCOVER_VIDEOS;
+  return Videos ? <Videos limit={6} /> : null;
 }
 
 function SearchBox({ query, onQuery, onPickTopic }: { query: string; onQuery: (value: string) => void; onPickTopic: (key: string) => void }) {
@@ -163,7 +170,7 @@ function Browse({ topic }: { topic: string | null }) {
             {trending.data.map((post, index) => (
               <li key={post.id} className={index === 0 ? styles.trendFirst : ""}>
                 <Link href={`/explore/p/${post.id}`} className={styles.trend} aria-label={tileLabel(post)}>
-                  {post.media[0] && <SocialPhoto path={post.media[0].path} alt="" ratio={1} priority={index < 3} />}
+                  <TileCover post={post} priority={index < 3} />
                   <span className={styles.trendMeta} aria-hidden="true">
                     <Avatar user={post.author} size={22} />
                     <span className="truncate">{post.author.username}</span>

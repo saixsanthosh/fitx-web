@@ -288,3 +288,72 @@
   .photoWash { animation: none; }
   .topic:hover .topicImg, .tile:hover .photo, .trend:hover .photo { transform: none; }
 }
+
+/* Wave 2: the create menu. */
+.createList { display: flex; flex-direction: column; gap: 8px; }
+.createItem {
+  display: flex; min-height: 64px; align-items: center; gap: 14px; border: 1px solid var(--fitx-border); border-radius: 18px;
+  background: var(--fitx-card-bg); padding: 10px 14px; color: var(--fitx-text);
+  transition: background-color .18s ease, border-color .18s ease, transform .18s cubic-bezier(.22, 1, .36, 1);
+}
+.createItem:hover { border-color: var(--fitx-primary); background: var(--fitx-hover); }
+.createItem:active { transform: scale(.985); }
+.createItem:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.createIcon {
+  display: inline-flex; width: 44px; height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 14px;
+  background: var(--fitx-surface-variant); color: var(--fitx-primary);
+}
+.createText { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.createLabel { font-size: 15px; font-weight: 700; }
+.createHint { color: var(--fitx-text-secondary); font-size: 13px; }
+
+/* Wave 2: moderation notices for the owner, video posters, text posts. */
+.modNote {
+  display: flex; align-items: flex-start; gap: 10px; margin: 0 16px 12px; border: 1px solid var(--fitx-border); border-radius: 14px;
+  background: var(--fitx-surface-variant); padding: 10px 12px; color: var(--fitx-text); font-size: 13px; line-height: 1.45;
+}
+.modNoteTitle { display: block; font-weight: 700; }
+.videoFrame { position: relative; overflow: hidden; width: 100%; background: var(--fitx-stage); }
+.videoBadge {
+  position: absolute; bottom: 12px; left: 12px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+  background: var(--fitx-scrim); padding: 6px 10px; color: var(--fitx-on-stage); font-size: 12px; font-weight: 700;
+}
+.videoPaused {
+  position: absolute; inset: auto 12px 12px auto; max-width: calc(100% - 24px); border-radius: 12px; background: var(--fitx-scrim);
+  padding: 6px 10px; color: var(--fitx-on-stage); font-size: 12px; font-weight: 600;
+}
+.textPost { margin: 0 16px; border-radius: 18px; background: var(--fitx-surface-variant); padding: 22px 20px; color: var(--fitx-text); font-size: 17px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Wave 2: Explore closed (suspended or switched off). */
+.closedBanner {
+  display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--fitx-border); border-radius: 18px; background: var(--fitx-surface-variant);
+  padding: 14px 16px; color: var(--fitx-text); font-size: 14px; line-height: 1.5;
+}
+.closedTitle { font-size: 15px; font-weight: 700; }
+
+/* Wave 2: "Your Explore content". */
+.contentThumb { position: relative; overflow: hidden; width: 52px; height: 52px; flex: 0 0 auto; border-radius: 12px; background: var(--fitx-surface-variant); }
+.contentText { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.contentTitle { overflow: hidden; color: var(--fitx-text); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.contentMeta { color: var(--fitx-text-secondary); font-size: 12px; }
+.dangerButton {
+  display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--fitx-danger-border);
+  border-radius: 13px; background: var(--fitx-danger-bg); padding: 0 16px; color: var(--fitx-danger); font-size: 14px; font-weight: 700;
+}
+.dangerButton:focus-visible { outline: 2px solid var(--fitx-danger); outline-offset: 2px; }
+.dangerButton:disabled { opacity: .55; }
+.dateField {
+  min-height: 44px; width: 100%; max-width: 260px; border: 1px solid var(--fitx-border); border-radius: 13px; background: var(--fitx-surface);
+  padding: 0 12px; color: var(--fitx-text); font-size: 15px;
+}
+.dateField:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 1px; }
+
+/* Wave 2: a notice from FITX (no member named). */
+.fitxMark {
+  display: inline-flex; width: 44px; height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px;
+  background: var(--fitx-stage); color: var(--fitx-on-stage); font-size: 12px; font-weight: 800; letter-spacing: .04em;
+}
+.tileText {
+  position: absolute; inset: 0; display: flex; align-items: center; overflow: hidden; background: var(--fitx-surface-variant); padding: 14px;
+  color: var(--fitx-text); font-size: 13px; font-weight: 600; line-height: 1.4;
+}

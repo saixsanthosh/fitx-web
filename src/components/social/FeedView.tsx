@@ -5,6 +5,7 @@ import { Compass, ImagePlus, Loader2 } from "lucide-react";
 import { Reveal } from "@/components/motion/Reveal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { nextCursor, socialApi, type Cursor, type SocialPost } from "@/lib/social";
+import { FEED_TOP_SLOT } from "@/lib/social/slots";
 import { useReadyExplore } from "./ExploreContext";
 import { PostCard } from "./PostCard";
 import { Suggestions } from "./Suggestions";
@@ -21,12 +22,14 @@ export function FeedView() {
     return { items, next: nextCursor(items, PAGE) };
   });
   const sentinel = useSentinel(feed.more, !feed.done && feed.status === "ready");
+  const FeedTop = FEED_TOP_SLOT;
 
   return (
     <>
       <PageHeader title="Feed" className="sr-only" />
       <div className={styles.feedLayout}>
         <div className={styles.feedColumn}>
+          {FeedTop && <FeedTop />}
           {feed.status === "loading" && (
             <>
               <div className={styles.skeleton} style={{ aspectRatio: "4 / 5.6" }} aria-hidden="true" />

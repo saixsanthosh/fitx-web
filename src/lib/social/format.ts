@@ -30,3 +30,23 @@ export function compactCount(value: number): string {
 export function plural(count: number, one: string, many: string = `${one}s`): string {
   return `${compactCount(count)} ${count === 1 ? one : many}`;
 }
+
+/** What a suspended member reads: until when (in their own time zone), or until FITX lifts it. */
+export function suspensionText(until: string | null | undefined): string {
+  if (!until) return "FITX has paused your Explore account until it reviews it.";
+  const date = new Date(until);
+  if (!Number.isFinite(date.getTime())) return "FITX has paused your Explore account until it reviews it.";
+  return `FITX has paused your Explore account until ${date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`;
+}
+
+/** Whole years between a YYYY-MM-DD date and `today` (local), or null for an invalid date. */
+export function ageOn(isoDate: string, today: Date = new Date()): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const birth = new Date(year, month - 1, day);
+  if (birth.getFullYear() !== year || birth.getMonth() !== month - 1 || birth.getDate() !== day) return null;
+  let age = today.getFullYear() - year;
+  if (today.getMonth() < month - 1 || (today.getMonth() === month - 1 && today.getDate() < day)) age -= 1;
+  return age;
+}

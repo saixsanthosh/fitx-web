@@ -10,6 +10,7 @@ import { compactCount, nextCursor, socialApi, toSocialError, type Cursor, type F
 import type { Db } from "@/lib/social/api";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
+import { PROFILE_ACTIONS } from "@/lib/social/slots";
 import { FollowButton } from "./FollowButton";
 import { PostGrid } from "./PostGrid";
 import { ReportSheet } from "./ReportSheet";
@@ -37,6 +38,7 @@ export function ProfileView({ username }: { username: string }) {
 
 function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () => Promise<void> }) {
   const { profile, counts, relation } = page;
+  const ProfileActions = PROFILE_ACTIONS;
   const [menu, setMenu] = useState(false);
   const [confirm, setConfirm] = useState<"block" | "remove" | null>(null);
   const [report, setReport] = useState(false);
@@ -91,7 +93,10 @@ function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () =
           ) : relation.blocked ? (
             <button type="button" className={styles.smallButton} disabled={busy} onClick={() => void act(() => socialApi.setBlock(db, profile.id, false), `@${profile.username} is unblocked`)}>Unblock</button>
           ) : (
-            <FollowButton db={db} userId={profile.id} username={profile.username} state={relation.following} onChange={() => void reload()} />
+            <>
+              <FollowButton db={db} userId={profile.id} username={profile.username} state={relation.following} onChange={() => void reload()} />
+              {ProfileActions && <ProfileActions userId={profile.id} username={profile.username} />}
+            </>
           )}
           {!relation.is_self && (
             <button type="button" className={styles.iconButton} aria-label="Account options" aria-haspopup="dialog" onClick={() => setMenu(true)}><MoreHorizontal size={20} aria-hidden="true" /></button>

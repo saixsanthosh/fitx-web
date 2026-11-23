@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, m } from "framer-motion";
-import { Bookmark, ChevronLeft, ChevronRight, Flag, Heart, Link2, MessageCircle, MoreHorizontal, Pencil, Send, Trash2, UserX } from "lucide-react";
+import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, EyeOff, Flag, Heart, Link2, MessageCircle, MoreHorizontal, Pencil, Send, ShieldAlert, Trash2, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { useReducedMotionSafe } from "@/components/motion/useReducedMotionSafe";
 import { Sheet } from "@/components/ui/Sheet";
 import { SOCIAL_BUCKET, fullDate, plural, relativeTime, socialApi, toSocialError, topicLabel, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
 import { forgetPhotoUrls } from "@/lib/social/media-urls";
+import { POST_VIDEO, SHARE_TARGETS } from "@/lib/social/slots";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "./Avatar";
+import { useExplore } from "./ExploreContext";
 import { EditPostSheet } from "./EditPostSheet";
 import { ReportSheet } from "./ReportSheet";
 import { RichText } from "./RichText";
@@ -42,7 +44,9 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
   const [expanded, setExpanded] = useState(detail);
   const [burst, setBurst] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const pending = useRef(false);
+  const videosOn = useExplore().me?.videos === true;
 
   const [shown, setShown] = useState(post);
   if (shown !== post) {
@@ -93,6 +97,15 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
   }
 
   async function share() {
+    if (SHARE_TARGETS) {
+      setSharing(true);
+      return;
+    }
+    await shareLink();
+  }
+
+  async function shareLink() {
+    setSharing(false);
     const result = await sharePost(state.id, author.username);
     if (result === "copied") toast.success("Link copied");
     else if (result === "failed") toast.error("The link could not be copied.");
@@ -154,7 +167,14 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
         </button>
       </header>
 
-      <Carousel post={state} ratio={ratio} priority={priority} onDoubleTap={likeFromPhoto} burst={burst} />
+      {state.moderation && <ModerationNote state={state.moderation} />}
+      {state.kind === "video" ? (
+        <VideoMedia post={state} paused={!videosOn} priority={priority} />
+      ) : state.kind === "text" ? (
+        <p className={styles.textPost}><RichText text={state.caption} /></p>
+      ) : (
+        <Carousel post={state} ratio={ratio} priority={priority} onDoubleTap={likeFromPhoto} burst={burst} />
+      )}
 
       <div className={styles.actions}>
         <m.button
@@ -183,7 +203,7 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
 
       <div className={styles.body}>
         <p className={styles.stats} aria-live="polite">{plural(state.like_count, "like")}</p>
-        {state.caption && (
+        {state.caption && state.kind !== "text" && (
           <>
             <p className={`${styles.caption} ${!expanded && captionLong ? styles.captionClamp : ""}`}>
               <Link href={`/explore/u/${author.username}`} className={styles.captionName}>{author.username}</Link>
@@ -247,9 +267,83 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
         <span />
       </Sheet>
 
+      {SHARE_TARGETS && (
+        <Sheet open={sharing} onClose={() => setSharing(false)} title="Share post">
+          <div className={styles.menu}>
+            <ShareTargets postId={state.id} onDone={() => setSharing(false)} />
+            <button type="button" className={styles.menuItem} onClick={() => void shareLink()}><Link2 size={18} aria-hidden="true" />Share link</button>
+          </div>
+        </Sheet>
+      )}
+
       <EditPostSheet db={db} post={editing ? state : null} onClose={() => setEditing(false)} onSaved={update} />
       <ReportSheet db={db} target={report ? { type: "post", id: state.id } : null} onClose={() => setReport(false)} />
     </article>
+  );
+}
+
+function ShareTargets(props: { postId: string; onDone: () => void }) {
+  const Targets = SHARE_TARGETS;
+  return Targets ? <Targets {...props} /> : null;
+}
+
+/** Shown to the owner only: what FITX did to the post, in plain words. */
+function ModerationNote({ state }: { state: "limited" | "hidden" }) {
+  const Icon = state === "hidden" ? EyeOff : ShieldAlert;
+  return (
+    <p className={styles.modNote} role="note">
+      <Icon size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
+      <span>
+        <span className={styles.modNoteTitle}>{state === "hidden" ? "Hidden by FITX" : "Limited by FITX"}</span>
+        {state === "hidden" ? "Only you can see this post. FITX hid it after a review." : "Only your followers can see this post. It is left out of Discover and search."}
+      </span>
+    </p>
+  );
+}
+
+/** True while at least `threshold` of the element is on screen. */
+function useInView<T extends Element>(threshold = 0.6) {
+  const ref = useRef<T>(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting), { threshold });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [threshold]);
+  return [ref, inView] as const;
+}
+
+function duration(ms: number | null | undefined): string | null {
+  if (!ms || ms < 1) return null;
+  const seconds = Math.round(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/**
+ * A video post: social-stories' player (POST_VIDEO) once it ships and videos are on; until then, and while FITX has
+ * videos paused, the poster with its length. The video file itself is signed only when played (by the server route).
+ */
+function VideoMedia({ post, paused, priority }: { post: SocialPost; paused: boolean; priority: boolean }) {
+  const [ref, inView] = useInView<HTMLDivElement>();
+  const item = post.media[0];
+  const Player = POST_VIDEO;
+  if (!item) return null;
+  const ratio = frameRatio(item.width, item.height);
+  const length = duration(item.duration_ms);
+  return (
+    <div ref={ref} className={styles.videoFrame}>
+      {Player && !paused && item.poster_path ? (
+        <Player postId={post.id} inView={inView} media={{ path: item.path, posterPath: item.poster_path, width: item.width, height: item.height, durationMs: item.duration_ms ?? 0 }} />
+      ) : (
+        <>
+          {item.poster_path && <SocialPhoto path={item.poster_path} ratio={ratio} priority={priority} alt={item.alt ?? `Video by ${post.author.display_name}`} />}
+          <span className={styles.videoBadge}><Clapperboard size={14} aria-hidden="true" />{length ? `Video, ${length}` : "Video"}</span>
+          {paused && <span className={styles.videoPaused}>Videos are paused by FITX</span>}
+        </>
+      )}
+    </div>
   );
 }
 
