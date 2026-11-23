@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { FITX_MARK_D } from "@/components/brand/logo/geometry";
-// @ts-expect-error -- a plain .mjs build script, typed by use
 import { BRAND_EMBER, BRAND_INK, BRAND_PAPER, iconSvg, markSvg } from "../../scripts/brand/brand-svg.mjs";
 
 const read = (file: string) => readFileSync(file, "utf8");

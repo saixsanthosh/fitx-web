@@ -11,7 +11,7 @@ export const BRAND_EMBER = "#ED725C"; // --fitx-primary, dark theme
 
 const round = (value) => Math.round(value * 1000) / 1000;
 
-/** The mark alone on a transparent ground, in its own 600-unit square. */
+/** The mark alone on a transparent ground, in its own 600-unit square. @param {string} color */
 export function markSvg(color) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${FITX_MARK_SIZE} ${FITX_MARK_SIZE}"><path fill="${color}" d="${FITX_MARK_D}"/></svg>\n`;
 }
@@ -20,6 +20,7 @@ export function markSvg(color) {
  * The mark centred on a square tile of 64 units. `fill` is the share of the tile the mark's wider side takes,
  * `radius` the tile's corner radius as a share of its side (0 for maskable and Apple icons, which the system
  * rounds itself), `dot` an optional ember dot in the lower-left corner (Admin).
+ * @param {{ fill: number, radius: number, dot?: string | null, tile?: string, mark?: string }} options
  */
 export function iconSvg({ fill, radius, dot = null, tile = BRAND_TILE, mark = BRAND_PAPER }) {
   const side = 64;
