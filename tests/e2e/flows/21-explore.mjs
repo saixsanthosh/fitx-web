@@ -264,7 +264,7 @@ export const flow = {
       const safety = page.locator("section[aria-labelledby=settings-safety]");
       await safety.getByRole("button", { name: `Unblock @${benName}` }).click();
       await safety.getByText("You have not blocked or restricted anyone.").waitFor({ timeout: 15000 });
-      await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_save_notification_prefs") && r.ok()), page.getByRole("switch", { name: "Likes" }).click()]);
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_save_notification_prefs") && r.ok()), page.getByRole("switch", { name: "Likes", exact: true }).click()]);
       await page.locator("button[role=switch][aria-checked='false']#pref-likes").waitFor({ timeout: 10000 });
       const prefs = await settled(standin, `select likes::text likes from public.social_notification_prefs where user_id = '${asha.id}'`, (r) => r?.likes === "false");
       t.note("stored notification settings", prefs);
