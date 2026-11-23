@@ -32,7 +32,12 @@ export async function compressPhoto(file: File, longEdge: number = SOCIAL_LIMITS
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {
-    throw new Error("This photo could not be opened. Try a JPEG or PNG.");
+    // Older Safari refuses the options object; it applies the photo's orientation by itself.
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      throw new Error("This photo could not be opened. Try a JPEG or PNG.");
+    }
   }
   try {
     const size = targetSize(bitmap.width, bitmap.height, longEdge);

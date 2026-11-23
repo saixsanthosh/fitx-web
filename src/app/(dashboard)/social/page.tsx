@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
-export default function RemovedPage() {
-  redirect("/dashboard");
+/** The old Social page is now Explore. */
+export default function SocialPage() {
+  permanentRedirect("/explore");
 }

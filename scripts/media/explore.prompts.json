@@ -1,0 +1,48 @@
+{
+  "set": "explore",
+  "style": "Photoreal editorial sports photograph, natural and unposed, shot on a full-frame camera with a 50mm lens, soft directional light, deep charcoal shadows, gentle film grain, true-to-life textures. Colour palette: warm off-white, charcoal, muted sage and a single terracotta ember accent (#C44933). No text, letters, numbers, logos, brand marks, watermarks or signage anywhere in the image; clothing and equipment are plain and unbranded. Any person is anonymous (face turned away, cropped or in shadow) and not a real or famous person.",
+  "images": [
+    {
+      "id": "bodybuilding",
+      "aspect": "4:5",
+      "longEdge": 1200,
+      "alt": "Chalked hands closing around a loaded barbell in a dim gym",
+      "prompt": "Tight close-up of two chalked hands closing around the knurled grip of a loaded steel barbell resting on the floor, forearms veined and strong, a cloud of chalk dust caught in a single warm shaft of light from the left. Background falls into deep charcoal shadow with soft out-of-focus iron plates."
+    },
+    {
+      "id": "weight-loss",
+      "aspect": "4:5",
+      "longEdge": 1200,
+      "alt": "Running shoes mid-stride on a wet path at dawn",
+      "prompt": "Low-angle close-up of a runner's plain grey running shoes mid-stride on a wet asphalt path at dawn, one foot lifting with tiny droplets flying, the runner cropped at the knee. Soft pink-grey morning mist, muted sage trees far behind, long gentle reflections on the wet ground."
+    },
+    {
+      "id": "muscle-gain",
+      "aspect": "4:5",
+      "longEdge": 1200,
+      "alt": "A row of hex dumbbells on a rack in warm side light",
+      "prompt": "A neat row of plain cast-iron hexagonal dumbbells on a low rack, receding diagonally from the foreground into soft focus, warm late-afternoon side light picking out the edges of the iron, a terracotta towel folded over the end of the rack. Quiet, empty gym, deep charcoal shadows."
+    },
+    {
+      "id": "home-workouts",
+      "aspect": "4:5",
+      "longEdge": 1200,
+      "alt": "A rolled-out mat, resistance band and water bottle in a sunlit living room",
+      "prompt": "A sage-green exercise mat rolled out on a light wooden floor of a calm, minimal living room, a terracotta resistance band and a plain steel water bottle resting on it, morning sunlight through sheer curtains casting long soft window shadows. No person in the frame."
+    },
+    {
+      "id": "gym-workouts",
+      "aspect": "4:5",
+      "longEdge": 1200,
+      "alt": "An empty gym floor with a squat rack and cable machine in pools of light",
+      "prompt": "Wide view of an empty, quiet strength gym at dusk: a plain steel squat rack with a racked barbell in the foreground, a cable machine and benches behind it, each standing in its own pool of warm overhead light, the rest of the floor falling into deep charcoal. Rubber floor tiles with a subtle sheen."
+    },
+    {
+      "id": "nutrition",
+      "aspect": "4:5",
+      "longEdge": 1200,
+      "alt": "A bowl of rice, grilled paneer, chickpeas and greens on a stone counter",
+      "prompt": "Overhead three-quarter view of a home-cooked high-protein bowl on a dark stone counter: brown rice, cubes of grilled paneer, spiced chickpeas, cucumber, tomato and fresh coriander, a steel spoon beside it and a small bowl of yoghurt. Soft window light from the top left, rich natural colours, crumbs and texture, no packaging."
+    }
+  ]
+}

@@ -744,7 +744,8 @@ end $do$;
 
 -- 6. Member functions: profile ---------------------------------------------------------------------------------------
 
--- The signed-in member's Explore state: their profile (null before they make one), unread notifications and requests.
+-- The signed-in member's Explore state: their profile (null before they make one), unread notifications (follow requests
+-- are counted once, as waiting requests) and waiting follow requests.
 create or replace function public.fitx_social_me()
 returns jsonb
 language plpgsql
@@ -768,7 +769,8 @@ begin
       'display_name', v_profile.display_name, 'bio', v_profile.bio, 'avatar_path', v_profile.avatar_path,
       'is_private', v_profile.is_private, 'default_comment_policy', v_profile.default_comment_policy),
     'unread', (select pg_catalog.count(*) from public.social_notifications n
-               where n.user_id = v_uid and n.read_at is null and not public.fitx_social_blocked(v_uid, n.actor_id)),
+               where n.user_id = v_uid and n.read_at is null and n.type <> 'follow_request'
+                 and not public.fitx_social_blocked(v_uid, n.actor_id)),
     'requests', (select pg_catalog.count(*) from public.social_follows f
                  where f.following_id = v_uid and f.status = 'pending' and not public.fitx_social_blocked(v_uid, f.user_id)));
 end $function$;
