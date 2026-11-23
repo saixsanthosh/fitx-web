@@ -56,7 +56,7 @@ export class StorageService {
     if (first === "sign") {
       const [bucketId, ...nameParts] = rest;
       const name = nameParts.join("/");
-      if (method === "GET") return this.download(bucketId, name, query, { token: query.get("token") });
+      if (method === "GET") return this.download(bucketId, name, query, { token: query.get("token"), range: headers?.range });
       if (method !== "POST") return storageError(405, 405, "method_not_allowed", "Method not allowed");
       const expiresIn = Math.max(1, Number(body?.expiresIn ?? 60));
       if (!name) {
@@ -81,7 +81,7 @@ export class StorageService {
       const [bucketId, ...nameParts] = rest;
       const bucket = await this.bucket(bucketId);
       if (!bucket?.public) return storageError(400, 404, "not_found", "Object not found");
-      return this.download(bucketId, nameParts.join("/"), query, { trusted: true });
+      return this.download(bucketId, nameParts.join("/"), query, { trusted: true, range: headers?.range });
     }
 
     if (first === "list" && method === "POST") return this.list(rest[0], body ?? {}, ctx);
@@ -102,7 +102,7 @@ export class StorageService {
     if (method === "GET" && name) {
       const visible = await this.asRole(ctx, [`select count(*)::text from storage.objects where bucket_id = ${lit(bucketId)} and name = ${lit(name)}`]);
       if (visible.error || visible.rows[0][0][0] === "0") return storageError(400, 404, "not_found", "Object not found");
-      return this.download(bucketId, name, query, { trusted: true });
+      return this.download(bucketId, name, query, { trusted: true, range: headers?.range });
     }
 
     if ((method === "POST" || method === "PUT") && name) return this.upload(bucketId, name, { method, headers, rawBody }, ctx);
@@ -116,7 +116,9 @@ export class StorageService {
     return `/object/sign/${bucket}/${name}?token=${token}`;
   }
 
-  async download(bucketId, name, query, { token, trusted = false }) {
+  // Video (wave 2): signed .mp4 links are played by <video>, which asks for byte ranges ("Range: bytes=a-b"); the
+  // answer is 206 with Content-Range, as Supabase Storage gives. Every download says it accepts ranges.
+  async download(bucketId, name, query, { token, trusted = false, range }) {
     if (!trusted) {
       const verified = verifyJwt(token ?? "", this.secret);
       if (verified.error === "expired") return storageError(400, 400, "InvalidJWT", "\"exp\" claim timestamp check failed");
@@ -134,7 +136,19 @@ export class StorageService {
       const fileName = query.get("download") || name.split("/").pop();
       headers["content-disposition"] = `attachment; filename="${fileName.replace(/"/g, "")}"`;
     }
-    return { status: 200, headers, raw: readFileSync(file) };
+    const bytes = readFileSync(file);
+    headers["accept-ranges"] = "bytes";
+    const wanted = /^bytes=(\d*)-(\d*)$/.exec(String(range ?? "").trim());
+    if (wanted && (wanted[1] || wanted[2])) {
+      const size = bytes.length;
+      let start = wanted[1] ? Number(wanted[1]) : Math.max(0, size - Number(wanted[2]));
+      let end = wanted[1] && wanted[2] ? Math.min(size - 1, Number(wanted[2])) : size - 1;
+      if (start >= size || start > end) return { status: 416, headers: { "content-range": `bytes */${size}` }, raw: Buffer.alloc(0) };
+      start = Math.max(0, start);
+      end = Math.max(start, end);
+      return { status: 206, headers: { ...headers, "content-range": `bytes ${start}-${end}/${size}` }, raw: bytes.subarray(start, end + 1) };
+    }
+    return { status: 200, headers, raw: bytes };
   }
 
   async upload(bucketId, name, { method, headers, rawBody }, ctx) {

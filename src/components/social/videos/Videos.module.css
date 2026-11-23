@@ -1,0 +1,122 @@
+/* Explore videos: theme tokens only (light, dark and system), transform and opacity motion, 44 px targets. */
+
+/* Picking and preparing a video */
+.picker { display: flex; flex-direction: column; gap: 12px; }
+.choices { display: grid; gap: 10px; }
+@media (min-width: 640px) { .choices { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } }
+.choice {
+  display: flex; min-height: 72px; align-items: center; gap: 14px; border: 1px solid var(--fitx-border); border-radius: 18px; background: var(--fitx-card-bg);
+  padding: 12px 14px; color: var(--fitx-text); cursor: pointer; text-align: left;
+  transition: border-color .18s ease, background-color .18s ease, transform .18s cubic-bezier(.22, 1, .36, 1);
+}
+.choice:hover, .choice:focus-within { border-color: var(--fitx-primary); background: var(--fitx-hover); }
+.choice:active { transform: scale(.985); }
+.choice:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.choice[aria-disabled="true"], .choice:disabled { opacity: .55; cursor: default; }
+.choiceIcon { display: inline-flex; width: 44px; height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 14px; background: var(--fitx-surface-variant); color: var(--fitx-primary); }
+.choiceText { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.choiceLabel { font-size: 15px; font-weight: 700; }
+.choiceHint { color: var(--fitx-text-secondary); font-size: 13px; line-height: 1.4; }
+.panel { display: flex; flex-direction: column; gap: 14px; border: 1px solid var(--fitx-border); border-radius: 20px; background: var(--fitx-card-bg); padding: 16px; }
+.panelText { display: flex; align-items: flex-start; gap: 10px; color: var(--fitx-text); font-size: 14px; line-height: 1.5; }
+.panelText svg { margin-top: 2px; flex: 0 0 auto; color: var(--fitx-primary); }
+.status { display: inline-flex; align-items: center; gap: 8px; color: var(--fitx-text-secondary); font-size: 14px; line-height: 1.5; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+.trim { display: grid; gap: 6px; }
+.trimLabel { color: var(--fitx-text); font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.trimHint { color: var(--fitx-text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.range { width: 100%; min-height: 44px; accent-color: var(--fitx-primary); }
+.progress { overflow: hidden; height: 4px; border-radius: 999px; background: var(--fitx-track); }
+.progressBar { height: 100%; border-radius: inherit; background: var(--fitx-primary); transform-origin: left; transition: transform .25s linear; }
+.cameraFrame { position: relative; overflow: hidden; width: 100%; max-width: 420px; aspect-ratio: 3 / 4; margin: 0 auto; border-radius: 18px; background: var(--fitx-stage); }
+.cameraVideo { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.recordBadge {
+  position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; background: var(--fitx-scrim);
+  padding: 6px 10px; color: var(--fitx-on-stage); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.recordDot { display: inline-block; width: 10px; height: 10px; flex: 0 0 auto; border-radius: 999px; background: var(--fitx-danger); }
+.recordBadge .recordDot { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.ready { width: 100%; max-height: 62vh; border-radius: 16px; background: var(--fitx-stage); }
+.readyMeta { color: var(--fitx-text-secondary); font-size: 13px; font-variant-numeric: tabular-nums; }
+.alert { border: 1px solid var(--fitx-danger-border); border-radius: 14px; background: var(--fitx-danger-bg); padding: 12px 14px; color: var(--fitx-danger); font-size: 14px; }
+
+/* The player (POST_VIDEO): poster first, a signed link only on tap. */
+.player { position: relative; overflow: hidden; width: 100%; background: var(--fitx-stage); color: var(--fitx-on-stage); isolation: isolate; }
+.playerMedia { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.playerVideo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--fitx-stage); opacity: 0; transition: opacity .3s cubic-bezier(.22, 1, .36, 1); }
+.playerVideoOn { opacity: 1; }
+.playButton {
+  position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; width: 100%; color: var(--fitx-on-stage);
+}
+.playButton:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: -3px; }
+.playMark {
+  display: inline-flex; width: 64px; height: 64px; align-items: center; justify-content: center; border-radius: 999px;
+  background: color-mix(in srgb, var(--fitx-scrim) 62%, transparent); box-shadow: 0 10px 30px color-mix(in srgb, var(--fitx-scrim) 40%, transparent);
+  backdrop-filter: blur(6px); transition: transform .22s cubic-bezier(.22, 1, .36, 1), opacity .22s ease;
+}
+.playButton:hover .playMark { transform: scale(1.06); }
+.playButton:active .playMark { transform: scale(.94); }
+.playing .playMark { opacity: 0; }
+.playing .playButton:hover .playMark, .playing .playButton:focus-visible .playMark { opacity: 1; }
+.playerTools { position: absolute; right: 10px; bottom: 10px; z-index: 3; display: flex; gap: 6px; }
+.toolButton {
+  display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; border-radius: 999px;
+  background: color-mix(in srgb, var(--fitx-scrim) 62%, transparent); color: var(--fitx-on-stage); transition: transform .15s ease;
+}
+.toolButton:active { transform: scale(.92); }
+.toolButton:focus-visible { outline: 2px solid var(--fitx-on-stage); outline-offset: 2px; }
+.lengthBadge {
+  position: absolute; bottom: 12px; left: 12px; z-index: 3; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+  background: var(--fitx-scrim); padding: 6px 10px; color: var(--fitx-on-stage); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.timeline { position: absolute; inset: auto 0 0; z-index: 3; height: 3px; background: color-mix(in srgb, var(--fitx-on-stage) 22%, transparent); }
+.timelineFill { height: 100%; background: var(--fitx-primary); transform-origin: left; transform: scaleX(0); }
+.playerNote {
+  position: absolute; inset: auto 12px 60px; z-index: 3; border-radius: 12px; background: var(--fitx-scrim); padding: 8px 12px;
+  color: var(--fitx-on-stage); font-size: 13px; line-height: 1.4; text-align: center;
+}
+.wash {
+  position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--fitx-on-stage) 8%, transparent) 50%, transparent 70%);
+  background-size: 220% 100%; animation: wash 1.6s ease-in-out infinite;
+}
+@keyframes wash { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+/* The Videos tab: one column of tall cards, centred; a quiet side note on wide screens. */
+.feed { display: grid; gap: 24px; }
+@media (min-width: 1024px) { .feed { grid-template-columns: minmax(0, 460px) minmax(240px, 300px); justify-content: center; align-items: start; } }
+.column { display: flex; min-width: 0; flex-direction: column; gap: 22px; }
+.card { overflow: hidden; border: 1px solid var(--fitx-border); border-radius: 24px; background: var(--fitx-card-bg); }
+.cardHead { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.cardBody { display: flex; flex-direction: column; gap: 6px; padding: 4px 16px 16px; }
+.actions { display: flex; align-items: center; gap: 2px; padding: 6px 8px 0; }
+.banner {
+  display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--fitx-border); border-radius: 18px; background: var(--fitx-surface-variant);
+  padding: 14px 16px; color: var(--fitx-text); font-size: 14px; line-height: 1.5;
+}
+.banner svg { margin-top: 2px; flex: 0 0 auto; color: var(--fitx-primary); }
+.bannerTitle { display: block; font-weight: 700; }
+.aside { display: none; }
+@media (min-width: 1024px) { .aside { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 12px; } }
+.asideText { color: var(--fitx-text-secondary); font-size: 13px; line-height: 1.55; }
+
+/* Discover's "Fitness videos" (DISCOVER_VIDEOS) */
+.shelf { display: grid; grid-auto-columns: minmax(150px, 44%); grid-auto-flow: column; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+@media (min-width: 768px) { .shelf { grid-auto-columns: auto; grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; } }
+@media (min-width: 1200px) { .shelf { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.tile { position: relative; display: block; overflow: hidden; aspect-ratio: 9 / 14; border-radius: 18px; background: var(--fitx-stage); color: var(--fitx-on-stage); scroll-snap-align: start; isolation: isolate; }
+.tile:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 2px; }
+.tileImg { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .45s ease, transform .6s cubic-bezier(.22, 1, .36, 1); }
+.tileImgReady { opacity: 1; }
+.tile:hover .tileImg { transform: scale(1.04); }
+.tile::after { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, transparent 50%, color-mix(in srgb, var(--fitx-tile-scrim) 82%, transparent)); content: ""; }
+.tileMeta { position: absolute; inset: auto 0 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; font-size: 12px; font-weight: 650; }
+.tileName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tileLength { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .9; }
+.tilePlay { position: absolute; top: 10px; right: 10px; display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: 999px; background: color-mix(in srgb, var(--fitx-scrim) 55%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .choice:active, .toolButton:active, .playButton:hover .playMark, .playButton:active .playMark, .tile:hover .tileImg { transform: none; }
+  .recordBadge .recordDot, .wash { animation: none; }
+  .playerVideo, .tileImg, .progressBar { transition: opacity .15s linear; }
+}
