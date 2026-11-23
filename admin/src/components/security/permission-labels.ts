@@ -9,6 +9,8 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "people.delete": "Delete accounts",
   "support.view": "Read support",
   "support.reply": "Reply to support",
+  "explore.view": "See Explore reports",
+  "explore.moderate": "Moderate Explore, run communities and challenges",
   "content.manage": "Manage workouts",
   "nutrition.manage": "Manage nutrition",
   "announcements.manage": "Announce to everyone",

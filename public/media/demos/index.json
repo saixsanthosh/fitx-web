@@ -1,0 +1,239 @@
+{
+ "version": 1,
+ "items": {
+  "biceps_curl": {
+   "male": {
+    "frames": [
+     "/media/demos/male/biceps_curl/0.webp",
+     "/media/demos/male/biceps_curl/1.webp"
+    ],
+    "captions": [
+     "Arms long",
+     "Squeeze at the top"
+    ]
+   },
+   "female": {
+    "frames": [
+     "/media/demos/female/biceps_curl/0.webp",
+     "/media/demos/female/biceps_curl/1.webp"
+    ],
+    "captions": [
+     "Arms long",
+     "Squeeze at the top"
+    ]
+   }
+  },
+  "bodyweight_squat": {
+   "male": {
+    "frames": [
+     "/media/demos/male/bodyweight_squat/0.webp",
+     "/media/demos/male/bodyweight_squat/1.webp"
+    ],
+    "captions": [
+     "Stand tall",
+     "Thighs towards level"
+    ]
+   },
+   "female": {
+    "frames": [
+     "/media/demos/female/bodyweight_squat/0.webp",
+     "/media/demos/female/bodyweight_squat/1.webp"
+    ],
+    "captions": [
+     "Stand tall",
+     "Thighs towards level"
+    ]
+   }
+  },
+  "dumbbell_shoulder_press": {
+   "female": {
+    "frames": [
+     "/media/demos/female/dumbbell_shoulder_press/0.webp",
+     "/media/demos/female/dumbbell_shoulder_press/1.webp"
+    ],
+    "captions": [
+     "Weights at shoulders",
+     "Arms straight overhead"
+    ]
+   }
+  },
+  "free-exercise-db-Barbell_Curl": {
+   "male": {
+    "frames": [
+     "/media/demos/male/free-exercise-db-Barbell_Curl/0.webp",
+     "/media/demos/male/free-exercise-db-Barbell_Curl/1.webp"
+    ],
+    "captions": [
+     "Stand up with your torso upright while holding a barbell at a shoulder-width grip.",
+     "While holding the upper arms stationary, curl the weights forward while contracting the biceps as you breathe out."
+    ]
+   },
+   "female": {
+    "frames": [
+     "/media/demos/female/free-exercise-db-Barbell_Curl/0.webp",
+     "/media/demos/female/free-exercise-db-Barbell_Curl/1.webp"
+    ],
+    "captions": [
+     "Stand up with your torso upright while holding a barbell at a shoulder-width grip.",
+     "While holding the upper arms stationary, curl the weights forward while contracting the biceps as you breathe out."
+    ]
+   }
+  },
+  "free-exercise-db-Decline_Push-Up": {
+   "female": {
+    "frames": [
+     "/media/demos/female/free-exercise-db-Decline_Push-Up/0.webp",
+     "/media/demos/female/free-exercise-db-Decline_Push-Up/1.webp"
+    ],
+    "captions": [
+     "Plank, arms straight",
+     "Chest near the floor"
+    ]
+   }
+  },
+  "free-exercise-db-Kettlebell_One-Legged_Deadlift": {
+   "male": {
+    "frames": [
+     "/media/demos/male/free-exercise-db-Kettlebell_One-Legged_Deadlift/0.webp",
+     "/media/demos/male/free-exercise-db-Kettlebell_One-Legged_Deadlift/1.webp"
+    ],
+    "captions": [
+     "Hold a kettlebell by the handle in one hand.",
+     "Keeping that knee slightly bent, perform a stiff legged deadlift by bending at the hip"
+    ]
+   }
+  },
+  "free-exercise-db-Leg_Extensions": {
+   "male": {
+    "frames": [
+     "/media/demos/male/free-exercise-db-Leg_Extensions/0.webp",
+     "/media/demos/male/free-exercise-db-Leg_Extensions/1.webp"
+    ],
+    "captions": [
+     "Using your quadriceps, extend your legs to the maximum as you exhale.",
+     "Slowly lower the weight back to the original position as you inhale"
+    ]
+   }
+  },
+  "free-exercise-db-Side_Bridge": {
+   "male": {
+    "frames": [
+     "/media/demos/male/free-exercise-db-Side_Bridge/0.webp",
+     "/media/demos/male/free-exercise-db-Side_Bridge/1.webp"
+    ],
+    "captions": [
+     "Lie on your side, propped on one forearm, elbow under the shoulder.",
+     "Lift your hips until your body is one straight line, then hold."
+    ]
+   }
+  },
+  "free-exercise-db-Single_Leg_Glute_Bridge": {
+   "female": {
+    "frames": [
+     "/media/demos/female/free-exercise-db-Single_Leg_Glute_Bridge/0.webp",
+     "/media/demos/female/free-exercise-db-Single_Leg_Glute_Bridge/1.webp"
+    ],
+    "captions": [
+     "Raise one leg off of the ground, pulling the knee to your chest.",
+     "Execute the movement by driving through the heel, extending your hip upward and raising your glutes off of the ground."
+    ]
+   }
+  },
+  "glute_bridge": {
+   "female": {
+    "frames": [
+     "/media/demos/female/glute_bridge/0.webp",
+     "/media/demos/female/glute_bridge/1.webp"
+    ],
+    "captions": [
+     "Lie back, knees bent",
+     "Hold the top"
+    ]
+   }
+  },
+  "jumping_jack": {
+   "male": {
+    "frames": [
+     "/media/demos/male/jumping_jack/0.webp",
+     "/media/demos/male/jumping_jack/1.webp"
+    ],
+    "captions": [
+     "Feet together",
+     "Arms overhead"
+    ]
+   }
+  },
+  "plank": {
+   "male": {
+    "frames": [
+     "/media/demos/male/plank/0.webp",
+     "/media/demos/male/plank/1.webp"
+    ],
+    "captions": [
+     "Get into position",
+     "Hold one straight line"
+    ]
+   },
+   "female": {
+    "frames": [
+     "/media/demos/female/plank/0.webp",
+     "/media/demos/female/plank/1.webp"
+    ],
+    "captions": [
+     "Get into position",
+     "Hold one straight line"
+    ]
+   }
+  },
+  "push_up": {
+   "male": {
+    "frames": [
+     "/media/demos/male/push_up/0.webp",
+     "/media/demos/male/push_up/1.webp"
+    ],
+    "captions": [
+     "Plank, arms straight",
+     "Chest near the floor"
+    ]
+   },
+   "female": {
+    "frames": [
+     "/media/demos/female/push_up/0.webp",
+     "/media/demos/female/push_up/1.webp"
+    ],
+    "captions": [
+     "Plank, arms straight",
+     "Chest near the floor"
+    ]
+   }
+  },
+  "romanian_deadlift": {
+   "male": {
+    "frames": [
+     "/media/demos/male/romanian_deadlift/0.webp",
+     "/media/demos/male/romanian_deadlift/1.webp"
+    ],
+    "captions": [
+     "Stand tall",
+     "Feel the stretch"
+    ]
+   }
+  },
+  "split_squat": {
+   "male": {
+    "frames": [
+     "/media/demos/male/split_squat/0.webp",
+     "/media/demos/male/split_squat/1.webp"
+    ],
+    "captions": [
+     "Split stance",
+     "Back knee near the floor"
+    ]
+   }
+  }
+ },
+ "credit": {
+  "attribution": "FITX demonstration (AI image made with Google Gemini from a Free Exercise DB photo)",
+  "license": "FITX"
+ }
+}

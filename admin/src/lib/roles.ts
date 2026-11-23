@@ -1,6 +1,6 @@
 // Admin roles and what each may do. No imports, so tests can load this file directly.
-// The same table lives in supabase/migrations/20261121100030_fitx_admin_v2.sql
-// (fitx_admin_role_permissions, used by fitx_admin_op_can); admin/tests/roles.test.mjs fails if the two drift apart.
+// The same table lives in fitx_admin_role_permissions (used by fitx_admin_op_can), as its newest defining migration
+// leaves it (supabase/migrations/20261124100020_fitx_admin_explore.sql); admin/tests/roles.test.mjs fails if the two drift apart.
 // Frozen after the admin-a stream: other streams import it.
 
 export const ADMIN_ROLES = ["super_admin", "admin", "support_agent", "content_editor", "viewer"] as const;
@@ -31,6 +31,8 @@ export const PERMISSIONS = [
   "notifications.send",
   "settings.manage",
   "security.view",
+  "explore.view",
+  "explore.moderate",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -39,9 +41,9 @@ export const ROLE_PERMISSIONS: Record<AdminRole, readonly Permission[]> = {
   admin: [
     "overview.view", "reports.view", "people.view", "people.support", "people.suspend", "support.view",
     "support.reply", "content.manage", "announcements.manage", "audit.view", "access.view", "settings.view",
-    "billing.view", "nutrition.manage", "notifications.send", "security.view",
+    "billing.view", "nutrition.manage", "notifications.send", "security.view", "explore.view", "explore.moderate",
   ],
-  support_agent: ["overview.view", "people.view", "people.support", "support.view", "support.reply"],
+  support_agent: ["overview.view", "people.view", "people.support", "support.view", "support.reply", "explore.view"],
   content_editor: ["overview.view", "content.manage", "announcements.manage", "nutrition.manage", "notifications.send"],
   viewer: ["overview.view", "reports.view"],
 };
@@ -56,8 +58,8 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
 
 export const ROLE_DESCRIPTIONS: Record<AdminRole, string> = {
   super_admin: "Everything, including operators, account deletion, settings, billing changes and audit export.",
-  admin: "Day-to-day operations: users, support, workouts, nutrition, notifications, reports, security and the audit log.",
-  support_agent: "User lookup, password resets, signing people out, and the support queue.",
+  admin: "Day-to-day operations: users, support, Explore moderation, workouts, nutrition, notifications, reports, security and the audit log.",
+  support_agent: "User lookup, password resets, signing people out, the support queue, and the Explore queue (read-only).",
   content_editor: "Workouts, nutrition, announcements and notifications.",
   viewer: "Overview and reports only. Read-only.",
 };
@@ -79,6 +81,9 @@ export const PAGE_PERMISSIONS = {
   "/overview": "overview.view",
   "/users": "people.view",
   "/support": "support.view",
+  "/explore": "explore.view",
+  "/explore/communities": "explore.view",
+  "/explore/challenges": "explore.view",
   "/training": "content.manage",
   "/nutrition": "nutrition.manage",
   "/announcements": "announcements.manage",

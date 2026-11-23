@@ -2,13 +2,18 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Logo } from "@/components/ui/Logo";
-import { CALLOUTS, STAGE, TITLES } from "./intro/timeline";
+import { FILM_CUT_ATTR, pickComposition, type FilmComposition } from "./films/compositions";
+import { manifestFor } from "./films/manifest";
+import { LogoReveal } from "./logo/LogoReveal";
+import { CALLOUTS, FILM_DURATION, STAGE, TITLES } from "./intro/timeline";
+import { CALLOUT_ZONES } from "./overlay-zones";
 import {
   BRAND,
   beginningInStage,
   calloutTiming,
   clamp,
   easeOutQuart,
+  endCardFor,
   formatCount,
   letterboxTiming,
   liveDuringStage,
@@ -18,6 +23,7 @@ import {
   tokenizeCount,
   type CountNumber,
   type CountToken,
+  type EndCardKind,
   type FilmCallout,
   type FilmFreeze,
   type FilmTitle,
@@ -25,8 +31,10 @@ import {
 import styles from "./IntroFilmOverlay.module.css";
 
 /**
- * The film's DOM motion graphics: 2.39:1 letterbox, kinetic titles, data callouts (stages 0–5) and
- * the brand end card (stage 6). React state changes only when the scene reports a stage; every
+ * The film's DOM motion graphics: the letterbox, kinetic titles, data callouts (stages 0–5) and
+ * the brand end card (stage 6). The matte and the callout areas follow the composition being played
+ * (`<html data-fitx-film-cut>`, overlay-zones.ts): a 2.39:1 scope on laptop and desktop, a thin matte
+ * on the tablets and the phone. React state changes only when the scene reports a stage; every
  * element then runs CSS animations whose delays are film times measured from the *origin* (the
  * `STAGE_START` of the stage in which it mounted). Each element captures its origin once, so a
  * later stage never retimes an animation that is already running, and each is pinned to the film
@@ -66,6 +74,47 @@ function filmVideo(element: HTMLElement): HTMLVideoElement | null {
   if (!section || section.hasAttribute("data-intro-debug")) return null;
   const video = section.querySelector("video");
   return video && !video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? video : null;
+}
+
+/**
+ * The composition the film is being played in: `<html data-fitx-film-cut>` (set by the head script and
+ * the player, and updated on a rotation swap), else the viewport's own band. Follows changes to the
+ * attribute, so a swap moves the matte and the callouts with the picture.
+ */
+function readComposition(): FilmComposition {
+  const attribute = document.documentElement.getAttribute(FILM_CUT_ATTR);
+  const known: readonly string[] = ["phone", "tablet-p", "tablet-l", "laptop", "desktop"];
+  return attribute && known.includes(attribute) ? (attribute as FilmComposition) : pickComposition(window.innerWidth, window.innerHeight);
+}
+
+function useFilmComposition(): FilmComposition | null {
+  // The film graphics mount only on the client, once a film plays (never in the server HTML).
+  const [comp, setComp] = useState<FilmComposition | null>(() => (typeof document === "undefined" ? null : readComposition()));
+  useLayoutEffect(() => {
+    const sync = () => setComp(readComposition());
+    const observer = typeof MutationObserver === "function" ? new MutationObserver(sync) : null;
+    observer?.observe(document.documentElement, { attributes: true, attributeFilter: [FILM_CUT_ATTR] });
+    // Without the attribute (a live film), the band follows the window.
+    window.addEventListener("resize", sync);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, []);
+  return comp;
+}
+
+/**
+ * The length of the film being played: the intro manifest's (or the video's own) when the
+ * pre-rendered cut plays, the director's film otherwise.
+ */
+function playingDuration(): number {
+  const section = document.querySelector<HTMLElement>("[data-fitx-intro-overlay]");
+  const video = section && !section.hasAttribute("data-intro-debug") ? section.querySelector("video") : null;
+  if (!video) return FILM_DURATION;
+  const manifest = manifestFor("intro");
+  if (manifest && Number.isFinite(manifest.duration) && manifest.duration > 0) return manifest.duration;
+  return Number.isFinite(video.duration) && video.duration > 0 ? video.duration : FILM_DURATION;
 }
 
 type ClockReading = { now: number; film: number | null };
@@ -330,6 +379,7 @@ type FilmGraphicsProps = {
 /** Letterbox, titles and callouts. Mount only while the 3D film plays; remount (key) per run. */
 export function FilmGraphics({ stage, theme, freeze }: FilmGraphicsProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const comp = useFilmComposition();
   const origin = stageStart(stage);
   const frozen = freeze !== null;
   const titles = freeze?.kind === "stage" ? beginningInStage(TITLES, stage) : liveDuringStage(TITLES, stage);
@@ -351,7 +401,7 @@ export function FilmGraphics({ stage, theme, freeze }: FilmGraphicsProps) {
   }, []);
 
   return (
-    <div ref={rootRef} className={styles.film} aria-hidden="true" data-film-graphics>
+    <div ref={rootRef} className={styles.film} aria-hidden="true" data-film-graphics data-comp={comp ?? undefined}>
       {stage >= LETTERBOX.outStage
         ? <LetterboxBars key="out" phase="out" origin={origin} />
         : <LetterboxBars key="in" phase="in" origin={origin} />}
@@ -359,7 +409,7 @@ export function FilmGraphics({ stage, theme, freeze }: FilmGraphicsProps) {
       {titles.map((title) => (
         <KineticTitle key={title.text} title={title} index={TITLE_INDEX.get(title.text) ?? 0} origin={origin} frozen={frozen} />
       ))}
-      {callouts.map((callout) => <DataCallout key={callout.id} callout={callout} origin={origin} frozen={frozen} />)}
+      {comp && callouts.map((callout) => <DataCallout key={callout.id} callout={callout} comp={comp} origin={origin} frozen={frozen} />)}
     </div>
   );
 }
@@ -502,9 +552,9 @@ function CountText({ tokens, steps, className }: { tokens: CountToken[]; steps: 
   );
 }
 
-type DataCalloutProps = { callout: FilmCallout; origin: number; frozen: boolean };
+type DataCalloutProps = { callout: FilmCallout; comp: FilmComposition; origin: number; frozen: boolean };
 
-function DataCalloutBlock({ callout, origin, frozen }: DataCalloutProps) {
+function DataCalloutBlock({ callout, comp, origin, frozen }: DataCalloutProps) {
   const [mountOrigin] = useState(origin);
   const calloutRef = useRef<HTMLDivElement>(null);
   const chipExitRef = useRef<HTMLDivElement>(null);
@@ -515,6 +565,8 @@ function DataCalloutBlock({ callout, origin, frozen }: DataCalloutProps) {
   const detailIsBadge = !detailTokens.some((token) => token.kind === "number");
   const steps = Math.max(1, Math.round(timing.count * COUNT_FPS));
   const at = callout.start - mountOrigin;
+  const placement = callout.placement[comp];
+  const zone = CALLOUT_ZONES[comp][placement];
   // The chip's exit slide (attached at mount) starting cues the callout's group fade.
   useExitCue(chipExitRef, calloutRef, !frozen);
 
@@ -523,11 +575,15 @@ function DataCalloutBlock({ callout, origin, frozen }: DataCalloutProps) {
       ref={calloutRef}
       className={styles.callout}
       data-callout={callout.id}
-      data-placement={callout.placement}
+      data-placement={placement}
       data-film-origin={mountOrigin}
       data-film-rest={callout.start + timing.rest}
       data-exiting={frozen ? "" : undefined}
       style={vars({
+        "--zx0": zone.x0,
+        "--zy0": zone.y0,
+        "--zx1": zone.x1,
+        "--zy1": zone.y1,
         "--at": sec(at),
         "--chip-in": sec(timing.chipIn),
         "--line-at": sec(at + timing.lineAt),
@@ -561,7 +617,7 @@ function DataCalloutBlock({ callout, origin, frozen }: DataCalloutProps) {
   );
 }
 
-const DataCallout = memo(DataCalloutBlock, (a, b) => a.callout === b.callout && a.frozen === b.frozen);
+const DataCallout = memo(DataCalloutBlock, (a, b) => a.callout === b.callout && a.comp === b.comp && a.frozen === b.frozen);
 
 // ---------------------------------------------------------------------------------------------
 
@@ -572,8 +628,32 @@ type BrandEndCardProps = {
   logoClassName?: string;
 };
 
-/** Stage 6: the frame clears to the theme background, the FITX mark forms, the tagline settles. */
-export function BrandEndCard({ stage, freeze, logoClassName }: BrandEndCardProps) {
+/**
+ * Stage 6. On a film with the 2.0 s tail (BRIEF-2 3.3) the film itself clears to the page colour and
+ * `LogoReveal variant="film-end"` forms over it and holds to the last frame (no backdrop of its own,
+ * so the light falling off behind the mark stays the film's). On the 11.9 s cuts encoded before wave
+ * 2, which end too soon for that reveal, the short card: the frame clears to the theme background,
+ * the FITX mark forms, the tagline settles.
+ */
+export function BrandEndCard(props: BrandEndCardProps) {
+  // Mounted on the client only, once the film reaches its brand stage: decided once per card.
+  const [kind] = useState<EndCardKind>(() => (typeof document === "undefined" ? "short" : endCardFor(playingDuration())));
+  return kind === "film-end" ? <FilmEndCard {...props} /> : <ShortEndCard {...props} />;
+}
+
+function FilmEndCard({ stage, freeze }: BrandEndCardProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [origin] = useState(() => stageStart(Math.max(stage, STAGE.brand)));
+  useFrozenClock(rootRef, freeze, stage);
+  useFilmAnchors(rootRef, freeze === null, stage);
+  return (
+    <div ref={rootRef} className={styles.brandCard} data-film-origin={origin} data-film-brand="film-end">
+      <LogoReveal variant="film-end" className={styles.filmEndReveal} />
+    </div>
+  );
+}
+
+function ShortEndCard({ stage, freeze, logoClassName }: BrandEndCardProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const taglineRef = useRef<HTMLParagraphElement>(null);
   const [origin] = useState(() => stageStart(Math.max(stage, STAGE.brand)));
@@ -590,7 +670,7 @@ export function BrandEndCard({ stage, freeze, logoClassName }: BrandEndCardProps
       ref={rootRef}
       className={styles.brandCard}
       data-film-origin={origin}
-      data-film-brand
+      data-film-brand="short"
       style={vars({
         "--at": sec(at),
         "--backdrop": sec(BRAND.backdrop),

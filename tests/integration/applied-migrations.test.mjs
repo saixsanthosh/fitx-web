@@ -1,5 +1,5 @@
-// Production has every migration up to 20261121100040_fitx_security_hardening.sql applied (#1 to #41 from master
-// b13134b on 2026-11-20; #42 to #45 from master 25a2836 on 2026-11-21).
+// Production has every migration up to 20261123100060_fitx_social_v1.sql applied (#1 to #41 from master b13134b on
+// 2026-11-20; #42 to #45 from master 25a2836 on 2026-11-21; #46 to #51 from master 8db1bc9 on 2026-11-23).
 // Those files are history: editing one changes nothing in production, but a new project, the tests and the runbook
 // would then build a database production does not have. A fix to an applied file is always a new migration.
 // This pins the md5 of each one, taken from `git show <that commit>:<path> | md5 -q` (the file's bytes), and fails when a
@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const MIGRATIONS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "supabase", "migrations");
 /** The newest migration production has applied; every file up to it is pinned below. */
-const LAST_APPLIED = "20261121100040_fitx_security_hardening.sql";
+const LAST_APPLIED = "20261123100060_fitx_social_v1.sql";
 
 const APPLIED = {
   "20260924162506_initial_fitx_schema.sql": "e7ccf0adbbd1960315320eac64fdcfee",
@@ -77,6 +77,14 @@ const APPLIED = {
   "20261121100033_fitx_admin_ops.sql": "31a18cff37daad6478480c2bfc9e58d5",
   "20261121100036_fitx_admin_content.sql": "53e6d1703ca15f175990dc407012deb3",
   "20261121100040_fitx_security_hardening.sql": "8719fb099283520ed3edb316df2c4ab3",
+  // Applied on 2026-11-23 from master 8db1bc9 (each file's full text checked against its md5 before it ran, and
+  // recorded as its history row's statements; #49 and #50 ran without their standalone begin; and commit; lines).
+  "20261123100000_fitx_shell_prefs.sql": "565f674c78971fe9c079c05d929562b5",
+  "20261123100010_fitx_onboarding_v4.sql": "3cdf32de2e861e69a4a3c63e1810025b",
+  "20261123100020_fitx_workout_setup.sql": "651ed7e94a268819551a1e4606faafdd",
+  "20261123100040_fitx_nutrition_v2.sql": "c3472cb62699af425b77d0d09f384af3",
+  "20261123100050_fitx_coach_activity_v2.sql": "639bf70c6932c5650fe15440406c8a28",
+  "20261123100060_fitx_social_v1.sql": "b1697e9d7428e4776be2b6d5487dafd6",
 };
 
 const md5 = (name) => createHash("md5").update(readFileSync(path.join(MIGRATIONS_DIR, name))).digest("hex");
@@ -84,7 +92,7 @@ const md5 = (name) => createHash("md5").update(readFileSync(path.join(MIGRATIONS
 test("every migration production has applied is still here, byte for byte", () => {
   const problems = [];
   for (const [name, pinned] of Object.entries(APPLIED)) {
-    if (!existsSync(path.join(MIGRATIONS_DIR, name))) problems.push(`${name} is missing: production has it applied; put it back unchanged (git show 25a2836:supabase/migrations/${name})`);
+    if (!existsSync(path.join(MIGRATIONS_DIR, name))) problems.push(`${name} is missing: production has it applied; put it back unchanged (git show 8db1bc9:supabase/migrations/${name})`);
     else if (md5(name) !== pinned) {
       problems.push(`${name} was edited (md5 ${md5(name)}, production's file is ${pinned}): production already ran it, so restore it and put the change in a new migration`);
     }
@@ -96,6 +104,6 @@ test("every file up to the last applied one is pinned, so none can slip in among
   const files = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql") && name <= LAST_APPLIED).sort();
   const unpinned = files.filter((name) => !(name in APPLIED));
   assert.deepEqual(unpinned, [], `these files sort among the applied ones but production never ran them; give them a version after ${LAST_APPLIED.slice(0, 14)}`);
-  assert.equal(Object.keys(APPLIED).length, 59, "14 September migrations and the 45 files of 20261115100000 to 20261121100040");
+  assert.equal(Object.keys(APPLIED).length, 65, "14 September migrations and the 51 files of 20261115100000 to 20261123100060");
   assert.equal(Object.keys(APPLIED).sort().at(-1), LAST_APPLIED);
 });

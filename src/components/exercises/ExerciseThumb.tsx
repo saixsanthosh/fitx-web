@@ -5,6 +5,7 @@ import { useState } from "react";
 import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
 import { SUPABASE_URL } from "@/lib/supabase/client";
 import { isOptimizableImageUrl } from "@/lib/training/media";
+import { useDemoIndexData, useDemoModel } from "@/lib/training/use-demo-model";
 import { exerciseInitials, THUMB_SIZES, thumbSource, type ThumbSize, type ThumbSourceInput } from "./thumb-source";
 
 type ExerciseThumbProps = Omit<ThumbSourceInput, "supabaseUrl"> & {
@@ -21,7 +22,11 @@ type ExerciseThumbProps = Omit<ThumbSourceInput, "supabaseUrl"> & {
 export function ExerciseThumb({ size = "md", equipment, className = "", ...source }: ExerciseThumbProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const px = THUMB_SIZES[size];
-  const found = thumbSource({ ...source, supabaseUrl: SUPABASE_URL });
+  const index = useDemoIndexData();
+  const model = useDemoModel();
+  // A demonstration frame that fails to load gives way to the exercise's own photo.
+  const [demoFailed, setDemoFailed] = useState(false);
+  const found = thumbSource({ ...source, supabaseUrl: SUPABASE_URL, demo: demoFailed ? null : { index, model } });
   const showPhoto = found !== null && failedUrl !== found.url;
   return (
     <span
@@ -38,7 +43,7 @@ export function ExerciseThumb({ size = "md", equipment, className = "", ...sourc
           loading="lazy"
           unoptimized={!isOptimizableImageUrl(found.url, SUPABASE_URL)}
           className="h-full w-full object-cover"
-          onError={() => setFailedUrl(found.url)}
+          onError={() => (found.aiDemo ? setDemoFailed(true) : setFailedUrl(found.url))}
         />
       ) : equipment ? (
         <EquipmentIcon name={equipment[0] ?? "none"} size={Math.round(px * 0.55)} title={`${source.name}: no photo`} />

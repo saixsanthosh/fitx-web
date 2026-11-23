@@ -122,3 +122,22 @@ Not added, because FITX has no identifiable source for them: plain paneer, bhind
 ### Meal sections
 
 A meal is the text in `meals.meal`, so the member can add their own section (1-40 characters). The list is the four standard sections plus every name used in the last 30 days (and any added on the page). A section stays in the list for 30 days after it was last used. Saved meals and routines keep the four standard slots (their database check), so a custom section is saved as Snack.
+
+### FITX exercise demonstrations (`public/media/demos/`)
+
+FITX's AI demonstrations are made with Google's Gemini image models from the public-domain Free Exercise DB photo of the same movement (Unlicense, pinned revision `f00c92c7`), one male and one female model, a start and an end frame each. The model is asked to reproduce the photo's pose, grip, equipment and camera exactly and to change only the person and the studio; it is never asked to move a pose. The two people are fictional (persona sheets the owner approved), not real or famous people. Every frame passes a pose check against its reference photo (MediaPipe PoseLandmarker, `scripts/media/pose-check/`) and an eye check on a contact sheet before it is listed in `scripts/media/demos/accepted.json`; nothing else ships. The app shows each one as "AI demonstration made from a real photo of the movement", credited "FITX demonstration (AI image made with Google Gemini from a Free Exercise DB photo)", with the badge "No verified video yet". The captions are the lead sentences of the exercise's own catalogue steps, or, for the AI Form Check exercises, FITX's reviewed demonstration captions (`src/lib/home-workout/demo-script.ts`). `scripts/media/demos/priority.json` lists which exercises come first and what they cost; `public/media/demos/index.json` lists what has been accepted (empty until the owner approves the media budget).
+
+## Film sound (Pixabay)
+
+The sound of the intro film, the welcome film and the returning sign-in reveal is FITX's own mix of six sound files from [Pixabay](https://pixabay.com), used under the [Pixabay Content License](https://pixabay.com/service/license-summary/): free for commercial use, no attribution required, changes allowed. The licence does not allow passing a file on by itself unchanged, misleading use, or using it as a trade mark or other brand mark, so these sounds score FITX's films and animations but are never used as a FITX sound mark. The site ships only the finished mixes (`public/brand/films/<film>/<rev>/sound.m4a` and `public/brand/films/return/<rev>/sting.m4a`, AAC); the original files are kept outside the repository. Films start muted, and a mix is downloaded only after the member turns the sound on.
+
+| # | Used for | Title | Author | Page |
+| --- | --- | --- | --- | --- |
+| 1 | Intro film: the riser into the boom on the logo | Cinematic Riser (Boom) | lucadialessandro | <https://pixabay.com/sound-effects/cinematic-riser-boom-466922/> |
+| 2 | Intro film: the chapter cuts | Whoosh Cinematic | LordSonny | <https://pixabay.com/sound-effects/film-special-effects-whoosh-cinematic-161021/> |
+| 3 | Plates sliding onto the bar (both films and the intro's logo) | Loading plate - GYM SFX | OxidVideos | <https://pixabay.com/sound-effects/film-special-effects-loading-plate-gym-sfx-547973/> |
+| 4 | The last plate locking on (both films) | Plate load - Big weight | OxidVideos | <https://pixabay.com/sound-effects/film-special-effects-plate-load-big-weight-608430/> |
+| 5 | Welcome film score | Cinematic Dark Hit Logo | Alex_Kizenkov | <https://pixabay.com/music/introoutro-cinematic-dark-hit-logo-141056/> |
+| 6 | Returning sign-in reveal, and the bar drop in the intro film | Cinematic Impact Hit | Universfield | <https://pixabay.com/sound-effects/film-special-effects-cinematic-impact-hit-352702/> |
+
+How the mixes are made: `scripts/brand/films/audio/mix.mjs` (ffmpeg only) checks every original against its recorded size and SHA-256 (`scripts/brand/films/audio/sources.json`), levels each sound to −23 LUFS, places it on the film's own timeline (`intro.cues.mjs`, `welcome.cues.mjs`, `sting.cues.mjs`), and masters the films to −16 LUFS and the sign-in sound to −20 LUFS, with true peaks at or below −1 dBTP. `tests/brand/film-cues.test.ts` checks the timing, and that no original `.mp3` or `.wav` is under `public/`.

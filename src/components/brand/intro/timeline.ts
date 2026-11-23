@@ -8,6 +8,8 @@
  * Beats follow the brand line TRAIN · EAT · PROGRESS and end on the approved FITX mark.
  */
 
+import type { FilmComposition } from "../films/compositions";
+
 export const STAGE = {
   coldOpen: 0,
   run: 1,
@@ -23,8 +25,13 @@ export type IntroStage = (typeof STAGE)[keyof typeof STAGE];
 /** Film-time start of each stage, indexed by stage number. */
 export const STAGE_START: readonly number[] = [0, 1.3, 3.5, 5.1, 7.55, 9.2, 10.6];
 
-/** The scene calls `onComplete` at this film time (brand hold included). */
-export const FILM_DURATION = 11.9;
+/**
+ * The scene calls `onComplete` at this film time (brand hold included). The brand stage lasts 2.0 s
+ * (BRIEF-2 3.3): the scene clears and settles by 11.8 while `LogoReveal variant="film-end"` (1.8 s)
+ * forms and holds to the last frame. The cuts encoded before wave 2 end at 11.917 s; the end card
+ * reads the playing cut's length and keeps its shorter card for them (IntroFilmOverlay.tsx).
+ */
+export const FILM_DURATION = 12.6;
 
 export function stageAt(time: number): IntroStage {
   let stage = 0;
@@ -52,7 +59,7 @@ export const SHOTS = [
   { id: "4b-toast", stage: STAGE.refuel, start: 8.3, end: 9.2, note: "Side medium: Maya and Dre clink smoothies and laugh; window light; foreground bokeh." },
   { id: "5a-walk", stage: STAGE.team, start: 9.2, end: 10.15, note: "Squad walk toward a low dolly in slow-mo; coral light bar behind; Leo carries his helmet." },
   { id: "5b-rise", stage: STAGE.team, start: 10.15, end: 10.6, note: "Crane up and push into the coral light bar as the team passes; bloom swells into the brand flash." },
-  { id: "6-brand", stage: STAGE.brand, start: 10.6, end: FILM_DURATION, note: "Scene clears to the theme background; DOM FITX mark forms with the tagline." },
+  { id: "6-brand", stage: STAGE.brand, start: 10.6, end: FILM_DURATION, note: "Scene clears to the theme background with a soft fall-off and a few settling motes; the DOM mark (film-end) forms over it and holds." },
 ] as const;
 
 export type ShotId = (typeof SHOTS)[number]["id"];
@@ -64,12 +71,29 @@ export const TITLES = [
   { text: "PROGRESS", start: 9.35, end: 10.55 },
 ] as const;
 
-/** Small data callouts (the product's tracking language) rendered by the DOM overlay. */
+/** Where a data callout sits: its side of the picture (portrait compositions put side callouts at the top). */
+export type CalloutPlacement = "right" | "left" | "bottom";
+
+/** The same placement on every composition. */
+const everywhere = (placement: CalloutPlacement): Readonly<Record<FilmComposition, CalloutPlacement>> => ({
+  phone: placement,
+  "tablet-p": placement,
+  "tablet-l": placement,
+  laptop: placement,
+  desktop: placement,
+});
+
+/**
+ * Small data callouts (the product's tracking language) rendered by the DOM overlay. They are the
+ * film's own staged readouts, not anyone's data. `placement` is per composition (BRIEF-2 3.3); the
+ * areas themselves are in `overlay-zones.ts`.
+ */
 export const CALLOUTS = [
-  { id: "pace", start: 2.45, end: 3.4, label: "PACE", value: "3:58 /KM", detail: "168 BPM", placement: "right" },
-  { id: "cadence", start: 3.7, end: 4.95, label: "CADENCE", value: "94 RPM", detail: "41.2 KM/H", placement: "left" },
-  { id: "pr", start: 6.95, end: 7.55, label: "DEADLIFT", value: "200 KG", detail: "NEW PR", placement: "right" },
-  { id: "macros", start: 7.7, end: 8.3, label: "REFUEL", value: "P 42 G · C 64 G · F 18 G", detail: "612 KCAL", placement: "bottom" },
+  { id: "pace", start: 2.45, end: 3.4, label: "PACE", value: "3:58 /KM", detail: "168 BPM", placement: everywhere("right") },
+  { id: "cadence", start: 3.7, end: 4.95, label: "CADENCE", value: "94 RPM", detail: "41.2 KM/H", placement: everywhere("left") },
+  { id: "pr", start: 6.95, end: 7.55, label: "DEADLIFT", value: "200 KG", detail: "NEW PR", placement: everywhere("right") },
+  // On the tall frames the two meals fill the lower half: the readout rides the top there.
+  { id: "macros", start: 7.7, end: 8.3, label: "REFUEL", value: "P 42 G · C 64 G · F 18 G", detail: "612 KCAL", placement: { ...everywhere("bottom"), phone: "right", "tablet-p": "right" } },
 ] as const;
 
 /** Cinematic letterbox (2.39:1 on landscape screens). Film time. */

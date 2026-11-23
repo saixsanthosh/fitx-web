@@ -5,6 +5,7 @@ import { logAdminEvent, type AuditWrite } from "@/lib/audit";
 import { logServerError } from "@/lib/log";
 import { isAdminRole, type AdminRole } from "@/lib/roles";
 import { isMissingFunction, isMissingTable } from "@/lib/schema";
+import { trainingAnswers, type TrainingAnswers } from "@/lib/training-answers";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import type { PeopleFilters } from "@/components/users/people-filters";
 
@@ -52,7 +53,8 @@ export type PeopleResult =
 export type PersonIdentity = { provider: string; createdAt: string | null; lastSignInAt: string | null };
 
 /** The profile summary Admin may show: no body, meal or workout data. null when it could not be read. */
-export type ProfileSummary = { name: string | null; goal: string | null; experience: string | null; setUp: boolean | null; profileCreatedAt: string | null };
+export type ProfileSummary = { name: string | null; goal: string | null; setUp: boolean | null; profileCreatedAt: string | null } & TrainingAnswers;
+
 
 export type SubscriptionSummary = { status: string; mode: string; createdAt: string; paidUntil: string | null };
 
@@ -284,23 +286,34 @@ export async function getPerson(id: string): Promise<PersonResult> {
 
 type AdminClient = NonNullable<ReturnType<typeof createAdminSupabase>>;
 
-/** Name, goal, experience and whether set-up is done. Never body, meal or workout data. */
+/** Name, goal, the Workouts setup answers and whether set-up is done. Never body, meal or workout data. */
 async function readProfileSummary(admin: AdminClient, id: string): Promise<ProfileSummary | null> {
-  const [profile, preferences] = await Promise.all([
+  const withSetup = "primary_goal,fitness_level,workout_location,workouts_per_week,workout_setup_at";
+  const [profile, firstPreferences, equipment] = await Promise.all([
     admin.from("profiles").select("name,onboarded,created_at").eq("id", id).maybeSingle(),
-    admin.from("user_preferences").select("primary_goal,fitness_level").eq("user_id", id).maybeSingle(),
+    admin.from("user_preferences").select(withSetup).eq("user_id", id).maybeSingle(),
+    admin.from("user_equipment_profiles").select("context", { count: "exact", head: true }).eq("user_id", id),
   ]);
+  // Before 20261123100020 there is no workout_setup_at: a saved equipment list alone says the setup was done.
+  let preferences = firstPreferences;
+  let setupColumn = true;
+  if (preferences.error && isMissingTable(preferences.error)) {
+    setupColumn = false;
+    preferences = await admin.from("user_preferences").select("primary_goal,fitness_level,workout_location,workouts_per_week").eq("user_id", id).maybeSingle() as typeof firstPreferences;
+  }
   if (profile.error || preferences.error) {
     if (profile.error && !isMissingTable(profile.error)) logServerError("data.person_profile", profile.error);
     if (preferences.error && !isMissingTable(preferences.error)) logServerError("data.person_preferences", preferences.error);
     if (profile.error && preferences.error) return null;
   }
+  if (equipment.error && !isMissingTable(equipment.error)) logServerError("data.person_equipment", equipment.error);
   const p = (profile.data ?? null) as { name?: unknown; onboarded?: unknown; created_at?: unknown } | null;
-  const q = (preferences.data ?? null) as { primary_goal?: unknown; fitness_level?: unknown } | null;
+  const q = (preferences.error ? null : (preferences.data ?? null)) as { primary_goal?: unknown; fitness_level?: unknown; workout_location?: unknown; workouts_per_week?: unknown; workout_setup_at?: unknown } | null;
+  const hasList = equipment.error ? null : (equipment.count ?? 0) > 0;
   return {
     name: text(p?.name),
     goal: text(q?.primary_goal),
-    experience: text(q?.fitness_level),
+    ...trainingAnswers(q, hasList, setupColumn && !preferences.error),
     setUp: p ? Boolean(p.onboarded) : null,
     profileCreatedAt: text(p?.created_at),
   };

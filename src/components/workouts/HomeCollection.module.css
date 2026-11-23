@@ -46,6 +46,11 @@
 .photo { object-fit: cover; transition: opacity 520ms cubic-bezier(0.65, 0, 0.35, 1); }
 .second { opacity: 0; }
 .card:hover .second, .card:focus-visible .second { opacity: 1; }
+.aiTag {
+  position: absolute; left: 0.5rem; bottom: 0.5rem; border-radius: 0.25rem; padding: 0.125rem 0.375rem;
+  font-size: 0.5625rem; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--fitx-on-inverse); background: color-mix(in srgb, var(--fitx-scrim) 70%, transparent);
+}
 .noPhoto { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fitx-text-disabled); }
 
 .body { display: grid; min-width: 0; gap: 0.25rem; padding: 0.625rem 0.75rem 0.75rem; }

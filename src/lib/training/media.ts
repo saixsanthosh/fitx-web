@@ -9,6 +9,12 @@
  *     at the pinned revision, found from `source_ref` or the `free-exercise-db-` id prefix.
  * Nothing is invented: an exercise with neither has no media. Today every file is a still photo;
  * `video_loop` rows arrive later with licensed or FITX-produced demonstrations.
+ *
+ * FITX's own demonstrations (wave 2, decision D6) ship inside the site, not in the table: AI images made from the
+ * Free Exercise DB photo of the same movement, one male and one female model, a start and an end frame each, at
+ * `public/media/demos/<model>/<exercise_id>/<0|1>.webp` and listed in `public/media/demos/index.json`
+ * (scripts/media/demos/emit-index.mjs). `withDemoMedia` merges an index entry in as stills at positions 2 and 3
+ * (male) or 4 and 5 (female), and `forModel` then shows one person only.
  */
 
 export const FREE_EXERCISE_DB_REVISION = "f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5";
@@ -59,6 +65,8 @@ export type MediaItem = {
   selfHosted: boolean;
   attribution: string;
   license: string;
+  /** A FITX demonstration (an AI image made from a real photo of the movement), labelled as such wherever it shows. */
+  aiDemo?: boolean;
 };
 
 export type ExerciseMedia = {
@@ -154,6 +162,8 @@ export function mediaRowUrl(row: ExerciseMediaRow, supabaseUrl: string | null | 
 
 /** True when next/image may optimise the URL (the pinned GitHub path or this project's storage). */
 export function isOptimizableImageUrl(url: string, supabaseUrl: string | null | undefined): boolean {
+  // Demonstrations are already sized WebP files; served as they are, they never use Vercel's image transformations.
+  if (isDemoMediaUrl(url)) return false;
   if (url.startsWith(PINNED_PHOTO_BASE)) return true;
   const base = projectBase(supabaseUrl);
   if (!base) return false;
@@ -236,17 +246,22 @@ export function resolveExerciseMedia(input: {
 }
 
 /**
- * The items for one demonstration model, per kind: media tied to no model always stays; of the male and female
- * variants, the member's model is kept when that kind has it, else the other one (never both, so a loop never
- * switches person half-way). With no model chosen, female and male variants keep the first model listed.
+ * The items for one demonstration model, per kind, so a loop never switches person half-way:
+ *  - when the kind has items for the member's model, only those are kept (media tied to no model, the Free Exercise DB
+ *    photos, is dropped);
+ *  - otherwise the media tied to no model is the fallback (the other model is left out);
+ *  - with neither, the first model listed is kept.
+ * With no model chosen, the media tied to no model is shown when there is any, else the first model listed.
  */
 export function forModel(items: readonly MediaItem[], model: DemoModelKey | null): MediaItem[] {
   const keep = new Map<ExerciseMediaKind, DemoModelKey | null>();
   for (const kind of ["still", "video_loop"] as const) {
-    const models = items.filter((item) => item.kind === kind && item.model).map((item) => item.model as DemoModelKey);
-    keep.set(kind, model && models.includes(model) ? model : models[0] ?? null);
+    const ofKind = items.filter((item) => item.kind === kind);
+    const models = ofKind.filter((item) => item.model).map((item) => item.model as DemoModelKey);
+    const neutral = ofKind.some((item) => !item.model);
+    keep.set(kind, model && models.includes(model) ? model : neutral ? null : models[0] ?? null);
   }
-  return items.filter((item) => !item.model || item.model === keep.get(item.kind));
+  return items.filter((item) => (keep.get(item.kind) ?? null) === (item.model ?? null));
 }
 
 /**
@@ -263,4 +278,148 @@ export function mediaCreditLines(items: readonly MediaItem[]): string[] {
     lines.set(key, `${noun}: ${item.attribution}. Licence: ${item.license}.`);
   }
   return [...lines.values()];
+}
+
+// ---------------------------------------------------------------- FITX demonstrations (D6: files inside the site)
+
+/** Where the demonstration files and their index are served from (public/media/demos/). */
+export const DEMO_MEDIA_BASE = "/media/demos/";
+export const DEMO_INDEX_PATH = "/media/demos/index.json";
+export const DEMO_INDEX_VERSION = 1;
+export const DEMO_ATTRIBUTION = "FITX demonstration (AI image made with Google Gemini from a Free Exercise DB photo)";
+export const DEMO_LICENSE = "FITX";
+/** The honest label shown with every FITX demonstration. */
+export const DEMO_LABEL = "AI demonstration made from a real photo of the movement";
+/** Virtual exercise_media positions: Free Exercise DB keeps 0 and 1. */
+export const DEMO_POSITIONS: Readonly<Record<DemoModelKey, readonly [number, number]>> = { male: [2, 3], female: [4, 5] };
+export const DEMO_MODEL_ORDER: readonly DemoModelKey[] = ["male", "female"];
+export const DEMO_CAPTION_MAX = 120;
+const DEMO_ID = /^[A-Za-z0-9_-]{1,200}$/;
+
+/** One model's two frames (start, end) and the caption for each. */
+export type DemoFrames = { frames: readonly [string, string]; captions: readonly [string, string] };
+export type DemoIndexItem = Partial<Record<DemoModelKey, DemoFrames>>;
+export type DemoCredit = { attribution: string; license: string };
+export type DemoIndex = {
+  version: number;
+  items: ReadonlyMap<string, DemoIndexItem>;
+  /** Which models each exercise has, in DEMO_MODEL_ORDER (the shape useDemoIndex returns). */
+  models: ReadonlyMap<string, readonly DemoModelKey[]>;
+  credit: DemoCredit;
+};
+
+/** The served path of a demonstration frame: /media/demos/<model>/<exercise_id>/<0|1>.webp. */
+export function demoFramePath(model: DemoModelKey, exerciseId: string, frame: 0 | 1): string {
+  return `${DEMO_MEDIA_BASE}${model}/${exerciseId}/${frame}.webp`;
+}
+
+const DEMO_PATH = /^\/media\/demos\/(male|female)\/([A-Za-z0-9_-]{1,200})\/([01])\.webp$/;
+
+/** True for a demonstration file's path (never optimised by next/image). */
+export function isDemoMediaUrl(url: string): boolean {
+  return typeof url === "string" && DEMO_PATH.test(url);
+}
+
+function cleanCaption(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, DEMO_CAPTION_MAX) : "";
+}
+
+/**
+ * The parsed index, or null when it is not one. Only entries whose two frames are exactly the paths for their model
+ * and exercise are kept, so the index can never point the app anywhere else.
+ */
+export function parseDemoIndex(json: unknown): DemoIndex | null {
+  if (!json || typeof json !== "object") return null;
+  const raw = json as { version?: unknown; items?: unknown; credit?: unknown };
+  if (raw.version !== DEMO_INDEX_VERSION || !raw.items || typeof raw.items !== "object") return null;
+  const items = new Map<string, DemoIndexItem>();
+  const models = new Map<string, readonly DemoModelKey[]>();
+  for (const [exerciseId, value] of Object.entries(raw.items as Record<string, unknown>)) {
+    if (!DEMO_ID.test(exerciseId) || !value || typeof value !== "object") continue;
+    const item: DemoIndexItem = {};
+    for (const model of DEMO_MODEL_ORDER) {
+      const entry = (value as Record<string, unknown>)[model] as { frames?: unknown; captions?: unknown } | undefined;
+      if (!entry || !Array.isArray(entry.frames) || entry.frames.length !== 2) continue;
+      if (entry.frames[0] !== demoFramePath(model, exerciseId, 0) || entry.frames[1] !== demoFramePath(model, exerciseId, 1)) continue;
+      const captions = Array.isArray(entry.captions) ? entry.captions : [];
+      item[model] = { frames: [entry.frames[0], entry.frames[1]], captions: [cleanCaption(captions[0]), cleanCaption(captions[1])] };
+    }
+    const present = DEMO_MODEL_ORDER.filter((model) => item[model]);
+    if (!present.length) continue;
+    items.set(exerciseId, item);
+    models.set(exerciseId, present);
+  }
+  const credit = (raw.credit ?? {}) as { attribution?: unknown; license?: unknown };
+  return {
+    version: DEMO_INDEX_VERSION,
+    items,
+    models,
+    credit: {
+      attribution: typeof credit.attribution === "string" && credit.attribution.trim() ? credit.attribution.trim() : DEMO_ATTRIBUTION,
+      license: typeof credit.license === "string" && credit.license.trim() ? credit.license.trim() : DEMO_LICENSE,
+    },
+  };
+}
+
+/** An empty index: no demonstrations yet, so every surface shows today's photos. */
+export const EMPTY_DEMO_INDEX: DemoIndex = { version: DEMO_INDEX_VERSION, items: new Map(), models: new Map(), credit: { attribution: DEMO_ATTRIBUTION, license: DEMO_LICENSE } };
+
+/** An index entry as stills (virtual exercise_media rows): positions 2 and 3 male, 4 and 5 female. */
+export function demoStills(exerciseId: string, name: string, item: DemoIndexItem | null | undefined, credit: DemoCredit): MediaItem[] {
+  const stills: MediaItem[] = [];
+  for (const model of DEMO_MODEL_ORDER) {
+    const entry = item?.[model];
+    if (!entry) continue;
+    entry.frames.forEach((url, frame) => {
+      const caption = entry.captions[frame];
+      stills.push({
+        kind: "still",
+        ...(caption ? { caption } : {}),
+        model,
+        url,
+        alt: `${name}, ${frame === 0 ? "start" : "end"} of the movement (${DEMO_LABEL.toLowerCase()})`,
+        position: DEMO_POSITIONS[model][frame],
+        selfHosted: true,
+        attribution: credit.attribution,
+        license: credit.license,
+        aiDemo: true,
+      });
+    });
+  }
+  return stills;
+}
+
+/**
+ * Media with an exercise's demonstrations merged in, for one model (forModel). Without an entry the media is
+ * returned as it is, so with no index (or an empty one) every surface shows today's photos.
+ */
+export function withDemoMedia(media: ExerciseMedia, input: { exerciseId: string; name: string; index: DemoIndex | null | undefined; model: DemoModelKey | null }): ExerciseMedia {
+  const item = input.index?.items.get(input.exerciseId);
+  if (!item || !input.index) return media;
+  const merged = [...demoStills(input.exerciseId, input.name, item, input.index.credit), ...media.stills].sort((a, b) => a.position - b.position);
+  return { ...media, stills: forModel(merged, input.model) };
+}
+
+/** The models an exercise's demonstrations have, in DEMO_MODEL_ORDER (empty without an entry). */
+export function demoModelsFor(index: DemoIndex | null | undefined, exerciseId: string): readonly DemoModelKey[] {
+  return index?.models.get(exerciseId) ?? [];
+}
+
+/** The first frame to show on a card for the member's model: theirs, else none (the card keeps its photo). */
+export function demoCoverFrame(index: DemoIndex | null | undefined, exerciseId: string, model: DemoModelKey | null): string | null {
+  if (!model) return null;
+  return index?.items.get(exerciseId)?.[model]?.frames[0] ?? null;
+}
+
+/**
+ * A camera exercise's demonstration (the AI Form Check's DemoReel): the first of its library ids (form-rules
+ * `libraryIds`) that the index has for the member's model, or null (the reel keeps its checked photos).
+ */
+export function demoForLibraryIds(index: DemoIndex | null | undefined, libraryIds: readonly string[], model: DemoModelKey | null): (DemoFrames & { exerciseId: string; model: DemoModelKey }) | null {
+  if (!index || !model) return null;
+  for (const exerciseId of libraryIds) {
+    const entry = index.items.get(exerciseId)?.[model];
+    if (entry) return { ...entry, exerciseId, model };
+  }
+  return null;
 }

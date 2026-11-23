@@ -9,7 +9,7 @@ import { ADMIN_OPS_MIGRATION } from "@/components/settings/settings-rules";
 import { METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { auditActionLabel } from "@/lib/audit-catalog";
-import { READ_ONLY_AUDIT_ACTIONS } from "@/lib/audit-catalog-core";
+import { READ_ONLY_AUDIT_ACTIONS } from "@/lib/audit-catalog";
 import { recentAuditEvents } from "@/lib/data/audit";
 import { getOverviewExtras, getOverviewTrends, getPlatformMetrics, getSupportCounts, type TrendDay } from "@/lib/data/metrics";
 import { MIGRATIONS } from "@/lib/schema";

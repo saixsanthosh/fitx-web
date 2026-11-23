@@ -73,6 +73,22 @@ describe("DemoLoop and the player (source)", () => {
     assert.doesNotMatch(css, /\b(width|height|top|left)\s*:[^;]*var\(--demo-blend/);
   });
 
+  test("each frame has its own caption, changing with the frame and read out only while paused", () => {
+    assert.match(loop, /const caption = shown\[frame\]\?\.caption \?\? null;/);
+    assert.match(loop, /data-demo-caption aria-live=\{state\.playing \? "off" : "polite"\}/);
+    assert.match(loop, /key=\{`\$\{frame\}-\$\{caption\}`\}/);
+    assert.match(css, /\.frameCaption \{[^}]*min-height/);
+  });
+
+  test("an AI demonstration says what it is and offers the model choice when both exist", () => {
+    assert.match(loop, /DEMO_LABEL/);
+    assert.match(loop, /role="radiogroup" aria-label="Demonstration model"/);
+    assert.match(loop, /const chooser = onModelChange && models\.length > 1;/);
+    assert.match(loop, /type="radio"/);
+    assert.match(player, /models=\{models\} model=\{shownModel\} onModelChange=/);
+    assert.match(css, /\.model \{[^}]*min-height: 2\.75rem/, "44 px targets");
+  });
+
   test("a verified video keeps replay and loop controls; with no media at all the player says so", () => {
     assert.match(player, /aria-label="Replay demonstration"/);
     assert.match(player, /aria-pressed=\{loop\} aria-label="Loop"/);

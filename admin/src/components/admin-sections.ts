@@ -1,11 +1,11 @@
-// The console's ten sections, in navigation order, with their fixed routes. No imports, so tests can
+// The console's eleven sections, in navigation order, with their fixed routes. No imports, so tests can
 // load it. A section shows when the role may open at least one of its routes (roles.ts PAGE_PERMISSIONS).
 
 export type AdminSection = {
   number: string;
   label: string;
   /** Icon name, mapped to a lucide icon in admin-navigation.tsx. */
-  icon: "dashboard" | "users" | "workouts" | "nutrition" | "subscriptions" | "support" | "notifications" | "reports" | "security" | "settings";
+  icon: "dashboard" | "users" | "workouts" | "nutrition" | "subscriptions" | "support" | "notifications" | "explore" | "reports" | "security" | "settings";
   routes: ReadonlyArray<{ href: string; label: string }>;
 };
 
@@ -22,14 +22,21 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     icon: "notifications",
     routes: [{ href: "/notifications", label: "Notifications" }, { href: "/announcements", label: "Announcements" }],
   },
-  { number: "08", label: "Reports", icon: "reports", routes: [{ href: "/reports", label: "Reports" }] },
+  // Moderation of members' Explore content, communities and challenges. Never "Reports": that is section 09, analytics.
   {
-    number: "09",
+    number: "08",
+    label: "Explore",
+    icon: "explore",
+    routes: [{ href: "/explore", label: "Queue" }, { href: "/explore/communities", label: "Communities" }, { href: "/explore/challenges", label: "Challenges" }],
+  },
+  { number: "09", label: "Reports", icon: "reports", routes: [{ href: "/reports", label: "Reports" }] },
+  {
+    number: "10",
     label: "Admin and security",
     icon: "security",
     routes: [{ href: "/access-control", label: "Access control" }, { href: "/audit", label: "Audit log" }, { href: "/security", label: "Security" }],
   },
-  { number: "10", label: "Settings", icon: "settings", routes: [{ href: "/settings", label: "Settings" }] },
+  { number: "11", label: "Settings", icon: "settings", routes: [{ href: "/settings", label: "Settings" }] },
 ];
 
 export type VisibleSection = AdminSection & { href: string; visibleRoutes: ReadonlyArray<{ href: string; label: string }> };
@@ -53,4 +60,11 @@ export function sectionForPath(pathname: string): AdminSection | null {
 
 export function isActiveRoute(pathname: string, href: string): boolean {
   return under(pathname, href);
+}
+
+/** Of a section's routes, the one a path is on: the longest that contains it (/explore/communities/x is Communities, not Queue). */
+export function currentRoute(pathname: string, routes: ReadonlyArray<{ href: string }>): string | null {
+  let best: string | null = null;
+  for (const route of routes) if (under(pathname, route.href) && (!best || route.href.length > best.length)) best = route.href;
+  return best;
 }

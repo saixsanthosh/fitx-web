@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Dumbbell } from "lucide-react";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import {
+  demoCoverFrame,
   FREE_EXERCISE_DB_PHOTO_COUNT,
   freeExerciseDbRef,
   isOptimizableImageUrl,
@@ -14,6 +15,7 @@ import {
   type ExerciseMedia,
   type ExerciseMediaRow,
 } from "@/lib/training/media";
+import { useDemoIndexData, useDemoModel } from "@/lib/training/use-demo-model";
 import { ExerciseDemoPlayer, ExerciseDemoSkeleton } from "./ExerciseDemoPlayer";
 import { loadExerciseMediaRows } from "./media-loader";
 
@@ -29,7 +31,10 @@ export function exerciseFrameUrl(exerciseId: string, frame: number) {
  */
 export function ExerciseThumbnail({ exerciseId, name, src }: { exerciseId: string; name: string; src?: string | null }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const url = src === undefined ? exerciseFrameUrl(exerciseId, 0) : src;
+  const index = useDemoIndexData();
+  const model = useDemoModel();
+  const demo = demoCoverFrame(index, exerciseId, model);
+  const url = demo && failedUrl !== demo ? demo : src === undefined ? exerciseFrameUrl(exerciseId, 0) : src;
 
   if (!url || failedUrl === url) return <ThumbnailFallback name={name} />;
   return (
@@ -43,7 +48,7 @@ export function ExerciseThumbnail({ exerciseId, name, src }: { exerciseId: strin
         className="object-cover transition-transform duration-500 group-hover:scale-[1.025] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
         onError={() => setFailedUrl(url)}
       />
-      <span className="absolute bottom-2 left-2 rounded-sm bg-fitx-scrim/70 px-2 py-1 text-[9px] font-semibold uppercase tracking-[.12em] text-fitx-on-inverse">Photo</span>
+      <span className="absolute bottom-2 left-2 rounded-sm bg-fitx-scrim/70 px-2 py-1 text-[9px] font-semibold uppercase tracking-[.12em] text-fitx-on-inverse">{url === demo ? "AI demo" : "Photo"}</span>
     </div>
   );
 }
@@ -56,15 +61,17 @@ export function ExerciseMovementFrames({ exerciseId, name, media }: { exerciseId
   const loaded = useExerciseMedia(media ? null : exerciseId, name);
   const resolved = media ?? loaded;
   if (!resolved) return <ExerciseDemoSkeleton />;
-  return <ExerciseDemoPlayer key={exerciseId} media={resolved} name={name} />;
+  return <ExerciseDemoPlayer key={exerciseId} media={resolved} name={name} exerciseId={exerciseId} />;
 }
 
 /**
  * Loads and resolves one exercise's media with the browser client. Null while loading; when the
- * media table or the database cannot be read it resolves to the pinned photos (or none).
+ * media table or the database cannot be read it resolves to the pinned photos (or none). The member's model applies
+ * to rows that name one; FITX's demonstrations from the index are merged in by ExerciseDemoPlayer (given the id).
  */
 export function useExerciseMedia(exerciseId: string | null, name: string): ExerciseMedia | null {
   const [loaded, setLoaded] = useState<{ id: string; rows: ExerciseMediaRow[] | null; sourceRef: string | null } | null>(null);
+  const model = useDemoModel();
 
   useEffect(() => {
     if (!exerciseId) return;
@@ -76,8 +83,8 @@ export function useExerciseMedia(exerciseId: string | null, name: string): Exerc
   }, [exerciseId]);
 
   return useMemo(() => (exerciseId && loaded?.id === exerciseId
-    ? resolveExerciseMedia({ exerciseId, name, sourceRef: loaded.sourceRef, rows: loaded.rows, supabaseUrl: SUPABASE_URL })
-    : null), [exerciseId, loaded, name]);
+    ? resolveExerciseMedia({ exerciseId, name, sourceRef: loaded.sourceRef, rows: loaded.rows, supabaseUrl: SUPABASE_URL, model })
+    : null), [exerciseId, loaded, name, model]);
 }
 
 function ThumbnailFallback({ name }: { name: string }) {

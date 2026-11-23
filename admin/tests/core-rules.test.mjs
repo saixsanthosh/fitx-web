@@ -21,9 +21,17 @@ const valid = {
   instagramUrl: "https://www.instagram.com/fitx/",
 };
 
-test("settings: a stored row reads with every switch on unless saved off, and site defaults when empty", () => {
+test("settings: a stored row reads with every switch on unless saved off (Explore videos off unless saved on), and site defaults when empty", () => {
   const empty = settings.parseSettingsRow(null);
-  assert.deepEqual(empty.features, { ai_coach: true, home_workout: true, activity: true, subscriptions: true, support: true });
+  assert.deepEqual(empty.features, { ai_coach: true, home_workout: true, activity: true, subscriptions: true, support: true, explore: true, explore_video: false });
+  assert.deepEqual({ ...settings.FEATURE_DEFAULTS }, empty.features);
+  assert.equal(settings.parseSettingsRow({ features: { explore_video: true } }).features.explore_video, true);
+  assert.equal(settings.parseSettingsRow({ features: { explore: false } }).features.explore, false);
+  assert.deepEqual([...settings.LEGACY_FEATURE_KEYS], ["ai_coach", "home_workout", "activity", "subscriptions", "support"]);
+  assert.ok(settings.LEGACY_FEATURE_KEYS.every((key) => settings.FEATURE_KEYS.includes(key)));
+  assert.deepEqual(settings.FEATURE_LABELS.home_workout, { label: "AI Form Check", hint: "Camera form checks and counted sets" });
+  assert.equal(settings.FEATURE_LABELS.explore.label, "Explore");
+  assert.equal(settings.FEATURE_LABELS.explore_video.label, "Explore videos");
   assert.equal(empty.maintenance, null);
   assert.deepEqual(empty.site, { ...settings.SITE_DEFAULTS });
   const row = settings.parseSettingsRow({ features: { support: false }, maintenance: { title: "Upgrade", body: "Slow tonight", startsAt: "2026-11-21T10:00:00Z" }, site: { supportEmail: "x" }, updated_at: "2026-11-20T00:00:00Z" });

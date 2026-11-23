@@ -8,7 +8,7 @@ const { describeError, redact } = await importTypeScriptModule("src/lib/log.ts")
 const { normaliseUsername } = await importTypeScriptModule("src/lib/username.ts");
 const auth = await importTypeScriptModule("src/lib/admin-auth.ts", AUTH_STUBS);
 const { isSameOrigin, assertSameOrigin } = await importTypeScriptModule("src/lib/same-origin.ts", STUBS);
-const { ADMIN_SECTIONS, visibleSections, sectionForPath } = await importTypeScriptModule("src/components/admin-sections.ts");
+const { ADMIN_SECTIONS, currentRoute, visibleSections, sectionForPath } = await importTypeScriptModule("src/components/admin-sections.ts");
 const { allowedPages, PAGE_PERMISSIONS } = await importTypeScriptModule("src/lib/roles.ts");
 
 beforeEach(() => {
@@ -136,7 +136,7 @@ test("the old Google, allowlist and authenticator sign-in is gone and its addres
   assert.doesNotMatch(await readFile(new URL("../src/proxy.ts", import.meta.url), "utf8"), /createServerClient|getClaims|@supabase|\.from\(|\.rpc\(/);
 });
 
-test("the ten sections sit at their fixed routes, in order, and show only what a role may open", () => {
+test("the eleven sections sit at their fixed routes, in order, and show only what a role may open", () => {
   assert.deepEqual(ADMIN_SECTIONS.map((section) => [section.number, section.label, section.routes.map((route) => route.href)]), [
     ["01", "Dashboard", ["/overview"]],
     ["02", "Users", ["/users"]],
@@ -145,19 +145,32 @@ test("the ten sections sit at their fixed routes, in order, and show only what a
     ["05", "Subscriptions", ["/billing"]],
     ["06", "Support", ["/support"]],
     ["07", "Notifications", ["/notifications", "/announcements"]],
-    ["08", "Reports", ["/reports"]],
-    ["09", "Admin and security", ["/access-control", "/audit", "/security"]],
-    ["10", "Settings", ["/settings"]],
+    ["08", "Explore", ["/explore", "/explore/communities", "/explore/challenges"]],
+    ["09", "Reports", ["/reports"]],
+    ["10", "Admin and security", ["/access-control", "/audit", "/security"]],
+    ["11", "Settings", ["/settings"]],
   ]);
   for (const section of ADMIN_SECTIONS) for (const route of section.routes) assert.ok(Object.hasOwn(PAGE_PERMISSIONS, route.href), route.href);
-  assert.equal(visibleSections(allowedPages("super_admin")).length, 10);
+  assert.equal(visibleSections(allowedPages("super_admin")).length, 11);
   assert.deepEqual(visibleSections(allowedPages("viewer")).map((section) => section.label), ["Dashboard", "Reports"]);
   const editor = visibleSections(allowedPages("content_editor"));
   assert.deepEqual(editor.map((section) => section.label), ["Dashboard", "Workouts", "Nutrition", "Notifications"]);
   assert.equal(editor[3].href, "/notifications");
+  const support = visibleSections(allowedPages("support_agent"));
+  assert.deepEqual(support.map((section) => section.label), ["Dashboard", "Users", "Support", "Explore"]);
+  assert.equal(support[3].href, "/explore");
   assert.equal(sectionForPath("/users/00000000-0000-4000-8000-000000000001")?.number, "02");
   assert.equal(sectionForPath("/announcements/new")?.number, "07");
+  assert.equal(sectionForPath("/explore/reports/00000000-0000-4000-8000-000000000001")?.label, "Explore");
+  assert.equal(sectionForPath("/reports")?.label, "Reports", "the analytics section keeps its name");
   assert.equal(sectionForPath("/account"), null);
+  // The sub-page marked current is the longest route that holds the path.
+  const explore = ADMIN_SECTIONS.find((section) => section.label === "Explore");
+  assert.equal(currentRoute("/explore", explore.routes), "/explore");
+  assert.equal(currentRoute("/explore/reports/abc", explore.routes), "/explore");
+  assert.equal(currentRoute("/explore/communities/abc", explore.routes), "/explore/communities");
+  assert.equal(currentRoute("/explore/challenges", explore.routes), "/explore/challenges");
+  assert.equal(currentRoute("/users", explore.routes), null);
 });
 
 test("log lines mask emails, IDs, tokens and keys", () => {

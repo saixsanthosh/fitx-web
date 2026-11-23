@@ -1,0 +1,53 @@
+"use client";
+
+import { useState } from "react";
+import { SendHorizontal } from "lucide-react";
+import { toast } from "sonner";
+import type { StoryReplyProps } from "@/lib/social/slots";
+import { GROUP_LIMITS } from "@/lib/social/group-limits";
+import { messageErrorText, messagesApi } from "@/lib/social/messages";
+import { useReadyExplore } from "../ExploreContext";
+import styles from "./Messages.module.css";
+
+/**
+ * The STORY_REPLY slot (social-stories' viewer, on the dark stage): a reply to another member's story, sent as a
+ * message with the story attached. Adults only (O1 a); nothing shows on the member's own story.
+ */
+export function StoryReply({ storyId, ownerId, onSent }: StoryReplyProps) {
+  const { db, userId, me } = useReadyExplore();
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (ownerId === userId || me.age_band !== "adult") return null;
+  const text = body.trim();
+
+  async function send() {
+    if (!text || busy) return;
+    setBusy(true);
+    try {
+      await messagesApi.send(db, ownerId, text, { storyId });
+      setBody("");
+      toast.success("Reply sent");
+      onSent();
+    } catch (failure) {
+      toast.error(messageErrorText(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className={styles.replyBar} onSubmit={(event) => { event.preventDefault(); void send(); }}>
+      <input
+        className={styles.replyInput}
+        aria-label="Reply to story"
+        placeholder="Reply"
+        maxLength={GROUP_LIMITS.messageChars}
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+      />
+      <button type="submit" className={styles.send} aria-label="Send" disabled={!text || busy}>
+        <SendHorizontal size={18} aria-hidden="true" />
+      </button>
+    </form>
+  );
+}

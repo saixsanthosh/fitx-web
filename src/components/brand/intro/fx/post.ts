@@ -81,12 +81,15 @@ class FlarePass extends Pass {
   drawn = false;
   private readonly savedClear = new THREE.Color();
 
-  constructor(
-    private readonly scene: THREE.Object3D,
-    private readonly camera: THREE.PerspectiveCamera,
-    private readonly depth: () => THREE.DepthTexture,
-  ) {
+  private readonly scene: THREE.Object3D;
+  private readonly camera: THREE.PerspectiveCamera;
+  private readonly depth: () => THREE.DepthTexture;
+
+  constructor(scene: THREE.Object3D, camera: THREE.PerspectiveCamera, depth: () => THREE.DepthTexture) {
     super();
+    this.scene = scene;
+    this.camera = camera;
+    this.depth = depth;
     this.needsSwap = false;
     this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false, stencilBuffer: false });
     this.target.texture.name = "IntroPost.lens";

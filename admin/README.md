@@ -30,19 +30,31 @@ Every refusal shows the same message on purpose, so the page never says which pa
 
 ## What Admin does
 
-Ten sections, in this order: 1 Dashboard (`/overview`), 2 Users (`/users`), 3 Workouts (`/training`), 4 Nutrition (`/nutrition`), 5 Subscriptions (`/billing`), 6 Support (`/support`), 7 Notifications (`/notifications`, `/announcements`), 8 Reports (`/reports`), 9 Admin and security (`/access-control`, `/audit`, `/security`), 10 Settings (`/settings`). `/account` is where an operator changes their own password. The navigation shows only the sections a role may open, and every page checks again on the server.
+Eleven sections, in this order: 1 Dashboard (`/overview`), 2 Users (`/users`), 3 Workouts (`/training`), 4 Nutrition (`/nutrition`), 5 Subscriptions (`/billing`), 6 Support (`/support`), 7 Notifications (`/notifications`, `/announcements`), 8 Explore (`/explore`, `/explore/communities`, `/explore/challenges`), 9 Reports (`/reports`, analytics), 10 Admin and security (`/access-control`, `/audit`, `/security`), 11 Settings (`/settings`). `/account` is where an operator changes their own password. The navigation shows only the sections a role may open, and every page checks again on the server.
 
 ## Roles
 
 | Role | May use |
 | --- | --- |
 | Super-admin | Everything, including operators, account deletion, settings and billing changes, and audit export. The root is always a super-admin. |
-| Admin | Everything else: overview, reports, users (including suspend), support, workouts, nutrition, notifications, announcements, audit log, security, access and settings (read-only), billing (read-only). |
-| Support agent | Overview, users (sign out everywhere, password reset), support. |
+| Admin | Everything else: overview, reports, users (including suspend), support, Explore moderation, communities and challenges, workouts, nutrition, notifications, announcements, audit log, security, access and settings (read-only), billing (read-only). |
+| Support agent | Overview, users (sign out everywhere, password reset), support, the Explore queue (read-only). |
 | Content editor | Overview, workouts, nutrition, announcements, notifications. |
 | Viewer | Overview and reports, read-only. |
 
-The table lives in two places that a test keeps identical: `src/lib/roles.ts` and `fitx_admin_role_permissions` in migration `20261121100030`.
+The table lives in two places that a test keeps identical: `src/lib/roles.ts` and `fitx_admin_role_permissions`, as its newest migration (`20261124100020`) leaves it.
+
+## Explore
+
+Members' reports from Explore, and the communities and challenges FITX runs there. Nothing is seeded: the queue fills from members' reports, and communities, challenges and templates exist only once an operator types them in.
+
+- **Queue** (`/explore`): reports oldest first while waiting (open or in review), with tabs by status and kind, and the Free-plan meter (storage per bucket and per kind of Explore file, Explore's own caps, the database, video plays signed today, the clean-up queue and the hourly job's last run; a file with no recorded size makes the total "at least", never 0). The navigation badge counts waiting reports.
+- **Report** (`/explore/reports/<id>`): the reporter's snapshot (pictures and videos through 300-second signed links), what moderators did, and the actions: Dismiss, Take for review, Limit, Hide, Unhide, Remove, Warn, Clear photo, Clear bio, Suspend from Explore (Explore, messages or uploads; 7 days, 30 days or until lifted) and Lift suspension. Each action closes every open report on the item, tells each reporter FITX reviewed it, keeps the snapshot 90 days after review, and is audited in the same transaction (codes and counts only; the moderator's note is never on the audit log). Opening a report is audited too. A reported message shows only that one message, never the conversation.
+- **Account** (`/explore/accounts/<id>`): the Explore profile, "Date of birth added in Explore on …", suspensions, reports about the member and what moderators did, with the member actions.
+- **Communities** (`/explore/communities`, `/explore/communities/<id>`): name, address, description, public or private, a cover (made into a 16:9 WebP in the browser, uploaded to `communities/<id>/cover.webp` with the server key), and moderators (accepted adult members, by their Explore username).
+- **Challenges** (`/explore/challenges`): open and recently closed challenges (weekly Monday to Monday or monthly 1st to 1st, India time), Close challenge, and templates the hourly job opens challenges from. Values are always computed from members' own workouts and activities.
+- Super-admins and admins act (`explore.moderate`); support agents read (`explore.view`); content editors and viewers see no Explore section.
+- Settings has two more switches: **Explore** (on unless switched off; members can still delete their content from Explore settings) and **Explore videos** (off until video posts are checked on real phones). They appear once `20261124100020` is applied.
 
 ## Metrics
 
@@ -68,6 +80,8 @@ All files are in the root `supabase/migrations/` folder, applied in file-name or
    - operator columns on the audit log, support requests and messages, and announcements. The older functions, `fitx_admin_members` and all audit history stay.
 2. `20261121100033_fitx_admin_ops.sql` (#43): `platform_settings` (one row of feature switches, the maintenance notice and website information; members and visitors may read it, operators write it through `fitx_admin_op_save_platform_settings`), `member_notifications` (notices to chosen accounts; each member reads and dismisses only their own), the support Complaint category and unread tracking, account search v2, the Dashboard extras and the Security summary.
 3. `20261121100036_fitx_admin_content.sql` (#44): no new table. Type and size limits on the `exercise-media` bucket, a public `food-media` bucket, and the operator functions behind Workouts, Nutrition, Subscriptions (plans; never prices) and Reports.
+
+4. `20261124100020_fitx_admin_explore.sql` (#54, wave 2): no new table. The Explore permissions (the role table recreated), the `explore` and `explore_video` switches in the settings save, the moderation, community, challenge and template functions, and the Free-plan meter. It needs `20261124100000_fitx_social_v2_core` (#52) first, and uses `20261124100010` (#53) for the challenge close when it is there. Until it is applied, the Explore screens say which migration they need and Settings shows only the five older switches.
 
 ## Environment variables
 
@@ -111,7 +125,7 @@ Then set `FITX_ADMIN_PASSWORD_RESET_EMAILS=on` in the Admin project and redeploy
 ```text
 admin/
   src/app/login/               Sign-in page and its Server Actions (sign in, sign out)
-  src/app/(control)/           The ten sections and /account; every page and action calls requireAdmin
+  src/app/(control)/           The eleven sections and /account; every page and action calls requireAdmin
   src/components/              Shell and section navigation, motion (counters, chart draw-in, section transitions)
   src/lib/                     Guard, sessions, passwords, sign-in limits, operators, roles, CSP, audit writer
   src/lib/data/                Server data access, one module per area; each calls requireAdmin itself

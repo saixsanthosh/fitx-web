@@ -94,12 +94,12 @@ const FIRST_PENDING = "20261115100000";
 const SEPTEMBER = MIGRATIONS.filter((name) => name < FIRST_PENDING);
 const PENDING = MIGRATIONS.filter((name) => name >= FIRST_PENDING);
 /**
- * The newest file production has applied since its copy was made (2026-11-21; tests/integration/applied-migrations
+ * The newest file production has applied since its copy was made (2026-11-23; tests/integration/applied-migrations
  * .test.mjs pins those files). The runbook's earlier sittings applied the pending files up to it and recorded them
- * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest, #46 to #52 (#52, wave
- * 2's first file, is not applied anywhere yet).
+ * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest, #52 (wave 2's first
+ * file, not applied anywhere yet).
  */
-const LAST_APPLIED = "20261121100040";
+const LAST_APPLIED = "20261123100060";
 const APPLIED_SINCE = PENDING.filter((name) => name.slice(0, 14) <= LAST_APPLIED);
 const THIS_SITTING = PENDING.filter((name) => name.slice(0, 14) > LAST_APPLIED);
 const FOOD_PARTS = PENDING.filter((name) => /_fitx_food_catalog_seed_part_\d+\.sql$/.test(name));
@@ -588,11 +588,11 @@ const START_2_LIST = [...blockOf("Start 2").sql.matchAll(/\('(\d{14})', '[a-z]+'
 // runs, in order: the rows, or a function of (rows, { cron, cronAvailable }) giving what the rows must be. Every other
 // query must give exactly what its Expect line says. The copy has no member rows, so counts of them are 0.
 const RUNBOOK_PINNED = {
-  // Before #46: production's rows and #1 to #45 under their own numbers.
+  // Before #52: production's rows and #1 to #51 under their own numbers.
   "Start 1": [byVersion([...PRODUCTION_ROWS, ...APPLIED_SINCE.map(historyRow)]), (rows, { cron }) =>
     // After section 5; #27's undo needs pg_cron, so without it its file keeps its row.
     byVersion([...PRODUCTION_ROWS, ...[...KEPT_BY_SECTION_5, ...(cron ? [] : [27])].map((number) => historyRow(PENDING[number - 1]))])],
-  // Before #46 its Expect line holds ("no rows"); after the last file (section 6.1) it lists every row.
+  // Before #52 its Expect line holds ("no rows"); after the last file (section 6.1) it lists every row.
   "Start 2": [undefined, START_2_LIST],
   // The local cluster's postgres is a superuser; production's is not.
   "Start 3": [[{ applying_role: "postgres", rolsuper: true, rolbypassrls: true, owner_of_existing_tables: "postgres" }]],
@@ -656,10 +656,10 @@ const runbookNotRun = ({ cron }) => ({
 });
 
 /**
- * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #45): the
+ * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #51): the
  * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
- * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 62 rows, the
- * connector records #46 to #52 under their times, then History 0 to 2. `ask` runs a runbook query and keeps its
+ * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 68 rows, the
+ * connector records #52 under its time, then History 0 to 2. `ask` runs a runbook query and keeps its
  * result; returns whether History 1 ran both times.
  */
 /** The day after the newest pending file's date (yyyymmdd), the simulated day the connector applies them. */
@@ -1155,7 +1155,7 @@ describe("every pending migration on a copy of production's database", { skip },
     runbook.catalogue.today = rowDigests(pg, catalogue);
     // Section 1 on the day: the Start queries (Start 1 and 8 read the history table, which this copy only gets
     // with the history steps below), and what they and the Before queries for #1 and #2 catch, rolled back.
-    // Start 2 is this sitting's, before #46.
+    // Start 2 is this sitting's, before #52.
     for (const block of RUNBOOK_BLOCKS) if (/^Start \d+$/.test(block.key) && !["Start 1", "Start 2", "Start 8"].includes(block.key)) ask(block, "before #1");
     runbook.dayOf = whatTheDayOfQueriesCatch(pg);
     // Each file with its Before queries first and its Checks and Smoke after; the optional backup copy before #12.
