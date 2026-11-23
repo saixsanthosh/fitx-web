@@ -43,16 +43,44 @@ none of it (and no key) can reach the browser. Providers are called with plain `
 | `GEMINI_API_KEY` | Google AI Studio key. Free tier only while the Google Cloud project has no billing account. |
 | `GROQ_API_KEY` | GroqCloud key on the Free plan. |
 | `OPENROUTER_API_KEY` | OpenRouter key with no credits; only `:free` models and `openrouter/free` are used. |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Workers AI on the Workers Free plan (daily free allocation; `@cf/` models only). Both are needed: the token cannot find its own account (the 2026-11-23 smoke test saw 0 accounts listed for the owner's token), so Workers AI stays off until `CLOUDFLARE_ACCOUNT_ID` is set. The ID is on the Cloudflare dashboard's Workers & Pages overview (right-hand side). |
+| `CEREBRAS_API_KEY`, `MISTRAL_API_KEY` | Optional free tiers (Cerebras Inference, Mistral La Plateforme "Experiment"). Like Gemini's free tier they may read prompts, so by default they get "Questions only" requests; `AI_CEREBRAS_WITH_MEMBER_DATA` / `AI_MISTRAL_WITH_MEMBER_DATA` = `true` opts in. |
 | `AI_COACH_ENABLED` | Kill switch. `false` pauses every AI feature at once (the page says "paused"). |
 | `AI_ALLOW_PAID` | Leave unset. `true` lets the router use models that are not on a free tier. |
 | `AI_GEMINI_WITH_MEMBER_DATA` | Leave unset unless the owner accepts it. On Gemini's free tier Google may use prompts to improve its products and people at Google may read them, so by default Gemini gets only "Questions only" requests, never the member's FITX summary. `true` lets it answer chats with the summary and plans too. |
-| `AI_GEMINI_MODELS`, `AI_GROQ_MODELS`, `AI_OPENROUTER_MODELS` | Optional comma-separated lists replacing the default models. Models not known to be free are still refused unless `AI_ALLOW_PAID=true`. |
+| `AI_GEMINI_MODELS`, `AI_GROQ_MODELS`, `AI_CLOUDFLARE_MODELS`, `AI_CEREBRAS_MODELS`, `AI_MISTRAL_MODELS`, `AI_OPENROUTER_MODELS` | Optional comma-separated lists replacing the default models. Models not known to be free are still refused unless `AI_ALLOW_PAID=true`. |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Optional: an Ollama server the owner runs, see below. |
 
-Any one key is enough for "Questions only". "Use my FITX data" and plans need a Groq or OpenRouter key
+Any one key is enough for "Questions only". "Use my FITX data" and plans need a Groq, Cloudflare or OpenRouter key
 (or `AI_GEMINI_WITH_MEMBER_DATA=true`); until then the page says so. More keys mean more free capacity
 and better fallbacks.
 Default models (checked on each provider's own pages on 2026-11-16) live only in `registry.ts`.
+
+### Smoke test (one request per provider, from this computer)
+
+`node scripts/ai/smoke.mjs <env file with the keys> [--only=gemini,groq,cloudflare,cerebras,mistral]` sends one
+"Reply with the single word: ready" request per configured provider and prints only the HTTP status and model
+(for Cloudflare without an account ID, how many accounts the token can see). It never prints a key, ID, prompt or
+reply, and carries no member data. Run on 2026-11-23 with the owner's keys: Gemini 200 (`gemini-3.5-flash-lite`),
+Groq 200 (`openai/gpt-oss-20b`), Cloudflare 200 on the account lookup with 0 accounts visible (no model called).
+
+## The coach's jobs
+
+The page and the floating panel offer starters for each job (`capabilities.ts`): plan a workout and plan meals
+(checked plans), exercise help (how-to, alternatives, sets and reps), analyse my progress (real 4-week numbers),
+daily boost (encouragement from what the member actually did), recovery check (rest, sleep, and when to see a
+doctor or physiotherapist) and get back on track (realistic adjustments, never shaming). Starters that need the
+member's data appear only with "Use my FITX data". `COACHING_RULES` in `prompts.ts` tells the model how to do each.
+
+## Voice
+
+Push to talk (`components/coach/CoachVoice.tsx`): the browser's own speech recognition turns speech into text in
+the message box and letting go sends it. FITX never records or stores audio; the browser may send it to its maker's
+speech service (Google in Chrome, Microsoft in Edge, Apple in Safari), which the first use explains
+(`VOICE_PRIVACY` in `disclosure.ts`). Replies can be read aloud with an on-device voice only (network voices are
+never used). No microphone button where the browser has no speech recognition (Firefox). It needs the
+Permissions-Policy `microphone=(self)` (landing-login's `next.config.ts`); with `microphone=()` the browser refuses
+and the coach says microphone access is off.
 
 ## Ollama (optional)
 
@@ -84,7 +112,10 @@ for under-18 accounts the prompts are general ones.
 A short summary (about 1-2k tokens) rebuilt on every request: age, sex, height, weight trend and target
 weight, goal, training setup, injuries or limitations, diet, allergies, budget, 7-day food totals and
 most-logged foods, saved food names, 28-day training, personal records, active goals, and how many
-workouts and other planner items are planned for the next 7 days. The age comes from the birth date when there
+workouts and other planner items are planned for the next 7 days. Consents given on the version 2 consent screen
+(`CONSENT_VERSION` in `store.ts`, from 2026-11-23) also send the last 4 weeks of activities per sport: count,
+km, moving minutes and climb, never routes or places (`activitySummary` in `context.ts`). A member who agreed to
+version 1 keeps the version 1 summary until they agree again. The age comes from the birth date when there
 is one. Where meals come from and the nutrition goal go too, in the summary and the meal-plan rules; the privacy
 page names them (`FOOD_HABITS_IN_SUMMARY` in `context.ts`). Never a name, email, photo, account
 or row id, private notes or exact times. Members who choose "Questions only", every member under 18, and

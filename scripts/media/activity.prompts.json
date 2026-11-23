@@ -1,0 +1,48 @@
+{
+  "set": "activity",
+  "style": "Photoreal outdoor landscape photograph for a premium fitness app, shot on a full-frame camera with a 35mm lens at eye level, natural light only, soft early-morning or late-evening light, gentle haze, deep but detailed shadows, true-to-life colour with a calm, slightly muted grade, subtle film grain. The scene is empty: no people, no animals, no vehicles moving, no crowds. Leave generous calm space in the upper half of the frame. No text, letters, numbers, signs, logos, brand marks, watermarks, route markers or painted lines with words anywhere. A real-looking place, not a famous landmark.",
+  "images": [
+    {
+      "id": "riverside",
+      "aspect": "16:9",
+      "longEdge": 1600,
+      "alt": "An empty riverside running path at dawn, lined with trees",
+      "prompt": "A smooth paved riverside path curving gently away from the camera at blue hour just before sunrise, a line of tall rain trees on one side and a wide calm river on the other, warm first light touching the far bank, mist on the water."
+    },
+    {
+      "id": "promenade",
+      "aspect": "16:9",
+      "longEdge": 1600,
+      "alt": "A wide, flat seaside promenade at sunrise",
+      "prompt": "A wide, flat, step-free seaside promenade of smooth stone running along a calm sea at sunrise, low sun on the horizon reflecting on wet paving, a simple railing along the edge, palm trees in soft silhouette."
+    },
+    {
+      "id": "open-road",
+      "aspect": "16:9",
+      "longEdge": 1600,
+      "alt": "An empty road winding through green hills at golden hour",
+      "prompt": "An empty, smooth two-lane tarmac road winding through rolling green hills at golden hour, long shadows across the fields, a low stone wall along one side, the road disappearing over a distant crest."
+    },
+    {
+      "id": "mountain-trail",
+      "aspect": "16:9",
+      "longEdge": 1600,
+      "alt": "A narrow trail along a grassy mountain ridge at sunrise",
+      "prompt": "A narrow dirt footpath running along a grassy mountain ridge at sunrise, rocky outcrops, layered blue ridges fading into morning haze in the distance, dew on the grass in the foreground."
+    },
+    {
+      "id": "forest-singletrack",
+      "aspect": "16:9",
+      "longEdge": 1600,
+      "alt": "A dirt singletrack winding between pine trees in morning haze",
+      "prompt": "A packed dirt singletrack with exposed roots and a small banked turn, winding downhill between tall pine trees, shafts of low morning sun through the haze, pine needles on the ground."
+    },
+    {
+      "id": "lake",
+      "aspect": "16:9",
+      "longEdge": 1600,
+      "alt": "A calm lake at dawn with an empty kayak resting at the shore",
+      "prompt": "A calm, glassy lake at dawn surrounded by forested hills, thin mist on the water, an empty plain red kayak with a paddle resting on a small pebble shore in the lower third of the frame."
+    }
+  ]
+}

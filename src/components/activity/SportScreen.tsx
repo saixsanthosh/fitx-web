@@ -1,10 +1,12 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { m } from "framer-motion";
 import { ChevronLeft, Play, RefreshCw } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { EASE } from "@/components/motion";
+import { ACTIVITY_MEDIA, type ActivityMediaId } from "@/data/activity-media";
 import { StatRow, StatTile } from "@/components/ui/StatTile";
 import { SPORT_LABEL, SPORT_NOUN, sportFamily, usesPace } from "@/lib/activity/config";
 import { sportSummary } from "@/lib/activity/feed";
@@ -38,11 +40,23 @@ const ROUTE_ART: Record<Sport, string> = {
   paddle: "M14 120 C 60 100, 100 140, 150 118 S 220 90, 260 110 S 310 130, 342 100",
 };
 
+/** Each sport's backdrop: an empty place it is done in (AI stills, checked by eye; no people, no invented results). */
+const SCENE: Record<Sport, ActivityMediaId> = {
+  walk: "promenade", run: "riverside", ride: "open-road", hike: "mountain-trail", trail_run: "mountain-trail", mtb: "forest-singletrack",
+  ebike: "open-road", wheelchair: "promenade", skate: "promenade", paddle: "lake",
+};
+
 const km = (n: number) => n.toFixed(2);
 
 function Hero({ sport }: { sport: Sport }) {
   return (
-    <section className="relative overflow-hidden rounded-3xl bg-fitx-stage text-fitx-on-stage" aria-labelledby="sport-title">
+    <section className="relative isolate overflow-hidden rounded-3xl bg-fitx-stage text-fitx-on-stage" aria-labelledby="sport-title">
+      {/* The photo settles from a slight zoom (transform only); still with reduced motion. */}
+      <m.div aria-hidden="true" className="absolute inset-0 -z-10" initial={{ scale: 1.06, opacity: 0.4 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 1.8, ease: EASE.out }}>
+        <Image src={ACTIVITY_MEDIA[SCENE[sport]].src} alt="" fill sizes="(min-width: 1024px) 1024px, 100vw" priority placeholder="blur" blurDataURL={ACTIVITY_MEDIA[SCENE[sport]].blurDataURL} className="object-cover" />
+      </m.div>
+      {/* Keeps the words readable over any photo, in both themes (the stage is dark in both). */}
+      <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-t from-fitx-stage via-fitx-stage/75 to-fitx-stage/20 sm:bg-gradient-to-r sm:from-fitx-stage sm:via-fitx-stage/70 sm:to-fitx-stage/10" />
       <svg viewBox="0 0 350 190" className="pointer-events-none absolute inset-y-0 right-0 h-full w-[78%] max-w-[560px] opacity-90 sm:w-[60%]" aria-hidden="true" focusable="false" preserveAspectRatio="xMaxYMid meet">
         <path d={ROUTE_ART[sport]} fill="none" stroke="var(--fitx-on-stage)" strokeOpacity="0.12" strokeWidth="10" strokeLinecap="round" />
         <m.path
