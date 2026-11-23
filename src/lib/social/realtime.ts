@@ -18,6 +18,8 @@ type Channel = {
 export type RealtimeLike = {
   channel: (name: string, options: { config: { private: boolean } }) => Channel;
   removeChannel: (channel: Channel) => unknown;
+  /** The channels the client still holds (supabase-js keeps a leaving channel here until the server answers). */
+  getChannels?: () => readonly unknown[];
 };
 type DocumentLike = Pick<Document, "visibilityState" | "addEventListener" | "removeEventListener">;
 type Env = {
@@ -39,6 +41,42 @@ export function parsePing(payload: unknown): InboxPing | null {
 }
 
 /**
+ * Leaves still under way, per client and topic. supabase-js keeps a channel in its list until the server answers its
+ * leave, and `channel(topic)` hands that same leaving channel back, on which `subscribe()` does nothing; its CLOSED
+ * would then end the new subscription too. So a reopen waits for the leave (across hubs for the same topic).
+ */
+type Leave = { channel: Channel; done: Promise<void> };
+const leaves = new WeakMap<RealtimeLike, Map<string, Leave>>();
+
+function leave(client: RealtimeLike, topic: string, channel: Channel) {
+  let byTopic = leaves.get(client);
+  if (!byTopic) {
+    byTopic = new Map();
+    leaves.set(client, byTopic);
+  }
+  const topics = byTopic;
+  let removing: Promise<unknown>;
+  try {
+    removing = Promise.resolve(client.removeChannel(channel));
+  } catch {
+    removing = Promise.resolve();
+  }
+  const entry: Leave = { channel, done: Promise.resolve() };
+  entry.done = removing.then(() => undefined, () => undefined).then(() => {
+    if (topics.get(topic) === entry) topics.delete(topic);
+  });
+  topics.set(topic, entry);
+}
+
+/** The leave a new channel() call would collide with: one whose channel the client still holds. */
+function pendingLeave(client: RealtimeLike, topic: string): Promise<void> | null {
+  const entry = leaves.get(client)?.get(topic);
+  if (!entry) return null;
+  const held = client.getChannels?.();
+  return held && held.includes(entry.channel) ? entry.done : null;
+}
+
+/**
  * Listens to the member's inbox topic while the page that calls it is mounted. The channel closes after the tab has
  * been hidden for a minute and opens again when it is shown; a channel that fails to join is dropped (no retry loop),
  * and `onLive(false)` tells the caller to poll. Returns the stop function.
@@ -52,21 +90,36 @@ export function subscribeInbox(userId: string, onPing: (ping: InboxPing) => void
     env.onLive?.(false);
     return () => undefined;
   }
+  const topic = inboxTopic(userId);
   let channel: Channel | null = null;
   let idle: unknown = null;
   let failed = false;
   let stopped = false;
+  // An open waiting for an earlier leave of this topic; a close while it waits cancels it.
+  let waiting: object | null = null;
 
   const close = () => {
+    waiting = null;
     if (!channel) return;
     const current = channel;
     channel = null;
-    void client.removeChannel(current);
+    leave(client, topic, current);
     env.onLive?.(false);
   };
   const open = () => {
-    if (channel || failed || stopped) return;
-    const current = client.channel(inboxTopic(userId), { config: { private: true } });
+    if (channel || failed || stopped || waiting) return;
+    const pending = pendingLeave(client, topic);
+    if (pending) {
+      const ticket = {};
+      waiting = ticket;
+      void pending.then(() => {
+        if (waiting !== ticket) return;
+        waiting = null;
+        open();
+      });
+      return;
+    }
+    const current = client.channel(topic, { config: { private: true } });
     channel = current;
     current
       .on("broadcast", { event: "ping" }, (message) => {

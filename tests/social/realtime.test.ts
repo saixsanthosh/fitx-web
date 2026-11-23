@@ -240,3 +240,102 @@ test("shareInbox: one channel per member for the page; pings reach every listene
   assert.deepEqual(live, [false], "no member: nothing opens, and the caller polls");
   none();
 });
+
+/**
+ * A client that behaves like supabase-js 2.108 (RealtimeClient.channel, RealtimeChannel.subscribe, removeChannel): a
+ * leaving channel stays in the client's list until the server answers the leave, channel(topic) hands that same object
+ * back, and subscribe() on a channel that is not closed registers nothing. `answerLeaves()` is the server's answer: the
+ * channel closes (its CLOSED callback runs) and leaves the list.
+ */
+function leavingClient() {
+  type Fake = { name: string; state: "closed" | "joined" | "leaving"; onStatus?: (s: string) => void; onPing?: (m: { payload?: unknown }) => void };
+  const held: Fake[] = [];
+  const made: Fake[] = [];
+  const answers: (() => void)[] = [];
+  const handles = new Map<Fake, unknown>();
+  const client: RealtimeLike = {
+    channel(name) {
+      const existing = held.find((c) => c.name === name);
+      const record: Fake = existing ?? { name, state: "closed" };
+      if (!existing) {
+        held.push(record);
+        made.push(record);
+      }
+      if (!handles.has(record)) {
+        const handle = {
+          on(_type: "broadcast", _filter: { event: string }, callback: (m: { payload?: unknown }) => void) { record.onPing = callback; return handle; },
+          subscribe(callback?: (status: string) => void) {
+            if (record.state === "closed") { record.state = "joined"; record.onStatus = callback; }
+            return handle;
+          },
+        };
+        handles.set(record, handle);
+      }
+      return handles.get(record) as ReturnType<RealtimeLike["channel"]>;
+    },
+    removeChannel(channel) {
+      const record = [...handles].find(([, handle]) => handle === channel)?.[0];
+      if (!record) return Promise.resolve("ok");
+      record.state = "leaving";
+      return new Promise((resolve) => {
+        answers.push(() => {
+          record.state = "closed";
+          record.onStatus?.("CLOSED");
+          held.splice(held.indexOf(record), 1);
+          resolve("ok");
+        });
+      });
+    },
+    getChannels: () => [...held].map((record) => handles.get(record)),
+  };
+  return { client, made, answerLeaves: () => { for (const answer of answers.splice(0)) answer(); } };
+}
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("showing the tab while the idle close is still leaving waits for the leave, then joins a fresh channel", async () => {
+  const { client, made, answerLeaves } = leavingClient();
+  const page = fakeDocument();
+  const clock = fakeTimers();
+  const live: boolean[] = [];
+  const stop = subscribeInbox("u8", () => undefined, { client, doc: page.doc, setTimer: clock.setTimer, clearTimer: clock.clearTimer, onLive: (value) => live.push(value) });
+  made[0].onStatus?.("SUBSCRIBED");
+  page.set("hidden");
+  clock.advance(GROUP_LIMITS.channelIdleMs);
+  page.set("visible");
+  assert.equal(made.length, 1, "no channel() call while the old channel is still leaving");
+  answerLeaves();
+  await settle();
+  assert.equal(made.length, 2, "a fresh channel once the leave is answered");
+  assert.notEqual(made[1], made[0]);
+  made[1].onStatus?.("SUBSCRIBED");
+  assert.deepEqual(live, [true, false, true], "live again, not stuck on polling");
+  stop();
+});
+
+test("a close while the reopen waits cancels it; a new hub for the same member waits for the old hub's leave", async () => {
+  const { client, made, answerLeaves } = leavingClient();
+  const page = fakeDocument();
+  const clock = fakeTimers();
+  const stop = subscribeInbox("u9", () => undefined, { client, doc: page.doc, setTimer: clock.setTimer, clearTimer: clock.clearTimer });
+  made[0].onStatus?.("SUBSCRIBED");
+  page.set("hidden");
+  clock.advance(GROUP_LIMITS.channelIdleMs);
+  page.set("visible");
+  stop();
+  answerLeaves();
+  await settle();
+  assert.equal(made.length, 1, "stopped while waiting: nothing opens");
+
+  const live: boolean[] = [];
+  const first = shareInbox("u10", () => undefined, undefined, { client, doc: page.doc });
+  made[1].onStatus?.("SUBSCRIBED");
+  first();
+  const second = shareInbox("u10", () => undefined, (value) => live.push(value), { client, doc: page.doc });
+  assert.equal(made.length, 2, "the new hub waits for the old hub's leave");
+  answerLeaves();
+  await settle();
+  assert.equal(made.length, 3);
+  made[2].onStatus?.("SUBSCRIBED");
+  assert.deepEqual(live, [true], "live on the fresh channel");
+  second();
+});
