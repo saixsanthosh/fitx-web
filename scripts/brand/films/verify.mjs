@@ -10,7 +10,7 @@
 //   --determinism=<master2> --against=<master1> --pick=<frames in master2's order>
 //       each re-rendered frame against the same frame of the first render, PSNR ≥ 55 dB
 //   --contact=<video> --comp=<c> [--fps=2] [--available=a,b] [--out=<jpg>]
-//       a contact sheet with the protected box drawn on
+//       contact sheets (6 × 5 frames each, in time order) with the protected box drawn on (this ffmpeg has no drawtext)
 //   --framing --film=<f> --comp=<c> --theme=<t> [--available=a,b] [--zones=<json>]
 //       project() at every 6th frame and each shot boundary ± 1; every must box inside the protected box at each served
 //       band's real edges and outside the zones
@@ -141,7 +141,7 @@ async function contact(args) {
   const scale = thumbWidth / size.width;
   const out = path.resolve(args.out ?? `${args.contact}.contact.jpg`);
   const draw = `drawbox=x=${Math.round(box.x0 * size.width)}:y=${Math.round(box.y0 * size.height)}:w=${Math.round((box.x1 - box.x0) * size.width)}:h=${Math.round((box.y1 - box.y0) * size.height)}:color=yellow@0.8:t=4`;
-  const filter = `fps=${fps},scale=in_color_matrix=bt709:in_range=tv,format=rgb24,${draw},scale=${thumbWidth}:${Math.round(size.height * scale)}:flags=lanczos,drawtext=text='%{pts\\:hms}':x=6:y=6:fontsize=16:fontcolor=white:box=1:boxcolor=black@0.5,tile=6x5:padding=4`;
+  const filter = `fps=${fps},scale=in_color_matrix=bt709:in_range=tv,format=rgb24,${draw},scale=${thumbWidth}:${Math.round(size.height * scale)}:flags=lanczos,tile=6x5:padding=4`;
   await capture(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-i", path.resolve(args.contact), "-vf", filter, "-frames:v", "8", "-q:v", "4", out.replace(/\.jpg$/, "-%02d.jpg")]);
   return { out: out.replace(/\.jpg$/, "-NN.jpg"), protectedBox: box, problems: [] };
 }
