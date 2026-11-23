@@ -16,7 +16,7 @@
   position: relative;
   display: grid;
   flex: 0 0 auto;
-  height: clamp(160px, 30svh, 270px);
+  height: clamp(150px, 27svh, 250px);
   overflow: hidden;
   background: var(--fitx-stage);
   color: var(--fitx-on-stage);

@@ -31,7 +31,7 @@ export const flow = {
       const film = await page.locator("section[data-film]").getAttribute("data-film");
       t.note("film state", film);
       t.expect(film === "playing", `the film plays (data-film=${film})`);
-      const shot = await t.checkpoint("hero", { fullPage: false, settle: false });
+      const shot = await t.checkpoint("hero", { fullPage: false });
       t.expect(!shot.overflow?.overflow, "no sideways scroll", shot.overflow);
     });
 

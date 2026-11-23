@@ -34,6 +34,12 @@ const OPENING: Segment = { seconds: 0.75, from: 0, to: LIFT_TIMES.clapEnd, ease:
 
 export const LOOP_SECONDS = LOOP.reduce((sum, segment) => sum + segment.seconds, 0);
 
+/**
+ * The moment the still frames in public/media/login/ show (the held lockout, looking at you). The live scene starts
+ * here, so its fade-in over the still is seamless.
+ */
+export const STILL_SECONDS = 5;
+
 /** The lift driver's time for `elapsed` wall seconds since the scene started. */
 export function liftTimeAt(elapsed: number): number {
   let t = Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);

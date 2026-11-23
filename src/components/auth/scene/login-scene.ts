@@ -21,7 +21,7 @@ import { applyLightingPreset, createLightRig, type LightRig } from "@/components
 import { applyBreath, applyHeadLook, blinkAmount, poseLift } from "@/components/brand/intro/motion";
 import { createBarbell, createGymSet, type BarbellProp, type IntroSet } from "@/components/brand/intro/sets";
 import type { Theme } from "@/components/brand/intro/types";
-import { follow, idleDrift, liftTimeAt, lookWeightAt, medianFrame, SLOW_FRAME, type Look } from "./scene-math";
+import { follow, idleDrift, liftTimeAt, lookWeightAt, medianFrame, SLOW_FRAME, STILL_SECONDS, type Look } from "./scene-math";
 
 export type LoginSceneCallbacks = {
   /** The first frame is on the canvas. */
@@ -58,7 +58,10 @@ export function createLoginScene(host: HTMLElement, initialTheme: Theme, callbac
   let ready = false;
   let raf = 0;
   let last = 0;
-  let clock = 0;
+  // Start on the still frame's moment so the fade from the still to the live scene shows no jump.
+  let clock = STILL_SECONDS;
+  /** Seconds actually rendered live (the frame-rate guard waits out the first one). */
+  let liveSeconds = 0;
   let look: Look | null = null;
   const eased = { x: 0, y: 0 };
   let samples: number[] = [];
@@ -145,7 +148,7 @@ export function createLoginScene(host: HTMLElement, initialTheme: Theme, callbac
 
   const guard = (dt: number) => {
     // Stalled or throttled frames (a background tab, a hidden pane, the dt cap) say nothing about the GPU.
-    if (!quality || clock < 1.2 || dt <= 0 || dt >= 0.095 || document.visibilityState !== "visible") return;
+    if (!quality || liveSeconds < 1.2 || dt <= 0 || dt >= 0.095 || document.visibilityState !== "visible") return;
     samples.push(dt);
     if (samples.length > 45) samples.shift();
     if (samples.length < 30) return;
@@ -170,6 +173,7 @@ export function createLoginScene(host: HTMLElement, initialTheme: Theme, callbac
     const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
     last = now;
     clock += dt;
+    liveSeconds += dt;
     try {
       frame(dt);
     } catch (error) {

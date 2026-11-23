@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import {
-  follow, idleDrift, LIFT_TIMES, liftTimeAt, LOOP_SECONDS, lookWeightAt, medianFrame, pointerLook, sceneVerdict, SLOW_FRAME, tiltLook, TILT_RANGE_DEGREES,
+  follow, idleDrift, LIFT_TIMES, STILL_SECONDS, liftTimeAt, LOOP_SECONDS, lookWeightAt, medianFrame, pointerLook, sceneVerdict, SLOW_FRAME, tiltLook, TILT_RANGE_DEGREES,
 } from "@/components/auth/scene/scene-math";
 
 const source = (file: string) => readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
@@ -26,6 +26,13 @@ test("the set opens with the chalk clap, then loops without a jump and never let
   const peak = Math.max(...Array.from({ length: 800 }, (_, i) => liftTimeAt(opening + (i / 800) * LOOP_SECONDS)));
   assert.ok(peak >= LIFT_TIMES.lockout, "each rep reaches lockout");
   for (const bad of [Number.NaN, -3, Number.POSITIVE_INFINITY]) assert.ok(Number.isFinite(liftTimeAt(bad)), String(bad));
+});
+
+test("the live scene starts on the still frame's moment: the held lockout, looking at you", () => {
+  const t = liftTimeAt(STILL_SECONDS);
+  assert.ok(t >= LIFT_TIMES.lockout && t <= LIFT_TIMES.held, `lift time ${t}`);
+  assert.ok(lookWeightAt(t) > 0.6);
+  assert.match(source("src/components/auth/scene/login-scene.ts"), /let clock = STILL_SECONDS;/);
 });
 
 test("he looks up at you standing and at lockout, not while he braces and pulls", () => {
