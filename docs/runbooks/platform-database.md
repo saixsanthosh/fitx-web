@@ -5,18 +5,18 @@ time. It is written for the FITX owner. You do not need to know SQL. "The sessio
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **Where production stands (2026-11-21):** it has the 14 files from September 2026, the three changes applied
-  to it by hand that have no file in `supabase/migrations` (section 1.8), and #1 to #45 of section 2
-  (`20261115100000` to `20261121100040`), applied on 2026-11-17, 2026-11-18, 2026-11-20 and 2026-11-21 and recorded
-  under their own numbers: 62 rows in its history. Those 45 are done; never apply one again.
-- **What is pending:** the six files #46 to #51, `20261123100000` to `20261123100060` (the "next level" job's wave 1:
-  the floating AI Coach button setting, Home's quote of the day, the Workouts and Nutrition first-time setups, the
-  new Activity sports and best efforts, and Explore), in `supabase/migrations` on `master` once wave 1 is merged
-  (until then on the branch `claude/next`). That folder is the source of truth. Then #52, `20261124100000` (wave 2:
-  Explore, part 2 core), on the branch `claude/next2` until wave 2 is merged; it is not applied anywhere yet and needs
-  #51. Sections 2 and 3 still list all 52 files, so each summary and Check stays next to its file.
-- **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #46, #47, #48, #49, #50 and #51 in that order
-  (section 3), then #52 (before the wave-2 deploy: nothing in wave 1 needs it, so it may come in a later sitting),
+- **Where production stands (2026-11-23):** it has the 14 files from September 2026, the three changes applied
+  to it by hand that have no file in `supabase/migrations` (section 1.8), and #1 to #51 of section 2
+  (`20261115100000` to `20261123100060`), applied on 2026-11-17, 2026-11-18, 2026-11-20, 2026-11-21 and 2026-11-23
+  and recorded under their own numbers: 68 rows in its history. Those 51 are done; never apply one again. The
+  2026-11-23 sitting applied #46 to #51 (the "next level" job's wave 1) with the staged, md5-checked method of
+  section 0.1: every Check gave its Expect line and Final 1 to 3 passed. #49 and #50 ran without their standalone
+  `begin;` and `commit;` lines, which that method leaves out; their history rows hold the files' full text.
+- **What is pending:** the one file #52, `20261124100000` (the "next level" job's wave 2: Explore, part 2 core), in
+  `supabase/migrations` on `master` once wave 2 is merged (until then on the branch `claude/next2`). That folder is
+  the source of truth. It is not applied anywhere yet and needs #51. Sections 2 and 3 still list all 52 files, so
+  each summary and Check stays next to its file.
+- **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #52 (section 3), before the wave-2 deploy,
   then section 6.3 and 6.1. Start 5 to 10 belong to the first sitting, before #1; they are kept as its record and
   need not be run again.
 - **Other runbook:** `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
@@ -44,10 +44,10 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only the pending files, #46 to #52, and only from `master` (or `claude/next`, and `claude/next2` for #52, before
-  the merge). Never #1 to #45 again: production has them, and #7 must never run a second time. Once #52 is applied,
-  never #51 again either (except after #52's undo, section 5): it would put back part 1's Explore functions and read
-  policies over #52's. Never a copy from another
+- Only the pending file, #52, and only from `master` (or `claude/next2` before the merge). Never #1 to #51 again:
+  production has them, and #7 must never run a second time. Once #52 is applied, #51 must never run again either
+  (except after #52's undo, section 5): it would put back part 1's Explore functions and read policies over #52's.
+  Never a copy from another
   branch or worktree, never the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from the
   repository), and never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
   production already has (section 1.8).
@@ -55,17 +55,15 @@ For each file, in the order of section 2:
   undoing later security fixes such as #4.
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
-- Pick a quiet time. Apply #46 to #51 in one sitting, then deploy the app (section 6.4) the same day; #52 goes before the wave-2 deploy.
-- The live app keeps working throughout: #46 to #51 add columns, Home's quote tables, Explore's own tables,
-  functions and bucket, and a wider sport rule, and change no row the live app reads (#48 and #49 only fill their
-  own new columns: #48 marks every member who finished onboarding as set up for Workouts, once, on the run that adds
-  the column; #49 marks members with a diet). The new app checks for each file and works without the ones not
-  applied yet. #52 adds Explore part 2's tables and columns and rewrites part 1's Explore functions and three read
-  policies in place, under the same names and arguments, so wave 1's Explore keeps working after it; it deletes no row.
-- #47 (50 KB), #51 (90 KB) and #52 (147 KB) are larger than the files the connector took reliably. The session sends them with
-  the staged, md5-checked method it used for #42 to #45 (each part stored and compared, then the whole file run
-  once and recorded under its own number), or through the SQL editor (section 0.2), recording each one with the
-  same Record query as #12, with that file's number and name.
+- Pick a quiet time. Apply #52, then deploy wave 2 (section 6.4) the same day.
+- The live app keeps working throughout: #52 adds Explore part 2's tables and columns and rewrites part 1's Explore
+  functions and three read policies in place, under the same names and arguments, so wave 1's Explore (live since
+  2026-11-23) keeps working after it; it deletes no row. The new app checks for each file and works without the ones
+  not applied yet.
+- #52 (147 KB) is larger than the files the connector took reliably. The session sends it with the staged,
+  md5-checked method it used for #42 to #51 (each part stored and compared, then the whole file run once and
+  recorded under its own number), or through the SQL editor (section 0.2), recording it with the same Record query
+  as #12, with that file's number and name.
 
 ### 0.2 The six large files: SQL editor
 
@@ -89,7 +87,7 @@ connector reliably. For each of them:
 
 ### 1.1 Take or confirm a backup
 
-Do this on the day, before the first file of the sitting (#46).
+Do this on the day, before the first file of the sitting (#52).
 
 - Supabase Dashboard → Database → Backups. If it lists daily backups, note the time of the newest one. If it
   lists none (the Free plan has none), make your own copy as below.
@@ -109,30 +107,24 @@ Do this on the day, before the first file of the sitting (#46).
 ### 1.2 What is already applied
 
 ```sql
--- Start 1: the migration history. Expect: 62 rows, from 20260924162506 initial_fitx_schema to 20261121100040 fitx_security_hardening
+-- Start 1: the migration history. Expect: 68 rows, from 20260924162506 initial_fitx_schema to 20261123100060 fitx_social_v1
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
 Expected rows, in version order: the 14 September files (`20260924162506` to `20260930180717`), the three
 changes applied by hand (section 1.8: `20261002172610 fitx_experience_2_0`, `20261002172706
 fitx_share_access_and_index` and `20261116093902 fitx_admin_control_plane`, which comes between #2 and #3), and #1
-to #45 of section 2, each under its file's number and name (History 1 ran after each earlier sitting; #42 to #45
-were recorded under their own numbers when they were applied). The last row is `20261121100040
-fitx_security_hardening`. If there are other rows, a row with a time instead of a file's number, or a row for #46 to
-#52, stop and compare them with section 2 first.
+to #51 of section 2, each under its file's number and name (History 1 ran after each earlier sitting; #42 to #51
+were recorded under their own numbers when they were applied). The last row is `20261123100060 fitx_social_v1`. If
+there are other rows, a row with a time instead of a file's number, or a row for #52, stop and compare them with
+section 2 first.
 
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the seven pending files that are already there. Expect: no rows
+-- Start 2: changes from the pending file that are already there. Expect: no rows
 select m.file, m.object
 from (values
-  ('20261123100000', 'column', 'user_preferences.coach_launcher'),
-  ('20261123100010', 'table', 'daily_quote_history'),
-  ('20261123100020', 'column', 'user_preferences.workout_setup_at'),
-  ('20261123100040', 'column', 'user_preferences.nutrition_setup_at'),
-  ('20261123100050', 'column', 'activities.best_efforts'),
-  ('20261123100060', 'table', 'social_posts'),
   ('20261124100000', 'table', 'social_stories')
 ) as m (file, kind, object)
 where case m.kind
@@ -2192,7 +2184,7 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 Before #45 it listed experience 2.0's `get_activity_share`, which #45 locks down (section 1.8). Any row: tell the
 session.
 
-Then run Start 2 again: now it lists all seven rows.
+Then run Start 2 again: now it lists its one row.
 
 The thirteen tables in Final 2 are reached only by database functions or the server key, which is why they have
 no policy (the last three, from #52, are Explore's challenge templates, moderation record and storage trash). Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
@@ -2211,9 +2203,9 @@ The connector records each file under the time it ran, not under the file's numb
 the repository already carry the numbers production recorded. The three changes of section 1.8 have their own
 numbers and no file; the queries below leave their rows alone. One of them, the old Admin draft, has the same
 name as #29, `fitx_admin_control_plane`, which is why they leave those three out. Give each new row its file's
-number once, after the last file. It writes to the history table only. #1 to #45 already carry their numbers
-(History 1 ran after each earlier sitting), so in this sitting it changes only the rows of #46 to #52 that the
-connector recorded under a time: seven rows at most.
+number once, after the last file. It writes to the history table only. #1 to #51 already carry their numbers
+(History 1 ran after each earlier sitting), so in this sitting it changes only the row of #52 if the connector
+recorded it under a time: one row at most.
 
 ```sql
 -- History 0: files recorded twice. Expect: no rows
@@ -2285,7 +2277,7 @@ Set the variables in section 7 first. Then ship the new app (the redesign, `clau
 (`admin`). If Admin's build is skipped because of its path filter, redeploy it as in `admin/README.md`,
 "Automatic deployments and path filters". Apply #42 to #44 before Admin is redeployed: without #42, Admin refuses
 every sign-in. For the "next level" wave 1, apply #46 to #51 first, then deploy `claude/next` merged into `master`; the
-app checks for each of them and works without the ones not applied yet. For wave 2, apply #52 before deploying
+app checks for each of them and works without the ones not applied yet (both done on 2026-11-23). For wave 2, apply #52 before deploying
 `claude/next2`; wave 1's app keeps working with #52 in place.
 
 ### 6.5 First super-admin
