@@ -29,13 +29,20 @@ export function usePrefersReducedMotion() {
 export function ExerciseDemoPlayer({ media, name, layout = "single" }: { media: ExerciseMedia; name: string; layout?: "single" | "sequence" }) {
   const [failedVideos, setFailedVideos] = useState<string[]>([]);
   const video = media.videos.find((item) => !failedVideos.includes(item.url));
-  if (video) {
-    return <VideoLoop key={video.url} video={video} poster={media.stills[0] ?? null} name={name}
-      onError={() => setFailedVideos((current) => (current.includes(video.url) ? current : [...current, video.url]))} />;
-  }
-  if (!media.stills.length) return <MediaUnavailable failed={false} demonstration={layout === "sequence"} />;
-  return <DemoLoop stills={media.stills} name={name} size={layout === "single" ? "compact" : "full"}
-    whenEmpty={<MediaUnavailable failed demonstration={layout === "sequence"} />} />;
+  // One wrapper, so a parent's space-y spacing applies (the figures inside reset their own margins).
+  return (
+    <div className="min-w-0">
+      {video ? (
+        <VideoLoop key={video.url} video={video} poster={media.stills[0] ?? null} name={name}
+          onError={() => setFailedVideos((current) => (current.includes(video.url) ? current : [...current, video.url]))} />
+      ) : !media.stills.length ? (
+        <MediaUnavailable failed={false} demonstration={layout === "sequence"} />
+      ) : (
+        <DemoLoop stills={media.stills} name={name} size={layout === "single" ? "compact" : "full"}
+          whenEmpty={<MediaUnavailable failed demonstration={layout === "sequence"} />} />
+      )}
+    </div>
+  );
 }
 
 function VideoLoop({ video, poster, name, onError }: { video: MediaItem; poster: MediaItem | null; name: string; onError: () => void }) {
