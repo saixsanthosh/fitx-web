@@ -189,7 +189,8 @@
 
 /* Portrait mattes are thin: during the film a slimmer pill (same 44px+ hit area) sits inside the top bar. */
 @media (orientation: portrait) {
-  .cine .skip { min-height: 36px; }
+  .cine .skip,
+  .cine .topline [data-fitx-film-sound] { min-height: 36px; }
   .cine.intro .topline { top: calc(4px + env(safe-area-inset-top)); }
 }
 
