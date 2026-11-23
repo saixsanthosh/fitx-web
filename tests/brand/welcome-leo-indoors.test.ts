@@ -94,10 +94,10 @@ test("the helmet spot is out of frame in the shots Leo is not in (w0, w1, w3), o
     { id: "w3-dre", track: WELCOME_LAB.DRE_TRACK },
   ];
   for (const shot of shots) {
-    const module = WELCOME_SHOT_MODULES.find((item) => item.id === shot.id)!;
-    assert.ok(!module.cast.includes("leo"), `${shot.id} does not cast Leo`);
+    const shotModule = WELCOME_SHOT_MODULES.find((item) => item.id === shot.id)!;
+    assert.ok(!shotModule.cast.includes("leo"), `${shot.id} does not cast Leo`);
     for (const comp of COMPOSITIONS) {
-      for (let local = 0; local <= module.end - module.start + 1e-9; local += 1 / 30) {
+      for (let local = 0; local <= shotModule.end - shotModule.start + 1e-9; local += 1 / 30) {
         evaluateCameraTrack(shot.track, local, comp.aspect, state);
         applyCameraState(camera, state, comp.aspect);
         camera.updateProjectionMatrix();
