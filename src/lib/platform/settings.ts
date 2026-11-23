@@ -24,7 +24,7 @@ export const PLATFORM_DEFAULTS: PlatformSettings = Object.freeze({
 /** What members see when a feature is switched off. */
 export const FEATURE_NAMES: Record<FeatureKey, string> = {
   ai_coach: "AI coach",
-  home_workout: "Home workout",
+  home_workout: "AI Form Check",
   activity: "Activity",
   subscriptions: "Subscriptions",
   support: "Help messages",
@@ -76,7 +76,7 @@ export function parsePlatformSettings(row: unknown): PlatformSettings {
 export const FEATURE_ROUTES: Record<FeatureKey, ReadonlyArray<{ path: string; methods?: readonly string[] }>> = {
   // The page lands on /unavailable, which keeps the coach's data controls; /api/coach/{consent,data,status,threads} stay open.
   ai_coach: [{ path: "/ai-coach" }, { path: "/api/coach/chat" }, { path: "/api/coach/swap" }, { path: "/api/coach/actions" }],
-  home_workout: [{ path: "/home-workout" }],
+  home_workout: [{ path: "/workouts/form-check" }, { path: "/home-workout" }],
   // Recording and importing; the activity list and each saved activity stay open.
   activity: [
     { path: "/activity/record" },

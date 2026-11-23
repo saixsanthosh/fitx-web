@@ -5,7 +5,7 @@ import { ArrowDown, Pause, Play } from "lucide-react";
 import { DemoPlayer } from "@/components/home-workout/DemoPlayer";
 import { useReducedMotionSafe, usePageVisible } from "@/components/motion";
 import { HOME_EXERCISES } from "@/lib/home-workout/catalog";
-import styles from "./home-workout.module.css";
+import styles from "./form-check.module.css";
 
 /** Exercises the reel cycles through: a mix of standing, floor and front-on moves. */
 const REEL = ["bodyweight_squat", "push_up", "jumping_jack", "glute_bridge", "shoulder_press", "mountain_climber", "reverse_lunge", "side_plank"]
@@ -14,7 +14,7 @@ const REEL = ["bodyweight_squat", "push_up", "jumping_jack", "glute_bridge", "sh
 const REEL_MS = 5200;
 
 /** The page's dark stage: title, one line, and the figure working through exercises. */
-export function HomeWorkoutHero() {
+export function FormCheckHero() {
   const reduced = useReducedMotionSafe();
   const visible = usePageVisible();
   const [paused, setPaused] = useState(false);

@@ -6,10 +6,10 @@ import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { ExerciseGlyph } from "@/components/form-coach/ExerciseGlyph";
 import { Chip, ChipGroup } from "@/components/ui/Chip";
-import { HOME_WORKOUT } from "@/config/routes";
+import { FORM_CHECK_PATH } from "@/lib/home-workout/route";
 import type { ExerciseGroup } from "@/lib/home-workout/catalog";
 import { exerciseFacts, GROUP_LABELS, GROUP_ORDER, HOME_EXERCISES } from "@/lib/home-workout/catalog";
-import styles from "./home-workout.module.css";
+import styles from "./form-check.module.css";
 
 type Filter = ExerciseGroup | "all";
 

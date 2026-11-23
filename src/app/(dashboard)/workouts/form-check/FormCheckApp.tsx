@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { recordHref } from "@/app/(dashboard)/workouts/history/_lib/session-record";
 import { FormCoach } from "@/components/form-coach/FormCoach";
-import { HOME_WORKOUT } from "@/config/routes";
+import { FORM_CHECK_PATH } from "@/lib/home-workout/route";
 import type { CoachSummary } from "@/lib/form-rules/session";
 import { homeExercise } from "@/lib/home-workout/catalog";
 import type { LoggedSet } from "@/lib/home-workout/log";
@@ -13,8 +13,8 @@ import type { SaveDb } from "@/lib/home-workout/save";
 import { buildWorkoutRecord, saveWorkoutRecord, tabUnfinishedSaves } from "@/lib/home-workout/save";
 import { createClient } from "@/lib/supabase/client";
 import { ExercisePicker } from "./ExercisePicker";
-import { HomeFacts } from "./HomeFacts";
-import { HomeWorkoutHero } from "./HomeWorkoutHero";
+import { FormCheckFacts } from "./FormCheckFacts";
+import { FormCheckHero } from "./FormCheckHero";
 import type { SaveState } from "./TodaySets";
 import { TodaySets } from "./TodaySets";
 
@@ -31,7 +31,7 @@ const session = () => {
  * from its demonstration to the camera and its results. Finished sets collect under Today until
  * they are saved to workout history.
  */
-export function HomeWorkoutApp() {
+export function FormCheckApp() {
   const params = useSearchParams();
   const router = useRouter();
   const exercise = homeExercise(params.get("exercise"));
@@ -113,8 +113,8 @@ export function HomeWorkoutApp() {
   if (!exercise) {
     return (
       <div className="space-y-6 sm:space-y-8">
-        <HomeWorkoutHero />
-        <HomeFacts />
+        <FormCheckHero />
+        <FormCheckFacts />
         {today}
         <ExercisePicker />
       </div>

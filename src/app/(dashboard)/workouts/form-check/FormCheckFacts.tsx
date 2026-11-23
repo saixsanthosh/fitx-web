@@ -7,7 +7,7 @@ const FACTS = [
 ] as const;
 
 /** The three promises, kept short. */
-export function HomeFacts() {
+export function FormCheckFacts() {
   return (
     <section aria-label="How Home workout works" className="grid gap-px overflow-hidden rounded-2xl border border-fitx-border bg-fitx-divider sm:grid-cols-3">
       {FACTS.map(({ icon: Icon, title, body }) => (
