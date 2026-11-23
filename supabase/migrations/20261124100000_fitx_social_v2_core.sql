@@ -5,7 +5,8 @@
 --     file (M3, 20261124100020) add only functions, policies, triggers and cron jobs: stories with their views and likes,
 --     member sanctions, the storage trash, conversations, their sides and messages, communities and their members,
 --     challenges with templates, entries and badges, and the moderation record. Each new table has row level security on;
---     the group tables have no member policy yet, so they read as empty until M2 adds theirs.
+--     the group tables have only own-row read policies (a member's own messages, sides, memberships, entries and
+--     badges) until M2 adds the policies for other members' rows.
 --   * Moderation states on posts, comments, stories, messages and communities ('visible', 'limited' or 'hidden').
 --     Limited: only the owner, the owner's accepted followers and, for a community post, its accepted members see it, and
 --     it is left out of every discovery surface. Hidden: only the owner sees it (shown as "Hidden by FITX").
@@ -421,15 +422,18 @@ begin
   end loop;
 end $do$;
 
--- Members read these (through the policies below, or, for the group tables, the policies M2 adds). The trash and the
--- moderation record stay service-role only; members read only some columns of their own sanctions (not who set them).
+-- Members read these through the policies below; the groups file (M2) adds the policies that let a member read other
+-- members' rows (a conversation's messages, a community's members, a challenge's board). The trash, the moderation
+-- record and the challenge templates stay service-role only; members read only some columns of their own sanctions
+-- (not who set them).
 revoke all on table public.social_storage_trash from public, anon, authenticated;
 revoke all on table public.social_moderation_actions from public, anon, authenticated;
+revoke all on table public.social_challenge_templates from public, anon, authenticated;
 revoke all on table public.social_member_sanctions from public, anon, authenticated;
 grant select (id, user_id, kind, until, reason_code, created_at, lifted_at) on table public.social_member_sanctions to authenticated;
 grant select on public.social_stories, public.social_story_views, public.social_story_likes, public.social_conversations,
   public.social_conversation_sides, public.social_messages, public.social_communities, public.social_community_members,
-  public.social_challenge_templates, public.social_challenges, public.social_challenge_entries, public.social_challenge_badges
+  public.social_challenges, public.social_challenge_entries, public.social_challenge_badges
   to authenticated;
 
 -- 4. Visibility helpers -----------------------------------------------------------------------------------------------
@@ -857,6 +861,28 @@ create policy social_stories_read on public.social_stories for select to authent
 drop policy if exists social_communities_read on public.social_communities;
 create policy social_communities_read on public.social_communities for select to authenticated
   using ((select public.fitx_social_viewer_sees_community(id)));
+
+-- Open challenges FITX set up (outside a community, or in one the member sees). M2 may replace this policy.
+drop policy if exists social_challenges_read on public.social_challenges;
+create policy social_challenges_read on public.social_challenges for select to authenticated
+  using (community_id is null or (select public.fitx_social_viewer_sees_community(community_id)));
+
+-- A member's own rows only, so "Download my data" and the member's own screens work from this file on. M2 adds the
+-- policies for other members' rows beside these (and may drop and recreate them under its own names).
+drop policy if exists social_conversations_own_read on public.social_conversations;
+create policy social_conversations_own_read on public.social_conversations for select to authenticated
+  using ((select auth.uid()) in (user_low, user_high));
+do $do$
+declare
+  v_table text;
+begin
+  foreach v_table in array array['social_conversation_sides', 'social_messages', 'social_community_members',
+                                 'social_challenge_entries', 'social_challenge_badges'] loop
+    execute pg_catalog.format('drop policy if exists %I on public.%I', v_table || '_own_read', v_table);
+    execute pg_catalog.format('create policy %I on public.%I for select to authenticated using (user_id = (select auth.uid()))',
+      v_table || '_own_read', v_table);
+  end loop;
+end $do$;
 
 do $do$
 declare

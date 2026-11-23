@@ -49,7 +49,7 @@ function Gate({ children }: { children: ReactNode }) {
     const title = status === "paused" ? "Explore is paused" : "Your Explore account is paused";
     const text = status === "paused"
       ? "FITX has paused Explore for now. Your posts are safe, and you can still manage or delete them."
-      : `${suspensionText(me?.suspension?.until)} You can still delete your posts and stories, unblock people and change your settings.`;
+      : `${suspensionText(me?.suspension?.until)} You can still see and delete your posts and stories, and unblock people.`;
     if (me?.profile && pathname.startsWith("/explore/settings")) {
       return (
         <div className={styles.shell}>

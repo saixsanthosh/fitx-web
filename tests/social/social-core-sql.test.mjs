@@ -94,7 +94,10 @@ describe("Explore part 2 core", { skip }, () => {
     assert.equal(evidence.body, "Buy followers here");
     fails(C, `public.fitx_social_report('message', '${message}', 'spam', null)`, /social_not_found/);
     fails(B, `public.fitx_social_report('message', '${message}', 'spam', null)`, /social_not_found/);
-    assert.equal(pg.json(`select count(*) from public.social_messages;`, as(A)), 0, "messages read as empty until the groups migration");
+    assert.equal(pg.json(`select count(*) from public.social_messages;`, as(A)), 0, "another member's messages read as empty until the groups migration");
+    assert.equal(pg.json(`select count(*) from public.social_messages;`, as(B)), 1, "a member reads their own (for Download my data)");
+    assert.equal(pg.json(`select count(*) from public.social_conversations;`, as(C)), 0);
+    assert.equal(pg.run(`select count(*) from public.social_challenge_templates;`, as(A)).ok, false, "templates are FITX's only");
   });
 
   test("restricting is limited to 30 an hour", () => {
