@@ -69,6 +69,8 @@ function Setup() {
   const context = useOptionalUserContext();
   const name = context?.data?.profile?.name ?? "";
   const hero = EXPLORE_MEDIA.bodybuilding;
+  // The form starts from the member's FITX name, so it waits for it (briefly) rather than starting empty.
+  const waiting = context?.status === "loading";
   if (!session) return null;
   return (
     <div className={styles.shell}>
@@ -84,13 +86,13 @@ function Setup() {
       <div className={`${styles.panel} ${styles.narrow}`}>
         <h2 className={styles.panelTitle}>Your Explore profile</h2>
         <p className={`${styles.note} mb-4`}>Your workouts, food and body data stay private. Only what you post is shared.</p>
-        <ProfileForm
+        {waiting ? <div className={styles.skeleton} style={{ height: 300 }} aria-busy="true" aria-label="Loading" /> : <ProfileForm
           db={session.db}
           compact
           submitLabel="Create profile"
           initial={{ username: suggestUsername(name), displayName: name.slice(0, 50), bio: "", isPrivate: false, commentPolicy: "everyone" }}
           onSaved={(profile) => setMe({ profile, unread: 0, requests: 0 })}
-        />
+        />}
       </div>
     </div>
   );

@@ -122,10 +122,11 @@ export const flow = {
       await switchTo(t, asha);
       const post = page.locator("article").filter({ hasText: "Leg day done" }).first();
       await post.waitFor({ timeout: 20000 });
-      await post.getByRole("button", { name: "Like", exact: true }).click();
+      // Like and save show at once and are confirmed by the server; wait for the server's answer.
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_set_like") && r.ok()), post.getByRole("button", { name: "Like", exact: true }).click()]);
       await post.locator("button[aria-label='Like'][aria-pressed='true']").waitFor({ timeout: 10000 });
       await post.getByText("1 like").waitFor();
-      await post.getByRole("button", { name: "Save", exact: true }).click();
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_set_save") && r.ok()), post.getByRole("button", { name: "Save", exact: true }).click()]);
       await post.locator("button[aria-label='Save'][aria-pressed='true']").waitFor({ timeout: 10000 });
       await sawOverflow(t, "feed with post");
       await post.getByRole("link", { name: "Comment" }).click();
@@ -135,6 +136,7 @@ export const flow = {
       const counts = await standin.one(`select (select count(*) from public.social_likes where post_id = '${postId}')::int likes,
         (select count(*) from public.social_saves where post_id = '${postId}' and user_id = '${asha.id}')::int saves,
         (select count(*) from public.social_comments where post_id = '${postId}')::int comments`);
+      t.note("stored engagement", counts);
       t.expect(Number(counts?.likes) === 1 && Number(counts?.saves) === 1 && Number(counts?.comments) === 1, "like, save and comment are stored", counts);
       await t.goto(`/explore/u/${ashaName}`, { label: "own profile" });
       await page.getByRole("radio", { name: "Saved" }).check({ force: true });
@@ -218,9 +220,10 @@ export const flow = {
       const safety = page.locator("section[aria-labelledby=settings-safety]");
       await safety.getByRole("button", { name: `Unblock @${benName}` }).click();
       await safety.getByText("You have not blocked or restricted anyone.").waitFor({ timeout: 15000 });
-      await page.getByRole("switch", { name: "Likes" }).click();
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_save_notification_prefs") && r.ok()), page.getByRole("switch", { name: "Likes" }).click()]);
       await page.locator("button[role=switch][aria-checked='false']#pref-likes").waitFor({ timeout: 10000 });
       const prefs = await standin.one(`select likes::text likes from public.social_notification_prefs where user_id = '${asha.id}'`);
+      t.note("stored notification settings", prefs);
       t.expect(prefs?.likes === "false", "the notification setting is stored", prefs);
       await sawOverflow(t, "explore settings");
       const text = await textOf(page.locator("main"));
