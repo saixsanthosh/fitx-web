@@ -9,6 +9,17 @@ import { makePng } from "../support/png.mjs";
 
 const tag = () => Math.random().toString(36).slice(2, 7);
 
+/** Reads `query` until `ok(row)` holds (the stand-in may take a moment to show a write), at most about 5 s. */
+async function settled(standin, query, ok) {
+  let row = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    row = await standin.one(query);
+    if (ok(row)) return row;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return row;
+}
+
 async function switchTo(t, account) {
   await t.context.clearCookies();
   await signInUi(t, account, { next: "/explore", label: `sign in as ${account.name}` });
@@ -52,7 +63,7 @@ export const flow = {
       await page.getByText("At least 3 characters.").waitFor();
       t.expect(await page.getByRole("button", { name: "Create profile" }).isDisabled(), "an invalid username cannot be saved");
       await setUpProfile(t, benName, { isPrivate: true });
-      const row = await standin.one(`select username, is_private::text is_private from public.social_profiles where user_id = '${ben.id}'`);
+      const row = await settled(standin, `select username, is_private::text is_private from public.social_profiles where user_id = '${ben.id}'`, (r) => r?.username === benName);
       t.expect(row?.username === benName && row?.is_private === "true", "the private profile is stored", row);
       await page.getByRole("heading", { name: "Your feed is quiet" }).waitFor({ timeout: 15000 });
       await sawOverflow(t, "empty feed");
@@ -78,7 +89,7 @@ export const flow = {
       t.expect(media.length === 2, "both photos are stored", media);
       t.expect(Math.max(Number(media[0].width), Number(media[0].height)) === 1600, "the long edge was made 1,600 px in the browser", media[0]);
       t.expect(media.every((m) => m.storage_path.startsWith(`${ben.id}/${postId}/`)), "photos are in Ben's post folder", media);
-      const objects = await standin.one(`select count(*)::int n, string_agg(distinct metadata->>'mimetype', ',') types from storage.objects where bucket_id = 'social-media' and name like '${ben.id}/${postId}/%'`);
+      const objects = await settled(standin, `select count(*)::int n, string_agg(distinct metadata->>'mimetype', ',') types from storage.objects where bucket_id = 'social-media' and name like '${ben.id}/${postId}/%'`, (r) => Number(r?.n) === 2);
       t.expect(Number(objects?.n) === 2 && /image\/(webp|jpeg)/.test(objects?.types ?? ""), "the bucket holds two WebP or JPEG files", objects);
       const post = page.locator("article").first();
       await post.getByText("Pune").waitFor();
@@ -101,7 +112,7 @@ export const flow = {
       await sawOverflow(t, "private profile");
       await t.goto(`/explore/p/${postId}`, { label: "hidden post" });
       await page.getByRole("heading", { name: "Post not available" }).waitFor({ timeout: 15000 });
-      const follow = await standin.one(`select status from public.social_follows where user_id = '${asha.id}' and following_id = '${ben.id}'`);
+      const follow = await settled(standin, `select status from public.social_follows where user_id = '${asha.id}' and following_id = '${ben.id}'`, (r) => r?.status === "pending");
       t.expect(follow?.status === "pending", "the follow waits for approval", follow);
     });
 
@@ -114,7 +125,7 @@ export const flow = {
       await sawOverflow(t, "notifications with request");
       await page.getByRole("button", { name: `Accept @${ashaName}` }).click();
       await page.getByText(`@${ashaName} can now see your posts`).waitFor({ timeout: 15000 });
-      const follow = await standin.one(`select status from public.social_follows where user_id = '${asha.id}' and following_id = '${ben.id}'`);
+      const follow = await settled(standin, `select status from public.social_follows where user_id = '${asha.id}' and following_id = '${ben.id}'`, (r) => r?.status === "accepted");
       t.expect(follow?.status === "accepted", "the follow is accepted", follow);
     });
 
@@ -133,9 +144,9 @@ export const flow = {
       await page.getByLabel("Add a comment").fill("Strong session!");
       await page.getByRole("button", { name: "Post", exact: true }).click();
       await page.locator("#comments").getByText("Strong session!").waitFor({ timeout: 15000 });
-      const counts = await standin.one(`select (select count(*) from public.social_likes where post_id = '${postId}')::int likes,
+      const counts = await settled(standin, `select (select count(*) from public.social_likes where post_id = '${postId}')::int likes,
         (select count(*) from public.social_saves where post_id = '${postId}' and user_id = '${asha.id}')::int saves,
-        (select count(*) from public.social_comments where post_id = '${postId}')::int comments`);
+        (select count(*) from public.social_comments where post_id = '${postId}')::int comments`, (row) => Number(row?.comments) === 1);
       t.note("stored engagement", counts);
       t.expect(Number(counts?.likes) === 1 && Number(counts?.saves) === 1 && Number(counts?.comments) === 1, "like, save and comment are stored", counts);
       await t.goto(`/explore/u/${ashaName}`, { label: "own profile" });
@@ -161,7 +172,7 @@ export const flow = {
       await dialog.getByRole("button", { name: "Save changes" }).click();
       await page.locator("article").first().getByText("new squat best").waitFor({ timeout: 15000 });
       await page.locator("article").first().getByText("Edited").waitFor();
-      const edited = await standin.one(`select caption, (edited_at is not null)::text edited from public.social_posts where id = '${postId}'`);
+      const edited = await settled(standin, `select caption, (edited_at is not null)::text edited from public.social_posts where id = '${postId}'`, (r) => r?.edited === "true");
       t.expect(edited?.edited === "true" && /new squat best/.test(edited.caption), "the edit is stored", edited);
       await sawOverflow(t, "post with comments");
     });
@@ -178,8 +189,8 @@ export const flow = {
       await page.getByRole("button", { name: "Delete post" }).click();
       await page.getByRole("dialog", { name: "Delete this post?" }).getByRole("button", { name: "Delete", exact: true }).click();
       await page.waitForURL((url) => url.pathname === "/explore", { timeout: 15000 });
-      const left = await standin.one(`select (select count(*) from public.social_posts where id = '${secondId}')::int posts,
-        (select count(*) from storage.objects where bucket_id = 'social-media' and name like '${ben.id}/${secondId}/%')::int files`);
+      const left = await settled(standin, `select (select count(*) from public.social_posts where id = '${secondId}')::int posts,
+        (select count(*) from storage.objects where bucket_id = 'social-media' and name like '${ben.id}/${secondId}/%')::int files`, (r) => Number(r?.posts) === 0 && Number(r?.files) === 0);
       t.expect(Number(left?.posts) === 0 && Number(left?.files) === 0, "the post and its photo are gone", left);
     });
 
@@ -202,7 +213,7 @@ export const flow = {
       await report.getByText("Spam", { exact: true }).click();
       await report.getByRole("button", { name: "Send report" }).click();
       await page.getByText("Report sent. Thank you.").waitFor({ timeout: 15000 });
-      const stored = await standin.one(`select reason, status, target_user_id from public.social_reports where user_id = '${asha.id}' and target_id = '${postId}'`);
+      const stored = await settled(standin, `select reason, status, target_user_id from public.social_reports where user_id = '${asha.id}' and target_id = '${postId}'`, (r) => Boolean(r));
       t.expect(stored?.reason === "spam" && stored?.status === "open" && stored?.target_user_id === ben.id, "the report is stored for moderation", stored);
 
       await t.goto(`/explore/u/${benName}`, { label: "block" });
@@ -210,8 +221,8 @@ export const flow = {
       await page.getByRole("button", { name: "Block", exact: true }).click();
       await page.getByRole("dialog", { name: `Block @${benName}?` }).getByRole("button", { name: "Block", exact: true }).click();
       await page.getByText("You blocked this account").waitFor({ timeout: 15000 });
-      const after = await standin.one(`select (select count(*) from public.social_follows where (user_id = '${asha.id}' and following_id = '${ben.id}') or (user_id = '${ben.id}' and following_id = '${asha.id}'))::int follows,
-        (select count(*) from public.social_blocks where user_id = '${asha.id}' and blocked_id = '${ben.id}')::int blocks`);
+      const after = await settled(standin, `select (select count(*) from public.social_follows where (user_id = '${asha.id}' and following_id = '${ben.id}') or (user_id = '${ben.id}' and following_id = '${asha.id}'))::int follows,
+        (select count(*) from public.social_blocks where user_id = '${asha.id}' and blocked_id = '${ben.id}')::int blocks`, (r) => Number(r?.follows) === 0 && Number(r?.blocks) === 1);
       t.expect(Number(after?.follows) === 0 && Number(after?.blocks) === 1, "blocking ends the follow", after);
       await t.goto("/explore", { label: "feed after block" });
       await page.getByRole("heading", { name: "Your feed is quiet" }).waitFor({ timeout: 15000 });
@@ -222,7 +233,7 @@ export const flow = {
       await safety.getByText("You have not blocked or restricted anyone.").waitFor({ timeout: 15000 });
       await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_save_notification_prefs") && r.ok()), page.getByRole("switch", { name: "Likes" }).click()]);
       await page.locator("button[role=switch][aria-checked='false']#pref-likes").waitFor({ timeout: 10000 });
-      const prefs = await standin.one(`select likes::text likes from public.social_notification_prefs where user_id = '${asha.id}'`);
+      const prefs = await settled(standin, `select likes::text likes from public.social_notification_prefs where user_id = '${asha.id}'`, (r) => r?.likes === "false");
       t.note("stored notification settings", prefs);
       t.expect(prefs?.likes === "false", "the notification setting is stored", prefs);
       await sawOverflow(t, "explore settings");
@@ -231,17 +242,19 @@ export const flow = {
     });
 
     if (size === "desktop") {
-      await t.step("at 768 px (tablet) Discover, the post and a profile fit without sideways scroll", async () => {
+      await t.step("at 768 px (tablet) Discover, a profile and settings fit without sideways scroll", async () => {
         await page.setViewportSize({ width: 768, height: 1024 });
         await t.goto("/explore/discover", { label: "tablet discover" });
         await page.getByRole("heading", { level: 1, name: "Discover" }).waitFor({ timeout: 15000 });
         await sawOverflow(t, "tablet discover");
-        await t.goto(`/explore/p/${postId}`, { label: "tablet post" });
-        await page.locator("article").first().waitFor({ timeout: 15000 });
-        await sawOverflow(t, "tablet post");
+        // Blocking ended Asha's follow of Ben's private account, so his profile shows its private state.
         await t.goto(`/explore/u/${benName}`, { label: "tablet profile" });
         await page.getByRole("heading", { level: 1, name: "Ben Okafor" }).waitFor({ timeout: 15000 });
-        await sawOverflow(t, "tablet profile");
+        await page.getByText("This account is private").waitFor();
+        await sawOverflow(t, "tablet private profile");
+        await t.goto("/explore/settings", { label: "tablet settings" });
+        await page.getByRole("heading", { level: 1, name: "Explore settings" }).waitFor({ timeout: 15000 });
+        await sawOverflow(t, "tablet settings");
       });
     }
   },
