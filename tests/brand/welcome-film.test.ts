@@ -160,7 +160,7 @@ test("the plates travel smoothly into the seat, rebound once and stop; Maya's ro
     assert.equal(plateTravel(spec, 0).z, spec.zStart);
     assert.equal(plateTravel(spec, spec.seat).z, spec.zSeat);
     assert.equal(plateTravel(spec, spec.seat + 2).z, spec.zSeat);
-    let previous = spec.zStart;
+    let previous: number = spec.zStart;
     for (let t = spec.push; t <= spec.seat; t += 1 / 240) {
       const { z } = plateTravel(spec, t);
       assert.ok(z >= previous - 1e-12, `${id} never moves back during the push`);
