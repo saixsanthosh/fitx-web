@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "license": "Pixabay Content License (https://pixabay.com/service/license-summary/): free for commercial use, no attribution required, modification allowed; never redistributed on its own unchanged, never used as a trade mark or sound mark.",
+  "note": "The originals stay outside the repository, in .alteration/audio/raw/ (paths below are relative to .alteration/audio/). Only FITX's own mixes ship. Anchors are measured by analyse.mjs (10 ms hops; onsets by C0's band method) and checked by `analyse.mjs --check`.",
+  "sources": [
+    {
+      "id": "riser",
+      "n": 1,
+      "use": "Intro film bed: riser into a boom on the logo",
+      "title": "Cinematic Riser (Boom)",
+      "author": "lucadialessandro",
+      "page": "https://pixabay.com/sound-effects/cinematic-riser-boom-466922/",
+      "file": "raw/01-lucadialessandro-cinematic-riser-boom-466922/lucadialessandro-cinematic-riser-boom-466922.mp3",
+      "bytes": 550034,
+      "sha256": "b23432cebd655d313eb0168b7a5de20e7b7649d1c89d94539267d9e606c5db62",
+      "duration": 17.189,
+      "anchor": {
+        "kind": "boom",
+        "at": 13.73,
+        "after": 10,
+        "how": "strongest onset after 10 s, +15.8 dB summed over 3 bands (the boom; a sub swell builds from 13.24 s)",
+        "measured": "2026-11-23, ffmpeg 8.1.1, analyse.mjs"
+      }
+    },
+    {
+      "id": "whoosh",
+      "n": 2,
+      "use": "Intro film chapter transitions",
+      "title": "Whoosh Cinematic",
+      "author": "LordSonny",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-whoosh-cinematic-161021/",
+      "file": "raw/02-lordsonny-whoosh-cinematic-161021/lordsonny-whoosh-cinematic-161021.mp3",
+      "bytes": 96966,
+      "sha256": "16f60afb18924c9c444741e0ccf06ebbab2921192c33a93747a036c015d3b119",
+      "duration": 3.03,
+      "anchor": {
+        "kind": "peak",
+        "at": 0.45,
+        "how": "loudest 50 ms of the broadband level (the pass; the high band peaks at 0.36 to 0.40 s, the sub at 0.44 to 0.64 s)",
+        "measured": "2026-11-23, ffmpeg 8.1.1, analyse.mjs"
+      }
+    },
+    {
+      "id": "plate-slide",
+      "n": 3,
+      "use": "Logo: plates sliding onto the bar",
+      "title": "Loading plate - GYM SFX",
+      "author": "OxidVideos",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-loading-plate-gym-sfx-547973/",
+      "file": "raw/03-oxidvideos-loading-plate-gym-sfx-547973/oxidvideos-loading-plate-gym-sfx-547973.mp3",
+      "bytes": 48384,
+      "sha256": "c55ee036f14bb67696baa333c8a6145bab5c944327a7a167d06d58e32dda0327",
+      "duration": 1.512,
+      "anchor": {
+        "kind": "hit",
+        "at": 0.13,
+        "how": "strongest onset (the plate meets the collar; a second, softer knock at about 0.68 s)",
+        "measured": "2026-11-23, ffmpeg 8.1.1, analyse.mjs"
+      }
+    },
+    {
+      "id": "plate-lock",
+      "n": 4,
+      "use": "Logo: the last plate locking on",
+      "title": "Plate load - Big weight",
+      "author": "OxidVideos",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-plate-load-big-weight-608430/",
+      "file": "raw/04-oxidvideos-plate-load-big-weight-608430/oxidvideos-plate-load-big-weight-608430.mp3",
+      "bytes": 34560,
+      "sha256": "d3b19b04b7f0c85abc024b10f3483a3d28bd2b8fa969e36b072de8d1183636f5",
+      "duration": 1.08,
+      "anchor": {
+        "kind": "hit",
+        "at": 0.09,
+        "how": "strongest onset (the lock-on clank)",
+        "measured": "2026-11-23, ffmpeg 8.1.1, analyse.mjs"
+      }
+    },
+    {
+      "id": "score",
+      "n": 5,
+      "use": "New post-login film score",
+      "title": "Cinematic Dark Hit Logo",
+      "author": "Alex_Kizenkov",
+      "page": "https://pixabay.com/music/introoutro-cinematic-dark-hit-logo-141056/",
+      "file": "raw/05-alex_kizenkov-cinematic-dark-hit-logo-141056/alex_kizenkov-cinematic-dark-hit-logo-141056.mp3",
+      "bytes": 385358,
+      "sha256": "4d1b5cf185dcf91af1f7fe566f816e9511b2c00cb3ed1a9c011c5302e370ad9e",
+      "duration": 12.042,
+      "anchor": {
+        "kind": "start",
+        "at": 0,
+        "how": "the first sample: the welcome film plays the score from 0 s, so score time is film time",
+        "measured": "2026-11-23, ffmpeg 8.1.1, analyse.mjs"
+      }
+    },
+    {
+      "id": "impact",
+      "n": 6,
+      "use": "Returning sign-in logo reveal",
+      "title": "Cinematic Impact Hit",
+      "author": "Universfield",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-cinematic-impact-hit-352702/",
+      "file": "raw/06-universfield-cinematic-impact-hit-352702/universfield-cinematic-impact-hit-352702.mp3",
+      "bytes": 97536,
+      "sha256": "cd75525992488679380f71e86588ac2f0d9984f880fbc579580eab52b94ba0e7",
+      "duration": 3.048,
+      "anchor": {
+        "kind": "hit",
+        "at": 0.11,
+        "how": "strongest onset (the hit; the body decays to about 1.8 s)",
+        "measured": "2026-11-23, ffmpeg 8.1.1, analyse.mjs"
+      }
+    }
+  ]
+}
