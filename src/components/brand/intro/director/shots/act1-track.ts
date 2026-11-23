@@ -559,3 +559,9 @@ const shotWheel: Shot = {
 };
 
 export const ACT1_SHOTS: Shot[] = [shotSet, shotDrive, shotStride, shotCadence, shotWheel];
+
+/** Staging data for the lab's projection checks (framing vs overlay zones); not used at runtime. */
+export const ACT1_LAB = {
+  SET_TRACK, DRIVE_TRACK, STRIDE_TRACK, CADENCE_TRACK, WHEEL_TRACK, SPRINT_CLOCK, RIDE_CLOCK,
+  MAYA_X, BIKE_LANE_X, WHEEL_ROLL_RADIUS, LEO_PASS_TIME, LEO_PASS_GAP, LEO_HEAD, LEO_HOLD, STRIDE_FOLLOW,
+};

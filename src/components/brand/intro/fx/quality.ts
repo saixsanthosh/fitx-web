@@ -229,3 +229,29 @@ export function downgradeQuality(settings: QualitySettings): QualitySettings | n
   }
   return null;
 }
+
+/**
+ * The lab's pinned settings (BRIEF-2 3.2): the high tier at 1 drawing-buffer pixel per render pixel, with MSAA 4,
+ * 2048 shadows, depth of field and every particle. The lab passes these as `DirectorOptions.quality`, so every
+ * render of a frame uses the same buffers whatever the machine's own tier would be. The director still clamps MSAA
+ * and the shadow map to what the GPU allows. Gate A (scripts/brand/films/README.md) records the settings the shipped
+ * cuts were rendered with; these match them.
+ */
+export const LAB_QUALITY: Readonly<QualitySettings> = Object.freeze({
+  tier: "high",
+  dpr: 1,
+  msaa: 4,
+  shadowMapSize: 2048,
+  bloom: true,
+  dof: true,
+  particleScale: 1,
+});
+
+/** `settings` clamped to the GPU's limits (MSAA samples and texture size), for a pinned quality such as `LAB_QUALITY`. */
+export function fitQualityToGpu(settings: QualitySettings, maxSamples: number, maxTexture: number): QualitySettings {
+  return {
+    ...settings,
+    msaa: Math.max(0, Math.min(settings.msaa, maxSamples)),
+    shadowMapSize: Math.min(settings.shadowMapSize, maxTexture),
+  };
+}

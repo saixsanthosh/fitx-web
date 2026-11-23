@@ -9,20 +9,22 @@
  */
 
 import * as THREE from "three";
-import { FILM_DURATION, SHOTS, STAGE, STAGE_START, stageAt } from "../timeline";
+import { pickComposition } from "../../films/compositions";
 import { applyLightingPreset, createLightRig } from "../lighting";
 import type { IntroCallbacks, QualityTier, Theme } from "../types";
 import type { CharacterId } from "../character/types";
-import { CAST_ORDER } from "../character/cast";
+import { CAST } from "../character/cast";
 import { loadCharacter, releaseCharacterWorkers } from "../character/client";
 import { createCharacterMaterials, disposeCharacterMaterials } from "../character/materials";
 import { assembleCharacter } from "../character/assemble";
-import { detectQuality, downgradeQuality, qualityForTier, type QualitySettings } from "../fx/quality";
+import { detectQuality, downgradeQuality, fitQualityToGpu, qualityForTier, type QualitySettings } from "../fx/quality";
 import { createPost, type GradeParams } from "../fx/post";
 import { applyCameraState } from "./camera";
 import { buildStage, hideStage, type Stage } from "./stage-kit";
-import { SHOT_LIST } from "./shots";
-import type { FilmContext, ShotFrame } from "./shot-types";
+import type { FilmDef } from "./film-def";
+import { filmFinalStageStart, filmShotIndexAt, filmStageAt } from "./film-defs";
+import { INTRO_FILM } from "./intro-def";
+import type { FilmContext, ShotFrame, SubjectBox } from "./shot-types";
 
 export interface IntroDirector {
   setTheme(theme: Theme): void;
@@ -34,8 +36,18 @@ export interface IntroDirector {
   readonly ready: Promise<void>;
   /** Current film time in seconds. */
   readonly time: number;
+  /** The settings the film renders with (null until the renderer exists). */
+  readonly quality: QualitySettings | null;
+  /**
+   * Lab: the subjects of the last rendered frame (`ShotModule.subjects`, world space; null when its shot has none)
+   * with the camera that rendered it, so the lab can project them. Null before the first frame.
+   */
+  labSubjects(): { shot: string; time: number; boxes: readonly SubjectBox[] | null; camera: THREE.PerspectiveCamera } | null;
   dispose(): void;
 }
+
+/** What `DirectorOptions.onFrame` receives after every frame the director tried to render. */
+export type FilmFrameInfo = { time: number; shot: string; rendered: boolean; castReady: boolean };
 
 export interface DirectorOptions {
   canvas: HTMLCanvasElement;
@@ -45,8 +57,17 @@ export interface DirectorOptions {
   autoplay?: boolean;
   /** Force a tier instead of detecting one (lab). */
   tier?: QualityTier;
-  /** Lab mode: never fall back for performance, keep going when seeking. */
+  /** Lab mode: never fall back for performance, keep going when seeking; a frame without its cast throws. */
   lab?: boolean;
+  /**
+   * Pinned render settings (the lab passes `LAB_QUALITY`). Applied whatever tier the device would get, clamped to
+   * the GPU's limits; takes precedence over `tier`.
+   */
+  quality?: QualitySettings;
+  /** Fixed render size in CSS pixels, in place of the window's (the lab renders exact frame sizes). */
+  size?: { width: number; height: number };
+  /** Called after every frame the director tried to render, in the same task as the render. */
+  onFrame?(frame: FilmFrameInfo): void;
 }
 
 const DEV = process.env.NODE_ENV !== "production";
@@ -58,15 +79,18 @@ const HOLD_LIMIT = 2.4;
 const SLOW_HIGH = 1 / 26;
 const SLOW_MEDIUM = 1 / 21;
 
-function shotIndexAt(time: number) {
-  for (let index = SHOTS.length - 1; index >= 0; index -= 1) {
-    if (time >= SHOTS[index].start) return index;
-  }
-  return 0;
+/** The intro film's director: `createFilmDirector` with the intro's definition (signature unchanged). */
+export function createIntroDirector(options: DirectorOptions): IntroDirector {
+  return createFilmDirector(INTRO_FILM, options);
 }
 
-export function createIntroDirector(options: DirectorOptions): IntroDirector {
+/** Plays any `FilmDef` (film-def.ts). */
+export function createFilmDirector(film: FilmDef, options: DirectorOptions): IntroDirector {
   const { canvas, callbacks } = options;
+  const SHOT_LIST = film.shots;
+  const FILM_DURATION = film.duration;
+  const shotIndexAt = (time: number) => filmShotIndexAt(film, time);
+  const castOrder = film.cast.filter((id): id is CharacterId => Object.prototype.hasOwnProperty.call(CAST, id));
   const autoplay = options.autoplay ?? true;
   let theme = options.theme;
 
@@ -85,6 +109,7 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
   let frameSamples: number[] = [];
   let downgraded = false;
   let lastGrade: GradeParams | null = null;
+  let lastRendered: { index: number; frame: ShotFrame } | null = null;
 
   let renderer: THREE.WebGLRenderer | null = null;
   let quality: QualitySettings | null = null;
@@ -126,8 +151,8 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
   };
 
   const viewport = () => ({
-    width: Math.max(1, window.innerWidth),
-    height: Math.max(1, window.innerHeight),
+    width: Math.max(1, options.size?.width ?? window.innerWidth),
+    height: Math.max(1, options.size?.height ?? window.innerHeight),
     devicePixelRatio: window.devicePixelRatio || 1,
   });
 
@@ -137,9 +162,14 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
   const renderAt = (time: number, dt: number) => {
     if (!ctx || !stage || !renderer) return;
     const shotIndex = shotIndexAt(time);
-    if (!castReadyFor(shotIndex)) return;
-    const def = SHOTS[shotIndex];
     const shot = SHOT_LIST[shotIndex];
+    if (!castReadyFor(shotIndex)) {
+      options.onFrame?.({ time, shot: shot.id, rendered: false, castReady: false });
+      // The lab never skips a frame silently: a render without its cast would be a wrong frame in the master.
+      if (options.lab) throw new Error(`lab frame at ${time.toFixed(4)} s (${shot.id}) has no cast yet`);
+      return;
+    }
+    const def = shot;
     const { width, height } = viewport();
     const frame: ShotFrame = {
       time,
@@ -149,6 +179,8 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
       aspect: width / height,
     };
     ctx.portrait = width / height < 0.85;
+    ctx.aspect = width / height;
+    ctx.composition = pickComposition(width, height);
 
     if (shotIndex !== activeShot) {
       hideStage(stage, cast);
@@ -174,7 +206,10 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
     // Passing film time keeps the grain a pure function of time (seekable, identical replays).
     ctx.post.render(dt, time);
 
-    const nextStage = stageAt(time);
+    lastRendered = { index: shotIndex, frame };
+    options.onFrame?.({ time, shot: shot.id, rendered: true, castReady: true });
+
+    const nextStage = filmStageAt(film, time);
     if (nextStage !== lastStage) {
       lastStage = nextStage;
       callbacks.onStage(nextStage);
@@ -254,7 +289,7 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
         rate = HOLD_RATE;
         holdSeconds += dt;
         if (holdSeconds > HOLD_LIMIT) {
-          filmTime = Math.max(filmTime, STAGE_START[STAGE.brand]);
+          filmTime = Math.max(filmTime, filmFinalStageStart(film));
           holdSeconds = 0;
         }
       } else {
@@ -306,7 +341,7 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
   };
 
   const onResize = () => {
-    if (!renderer || !ctx || !quality) return;
+    if (!renderer || !ctx || !quality || options.size) return;
     const { width, height } = viewport();
     ctx.post.setSize(width, height, quality.dpr);
     ctx.camera.aspect = width / height;
@@ -365,8 +400,14 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
       fail("device below the intro's requirements");
       return;
     }
-    // Lab/dev override: force a tier at the detected viewport budget.
-    const chosen: QualitySettings = options.tier && options.tier !== detected.tier ? qualityForTier(options.tier, viewport()) : detected;
+    // Lab/dev override: pinned settings first (always applied, clamped to the GPU), else a forced tier at the
+    // detected viewport budget.
+    const gl = renderer.getContext();
+    const chosen: QualitySettings = options.quality
+      ? fitQualityToGpu(options.quality, Number(gl.getParameter(0x8d57 /* MAX_SAMPLES (WebGL2) */)) || 0, Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 2048)
+      : options.tier && options.tier !== detected.tier
+        ? qualityForTier(options.tier, viewport())
+        : detected;
     quality = chosen;
 
     const { width, height } = viewport();
@@ -382,7 +423,7 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
     scene.add(lights.group);
 
     // Kick off character generation first: it runs in workers while we build everything else.
-    const castPromises = Object.fromEntries(CAST_ORDER.map((id) => [id, loadCharacter(id)])) as Record<CharacterId, ReturnType<typeof loadCharacter>>;
+    const castPromises = Object.fromEntries(castOrder.map((id) => [id, loadCharacter(id)])) as Record<CharacterId, ReturnType<typeof loadCharacter>>;
     // loadCharacter only queues the pool's pump as a microtask: yield once so the workers boot and
     // Maya's request is posted now, overlapping generation with the (long, synchronous) stage build.
     await Promise.resolve();
@@ -393,9 +434,12 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
     const post = createPost(renderer, scene, camera, quality);
     post.setSize(width, height, quality.dpr);
     // Before any character can arrive: the late-compile path needs a context.
-    ctx = { renderer, scene, camera, post, quality, lights, sets: stage.sets, props: stage.props, fx: stage.fx, cast, theme, portrait: width / height < 0.85 };
+    ctx = {
+      renderer, scene, camera, post, quality, lights, sets: stage.sets, props: stage.props, fx: stage.fx, cast, theme,
+      portrait: width / height < 0.85, aspect: width / height, composition: pickComposition(width, height),
+    };
 
-    for (const id of CAST_ORDER) {
+    for (const id of castOrder) {
       castPromises[id].then((data) => addCharacter(id, data)).catch((error: unknown) => {
         // Missing later characters only shorten the film (the hold jumps to the brand); a missing
         // opening character is fatal and handled below.
@@ -403,13 +447,16 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
       });
     }
 
-    try {
-      const first = await castPromises[CAST_ORDER[0]];
-      if (disposed) return;
-      addCharacter(CAST_ORDER[0], first);
-    } catch (error) {
-      fail(error instanceof Error ? error.message : "character generation failed");
-      return;
+    // A film with a cast waits for its opening character (fatal if it fails); a film without one starts at once.
+    if (castOrder.length > 0) {
+      try {
+        const first = await castPromises[castOrder[0]];
+        if (disposed) return;
+        addCharacter(castOrder[0], first);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : "character generation failed");
+        return;
+      }
     }
 
     // Compile every shader variant up front so cuts never stall: show everything once, with an
@@ -452,6 +499,14 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
     get time() {
       return filmTime;
     },
+    get quality() {
+      return quality;
+    },
+    labSubjects() {
+      if (!lastRendered || !ctx) return null;
+      const shot = SHOT_LIST[lastRendered.index];
+      return { shot: shot.id, time: lastRendered.frame.time, boxes: shot.subjects ? shot.subjects(ctx, lastRendered.frame) : null, camera: ctx.camera };
+    },
     setTheme,
     play,
     pause,
@@ -461,10 +516,12 @@ export function createIntroDirector(options: DirectorOptions): IntroDirector {
       filmTime = Math.max(0, Math.min(FILM_DURATION, time));
       // Seeking ahead of generation: wait for this shot's cast (a failed character never resolves,
       // so cap the wait).
-      const needed = SHOT_LIST[shotIndexAt(filmTime)].cast.map((id) => arrival(id).promise);
+      const needed = SHOT_LIST[shotIndexAt(filmTime)].cast.map((id) => arrival(id as CharacterId).promise);
       await Promise.race([Promise.all(needed), new Promise((done) => setTimeout(done, 15000))]);
       activeShot = -1;
-      safeRenderAt(filmTime, 0);
+      // The lab hears about a frame that could not render (its seek rejects); playback falls back as before.
+      if (options.lab) renderAt(filmTime, 0);
+      else safeRenderAt(filmTime, 0);
     },
     dispose() {
       if (disposed) return;
