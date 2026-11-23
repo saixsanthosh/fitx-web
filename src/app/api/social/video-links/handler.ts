@@ -10,6 +10,11 @@ import { VIDEO_LINK_SECONDS, VIDEO_PATH } from "@/lib/social/video/links";
 export const MAX_PATHS = 10;
 
 export type VideoLinkDeps = {
+  /**
+   * Whether FITX has Explore and its videos switched on (the platform settings, as the proxy reads them). src/proxy.ts
+   * does not run for /api/social/*, so the route answers its own 503 while the switch is off, before any database call.
+   */
+  switchedOn?(): Promise<boolean>;
   /** fitx_social_video_link_allowed as the member: the playable paths, or it throws the database error. */
   allowed(paths: string[]): Promise<string[]>;
   /** Signed links for `paths`, with the server key. */
@@ -27,6 +32,7 @@ export function parsePaths(value: unknown): string[] | null {
 }
 
 export async function answerVideoLinks(body: Record<string, unknown>, deps: VideoLinkDeps): Promise<Answer> {
+  if (deps.switchedOn && !(await deps.switchedOn())) return { status: 503, body: { error: "social_unavailable" } };
   const paths = parsePaths(body.paths);
   if (!paths) return { status: 400, body: { error: "social_invalid" } };
   let allowed: string[];

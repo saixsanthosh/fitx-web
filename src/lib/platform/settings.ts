@@ -82,7 +82,13 @@ export function parsePlatformSettings(row: unknown): PlatformSettings {
  * use only: a member can still cancel a subscription, change or withdraw coach consent, delete coach history,
  * and read, rename or delete saved activities while it is off.
  */
-export const FEATURE_ROUTES: Record<FeatureKey, ReadonlyArray<{ path: string; methods?: readonly string[] }>> = {
+/**
+ * A path a switch closes. `gatedBy: "route"` marks an API that src/proxy.ts never reaches (its matcher skips it): the
+ * route handler reads the same settings and refuses by itself, and featureForPath still names its feature.
+ */
+export type FeatureRoute = { path: string; methods?: readonly string[]; gatedBy?: "route" };
+
+export const FEATURE_ROUTES: Record<FeatureKey, ReadonlyArray<FeatureRoute>> = {
   // The page lands on /unavailable, which keeps the coach's data controls; /api/coach/{consent,data,status,threads} stay open.
   ai_coach: [{ path: "/ai-coach" }, { path: "/api/coach/chat" }, { path: "/api/coach/swap" }, { path: "/api/coach/actions" }],
   home_workout: [{ path: "/workouts/form-check" }, { path: "/home-workout" }],
@@ -99,10 +105,10 @@ export const FEATURE_ROUTES: Record<FeatureKey, ReadonlyArray<{ path: string; me
   // Every Explore page; FEATURE_OPEN_PATHS keeps Explore settings open. The database refuses Explore use too
   // (fitx_social_member), so a stale minute of cached settings never lets new posts through.
   explore: [{ path: "/explore" }],
-  // The video composer. Signed video links (/api/social/video-links) are refused by the database while videos are
-  // off (fitx_social_video_link_allowed raises social_unavailable, which the route answers with 503); src/proxy.ts
-  // does not run for /api/social, so a gate entry there would never be reached.
-  explore_video: [{ path: "/explore/videos/new" }],
+  // The video composer, and the signed video links. src/proxy.ts does not run for /api/social, so the links route
+  // answers 503 social_unavailable itself while videos (or Explore) are off; the database refuses them too
+  // (fitx_social_video_link_allowed), so a stale minute of cached settings signs nothing.
+  explore_video: [{ path: "/explore/videos/new" }, { path: "/api/social/video-links", gatedBy: "route" }],
 };
 
 /**

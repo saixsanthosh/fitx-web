@@ -70,6 +70,10 @@ test("Explore pages close with the explore switch, the video composer with explo
   assert.equal(featureForPath("/explore/videos/new/step"), "explore_video");
   assert.equal(featureForPath("/explore/videosnew"), "explore", "a longer name is not under the composer");
   assert.equal(featureForPath("/explorer"), null);
+  // The signed video links belong to explore_video as well; the route itself refuses (the proxy never runs there).
+  assert.equal(featureForPath("/api/social/video-links", "POST"), "explore_video");
+  assert.equal(featureForPath("/api/social/sweep"), null, "the daily sweep is not a member feature");
+  assert.deepEqual(Object.values(FEATURE_ROUTES).flat().filter((route) => route.gatedBy === "route").map((route) => route.path), ["/api/social/video-links"]);
   // The longest prefix wins whatever order the keys are listed in.
   const longest = Object.values(FEATURE_ROUTES).flat().filter((route) => "/explore/videos/new".startsWith(route.path));
   assert.ok(longest.length >= 2, "two entries match the composer");

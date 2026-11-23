@@ -71,6 +71,7 @@ describe("Explore schema", { skip }, () => {
       assert.ok(!r.ok && /social_username_invalid/.test(r.stderr), `${bad}: ${r.stderr}`);
     }
     assert.ok(/social_username_reserved/.test(fails(A, "public.fitx_social_save_profile('admin', 'A', '', false)").stderr));
+    assert.ok(/social_username_reserved/.test(fails(A, "public.fitx_social_save_profile('new', 'A', '', false)").stderr), "\"new\" is kept for the story composer's address");
     assert.equal(profile(A, "Asha.Lifts").username, "asha.lifts");
     profile(B, "ben_private", true);
     profile(C, "chen.runs");

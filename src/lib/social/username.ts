@@ -1,6 +1,7 @@
 /** Explore usernames: 3 to 30 of a-z, 0-9, "." and "_", starting and ending with a letter or digit, no "..". */
 export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._]{1,28}[a-z0-9]$/;
-export const RESERVED_USERNAMES = ["fitx", "admin", "support", "help", "explore", "settings", "official", "moderator", "staff"] as const;
+/** Kept for FITX, and "new", so /explore/stories/new (the story composer) can never be a member's stories. */
+export const RESERVED_USERNAMES = ["fitx", "admin", "support", "help", "explore", "settings", "official", "moderator", "staff", "new"] as const;
 
 export function normaliseUsername(value: string): string {
   return value.trim().replace(/^@/, "").toLowerCase();

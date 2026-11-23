@@ -38,6 +38,9 @@ test("usernames: the database's rules, said in plain words", () => {
   assert.equal(usernameProblem(".asha"), "edges");
   assert.equal(usernameProblem("a..b"), "dots");
   assert.equal(usernameProblem("admin"), "reserved");
+  assert.equal(usernameProblem("new"), "reserved", "/explore/stories/new is the story composer, never a member's stories");
+  assert.equal(usernameProblem("New"), "reserved");
+  assert.equal(usernameProblem("new.lifts"), null);
   assert.equal(usernameProblem("asha_rao.21"), null);
   assert.equal(suggestUsername("Asha Rao"), "asha.rao");
   assert.equal(suggestUsername("Zoë  O’Brien"), "zoe.o.brien");

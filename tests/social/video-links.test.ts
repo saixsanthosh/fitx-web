@@ -4,6 +4,8 @@
 // client: own videos are signed with the member's key, others only through the route, and kept for most of a link's life.
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import "../billing/support/server-only.mjs";
 import { answerVideoLinks, parsePaths, type VideoLinkDeps } from "@/app/api/social/video-links/handler";
 import { forgetVideoLinks, linkError, VIDEO_LINK_SECONDS, videoLink } from "@/lib/social/video/links";
@@ -68,6 +70,24 @@ test("explore_video off: 503 social_unavailable, and nothing is signed", async (
   // Before the migration is applied the function is missing: also 503, never a 500.
   const missing = deps({ allowed: async () => { throw dbError("Could not find the function", "PGRST202"); } });
   assert.equal((await answerVideoLinks({ paths: [video()] }, missing)).status, 503);
+});
+
+test("the platform switch off (explore_video or explore): the route answers 503 itself, before any database call", async () => {
+  let asked = 0;
+  const off = deps({ allowed: async () => { asked += 1; return [video()]; } });
+  const answer = await answerVideoLinks({ paths: [video()] }, { ...off, switchedOn: async () => false });
+  assert.deepEqual(answer, { status: 503, body: { error: "social_unavailable" } });
+  assert.equal(asked, 0, "the database is not asked while the switch is off");
+  assert.equal(off.signed.length, 0);
+  // Even an invalid body gets the switch's answer first: nothing about the request matters while videos are off.
+  assert.equal((await answerVideoLinks({ paths: "nope" }, { ...deps({}), switchedOn: async () => false })).status, 503);
+  // Switched on, the database still decides.
+  const on = deps({ allowed: async (paths: string[]) => paths });
+  assert.equal((await answerVideoLinks({ paths: [video()] }, { ...on, switchedOn: async () => true })).status, 200);
+  // The route reads the same platform settings the proxy reads (both switches).
+  const routeSource = readFileSync(path.resolve(process.cwd(), "src/app/api/social/video-links/route.ts"), "utf8");
+  assert.match(routeSource, /import \{ readPlatformSettings \} from "@\/lib\/platform\/gate";/);
+  assert.match(routeSource, /return features\.explore && features\.explore_video;/);
 });
 
 test("today's plays spent: 429 social_link_budget with the database's hint (member or project)", async () => {

@@ -3,6 +3,8 @@
 // failed settings read leaves every feature on.
 import { after, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { FakeSupabase, SESSION_COOKIE, ssrCookieValue } from "../support/fake-supabase.ts";
 
 const fake = await new FakeSupabase().start();
@@ -71,10 +73,19 @@ describe("proxy: features switched off in Admin", () => {
     for (const url of ["/api/foods/search", "/api/billing/webhook", "/api/billing/status", "/api/auth/session", "/api/intro/complete"]) {
       assert.equal(unstable_doesMiddlewareMatch({ config, url }), false, url);
     }
-    // Every API path in FEATURE_ROUTES reaches the proxy.
+    // Every API path in FEATURE_ROUTES reaches the proxy, except the ones marked gatedBy "route": those never reach
+    // it (so the mark is honest), and their own handler reads the platform settings and refuses by itself.
     for (const key of FEATURE_KEYS) {
       for (const route of FEATURE_ROUTES[key]) {
-        if (route.path.startsWith("/api/")) assert.equal(unstable_doesMiddlewareMatch({ config, url: route.path }), true, route.path);
+        if (!route.path.startsWith("/api/")) continue;
+        if (route.gatedBy === "route") {
+          assert.equal(unstable_doesMiddlewareMatch({ config, url: route.path }), false, `${route.path} is marked as gated by its route`);
+          const handler = readFileSync(path.resolve(process.cwd(), `src/app${route.path}/route.ts`), "utf8");
+          assert.match(handler, /readPlatformSettings\(\)/, `${route.path} reads the platform settings itself`);
+          assert.match(handler, new RegExp(`features\\.${key}\\b`), `${route.path} checks ${key} itself`);
+        } else {
+          assert.equal(unstable_doesMiddlewareMatch({ config, url: route.path }), true, route.path);
+        }
       }
     }
   });

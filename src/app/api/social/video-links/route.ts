@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/account/admin";
 import { isSameOriginRequest } from "@/lib/auth/same-origin";
+import { readPlatformSettings } from "@/lib/platform/gate";
 import { readJsonObject } from "@/lib/security/body";
 import { createRateLimiter } from "@/lib/security/rate-limit";
 import { bodyErrorResponse, rateLimitedResponse } from "@/lib/security/responses";
@@ -30,6 +31,10 @@ export async function POST(request: NextRequest) {
   if (!body.ok) return route.applyTo(bodyErrorResponse(body));
 
   const answer = await answerVideoLinks(body.value, {
+    async switchedOn() {
+      const { features } = await readPlatformSettings();
+      return features.explore && features.explore_video;
+    },
     async allowed(paths) {
       const { data: allowed, error } = await route.supabase.rpc("fitx_social_video_link_allowed", { p_paths: paths });
       if (error) throw error;

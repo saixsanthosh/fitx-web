@@ -1389,6 +1389,11 @@ begin
   if v_username = any (array['fitx', 'admin', 'support', 'help', 'explore', 'settings', 'official', 'moderator', 'staff']) then
     raise exception using errcode = '23514', message = 'social_username_reserved';
   end if;
+  -- "new" is kept too (wave 2), so /explore/stories/new is always the story composer; a member who already had it
+  -- before this file keeps it.
+  if v_username = 'new' and not exists (select 1 from public.social_profiles p where p.user_id = v_uid and p.username = 'new') then
+    raise exception using errcode = '23514', message = 'social_username_reserved';
+  end if;
   if exists (select 1 from public.social_profiles p where p.username = v_username and p.user_id <> v_uid) then
     raise exception using errcode = '23505', message = 'social_username_taken';
   end if;
