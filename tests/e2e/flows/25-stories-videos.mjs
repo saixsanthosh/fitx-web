@@ -106,7 +106,10 @@ export const flow = {
       await sawOverflow(t, "story composer");
       await page.getByRole("button", { name: "Share story" }).click();
       await page.waitForURL(new RegExp(`/explore/stories/${miraName}$`), { timeout: 30000 });
-      await page.getByRole("dialog", { name: `Story by ${miraName}` }).waitFor({ timeout: 15000 });
+      const own = page.getByRole("dialog", { name: `Story by ${miraName}` });
+      await own.waitFor({ timeout: 15000 });
+      // A photo story moves on after 5 s (and the viewer closes after the last): pause it while it is checked.
+      await own.getByRole("button", { name: "Pause story" }).click();
       const row = await settled(standin, `select kind, storage_path, width, height, caption, round(extract(epoch from expires_at - created_at))::int life from public.social_stories where user_id = '${mira.id}'`, (r) => Boolean(r));
       t.note("stored story", row);
       t.expect(row?.kind === "image" && row?.caption === caption, "the photo story is stored with its caption", row);
@@ -124,6 +127,7 @@ export const flow = {
       await tray.getByRole("link", { name: `Story by ${miraName}, new` }).click({ timeout: 20000 });
       const viewer = page.getByRole("dialog", { name: `Story by ${miraName}` });
       await viewer.waitFor({ timeout: 15000 });
+      await viewer.getByRole("button", { name: "Pause story" }).click();
       await viewer.getByRole("img", { name: `Story: ${caption}` }).waitFor({ timeout: 15000 });
       await viewer.getByText(caption).first().waitFor();
       t.expect(await viewer.getByRole("button", { name: "Delete story" }).count() === 0, "no Delete on someone else's story");
@@ -141,7 +145,8 @@ export const flow = {
     await t.step("Mira reads \"Seen by 1\" and who viewed it", async () => {
       await switchTo(t, mira, `/explore/stories/${miraName}`);
       const viewer = page.getByRole("dialog", { name: `Story by ${miraName}` });
-      await viewer.getByRole("button", { name: "Seen by 1" }).click({ timeout: 20000 });
+      await viewer.getByRole("button", { name: "Pause story" }).click({ timeout: 20000 });
+      await viewer.getByRole("button", { name: "Seen by 1" }).click();
       const sheet = page.getByRole("dialog", { name: "Seen by 1" });
       await sheet.getByRole("link", { name: new RegExp(theoName) }).waitFor({ timeout: 15000 });
       await sheet.getByText("Liked it").waitFor();
