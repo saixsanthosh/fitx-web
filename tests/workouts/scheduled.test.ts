@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { SCHEDULED_LIMIT, fetchUpcomingScheduled, scheduledItems, type ScheduledRow } from "@/app/(dashboard)/workouts/_lib/scheduled";
+import { SCHEDULED_LIMIT, fetchUpcomingScheduled, joinScheduledToPlans, scheduledItems, type ScheduledRow } from "@/app/(dashboard)/workouts/_lib/scheduled";
 
 const TODAY = "2026-11-23";
 const PLAN = "11111111-1111-4111-8111-111111111111";
@@ -79,4 +79,26 @@ test("Workouts shows the list in both modes, opens the plan on Start, and has no
   assert.doesNotMatch(page, /homePanel\("week"\)/);
   const view = readFileSync(new URL("../../src/components/workouts/ScheduledWorkouts.tsx", import.meta.url), "utf8");
   assert.match(view, /if \(!items\.length\) return null;/, "nothing at all when none are scheduled");
+});
+
+test("Your plans lists each plan once: its scheduled item on its own day joins its row; the Scheduled list keeps the rest", () => {
+  const OTHER = "22222222-2222-4222-8222-222222222222";
+  const PROGRAMME = "33333333-3333-4333-8333-333333333333";
+  const items = scheduledItems([
+    row(1, TODAY, "2026-11-23T18:00:00.000Z", PLAN, "Chest and arms"),
+    row(2, "2026-11-25", "2026-11-25T07:00:00.000Z", PLAN, "Chest and arms"),
+    row(3, "2026-11-24", null, OTHER, "Legs"),
+    row(4, "2026-11-24", null, PROGRAMME, "Programme day"),
+    row(5, "2026-11-26", null, null, "Swim"),
+  ], TODAY);
+  const plans = [{ id: PLAN, planned_for: TODAY }, { id: OTHER, planned_for: "2026-11-27" }];
+  const { rest, byPlan } = joinScheduledToPlans(items, plans);
+  // "Chest and arms" today joins its row, with Start keeping the planner item (start-link.ts is unchanged).
+  assert.equal(byPlan.get(PLAN)?.id, id(1));
+  assert.equal(byPlan.get(PLAN)?.startHref, `/workouts?plan=${PLAN}&event=${id(1)}`);
+  // Its second date, a plan whose own day differs, a plan not in the list and an item without a plan stay listed.
+  assert.deepEqual(rest.map((item) => item.id), [id(3), id(4), id(2), id(5)]);
+  assert.equal(byPlan.has(OTHER), false);
+  assert.equal(byPlan.size, 1);
+  assert.deepEqual(joinScheduledToPlans([], plans), { rest: [], byPlan: new Map() });
 });

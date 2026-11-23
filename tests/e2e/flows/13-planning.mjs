@@ -61,6 +61,15 @@ export const flow = {
       t.expect((await todayRows.count()) >= 4, "Today should list the plan's exercises", { rows: await todayRows.count() });
       await t.checkpoint("today's workout card");
       const card = page.locator("article[id^='workout-plan-']").filter({ hasText: "Chest and arms" }).first();
+      // Each plan once in Your plans: a dated plan's planner item joins its row (with today's Start keeping the item),
+      // so the "Scheduled" list above the rows never repeats it.
+      const event = await standin.one(`select count(*)::int n from public.planner_events e join public.workout_plans p on p.id = e.workout_plan_id
+          where p.user_id = '${account.id}' and p.title like 'Chest and arms%' and e.status = 'scheduled'`);
+      t.note("the plan's scheduled planner items", event);
+      const yourPlans = page.locator("section#plans");
+      await yourPlans.locator("article[id^='workout-plan-']").first().waitFor({ timeout: 15000 });
+      t.expect((await yourPlans.locator("li").filter({ hasText: "Chest and arms" }).count()) === 0, "Your plans does not list the plan again under Scheduled");
+      t.expect((await yourPlans.locator("article[id^='workout-plan-']").filter({ hasText: "Chest and arms" }).count()) === 1, "the plan has one row");
       // A plan is one compact row (phase 7.4): its name and day, Start, and a menu with Edit, Duplicate and Delete.
       const box = await card.boundingBox();
       t.expect(box && box.height <= 80, "a plan row stays on one line", box);

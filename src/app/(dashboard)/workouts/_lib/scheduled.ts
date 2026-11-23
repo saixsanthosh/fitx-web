@@ -43,6 +43,24 @@ export function scheduledItems(rows: readonly ScheduledRow[], todayKey: string, 
     }));
 }
 
+/**
+ * The Gym tab's "Your plans" lists each plan once. A scheduled item for a plan already in the list, on that plan's own
+ * day, joins the plan's row (`byPlan`: its time, and on today the row's Start keeps the planner item, as the Scheduled
+ * row's did); the "Scheduled" list keeps only the rest. Items come soonest first, so a plan joins its soonest item.
+ */
+export function joinScheduledToPlans(items: readonly ScheduledItem[], plans: readonly { id: string; planned_for: string | null }[]): {
+  rest: ScheduledItem[]; byPlan: Map<string, ScheduledItem>;
+} {
+  const planDay = new Map(plans.map((plan) => [plan.id, plan.planned_for]));
+  const byPlan = new Map<string, ScheduledItem>();
+  const rest: ScheduledItem[] = [];
+  for (const item of items) {
+    if (item.planId && planDay.get(item.planId) === item.day && !byPlan.has(item.planId)) byPlan.set(item.planId, item);
+    else rest.push(item);
+  }
+  return { rest, byPlan };
+}
+
 function startOrder(startsAt: string | null): number {
   const time = startsAt ? Date.parse(startsAt) : NaN;
   return Number.isFinite(time) ? time : Number.POSITIVE_INFINITY;

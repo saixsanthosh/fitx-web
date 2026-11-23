@@ -52,7 +52,7 @@ import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout
 import { MAX_PLAN_EXERCISES, moveRow, plannedFrom, removeRow, selectedIds, swapRow, toggleRow, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { pickToday } from "./_lib/today-pick";
-import { fetchUpcomingScheduled, type ScheduledItem } from "./_lib/scheduled";
+import { fetchUpcomingScheduled, joinScheduledToPlans, type ScheduledItem } from "./_lib/scheduled";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
 
@@ -292,6 +292,7 @@ export default function WorkoutsPage() {
     void fetchUpcomingScheduled(supabase, userId, listDayKey).then((items) => { if (live) setScheduled(items); });
     return () => { live = false; };
   }, [userId, listDayKey, plans]);
+  const plansWithScheduled = useMemo(() => joinScheduledToPlans(scheduled, plans), [scheduled, plans]);
   /** Start on a scheduled workout: open its plan, and keep the planner item on the session it starts. */
   function startScheduled(planId: string, plannerEventId: string) {
     startLink.current = { planId, plannerEventId };
@@ -1195,16 +1196,21 @@ export default function WorkoutsPage() {
       <div className={styles.bottomGrid}>
         {/* No "Week" link: the To-Do week view is gone and its address now opens this page (brief 3.7). */}
         <Section title="Your plans" id="plans">
-          <ScheduledWorkouts items={scheduled} dayLabel={(day) => whenLabel(day, listDayKey || localDateKey())} onStart={startScheduled} starting={Boolean(starting)} />
+          {/* Each plan once: its scheduled item joins its row (time, and today's Start keeps the planner item). */}
+          <ScheduledWorkouts items={plansWithScheduled.rest} dayLabel={(day) => whenLabel(day, listDayKey || localDateKey())} onStart={startScheduled} starting={Boolean(starting)} />
           {plans.length ? (
             <div className={styles.planList}>
-              {plans.map((plan) => (
+              {plans.map((plan) => {
+                const event = plansWithScheduled.byPlan.get(plan.id);
+                const time = event?.startsAt ? readableDate(new Date(event.startsAt), { hour: "numeric", minute: "2-digit" }) : null;
+                return (
                 <article key={plan.id} id={`workout-plan-${plan.id}`} className={styles.planRow}>
                   <div className="min-w-0 flex-1">
                     <h3 className={styles.itemTitle}>{plan.title}</h3>
-                    <p className={styles.itemMeta}><CalendarDays size={13} aria-hidden="true" />{plan.planned_for ? whenLabel(plan.planned_for, todayKey) : "No date"}<PlanStatusChip status={planCardStatus(plan.planned_for, todayKey, plan.last_done_key)} /></p>
+                    <p className={styles.itemMeta}><CalendarDays size={13} aria-hidden="true" />{plan.planned_for ? whenLabel(plan.planned_for, todayKey) : "No date"}{time ? `, ${time}` : ""}<PlanStatusChip status={planCardStatus(plan.planned_for, todayKey, plan.last_done_key)} /></p>
                   </div>
-                  <button type="button" aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`} onClick={() => setPreviewPlanId(plan.id)}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
+                  <button type="button" aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`}
+                    onClick={() => (event?.startHref ? startScheduled(plan.id, event.id) : setPreviewPlanId(plan.id))}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
                   {/* One visible action per row (phase 7.4); editing, copying and deleting sit in its menu. */}
                   <ActionsMenu label={`More actions for ${plan.title}`} items={[
                     { label: "Edit", name: `Edit ${plan.title}`, icon: Pencil, onSelect: () => void editPlan(plan.id), disabled: saving },
@@ -1212,7 +1218,8 @@ export default function WorkoutsPage() {
                     { label: "Delete", name: `Delete ${plan.title}`, icon: Trash2, onSelect: () => void deletePlan(plan), tone: "danger" },
                   ]} />
                 </article>
-              ))}
+                );
+              })}
               {(planCursor || (counts.plans !== null && counts.plans > plans.length)) && (
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <p className="text-xs text-fitx-text-secondary">{plans.length.toLocaleString()}{counts.plans !== null && counts.plans >= plans.length ? ` of ${counts.plans.toLocaleString()}` : ""} plans</p>
