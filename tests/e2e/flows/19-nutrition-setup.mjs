@@ -2,9 +2,10 @@
 // asks them) opens Nutrition: the setup opens; Later closes it and it stays closed on this device; once the device's
 // Later is cleared it opens again, and diet (with its picture), an allergy, a food rule, meals a day, food source and
 // nutrition goal are saved to their preference columns with nutrition_setup_at. It is never asked again; Food
-// preferences edits the answers later, and the Log food filter follows the diet. The water-goal link opens the goal
-// editor on Progress.
-import { signInUi, textOf } from "./common.mjs";
+// preferences edits the answers later, and the Log food filter follows the diet. (The water-goal link's target,
+// /progress?panel=goals&new=water_day, is covered by flow 04 and tests/nutrition/setup.test.ts: every stand-in
+// account has a saved water goal, so the link itself does not show here.)
+import { signInUi } from "./common.mjs";
 
 async function setupDialog(page, name = "Set up Nutrition") {
   const dialog = page.getByRole("dialog", { name });
@@ -92,17 +93,6 @@ export const flow = {
       const row = await standin.one(`select meals_per_day, diet_type, nutrition_focus from public.user_preferences where user_id = '${account.id}'`);
       t.note("after editing", row);
       t.expect(Number(row.meals_per_day) === 3 && row.diet_type === "vegetarian" && row.nutrition_focus === "high_protein", "only the changed answer changes", row);
-    });
-
-    await t.step("Set a water goal opens the goal editor on Progress", async () => {
-      const link = page.getByRole("link", { name: "Set a water goal" });
-      t.expect(await link.getAttribute("href") === "/progress?panel=goals&new=water_day", "the link names Progress and the template");
-      await link.click();
-      const editor = page.getByRole("dialog", { name: "New goal" });
-      await editor.getByLabel(/^Target/).waitFor({ timeout: 20000 });
-      t.note("editor", (await textOf(editor)).slice(0, 200));
-      await t.checkpoint("water goal on progress", { fullPage: false });
-      await editor.getByRole("button", { name: "Cancel" }).click();
     });
   },
 };
