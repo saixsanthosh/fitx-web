@@ -37,7 +37,8 @@ async function setUpProfile(t, username) {
 /** Opens Messages from the Explore rail. */
 async function openMessagesFromRail(t) {
   const page = t.page;
-  await page.getByRole("navigation", { name: "Explore" }).getByRole("link", { name: "Messages", exact: true }).click({ timeout: 20000 });
+  // The link is named "Messages", or "Messages, <n> unread" while there are unread messages.
+  await page.getByRole("navigation", { name: "Explore" }).getByRole("link", { name: /^Messages(, \d+ unread)?$/ }).click({ timeout: 20000 });
   await page.waitForURL((url) => url.pathname === "/explore/messages", { timeout: 15000 });
 }
 
@@ -120,6 +121,8 @@ export const flow = {
       await switchTo(t, asha);
       // The rail's Messages link carries the badge on every Explore page.
       await page.getByRole("navigation", { name: "Explore" }).getByLabel("1 unread message", { exact: true }).waitFor({ timeout: 20000 });
+      // The link itself carries the count in its name (its own name would otherwise hide the badge's).
+      await page.getByRole("navigation", { name: "Explore" }).getByRole("link", { name: "Messages, 1 unread", exact: true }).waitFor({ timeout: 20000 });
       await openMessagesFromRail(t);
       await page.getByRole("heading", { level: 1, name: "Messages" }).waitFor({ timeout: 20000 });
       await page.getByLabel("1 unread message", { exact: true }).first().waitFor({ timeout: 20000 });

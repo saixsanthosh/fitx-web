@@ -3,7 +3,8 @@
 // failed join, polling on visibility and on a timer, and unknown counts as null (never 0).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createUnreadPoller, inboxTopic, parsePing, shareInbox, subscribeInbox, unreadLabel, type RealtimeLike } from "../../src/lib/social/realtime.ts";
+import { createUnreadHub, createUnreadPoller, inboxTopic, parsePing, shareInbox, subscribeInbox, unreadLabel, type RealtimeLike } from "../../src/lib/social/realtime.ts";
+import { railLinkName } from "../../src/lib/social/rail.ts";
 import { GROUP_LIMITS } from "../../src/lib/social/group-limits.ts";
 
 type Listener = () => void;
@@ -163,6 +164,47 @@ test("the unread poller reads now, on showing the tab and on its timer; failures
 test("the badge names itself", () => {
   assert.equal(unreadLabel(1), "1 unread message");
   assert.equal(unreadLabel(4), "4 unread messages");
+});
+
+test("the rail's Messages link carries the unread count in its own name (its name overrides the badge's)", () => {
+  assert.equal(railLinkName("messages", "Messages", 3), "Messages, 3 unread");
+  assert.equal(railLinkName("messages", "Messages", 1), "Messages, 1 unread");
+  assert.equal(railLinkName("messages", "Messages", 0), "Messages", "zero says nothing");
+  assert.equal(railLinkName("messages", "Messages", null), "Messages", "unknown is never shown as 0");
+  assert.equal(railLinkName("feed", "Feed", 3), "Feed");
+});
+
+test("createUnreadHub: one poller for the page, shared by every place that shows the counts; the last one out stops it", () => {
+  let started = 0;
+  let stopped = 0;
+  let refreshed = 0;
+  let push: (counts: { messages: number | null; requests: number | null; notifications: number | null }) => void = () => undefined;
+  const hub = createUnreadHub((onCounts) => {
+    started += 1;
+    push = onCounts;
+    return { refresh: async () => { refreshed += 1; }, stop: () => { stopped += 1; } };
+  });
+  assert.deepEqual(hub.counts(), { messages: null, requests: null, notifications: null }, "unknown until read");
+  let railCalls = 0;
+  let badgeCalls = 0;
+  const offRail = hub.subscribe(() => { railCalls += 1; });
+  const offBadge = hub.subscribe(() => { badgeCalls += 1; });
+  assert.equal(started, 1, "the link and the badge share one poller");
+  push({ messages: 2, requests: 0, notifications: 1 });
+  assert.equal(railCalls, 1);
+  assert.equal(badgeCalls, 1);
+  assert.deepEqual(hub.counts(), { messages: 2, requests: 0, notifications: 1 });
+  hub.refresh();
+  assert.equal(refreshed, 1);
+  offRail();
+  assert.equal(stopped, 0, "still shown by the badge");
+  offBadge();
+  assert.equal(stopped, 1, "stopped with the last one");
+  assert.deepEqual(hub.counts(), { messages: null, requests: null, notifications: null }, "forgotten once nothing shows them");
+  hub.refresh();
+  assert.equal(refreshed, 1, "no poller, nothing to read");
+  hub.subscribe(() => undefined)();
+  assert.equal(started, 2, "a later page starts a new one");
 });
 
 test("shareInbox: one channel per member for the page; pings reach every listener; the last one out closes it", () => {

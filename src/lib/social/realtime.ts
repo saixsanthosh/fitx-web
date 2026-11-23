@@ -3,7 +3,7 @@
  * `social:inbox:<uid>` (fitx_social_ping), and only that member may read it (the social_inbox_read policy). When
  * Realtime is not reachable the app falls back to polling, so nothing depends on it.
  */
-import { createElement, useCallback, useEffect, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Db } from "./api";
 import { GROUP_LIMITS } from "./group-limits";
@@ -191,11 +191,46 @@ export function createUnreadPoller(read: () => Promise<UnreadCounts>, onCounts: 
 }
 
 const UNKNOWN: UnreadCounts = { messages: null, requests: null, notifications: null };
-const listeners = new Set<() => void>();
 
-/** Asks every mounted useUnreadCounts to read again (after reading a conversation or answering a request). */
+type UnreadPoller = { refresh: () => Promise<void>; stop: () => void };
+
+/**
+ * The page's one set of unread counts, however many places show them (the rail's Messages link and its badge, the
+ * inbox): the first subscriber starts one poller, the last one stops it. Exported for tests.
+ */
+export function createUnreadHub(start: (onCounts: (counts: UnreadCounts) => void) => UnreadPoller) {
+  let counts: UnreadCounts = UNKNOWN;
+  let poller: UnreadPoller | null = null;
+  const subscribers = new Set<() => void>();
+  return {
+    subscribe(listener: () => void) {
+      subscribers.add(listener);
+      poller ??= start((next) => {
+        counts = next;
+        for (const each of [...subscribers]) each();
+      });
+      return () => {
+        subscribers.delete(listener);
+        if (subscribers.size || !poller) return;
+        poller.stop();
+        poller = null;
+        counts = UNKNOWN;
+      };
+    },
+    counts: () => counts,
+    refresh: () => { void poller?.refresh(); },
+  };
+}
+
+const unreadHub = createUnreadHub((onCounts) => {
+  const db = createClient() as unknown as Db | null;
+  if (!db) return { refresh: async () => undefined, stop: () => undefined };
+  return createUnreadPoller(() => messagesApi.unreadCounts(db), onCounts);
+});
+
+/** Asks the page's unread counts to read again (after reading a conversation or answering a request). */
 export function refreshUnreadCounts() {
-  for (const listener of listeners) listener();
+  unreadHub.refresh();
 }
 
 /**
@@ -203,19 +238,7 @@ export function refreshUnreadCounts() {
  * Explore profile, under 18 for messages), never 0.
  */
 export function useUnreadCounts(): { messages: number | null; notifications: number | null; requests: number | null } {
-  const [counts, setCounts] = useState<UnreadCounts>(UNKNOWN);
-  useEffect(() => {
-    const db = createClient() as unknown as Db | null;
-    if (!db) return;
-    const poller = createUnreadPoller(() => messagesApi.unreadCounts(db), setCounts);
-    const listener = () => void poller.refresh();
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-      poller.stop();
-    };
-  }, []);
-  return counts;
+  return useSyncExternalStore(unreadHub.subscribe, unreadHub.counts, () => UNKNOWN);
 }
 
 /** The accessible name of the unread messages badge. */

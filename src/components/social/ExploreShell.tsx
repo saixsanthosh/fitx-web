@@ -10,8 +10,8 @@ import { useReducedMotionSafe } from "@/components/motion/useReducedMotionSafe";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EXPLORE_MEDIA } from "@/data/explore-media";
 import { suggestUsername, suspensionText } from "@/lib/social";
-import { EXPLORE_RAIL, RAIL_BADGES, railEntries, railKeyFor, type RailKey } from "@/lib/social/rail";
-import { shareInbox } from "@/lib/social/realtime";
+import { EXPLORE_RAIL, RAIL_BADGES, railEntries, railKeyFor, railLinkName, type RailKey } from "@/lib/social/rail";
+import { shareInbox, useUnreadCounts } from "@/lib/social/realtime";
 import { ExploreProvider, useExplore } from "./ExploreContext";
 import { ProfileForm } from "./ProfileForm";
 import { NewPostButton } from "./create/CreateSheet";
@@ -163,6 +163,8 @@ function ExploreNav() {
   const userId = session?.userId ?? null;
   const username = me?.profile?.username ?? "";
   const unread = (me?.unread ?? 0) + (me?.requests ?? 0);
+  // The same counts the Messages badge shows (one poller per page), so the link's name carries them too.
+  const { messages: unreadMessages } = useUnreadCounts();
   const profileHref = `/explore/u/${username}`;
   const current = railKeyFor(pathname, EXPLORE_RAIL);
   useLiveBell(userId, refresh);
@@ -179,7 +181,7 @@ function ExploreNav() {
           const badge = item.key === "activity" && unread > 0;
           const RailBadge = item.badge ? RAIL_BADGES[item.badge] : undefined;
           return (
-            <Link key={item.key} href={item.href} className={styles.subnavLink} aria-current={item.active ? "page" : undefined} aria-label={badge ? `${item.label}, ${unread} new` : item.label}>
+            <Link key={item.key} href={item.href} className={styles.subnavLink} aria-current={item.active ? "page" : undefined} aria-label={badge ? `${item.label}, ${unread} new` : railLinkName(item.key, item.label, unreadMessages)}>
               {item.active && <m.span layoutId={reduced ? undefined : "explore-nav-marker"} className={styles.subnavMarker} transition={{ type: "spring", stiffness: 420, damping: 36 }} />}
               <span className={styles.subnavIcon}>
                 <Icon size={19} aria-hidden="true" />

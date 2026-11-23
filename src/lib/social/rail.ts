@@ -28,6 +28,14 @@ export const EXPLORE_RAIL: readonly RailEntry[] = [
  */
 export const RAIL_BADGES: Partial<Record<RailKey, ComponentType>> = { messages: MessagesBadge };
 
+/**
+ * A rail link's accessible name. The link's own name wins over its badge's, so the count goes into it: "Messages, 3
+ * unread". Unknown or zero gives the label alone (never "0 unread").
+ */
+export function railLinkName(key: string, label: string, unreadMessages: number | null): string {
+  return key === "messages" && unreadMessages ? `${label}, ${unreadMessages} unread` : label;
+}
+
 export type CreateKey = "photo" | "story" | "video";
 
 export type CreateOption = {

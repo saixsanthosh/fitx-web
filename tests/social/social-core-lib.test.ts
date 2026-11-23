@@ -71,7 +71,10 @@ test("every component slot is filled with its stream's component (6.1a)", () => 
 
 test("the Notifications bell is live through the shared inbox channel, and Videos follows the switch", () => {
   const shell = source("src/components/social/ExploreShell.tsx");
-  assert.match(shell, /import \{ shareInbox \} from "@\/lib\/social\/realtime";/);
+  assert.match(shell, /import \{[^}]*\bshareInbox\b[^}]*\} from "@\/lib\/social\/realtime";/);
+  // The rail's Messages link is named with its unread count, from the page's one set of counts.
+  assert.match(shell, /const \{ messages: unreadMessages \} = useUnreadCounts\(\);/);
+  assert.match(shell, /railLinkName\(item\.key, item\.label, unreadMessages\)/);
   assert.match(shell, /shareInbox\(userId, \(\) => \{[\s\S]*?void refresh\(\);/, "a ping reads the member's state again");
   assert.match(shell, /railEntries\(EXPLORE_RAIL, me\?\.videos === true\)/);
 });
