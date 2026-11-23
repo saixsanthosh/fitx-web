@@ -53,6 +53,20 @@ function obstacles(self: HTMLElement | null): Rect[] {
 }
 
 /**
+ * The menu column down the left side (the tablet rail or the desktop sidebar, marked `data-coach-edge`): how far it
+ * reaches into the screen, or 0 when none shows (phones). The button's left edge is beside it, never on its links.
+ */
+function menuInset(): number {
+  let inset = 0;
+  for (const element of Array.from(document.querySelectorAll<HTMLElement>("[data-coach-edge]"))) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0 || rect.left > 1) continue;
+    inset = Math.max(inset, rect.right);
+  }
+  return inset;
+}
+
+/**
  * An open modal sheet drawn in the page (role="dialog" with aria-modal, not a top-layer <dialog>). The button sits
  * above the page, so it would float over the sheet and its content: it waits until the sheet closes.
  */
@@ -95,7 +109,8 @@ const typing = (element: Element | null) =>
 
 /**
  * The floating AI Coach button (phase 15). Small and draggable: it rests against the left or right edge where the
- * member drops it (remembered per phone, tablet and desktop size), keeps clear of the bottom bar and of anything
+ * member drops it (remembered per phone, tablet and desktop size; on tablets and desktops the left edge is the page's,
+ * beside the menu rail or sidebar, so it never sits on a menu item), keeps clear of the bottom bar and of anything
  * marked `data-coach-avoid` and of any button, link or field it would otherwise sit on, and hides on the coach page, onboarding and the focus screens (live workout, AI Form
  * Check camera, activity recorder), while a modal sheet is open, on phones while the keyboard is up, and while FITX Admin
  * has the AI coach switched off (lib/shell/coach-switch.ts). "Hide AI Coach button" hides it for this
@@ -154,7 +169,7 @@ export function CoachLauncher() {
 
   const layout = useCallback(() => {
     if (drag.current?.moved) return;
-    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const viewport = { width: window.innerWidth, height: window.innerHeight, leftInset: menuInset() };
     // Clear of the marked bars first, then of any control the spot would cover, a few times over. None while a
     // modal sheet is open.
     const avoid = obstacles(root.current);
@@ -271,7 +286,7 @@ export function CoachLauncher() {
     setDragging(false);
     const x = Math.min(window.innerWidth - LAUNCHER_SIZE, Math.max(0, current.fromX + event.clientX - current.startX));
     const y = Math.min(window.innerHeight - LAUNCHER_SIZE, Math.max(0, current.fromY + event.clientY - current.startY));
-    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const viewport = { width: window.innerWidth, height: window.innerHeight, leftInset: menuInset() };
     spot.current = spotFromDrop(x, y, viewport);
     const store = storage();
     try {

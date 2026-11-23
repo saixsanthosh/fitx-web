@@ -129,7 +129,16 @@ export const flow = {
       await page.mouse.up();
       await page.waitForTimeout(600);
       const dropped = await button.boundingBox();
-      t.expect(dropped.x < viewport.width / 2 && dropped.x <= 30, `dropped on the left, it settles against the left edge: ${JSON.stringify({ box, dropped })}`);
+      if (phone) {
+        t.expect(dropped.x < viewport.width / 2 && dropped.x <= 30, `dropped on the left, it settles against the left edge: ${JSON.stringify({ box, dropped })}`);
+      } else {
+        // The sidebar runs down the left side: the left edge is the page's, beside it, never on a menu item.
+        const sidebar = await page.locator("[data-coach-edge]").filter({ visible: true }).first().boundingBox();
+        const edge = sidebar ? sidebar.x + sidebar.width : 0;
+        t.expect(sidebar && dropped.x >= edge + 20 && dropped.x <= edge + 30, `dropped on the left, it settles against the page's left edge beside the sidebar: ${JSON.stringify({ box, dropped, sidebar })}`);
+        t.expect(!overlaps(dropped, sidebar), "it never rests on the sidebar's menu", { dropped, sidebar });
+        t.expect(Math.abs(dropped.y + dropped.height / 2 - viewport.height * 0.45) < 40, "it rests at the height it was let go", { dropped });
+      }
       t.expect(page.url().endsWith("/dashboard"), "a drag does not open the coach");
       const stored = await page.evaluate(() => window.localStorage.getItem("fitx-coach-launcher-spot"));
       t.expect(stored && JSON.parse(stored)[phone ? "phone" : "desktop"]?.side === "left", "the spot is remembered for this screen size", stored);

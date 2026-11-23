@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   LAUNCHER_CLOSE_EVENT,
   LAUNCHER_GAP,
@@ -97,4 +98,38 @@ test("opening: the coach panel takes the event when one is mounted; otherwise th
   assert.equal(openCoachPanel(target, () => fallback++), true);
   assert.equal(fallback, 1, "the panel took it");
   assert.deepEqual(seen, [{ source: "launcher" }]);
+});
+
+test("beside a menu column (tablet rail, desktop sidebar) the left edge is the page's, so it never rests on a menu item", () => {
+  // The desktop sidebar is 248 px wide; its links run down the left side.
+  const withMenu = { ...desktop, leftInset: 248 };
+  const placed = placeLauncher({ side: "left", y: 0.405 }, withMenu)!;
+  assert.equal(placed.side, "left");
+  assert.equal(placed.x, 248 + 24, "24 px beside the sidebar");
+  assert.ok(placed.x >= 248, "clear of the sidebar");
+  // A drop left of the page's middle (not the screen's) is a left drop; it comes back at the height it was left.
+  const dropped = spotFromDrop(406, 379, withMenu);
+  assert.equal(dropped.side, "left");
+  const back = placeLauncher(dropped, withMenu)!;
+  assert.equal(back.x, 272);
+  assert.ok(Math.abs(back.y - 379) < 1, `it lands where it was dropped (${back.y})`);
+  // The page's middle decides, not the screen's: a centre at 726 px (right of the screen's 720) is still a left drop,
+  // and one at 866 px (right of the page's 844) is a right drop.
+  assert.equal(spotFromDrop(700, 379, withMenu).side, "left");
+  assert.equal(spotFromDrop(840, 379, withMenu).side, "right");
+  // The tablet rail (88 px).
+  assert.equal(placeLauncher({ side: "left", y: 0.5 }, { width: 820, height: 1180, leftInset: 88 })!.x, 88 + 24);
+  // No menu column (phones), or an unreadable one: the screen's edge, as before.
+  assert.equal(placeLauncher({ side: "left", y: 0.5 }, phone)!.x, LAUNCHER_GAP);
+  assert.equal(placeLauncher({ side: "left", y: 0.5 }, { ...phone, leftInset: Number.NaN })!.x, LAUNCHER_GAP);
+  // A menu column wider than half the screen never pushes the button past the middle.
+  assert.ok(placeLauncher({ side: "left", y: 0.5 }, { ...desktop, leftInset: 5000 })!.x <= 720 + 24);
+});
+
+test("the sidebar marks itself as the menu column and the launcher measures it for every placement and drop", () => {
+  const read = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
+  assert.match(read("components/layout/Sidebar.tsx"), /<aside data-coach-edge=""/);
+  const launcher = read("components/layout/CoachLauncher.tsx");
+  assert.match(launcher, /querySelectorAll<HTMLElement>\("\[data-coach-edge\]"\)/);
+  assert.equal(launcher.match(/leftInset: menuInset\(\)/g)?.length, 2, "both the placement and the drop measure the menu");
 });

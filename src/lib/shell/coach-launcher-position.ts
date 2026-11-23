@@ -4,13 +4,16 @@
  * The button rests against the left or right edge of the screen, at a height the member chose by dragging it
  * (kept per viewport class: phone, tablet, desktop). It is never placed over anything marked `data-coach-avoid`
  * (the phone's bottom bar, sticky save bars, camera controls…): it moves up above such an element, or to the
- * other edge when there is no room, and keeps clear of the header at the top.
+ * other edge when there is no room, and keeps clear of the header at the top. On tablets and desktops the menu
+ * (the rail or the sidebar, marked `data-coach-edge`) runs down the left side: there the left edge is the page's,
+ * beside the menu, so the button never rests on a menu item.
  */
 
 export type ViewportClass = "phone" | "tablet" | "desktop";
 export type LauncherSpot = { side: "left" | "right"; /** The button's top as a share of the free height (0 top, 1 bottom). */ y: number };
 export type Rect = { left: number; top: number; right: number; bottom: number };
-export type Viewport = { width: number; height: number; safeBottom?: number };
+/** `leftInset`: the width of the menu column down the left side (0 or absent on phones, which have a bottom bar). */
+export type Viewport = { width: number; height: number; safeBottom?: number; leftInset?: number };
 
 /** Pages where the button never shows: the coach itself, onboarding and the focus screens. */
 export const LAUNCHER_HIDDEN_ON = ["/ai-coach", "/onboarding", "/workouts/active", "/activity/record", "/workouts/form-check"] as const;
@@ -32,6 +35,12 @@ export function viewportClass(width: number): ViewportClass {
   if (width < 768) return "phone";
   if (width < 1024) return "tablet";
   return "desktop";
+}
+
+/** Where the left edge is: after the menu column, if any, and never past the middle of the screen. */
+function leftEdge(viewport: Viewport): number {
+  const inset = viewport.leftInset ?? 0;
+  return Number.isFinite(inset) ? Math.min(viewport.width / 2, Math.max(0, inset)) : 0;
 }
 
 /** Phones keep the button at the right edge, low, just above the bottom bar; larger screens in the corner. */
@@ -59,7 +68,7 @@ export function placeLauncher(spot: LauncherSpot, viewport: Viewport, obstacles:
   const solid = obstacles.filter((rect) => rect.right > rect.left && rect.bottom > rect.top).map((rect) => inflate(rect, LAUNCHER_GAP));
 
   for (const side of spot.side === "left" ? (["left", "right"] as const) : (["right", "left"] as const)) {
-    const x = side === "left" ? gap : viewport.width - size - gap;
+    const x = side === "left" ? leftEdge(viewport) + gap : viewport.width - size - gap;
     let y = wanted;
     // Move up past each obstacle in the way; a few passes settle stacked bars.
     for (let pass = 0; pass < 8; pass += 1) {
@@ -73,13 +82,14 @@ export function placeLauncher(spot: LauncherSpot, viewport: Viewport, obstacles:
   return null;
 }
 
-/** After a drag: the edge nearer the button's centre and its height as a share of the free height. */
+/** After a drag: the edge nearer the button's centre (the page's, beside any menu column) and its height as a share of the free height. */
 export function spotFromDrop(x: number, y: number, viewport: Viewport, size = LAUNCHER_SIZE): LauncherSpot {
   const gap = edgeGap(viewportClass(viewport.width));
   const top = Math.min(LAUNCHER_TOP, Math.max(0, viewport.height - size - gap));
   const bottom = Math.max(top, viewport.height - size - gap - (viewport.safeBottom ?? 0));
   const share = bottom > top ? (y - top) / (bottom - top) : 1;
-  return { side: x + size / 2 < viewport.width / 2 ? "left" : "right", y: Math.round(Math.min(1, Math.max(0, share)) * 1000) / 1000 };
+  const left = leftEdge(viewport);
+  return { side: x + size / 2 < left + (viewport.width - left) / 2 ? "left" : "right", y: Math.round(Math.min(1, Math.max(0, share)) * 1000) / 1000 };
 }
 
 /** The stored spot for a viewport class, or the default when nothing (or something unreadable) is stored. */
