@@ -344,7 +344,9 @@ function walk(ctx: FilmContext, film: number, lens: THREE.Vector3) {
  *   walks at it and drifts across the axis, so the arrowhead turns a little and its depth reads;
  * - 5b (10.15–10.6): without a hitch the lens accelerates up over the squad and pushes on a zoom
  *   into the doorway; the heads leave through the bottom of the frame;
- * - 6: the drift into the light eases out under the flash and the fade.
+ * - 6: the drift into the light eases out under the flash and the fade. It leaves the cut at the
+ *   rise's own speed and zoom rate (BRIEF-2 G1: no velocity jump at the brand cut), so where it
+ *   settles 0.4 s later follows from the rise instead of being authored.
  */
 interface TeamMove {
   /** 5a lens at 9.2 and 10.15 (constant velocity), the points it looks at then, focal and roll. */
@@ -358,16 +360,26 @@ interface TeamMove {
   riseFocal: number;
   riseCurve: number;
   tiltCurve: number;
-  /** 6: where the drift settles (0.4 s later) and its focal. */
-  drift: Vec3Tuple;
-  driftFocal: number;
 }
+
+/** How long the brand drift takes to ease out (s). */
+const DRIFT_SPAN = 0.4;
 
 const WALK_SPAN = 0.95;
 const RISE_SPAN = 0.45;
 
 function teamKeys(m: TeamMove): CameraKey[] {
   const keys: CameraKey[] = [];
+  // The rise's velocity and log-zoom rate at the cut: the drift (an ease-out, 1 − (1 − u)², whose start
+  // speed is twice its average) starts from exactly these.
+  const riseEnd: Vec3Tuple = [0, 0, 0];
+  for (let c = 0; c < 3; c += 1) {
+    const v = (m.walk[1][c] - m.walk[0][c]) / WALK_SPAN;
+    riseEnd[c] = v + ((m.rise[c] - m.walk[1][c] - v * RISE_SPAN) * m.riseCurve) / RISE_SPAN;
+  }
+  const zoomEnd = (Math.log(m.riseFocal / m.focal[1]) * m.riseCurve) / RISE_SPAN;
+  const drift: Vec3Tuple = [0, 1, 2].map((c) => m.rise[c] + riseEnd[c] * DRIFT_SPAN * 0.5) as Vec3Tuple;
+  const driftFocal = m.riseFocal * Math.exp(zoomEnd * DRIFT_SPAN * 0.5);
   const at = (a: Vec3Tuple, b: Vec3Tuple, u: number): Vec3Tuple => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
   for (let index = 0; index <= 36; index += 1) {
     const t = index * 0.05;
@@ -397,11 +409,11 @@ function teamKeys(m: TeamMove): CameraKey[] {
       focal = m.focal[1] * Math.pow(m.riseFocal / m.focal[1], Math.pow(s, m.riseCurve));
       roll = m.roll[1] * (1 - s);
     } else {
-      const u = Math.min(1, (t - WALK_SPAN - RISE_SPAN) / 0.4);
+      const u = Math.min(1, (t - WALK_SPAN - RISE_SPAN) / DRIFT_SPAN);
       const e = 1 - (1 - u) * (1 - u);
-      position = at(m.rise, m.drift, e);
+      position = at(m.rise, drift, e);
       target = m.riseLook;
-      focal = m.riseFocal * Math.pow(m.driftFocal / m.riseFocal, e);
+      focal = m.riseFocal * Math.pow(driftFocal / m.riseFocal, e);
       roll = 0;
     }
     keys.push({ t, position, target, focal, roll });
@@ -431,8 +443,6 @@ const TEAM_TRACK: CameraTrack = {
     riseFocal: 80,
     riseCurve: 2.2,
     tiltCurve: 1.4,
-    drift: [0.0, 2.25, 2.6],
-    driftFocal: 105,
   }),
   shake: { amplitude: 0.05, frequency: 0.7, seed: 61 },
   portrait: {
@@ -448,8 +458,6 @@ const TEAM_TRACK: CameraTrack = {
       riseFocal: 62,
       riseCurve: 2.2,
       tiltCurve: 1.4,
-      drift: [0.0, 2.3, 3.4],
-      driftFocal: 80,
     }),
   },
   compositions: TEAM_COMPS,

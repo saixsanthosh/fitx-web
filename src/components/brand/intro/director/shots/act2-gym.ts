@@ -158,8 +158,8 @@ const PLATE_COMPS: CameraTrack["compositions"] = {
   phone: { offset: [0.015, 0, 0] },
   "tablet-p": {},
   "tablet-l": { offset: [0.023, 0, 0] },
-  laptop: { offset: [0, -0.007, 0] },
-  desktop: { focalScale: 0.991 },
+  laptop: { offset: [0, -0.022, 0] },
+  desktop: { focalScale: 0.991, offset: [0, -0.024, 0] },
 };
 
 const PLATE_TRACK: CameraTrack = {
@@ -168,7 +168,8 @@ const PLATE_TRACK: CameraTrack = {
   // to a low 3/4 under the plate: the window bokeh and its shafts behind, lettering raking-lit.
   keys: [
     { t: 0, position: [-1.97, 0.28, 0.13], target: [-1.0, 0.259, 0.02], focal: 74, ease: "in" },
-    { t: 0.16, position: [-1.9, 0.2, 0.5], target: [-0.99, 0.3, -0.03], focal: 68 },
+    // "out" after the "in": the eased segments meet at the same speed (G1, no velocity kink at the key).
+    { t: 0.16, position: [-1.9, 0.2, 0.5], target: [-0.99, 0.3, -0.03], focal: 68, ease: "out" },
     { t: 0.4, position: [-1.72, 0.14, 0.93], target: [-0.98, 0.37, -0.1], focal: 61 },
   ],
   // Phones: the same match (the automatic wider lens) and arc, but the lens turns onto the plate so
@@ -176,7 +177,7 @@ const PLATE_TRACK: CameraTrack = {
   portrait: {
     keys: [
       { t: 0, position: [-1.97, 0.28, 0.13], target: [-1.0, 0.259, 0.02], focal: 61, ease: "in" },
-      { t: 0.16, position: [-1.9, 0.2, 0.5], target: [-0.99, 0.3, 0.07], focal: 52 },
+      { t: 0.16, position: [-1.9, 0.2, 0.5], target: [-0.99, 0.3, 0.07], focal: 52, ease: "out" },
       { t: 0.4, position: [-1.72, 0.14, 0.93], target: [-0.98, 0.36, 0.08], focal: 46 },
     ],
   },
