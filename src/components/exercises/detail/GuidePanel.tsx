@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { Flag } from "lucide-react";
+import { Check, Flag } from "lucide-react";
 import { ExerciseDemoPlayer } from "@/components/exercises/ExerciseDemoPlayer";
+import { exerciseBenefits } from "@/lib/training/benefits";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import type { EquipmentState, ExerciseDetail } from "@/lib/training/exercise-detail";
 import type { GuideStep } from "@/lib/training/exercise-guide";
@@ -35,6 +36,25 @@ function Suggested({ exercise }: { exercise: CatalogExercise }) {
   );
 }
 
+/** What the exercise does for you, from the catalogue's own fields (src/lib/training/benefits.ts). */
+function Benefits({ exercise }: { exercise: CatalogExercise }) {
+  const lines = exerciseBenefits(exercise);
+  if (!lines.length) return null;
+  return (
+    <section aria-labelledby="exercise-benefits-heading">
+      <h2 id="exercise-benefits-heading" className="text-base font-semibold text-fitx-text">Benefits</h2>
+      <ul className="m-0 mt-3 grid list-none gap-2 p-0 sm:grid-cols-2">
+        {lines.map((line) => (
+          <li key={line} className="flex items-start gap-2.5 rounded-xl border border-fitx-border bg-fitx-surface px-3 py-2.5 text-sm leading-5 text-fitx-text">
+            <span aria-hidden="true" className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-fitx-primary/12 text-fitx-primary-text"><Check size={12} strokeWidth={3} /></span>
+            {line}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** How to do the exercise: the demonstration photos and the steps first, then the note, sets and equipment. */
 export function GuidePanel({ detail, steps, equipment, signedIn, note, onShowAlternatives }: GuidePanelProps) {
   const { exercise, media } = detail;
@@ -45,6 +65,7 @@ export function GuidePanel({ detail, steps, equipment, signedIn, note, onShowAlt
         <div className="min-w-0 space-y-5">
           <ExerciseDemoPlayer key={exercise.id} media={media} name={exercise.name} layout="sequence" />
           <ExerciseSteps steps={steps} />
+          <Benefits exercise={exercise} />
         </div>
         <div className="space-y-4">
           {note}

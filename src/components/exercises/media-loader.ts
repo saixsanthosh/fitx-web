@@ -1,11 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { EXERCISE_MEDIA_COLUMNS, FREE_EXERCISE_DB_ID_PREFIX, type ExerciseMediaRow } from "@/lib/training/media";
+import { columnList, withOptionalColumns } from "@/lib/domain/schema-fallback";
+import { EXERCISE_MEDIA_COLUMNS, EXERCISE_MEDIA_OPTIONAL_COLUMNS, FREE_EXERCISE_DB_ID_PREFIX, type ExerciseMediaRow } from "@/lib/training/media";
 
 type Db = Pick<SupabaseClient, "from">;
 
 /** One exercise's exercise_media rows, in position order (RLS hides rows of inactive exercises). */
-export function exerciseMediaQuery(supabase: Db, exerciseId: string) {
-  return supabase.from("exercise_media").select(EXERCISE_MEDIA_COLUMNS.join(",")).eq("exercise_id", exerciseId).order("position");
+export function exerciseMediaQuery(supabase: Db, exerciseId: string, includeOptional = false) {
+  return supabase.from("exercise_media").select(columnList(EXERCISE_MEDIA_COLUMNS, EXERCISE_MEDIA_OPTIONAL_COLUMNS, includeOptional)).eq("exercise_id", exerciseId).order("position");
+}
+
+/** One exercise's media rows with the model and caption columns once 20261123100020 is applied (without them before). */
+export async function exerciseMediaResult(supabase: Db, exerciseId: string) {
+  return (await withOptionalColumns(EXERCISE_MEDIA_OPTIONAL_COLUMNS, (include) => exerciseMediaQuery(supabase, exerciseId, include))).result;
 }
 
 /** Rows from an exerciseMediaQuery answer: null when the table could not be read (not migrated yet). */
@@ -22,7 +28,7 @@ export async function loadExerciseMediaRows(supabase: Db | null, exerciseId: str
   if (!supabase) return { rows: null, sourceRef: null };
   try {
     const [media, library] = await Promise.all([
-      exerciseMediaQuery(supabase, exerciseId),
+      exerciseMediaResult(supabase, exerciseId),
       exerciseId.startsWith(FREE_EXERCISE_DB_ID_PREFIX) ? null : supabase.from("exercise_library").select("source_ref").eq("id", exerciseId).maybeSingle(),
     ]);
     const sourceRef = library && !library.error ? (library.data as { source_ref?: string | null } | null)?.source_ref ?? null : null;

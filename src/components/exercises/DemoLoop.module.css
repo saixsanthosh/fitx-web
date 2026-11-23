@@ -1,0 +1,113 @@
+/* The photo demonstration. Opacity and transform only; the blend time is set inline from the speed. */
+.stage {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  border: 1px solid var(--fitx-border);
+  background: var(--fitx-elevated);
+  isolation: isolate;
+}
+.compact { border-radius: 1rem; }
+@media (min-width: 640px) {
+  .stage { aspect-ratio: 16 / 10; }
+}
+
+.frame {
+  object-fit: contain;
+  padding: 0.5rem;
+  opacity: 0;
+  transform: scale(1);
+  transition-property: opacity, transform;
+  transition-duration: var(--demo-blend, 650ms);
+  transition-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+}
+.active { opacity: 1; }
+/* While playing, the shown photo settles in slightly, so the change reads as motion rather than a cut. */
+.drift.active {
+  transform: scale(1.018);
+  transition: opacity var(--demo-blend, 650ms) cubic-bezier(0.65, 0, 0.35, 1), transform 1.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.badge {
+  position: absolute;
+  left: 0.625rem;
+  top: 0.625rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.75rem;
+  border-radius: 999px;
+  padding: 0 0.625rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--fitx-on-inverse);
+  background: color-mix(in srgb, var(--fitx-scrim) 72%, transparent);
+  backdrop-filter: blur(6px);
+}
+.counter {
+  position: absolute;
+  right: 0.625rem;
+  top: 0.625rem;
+  z-index: 1;
+  min-width: 2.5rem;
+  border-radius: 999px;
+  padding: 0.25rem 0.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--fitx-on-inverse);
+  background: color-mix(in srgb, var(--fitx-scrim) 72%, transparent);
+}
+
+.controls {
+  margin-top: 0.625rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.control {
+  display: grid;
+  place-items: center;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--fitx-border);
+  background: var(--fitx-surface);
+  color: var(--fitx-text);
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), border-color 160ms ease, background-color 160ms ease;
+}
+.control:hover { border-color: color-mix(in srgb, var(--fitx-primary) 45%, var(--fitx-border)); background: var(--fitx-hover); }
+.control:active { transform: scale(0.94); }
+.control:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.primary { background: var(--fitx-strong-bg); border-color: var(--fitx-strong-bg); color: var(--fitx-on-strong); }
+.primary:hover { background: var(--fitx-strong-bg); border-color: var(--fitx-strong-bg); }
+.text { padding: 0 0.75rem; font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.on { border-color: var(--fitx-primary); color: var(--fitx-primary-text); background: color-mix(in srgb, var(--fitx-primary) 10%, var(--fitx-surface)); }
+
+.dots { margin-left: auto; display: flex; }
+.dot { display: grid; place-items: center; height: 2.75rem; width: 2.25rem; border-radius: 999px; }
+.dot:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: -2px; }
+.dotMark {
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 999px;
+  background: var(--fitx-track);
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 240ms ease;
+}
+.dotOn { background: var(--fitx-primary); transform: scale(1.35); }
+
+.caption {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.125rem;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  color: var(--fitx-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame, .drift.active, .control, .dotMark { transition: none; transform: none; }
+}

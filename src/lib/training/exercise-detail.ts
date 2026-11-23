@@ -5,13 +5,13 @@
  * client, so the page, an info sheet in the builder or the live session can share them.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { exerciseMediaQuery, mediaRowsFrom } from "@/components/exercises/media-loader";
+import { exerciseMediaResult, mediaRowsFrom } from "@/components/exercises/media-loader";
 import { columnList, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { CATALOG_BASE_COLUMNS, CATALOG_V2_COLUMNS, toCatalogExercise, type CatalogExercise, type CatalogRow } from "./catalog";
 import { loadEquipmentProfiles, type EquipmentProfiles } from "./data";
 import { bestSet, formatBestSet, loadExerciseHistory, type ExerciseSession } from "./exercise-history";
 import { survivingExerciseId } from "./exercise-merges";
-import { resolveExerciseMedia, type ExerciseMedia } from "./media";
+import { resolveExerciseMedia, type DemoModelKey, type ExerciseMedia } from "./media";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -38,11 +38,11 @@ type DetailRow = CatalogRow & { description?: string | null; instructions?: stri
 export const DETAIL_COLUMNS: readonly string[] = [...CATALOG_BASE_COLUMNS, "description", "instructions", "attribution"];
 
 /** One active exercise with its text and media (the media table may not exist yet: the pinned photos are used). */
-export async function loadExerciseDetail(db: Db, id: string, supabaseUrl: string | null | undefined): Promise<ExerciseDetailResult> {
+export async function loadExerciseDetail(db: Db, id: string, supabaseUrl: string | null | undefined, model: DemoModelKey | null = null): Promise<ExerciseDetailResult> {
   const [row, media] = await Promise.all([
     withOptionalColumns(CATALOG_V2_COLUMNS, (include) =>
       db.from("exercise_library").select(columnList(DETAIL_COLUMNS, CATALOG_V2_COLUMNS, include)).eq("id", id).eq("is_active", true).maybeSingle()),
-    exerciseMediaQuery(db, id),
+    exerciseMediaResult(db, id),
   ]);
   if (row.result.error) return { status: "error", error: row.result.error };
   const data = row.result.data as unknown as DetailRow | null;
@@ -55,7 +55,7 @@ export async function loadExerciseDetail(db: Db, id: string, supabaseUrl: string
       description: data.description?.trim() ?? "",
       instructions: (data.instructions ?? []).map((step) => step.trim()).filter(Boolean),
       attribution: data.attribution?.trim() || null,
-      media: resolveExerciseMedia({ exerciseId: exercise.id, name: exercise.name, sourceRef: exercise.source_ref, rows: mediaRowsFrom(media), supabaseUrl }),
+      media: resolveExerciseMedia({ exerciseId: exercise.id, name: exercise.name, sourceRef: exercise.source_ref, rows: mediaRowsFrom(media), supabaseUrl, model }),
     },
   };
 }

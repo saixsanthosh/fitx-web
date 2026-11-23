@@ -8,6 +8,7 @@ import {
   FREE_EXERCISE_DB_PHOTO_COUNT,
   freeExerciseDbRef,
   isOptimizableImageUrl,
+  PHOTO_STAND_INS,
   pinnedPhotoUrl,
   resolveExerciseMedia,
   type ExerciseMedia,
@@ -16,9 +17,9 @@ import {
 import { ExerciseDemoPlayer, ExerciseDemoSkeleton } from "./ExerciseDemoPlayer";
 import { loadExerciseMediaRows } from "./media-loader";
 
-/** The pinned Free Exercise DB photo `frame` (0 or 1) for a `free-exercise-db-` id, else null. */
+/** The pinned Free Exercise DB photo `frame` (0 or 1) for a `free-exercise-db-` id or a photo stand-in, else null. */
 export function exerciseFrameUrl(exerciseId: string, frame: number) {
-  const ref = freeExerciseDbRef(exerciseId);
+  const ref = freeExerciseDbRef(exerciseId) ?? PHOTO_STAND_INS[exerciseId]?.ref ?? null;
   return ref && Number.isInteger(frame) && frame >= 0 && frame < FREE_EXERCISE_DB_PHOTO_COUNT ? pinnedPhotoUrl(ref, frame) : null;
 }
 

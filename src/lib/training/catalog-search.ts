@@ -4,7 +4,7 @@ import { BODY_REGIONS, exerciseRegions, isRegionKey, regionsForMuscle, type Regi
 import { CATALOG_BASE_COLUMNS, CATALOG_V2_COLUMNS, toCatalogExercise, type CatalogExercise, type CatalogRow } from "./catalog";
 import { missingEquipment } from "./equipment";
 import { FOCUS_AREAS, focusRole, isFullBodyExercise, parseFocusParam, type FocusArea } from "./focus";
-import { EXERCISE_MEDIA_COLUMNS, groupMediaRows, resolveExerciseMedia, type ExerciseMediaRow } from "./media";
+import { EXERCISE_MEDIA_COLUMNS, groupMediaRows, resolveExerciseMedia, type ExerciseMediaRow, type MediaItem } from "./media";
 import { matchExercise, parseSearch, relevanceBand, type SearchMatch, type SearchPlan } from "./search-terms";
 import { stapleRank } from "./staples";
 import {
@@ -715,20 +715,28 @@ export async function searchCatalog(db: Db, params: CatalogSearchParams): Promis
 }
 
 /**
- * The first still for each exercise: the exercise_media rows (self-hosted copy first), else the
- * pinned Free Exercise DB photo. A missing table (media migration not applied) is not an error;
- * any other failure is returned for logging, with the pinned photos still filled in.
+ * Every still for each exercise, in order: the exercise_media rows (self-hosted copy first), else the pinned Free
+ * Exercise DB photos (or a labelled stand-in, PHOTO_STAND_INS). A missing table (media migration not applied) is
+ * not an error; any other failure is returned for logging, with the pinned photos still filled in.
  */
-export async function loadCatalogThumbnails(db: Db, exercises: readonly Pick<CatalogExercise, "id" | "name" | "source_ref">[], supabaseUrl: string | null | undefined): Promise<{ error: unknown; thumbnails: Map<string, string | null> }> {
-  const thumbnails = new Map<string, string | null>();
-  if (!exercises.length) return { error: null, thumbnails };
+export async function loadCatalogStills(db: Db, exercises: readonly Pick<CatalogExercise, "id" | "name" | "source_ref">[], supabaseUrl: string | null | undefined): Promise<{ error: unknown; stills: Map<string, MediaItem[]> }> {
+  const stills = new Map<string, MediaItem[]>();
+  if (!exercises.length) return { error: null, stills };
   const result = await db.from("exercise_media").select(EXERCISE_MEDIA_COLUMNS.join(","))
     .in("exercise_id", exercises.map((exercise) => exercise.id)).eq("kind", "still").order("position");
   const rows = result.error ? null : ((result.data ?? []) as unknown as ExerciseMediaRow[]);
   const grouped = groupMediaRows(rows ?? []);
   for (const exercise of exercises) {
     const media = resolveExerciseMedia({ exerciseId: exercise.id, name: exercise.name, sourceRef: exercise.source_ref, rows: rows ? grouped.get(exercise.id) ?? [] : null, supabaseUrl });
-    thumbnails.set(exercise.id, media.stills[0]?.url ?? null);
+    stills.set(exercise.id, media.stills);
   }
-  return { error: result.error && !isMissingTableError(result.error) ? result.error : null, thumbnails };
+  return { error: result.error && !isMissingTableError(result.error) ? result.error : null, stills };
+}
+
+/** The first still for each exercise (see loadCatalogStills), or null when it has none. */
+export async function loadCatalogThumbnails(db: Db, exercises: readonly Pick<CatalogExercise, "id" | "name" | "source_ref">[], supabaseUrl: string | null | undefined): Promise<{ error: unknown; thumbnails: Map<string, string | null> }> {
+  const { error, stills } = await loadCatalogStills(db, exercises, supabaseUrl);
+  const thumbnails = new Map<string, string | null>();
+  for (const exercise of exercises) thumbnails.set(exercise.id, stills.get(exercise.id)?.[0]?.url ?? null);
+  return { error, thumbnails };
 }

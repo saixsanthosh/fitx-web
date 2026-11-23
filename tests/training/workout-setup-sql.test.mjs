@@ -44,6 +44,7 @@ describe("workout setup migration", { skip }, () => {
     assert.ok(!odd.ok && /user_preferences_demo_model_check/.test(odd.stderr), `an unknown model is refused: ${odd.stderr}`);
     assert.equal(pg.exec(`update public.user_preferences set demo_model = 'male' where user_id = '${A}' returning 1;`, asB), "", "another member's row is not changed");
     assert.deepEqual(setupOf(A), { set: true, model: null });
+    assert.equal(pg.exec(`select demo_model from public.user_preferences where user_id = '${B}';`, asA), "", "nor read");
   });
 
   test("running the file again changes nothing", () => {
