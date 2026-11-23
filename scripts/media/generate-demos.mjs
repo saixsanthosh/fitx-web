@@ -105,8 +105,8 @@ export function requireCaps(args) {
  * personas/male.png and personas/female.png), so the words never contradict image 1 of a request.
  */
 export const PERSONAS = Object.freeze({
-  male: "An athletic man in his late twenties of Indian appearance, short dark hair and a neatly trimmed beard, an athletic but realistic build (not a bodybuilder). A plain charcoal crew-neck T-shirt with short sleeves (never a tank top or a sleeveless top), plain black training shorts above the knee, plain dark grey trainers with white soles. No logos, no text, no jewellery.",
-  female: "An athletic woman in her late twenties of Indian appearance, dark hair tied back in a low bun, a fit and realistic build. A plain terracotta short-sleeved fitted sports top that covers the midriff (never a crop top or a sports bra), plain black full-length leggings (never shorts), plain dark grey trainers with white soles. No logos, no text, no jewellery.",
+  male: "An athletic man in his late twenties of Indian appearance, short dark hair and a neatly trimmed beard, an athletic but realistic build (not a bodybuilder). A plain charcoal crew-neck T-shirt with short sleeves (never a tank top or a sleeveless top), plain black training shorts above the knee, plain dark grey trainers with white soles and no brand mark. The T-shirt stays down over the waist in every position. No logos, no text, no jewellery.",
+  female: "An athletic woman in her late twenties of Indian appearance, dark hair tied back in a low bun, a fit and realistic build. A plain terracotta short-sleeved fitted sports top that covers the midriff (never a crop top or a sports bra), plain black full-length leggings (never shorts), plain dark grey trainers with white soles and no brand mark. The top stays down over the waistband in every position, so no skin shows at the waist. No logos, no text, no jewellery.",
 });
 /** The approved sheets' own studio, so every frame looks like the same shoot. */
 const STUDIO = "a seamless warm light-grey studio backdrop that curves into the floor, with soft even light from the front and a soft contact shadow under the body";
@@ -117,7 +117,7 @@ export function personaPrompt(model) {
 }
 
 /** Bumped whenever the prompt or the order of the images changes; recorded on every ledger entry. */
-export const PROMPT_VERSION = 5;
+export const PROMPT_VERSION = 6;
 
 /**
  * Each frame is an edit of its own reference photo (image 1), with the approved persona as image 2, so the pose, camera
@@ -128,13 +128,15 @@ export const PROMPT_VERSION = 5;
  *  - prompt 3 kept the poses but made push-ups shallower than the photo and left a dark gym floor once.
  *  - prompt 4 fixed the depth, but in about a third of the frames the photo's own person showed through (their face, a
  *    tank top, a crop top, printed shorts, a logo on a mat), and once a plate stayed on the floor.
+ *  - prompt 5's strict two-reviewer check still found numbers on dumbbells and plates, brand marks on shoes and tops
+ *    riding up in lying poses: prompt 6 asks for plain unmarked weights, unbranded trainers and tops that stay down.
  * So the prompt names no exercise and no position, the end frame gets no image 3, and the words pin how bent each joint is,
  * how far the body is from the floor, the camera distance and a light floor. It never asks to move a pose.
  */
 export function demoPrompt(item, model, frame) {
   void item;
   void frame;
-  return `Edit image 1. Reproduce exactly the pose in image 1: keep the body position, how much each elbow, knee and hip is bent, how far the chest, hips and knees are from the floor, where the hands and feet are, the grip, the stance, the equipment and where it is, and the camera angle, camera height and framing exactly as they are in image 1, with the camera at the same distance so the person fills the same part of the frame. Change only the person and the background. Replace the person completely with the person in image 2: their face, hair, skin tone and build, dressed exactly like this: ${PERSONAS[model]} Nothing of the person in image 1 may remain: not their face, hair, skin tone, clothes, shoes or any print on them. Every piece of equipment stays in the same hands, under the same feet or under the same body as in image 1. Replace the whole background and the floor with ${STUDIO}; the floor is the same warm light grey as the backdrop, never a dark gym floor; remove the gym, racks, loose plates, walls, signs and other people, and keep only equipment the person is holding, touching, sitting or lying on, with every logo, letter and print removed from it. Do not change, correct, exaggerate or move the pose in any way. ${RULES} Landscape 4:3.`;
+  return `Edit image 1. Reproduce exactly the pose in image 1: keep the body position, how much each elbow, knee and hip is bent, how far the chest, hips and knees are from the floor, where the hands and feet are, the grip, the stance, the equipment and where it is, and the camera angle, camera height and framing exactly as they are in image 1, with the camera at the same distance so the person fills the same part of the frame. Change only the person and the background. Replace the person completely with the person in image 2: their face, hair, skin tone and build, dressed exactly like this: ${PERSONAS[model]} Nothing of the person in image 1 may remain: not their face, hair, skin tone, clothes, shoes or any print on them. Every piece of equipment stays in the same hands, under the same feet or under the same body as in image 1. Replace the whole background and the floor with ${STUDIO}; the floor is the same warm light grey as the backdrop, never a dark gym floor; remove the gym, racks, loose plates, walls, signs and other people, and keep only equipment the person is holding, touching, sitting or lying on, with every logo, letter and print removed from it: dumbbells, kettlebells and weight plates are plain matte black with no numbers, letters or markings, and bars, benches, mats, balls and machines carry no logo or print. Do not change, correct, exaggerate or move the pose in any way. ${RULES} Landscape 4:3.`;
 }
 
 /** The generateContent body: the prompt, then each reference image in order. The key is never part of it. */

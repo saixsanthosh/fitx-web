@@ -70,6 +70,7 @@ test("prompts reproduce the reference pose and never ask the model to move it", 
     assert.match(text, /how much each elbow, knee and hip is bent, how far the chest, hips and knees are from the floor/);
     assert.match(text, /Change only the person and the background/);
     assert.match(text, /Nothing of the person in image 1 may remain/, "the photo's own person never shows through");
+    assert.match(text, /plain matte black with no numbers, letters or markings/, "weights carry no printed numbers");
     assert.match(text, /Do not change, correct, exaggerate or move the pose/);
     assert.doesNotMatch(text, /\b(lower|raise|move) (the|your|their) (arms|body|hips)\b/i);
     assert.doesNotMatch(text, /Image 3/, "no frame is sent a third image (the model copied its pose)");
@@ -134,7 +135,7 @@ test("a run makes start frames before end frames, sends the key only in the head
       assert.equal(sent[1].inline_data.mime_type, "image/jpeg", "image 1 is the reference photo being edited");
       assert.equal(sent[2].inline_data.data, personas.male.data, "image 2 is the persona");
     }
-    assert.equal(readLedger(dir).images[jobKey("push_up", "male", 0)].prompt, 5);
+    assert.equal(readLedger(dir).images[jobKey("push_up", "male", 0)].prompt, 6);
     const saved = readLedger(dir);
     assert.equal(saved.calls, 8);
     assert.equal(saved.spentUsd, 0.312);
