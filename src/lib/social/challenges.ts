@@ -106,23 +106,24 @@ export function progressShare(value: number | null | undefined, target: number |
   return Math.max(0, Math.min(1, Number(value) / Number(target)));
 }
 
-const dayFormat = (zone?: string) => new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", ...(zone ? { timeZone: zone } : {}) });
+const dayFormat = (zone: string) => new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: zone });
+
+/** The last day of a window: windows end at midnight, so the day before the end. */
+const lastDayOf = (challenge: Pick<Challenge, "ends_at">) => new Date(new Date(challenge.ends_at).getTime() - 1);
 
 /**
- * The challenge's dates in the member's own zone ("Mon 23 Nov to Sun 29 Nov"). Windows end at midnight, so the last
- * day shown is the day before the end.
+ * The challenge's dates in India time, where the windows are counted (O6 a: "Mon 23 Nov to Sun 29 Nov", whatever the
+ * browser's zone). The last day shown is the day before the end.
  */
-export function windowText(challenge: Pick<Challenge, "starts_at" | "ends_at">, zone?: string): string {
-  const start = new Date(challenge.starts_at);
-  const lastDay = new Date(new Date(challenge.ends_at).getTime() - 1);
+export function windowText(challenge: Pick<Challenge, "starts_at" | "ends_at">, zone: string = CHALLENGE_TIME_ZONE): string {
   const format = dayFormat(zone);
-  return `${format.format(start)} to ${format.format(lastDay)}`;
+  return `${format.format(new Date(challenge.starts_at))} to ${format.format(lastDayOf(challenge))}`;
 }
 
-/** "Ends in 3 days", "Ends in 5 h", "Starts tomorrow", "Final count soon", "Ended 2 Nov". */
-export function timeLeftText(challenge: Pick<Challenge, "starts_at" | "ends_at" | "closed_at">, now: Date = new Date()): string {
+/** "Ends in 3 days", "Ends in 5 h", "Starts tomorrow", "Final count soon", "Ended 29 Nov" (the window's last day, India time). */
+export function timeLeftText(challenge: Pick<Challenge, "starts_at" | "ends_at" | "closed_at">, now: Date = new Date(), zone: string = CHALLENGE_TIME_ZONE): string {
   const phase = challengePhase(challenge, now);
-  if (phase === "closed") return `Ended ${new Date(challenge.ends_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
+  if (phase === "closed") return `Ended ${lastDayOf(challenge).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: zone })}`;
   if (phase === "closing") return "Final count soon";
   const target = new Date(phase === "upcoming" ? challenge.starts_at : challenge.ends_at).getTime();
   const hours = Math.max(0, Math.round((target - now.getTime()) / 3_600_000));

@@ -91,6 +91,24 @@ test("challenge phases and windows", () => {
   assert.match(countingNote({ kind: "weekly" }), /Monday to Monday/);
 });
 
+test("windows and end dates are written in India time, whatever the browser's zone", () => {
+  const week = { starts_at: "2026-11-23T00:00:00+05:30", ends_at: "2026-11-30T00:00:00+05:30", closed_at: "2026-11-30T02:23:00+05:30" };
+  const zone = process.env.TZ;
+  try {
+    for (const browser of ["UTC", "Europe/London", "America/Los_Angeles", "Asia/Kolkata"]) {
+      process.env.TZ = browser;
+      assert.equal(windowText(week), "Mon 23 Nov to Sun 29 Nov", `${browser}: the window the counting note describes`);
+      assert.equal(timeLeftText(week), "Ended 29 Nov", `${browser}: the window's last day, as the dates above show it`);
+    }
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
+  const month = { starts_at: "2026-11-01T00:00:00+05:30", ends_at: "2026-12-01T00:00:00+05:30", closed_at: "2026-12-01T02:23:00+05:30" };
+  assert.equal(windowText(month), "Sun 1 Nov to Mon 30 Nov");
+  assert.equal(timeLeftText(month), "Ended 30 Nov");
+});
+
 test("nobody joined is said in words, never as a bare 0", async () => {
   const { participantsText } = await import("../../src/lib/social/challenges.ts");
   assert.equal(participantsText(0), "No one has joined yet");
