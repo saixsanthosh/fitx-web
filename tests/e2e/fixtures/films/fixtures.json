@@ -1,0 +1,23 @@
+{
+  "total": 41024,
+  "files": {
+    "pattern-hevc60.mp4": {
+      "bytes": 11105,
+      "sha256": "ff167926772fe1c2ecefbcc9b4bce03241206112defcfe9864e18edba16ed411",
+      "codecs": "hvc1.1.6.L30.B0"
+    },
+    "pattern-avc30.mp4": {
+      "bytes": 11182,
+      "sha256": "4506240140f6fb17036765dcce037596f9f5956ff9dc19e9217886e9573ddf61",
+      "codecs": "avc1.64000A"
+    },
+    "poster.webp": {
+      "bytes": 1150,
+      "sha256": "db9cd6ac2f8c5f927347760d773c4f5e38493161dc8ff72e3457188d166cfc03"
+    },
+    "tone.m4a": {
+      "bytes": 17587,
+      "sha256": "761429f5542f94ef9554edbf4905a24d8cd8ef97a6ec7963afa69c8855ca77e2"
+    }
+  }
+}

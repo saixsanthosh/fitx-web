@@ -1,10 +1,12 @@
 /**
  * Which steps play after onboarding (no React, so it runs under `node --test`).
  *
- * The steps are [film, logo]. When the device still owes the account its one-time intro film (cookie
- * `fitx_intro=play`), both are skipped: that film plays on the first dashboard load and ends on the logo, so the
- * member never sees two films or two logo reveals in a row. Otherwise the post-onboarding film plays when one
- * exists (wave 2), then the logo reveal.
+ * D1 (BRIEF-2 section 0), dormant until the welcome cuts exist:
+ *  - with the welcome film (`hasFilm`: its manifest exists), just ["film"], whatever the cookie says: the film ends on
+ *    the logo (LogoReveal "film-end"), so there are never two logo reveals in a row, and it records itself (the seen
+ *    flag and /api/intro/complete), so the dashboard does not play the account's intro film after it;
+ *  - without it, exactly what wave 1 did: nothing when the device still owes the account its one-time intro film
+ *    (cookie `fitx_intro=play`; that film plays on the first dashboard load and ends on the logo), else the logo.
  */
 export type PostStep = "film" | "logo";
 
@@ -26,8 +28,9 @@ export function readCookie(cookies: string, name: string): string | null {
 }
 
 export function postOnboardingSteps({ cookies, hasFilm }: { cookies: string; hasFilm: boolean }): PostStep[] {
+  if (hasFilm) return ["film"];
   if (readCookie(cookies, INTRO_COOKIE_NAME) === "play") return [];
-  return hasFilm ? ["film", "logo"] : ["logo"];
+  return ["logo"];
 }
 
 /** How long the logo step holds before moving on: the mark's formation plus a beat (static with reduced motion). */

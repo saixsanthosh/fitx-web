@@ -1,5 +1,18 @@
 import { INTRO_PLAY_MAX_AGE } from "@/lib/auth/cookies";
-import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT, RETURNING_WELCOME_COOKIE, VISITOR_FILM_SEEN_KEY } from "./introKeys";
+import { FILM_ATTR, FILM_CUT_ATTR } from "./films/compositions";
+import { bootstrapFilms, PICK_COMPOSITION_ES5 } from "./films/bootstrap-twin";
+import { FILM_MANIFESTS } from "@/components/brand/films/cuts.generated";
+import { FIXTURE_COOKIE, FIXTURE_MANIFESTS } from "./films/fixture";
+import type { FilmManifests } from "./films/manifest";
+import {
+  ACCOUNT_FILM_STARTED_KEY,
+  FILM_POSTER_VAR,
+  FILM_SEEN_KEY,
+  FILM_SEEN_MS,
+  INTRO_PENDING_EVENT,
+  RETURNING_WELCOME_COOKIE,
+  VISITOR_FILM_SEEN_KEY,
+} from "./introKeys";
 
 /** How long a returning member's logo reveal may hold the page if the app never ends it (ms). */
 export const WELCOME_FALLBACK_MS = 2600;
@@ -16,7 +29,8 @@ const ACCOUNT_FILM_REPEAT_MS = (INTRO_PLAY_MAX_AGE + 60 * 60) * 1000;
  *  - marks signed-in visitors (`data-fitx-auth`, from the fitx_auth hint cookie) so static pages can
  *    show "Open dashboard" instead of "Log in" without a flash,
  *  - decides whether the intro film plays (`data-fitx-intro-gate` says why):
- *     - "replay": on request with `?intro=live|video|play`, on the home page or an app page;
+ *     - "replay": on request with `?intro=live|video|play` (the intro) or `?intro=welcome` (the welcome film, only when
+ *       its cuts exist), on the home page or an app page;
  *     - "account": once per account, on the first app page after the server marked this device
  *       `fitx_intro=play` (at sign-in, or from the proxy for a device that was already signed in while
  *       the account had not seen the film; see src/proxy.ts). This script consumes it at once, so a
@@ -26,15 +40,21 @@ const ACCOUNT_FILM_REPEAT_MS = (INTRO_PLAY_MAX_AGE + 60 * 60) * 1000;
  *       (tabs restored together). Signing out ends that (the next signed-out page load forgets it), so
  *       the next account on the device gets its own film. Pages that run this at the very same moment in
  *       several tabs can't see each other yet, so each leaves its claim (`window.__fitxAccountFilm`) and
- *       CinematicIntro plays only the latest one (accountFilmClaimedElsewhere);
+ *       CinematicIntro plays only the latest one (accountFilmClaimedElsewhere). It plays the welcome film once its cuts
+ *       exist (D1), the intro film until then. It is skipped (the cookie left as it is, for IntroCompletionReporter's
+ *       retry) for 7 days after this device started the welcome film (localStorage FILM_SEEN_KEY), so a failed
+ *       /api/intro/complete never replays it;
  *     - "visitor": signed-out visitors, on the home page "/" and no other page, once per device (first-time
  *       visitors only; CinematicIntro remembers it in localStorage when the film starts, and so does Skip or
  *       Escape here). It records nothing on any account and writes no cookie, so it never touches the
  *       account's film. Never for a signed-in visitor (fitx_auth hint), whom the proxy sends on to the
  *       dashboard anyway.
  *    It then marks `<html data-fitx-intro="pending" data-fitx-intro-theme="light|dark">`, which CSS
- *    turns into the full-screen overlay showing the film's first frame, preloads that frame, and
- *    announces it (INTRO_PENDING_EVENT),
+ *    turns into the full-screen overlay showing the film's first frame, plus `data-fitx-film="intro|welcome"` (the
+ *    film claimed) and `data-fitx-film-cut="<composition>"` (the composition its cut is for, chosen by the viewport's
+ *    aspect through the ES5 twin of pickComposition, films/bootstrap-twin.ts). It preloads that composition's poster
+ *    from the manifest (and puts it in the --fitx-film-poster property the overlay's CSS reads), and announces it
+ *    (INTRO_PENDING_EVENT),
  *  - waits while the page is hidden (a tab opened in the background, or prerendered): nothing is
  *    consumed, marked or preloaded until the page is first shown, and the film is chosen then, so a tab
  *    nobody has looked at never uses up or records the account's film,
@@ -64,7 +84,8 @@ const ACCOUNT_FILM_REPEAT_MS = (INTRO_PLAY_MAX_AGE + 60 * 60) * 1000;
  * Keep it tiny, dependency-free and ES5-safe: it blocks parsing while it runs. No backslashes in it:
  * this is a template literal.
  */
-export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
+export function buildIntroBootstrapScript({ manifests, fixture }: { manifests: FilmManifests; fixture: FilmManifests | null }): string {
+  return `(function () {
   var root = document.documentElement;
   var mode = "system";
   try {
@@ -96,6 +117,14 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
       var app = ["dashboard", "workouts", "nutrition", "activity", "ai-coach", "progress", "goals", "planner", "profile", "settings", "exercises", "home-workout", "form-coach", "explore"].indexOf(section) !== -1 && !focus;
       return { path: path, focus: focus, app: app };
     };
+    var films = ${JSON.stringify(bootstrapFilms(manifests))};
+    var fixture = ${fixture ? JSON.stringify(bootstrapFilms(fixture)) : "null"};
+    if (fixture && cookie("${FIXTURE_COOKIE}") === "1") films = fixture;
+    var pickComposition = ${PICK_COMPOSITION_ES5};
+    var seenRecently = function () {
+      var age = Date.now() - Date.parse(read("localStorage", "${FILM_SEEN_KEY}") || "");
+      return age >= 0 && age < ${FILM_SEEN_MS};
+    };
     var signedIn = cookie("fitx_auth") === "1";
     if (signedIn) root.setAttribute("data-fitx-auth", "1");
     else if (read("localStorage", "${ACCOUNT_FILM_STARTED_KEY}") !== null) write("localStorage", "${ACCOUNT_FILM_STARTED_KEY}", null);
@@ -103,7 +132,8 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
       if (still()) return null;
       var asked = (window.location.search.match(/[?&]intro=([a-z]+)/) || [])[1];
       if ((here.path === "/" || here.app) && (asked === "live" || asked === "video" || asked === "play")) return "replay";
-      if (here.app && cookie("fitx_intro") === "play") return "account";
+      if ((here.path === "/" || here.app) && asked === "welcome") return films.welcome ? "replay" : null;
+      if (here.app && cookie("fitx_intro") === "play" && !seenRecently()) return "account";
       if (here.path === "/" && cookie("fitx_auth") !== "1" && read("localStorage", "${VISITOR_FILM_SEEN_KEY}") !== "1") return "visitor";
       return null;
     };
@@ -117,20 +147,30 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
         window.__fitxAccountFilm = claim;
       }
       root.setAttribute("data-fitx-intro-gate", gate);
+      var asked = (window.location.search.match(/[?&]intro=([a-z]+)/) || [])[1];
+      var film = (gate === "replay" && asked === "welcome") || (gate === "account" && films.welcome) ? "welcome" : "intro";
+      var data = films[film] || { comps: [], posters: {} };
       var dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
       var theme = dark ? "dark" : "light";
-      var orientation = window.matchMedia("(orientation: portrait)").matches ? "portrait" : "landscape";
+      var comp = pickComposition(window.innerWidth, window.innerHeight, data.comps);
       root.setAttribute("data-fitx-intro-theme", theme);
+      root.setAttribute("${FILM_ATTR}", film);
+      root.setAttribute("${FILM_CUT_ATTR}", comp);
       root.setAttribute("data-fitx-intro", "pending");
-      var link = document.createElement("link");
-      link.rel = "preload";
-      link.as = "image";
-      link.href = "/brand/intro/fitx-intro-" + theme + "-" + orientation + ".webp";
-      link.setAttribute("fetchpriority", "high");
-      document.head.appendChild(link);
+      var poster = data.posters[comp + "-" + theme] || "";
+      if (poster) {
+        try { root.style.setProperty("${FILM_POSTER_VAR}", 'url("' + poster + '")'); } catch (e) {}
+        var link = document.createElement("link");
+        link.rel = "preload";
+        link.as = "image";
+        link.href = poster;
+        link.setAttribute("fetchpriority", "high");
+        document.head.appendChild(link);
+      }
       var release = function (skipped) {
         if (root.getAttribute("data-fitx-intro") !== "pending") return;
         root.removeAttribute("data-fitx-intro");
+        root.removeAttribute("${FILM_ATTR}");
         if (skipped && gate === "visitor") write("localStorage", "${VISITOR_FILM_SEEN_KEY}", "1");
       };
       var pendingSkip = function () {
@@ -207,7 +247,9 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
         return;
       }
     }
-    var intro = gate === "account" ? "seen" : cookie("fitx_intro");
+    // The account's film was skipped because this device started the welcome film lately: as good as seen.
+    var waived = here.app && cookie("fitx_intro") === "play" && seenRecently();
+    var intro = gate === "account" || waived ? "seen" : cookie("fitx_intro");
     if (still() || intro !== "seen" || here.focus) return;
     root.setAttribute("data-fitx-loader", "on");
     var shownAt = Date.now();
@@ -222,3 +264,13 @@ export const INTRO_BOOTSTRAP_SCRIPT = `(function () {
     window.setTimeout(hide, 900);
   } catch (e) {}
 })();`;
+}
+
+/**
+ * The head script of this build: the generated manifests, plus the fixture's in an e2e build
+ * (NEXT_PUBLIC_FITX_FILM_FIXTURE=1, taken only with the fitx_film_fixture=1 cookie; see films/fixture.ts).
+ */
+export const INTRO_BOOTSTRAP_SCRIPT = buildIntroBootstrapScript({
+  manifests: FILM_MANIFESTS,
+  fixture: process.env.NEXT_PUBLIC_FITX_FILM_FIXTURE === "1" ? FIXTURE_MANIFESTS : null,
+});

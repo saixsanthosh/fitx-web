@@ -1,12 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
-import { INTRO_BOOTSTRAP_SCRIPT, WELCOME_FALLBACK_MS } from "@/components/brand/introBootstrap";
-import { ACCOUNT_FILM_STARTED_KEY, INTRO_PENDING_EVENT, RETURNING_WELCOME_COOKIE, VISITOR_FILM_SEEN_KEY } from "@/components/brand/introKeys";
+import { buildIntroBootstrapScript, INTRO_BOOTSTRAP_SCRIPT, WELCOME_FALLBACK_MS } from "@/components/brand/introBootstrap";
+import {
+  ACCOUNT_FILM_STARTED_KEY,
+  FILM_POSTER_VAR,
+  FILM_SEEN_KEY,
+  INTRO_PENDING_EVENT,
+  RETURNING_WELCOME_COOKIE,
+  VISITOR_FILM_SEEN_KEY,
+} from "@/components/brand/introKeys";
+import { FILM_MANIFESTS } from "@/components/brand/films/cuts.generated";
+import { FIXTURE_MANIFESTS } from "@/components/brand/films/fixture";
 
 type Listener = (event: unknown) => void;
 type Run = {
   attrs: Map<string, string>;
+  /** CSS custom properties the script set on <html> (the poster). */
+  styles: Map<string, string>;
   cookieWrites: string[];
   /** localStorage / sessionStorage writes and removals, as "<storage>.<key>". */
   storageWrites: string[];
@@ -50,8 +61,13 @@ function run({
   now = NOW,
   /** Whether the page has the overlay's Skip button (server-rendered by CinematicIntro). */
   skipButton = true,
+  /** The viewport (undefined: a window without sizes, which the picker serves as 16:9). */
+  width = undefined as number | undefined,
+  height = undefined as number | undefined,
+  script = INTRO_BOOTSTRAP_SCRIPT,
 } = {}): Run {
   const attrs = new Map<string, string>();
+  const styles = new Map<string, string>();
   const cookieWrites: string[] = [];
   const storageWrites: string[] = [];
   const listeners = new Map<string, Listener[]>();
@@ -66,6 +82,7 @@ function run({
     setAttribute: (name: string, value: string) => void attrs.set(name, value),
     removeAttribute: (name: string) => void attrs.delete(name),
     getAttribute: (name: string) => attrs.get(name) ?? null,
+    style: { setProperty: (name: string, value: string) => void styles.set(name, value) },
   };
   const document = {
     documentElement: root,
@@ -99,6 +116,8 @@ function run({
     sessionStorage: storage("sessionStorage"),
     matchMedia: (query: string) => ({ matches: query.includes("reduced-motion") ? reduce : false }),
     location: { pathname: path, search, protocol: "https:" },
+    innerWidth: width,
+    innerHeight: height,
     setTimeout: (fn: () => void, ms: number) => timers.push({ ms, fn }),
     dispatchEvent: (event: { type: string }) => Boolean(events.push(event.type)),
   };
@@ -108,12 +127,13 @@ function run({
       this.type = type;
     }
   }
-  vm.runInNewContext(INTRO_BOOTSTRAP_SCRIPT, { window, document, Date: { now: () => now }, Event });
+  vm.runInNewContext(script, { window, document, Date: { now: () => now, parse: Date.parse }, Event });
   const fire = (type: string) => {
     for (const listener of [...(listeners.get(type) ?? [])]) listener({});
   };
   return {
     attrs,
+    styles,
     cookieWrites,
     storageWrites,
     local: stores.localStorage,
@@ -640,4 +660,95 @@ test("never under reduced motion, on a focus screen, outside the app, or over th
   const hidden = run({ path: "/dashboard", cookie, hidden: true });
   assert.notEqual(hidden.attrs.get("data-fitx-loader"), "welcome");
   assert.equal(forgetsWelcome(hidden), false);
+});
+
+// Wave 2 (BRIEF-2 3.1 and D1): the composition, its poster from the manifest, the welcome film and its seen flag.
+
+/** A build whose manifests have a welcome film (the fixture's, standing in for S6's). */
+const WITH_WELCOME = buildIntroBootstrapScript({ manifests: { intro: FILM_MANIFESTS.intro, welcome: FIXTURE_MANIFESTS.welcome }, fixture: null });
+const ISO = (ms: number) => new Date(ms).toISOString();
+
+test("the poster follows the composition the viewport's aspect picks, not the orientation (a square window is landscape)", () => {
+  const cases: Array<[number, number, string, string]> = [
+    [390, 844, "phone", "portrait"],
+    [820, 1180, "tablet-p", "portrait"],
+    [1000, 1000, "tablet-l", "landscape"],
+    [1180, 820, "tablet-l", "landscape"],
+    [1440, 900, "laptop", "landscape"],
+    [1920, 947, "desktop", "landscape"],
+  ];
+  for (const [width, height, comp, shape] of cases) {
+    for (const theme of ["light", "dark"]) {
+      const page = run({ path: "/", width, height, theme });
+      const poster = `/brand/intro/fitx-intro-${theme}-${shape}.webp`;
+      assert.equal(page.attrs.get("data-fitx-film-cut"), comp, `${width}×${height}`);
+      assert.equal(page.attrs.get("data-fitx-film"), "intro");
+      assert.deepEqual(page.preloads, [poster], `${width}×${height} ${theme}`);
+      assert.equal(page.styles.get(FILM_POSTER_VAR), `url("${poster}")`);
+    }
+  }
+});
+
+test("the film's claim goes when the page is given back before the app starts it (Skip or Escape)", () => {
+  const page = run({ path: "/", width: 390, height: 844 });
+  dispatch(page, "keydown", { key: "Escape" });
+  assert.equal(page.attrs.get("data-fitx-intro"), undefined);
+  assert.equal(page.attrs.get("data-fitx-film"), undefined);
+  assert.equal(page.attrs.get("data-fitx-film-cut"), "phone", "the composition stays (it says nothing is playing on its own)");
+});
+
+test("D1 dormant: without welcome cuts the account gate plays the intro and ?intro=welcome plays nothing", () => {
+  const account = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", width: 1440, height: 900 });
+  assert.equal(account.attrs.get("data-fitx-intro-gate"), "account");
+  assert.equal(account.attrs.get("data-fitx-film"), "intro");
+  for (const path of ["/", "/settings"]) {
+    const asked = run({ path, search: "?intro=welcome", cookie: "fitx_intro=seen" });
+    assert.equal(asked.attrs.get("data-fitx-intro"), undefined, path);
+    assert.equal(asked.attrs.get("data-fitx-film"), undefined, path);
+  }
+});
+
+test("with welcome cuts: the account gate and ?intro=welcome claim the welcome film and preload its poster", () => {
+  const account = run({ script: WITH_WELCOME, path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", width: 390, height: 844, theme: "dark" });
+  assert.equal(account.attrs.get("data-fitx-intro-gate"), "account");
+  assert.equal(account.attrs.get("data-fitx-film"), "welcome");
+  assert.equal(account.attrs.get("data-fitx-film-cut"), "phone");
+  assert.deepEqual(account.preloads, ["/__fitx-fixture/films/welcome/phone-dark.webp"]);
+  const replay = run({ script: WITH_WELCOME, path: "/settings", search: "?intro=welcome", cookie: "fitx_auth=1; fitx_intro=seen", width: 1440, height: 900 });
+  assert.equal(replay.attrs.get("data-fitx-intro-gate"), "replay");
+  assert.equal(replay.attrs.get("data-fitx-film"), "welcome");
+  assert.deepEqual(replay.preloads, ["/__fitx-fixture/films/welcome/laptop-light.webp"]);
+  // The other replays and the visitor's film stay the intro.
+  assert.equal(run({ script: WITH_WELCOME, path: "/", search: "?intro=video" }).attrs.get("data-fitx-film"), "intro");
+  assert.equal(run({ script: WITH_WELCOME, path: "/" }).attrs.get("data-fitx-film"), "intro");
+  assert.equal(run({ script: WITH_WELCOME, path: "/", search: "?intro=welcome", reduce: true }).attrs.get("data-fitx-intro"), undefined, "never with reduced motion");
+});
+
+test("the seen flag: for 7 days after the welcome film started here, the account gate is skipped and the cookie kept", () => {
+  for (const script of [INTRO_BOOTSTRAP_SCRIPT, WITH_WELCOME]) {
+    const recent = run({ script, path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: { [FILM_SEEN_KEY]: ISO(NOW - 6 * 24 * HOUR) } });
+    assert.equal(recent.attrs.get("data-fitx-intro"), undefined, "no film on /dashboard after a failed report");
+    assert.deepEqual(recent.cookieWrites, [], "the cookie stays play, so IntroCompletionReporter retries the report");
+    assert.equal(recent.attrs.get("data-fitx-loader"), "on", "the short loader, as on any returning page load");
+    const old = run({ script, path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: { [FILM_SEEN_KEY]: ISO(NOW - 8 * 24 * HOUR) } });
+    assert.equal(old.attrs.get("data-fitx-intro-gate"), "account", "after 7 days the gate opens again");
+    const garbage = run({ script, path: "/dashboard", cookie: "fitx_intro=play", local: { [FILM_SEEN_KEY]: "soon" } });
+    assert.equal(garbage.attrs.get("data-fitx-intro-gate"), "account", "an unreadable flag does not count");
+    const future = run({ script, path: "/dashboard", cookie: "fitx_intro=play", local: { [FILM_SEEN_KEY]: ISO(NOW + HOUR) } });
+    assert.equal(future.attrs.get("data-fitx-intro-gate"), "account", "nor one from the future");
+  }
+});
+
+test("the e2e fixture: only a fixture build, and only with the fitx_film_fixture=1 cookie, takes the fixture's films", () => {
+  const fixtureBuild = buildIntroBootstrapScript({ manifests: FILM_MANIFESTS, fixture: FIXTURE_MANIFESTS });
+  const withCookie = run({ script: fixtureBuild, path: "/", cookie: "fitx_film_fixture=1", width: 390, height: 844 });
+  assert.deepEqual(withCookie.preloads, ["/__fitx-fixture/films/intro/phone-light.webp"]);
+  const welcome = run({ script: fixtureBuild, path: "/", search: "?intro=welcome", cookie: "fitx_film_fixture=1" });
+  assert.equal(welcome.attrs.get("data-fitx-film"), "welcome");
+  const without = run({ script: fixtureBuild, path: "/", width: 390, height: 844 });
+  assert.deepEqual(without.preloads, ["/brand/intro/fitx-intro-light-portrait.webp"]);
+  // This build (no flag in the unit tests) carries no fixture at all.
+  assert.equal(INTRO_BOOTSTRAP_SCRIPT.includes("__fitx-fixture"), process.env.NEXT_PUBLIC_FITX_FILM_FIXTURE === "1");
+  assert.deepEqual(run({ path: "/", cookie: "fitx_film_fixture=1", width: 390, height: 844 }).preloads, ["/brand/intro/fitx-intro-light-portrait.webp"]);
+  for (const script of [fixtureBuild, WITH_WELCOME]) assert.equal(script.includes(String.fromCharCode(92)), false, "no backslashes");
 });

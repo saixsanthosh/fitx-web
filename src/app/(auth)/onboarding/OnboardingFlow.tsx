@@ -244,7 +244,7 @@ export function OnboardingFlow() {
 
   if (phase === "welcome") {
     // A full page load, so the head script can play the account's one-time intro on the first Home visit.
-    return <PostOnboardingSequence onDone={() => window.location.assign("/dashboard")} />;
+    return <PostOnboardingSequence onDone={() => window.location.assign("/dashboard")} firstName={form ? firstName(form.name) : null} />;
   }
   if (phase === "loading") {
     return (

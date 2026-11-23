@@ -1,0 +1,106 @@
+/*
+ * The welcome film's stage (WelcomeFilm.tsx): full screen over the page, the picture covering it, the controls in the
+ * top line, the reveal ("film-end", transparent, holding) over the last stage. Stacking: poster and video 0, overlay
+ * 3 (FilmVideo's overlay), reveal 5, controls 6. Transform and opacity only.
+ */
+.stage {
+  position: fixed;
+  z-index: 1001;
+  inset: 0;
+  overflow: hidden;
+  background: var(--fitx-bg);
+  color: var(--fitx-text);
+  isolation: isolate;
+  opacity: 1;
+  transition: opacity 300ms cubic-bezier(.4, 0, .2, 1);
+}
+
+.dark { background: var(--fitx-stage); color: var(--fitx-on-stage); }
+
+.leaving { opacity: 0; pointer-events: none; }
+
+.poster {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: transparent center / cover no-repeat;
+}
+
+/* LogoReveal positions itself fixed over the screen; this keeps it above the picture and under the controls. */
+.end { position: relative; z-index: 5; }
+
+.topline {
+  position: absolute;
+  z-index: 6;
+  top: calc(24px + env(safe-area-inset-top));
+  right: max(4vw, calc(24px + env(safe-area-inset-right)));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.skip {
+  position: relative;
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 9px 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fitx-stage) 72%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-on-stage) 13%, transparent);
+  color: color-mix(in srgb, var(--fitx-on-stage) 90%, transparent);
+  font: 600 12px/1 var(--font-manrope), sans-serif;
+  cursor: pointer;
+}
+
+.skip::before { position: absolute; inset: -5px -4px; content: ""; }
+.skip:hover { color: var(--fitx-on-stage); }
+.skip:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 4px; }
+
+.skip kbd {
+  display: inline-flex;
+  min-width: 32px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--fitx-on-stage) 20%, transparent);
+  border-radius: 3px;
+  color: color-mix(in srgb, var(--fitx-on-stage) 60%, transparent);
+  font: 500 9px/1 var(--font-jetbrains), monospace;
+  letter-spacing: .04em;
+}
+
+/* Reduced motion: the still mark and the greeting, nothing moving. */
+.still {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 20px;
+  background: var(--fitx-stage);
+  color: var(--fitx-on-stage);
+}
+
+.logo { color: var(--fitx-on-stage) !important; }
+
+.line {
+  margin: 0;
+  color: var(--fitx-on-stage-secondary);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+/* The reveal-only case: LogoReveal brings its own full stage and Skip. */
+.reveal { position: fixed; z-index: 1001; inset: 0; }
+
+@media (max-width: 600px) {
+  .topline { top: calc(12px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); gap: 8px; }
+  .skip { gap: 8px; padding-right: 14px; font-size: 11px; }
+  .skip kbd { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage { transition-duration: 1ms; }
+}

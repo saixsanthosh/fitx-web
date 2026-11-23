@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
+import { manifestFor } from "@/components/brand/films/manifest";
 import { IntroReplayControl } from "@/components/brand/IntroReplayControl";
 import { saveAccountTheme } from "@/components/ui/accountTheme";
 import { applyTheme, useThemeMode, type ThemeMode } from "@/components/ui/theme";
@@ -12,6 +13,8 @@ const OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: "dark", label: "Dark", icon: Moon },
   { value: "system", label: "Match device", icon: Monitor },
 ];
+
+const REPLAY_CLASS = "inline-flex min-h-11 items-center rounded-full border border-fitx-border px-4 text-sm font-semibold text-fitx-text transition-colors hover:bg-fitx-hover motion-reduce:transition-none";
 
 const MESSAGES = {
   saving: "Saving…",
@@ -25,6 +28,12 @@ const MESSAGES = {
 export function SettingsAppearance() {
   const mode = useThemeMode();
   const [message, setMessage] = useState("");
+  // D2: "Replay welcome film" only once its cuts exist (read in the browser: the e2e fixture is a cookie).
+  const [welcomeFilm, setWelcomeFilm] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWelcomeFilm(manifestFor("welcome") !== null);
+  }, []);
 
   async function choose(next: ThemeMode) {
     if (next === mode) return;
@@ -56,8 +65,11 @@ export function SettingsAppearance() {
       </fieldset>
       <p role="status" aria-live="polite" className="m-0 mt-2 text-xs leading-5 text-fitx-text-secondary empty:mt-0">{message}</p>
       </div>
-      <SettingsRow label="Intro film">
-        <IntroReplayControl className="inline-flex min-h-11 items-center rounded-full border border-fitx-border px-4 text-sm font-semibold text-fitx-text transition-colors hover:bg-fitx-hover motion-reduce:transition-none" />
+      <SettingsRow label={welcomeFilm ? "Films" : "Intro film"}>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <IntroReplayControl className={REPLAY_CLASS} />
+          {welcomeFilm && <IntroReplayControl film="welcome" className={REPLAY_CLASS} />}
+        </div>
       </SettingsRow>
     </SettingsGroup>
   );

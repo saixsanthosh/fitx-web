@@ -1,6 +1,10 @@
 // Flow 1: sign up with e-mail and password, setup in three short pages (about you, your body with dials, your goal
 // with photo cards; no workout or food questions), the once-per-account intro film on the first app page (skipped),
-// the short loader on reload, and Home with the greeting and today's quote (the same after the reload).
+// the short loader on reload, and Home with the greeting and today's quote (the same after the reload). That is
+// today's behaviour, without welcome cuts (D1 dormant). Then, with the film fixture standing in for the welcome cuts
+// (BRIEF-2 D1 and 3.3): a second account's setup ends on the welcome film in the same document, with exactly one Skip
+// control, then Home; the account is recorded (intro_completed_at) and no film plays on Home or on reload.
+import { serveFilmFixture } from "../fixtures/films/route.mjs";
 import { choose, seeText, textOf } from "./common.mjs";
 
 const BIRTH_DATE = "1997-03-14";
@@ -10,9 +14,37 @@ const expectedAge = (() => {
   return y - 1997 - (m < 3 || (m === 3 && d < 14) ? 1 : 0);
 })();
 
+/** Signs up `account` on /signup (the cookie banner already answered) and fills the three setup pages. */
+async function signUpAndSetUp(t, account) {
+  const page = t.page;
+  await t.goto("/signup", { label: "second sign-up" });
+  await page.getByText("Other sign-up options").click();
+  await page.getByLabel("Your name").fill(account.name);
+  await page.getByLabel("Email address").fill(account.email);
+  await page.getByLabel("Password", { exact: true }).fill(account.password);
+  await page.getByLabel("Confirm password").fill(account.password);
+  await Promise.all([
+    page.waitForURL("**/onboarding", { timeout: 30000 }),
+    page.getByRole("button", { name: "Create account with email" }).click(),
+  ]);
+  await page.getByRole("heading", { level: 1, name: "About you" }).waitFor();
+  await page.getByLabel("Date of birth").fill("1994-08-02");
+  await choose(t, "Gender", "Male");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("heading", { level: 1, name: "Your body" }).waitFor();
+  await page.getByRole("textbox", { name: "Height", exact: true }).fill("176");
+  await page.getByRole("textbox", { name: "Current weight", exact: true }).fill("74");
+  await page.getByRole("textbox", { name: /^Target weight/ }).fill("72");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("heading", { level: 1, name: "Your goal" }).waitFor();
+  await choose(t, "Primary goal", "Muscle gain");
+  await choose(t, "Activity level", "Moderate");
+}
+
 export const flow = {
   id: "01-signup-onboarding",
-  title: "Sign up → three short setup pages → film once → Home with greeting and quote",
+  title: "Sign up → three short setup pages → film once → Home with greeting and quote; with welcome cuts, the welcome film",
+  sizes: ["phone", "tablet", "desktop"],
   schemes: (schemes) => schemes,
   async run(t, { standin }) {
     const account = standin.newCredentials("Asha Rao", "signup");
@@ -175,6 +207,52 @@ export const flow = {
       t.expect(row.diet_type === null && row.food_source === null && row.nutrition_focus === null && row.kit_lists === "0", "no food or equipment answers were asked or written", row);
       t.expect(/68\.5/.test(row.weigh_ins ?? ""), "a starting weigh-in logged", row);
       t.expect(row.shown_quote && quoteText.includes(row.shown_quote.slice(0, 20)), "the quote shown is the one stored for today", { row: row.shown_quote, quoteText });
+    });
+
+    await t.step("with welcome cuts (the fixture), the next account's setup ends on the welcome film with one Skip", async () => {
+      // Signed out (the session and hint cookies go; the cookie choice in localStorage stays), then the fixture.
+      await t.context.clearCookies();
+      const asked = await serveFilmFixture(t);
+      const second = standin.newCredentials("Ravi Menon", "welcome");
+      await signUpAndSetUp(t, second);
+      const cookies = await t.context.cookies();
+      t.expect(cookies.some((cookie) => cookie.name === "fitx_intro" && cookie.value === "play"), "a new sign-up still owes the film (fitx_intro=play)");
+      await page.getByRole("button", { name: "Finish setup" }).click();
+      const stage = page.locator("[data-welcome-film]");
+      await stage.waitFor({ state: "attached", timeout: 15000 });
+      const kind = await stage.getAttribute("data-welcome-film");
+      t.note("welcome case", kind);
+      t.expect(kind === "film", "the film plays (not the reduced-motion still or the reveal-only case)", kind);
+      t.expect(new URL(page.url()).pathname === "/onboarding", "in the same document as the Finish click", page.url());
+      await page.getByRole("button", { name: "Skip welcome film" }).waitFor({ state: "visible", timeout: 10000 });
+      const skips = await page.getByRole("button", { name: /^Skip/ }).count();
+      t.expect(skips === 1, `exactly one Skip control while the film plays (found ${skips})`);
+      t.expect((await page.getByRole("button", { name: "Sound" }).getAttribute("aria-pressed")) === "false", "the film starts muted");
+      await t.checkpoint("welcome film playing", { fullPage: false, settle: false });
+      // The fixture's film is 2 s; it ends on its own, fades and loads Home.
+      await page.waitForURL("**/dashboard", { timeout: 20000 });
+      t.note("fixture files asked for", asked);
+      t.expect(asked.some((file) => file.startsWith("/__fitx-fixture/films/welcome/") && file.endsWith(".mp4")), "the welcome cut played", asked);
+      const seen = await page.evaluate(() => window.localStorage.getItem("fitx-film-seen"));
+      t.expect(seen && Number.isFinite(Date.parse(seen)), "the device remembers when the welcome film started", seen);
+      await t.settle();
+      const log = await t.rootLog();
+      t.expect(!log.some((entry) => entry.name === "data-fitx-intro-gate"), "no film on Home after the welcome film", log);
+      const after = await t.context.cookies();
+      t.expect(after.find((cookie) => cookie.name === "fitx_intro")?.value === "seen", "the device cookie says seen");
+      let stored = null;
+      for (let i = 0; i < 20 && !stored?.intro_completed_at; i += 1) {
+        stored = await standin.one(`select p.intro_completed_at from public.profiles p join auth.users u on u.id = p.id where u.email = '${second.email}'`);
+        if (!stored?.intro_completed_at) await page.waitForTimeout(250);
+      }
+      t.expect(Boolean(stored?.intro_completed_at), "profiles.intro_completed_at is set by the welcome film");
+      await page.getByRole("heading", { level: 1, name: /Ravi$/ }).waitFor({ timeout: 15000 });
+      await t.checkpoint("home after the welcome film");
+      await page.reload({ waitUntil: "load" });
+      await t.settle();
+      const reload = await t.rootLog();
+      t.expect(!log.concat(reload).some((entry) => entry.name === "data-fitx-intro-gate"), "and none on reload", reload);
+      t.expect((await page.locator("[data-welcome-film]").count()) === 0, "the welcome film is gone");
     });
   },
 };

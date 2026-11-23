@@ -1,0 +1,75 @@
+/*
+ * The film controls beside Skip: "Sound" (BRIEF-2 3.4) and its "Tap for sound" hint. Over the moving picture they are
+ * quiet dark glass in both themes, like the intro's Skip pill: a solid tint, never backdrop-filter (blurring the film
+ * every frame costs low-end phones frames). 44 px targets.
+ */
+.wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sound {
+  position: relative;
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fitx-stage) 72%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-on-stage) 13%, transparent);
+  color: color-mix(in srgb, var(--fitx-on-stage) 90%, transparent);
+  font: 600 12px/1 var(--font-manrope), sans-serif;
+  cursor: pointer;
+  transition: color 160ms ease, box-shadow 160ms ease;
+}
+
+/* A full 44 px touch target where the visible pill is slimmer. */
+.sound::before { position: absolute; inset: -5px -3px; content: ""; }
+.sound svg { width: 16px; height: 16px; flex: none; }
+.sound:hover { color: var(--fitx-on-stage); }
+.sound[aria-pressed="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fitx-ember) 70%, transparent); }
+.sound:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 4px; }
+
+/* Waves of the speaker icon breathe once when the sound comes on (transform and opacity only). */
+.sound[aria-pressed="true"] svg { animation: sound-on 420ms cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes sound-on { from { opacity: .4; transform: scale(.86); } to { opacity: 1; transform: none; } }
+
+.hint {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  padding: 7px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fitx-stage) 82%, transparent);
+  color: var(--fitx-on-stage);
+  font: 600 12px/1.2 var(--font-manrope), sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: hint-in 260ms cubic-bezier(.16, .84, .22, 1) both;
+}
+
+.hint::before {
+  position: absolute;
+  top: -5px;
+  right: 18px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  transform: rotate(45deg);
+  content: "";
+}
+
+@keyframes hint-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 600px) {
+  .sound { padding: 0 12px; font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sound[aria-pressed="true"] svg, .hint { animation: none; }
+}
