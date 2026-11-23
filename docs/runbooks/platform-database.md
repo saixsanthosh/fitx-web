@@ -1516,7 +1516,7 @@ Explore suspension, and a message request's notice only while the request waits.
 from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
 run changes nothing. After it, #51's Check gives other numbers: use this one.
 
-md5 of the file (`md5 -q`): `4cc5cb0de646558ae7d001af34b52045`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `4fb3a21631e1663d90d85584eff20cf5`. The session compares it with the file it sends before it runs it.
 
 ```sql
 -- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2, 1, 1

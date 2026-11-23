@@ -317,9 +317,6 @@ create table if not exists public.social_messages (
   constraint social_messages_body_check check (char_length(body) <= 2000),
   constraint social_messages_moderation_state_check check (moderation_state in ('visible', 'limited', 'hidden'))
 );
--- Also over a test copy that has the table from an earlier draft of this file without the two flags.
-alter table public.social_messages add column if not exists shared_post boolean not null default false;
-alter table public.social_messages add column if not exists story_reply boolean not null default false;
 create index if not exists social_messages_conversation_idx on public.social_messages (conversation_id, created_at desc, id desc);
 create index if not exists social_messages_user_idx on public.social_messages (user_id, created_at desc);
 create index if not exists social_messages_post_idx on public.social_messages (shared_post_id) where shared_post_id is not null;
