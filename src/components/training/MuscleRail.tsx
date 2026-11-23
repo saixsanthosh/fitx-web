@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { AREA_CROPS } from "./muscle-crops";
 import styles from "./MuscleRail.module.css";
 
-export function MuscleRail({ value, onChange, mode = "multiple", areas = FOCUS_AREAS, label = "Focus areas", details, disabled = false, className }: {
+export function MuscleRail({ value, onChange, mode = "multiple", areas = FOCUS_AREAS, label = "Focus areas", details, disabled = false, bleed = true, className }: {
   value: readonly FocusArea[];
   onChange: (next: FocusArea[]) => void;
   mode?: "multiple" | "single";
@@ -24,6 +24,8 @@ export function MuscleRail({ value, onChange, mode = "multiple", areas = FOCUS_A
   /** One short line per tile from real data (a count); leave a tile out to show none. */
   details?: Partial<Record<FocusArea, string>>;
   disabled?: boolean;
+  /** On phones the rail runs to the screen edges (needs the page's 16 px gutter); false keeps it inside its column. */
+  bleed?: boolean;
   className?: string;
 }) {
   const selected = new Set(normaliseFocusAreas(value));
@@ -34,7 +36,7 @@ export function MuscleRail({ value, onChange, mode = "multiple", areas = FOCUS_A
     onChange(FOCUS_AREAS.filter((key) => next.has(key)));
   };
   return (
-    <div role="group" aria-label={label} className={cn(styles.rail, className)}>
+    <div role="group" aria-label={label} className={cn(styles.rail, !bleed && styles.contained, className)}>
       {normaliseFocusAreas(areas).map((area) => {
         const info = FOCUS_AREA_INFO[area];
         const crop = AREA_CROPS[area];

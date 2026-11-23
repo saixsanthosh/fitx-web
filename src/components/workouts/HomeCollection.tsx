@@ -127,7 +127,7 @@ export function HomeCollection({ catalog, owned, level, model, onPlan, equipment
             <span className="truncate">{equipmentSummary}</span><span className="shrink-0 font-semibold text-fitx-primary-text">Edit</span>
           </button>
         </div>
-        <MuscleRail mode="single" label="Home body areas" areas={HOME_AREAS} value={area ? [area] : []} details={details}
+        <MuscleRail mode="single" bleed={false} label="Home body areas" areas={HOME_AREAS} value={area ? [area] : []} details={details}
           onChange={(next) => { setArea(next[0] ?? null); setLimit(PAGE); }} />
       </section>
 

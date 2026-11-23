@@ -10,6 +10,7 @@
   scroll-padding-inline: 1rem;
 }
 .rail::-webkit-scrollbar { display: none; }
+.contained { margin-inline: 0; padding-inline: 0; scroll-padding-inline: 0; }
 @media (min-width: 640px) {
   .rail { margin-inline: 0; padding-inline: 0; scroll-padding-inline: 0; }
 }
