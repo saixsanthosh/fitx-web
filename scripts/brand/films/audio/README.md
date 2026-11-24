@@ -51,7 +51,8 @@ Other options: `--films=intro,welcome,sting`, `--audio-dir=<.alteration/audio>`,
 5. **Encoding:** AAC-LC 128 kbps, 48 kHz stereo, bit-exact, no metadata, faststart. The decoded file is checked:
    I within ± 1 LU, true peak ≤ −1 dBTP (the limiter drops 0.5 dB and retries if AAC pushed it over), length within
    ± 10 ms (the length the container declares, which is what browsers play), at most 300 KB (films) or 40 KB (sting).
-   `summary.json` also records where each transient cue's onset landed (`sync`, in ms) and how much the limiter took.
+   `summary.json` also records where each transient cue's onset landed (`sync`, in ms; a cue cut before its hit says
+   so instead) and how much the limiter took.
 
 ## Accents from the films' timelines
 
@@ -59,9 +60,11 @@ Other options: `--films=intro,welcome,sting`, `--audio-dir=<.alteration/audio>`,
   `INTRO_SOUND_ACCENTS = { plateSeat, barDrop }` in `intro/timeline.ts`: 5.3 s and 7.383 s (frames 318 and 443),
   measured from the shots' own motion; `tests/brand/intro-sound-accents.test.ts` measures them again. Without that
   export the sheet would fall back to 5.38 s and 7.30 s.
-- Welcome: the plate sounds sit on the beats the loading shots play, imported from `WELCOME_BEATS` in the welcome
-  `timeline.ts` (each a measured hit of score #5): #3's clang where each plate meets the stack (`plateSeat`: 2.4, 4.48
-  and 5.86 s), and #4, Dre's lock, on his plate's after-tap (`settle[2]`: 6.12 s), so his slide leads the lock by
-  0.26 s. Maya's and Leo's after-taps (`settle` 3.6 and 4.71 s) have no cue.
+- Welcome: the plate sounds sit where the loading shots seat each plate on the stack, `plateSeat` in the welcome
+  `timeline.ts` (2.4, 4.48 and 5.86 s, each a measured hit of score #5): #3's clang for Maya's and Leo's plates; for
+  Dre's, #3's slide cut 10 ms before its own clang runs into his seat, where #4's lock-on clank lands, so the two
+  clangs never double. Nothing sits on the `settle` beats (3.6, 4.71 and 6.12 s): the picture has no event there,
+  since each plate's rebound is over within 0.05 s of its clip's seat. `tests/brand/film-cues.test.ts` checks every
+  plate transient against the frame where the plate's own travel (`plateTravel`) meets the stack.
 - The film-end plates follow `.fitx-mark__piece--plate-N` in `src/app/globals.css`; `tests/brand/film-cues.test.ts`
   fails if the CSS and `REVEAL_PLATES` drift apart.

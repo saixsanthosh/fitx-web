@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { FILM_DURATION, SHOTS, STAGE_START } from "@/components/brand/intro/timeline";
-import { WELCOME_BEATS, WELCOME_DURATION, WELCOME_SCORE_HITS, welcomeShotAt } from "@/components/brand/intro/films/welcome/timeline";
+import { WELCOME_BEATS, WELCOME_DURATION, WELCOME_SCORE_HITS, WELCOME_SHOTS, welcomeShotAt } from "@/components/brand/intro/films/welcome/timeline";
+import { LOADS, plateTravel } from "@/components/brand/intro/films/welcome/load-motion";
+import { dreAction } from "@/components/brand/intro/films/welcome/shots";
 import {
   buildMixGraph,
   checkOutput,
@@ -17,13 +19,14 @@ import {
   parseEbur128,
   parseLoudnormJson,
   peakTime,
+  playsTransient,
   strongestOnset,
   toSamples,
   validateSheet,
 } from "../../scripts/brand/films/audio/lib.mjs";
 import { SOURCES } from "../../scripts/brand/films/audio/sources.mjs";
 import { BOOM_AT, INTRO_ACCENTS, INTRO_SHEET, introSheet, plateSeat, REVEAL_PLATES } from "../../scripts/brand/films/audio/intro.cues.mjs";
-import { BIG_PLATE_SLIDE_LEAD, WELCOME_SEATS, WELCOME_SETTLES, WELCOME_SHEET, welcomeSheet } from "../../scripts/brand/films/audio/welcome.cues.mjs";
+import { DRE_SLIDE_TO, WELCOME_SEATS, WELCOME_SHEET, welcomeSheet } from "../../scripts/brand/films/audio/welcome.cues.mjs";
 import { STING_DURATION, STING_SHEET } from "../../scripts/brand/films/audio/sting.cues.mjs";
 
 type Cue = { id: string; source: string; at: number; from?: number; to?: number; gainDb?: number; fadeIn?: number; fadeOut?: number; lowpass?: number };
@@ -143,36 +146,81 @@ test("the welcome mix plays score #5 from 0 s at full length, and the plate soun
   near(where.end, Math.min(WELCOME_DURATION, SOURCES.get("score")!.duration), 1e-6, "full length");
   // The beats come from the welcome timeline (WELCOME_BEATS), not copies.
   assert.deepEqual([...WELCOME_SEATS], [...WELCOME_BEATS.plateSeat]);
-  assert.deepEqual([...WELCOME_SETTLES], [...WELCOME_BEATS.settle]);
   assert.deepEqual([...WELCOME_SEATS], [2.4, 4.48, 5.86]);
   assert.deepEqual(WELCOME_SEATS.map(welcomeShotAt), ["w1-maya", "w2-leo", "w3-dre"], "each plate meets the stack in its own loading shot");
   // Maya's and Leo's plates: #3's clang where the plate meets the stack.
   assert.equal(cue(WELCOME_SHEET, "plate-1").at, WELCOME_BEATS.plateSeat[0]);
   assert.equal(cue(WELCOME_SHEET, "plate-2").at, WELCOME_BEATS.plateSeat[1]);
-  // Dre's: #3 slides it on, its clang on his seat; #4 locks it on his after-tap (settle), still in his shot.
+  // Dre's: #3's slide runs into his seat, cut before its own clang, and #4's lock-on clank lands on the seat itself.
   const slide = cue(WELCOME_SHEET, "plate-3-slide");
   const lock = cue(WELCOME_SHEET, "plate-3-lock");
   assert.equal(slide.at, WELCOME_BEATS.plateSeat[2]);
-  assert.equal(lock.at, WELCOME_BEATS.settle[2]);
-  assert.equal(welcomeShotAt(lock.at), "w3-dre");
-  near(lock.at - slide.at, BIG_PLATE_SLIDE_LEAD, 1e-9, "the slide leads the lock by settle - plateSeat");
-  near(BIG_PLATE_SLIDE_LEAD, 0.26, 1e-9);
+  assert.equal(lock.at, WELCOME_BEATS.plateSeat[2]);
+  assert.equal(DRE_SLIDE_TO, 0.12, "10 ms before #3's clang (its anchor, 0.13 s into the file)");
+  const slideSpan = span(WELCOME_SHEET, "plate-3-slide");
+  assert.ok(slideSpan.to < SOURCES.get("plate-slide")!.anchor.at, "the slide stops before its clang, so the clangs never double");
+  assert.equal(playsTransient(slide, SOURCES.get("plate-slide")), false);
+  assert.ok(slideSpan.end <= lock.at + 1e-9, "the slide ends as the lock lands");
+  // Nothing is cued on the settle beats: the picture has no event there.
+  for (const entry of WELCOME_SHEET.cues) assert.ok(!WELCOME_BEATS.settle.includes(entry.at), `${entry.id} is not on a settle beat`);
   // Every plate sound lands on a measured hit of score #5, like the beats themselves.
   for (const entry of WELCOME_SHEET.cues.filter((item: Cue) => item.source !== "score")) {
     assert.ok(WELCOME_SCORE_HITS.includes(entry.at), `${entry.id} at ${entry.at} s is a measured hit`);
   }
-  // Only the timing moved: each plate cue keeps its sound file, trim, gain and fades.
+  // Each plate cue's sound file, trim, gain and fades.
   const plates = WELCOME_SHEET.cues.filter((item: Cue) => item.source !== "score");
   assert.deepEqual(
     plates.map((item: Cue) => [item.id, item.source, item.from ?? 0, item.to ?? null, item.gainDb, item.fadeIn ?? 0, item.fadeOut]),
     [
       ["plate-1", "plate-slide", 0, null, -5, 0, 0.3],
       ["plate-2", "plate-slide", 0, null, -5, 0, 0.3],
-      ["plate-3-slide", "plate-slide", 0, 0.6, -8, 0, 0.2],
+      ["plate-3-slide", "plate-slide", 0, 0.12, -8, 0, 0.03],
       ["plate-3-lock", "plate-lock", 0, null, -5, 0, 0.3],
     ],
   );
   assert.deepEqual(validateSheet(welcomeSheet(), SOURCES), []);
+});
+
+test("every welcome plate transient lands on the frame where the picture seats a plate, one per plate", () => {
+  // Where the shots' own motion meets the stack (plateTravel's seat), in film seconds: Maya and Leo play their clips
+  // at full speed from their shot's start; Dre plays his in slow motion (dreAction).
+  const dre = WELCOME_SHOTS[3];
+  let dreSeat = dre.start;
+  while (dreAction(dreSeat - dre.start) < LOADS.dre.seat) dreSeat += 1 / 600;
+  const seats = [
+    { plate: "Maya's", at: WELCOME_SHOTS[1].start + LOADS.maya.seat, spec: LOADS.maya, action: (t: number) => t - WELCOME_SHOTS[1].start },
+    { plate: "Leo's", at: WELCOME_SHOTS[2].start + LOADS.leo.seat, spec: LOADS.leo, action: (t: number) => t - WELCOME_SHOTS[2].start },
+    { plate: "Dre's", at: dreSeat, spec: LOADS.dre, action: (t: number) => dreAction(t - dre.start) },
+  ];
+  const transients = WELCOME_SHEET.cues.filter((item: Cue) => item.source !== "score" && playsTransient(item, SOURCES.get(item.source)));
+  assert.deepEqual(transients.map((item: Cue) => item.id), ["plate-1", "plate-2", "plate-3-lock"]);
+  for (const seat of seats) {
+    const on = transients.filter((item: Cue) => Math.abs(item.at - seat.at) <= 1 / 60);
+    assert.equal(on.length, 1, `${seat.plate} plate (seated at ${seat.at.toFixed(3)} s): exactly one sound within a 60 fps frame`);
+    // Within a frame of that sound the plate is at the stack; a frame earlier it is still travelling.
+    const at = on[0].at;
+    assert.ok(plateTravel(seat.spec, seat.action(at + 1 / 60)).seated, `${seat.plate} plate is seated a frame after ${at} s`);
+    assert.ok(!plateTravel(seat.spec, seat.action(at - 1 / 60)).seated, `${seat.plate} plate still moves a frame before ${at} s`);
+  }
+  // After each seat the plate rebounds within 0.05 s of its clip and then stays still to its shot's end: no later
+  // event in the picture for a sound to sit on.
+  seats.forEach((seat, index) => {
+    const shot = WELCOME_SHOTS[index + 1];
+    const settleFrom = seat.spec.seat + 0.05;
+    for (let t = shot.start; t < shot.end; t += 1 / 60) {
+      const action = seat.action(t);
+      if (action >= settleFrom) assert.ok(Math.abs(plateTravel(seat.spec, action).z - seat.spec.zSeat) < 1e-9, `${seat.plate} plate still at ${t.toFixed(3)} s`);
+    }
+  });
+});
+
+test("playsTransient: a cue plays its source's hit only when its span holds the anchor", () => {
+  const plate = SOURCES.get("plate-slide")!;
+  assert.equal(playsTransient({ id: "full", source: "plate-slide", at: 2 }, plate), true);
+  assert.equal(playsTransient({ id: "slide", source: "plate-slide", at: 2, to: plate.anchor.at - 0.01 }, plate), false);
+  assert.equal(playsTransient({ id: "tail", source: "plate-slide", at: 2, from: plate.anchor.at + 0.05 }, plate), false);
+  assert.equal(playsTransient({ id: "score", source: "score", at: 0 }, SOURCES.get("score")), false, "a start anchor is no transient");
+  assert.equal(playsTransient({ id: "riser", source: "riser", at: 10.6, from: 3.13 }, SOURCES.get("riser")), true, "a boom is one");
 });
 
 test("the sting is 1.2 s of impact #6 from just before its hit, with a 150 ms fade, quieter than the films", () => {

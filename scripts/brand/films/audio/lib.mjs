@@ -77,6 +77,16 @@ export function cueSpan(cue, source) {
   return { from, to, length: to - from, start, end: start + (to - from) };
 }
 
+/**
+ * Whether a cue plays its source's transient: the anchor of a `hit` or `boom` source inside the span it plays. A cue
+ * cut before its anchor (the welcome film's slide into Dre's lock) adds no transient of its own at `at`.
+ */
+export function playsTransient(cue, source) {
+  if (source.anchor.kind !== "hit" && source.anchor.kind !== "boom") return false;
+  const { from, to } = cueSpan(cue, source);
+  return from <= source.anchor.at && source.anchor.at < to;
+}
+
 const EPSILON = 0.5 / MIX.sampleRate;
 
 /** Every problem with a sheet: unknown sources, spans outside the source or the film, fades longer than the cue. */

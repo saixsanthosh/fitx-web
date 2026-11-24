@@ -111,7 +111,7 @@ export const FILM_MANIFESTS: FilmManifests = {
       "desktop-dark": "/brand/films/welcome/97d9ab68/desktop-dark.webp",
       "desktop-light": "/brand/films/welcome/97d9ab68/desktop-light.webp",
     },
-    audio: { src: "/brand/films/welcome/97d9ab68/sound.m4a", bytes: 190438, sha256: "bedb4f0d597b5e9c13a2bf377c19d1cb5365547a5c6b9cf917512b846507a364", lufs: -16.1, duration: 12 },
+    audio: { src: "/brand/films/welcome/97d9ab68/sound.m4a", bytes: 190100, sha256: "10c72ee30c1c23af9ac304668c8185e07cc95b9956444656138a1b3995526a27", lufs: -16.1, duration: 12 },
   },
 };
 

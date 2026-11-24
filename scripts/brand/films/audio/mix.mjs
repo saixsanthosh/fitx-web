@@ -45,6 +45,7 @@ import {
   MIX,
   parseEbur128,
   parseLoudnormJson,
+  playsTransient,
   rev8,
   segmentFilter,
   segmentKey,
@@ -89,11 +90,11 @@ function levelCues(sheet, sources) {
       const span = cueSpan(cue, source);
       let basis = "its segment";
       let filter = segmentFilter(cue, source);
-      // Integrated loudness needs at least one 400 ms block; a cue cut short by the film's end is levelled on the
-      // same span run to the source's end, so the cut never makes it louder.
+      // Integrated loudness needs at least one 400 ms block; a shorter cue (cut short by the film's end, or a slide
+      // cut before its clang) is levelled on the same span run to the source's end, so the cut never makes it louder.
       if (span.length < 0.5) {
         filter = segmentFilter({ ...cue, to: undefined }, source);
-        basis = "its segment run to the source's end (the cue is cut short by the film's end)";
+        basis = "its segment run to the source's end (the cue is shorter than one 400 ms loudness block)";
       }
       const measured = parseLoudnormJson(ffmpeg(["-i", source.path, "-af", `${filter},loudnorm=I=${MIX.cueLufs}:TP=-2:LRA=20:print_format=json`, "-f", "null", "-"], { quiet: true }));
       if (!Number.isFinite(measured.integrated)) throw new Error(`${sheet.film}/${cue.id}: no loudness measured`);
@@ -144,8 +145,10 @@ function syncCheck(sheet, sources, output) {
   const bands = bandLevels(output, hop);
   const sync = {};
   for (const cue of sheet.cues) {
-    const kind = sources.get(cue.source).anchor.kind;
-    if (kind !== "hit" && kind !== "boom") continue;
+    const source = sources.get(cue.source);
+    if (source.anchor.kind !== "hit" && source.anchor.kind !== "boom") continue;
+    // A cue cut before its hit has no onset of its own to find (a louder cue on the same moment would answer for it).
+    if (!playsTransient(cue, source)) { sync[cue.id] = "cut before its hit (no transient of its own)"; continue; }
     // The onset scan compares each hop with the 80 ms before it, so it cannot see the first 80 ms of a file.
     if (cue.at < 0.09) { sync[cue.id] = "inside the first 80 ms (not measurable)"; continue; }
     const found = strongestOnset(bands, hop, { after: cue.at - 0.08, before: cue.at + 0.08 });
