@@ -18,7 +18,8 @@ type SegmentedProps<T extends string> = {
 
 /**
  * A segmented control built on native radio buttons: one Tab stop, arrow keys move the choice, and each
- * segment is at least 44 px tall.
+ * segment is a target of at least 44 × 44 px. The radio itself is visually hidden (1 × 1, `sr-only`) on purpose: the
+ * label around it is what a finger or pointer hits, and the radio keeps the semantics and the keyboard behaviour.
  */
 export function Segmented<T extends string>({ options, value, onChange, label, block = false, className }: SegmentedProps<T>) {
   const name = useId();
@@ -35,7 +36,7 @@ export function Segmented<T extends string>({ options, value, onChange, label, b
             onChange={() => onChange(option.value)}
             className="peer sr-only"
           />
-          <span className="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 text-sm font-medium text-fitx-text-secondary transition-[background-color,color,box-shadow] duration-200 hover:text-fitx-text peer-checked:bg-fitx-surface peer-checked:text-fitx-text peer-checked:shadow-sm peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-fitx-primary peer-disabled:opacity-50">
+          <span className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 text-sm font-medium text-fitx-text-secondary transition-[background-color,color,box-shadow] duration-200 hover:text-fitx-text peer-checked:bg-fitx-surface peer-checked:text-fitx-text peer-checked:shadow-sm peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-fitx-primary peer-disabled:opacity-50">
             {option.icon}
             {option.label}
           </span>
