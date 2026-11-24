@@ -27,8 +27,11 @@ export const ENCODER = Object.freeze({
   poster: { tool: "cwebp", quality: 82, maxBytes: 50 * 1024 },
 });
 
-/** Byte budgets per file (film-manifest.test.ts holds the final numbers; A, retuned after gate A). */
-export const BUDGET = Object.freeze({ hevc60: 3.4 * 1024 * 1024, avc30: 1.6 * 1024 * 1024, poster: 50 * 1024 });
+/**
+ * Byte budgets per file: the caps tests/brand/film-manifest.test.ts holds the S6 outputs to (decimal: 3.4 MB is
+ * 3,400,000 bytes). They were 3.4 MiB here, so a cut between the two would have passed --budget and failed the test.
+ */
+export const BUDGET = Object.freeze({ hevc60: 3_400_000, avc30: 1_600_000, poster: 50_000 });
 
 /**
  * The shipped cuts' settings, exactly as their SEI strings say (x265 4.2 / x264 core 165, through ffmpeg's libavcodec

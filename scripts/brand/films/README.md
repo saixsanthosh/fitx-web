@@ -124,8 +124,9 @@ All files: `+faststart`, BT.709 primaries, transfer and matrix, tv range. `--leg
 Measured on gate A's master (today's 11.9 s film, laptop, dark; 2026-11-23): `hevc60` slow with no tune at crf 29 is
 3.08 MiB (SSIM 0.972 to the master, 4 min); with `--tune grain` crf 29 is 5.79 MiB and crf 32 still 3.98 MiB (SSIM 0.967),
 about 7 minutes per try. `avc30` (1440×810) at crf 27 is 2.52 MiB, over its 1.6 MiB cap; `--budget` stepped it to crf
-32, 1.47 MiB (crf 31 was 1.64 MiB), about 1 minute per try. The poster is 43 KB at q 82. (Sizes here are MiB, as the
-budgets in `lib/encoders.mjs` are.)
+32, 1.47 MiB (crf 31 was 1.64 MiB), about 1 minute per try. The poster is 43 KB at q 82. (Sizes here are MiB; the
+budgets in `lib/encoders.mjs` are decimal bytes, the caps `tests/brand/film-manifest.test.ts` holds: 3,400,000 for
+`hevc60`, 1,600,000 for `avc30`, 50,000 for a poster.)
 
 ## Verifying (`verify.mjs`)
 

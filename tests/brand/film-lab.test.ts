@@ -27,7 +27,7 @@ import {
   preflightProblems,
 } from "../../scripts/brand/films/lib/preflight.mjs";
 import { KEEPALIVE_MS, POLL_MS, STALE_MS, acquireLane, laneHandle, releaseHeavySlot, staleReason } from "../../scripts/brand/films/lane.mjs";
-import { AVC30_SIZES, LEGACY, avc30Args, crfForBudget, hevc60Args, legacyHevcArgs, reelArgs } from "../../scripts/brand/films/lib/encoders.mjs";
+import { AVC30_SIZES, BUDGET, LEGACY, avc30Args, crfForBudget, hevc60Args, legacyHevcArgs, reelArgs } from "../../scripts/brand/films/lib/encoders.mjs";
 import { gateA, mixProblems, moovFirst, parseDetect, parseEbur128, parsePsnrStats, parseSsimPsnr, probeProblems, topLevelBoxes, unexpectedIntervals } from "../../scripts/brand/films/lib/checks.mjs";
 
 /** The intro's clock as `describeFilm` gives it (today's 11.9 s timeline). */
@@ -346,6 +346,10 @@ test("encoders: the new rungs carry bt709 tv tags and faststart; the legacy HEVC
   assert.equal(crfForBudget(29, 4e6, 3.4 * 1024 * 1024), 30);
   assert.equal(crfForBudget(29, 1e6, 3.4 * 1024 * 1024), 28);
   assert.equal(crfForBudget(29, 3.3 * 1024 * 1024, 3.4 * 1024 * 1024), 29);
+  // encode.mjs --budget aims at the same caps film-manifest.test.ts holds the S6 outputs to (decimal bytes).
+  assert.deepEqual({ ...BUDGET }, { hevc60: 3_400_000, avc30: 1_600_000, poster: 50_000 });
+  const manifestTest = readFileSync("tests/brand/film-manifest.test.ts", "utf8");
+  assert.ok(manifestTest.includes("const MB = 1_000_000;") && manifestTest.includes("hevc60: 3.4 * MB, avc30: 1.6 * MB, poster: 50_000"), "film-manifest.test.ts holds the same caps");
 });
 
 test("checks: a cut's probe, its boxes, detectors, loudness and comparisons", () => {
