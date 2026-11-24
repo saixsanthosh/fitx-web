@@ -52,10 +52,12 @@ Other options: `--films=intro,welcome,sting`, `--audio-dir=<.alteration/audio>`,
    ± 10 ms (the length the container declares, which is what browsers play), at most 300 KB (films) or 40 KB (sting).
    `summary.json` also records where each transient cue's onset landed (`sync`, in ms) and how much the limiter took.
 
-## Accents that other streams fix
+## Accents from the films' timelines
 
-- Intro: the plate seating in `3a-plate` and the bar meeting the platform in `3d-drop` default to 5.38 s and 7.30 s.
-  When film-intro exports `INTRO_SOUND_ACCENTS = { plateSeat, barDrop }` from `intro/timeline.ts`, those win.
+- Intro: the plate seating in `3a-plate` and the bar meeting the platform in `3d-drop` come from
+  `INTRO_SOUND_ACCENTS = { plateSeat, barDrop }` in `intro/timeline.ts`: 5.3 s and 7.383 s (frames 318 and 443),
+  measured from the shots' own motion; `tests/brand/intro-sound-accents.test.ts` measures them again. Without that
+  export the sheet would fall back to 5.38 s and 7.30 s.
 - Welcome: the plate sounds sit on the beats the loading shots play, imported from `WELCOME_BEATS` in the welcome
   `timeline.ts` (each a measured hit of score #5): #3's clang where each plate meets the stack (`plateSeat`: 2.4, 4.48
   and 5.86 s), and #4, Dre's lock, on his plate's after-tap (`settle[2]`: 6.12 s), so his slide leads the lock by
