@@ -64,9 +64,11 @@ test("one rule in four stylesheets: 11 / 5 is desktop's checkMax, the widest asp
   assert.deepEqual([Math.round(DESKTOP.checkMax * 100), Math.round(DESKTOP.checkMax * 50)], [220, 110]);
   for (const [key, block] of [["video", BLOCKS.video[0]], ["intro", BLOCKS.intro[0]], ["welcome", BLOCKS.welcome[0]], ["graphics", BLOCKS.graphics[0]]] as const) {
     assert.match(block.body, /left: calc\(50% - 110cqh\);\s*right: auto;\s*width: 220cqh;/, `${key}: the 2.20:1 box`);
-    // Only the desktop composition gets it (a film without desktop keeps cover on its fallback composition).
+    // Only the desktop composition gets it (a film without desktop keeps cover on its fallback composition); the intro's
+    // vignette only while the side bars are dark (FilmVideo's frame playing, before its tail).
+    const target = String.raw`:global\(:root\[data-fitx-film-cut="desktop"\]\) (?:\[data-film-playing\]:not\(\[data-film-tail\]\) ~ )?\.[a-zA-Z]+`;
     for (const rule of block.body.match(/[^{}]+\{/g) ?? []) {
-      assert.match(rule.trim(), /^:global\(:root\[data-fitx-film-cut="desktop"\]\) \.[a-zA-Z]+(?:,\s*:global\(:root\[data-fitx-film-cut="desktop"\]\) \.[a-zA-Z]+)* \{$/, `${key}: ${rule.trim()}`);
+      assert.match(rule.trim(), new RegExp(`^${target}(?:,\\s*${target})* \\{$`), `${key}: ${rule.trim()}`);
     }
   }
   // Every wider screen is served desktop, so the matte and the band always go together.
@@ -100,9 +102,19 @@ test("just above 2.20 it shows side bars instead of cropping more: the picture s
 test("the stages are size containers, and the posters, the video and the graphics share the box", () => {
   assert.match(source(FILES.intro), /\.intro \{[^}]*container-type: size;[^}]*\}/);
   assert.match(source(FILES.welcome), /\.stage \{[^}]*container-type: size;[^}]*\}/);
-  assert.match(BLOCKS.intro[0].body, /:global\(:root\[data-fitx-film-cut="desktop"\]\) \.poster \{/);
-  // The vignette stays full screen: cut to the box, its edge would show on the page colour at the end and in the static mark.
-  assert.doesNotMatch(BLOCKS.intro[0].body, /\.ambient/);
+  assert.match(BLOCKS.intro[0].body, /:global\(:root\[data-fitx-film-cut="desktop"\]\) \.poster,/);
+  // The vignette keeps to the picture only while the side bars are the stage dark: full screen it would lift them (the
+  // light theme's edge is the page colour) beside the letterbox, which sits above it in the same dark. Before the first
+  // frame and from the tail it is full screen: cut to the box, its edge would show on the page colour at the end and in
+  // the static mark.
+  const ambient = BLOCKS.intro[0].body.match(/[^{},]*\.ambient[^{},]*/g)?.map((selector) => selector.trim());
+  assert.deepEqual(ambient, [':global(:root[data-fitx-film-cut="desktop"]) [data-film-playing]:not([data-film-tail]) ~ .ambient']);
+  // That state is FilmVideo's frame, which CinematicIntro renders before the vignette, in the same parent (the section).
+  const intro = source("src/components/brand/CinematicIntro.tsx");
+  assert.ok(intro.indexOf("<FitxIntroVideo") > 0 && intro.indexOf("<FitxIntroVideo") < intro.indexOf("<div className={styles.ambient}"), "the frame comes first");
+  assert.match(source("src/components/brand/FitxIntroVideo.tsx"), /return \(\s*<FilmVideo/);
+  assert.match(source("src/components/brand/films/FilmVideo.tsx"), /return \(\s*<>\s*<div ref=\{frameRef\}/, "the frame is FilmVideo's first element, no wrapper");
+  assert.match(source(FILES.intro), /^\.ambient \{[^}]*inset: 0;/m, "full screen otherwise");
   assert.match(BLOCKS.welcome[0].body, /\.poster \{/);
   assert.match(BLOCKS.video[0].body, /\.video \{/);
   // The graphics: the 2.39:1 letterbox, the safe margins and the title size measured on the picture as at 2.20:1, and
@@ -184,4 +196,20 @@ test("each film's tail is when its picture really clears to the page: the intro 
   // Both films' picture is the page colour from the tail on to the end.
   assert.ok(welcome.at + welcome.ms / 1000 < WELCOME_DURATION);
   assert.equal(igniteClear(WELCOME_DURATION), 1);
+});
+
+test("the letterbox leaves nothing on the screen's edges: its bars slide a whole 2 px past their own height", () => {
+  // --bar is fractional on most wide screens (39.75 px at 2400 × 1000, 13.87 px at 852 × 349, 71.8 px at 1920 × 947); a
+  // will-change layer moved by exactly -100% kept its last device-pixel row on the top and bottom rows of the screen.
+  const css = source(FILES.graphics);
+  const frames = Object.fromEntries([...css.matchAll(/@keyframes (bar-(?:top|bottom)-(?:in|out)) \{ ([^\n]*) \}\n/g)].map((match) => [match[1], match[2]]));
+  assert.deepEqual(Object.keys(frames).sort(), ["bar-bottom-in", "bar-bottom-out", "bar-top-in", "bar-top-out"]);
+  assert.equal(frames["bar-top-in"], "from { transform: translate3d(0, calc(-100% - 2px), 0); } to { transform: none; }");
+  assert.equal(frames["bar-bottom-in"], "from { transform: translate3d(0, calc(100% + 2px), 0); } to { transform: none; }");
+  assert.equal(frames["bar-top-out"], "from { transform: none; } to { transform: translate3d(0, calc(-100% - 2px), 0); }");
+  assert.equal(frames["bar-bottom-out"], "from { transform: none; } to { transform: translate3d(0, calc(100% + 2px), 0); }");
+  assert.doesNotMatch(css, /translate3d\(0, -?100%, 0\)/, "no bar is moved by exactly its height");
+  // The out animations hold their last frame (fill both), so the bars stay off screen to the end.
+  assert.match(css, /\.barsOut \.barTop \{ animation: bar-top-out [^;]* both; \}/);
+  assert.match(css, /\.barsOut \.barBottom \{ animation: bar-bottom-out [^;]* both; \}/);
 });

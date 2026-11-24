@@ -92,11 +92,16 @@
 /*
  * The scope matte (BRIEF-2 3.1): on a screen wider than 2.20:1 served the desktop composition, the cut keeps a centred
  * 2.20:1 picture with side bars instead of cropping more (FilmVideo.module.css draws the bars). The opening frame takes
- * the same box, so the film starts exactly where its poster was; the page colour shows beside it. The vignette stays
- * full screen: cut to the box, its edge would show on the page colour at the end card and behind the static mark.
+ * the same box, so the film starts exactly where its poster was; the page colour shows beside it.
+ * The vignette keeps to the picture's box only while the side bars are the stage dark (FilmVideo's frame is playing
+ * and before its tail): there it belongs to the picture, and full screen it would lift the bars under it (the light
+ * theme's edge is the page colour) while the letterbox above it stays dark, a seam where the two meet. Before and
+ * after that it is full screen again: cut to the box, its edge would show on the page colour at the end card and
+ * behind the static mark.
  */
 @container (min-aspect-ratio: 11 / 5) {
-  :global(:root[data-fitx-film-cut="desktop"]) .poster {
+  :global(:root[data-fitx-film-cut="desktop"]) .poster,
+  :global(:root[data-fitx-film-cut="desktop"]) [data-film-playing]:not([data-film-tail]) ~ .ambient {
     left: calc(50% - 110cqh);
     right: auto;
     width: 220cqh;

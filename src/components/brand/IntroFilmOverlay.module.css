@@ -115,10 +115,13 @@
 .barsOut .barTop { animation: bar-top-out var(--lb-dur) cubic-bezier(.7, 0, .3, 1) var(--lb-at) both; }
 .barsOut .barBottom { animation: bar-bottom-out var(--lb-dur) cubic-bezier(.7, 0, .3, 1) var(--lb-at) both; }
 
-@keyframes bar-top-in { from { transform: translate3d(0, -100%, 0); } to { transform: none; } }
-@keyframes bar-bottom-in { from { transform: translate3d(0, 100%, 0); } to { transform: none; } }
-@keyframes bar-top-out { from { transform: none; } to { transform: translate3d(0, -100%, 0); } }
-@keyframes bar-bottom-out { from { transform: none; } to { transform: translate3d(0, 100%, 0); } }
+/* Off screen by a whole 2 px more than the bar's own height: --bar is often fractional (39.75 px at 2400 × 1000), and a
+   layer moved by exactly its height kept its last device-pixel row on the screen's edge, a dark line on the page
+   colour through the end card. */
+@keyframes bar-top-in { from { transform: translate3d(0, calc(-100% - 2px), 0); } to { transform: none; } }
+@keyframes bar-bottom-in { from { transform: translate3d(0, calc(100% + 2px), 0); } to { transform: none; } }
+@keyframes bar-top-out { from { transform: none; } to { transform: translate3d(0, calc(-100% - 2px), 0); } }
+@keyframes bar-bottom-out { from { transform: none; } to { transform: translate3d(0, calc(100% + 2px), 0); } }
 
 /* Cold-open super inside the bottom matte: time of day and session, gone before the first title. */
 .slate {
