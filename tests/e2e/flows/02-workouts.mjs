@@ -207,11 +207,15 @@ export const flow = {
       await search.fill("plank");
       const plank = page.locator("label").filter({ has: page.locator("input[type=checkbox]") }).filter({ hasText: /^Plank$|Plank/ }).first();
       await plank.click();
-      const plankName = (await plank.innerText()).split("\n")[0].trim();
-      const seconds = page.getByRole("spinbutton", { name: `${plankName} target duration in seconds` });
-      if (await seconds.count()) await seconds.fill("5");
-      const sets = page.getByRole("spinbutton", { name: `${plankName} target sets` });
-      if (await sets.count()) await sets.fill("1");
+      // The builder holds only this exercise. Match its fields by the end of their names: the picker label's text now
+      // starts with the thumbnail's "AI" tag, so it no longer gives the exercise's name. Waiting for the fields makes the
+      // 5 s, 1 set plan apply every time (with the 30 s default the set timer raced this step's waits).
+      const seconds = page.getByRole("spinbutton", { name: /target duration in seconds$/ }).first();
+      await seconds.waitFor({ timeout: 10000 });
+      await seconds.fill("5");
+      const sets = page.getByRole("spinbutton", { name: /target sets$/ }).first();
+      await sets.waitFor({ timeout: 10000 });
+      await sets.fill("1");
       await t.checkpoint("custom workout builder");
       await Promise.all([
         page.waitForURL("**/workouts/active?session=*", { timeout: 30000 }),
