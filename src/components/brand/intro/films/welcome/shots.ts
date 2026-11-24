@@ -292,12 +292,16 @@ function markBox(must: boolean): SubjectBox {
  * until the palms come off it), and the loader's face and hands while the palms are on the plate (`gripAt`, the clip's
  * own timing: they reach into the shot before it and stand out of it after). The whole plate and the whole body are
  * listed, not `must`: in these close frames the rim and the feet may leave the frame.
+ *
+ * The hub's window is one run of frames: before `release` the plate is still being loaded whatever the grip (the palms
+ * land on it from `handsOn`, but `gripAt` passes 0.5 only a moment later), and `onPlate` carries it on until the palms
+ * have come off, just after `release` (tests/brand/welcome-framing.test.ts pins each shot's frames).
  */
 function loadingSubjects(ctx: ShotContext, index: number, action: number): SubjectBox[] {
   const loader = LOADERS[index];
   const centre = plateWorld(welcomePlates(ctx.props.barbell)[index], new THREE.Vector3());
   const onPlate = gripAt(loader.spec, action) > 0.5;
-  const loading = action < loader.spec.handsOn || onPlate;
+  const loading = action < loader.spec.release || onPlate;
   const plate = `plate-${index + 1}`;
   const boxes: SubjectBox[] = [pointBox(`${plate}-hub`, centre, HUB_HALF, loading), plateBox(plate, centre, index, false)];
   const instance = ctx.cast[loader.id];

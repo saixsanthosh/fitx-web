@@ -15,11 +15,14 @@ import * as THREE from "three";
 import { COMPOSITIONS, type FilmComposition } from "@/components/brand/films/compositions";
 import { CAST_ORDER } from "@/components/brand/intro/character/cast";
 import type { CharacterInstance } from "@/components/brand/intro/character/assemble";
+import { poseHand } from "@/components/brand/intro/character/details/handSculpt";
+import { handFrame } from "@/components/brand/intro/character/hands";
+import type { HandPose } from "@/components/brand/intro/character/types";
 import { BARBELL } from "@/components/brand/intro/dimensions";
 import { applyCameraState, createCameraState, evaluateCameraTrack, type CameraTrack } from "@/components/brand/intro/director/camera";
 import type { FilmContext, ShotFrame, ShotModule, SubjectBox } from "@/components/brand/intro/director/shot-types";
 import { hideStage, type Stage } from "@/components/brand/intro/director/stage-kit";
-import { headBox, landmarkWorld, PALM_HALF_WIDTH } from "@/components/brand/intro/director/subject-boxes";
+import { headBox, landmarkWorld } from "@/components/brand/intro/director/subject-boxes";
 import { WELCOME_FILM } from "@/components/brand/intro/films/welcome/def";
 import { gripAt, LOADS } from "@/components/brand/intro/films/welcome/load-motion";
 import { MARK_FLOOR_BOUNDS } from "@/components/brand/intro/films/welcome/mark-floor";
@@ -94,30 +97,48 @@ const byId = (subjects: readonly SubjectBox[], id: string) => {
 
 // ------------------------------------------------------------------------------------------------- what is must, and when
 
+/**
+ * Each loading shot's must windows, as frames of the film at 60 fps, each one unbroken run: the hub of the plate being
+ * loaded from the shot's first frame until the palms have come off it, the face and the hands while the palms are on
+ * the plate (`gripAt` above 0.5, the clip's own count). Pinned frame by frame, so no frame can drop out of a window
+ * unnoticed: `action < handsOn || onPlate` once left w3's hub out at frame 296, after the palms land (`handsOn`) and
+ * before the grip passes 0.5.
+ */
+const MUST_WINDOWS: Record<(typeof LOADING)[number]["shot"], { hub: [number, number]; onPlate: [number, number] }> = {
+  "w1-maya": { hub: [84, 152], onPlate: [92, 152] },
+  "w2-leo": { hub: [216, 276], onPlate: [220, 276] },
+  "w3-dre": { hub: [293, 374], onPlate: [297, 374] },
+};
+const run = ([first, last]: [number, number]) => Array.from({ length: last - first + 1 }, (_, k) => first + k);
+
 test("the loading shots: the plate being loaded until the palms leave it, the face and hands while the palms are on it", () => {
   for (const { shot: id, loader, index } of LOADING) {
     const spec = LOADS[loader];
     const plate = `plate-${index + 1}`;
-    const counts = { hub: 0, face: 0, hands: 0 };
-    play("laptop", FRAMES, ({ shot, frame, subjects }) => {
+    const must = { hub: [] as number[], face: [] as number[], hands: [] as number[] };
+    const shotFrames: number[] = [];
+    const gripping: number[] = [];
+    play("laptop", FRAMES, ({ index: at, shot, frame, subjects }) => {
       if (shot.id !== id) return;
+      shotFrames.push(at);
       const action = loaderAction(id, frame.local);
-      const onPlate = gripAt(spec, action) > 0.5;
-      const where = `${id} at ${frame.time.toFixed(3)} s (action ${action.toFixed(3)})`;
-      assert.equal(byId(subjects, `${plate}-hub`).must, action < spec.handsOn || onPlate, `${where}: the hub of the plate being loaded`);
-      assert.equal(byId(subjects, `${loader}-face`).must, onPlate, `${where}: the face while the palms are on the plate`);
-      assert.equal(byId(subjects, "hands").must, onPlate, `${where}: the hands while they are on the plate`);
+      if (gripAt(spec, action) > 0.5) gripping.push(at);
+      if (byId(subjects, `${plate}-hub`).must) must.hub.push(at);
+      if (byId(subjects, `${loader}-face`).must) must.face.push(at);
+      if (byId(subjects, "hands").must) must.hands.push(at);
+      const where = `${id} frame ${at} (action ${action.toFixed(3)})`;
       assert.equal(byId(subjects, plate).must, false, `${where}: the whole plate (its rim may leave a close frame)`);
       assert.equal(byId(subjects, loader).must, false, `${where}: the whole body`);
-      if (action >= spec.seat && action < spec.release) {
-        for (const must of [`${plate}-hub`, `${loader}-face`, "hands"]) assert.equal(byId(subjects, must).must, true, `${where}: ${must} at the seat`);
-      }
-      counts.hub += Number(byId(subjects, `${plate}-hub`).must);
-      counts.face += Number(byId(subjects, `${loader}-face`).must);
-      counts.hands += Number(byId(subjects, "hands").must);
     });
-    // The palms are on the plate for most of each shot (the clip's handsOn to release).
-    assert.ok(counts.face > 40 && counts.hands > 40 && counts.hub > counts.face, `${id}: ${JSON.stringify(counts)}`);
+    const windows = MUST_WINDOWS[id];
+    assert.deepEqual(must.hub, run(windows.hub), `${id}: the frames the hub of the plate being loaded is must`);
+    assert.deepEqual(must.face, run(windows.onPlate), `${id}: the frames the face is must`);
+    assert.deepEqual(must.hands, run(windows.onPlate), `${id}: the frames the hands are must`);
+    // What the pinned frames are: the hub from the shot's first frame; the face and the hands on exactly the frames the
+    // clip counts the palms on the plate; the hub until those end (the palms come off it just after `release`).
+    assert.equal(windows.hub[0], shotFrames[0], `${id}: the hub is must from the shot's first frame`);
+    assert.deepEqual(gripping, run(windows.onPlate), `${id}: the frames the palms are on the plate`);
+    assert.equal(windows.hub[1], windows.onPlate[1], `${id}: the hub stays must until the palms come off`);
   }
 });
 
@@ -182,15 +203,7 @@ test("the boxes are the parts they name, from the posed rigs and the props", () 
       const head = headBox(instance, "head", true);
       for (let c = 0; c < 3; c += 1) assert.ok(face.min[c] <= head.min[c] && face.max[c] >= head.max[c], `${id}: the face box holds the intro's head box`);
       for (const landmark of ["eyeMid", "chin"] as const) assert.ok(within(landmarkWorld(instance, "head", landmark), face), `${id}: the face box holds ${landmark}`);
-      // The hands: wrist to fingertip, padded by half a palm.
-      const hands = byId(subjects, "hands");
-      for (const side of ["L", "R"] as const) {
-        const wrist = instance.rig.bones[`hand_${side}`].getWorldPosition(new THREE.Vector3());
-        const tip = landmarkWorld(instance, `hand_${side}`, `handTip_${side}`);
-        for (const point of [wrist, tip]) for (const offset of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, -1]] as const) {
-          assert.ok(within(point.clone().addScaledVector(new THREE.Vector3(...offset), PALM_HALF_WIDTH - 1e-6), hands), `${id}: hand ${side}`);
-        }
-      }
+      // The hands: the next test holds the box to the sculpted hands at every frame they are on the plate.
       // The plate: its hub (the intro's 3a-plate box) and, not must, the whole disc.
       const centre = plateWorld(welcomePlates(ctx.props.barbell)[index], new THREE.Vector3());
       const hub = byId(subjects, `plate-${index + 1}-hub`);
@@ -219,6 +232,64 @@ test("the boxes are the parts they name, from the posed rigs and the props", () 
   const w5 = WELCOME_FILM.shots[5];
   const [mark] = w5.subjects!(ctx, { ...frame, time: w5.start, local: 0 });
   assert.deepEqual([mark.min, mark.max], [[MARK_FLOOR_BOUNDS.minX, FLOOR_Y, MARK_FLOOR_BOUNDS.minZ], [MARK_FLOOR_BOUNDS.maxX, INLAY_TOP, MARK_FLOOR_BOUNDS.maxZ]]);
+});
+
+/**
+ * The hand sculpt (character/details/handSculpt.ts, a 0.19 m reference hand) in `pose`, where the assembly hangs it on
+ * `hand_<side>`: in the bind hand frame, scaled to the rig's own hand length, relative to the wrist joint
+ * (character/hands.ts), the left hand mirrored across X (character/assemble.ts). Every finger and thumb joint with its
+ * radius, in world space: the hand as it is drawn, whatever pad `handsBox` gives the line from wrist to fingertip.
+ */
+function sculptedHand(instance: CharacterInstance, side: "L" | "R", pose: HandPose) {
+  const hand = handFrame(instance.rig.bind);
+  const sculpt = poseHand(pose, instance.rig.bind.proportions.sex === "female");
+  const bone = instance.rig.bones[`hand_${side}`];
+  bone.updateWorldMatrix(true, false);
+  const axis = (u: number, v: number, w: number, c: number) => hand.scale * (u * hand.u[c] + v * hand.v[c] + w * hand.w[c]);
+  return [...sculpt.fingers, sculpt.thumb].flatMap((digit) =>
+    digit.joints.map(([u, v, w], joint) => {
+      const offset = new THREE.Vector3(axis(u, v, w, 0) * (side === "L" ? -1 : 1), axis(u, v, w, 1), axis(u, v, w, 2));
+      return { centre: bone.localToWorld(offset), radius: digit.radii[joint] * hand.scale };
+    }),
+  );
+}
+
+test("the hands box holds both hands as they are drawn, at every frame the palms are on the plate", () => {
+  for (const { shot: id, loader } of LOADING) {
+    const spec = LOADS[loader];
+    // The stand-in stage's cast is one set of rigs that every context shares: record the hand poses the clip sets.
+    const instance = contextFor("laptop", "dark").cast[loader] as CharacterInstance;
+    const poses: Partial<Record<"L" | "R", HandPose>> = {};
+    const setHandPose = instance.setHandPose;
+    instance.setHandPose = (side, pose) => {
+      poses[side] = pose;
+    };
+    const checked: number[] = [];
+    try {
+      play("laptop", FRAMES, ({ index: at, shot, frame, ctx, subjects }) => {
+        if (shot.id !== id || !(gripAt(spec, loaderAction(id, frame.local)) > 0.5)) return;
+        assert.equal(ctx.cast[loader], instance, "one shared cast");
+        checked.push(at);
+        const hands = byId(subjects, "hands");
+        for (const side of ["L", "R"] as const) {
+          const pose = poses[side];
+          assert.ok(pose, `${id} frame ${at}: the clip sets the ${side} hand's pose`);
+          const wrist = instance.rig.bones[`hand_${side}`].getWorldPosition(new THREE.Vector3());
+          const tip = landmarkWorld(instance, `hand_${side}`, `handTip_${side}`);
+          assert.ok(within(wrist, hands) && within(tip, hands), `${id} frame ${at}: hand ${side}, its wrist and fingertip`);
+          for (const [joint, { centre, radius }] of sculptedHand(instance, side, pose).entries()) {
+            for (let c = 0; c < 3; c += 1) {
+              const inside = centre.getComponent(c) - radius >= hands.min[c] - 1e-9 && centre.getComponent(c) + radius <= hands.max[c] + 1e-9;
+              assert.ok(inside, `${id} frame ${at}: hand ${side} (${pose}), digit joint ${joint}, axis ${c}`);
+            }
+          }
+        }
+      });
+    } finally {
+      instance.setHandPose = setHandPose;
+    }
+    assert.deepEqual(checked, run(MUST_WINDOWS[id].onPlate), `${id}: every frame the palms are on the plate`);
+  }
 });
 
 // ------------------------------------------------------------------------------------------------- on every screen
