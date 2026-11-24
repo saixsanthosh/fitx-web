@@ -62,7 +62,10 @@ export function reelSource(theme: FilmTheme, shape: FilmShape): string {
   return `/media/landing-film/reel-${theme}-${shape}.mp4`;
 }
 
-/** The still the reel opens on (frame 0 of the same cut), shown first and kept with reduced motion or Save-Data. */
+/**
+ * The still shown first and kept with reduced motion or Save-Data: the same cut 0.75 s in (film time 2.05 s, the
+ * film lab's `landing-reel` job), not its frame 0.
+ */
 export function posterSource(theme: FilmTheme, shape: FilmShape): string {
   return `/media/landing-film/poster-${theme}-${shape}.webp`;
 }
