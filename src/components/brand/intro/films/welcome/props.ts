@@ -8,7 +8,10 @@
  *   stutters on in the opening and keys the platform;
  * - two black rubber loading blocks that hold the empty bar at plate height, so plates roll and slide on;
  * - the loaded bar: the gym's own barbell (`FilmProps.barbell`), turned to lie along the mark's bar line, with three of
- *   its plates resized to the mark's three plates (450, 350 and 260 mm) and everything else hidden.
+ *   its plates resized to the mark's three plates (450, 350 and 260 mm) and everything else hidden;
+ * - Leo's helmet spot (D11): indoors Leo wears neither his cycling helmet nor his sunglasses. His own helmet mesh is
+ *   moved onto the gym floor just off the platform with the stage's `carryHelmet` (which `hideStage` undoes before
+ *   every shot), its rim resting flat, and his sunglasses are hidden (`leoIndoors`).
  *
  * Everything lives in the gym set's group, so `hideStage` hides it with the set; `resetWelcomeProps` puts it back to
  * one known state at every shot's `enter`, so seeking stays deterministic.
@@ -16,6 +19,8 @@
 
 import * as THREE from "three";
 import { SVGLoader } from "three/addons/loaders/SVGLoader.js";
+import type { CharacterInstance } from "../../character/assemble";
+import { carryHelmet } from "../../director/stage-kit";
 import { BARBELL, PLATFORM } from "../../dimensions";
 import type { FitxMarkPieceId } from "../../../logo/geometry";
 import type { BarbellPlate, BarbellProp, IntroSet } from "../../sets/types";
@@ -79,6 +84,8 @@ export interface WelcomeProps {
   pieces: readonly PieceMesh[];
   strip: THREE.Group;
   blocks: THREE.Group;
+  /** Where Leo's helmet rests on the gym floor (`leoIndoors` hangs his helmet mesh on it). */
+  helmetSpot: THREE.Group;
   /** The strip light's tube brightness (0 off, 1 on; above 1 a flash). */
   setStrip(level: number): void;
   /** One piece's ignition (0..1) with an overall heat (multiplies the emissive). */
@@ -215,6 +222,12 @@ function buildProps(gym: IntroSet, theme: Theme): WelcomeProps {
     blocks.add(block);
   }
 
+  // ------------------------------------------------------------------ Leo's helmet spot (D11)
+  const helmetSpot = new THREE.Group();
+  helmetSpot.name = "welcome-helmet-spot";
+  helmetSpot.position.set(HELMET_SPOT.x, 0, HELMET_SPOT.z);
+  gym.group.add(helmetSpot);
+
   const applyTheme = (next: Theme) => {
     for (const piece of pieces) piece.material.color.setHex(next === "light" ? 0x3b3f43 : 0x2b2e31);
   };
@@ -225,6 +238,7 @@ function buildProps(gym: IntroSet, theme: Theme): WelcomeProps {
     pieces,
     strip,
     blocks,
+    helmetSpot,
     setStrip(level) {
       tubeMaterial.emissiveIntensity = Math.max(0, level) * 9;
     },
@@ -251,6 +265,7 @@ function buildProps(gym: IntroSet, theme: Theme): WelcomeProps {
       mark.removeFromParent();
       strip.removeFromParent();
       blocks.removeFromParent();
+      helmetSpot.removeFromParent();
       for (const item of disposables) item.dispose();
     },
   };
@@ -305,6 +320,7 @@ export function resetWelcomeProps(welcome: WelcomeProps, barbell: BarbellProp) {
   welcome.mark.visible = true;
   welcome.strip.visible = true;
   welcome.blocks.visible = true;
+  welcome.helmetSpot.visible = true;
   welcome.setStrip(1);
   welcome.resetIgnition();
   stageBar(barbell);
@@ -319,6 +335,87 @@ export function restoreBarbell(barbell: BarbellProp) {
 export function plateWorld(plate: BarbellPlate, out = new THREE.Vector3()) {
   plate.object.updateWorldMatrix(true, false);
   return plate.object.getWorldPosition(out);
+}
+
+// ------------------------------------------------------------------------------------------------- Leo indoors (D11)
+
+/**
+ * Where Leo set his helmet down (gym floor, world): just off the platform's +Z edge on the -X side, beside his place in
+ * the team (x -0.78, z 1.56) and clear of his feet, the mark and the bar; its front turned towards the bar. Out of
+ * frame in the shots he is not in (w0, w1, w3; tested), so it never pops.
+ */
+export const HELMET_SPOT = { x: -1.2, z: 1.4, yaw: 2.13 } as const;
+
+/**
+ * How a helmet shell rests on a flat floor, crown up: the pitch (rad, about its own X) that puts the lowest point of its
+ * front half and the lowest point of its back half on the floor together (a bike helmet's rim dips at the back), and the
+ * lift that puts that rim on the floor. `positions` are the shell's vertices relative to its centre (the holder's
+ * origin, as `carryHelmet` centres it).
+ */
+export function helmetRest(positions: ArrayLike<number>): { pitch: number; lift: number } {
+  // Rotating by `pitch` about +X takes (y, z) to (y cos - z sin, y sin + z cos). The lowest points of the two halves
+  // change as the shell tips, so tip it a few times until both halves touch the same floor.
+  let pitch = 0;
+  for (let pass = 0; pass < 12; pass += 1) {
+    const c = Math.cos(pitch);
+    const s = Math.sin(pitch);
+    let front: [number, number] | null = null;
+    let back: [number, number] | null = null;
+    for (let index = 0; index + 2 < positions.length; index += 3) {
+      const y = positions[index + 1] * c - positions[index + 2] * s;
+      const z = positions[index + 1] * s + positions[index + 2] * c;
+      if (z >= 0) {
+        if (!front || y < front[0]) front = [y, z];
+      } else if (!back || y < back[0]) back = [y, z];
+    }
+    if (!front || !back) break;
+    const step = Math.atan2(front[0] - back[0], front[1] - back[1]);
+    pitch += step;
+    if (Math.abs(step) < 1e-5) break;
+  }
+  const c = Math.cos(pitch);
+  const s = Math.sin(pitch);
+  let lowest = Infinity;
+  for (let index = 0; index + 2 < positions.length; index += 3) lowest = Math.min(lowest, positions[index + 1] * c - positions[index + 2] * s);
+  if (!Number.isFinite(lowest)) return { pitch: 0, lift: 0 };
+  return { pitch, lift: -lowest + 0.0015 };
+}
+
+const rests = new WeakMap<THREE.BufferGeometry, { pitch: number; lift: number }>();
+
+/**
+ * Leo indoors (D11): his helmet off and set down on the floor by the platform (the stage's own `carryHelmet`, which
+ * `hideStage` undoes before every shot, so it is called in each shot's `enter`), the straps hidden with it, and his
+ * sunglasses off (hidden; `hideStage` shows them again for the intro's shots). Both themes, every shot he is in.
+ */
+export function leoIndoors(welcome: WelcomeProps, leo: CharacterInstance) {
+  carryHelmet(leo, welcome.helmetSpot);
+  leo.setAccessoryVisible("sunglassesFrame", false);
+  leo.setAccessoryVisible("sunglassesLens", false);
+  const helmet = leo.meshes.helmet as THREE.Mesh | undefined;
+  let rest = { pitch: 0, lift: 0.12 };
+  if (helmet?.isMesh) {
+    const geometry = helmet.geometry;
+    let cached = rests.get(geometry);
+    if (!cached) {
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      const centre = geometry.boundingBox!.getCenter(new THREE.Vector3());
+      const source = geometry.getAttribute("position");
+      const relative = new Float32Array(source.count * 3);
+      for (let index = 0; index < source.count; index += 1) {
+        relative[index * 3] = source.getX(index) - centre.x;
+        relative[index * 3 + 1] = source.getY(index) - centre.y;
+        relative[index * 3 + 2] = source.getZ(index) - centre.z;
+      }
+      cached = helmetRest(relative);
+      rests.set(geometry, cached);
+    }
+    rest = cached;
+  }
+  welcome.helmetSpot.position.set(HELMET_SPOT.x, rest.lift, HELMET_SPOT.z);
+  // Yaw after the pitch (YXZ): the rim flat on the floor, its front turned to the bar.
+  welcome.helmetSpot.rotation.set(rest.pitch, HELMET_SPOT.yaw, 0, "YXZ");
+  welcome.helmetSpot.updateMatrixWorld(true);
 }
 
 export const WELCOME_COLOURS = { coral: CORAL, ember: EMBER } as const;
