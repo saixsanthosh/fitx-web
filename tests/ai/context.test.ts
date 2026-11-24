@@ -718,6 +718,39 @@ describe("privacy page", () => {
     assert.match(used, /\bAI coach\b/, "the coach's meal-plan checks are named too");
     assert.doesNotMatch(used, /Food searches and barcodes are sent from FITX to Open Food Facts/, "most searches stay in FITX's own catalogue");
   });
+
+  test("release 2b: the films' two keys kept on the device, what each holds and how long, and the Pixabay credit", async () => {
+    // The keys and the 7 days are the code's (BRIEF-2 3.4 and D1).
+    const { SOUND_PREF_KEY } = await import("@/components/brand/films/filmSound");
+    const { FILM_SEEN_KEY, FILM_SEEN_MS } = await import("@/components/brand/introKeys");
+    assert.deepEqual([SOUND_PREF_KEY, FILM_SEEN_KEY], ["fitx-film-sound", "fitx-film-seen"]);
+    assert.equal(FILM_SEEN_MS, 7 * 24 * 60 * 60 * 1000);
+    assert.match(read("src/components/brand/films/welcome-runtime.ts"), /storage\.setItem\(FILM_SEEN_KEY, now\.toISOString\(\)\)/, "a date and time");
+    assert.match(read("src/components/brand/films/filmSound.ts"), /storage\?\.setItem\(SOUND_PREF_KEY, on \? "on" : "off"\)/, "only “on” or “off”");
+    assert.match(read("src/components/brand/films/sting.ts"), /readSoundPref\(storage\) !== "on"\) return false;/, "the sign-in animation's sound follows it");
+
+    const films = section("FITX films");
+    assert.ok(films, "the page has a films section");
+    assert.match(films, /\bthey start muted\b/);
+    assert.match(films, /\bonly then does your browser download it, also from FITX’s site\b/);
+    assert.match(films, /\bon this device only \(they are never sent to FITX\)/);
+    assert.match(films, /\bfitx-film-sound\s+holds whether you last turned the films’ sound on or off, and stays until you change it or clear this site’s data\b/);
+    assert.match(films, /\bfitx-film-seen\s+holds when the welcome film started on this device after you set up FITX, so that for 7 days it doesn’t play again by itself here\b/);
+    assert.match(films, /\bAfter those 7 days it is no longer used, but it stays until you clear this site’s data\b/);
+    assert.match(section("Analytics and storage"), /\byour choice of sound for the FITX films and when the welcome film started on this device \(see FITX films above\)/);
+
+    // The credit says what src/data/DATA_SOURCES.md's "Film sound (Pixabay)" section says, and the page points to it.
+    const credit = read("src/data/DATA_SOURCES.md").split(/^## /m).find((part) => part.startsWith("Film sound (Pixabay)\n")) ?? "";
+    assert.match(credit, /is FITX's own mix of six sound files from \[Pixabay\]\(https:\/\/pixabay\.com\), used under the \[Pixabay Content License\]/);
+    assert.match(credit, /Films start muted, and a mix is downloaded only after the member turns the sound on\./);
+    assert.match(films, /\bThe sound is FITX’s own mix of sound files from Pixabay, used under the Pixabay Content License\b/);
+    assert.match(page, /\{\/\* Each file, its author and its page: src\/data\/DATA_SOURCES\.md, “Film sound \(Pixabay\)”\. \*\/\}/);
+
+    const cookies = read("src/app/(marketing)/cookies/page.tsx");
+    const kept = cookies.match(/<h2>Kept on this device<\/h2><p>These stay in your browser and are never sent to FITX:<\/p>([\s\S]*?)<\/section>/)?.[1] ?? "";
+    assert.match(kept, /<li><strong>fitx-film-sound<\/strong> \(local storage\): whether you last turned the FITX films’ sound on or off, [^<]* It holds only “on” or “off” and stays until you change it or clear this site’s data\.<\/li>/);
+    assert.match(kept, /<li><strong>fitx-film-seen<\/strong> \(local storage\): when the welcome film started on this device after you set up FITX, as a date and time\. For 7 days after that, [^<]* After that it is no longer used, but it stays until you clear this site’s data\.<\/li>/);
+  });
 });
 
 describe("privacy wording elsewhere", () => {

@@ -35,14 +35,16 @@ export type SupportListRow = {
 
 /** Inbox counts; the unread ones are null until migration 20261121100033 is applied. */
 export type SupportInbox = {
-  byStatus: Record<string, number>;
+  /** Requests per status; null when that count could not be read (never 0 for "could not count"). */
+  byStatus: Record<SupportStatus, number | null>;
   openByCategory: Record<string, number> | null;
   unread: number | null;
   unreadByCategory: Record<string, number> | null;
 };
 
 export type SupportListResult =
-  | { state: "ready"; rows: SupportListRow[]; counts: Record<string, number>; inbox: SupportInbox; total: number; hasNext: boolean; filters: SupportFilters }
+  /** counts: requests per status; null when that count could not be read. */
+  | { state: "ready"; rows: SupportListRow[]; counts: Record<SupportStatus, number | null>; inbox: SupportInbox; total: number; hasNext: boolean; filters: SupportFilters }
   | { state: "service_key_missing" | "migration_pending" | "query_failed" };
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -231,13 +233,37 @@ function counts(value: unknown): Record<string, number> {
   return result;
 }
 
+/** A whole count of zero or more (a number, or the digits Postgres sends for a bigint), else null. */
+function countOf(raw: unknown): number | null {
+  const parsed = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/**
+ * Requests per status from the database's counts (fitx_admin_support_inbox's by_status, or the older
+ * fitx_admin_support_counts), which group the requests by status, so a status with no requests is left out: a real 0.
+ * A count that is there but is not a count, or counts that are not an object at all, could not be read: null, and
+ * logged, never shown as 0.
+ */
+function statusCounts(value: unknown): Record<SupportStatus, number | null> {
+  const source = value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  if (!source) logServerError("data.support_status_counts", { message: "the counts by status are not an object" });
+  return Object.fromEntries(SUPPORT_STATUSES.map((status) => {
+    if (!source) return [status, null];
+    if (!(status in source)) return [status, 0];
+    const count = countOf(source[status]);
+    if (count === null) logServerError("data.support_status_counts", { message: `the count for ${status} is not a count` });
+    return [status, count];
+  })) as Record<SupportStatus, number | null>;
+}
+
 /** Counts by status, open work by category and unread, from fitx_admin_support_inbox, else the older counts. */
 async function readInbox(admin: AdminClient): Promise<SupportInbox | "missing" | "failed"> {
   const inbox = await admin.rpc("fitx_admin_support_inbox");
   if (!inbox.error) {
     const source = (inbox.data ?? {}) as Record<string, unknown>;
     return {
-      byStatus: counts(source.by_status),
+      byStatus: statusCounts(source.by_status),
       openByCategory: counts(source.open_by_category),
       unread: Number(source.unread) || 0,
       unreadByCategory: counts(source.unread_by_category),
@@ -253,7 +279,7 @@ async function readInbox(admin: AdminClient): Promise<SupportInbox | "missing" |
     logServerError("data.support_counts", older.error);
     return "failed";
   }
-  return { byStatus: counts(older.data), openByCategory: null, unread: null, unreadByCategory: null };
+  return { byStatus: statusCounts(older.data), openByCategory: null, unread: null, unreadByCategory: null };
 }
 
 /** Unread help requests, for the Support badge in the menu; null when unknown (no badge). */

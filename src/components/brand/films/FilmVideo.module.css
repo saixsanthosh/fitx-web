@@ -1,0 +1,46 @@
+/*
+ * FilmVideo's picture and its scope matte (BRIEF-2 3.1, the desktop band). The cut covers the screen
+ * (FitxIntroScene.module.css .surface) up to an aspect of 2.20, where a cover fit has cropped 9% of the desktop
+ * cut's height. On a wider screen served the desktop composition the picture stays 2.20:1 (220cqh wide: 2.2 × the
+ * height of the film's stage, the size container, CinematicIntro's .intro or WelcomeFilm's .stage), centred, and the
+ * sides are side bars instead of more crop. 11 / 5 and 220cqh are desktop's checkMax in COMPOSITIONS
+ * (tests/brand/scope-matte.test.ts keeps them equal); the posters and the intro's graphics take the same box.
+ *
+ * The bars are the page colour until the film plays, the dark of a film stage while it plays (data-film-playing; the
+ * intro's letterbox takes the same dark there, IntroFilmOverlay.module.css), and the page colour again from the film's
+ * reveal stage (data-film-tail), when the film itself clears to the page: so the film opens into the matte and hands
+ * back to the page without a seam, as the intro's letterbox slides in and out. Theme tokens only; opacity only.
+ */
+.matte { display: none; }
+
+@container (min-aspect-ratio: 11 / 5) {
+  :global(:root[data-fitx-film-cut="desktop"]) .video {
+    left: calc(50% - 110cqh);
+    right: auto;
+    width: 220cqh;
+  }
+
+  :global(:root[data-fitx-film-cut="desktop"]) .matte {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: block;
+    width: calc(50% - 110cqh);
+    background: var(--fitx-bg);
+    pointer-events: none;
+  }
+}
+
+.matteLeft { left: 0; }
+.matteRight { right: 0; }
+
+.matte::after {
+  position: absolute;
+  inset: 0;
+  background: var(--fitx-stage);
+  content: "";
+  opacity: 0;
+  transition: opacity 400ms cubic-bezier(.22, .72, .2, 1);
+}
+
+.frame[data-film-playing]:not([data-film-tail]) .matte::after { opacity: 1; }

@@ -29,3 +29,9 @@ export const SWAP_TAIL_S = 1.5;
 export function swapAllowed(time: number, duration: number): boolean {
   return Number.isFinite(time) && Number.isFinite(duration) && time >= SWAP_HEAD_S && time <= duration - SWAP_TAIL_S;
 }
+
+/**
+ * A resize settles this long before the film follows it with a new composition: FilmVideo's cut swap, and the live
+ * film's `data-fitx-film-cut` (CinematicIntro), which the letterbox and the callouts read.
+ */
+export const RESIZE_SETTLE_MS = 220;
