@@ -12,12 +12,27 @@ import {
   SUPPORT_PRIORITY_LABELS,
   SUPPORT_STATUS_LABELS,
   SUPPORT_STATUSES,
+  type SupportStatus,
 } from "@/lib/support-catalog";
 import { formatIstDateTime } from "@/lib/time";
 
 export const metadata: Metadata = { title: "Support" };
 
 const ACTIVE = ["open", "in_progress", "waiting_on_user"] as const;
+
+/** The requests that need attention, or null when any of their counts could not be read (never a partial sum). */
+function needingAttention(counts: Record<SupportStatus, number | null>): number | null {
+  let sum = 0;
+  for (const status of ACTIVE) {
+    const count = counts[status];
+    if (count === null) return null;
+    sum += count;
+  }
+  return sum;
+}
+
+/** A count that could not be read is null and shows as "Not known", never as 0. */
+const countText = (count: number | null) => (count === null ? "Not known" : count.toLocaleString("en-IN"));
 
 function queueLink(filters: SupportFilters, overrides: Partial<SupportFilters>) {
   const merged = { ...filters, ...overrides };
@@ -40,14 +55,17 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const filters = parseSupportFilters(params);
   const result = await listSupportRequests(filters);
-  const waiting = result.state === "ready" ? ACTIVE.reduce((sum, status) => sum + (result.counts[status] ?? 0), 0) : null;
+  const waiting = result.state === "ready" ? needingAttention(result.counts) : null;
+  const meta = result.state === "ready"
+    ? [result.inbox.unread === null ? null : `${result.inbox.unread.toLocaleString("en-IN")} unread`, waiting === null ? null : `${waiting.toLocaleString("en-IN")} need attention`].filter(Boolean).join(" · ")
+    : "";
 
   return (
     <div className="page-stack">
       <PageHead
         eyebrow="Support"
         title="Inbox"
-        meta={result.state === "ready" ? `${result.inbox.unread === null ? "" : `${result.inbox.unread.toLocaleString("en-IN")} unread · `}${(waiting ?? 0).toLocaleString("en-IN")} need attention` : undefined}
+        meta={meta || undefined}
       />
       {params.notice === "not_found" && <Notice tone="error">That request no longer exists.</Notice>}
       {result.state === "ready" ? (
@@ -65,9 +83,9 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
             })}
           </nav>
           <nav className="filter-tabs" aria-label="Status">
-            <Link aria-current={filters.status === "active" && !filters.unread ? "page" : undefined} href={queueLink(filters, { status: "active", unread: false, page: 1 })}>Needs attention <b>{waiting}</b></Link>
+            <Link aria-current={filters.status === "active" && !filters.unread ? "page" : undefined} href={queueLink(filters, { status: "active", unread: false, page: 1 })}>Needs attention <b>{countText(waiting)}</b></Link>
             {result.inbox.unread !== null && <Link aria-current={filters.unread ? "page" : undefined} href={queueLink(filters, { status: "all", unread: true, page: 1 })}>Unread <b>{result.inbox.unread}</b></Link>}
-            {SUPPORT_STATUSES.map((status) => <Link key={status} aria-current={filters.status === status && !filters.unread ? "page" : undefined} href={queueLink(filters, { status, unread: false, page: 1 })}>{SUPPORT_STATUS_LABELS[status]} <b>{result.counts[status] ?? 0}</b></Link>)}
+            {SUPPORT_STATUSES.map((status) => <Link key={status} aria-current={filters.status === status && !filters.unread ? "page" : undefined} href={queueLink(filters, { status, unread: false, page: 1 })}>{SUPPORT_STATUS_LABELS[status]} <b>{countText(result.counts[status])}</b></Link>)}
             <Link aria-current={filters.status === "all" && !filters.unread ? "page" : undefined} href={queueLink(filters, { status: "all", unread: false, page: 1 })}>All</Link>
             <Link aria-current={filters.mine ? "page" : undefined} href={queueLink(filters, { mine: !filters.mine, page: 1 })}>Assigned to me</Link>
           </nav>
