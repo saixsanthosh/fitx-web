@@ -5,7 +5,7 @@ import { geminiRouting } from "@/lib/ai/disclosure";
 import { publicPageMetadata } from "@/lib/seo";
 
 export const metadata = publicPageMetadata({ title: "Privacy policy", description: "Learn what FITX stores, how account data is used, and how to download your data or delete your account.", path: "/privacy" });
-const updated = "November 25, 2026";
+const updated = "25 November 2026";
 export default function PrivacyPage() {
   const support = BRAND.supportEmail;
   return <LegalPage title="Privacy policy" updated={updated}>

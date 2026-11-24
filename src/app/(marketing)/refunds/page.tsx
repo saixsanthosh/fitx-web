@@ -22,7 +22,7 @@ function ToConfirm({ children }: { children: ReactNode }) {
 export default async function RefundsPage() {
   const support = BRAND.supportEmail;
   const { open } = await loadPublicCatalog();
-  return <LegalPage title="Refund policy" updated="November 17, 2026">
+  return <LegalPage title="Refund policy" updated="17 November 2026">
     <section><h2>Free features</h2><p>A FITX account and its free features cost nothing, so there is nothing to refund for them.</p></section>
     <section>
       <h2>Premium subscriptions</h2>

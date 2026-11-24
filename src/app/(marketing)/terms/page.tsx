@@ -22,7 +22,7 @@ function ToConfirm({ children }: { children: ReactNode }) {
 export default async function TermsPage() {
   const support = BRAND.supportEmail;
   const { open } = await loadPublicCatalog();
-  return <LegalPage title="Terms of use" updated="November 17, 2026">
+  return <LegalPage title="Terms of use" updated="17 November 2026">
     <section><h2>Using FITX</h2><p>FITX provides personal tools for workout planning, exercise reference, food search, meal and water logging, and progress summaries. You are responsible for the information you enter and for keeping your sign-in credentials secure.</p></section>
     <section><h2>Health and safety</h2><p>FITX is not medical advice and does not replace a qualified healthcare or fitness professional. Exercise and nutrition choices carry risk. Choose activities appropriate to your abilities, stop if you feel unwell, and seek professional guidance when needed. Nutrition values from external databases may be incomplete or inaccurate; check product packaging for allergy and dietary decisions.</p></section>
     <section><h2>Third-party data and services</h2><p>FITX relies on hosting, authentication, database, payment and food-data providers. Their services may change or become unavailable. Food information is supplied by third parties and should be checked against the original label when accuracy matters.</p></section>
