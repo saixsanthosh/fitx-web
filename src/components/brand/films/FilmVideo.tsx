@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { FILM_CUT_ATTR, pickComposition, type FilmComposition, type FilmId, type FilmOverlayProps, type FilmTheme } from "./compositions";
-import { cutBitrate, cutsIn, cutType, isLite, manifestFor, posterIn, type FilmCut, type FilmManifest } from "./manifest";
+import { cutBitrate, cutsIn, cutType, isLite, manifestFor, posterIn, slowFallback, type FilmCut, type FilmManifest } from "./manifest";
 import { FILM_TIMING, filmStageAt, RESIZE_SETTLE_MS, swapAllowed } from "./timing";
 import { FILM_POSTER_VAR } from "../introKeys";
 import styles from "../FitxIntroScene.module.css";
@@ -113,7 +113,8 @@ function markComposition(manifest: FilmManifest, theme: FilmTheme, comp: FilmCom
  * rotation (not in the first 1 s or the last 1.5 s), and retries the light cut once on an error before giving up.
  * Above 2.20:1 the desktop picture keeps a centred 2.20:1 box with side bars, the scope matte (FilmVideo.module.css),
  * dark from the first frame to the film's reveal stage.
- * Unchanged from wave 1: the 3 s buffer with the 1.1× real-time switch to the light cut, and the stage timer.
+ * As in wave 1: the 3 s buffer with the 1.1× real-time switch to the light cut (now only when it is the smaller file,
+ * slowFallback), and the stage timer.
  */
 export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, onReady, overlay: Overlay, firstName = null, onVideo }: FilmVideoProps) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -318,11 +319,12 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
       }
       load(chosen.first);
       // A short head start so the opening seconds never stall (the opening frame covers it). If the connection
-      // cannot keep up with this cut, switch to the light one before anything plays.
+      // cannot keep up with this cut, switch to the light one before anything plays, when it is the smaller file.
       const result = await bufferAhead(video, 3000);
       if (finished) return;
-      if (result === "slow" && light && chosen.first !== light) {
-        load(light);
+      const fallback = result === "slow" ? slowFallback(chosen.first, light) : null;
+      if (fallback) {
+        load(fallback);
         await bufferAhead(video, 2500);
         if (finished) return;
       }

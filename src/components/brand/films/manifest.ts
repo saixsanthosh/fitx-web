@@ -65,6 +65,16 @@ export function cutsIn(manifest: FilmManifest | null, theme: FilmTheme, comp: Fi
   return lite ? light : [...mine.filter((cut) => cut.rung === "hevc60"), ...light];
 }
 
+/**
+ * The cut to switch to when the first one arrives too slowly to play without stalls (FilmVideo's `bufferAhead` says
+ * "slow"): the light rung, but only when it really is the smaller file. Switching throws away what has buffered and
+ * starts the new file from nothing, so a light cut that is as big or bigger (the welcome film's AVC 30 cuts were
+ * encoded at CRF 27, BRIEF-2 D13, and outweigh its HEVC 60 ones in 6 of 10 pairs) would only stall more.
+ */
+export function slowFallback(first: FilmCut, light: FilmCut | null): FilmCut | null {
+  return light && light.src !== first.src && light.bytes < first.bytes ? light : null;
+}
+
 /** The poster (frame 0) of one manifest for a theme and composition; "" when it has none. */
 export function posterIn(manifest: FilmManifest | null, theme: FilmTheme, comp: FilmComposition): string {
   return manifest?.posters[`${comp}-${theme}`] ?? "";

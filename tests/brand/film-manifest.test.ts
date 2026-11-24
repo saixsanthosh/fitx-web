@@ -14,7 +14,9 @@ import {
   fixtureActive,
   liteRung,
   posterIn,
+  slowFallback,
   type FilmAudio,
+  type FilmCut,
   type FilmManifest,
 } from "@/components/brand/films/manifest";
 import { FILM_DURATION } from "@/components/brand/intro/timeline";
@@ -274,4 +276,30 @@ test("the fixture: its files are tests/e2e/fixtures/films (under 100 KB, never i
     assert.equal(activeSting("fitx_film_fixture=1"), RETURN_STING);
   }
   assert.equal(activeManifests(""), FILM_MANIFESTS);
+});
+
+test("a slow connection switches only to a light cut that is really smaller (a bigger one would only stall more)", () => {
+  const pairs: Array<{ film: string; label: string; full: FilmCut; light: FilmCut }> = [];
+  for (const [film, manifest] of everyManifest()) {
+    for (const comp of manifest.comps) {
+      for (const theme of THEMES) {
+        const [full, light] = cutsIn(manifest, theme, comp, false);
+        pairs.push({ film, label: `${film} ${comp} ${theme}`, full, light });
+      }
+    }
+  }
+  assert.equal(pairs.length, 2 * COMPS.length * THEMES.length);
+  for (const { label, full, light } of pairs) {
+    assert.equal(slowFallback(full, light), light.bytes < full.bytes ? light : null, `${label}: ${full.bytes} → ${light.bytes} bytes`);
+    assert.equal(slowFallback(light, light), null, `${label}: already on the light cut, nowhere to go`);
+    assert.equal(slowFallback(full, null), null, `${label}: no light cut`);
+  }
+  // The intro's light rung is the rung it is meant to be: about half its HEVC cut's bytes in every pair.
+  for (const { label, full, light } of pairs.filter((pair) => pair.film === "intro")) {
+    assert.ok(light.bytes < 0.6 * full.bytes, `${label}: ${light.bytes} is under 0.6 × ${full.bytes}`);
+    assert.equal(slowFallback(full, light), light, label);
+  }
+  // FilmVideo asks the same rule on a "slow" buffer, with the cut it chose first.
+  const player = readFileSync("src/components/brand/films/FilmVideo.tsx", "utf8");
+  assert.match(player, /const fallback = result === "slow" \? slowFallback\(chosen\.first, light\) : null;\s*if \(fallback\) \{\s*load\(fallback\);/);
 });
