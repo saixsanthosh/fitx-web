@@ -329,15 +329,7 @@ const REMAINING: Record<string, number> = {
   "tablet-p w3-dre dre-face": 0.0058,
   "tablet-p w3-dre plate-3-hub": 0.0046,
   "tablet-l w5-ignite mark": 0.0064,
-  "laptop w1-maya maya-face": 0.0206,
-  "laptop w1-maya plate-1-hub": 0.0599,
-  "laptop w3-dre plate-3-hub": 0.0679,
-  "laptop w3-dre hands": 0.0495,
   "laptop w5-ignite mark": 0.0092,
-  "desktop w1-maya maya-face": 0.0335,
-  "desktop w1-maya plate-1-hub": 0.0728,
-  "desktop w3-dre plate-3-hub": 0.0808,
-  "desktop w3-dre hands": 0.0624,
 };
 
 test("every must box stays inside the protected box, but for the measured remaining overhangs, which may only shrink", () => {
@@ -363,8 +355,12 @@ test("every must box stays inside the protected box, but for the measured remain
 
 // ------------------------------------------------------------------------------------------------- the camera changes
 
-test("the framing fixes are per composition (dolly and truck only); every other composition frames exactly as keyed", () => {
-  const changed: Record<string, readonly FilmComposition[]> = { LEO_TRACK: ["tablet-l", "laptop", "desktop"], DRE_TRACK: ["phone", "tablet-l"] };
+test("the framing fixes are per composition (dolly, truck and pedestal: same keys, same lens); every other composition frames exactly as keyed", () => {
+  const changed: Record<string, readonly FilmComposition[]> = {
+    MAYA_TRACK: ["laptop", "desktop"],
+    LEO_TRACK: ["tablet-l", "laptop", "desktop"],
+    DRE_TRACK: ["phone", "tablet-l", "laptop", "desktop"],
+  };
   for (const name of ["LIGHT_TRACK", "MAYA_TRACK", "LEO_TRACK", "DRE_TRACK"] as const) {
     const track = WELCOME_LAB[name] as CameraTrack;
     const comps = changed[name] ?? [];

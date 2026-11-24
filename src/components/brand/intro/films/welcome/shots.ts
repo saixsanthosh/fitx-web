@@ -374,6 +374,15 @@ const MAYA_TRACK: CameraTrack = {
     { t: 2.2, position: [-0.78, 1.1, 0.42], target: [0.95, 0.98, 1.56], focal: 25.5 },
   ],
   portrait: { distanceScale: 1.25, focalScale: 0.8 },
+  // As keyed, the landscape frames let the plate's hub sink well past the protected box at the bottom as it rolls home
+  // (laptop 6.0%, desktop 7.3% of the frame, though still inside the visible frame) and put Maya's face past its top as
+  // her palms land: the smallest dolly back along the same line (same keys and lens), with a 3 cm drop, that holds the
+  // hub, her face and her hands inside the protected box at every frame (tests/brand/welcome-framing.test.ts). The
+  // phone and both tablets frame exactly as before.
+  compositions: {
+    laptop: { distanceScale: 1.1, offset: [0, -0.03, 0] },
+    desktop: { distanceScale: 1.13, offset: [0, -0.03, 0] },
+  },
   shake: { amplitude: 0.16, frequency: 1.1, seed: 62 },
 };
 
@@ -485,10 +494,16 @@ const DRE_TRACK: CameraTrack = {
   },
   // As keyed, the narrowest phones (0.42) and square tablet-l screens (1.0) cut off Dre's face, hands and plate hub at
   // the left edge while he drives the plate home: the smallest truck left (same angle and lens) that holds them inside
-  // the protected box (tests/brand/welcome-framing.test.ts). tablet-p, laptop and desktop are unchanged.
+  // the protected box (tests/brand/welcome-framing.test.ts). On laptop and desktop the floor-level lens let his plate's
+  // hub and his hands sink past the protected box at the bottom as the plate goes home (hub 6.8% and 8.1% of the frame,
+  // on desktop at 2.20 only 0.1% inside the visible frame; hands 5.0% and 6.2%): the smallest dolly back along the same
+  // line (same keys and lens), with a 4 cm drop (and on laptop a 6 cm truck left), that holds them inside it at every
+  // frame. tablet-p is unchanged.
   compositions: {
     phone: { offset: [-0.225, 0, 0] },
     "tablet-l": { offset: [-0.19, 0, 0] },
+    laptop: { distanceScale: 1.05, offset: [-0.06, -0.04, 0] },
+    desktop: { distanceScale: 1.07, offset: [0, -0.04, 0] },
   },
   shake: { amplitude: 0.08, frequency: 0.7, seed: 64 },
 };
