@@ -191,6 +191,21 @@ export const flow = {
       const skips = await page.getByRole("button", { name: /^Skip/ }).count();
       t.expect(skips === 1, `exactly one Skip control while the film plays (found ${skips})`);
       t.expect((await page.getByRole("button", { name: "Sound" }).getAttribute("aria-pressed")) === "false", "the film has its sound, off until asked");
+      // A modal over the onboarding frame: Tab and Shift+Tab stay with its own controls (Sound and Skip, or out to the
+      // browser), never on the links hidden under it (Terms, Privacy Policy, FITX home, Skip to content).
+      const focusTrail = [];
+      for (const key of ["Tab", "Tab", "Tab", "Shift+Tab", "Shift+Tab", "Shift+Tab"]) {
+        await page.keyboard.press(key);
+        focusTrail.push(await page.evaluate(() => {
+          const active = document.activeElement;
+          if (!active || active === document.body || active === document.documentElement) return "out of the page";
+          const label = (active.getAttribute("aria-label") || active.textContent || active.tagName).replace(/\s+/g, " ").trim();
+          return active.closest("[data-welcome-film]") ? label : `BEHIND: ${active.tagName} ${label}`.slice(0, 80);
+        }));
+      }
+      t.note("focus while the film plays", focusTrail);
+      t.expect(focusTrail.every((entry) => !entry.startsWith("BEHIND")), "Tab never reaches the page behind the film", focusTrail);
+      t.expect(focusTrail.some((entry) => /^Sound/.test(entry)) && focusTrail.some((entry) => /^Skip welcome film/.test(entry)), "Tab moves between the film's Sound and Skip", focusTrail);
       const cut = await welcomeCut(page);
       t.note("welcome cut", cut);
       t.expect(typeof cut === "string" && cut.startsWith(`/brand/films/welcome/${welcome.rev}/`) && /-(hevc60|avc30)\.mp4$/.test(cut), "S6's welcome cut plays", cut);

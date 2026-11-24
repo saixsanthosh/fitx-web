@@ -1,3 +1,16 @@
+/*
+ * The whole sequence (PostOnboardingSequence.tsx) covers the page until Home replaces it: in the page colour, which the
+ * welcome film's last frame is, so the film's 300 ms fade at its end (and the reveal-only case's) hands over to it and
+ * the onboarding frame behind never shows. Above the cookie banner (z-index 100); the film's and the logo's stages sit
+ * above it, inside it.
+ */
+.cover {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--fitx-bg);
+}
+
 /* The logo reveal after onboarding: a dark stage in every theme, the mark forming in a slow pool of warm light. */
 .stage {
   position: fixed;

@@ -10,6 +10,7 @@ import { BrandEndCard, DebugBackdrop, FilmGraphics } from "./IntroFilmOverlay";
 import { clampStage, type FilmFreeze } from "./introOverlayTiming";
 import { accountFilmClaimedElsewhere } from "./accountFilm";
 import { focusAfterFilm } from "./introFocus";
+import { inertOutside, releaseInert } from "./inertPage";
 import { FILM_POSTER_VAR, INTRO_PENDING_EVENT, REPLAY_EVENT, VISITOR_FILM_SEEN_KEY } from "./introKeys";
 import { FILM_ATTR, FILM_CUT_ATTR, pickComposition, type FilmId } from "./films/compositions";
 import { filmAllowed, manifestFor, posterIn, type FilmAudio } from "./films/manifest";
@@ -60,31 +61,6 @@ function filmToPlay(requested: FilmId | undefined): FilmId | null {
  */
 function chooseSource(): FilmSource {
   return new URLSearchParams(window.location.search).get("intro") === "live" ? "live" : "video";
-}
-
-/**
- * Makes everything outside `section` inert while the opaque overlay covers the page, so focus,
- * clicks and assistive tech cannot reach (or navigate through) controls nobody can see.
- * Returns the elements it changed, for `releaseInert`.
- */
-function inertOutside(section: HTMLElement): HTMLElement[] {
-  const marked: HTMLElement[] = [];
-  let node: Element = section;
-  while (node !== document.body && node.parentElement) {
-    for (const sibling of Array.from(node.parentElement.children)) {
-      if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) continue;
-      if (sibling.tagName === "SCRIPT" || sibling.tagName === "STYLE" || sibling.tagName === "LINK") continue;
-      sibling.inert = true;
-      marked.push(sibling);
-    }
-    node = node.parentElement;
-  }
-  return marked;
-}
-
-function releaseInert(marked: HTMLElement[]) {
-  for (const element of marked) element.inert = false;
-  marked.length = 0;
 }
 
 function readTheme(): Theme {

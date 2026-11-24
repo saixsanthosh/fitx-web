@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useReducedMotionSafe } from "@/components/motion";
 import { Logo } from "@/components/ui/Logo";
+import { inertOutside, releaseInert } from "@/components/brand/inertPage";
 import { manifestFor } from "@/components/brand/films/manifest";
 import { POST_ONBOARDING_FILM } from "@/components/onboarding/post-onboarding-film";
 import { logoHoldMs, postOnboardingSteps, type PostStep } from "@/lib/onboarding/post-sequence";
@@ -13,6 +14,10 @@ import styles from "./PostOnboarding.module.css";
  * welcome film once its cuts exist (it ends on the logo; D1), otherwise the FITX logo reveal, or nothing when the
  * device still owes the account its intro film, which ends on the logo itself. A Skip button is always there, and
  * each step ends on its own, so nobody is held up.
+ *
+ * It covers the whole page until Home replaces it, in the page colour (which the welcome film's last frame is, so the
+ * film's fade at its end never uncovers the onboarding frame behind), and the page behind it is inert the whole time:
+ * the film and the logo are modal dialogs, so Tab stays with their own controls and never reaches a link under them.
  */
 export function PostOnboardingSequence({ onDone, firstName = null }: { onDone: () => void; firstName?: string | null }) {
   const reduced = useReducedMotionSafe();
@@ -24,6 +29,15 @@ export function PostOnboardingSequence({ onDone, firstName = null }: { onDone: (
   const [index, setIndex] = useState(0);
   const finished = useRef(false);
   const skipRef = useRef<HTMLButtonElement>(null);
+  const coverRef = useRef<HTMLDivElement>(null);
+
+  // Before the first paint of the sequence, and until it goes (Home's full page load replaces it).
+  useLayoutEffect(() => {
+    const cover = coverRef.current;
+    if (!cover) return;
+    const marked = inertOutside(cover);
+    return () => releaseInert(marked);
+  }, []);
 
   const done = useCallback(() => {
     if (finished.current) return;
@@ -49,20 +63,29 @@ export function PostOnboardingSequence({ onDone, firstName = null }: { onDone: (
     return () => window.clearTimeout(timer);
   }, [step, next, reduced]);
 
-  if (!step) return <div className={styles.stage} aria-hidden="true" />;
-
   const Film = POST_ONBOARDING_FILM;
-  if (step === "film" && Film) return <Film onEnd={next} firstName={firstName} />;
+  let shown: ReactNode;
+  if (!step) {
+    shown = <div className={styles.stage} aria-hidden="true" />;
+  } else if (step === "film" && Film) {
+    shown = <Film onEnd={next} firstName={firstName} />;
+  } else {
+    shown = (
+      <div className={`${styles.stage} ${reduced ? styles.still : ""}`} role="dialog" aria-modal="true" aria-label="Welcome to FITX">
+        <div className={styles.glow} aria-hidden="true" />
+        <div className={styles.mark}>
+          <Logo size={88} animateMark={!reduced} className={styles.logo} />
+          <span className={styles.sweep} aria-hidden="true" />
+        </div>
+        <p className={styles.line}>You’re all set.</p>
+        <button ref={skipRef} type="button" className={styles.skip} onClick={done}>Skip</button>
+      </div>
+    );
+  }
 
   return (
-    <div className={`${styles.stage} ${reduced ? styles.still : ""}`} role="dialog" aria-modal="true" aria-label="Welcome to FITX">
-      <div className={styles.glow} aria-hidden="true" />
-      <div className={styles.mark}>
-        <Logo size={88} animateMark={!reduced} className={styles.logo} />
-        <span className={styles.sweep} aria-hidden="true" />
-      </div>
-      <p className={styles.line}>You’re all set.</p>
-      <button ref={skipRef} type="button" className={styles.skip} onClick={done}>Skip</button>
+    <div ref={coverRef} className={styles.cover} data-post-onboarding="">
+      {shown}
     </div>
   );
 }
