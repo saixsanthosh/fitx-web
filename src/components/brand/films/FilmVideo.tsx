@@ -6,6 +6,7 @@ import { cutBitrate, cutsIn, cutType, isLite, manifestFor, posterIn, type FilmCu
 import { FILM_TIMING, filmStageAt, RESIZE_SETTLE_MS, swapAllowed } from "./timing";
 import { FILM_POSTER_VAR } from "../introKeys";
 import styles from "../FitxIntroScene.module.css";
+import frameStyles from "./FilmVideo.module.css";
 
 export type FilmVideoProps = {
   film: FilmId;
@@ -110,9 +111,12 @@ function markComposition(manifest: FilmManifest, theme: FilmTheme, comp: FilmCom
  * (never the user agent), HEVC 60 first and the light AVC 30 rung on low-end hardware, small phones and slow
  * connections. Reports stages from the video clock, swaps to the new composition's cut at the same time on
  * rotation (not in the first 1 s or the last 1.5 s), and retries the light cut once on an error before giving up.
+ * Above 2.20:1 the desktop picture keeps a centred 2.20:1 box with side bars, the scope matte (FilmVideo.module.css),
+ * dark from the first frame to the film's reveal stage.
  * Unchanged from wave 1: the 3 s buffer with the 1.1× real-time switch to the light cut, and the stage timer.
  */
 export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, onReady, overlay: Overlay, firstName = null, onVideo }: FilmVideoProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const callbacks = useRef({ onStage, onHold, onEnd, onUnsupported, onReady, onVideo });
   const themeRef = useRef(theme);
@@ -125,6 +129,7 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
 
   useEffect(() => {
     const video = videoRef.current;
+    const frame = frameRef.current;
     const manifest = manifestFor(film);
     if (!video) return;
     callbacks.current.onVideo?.(video);
@@ -174,6 +179,8 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
       const next = filmStageAt(film, time);
       if (next !== stage) {
         stage = next;
+        // From the reveal stage the film clears to the page: so do the scope matte's bars.
+        if (next >= timing.revealStage) frame?.setAttribute("data-film-tail", "");
         callbacks.current.onStage(next);
         report();
       }
@@ -191,6 +198,8 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
       if (!started) {
         started = true;
         video.style.visibility = "";
+        // The scope matte's bars turn dark with the first frame (FilmVideo.module.css).
+        frame?.setAttribute("data-film-playing", "");
         callbacks.current.onReady?.();
       }
       sync(false);
@@ -342,10 +351,10 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
 
   return (
     <>
-      <div className={styles.canvas} aria-hidden="true">
+      <div ref={frameRef} className={`${styles.canvas} ${frameStyles.frame}`} aria-hidden="true">
         <video
           ref={videoRef}
-          className={styles.surface}
+          className={`${styles.surface} ${frameStyles.video}`}
           muted
           playsInline
           preload="auto"
@@ -354,6 +363,8 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
           tabIndex={-1}
           data-fitx-film-video={film}
         />
+        <i className={`${frameStyles.matte} ${frameStyles.matteLeft}`} />
+        <i className={`${frameStyles.matte} ${frameStyles.matteRight}`} />
       </div>
       {Overlay && <Overlay film={film} stage={clock.stage} time={clock.time} held={clock.held} comp={clock.comp} firstName={firstName} />}
     </>

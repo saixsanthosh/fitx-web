@@ -65,6 +65,30 @@
   .film[data-comp="tablet-l"] { --bar: clamp(0px, 4svh, 40px); }
 }
 
+/*
+ * The scope matte (BRIEF-2 3.1): wider than 2.20:1 on the desktop composition, the cut keeps a centred 2.20:1 picture
+ * (220cqh of CinematicIntro's .intro, its size container) with side bars (FilmVideo.module.css). The graphics keep that
+ * box too, so titles and callouts sit where they sit at 2.20:1, the zones overlay-zones.ts was checked at: the safe
+ * margins, the title size and the 2.39:1 letterbox are measured on the picture, and the letterbox bars reach across
+ * the side bars to the screen's edges, in the side bars' colour, so the matte is one frame without a seam.
+ */
+@container (min-aspect-ratio: 11 / 5) {
+  :global(:root[data-fitx-film-cut="desktop"]) .film {
+    --bar: clamp(0px, calc((100cqh - 220cqh / 2.39) / 2), 14cqh);
+    --safe-l: max(13.2cqh, calc(env(safe-area-inset-left) + 20px));
+    --safe-r: max(13.2cqh, calc(env(safe-area-inset-right) + 20px));
+    left: calc(50% - 110cqh);
+    right: auto;
+    width: 220cqh;
+  }
+  :global(:root[data-fitx-film-cut="desktop"]) .letterbox {
+    left: calc(110cqh - 50cqw);
+    right: calc(110cqh - 50cqw);
+  }
+  :global(:root[data-fitx-film-cut="desktop"]) .bar { background: var(--fitx-stage); }
+  :global(:root[data-fitx-film-cut="desktop"]) .title { font-size: min(clamp(56px, 24.2cqh, 168px), 26cqh); }
+}
+
 /* ---------------------------------------------------------------- letterbox */
 
 .letterbox {

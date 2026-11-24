@@ -13,6 +13,8 @@
   isolation: isolate;
   opacity: 1;
   transition: opacity 300ms cubic-bezier(.4, 0, .2, 1);
+  /* The scope matte (below, FilmVideo.module.css) measures the stage itself. */
+  container-type: size;
 }
 
 .dark { background: var(--fitx-stage); color: var(--fitx-on-stage); }
@@ -24,6 +26,15 @@
   z-index: 0;
   inset: 0;
   background: transparent center / cover no-repeat;
+}
+
+/* The scope matte (BRIEF-2 3.1): wider than 2.20:1 on desktop, frame 0 keeps the picture's centred 2.20:1 box. */
+@container (min-aspect-ratio: 11 / 5) {
+  :global(:root[data-fitx-film-cut="desktop"]) .poster {
+    left: calc(50% - 110cqh);
+    right: auto;
+    width: 220cqh;
+  }
 }
 
 /* LogoReveal positions itself fixed over the screen; this keeps it above the picture and under the controls. */
