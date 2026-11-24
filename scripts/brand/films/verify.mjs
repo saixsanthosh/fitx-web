@@ -142,7 +142,8 @@ async function contact(args) {
   const out = path.resolve(args.out ?? `${args.contact}.contact.jpg`);
   const draw = `drawbox=x=${Math.round(box.x0 * size.width)}:y=${Math.round(box.y0 * size.height)}:w=${Math.round((box.x1 - box.x0) * size.width)}:h=${Math.round((box.y1 - box.y0) * size.height)}:color=yellow@0.8:t=4`;
   const filter = `fps=${fps},scale=in_color_matrix=bt709:in_range=tv,format=rgb24,${draw},scale=${thumbWidth}:${Math.round(size.height * scale)}:flags=lanczos,tile=6x5:padding=4`;
-  await capture(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-i", path.resolve(args.contact), "-vf", filter, "-frames:v", "8", "-q:v", "4", out.replace(/\.jpg$/, "-%02d.jpg")]);
+  // The sheet is a full-range JPEG: the masters are tagged tv range, which ffmpeg 8's mjpeg encoder refuses to inherit.
+  await capture(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-i", path.resolve(args.contact), "-vf", filter, "-frames:v", "8", "-q:v", "4", "-color_range", "pc", out.replace(/\.jpg$/, "-%02d.jpg")]);
   return { out: out.replace(/\.jpg$/, "-NN.jpg"), protectedBox: box, problems: [] };
 }
 

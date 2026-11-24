@@ -12,8 +12,7 @@ import { applyHeadLook, applyBreath, blinkAmount, PonytailSpring } from "../../m
 import { shiftPreset } from "../../sets";
 import type { Theme } from "../../types";
 import { createCameraState, evaluateCameraTrack, type CameraState, type CameraTrack } from "../camera";
-import type { FilmContext, SubjectBox } from "../shot-types";
-import type { BoneName } from "../../rig/skeleton";
+import type { FilmContext } from "../shot-types";
 import type { SetName } from "../stage-kit";
 
 /** The grade for a theme: `light` name on the light theme, `dark` name on the dark one. */
@@ -130,47 +129,5 @@ export function focusOn(camera: CameraState, point: THREE.Vector3) {
 
 // ---------------------------------------------------------------------------------- lab subjects
 
-const _subject = new THREE.Vector3();
-
-/** A world-space box around a point (`half` metres each way, or per axis). */
-export function pointBox(id: string, point: THREE.Vector3Like, half: number | [number, number, number], must: boolean, clearOfOverlay = true): SubjectBox {
-  const [hx, hy, hz] = typeof half === "number" ? [half, half, half] : half;
-  return { id, min: [point.x - hx, point.y - hy, point.z - hz], max: [point.x + hx, point.y + hy, point.z + hz], must, clearOfOverlay };
-}
-
-/**
- * A box round a character's face: brow to chin and cheek to cheek, above the head joint (the crown and
- * the ears may leave the frame in a close shot; the face may not).
- */
-export function headBox(instance: CharacterInstance, id: string, must: boolean): SubjectBox {
-  instance.rig.bones.head.getWorldPosition(_subject);
-  _subject.y += 0.08;
-  return pointBox(id, _subject, [0.075, 0.085, 0.075], must);
-}
-
-/** A box round some of a character's joints, padded by `pad` metres (feet and hands carry their own size). */
-export function jointsBox(instance: CharacterInstance, id: string, bones: readonly BoneName[], pad: number, must: boolean, clearOfOverlay = true): SubjectBox {
-  const min: [number, number, number] = [Infinity, Infinity, Infinity];
-  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
-  for (const name of bones) {
-    instance.rig.bones[name].getWorldPosition(_subject);
-    for (let c = 0; c < 3; c += 1) {
-      const value = _subject.getComponent(c);
-      min[c] = Math.min(min[c], value - pad);
-      max[c] = Math.max(max[c], value + pad);
-    }
-  }
-  return { id, min, max, must, clearOfOverlay };
-}
-
-const BODY_JOINTS: readonly BoneName[] = ["hips", "chest", "head", "hand_L", "hand_R", "lowerArm_L", "lowerArm_R", "lowerLeg_L", "lowerLeg_R", "foot_L", "foot_R", "toe_L", "toe_R"];
-
-/** The whole body, head to toes: inside the frame, but a title may cross it (`clearOfOverlay` false). */
-export function bodyBox(instance: CharacterInstance, id: string, must: boolean): SubjectBox {
-  const box = jointsBox(instance, id, BODY_JOINTS, 0.06, must, false);
-  // The crown sits ~0.22 m above the head joint; the soles a few centimetres under the ankles.
-  instance.rig.bones.head.getWorldPosition(_subject);
-  box.max[1] = Math.max(box.max[1], _subject.y + 0.2);
-  box.min[1] = Math.max(0, box.min[1] - 0.03);
-  return box;
-}
+// The lab's subject boxes live in a node-safe module the welcome film's shots share (this file is not node-safe).
+export { bodyBox, headBox, jointsBox, pointBox } from "../subject-boxes";

@@ -80,6 +80,14 @@ export function plateTravel(spec: LoadSpec, t: number): PlateTravel {
   return { z, roll, seated: t >= spec.seat };
 }
 
+/**
+ * How firmly the palms are on the plate at action time t (0..1): they land on it at `handsOn` and come off at
+ * `release`. Above 0.5 the clip counts them as on it (`LoadResult.gripping`; the shots' framing subjects use the same).
+ */
+export function gripAt(spec: LoadSpec, t: number) {
+  return ramp(spec.handsOn - 0.04, spec.handsOn + 0.06, t) * (1 - ramp(spec.release - 0.02, spec.release + 0.06, t));
+}
+
 interface Setup {
   m: RigMetrics;
   k: number;
@@ -175,7 +183,7 @@ export function poseLoad(rig: Rig, t: number, spec: LoadSpec): LoadResult {
   const set = smootherstep01((t - (spec.handsOn - 0.18)) / 0.3);
   const off = smootherstep01((t - spec.release) / 0.34);
   const engaged = set * (1 - off);
-  const grip = ramp(spec.handsOn - 0.04, spec.handsOn + 0.06, t) * (1 - ramp(spec.release - 0.02, spec.release + 0.06, t));
+  const grip = gripAt(spec, t);
   const drive = bump(spec.push - 0.05, spec.seat + 0.05, t);
 
   // Feet: square stance, then the lead (left) foot steps in with the push; the rear heel stays down.

@@ -24,8 +24,10 @@
 import * as THREE from "three";
 import type { CharacterInstance } from "../../character/assemble";
 import type { CharacterId } from "../../character/types";
+import { BARBELL } from "../../dimensions";
 import { createCameraState, evaluateCameraTrack, type CameraState, type CameraTrack } from "../../director/camera";
 import type { ShotContext, ShotModule, ShotView, SubjectBox } from "../../director/shot-types";
+import { bodyBox, faceBox, handsBox, pointBox } from "../../director/subject-boxes";
 import { GRADES, mixGrades, type GradeParams } from "../../fx/grades";
 import type { LightingPreset } from "../../lighting";
 import { applyHeadLook, blinkAmount } from "../../motion/layers";
@@ -34,9 +36,25 @@ import { clamp01, lerp, smoothstep } from "../../math";
 import { setGymLampBulbs } from "../../sets/gym";
 import type { Theme } from "../../types";
 import type { FilmComposition } from "../../../films/compositions";
-import { CRANE_LIMITS, closestRevealRatio, ignitionAt, MARK_IGNITION_ORDER, topDownFraming } from "./mark-floor";
-import { LOADS, plateTravel, poseLoad, poseStand, type LoadSpec } from "./load-motion";
-import { BAR_CENTRE, INLAY_TOP, leoIndoors, PLATE_SEATS, placePlate, plateWorld, resetWelcomeProps, showPlates, sleeveZ, welcomePlates, welcomeProps, WELCOME_COLOURS } from "./props";
+import { CRANE_LIMITS, closestRevealRatio, ignitionAt, MARK_FLOOR_BOUNDS, MARK_IGNITION_ORDER, topDownFraming } from "./mark-floor";
+import { gripAt, LOADS, plateTravel, poseLoad, poseStand, type LoadSpec } from "./load-motion";
+import {
+  BAR_CENTRE,
+  FLOOR_Y,
+  INLAY_TOP,
+  leoIndoors,
+  PLATE_SEATS,
+  placePlate,
+  plateWorld,
+  resetWelcomeProps,
+  showPlates,
+  SLEEVE_LENGTH,
+  sleeveZ,
+  welcomePlates,
+  welcomeProps,
+  WELCOME_COLOURS,
+  WELCOME_PLATES,
+} from "./props";
 import { WELCOME_BEATS, WELCOME_DURATION, WELCOME_SHOTS } from "./timeline";
 
 const SHOT = Object.fromEntries(WELCOME_SHOTS.map((shot) => [shot.id, shot])) as Record<(typeof WELCOME_SHOTS)[number]["id"], (typeof WELCOME_SHOTS)[number]>;
@@ -90,20 +108,6 @@ function layers(instance: CharacterInstance, time: number, seed: number, look?: 
     applyHeadLook(instance.rig, look, weight);
   }
   instance.face.setBlink(blinkAmount(time, seed));
-}
-
-/** A character's box from its joints (lab framing checks only). */
-function bodyBox(id: string, instance: CharacterInstance | undefined, must: boolean): SubjectBox | null {
-  if (!instance || !instance.group.visible) return null;
-  instance.group.updateMatrixWorld(true);
-  const box = new THREE.Box3();
-  for (const bone of ["head", "hand_L", "hand_R", "foot_L", "foot_R", "hips", "chest"] as const) box.expandByPoint(instance.rig.bones[bone].getWorldPosition(point));
-  box.expandByScalar(0.12);
-  return { id, min: box.min.toArray() as [number, number, number], max: box.max.toArray() as [number, number, number], must };
-}
-
-function plateBox(id: string, centre: THREE.Vector3, radius: number): SubjectBox {
-  return { id, min: [centre.x - radius, centre.y - radius, centre.z - 0.05], max: [centre.x + radius, centre.y + radius, centre.z + 0.05], must: true };
 }
 
 const focusOn = (state: CameraState, target: THREE.Vector3) => state.position.distanceTo(target);
@@ -245,6 +249,69 @@ function load(ctx: ShotContext, index: number, action: number, key: string, star
   return instance;
 }
 
+// ------------------------------------------------------------------------------------------------- framing subjects
+
+/*
+ * What each shot keeps inside the protected box (BRIEF-2 3.2; the lab's `project()` and verify.mjs --framing read
+ * `subjects()`, the runtime never does): the essential parts the shot is about, computed from the posed rigs and the
+ * props, each `must` while the action makes it essential. Whole bodies and the parts a composition deliberately crops
+ * (a plate's rim at the frame's edge, the sleeve's tip in the macro, the athletes round the mark) are listed but not
+ * `must`, the pattern of the intro's close shots (its 3a-plate keeps the hub, not the rim).
+ */
+
+/** The plate's hub: its centre on the sleeve, 5 cm each way (the intro's 3a-plate hub box). */
+export const HUB_HALF = 0.05;
+
+/** A loaded plate, whole: its real diameter across X and Y, its thickness along the bar (world Z). */
+function plateBox(id: string, centre: THREE.Vector3, index: number, must: boolean): SubjectBox {
+  const radius = WELCOME_PLATES[index].diameter / 2;
+  const half = WELCOME_PLATES[index].thickness / 2;
+  return { id, min: [centre.x - radius, centre.y - radius, centre.z - half], max: [centre.x + radius, centre.y + radius, centre.z + half], must };
+}
+
+/** A stretch of the +Z sleeve (its real radius), from `u0` to `u1` m out of the inner collar. */
+function sleeveBox(id: string, u0: number, u1: number, must: boolean): SubjectBox {
+  const radius = BARBELL.sleeveRadius;
+  return { id, min: [BAR_CENTRE.x - radius, BAR_CENTRE.y - radius, sleeveZ(u0)], max: [BAR_CENTRE.x + radius, BAR_CENTRE.y + radius, sleeveZ(u1)], must };
+}
+
+/** Where Maya's plate (the first) seats: its outer face, m out of the inner collar. */
+export const FIRST_SEAT_OUT = PLATE_SEATS[0] + WELCOME_PLATES[0].thickness / 2;
+
+/**
+ * The inlaid floor mark: the outline bounds of its ten pieces (`MARK_FLOOR_BOUNDS`, as props.ts extrudes them), from
+ * the platform to the inlay's top. The loaded bar and its plates stand on the mark's bar and plate pieces as props.
+ */
+function markBox(must: boolean): SubjectBox {
+  const bounds = MARK_FLOOR_BOUNDS;
+  return { id: "mark", min: [bounds.minX, FLOOR_Y, bounds.minZ], max: [bounds.maxX, INLAY_TOP, bounds.maxZ], must };
+}
+
+/**
+ * A loading shot's subjects at the loader's action time: the plate being loaded (its hub, from the shot's first frame
+ * until the palms come off it), and the loader's face and hands while the palms are on the plate (`gripAt`, the clip's
+ * own timing: they reach into the shot before it and stand out of it after). The whole plate and the whole body are
+ * listed, not `must`: in these close frames the rim and the feet may leave the frame.
+ *
+ * The hub's window is one run of frames: before `release` the plate is still being loaded whatever the grip (the palms
+ * land on it from `handsOn`, but `gripAt` passes 0.5 only a moment later), and `onPlate` carries it on until the palms
+ * have come off, just after `release` (tests/brand/welcome-framing.test.ts pins each shot's frames).
+ */
+function loadingSubjects(ctx: ShotContext, index: number, action: number): SubjectBox[] {
+  const loader = LOADERS[index];
+  const centre = plateWorld(welcomePlates(ctx.props.barbell)[index], new THREE.Vector3());
+  const onPlate = gripAt(loader.spec, action) > 0.5;
+  const loading = action < loader.spec.release || onPlate;
+  const plate = `plate-${index + 1}`;
+  const boxes: SubjectBox[] = [pointBox(`${plate}-hub`, centre, HUB_HALF, loading), plateBox(plate, centre, index, false)];
+  const instance = ctx.cast[loader.id];
+  if (instance?.group.visible) {
+    instance.group.updateMatrixWorld(true);
+    boxes.push(faceBox(instance, `${loader.id}-face`, onPlate), handsBox(instance, "hands", onPlate), bodyBox(instance, loader.id, false));
+  }
+  return boxes;
+}
+
 // ------------------------------------------------------------------------------------------------- w0-light
 
 const LIGHT_TRACK: CameraTrack = {
@@ -286,8 +353,11 @@ const shotLight: ShotModule = {
       fade: { color: 0x000000, amount: 0.92 * darkness * (1 - window01(0, 0.25, frame.time) * 0.2) },
     };
   },
+  // The macro looks along the sleeve from just off its tip, so the near end runs past the frame's edge (by design, on
+  // every composition). What it keeps is the sleeve's inner end: from the inner collar, where the focus lands, out
+  // over the seat Maya's plate takes in the next shot.
   subjects() {
-    return [plateBox("sleeve-tip", point.set(BAR_CENTRE.x, BAR_CENTRE.y, sleeveZ(0.3)), 0.06)];
+    return [sleeveBox("sleeve", 0, FIRST_SEAT_OUT, true), sleeveBox("sleeve-tip", FIRST_SEAT_OUT, SLEEVE_LENGTH, false)];
   },
 };
 
@@ -304,6 +374,15 @@ const MAYA_TRACK: CameraTrack = {
     { t: 2.2, position: [-0.78, 1.1, 0.42], target: [0.95, 0.98, 1.56], focal: 25.5 },
   ],
   portrait: { distanceScale: 1.25, focalScale: 0.8 },
+  // As keyed, the landscape frames let the plate's hub sink well past the protected box at the bottom as it rolls home
+  // (laptop 6.0%, desktop 7.3% of the frame, though still inside the visible frame) and put Maya's face past its top as
+  // her palms land: the smallest dolly back along the same line (same keys and lens), with a 3 cm drop, that holds the
+  // hub, her face and her hands inside the protected box at every frame (tests/brand/welcome-framing.test.ts). The
+  // phone and both tablets frame exactly as before.
+  compositions: {
+    laptop: { distanceScale: 1.1, offset: [0, -0.03, 0] },
+    desktop: { distanceScale: 1.13, offset: [0, -0.03, 0] },
+  },
   shake: { amplitude: 0.16, frequency: 1.1, seed: 62 },
 };
 
@@ -332,9 +411,8 @@ const shotMaya: ShotModule = {
       focus: { distance: focus, aperture: 2.8 },
     };
   },
-  subjects(ctx) {
-    const plate = plateWorld(welcomePlates(ctx.props.barbell)[0], new THREE.Vector3());
-    return [plateBox("plate-1", plate, 0.225), bodyBox("maya", ctx.cast.maya, true)].filter(Boolean) as SubjectBox[];
+  subjects(ctx, frame) {
+    return loadingSubjects(ctx, 0, frame.local);
   },
 };
 
@@ -352,6 +430,15 @@ const LEO_TRACK: CameraTrack = {
       { t: 0, position: [2.55, 0.62, 0.1], target: [0.95, 0.62, 1.32], focal: 22, ease: "out" },
       { t: 1.28, position: [2.45, 0.66, 0.22], target: [0.95, 0.66, 1.3], focal: 23 },
     ],
+  },
+  // The landscape frames as keyed cut off Leo's face (top, and right on tablet-l) and his plate's hub (bottom) at the
+  // bands' edges while his palms are on the plate: the smallest dolly back along the same line (same lens), with a
+  // 2 cm lift (and on tablet-l a 10 cm truck right), that holds the face, the hands and the hub inside the protected
+  // box (tests/brand/welcome-framing.test.ts). The phone and tablet-p frames are unchanged (the portrait keys, as before).
+  compositions: {
+    "tablet-l": { distanceScale: 1.15, offset: [0.1, 0.02, 0] },
+    laptop: { distanceScale: 1.33, offset: [0, 0.02, 0] },
+    desktop: { distanceScale: 1.37, offset: [0, 0.02, 0] },
   },
   shake: { amplitude: 0.2, frequency: 1.4, seed: 63 },
 };
@@ -379,9 +466,8 @@ const shotLeo: ShotModule = {
       focus: { distance: lerp(focusOn(camera, plate), focusOn(camera, head), window01(0.9, 1.2, action)), aperture: 2.4 },
     };
   },
-  subjects(ctx) {
-    const plate = plateWorld(welcomePlates(ctx.props.barbell)[1], new THREE.Vector3());
-    return [plateBox("plate-2", plate, 0.175), bodyBox("leo", ctx.cast.leo, true)].filter(Boolean) as SubjectBox[];
+  subjects(ctx, frame) {
+    return loadingSubjects(ctx, 1, frame.local);
   },
 };
 
@@ -405,6 +491,19 @@ const DRE_TRACK: CameraTrack = {
       { t: 0, position: [-0.75, 0.42, 0.62], target: [0.94, 0.66, 1.62], focal: 20, ease: "inOut" },
       { t: 2.03, position: [-0.6, 0.45, 0.74], target: [0.94, 0.7, 1.62], focal: 21 },
     ],
+  },
+  // As keyed, the narrowest phones (0.42) and square tablet-l screens (1.0) cut off Dre's face, hands and plate hub at
+  // the left edge while he drives the plate home: the smallest truck left (same angle and lens) that holds them inside
+  // the protected box (tests/brand/welcome-framing.test.ts). On laptop and desktop the floor-level lens let his plate's
+  // hub and his hands sink past the protected box at the bottom as the plate goes home (hub 6.8% and 8.1% of the frame,
+  // on desktop at 2.20 only 0.1% inside the visible frame; hands 5.0% and 6.2%): the smallest dolly back along the same
+  // line (same keys and lens), with a 4 cm drop (and on laptop a 6 cm truck left), that holds them inside it at every
+  // frame. tablet-p is unchanged.
+  compositions: {
+    phone: { offset: [-0.225, 0, 0] },
+    "tablet-l": { offset: [-0.19, 0, 0] },
+    laptop: { distanceScale: 1.05, offset: [-0.06, -0.04, 0] },
+    desktop: { distanceScale: 1.07, offset: [0, -0.04, 0] },
   },
   shake: { amplitude: 0.08, frequency: 0.7, seed: 64 },
 };
@@ -440,9 +539,8 @@ const shotDre: ShotModule = {
       focus: { distance: lerp(focusOn(camera, plate), focusOn(camera, head), window01(1.0, 1.5, frame.local)), aperture: 2.8 },
     };
   },
-  subjects(ctx) {
-    const plate = plateWorld(welcomePlates(ctx.props.barbell)[2], new THREE.Vector3());
-    return [plateBox("plate-3", plate, 0.13), bodyBox("dre", ctx.cast.dre, true)].filter(Boolean) as SubjectBox[];
+  subjects(ctx, frame) {
+    return loadingSubjects(ctx, 2, dreAction(frame.local));
   },
 };
 
@@ -526,11 +624,15 @@ const shotCrane: ShotModule = {
       focus: { distance: focusOn(camera, point), aperture: lerp(3.2, 5.6, window01(0, 2.38, frame.local)) },
     };
   },
+  // The crane is the way to the mark, not the mark: it is `must` from the ignite shot on (which opens on this shot's
+  // last frame). The athletes stand round the platform and the top-down lens leaves them at the frame's edges.
   subjects(ctx) {
-    const boxes: SubjectBox[] = [{ id: "mark", min: [-1.13, INLAY_TOP, -1.19], max: [1.13, INLAY_TOP + 0.45, 1.19], must: false }];
+    const boxes: SubjectBox[] = [markBox(false)];
     for (const member of TEAM) {
-      const box = bodyBox(member.id, ctx.cast[member.id], false);
-      if (box) boxes.push(box);
+      const instance = ctx.cast[member.id];
+      if (!instance?.group.visible) continue;
+      instance.group.updateMatrixWorld(true);
+      boxes.push(bodyBox(instance, member.id, false));
     }
     return boxes;
   },
@@ -595,8 +697,9 @@ const shotIgnite: ShotModule = {
       fade: { color: WELCOME_BRAND_BG[ctx.theme], amount: clear },
     };
   },
+  // The lines the shot ignites; the page's logo locks over them.
   subjects() {
-    return [{ id: "mark", min: [-1.13, INLAY_TOP, -1.19], max: [1.13, INLAY_TOP + 0.45, 1.19], must: true }];
+    return [markBox(true)];
   },
 };
 
