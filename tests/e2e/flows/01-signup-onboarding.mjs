@@ -4,7 +4,8 @@
 // with the greeting and today's quote; the account is recorded (intro_completed_at), no film plays on Home, and a
 // reload shows only the short loader (the same quote). With the film fixture's 2 s welcome film, a second account's
 // film plays to its end by itself, then Home. Last, an account that finished setup but never saw its film, signing in
-// on another device, gets the welcome film once on its first app page (the account gate).
+// on this same device after those films, gets the welcome film once on its first app page (the account gate): the
+// device's film flag goes with the session that played the film.
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { serveFilmFixture } from "../fixtures/films/route.mjs";
@@ -294,15 +295,17 @@ export const flow = {
       t.expect((await page.locator("[data-welcome-film]").count()) === 0, "the welcome film is gone");
     });
 
-    await t.step("an account that finished setup but never saw its film gets the welcome film once on its first app page", async () => {
+    await t.step("on the same device, an account that finished setup but never saw its film gets the welcome film once", async () => {
       // Signed out again (the fixture cookie goes too); a sign-in on this device marks it fitx_intro=play, and the first
-      // app page opens the account gate, which plays the welcome film now that its cuts exist (D1). The film flag from
-      // the steps above would skip the gate for 7 days (the guard for a failed report), so this device forgets it
-      // first, like another device would.
+      // app page opens the account gate, which plays the welcome film now that its cuts exist (D1). This device played
+      // the welcome film for the accounts above minutes ago (fitx-film-seen, the 7-day guard for a failed report), but
+      // that flag is the last session's: the signed-out sign-in page forgets it, so this second account still gets
+      // its own film, and is not recorded as having seen one it never saw.
+      t.expect(Boolean(await page.evaluate(() => window.localStorage.getItem("fitx-film-seen"))), "the device remembers the last session's welcome film");
       await t.context.clearCookies();
-      await page.evaluate(() => window.localStorage.removeItem("fitx-film-seen"));
       const owed = await standin.createAccount({ name: "Meera Iyer", tag: "gate", introSeen: false });
       await signInUi(t, owed);
+      t.expect((await page.evaluate(() => window.localStorage.getItem("fitx-film-seen"))) === null, "the signed-out page forgot it");
       const log = await t.rootLog();
       t.note("<html> attributes on the first app page", log);
       t.expect(log.some((entry) => entry.name === "data-fitx-intro-gate" && entry.value === "account"), "the account gate opens on the first app page", log);

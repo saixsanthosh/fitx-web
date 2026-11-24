@@ -43,7 +43,9 @@ const ACCOUNT_FILM_REPEAT_MS = (INTRO_PLAY_MAX_AGE + 60 * 60) * 1000;
  *       CinematicIntro plays only the latest one (accountFilmClaimedElsewhere). It plays the welcome film once its cuts
  *       exist (D1), the intro film until then. It is skipped (the cookie left as it is, for IntroCompletionReporter's
  *       retry) for 7 days after this device started the welcome film (localStorage FILM_SEEN_KEY), so a failed
- *       /api/intro/complete never replays it;
+ *       /api/intro/complete never replays it. That flag belongs to the session that played the film, not to the device:
+ *       the next signed-out page load forgets it too, so another account signing in here still gets its own film
+ *       (and is never recorded as having seen one it did not);
  *     - "visitor": signed-out visitors, on the home page "/" and no other page, once per device (first-time
  *       visitors only; CinematicIntro remembers it in localStorage when the film starts, and so does Skip or
  *       Escape here). It records nothing on any account and writes no cookie, so it never touches the
@@ -127,7 +129,10 @@ export function buildIntroBootstrapScript({ manifests, fixture }: { manifests: F
     };
     var signedIn = cookie("fitx_auth") === "1";
     if (signedIn) root.setAttribute("data-fitx-auth", "1");
-    else if (read("localStorage", "${ACCOUNT_FILM_STARTED_KEY}") !== null) write("localStorage", "${ACCOUNT_FILM_STARTED_KEY}", null);
+    else {
+      if (read("localStorage", "${ACCOUNT_FILM_STARTED_KEY}") !== null) write("localStorage", "${ACCOUNT_FILM_STARTED_KEY}", null);
+      if (read("localStorage", "${FILM_SEEN_KEY}") !== null) write("localStorage", "${FILM_SEEN_KEY}", null);
+    }
     var pick = function (here) {
       if (still()) return null;
       var asked = (window.location.search.match(/[?&]intro=([a-z]+)/) || [])[1];

@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { forgetAccountOnDevice } from "@/lib/account/device-cleanup";
+import { FILM_SEEN_KEY } from "@/components/brand/introKeys";
 
 function store(entries: Record<string, string>) {
   const values = new Map(Object.entries(entries));
@@ -17,7 +18,7 @@ function store(entries: Record<string, string>) {
 
 const user = "6b1e4d2a-0000-4000-8000-000000000001";
 
-test("sign-out removes the tab's unsaved Home workout sets and the account's exercise recents", () => {
+test("sign-out removes the tab's unsaved Home workout sets, the account's exercise recents and its welcome film's start", () => {
   const session = store({ "fitx:home-workout:today": "{}", "fitx:home-workout:unfinished-save": "[]", "fitx-session-stamped": "1" });
   const local = store({
     [`fitx:exercise:v1:${user}:recent`]: "[]",
@@ -27,16 +28,22 @@ test("sign-out removes the tab's unsaved Home workout sets and the account's exe
     "fitx-theme": "dark",
     "fitx:home-workout:voice-gender": "female",
     "fitx.household-measures.v1": "{}",
+    // When this account's welcome film started here: kept, it would skip the next account's film for 7 days.
+    [FILM_SEEN_KEY]: "2026-11-25T09:00:00.000Z",
+    // The films' sound choice belongs to the device, like the theme.
+    "fitx-film-sound": "on",
   });
   forgetAccountOnDevice({ local, session });
   assert.deepEqual([...session.values.keys()], ["fitx-session-stamped"]);
   assert.deepEqual([...local.values.keys()].sort(), [
     `fitx:exercise:v1:${user}:favorites`,
+    "fitx-film-sound",
     "fitx-theme",
     "fitx.household-measures.v1",
     "fitx:exercise:v1:library-sections",
     "fitx:home-workout:voice-gender",
   ].sort());
+  assert.equal(FILM_SEEN_KEY, "fitx-film-seen");
 });
 
 test("deleting the account also removes its saved exercises waiting in this browser; blocked storage is harmless", () => {

@@ -1,3 +1,4 @@
+import { FILM_SEEN_KEY } from "@/components/brand/introKeys";
 import { HOME_WORKOUT_SETS_KEY } from "@/lib/home-workout/log";
 import { UNFINISHED_KEY } from "@/lib/home-workout/save";
 
@@ -19,8 +20,9 @@ function keys(storage: Store): string[] {
 
 /**
  * Removes what this browser keeps about the signed-in account, so the next person on a shared device does not see
- * it: the tab's unsaved Home workout sets and the per-account exercise recents (and, once the account is deleted,
- * its saved exercises waiting here). Device settings such as the theme, the voice and household measures stay.
+ * it: the tab's unsaved Home workout sets, the per-account exercise recents (and, once the account is deleted, its
+ * saved exercises waiting here) and when this account's welcome film started here (FILM_SEEN_KEY), which would
+ * otherwise skip the next account's film. Device settings such as the theme, the voice and household measures stay.
  * The httpOnly cookies that hold the account ID are cleared by the proxy on the next request without a session.
  */
 export function forgetAccountOnDevice(
@@ -36,7 +38,7 @@ export function forgetAccountOnDevice(
   if (!local) return;
   try {
     for (const key of keys(local)) {
-      if (EXERCISE_RECENTS.test(key) || (deleted && EXERCISE_FAVORITES.test(key))) local.removeItem(key);
+      if (EXERCISE_RECENTS.test(key) || key === FILM_SEEN_KEY || (deleted && EXERCISE_FAVORITES.test(key))) local.removeItem(key);
     }
   } catch {
     // As above.

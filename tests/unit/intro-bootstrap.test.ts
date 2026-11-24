@@ -773,11 +773,32 @@ test("the seen flag: for 7 days after the welcome film started here, the account
     assert.equal(recent.attrs.get("data-fitx-loader"), "on", "the short loader, as on any returning page load");
     const old = run({ script, path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: { [FILM_SEEN_KEY]: ISO(NOW - 8 * 24 * HOUR) } });
     assert.equal(old.attrs.get("data-fitx-intro-gate"), "account", "after 7 days the gate opens again");
-    const garbage = run({ script, path: "/dashboard", cookie: "fitx_intro=play", local: { [FILM_SEEN_KEY]: "soon" } });
+    const garbage = run({ script, path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: { [FILM_SEEN_KEY]: "soon" } });
     assert.equal(garbage.attrs.get("data-fitx-intro-gate"), "account", "an unreadable flag does not count");
-    const future = run({ script, path: "/dashboard", cookie: "fitx_intro=play", local: { [FILM_SEEN_KEY]: ISO(NOW + HOUR) } });
+    const future = run({ script, path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: { [FILM_SEEN_KEY]: ISO(NOW + HOUR) } });
     assert.equal(future.attrs.get("data-fitx-intro-gate"), "account", "nor one from the future");
   }
+});
+
+test("the seen flag goes with the session: a signed-out page forgets it, so a second account on the device gets its own film", () => {
+  const seen = { [FILM_SEEN_KEY]: ISO(NOW - HOUR) };
+  // While the account that played the film is signed in, the flag skips its gate (a failed report is retried, not replayed).
+  const first = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: seen });
+  assert.equal(first.attrs.get("data-fitx-intro-gate"), undefined);
+  // Log out (or a session that ended) lands on a signed-out page: the flag goes, with the account film's claim.
+  const signedOut = run({ path: "/signin", search: "?signed_out=1", local: { ...seen, [ACCOUNT_FILM_STARTED_KEY]: String(NOW - HOUR) } });
+  assert.equal(signedOut.local.has(FILM_SEEN_KEY), false);
+  assert.equal(signedOut.local.has(ACCOUNT_FILM_STARTED_KEY), false);
+  // A second account signs in here within the 7 days, still owed its film (fitx_intro=play from its own profile): its
+  // gate opens and plays the welcome film, rather than being waived and recorded as seen.
+  const second = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: Object.fromEntries(signedOut.local), width: 1440, height: 900 });
+  assert.equal(second.attrs.get("data-fitx-intro-gate"), "account");
+  assert.equal(second.attrs.get("data-fitx-film"), "welcome");
+  // Signed-in pages keep it, and a signed-out device without it writes nothing.
+  const kept = run({ path: "/pricing", cookie: "fitx_auth=1; fitx_intro=seen", local: seen });
+  assert.equal(kept.local.get(FILM_SEEN_KEY), ISO(NOW - HOUR));
+  assert.deepEqual(kept.storageWrites, []);
+  assert.deepEqual(run({ path: "/signin" }).storageWrites, []);
 });
 
 test("the e2e fixture: only a fixture build, and only with the fitx_film_fixture=1 cookie, takes the fixture's films", () => {
