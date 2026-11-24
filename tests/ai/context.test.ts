@@ -762,12 +762,13 @@ describe("privacy page", () => {
     assert.match(read("src/proxy.ts"), /const intro = introMissing \|\| row\?\.intro_completed_at \? "seen" : "play";/);
     assert.match(read("src/app/api/intro/complete/route.ts"), /response\.cookies\.set\(INTRO_COOKIE, "seen"/);
     // The head script: a "play" opens the account's film, the welcome film once its cuts exist (D1), and is "seen" at
-    // once; with "seen" a page load shows the short brand loader.
+    // once; with "seen" a page load shows the short brand loader (not the one straight after the setup film's logo,
+    // tests/unit/intro-bootstrap.test.ts).
     const head = read("src/components/brand/introBootstrap.ts");
     assert.match(head, /if \(here\.app && cookie\("fitx_intro"\) === "play" && !seenRecently\(\)\) return "account";/);
     assert.match(head, /\(gate === "account" && films\.welcome\) \? "welcome" : "intro"/);
     assert.match(head, /if \(gate === "account"\) \{\s*document\.cookie = "fitx_intro=seen;/);
-    assert.match(head, /if \(still\(\) \|\| intro !== "seen" \|\| here\.focus\) return;\s*root\.setAttribute\("data-fitx-loader", "on"\);/);
+    assert.match(head, /if \(still\(\) \|\| intro !== "seen" \|\| here\.focus \|\| handoff\) return;\s*root\.setAttribute\("data-fitx-loader", "on"\);/);
 
     const cookies = read("src/app/(marketing)/cookies/page.tsx");
     const own = cookies.match(/<h2>FITX’s own cookies<\/h2>([\s\S]*?)<\/section>/)?.[1] ?? "";

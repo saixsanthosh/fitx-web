@@ -4,6 +4,7 @@ import vm from "node:vm";
 import { buildIntroBootstrapScript, INTRO_BOOTSTRAP_SCRIPT, WELCOME_FALLBACK_MS } from "@/components/brand/introBootstrap";
 import {
   ACCOUNT_FILM_STARTED_KEY,
+  FILM_HANDOFF_KEY,
   FILM_POSTER_VAR,
   FILM_SEEN_KEY,
   INTRO_PENDING_EVENT,
@@ -799,6 +800,38 @@ test("the seen flag goes with the session: a signed-out page forgets it, so a se
   assert.equal(kept.local.get(FILM_SEEN_KEY), ISO(NOW - HOUR));
   assert.deepEqual(kept.storageWrites, []);
   assert.deepEqual(run({ path: "/signin" }).storageWrites, []);
+});
+
+test("the first page after the post-onboarding sequence's logo opens straight on: no loader and no second logo, once", () => {
+  const handoff = { [FILM_HANDOFF_KEY]: String(NOW - 2000) };
+  // The welcome film's report got through ("seen"), or failed and the device's flag waives the gate: no loader on Home.
+  const cases = [["fitx_auth=1; fitx_intro=seen", {}], ["fitx_auth=1; fitx_intro=play", { [FILM_SEEN_KEY]: ISO(NOW - 15_000) }]] as const;
+  for (const [cookie, local] of cases) {
+    const home = run({ path: "/dashboard", cookie, local, session: handoff });
+    assert.equal(home.attrs.get("data-fitx-loader"), undefined, `${cookie}: no loader after the film's logo`);
+    assert.equal(home.attrs.get("data-fitx-intro"), undefined, `${cookie}: and no film`);
+    assert.equal(home.window.__fitxReleaseLoader, undefined, cookie);
+    assert.equal(home.session.has(FILM_HANDOFF_KEY), false, `${cookie}: used up by this page load`);
+    // A reload in the same tab: the short loader again, as on any returning page load.
+    const reload = run({ path: "/dashboard", cookie, local, session: Object.fromEntries(home.session) });
+    assert.equal(reload.attrs.get("data-fitx-loader"), "on", `${cookie}: the reload's loader`);
+  }
+  // Nor the returning sign-in's logo, whose cookie is used up all the same.
+  const returning = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=seen; fitx_welcome=return", session: handoff });
+  assert.equal(returning.attrs.get("data-fitx-loader"), undefined);
+  assert.ok(forgetsWelcome(returning));
+  // An old key (a navigation that never happened, a tab left for minutes) is removed and changes nothing.
+  const stale = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=seen", session: { [FILM_HANDOFF_KEY]: String(NOW - 5 * MINUTE) } });
+  assert.equal(stale.attrs.get("data-fitx-loader"), "on");
+  assert.equal(stale.session.has(FILM_HANDOFF_KEY), false);
+  // It never holds back a film: a device that still owes the account its film plays it.
+  const owed = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", session: handoff });
+  assert.equal(owed.attrs.get("data-fitx-intro-gate"), "account");
+  assert.equal(owed.session.has(FILM_HANDOFF_KEY), false);
+  // Without the key, the loader as before, and a page that never saw the key writes nothing to session storage.
+  const plain = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=seen" });
+  assert.equal(plain.attrs.get("data-fitx-loader"), "on");
+  assert.equal(plain.storageWrites.some((write) => write.startsWith("sessionStorage.")), false);
 });
 
 test("the e2e fixture: only a fixture build, and only with the fitx_film_fixture=1 cookie, takes the fixture's films", () => {

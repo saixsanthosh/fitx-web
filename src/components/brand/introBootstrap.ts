@@ -6,6 +6,8 @@ import { FIXTURE_COOKIE, FIXTURE_MANIFESTS } from "./films/fixture";
 import type { FilmManifests } from "./films/manifest";
 import {
   ACCOUNT_FILM_STARTED_KEY,
+  FILM_HANDOFF_KEY,
+  FILM_HANDOFF_MS,
   FILM_POSTER_VAR,
   FILM_SEEN_KEY,
   FILM_SEEN_MS,
@@ -67,6 +69,10 @@ const ACCOUNT_FILM_REPEAT_MS = (INTRO_PLAY_MAX_AGE + 60 * 60) * 1000;
  *    consumed all the same; a page still hidden leaves it for the next one,
  *  - otherwise, on a returning device (`fitx_intro=seen`), shows the short brand loader
  *    (`data-fitx-loader`) until the app hydrates: at least 0.56 s, gone by 1.08 s at most,
+ *  - but not on the first page after the sequence that follows onboarding ended on the FITX logo in this tab (its
+ *    welcome film, or its logo; sessionStorage FILM_HANDOFF_KEY, used up by this page load): that page shows neither
+ *    the loader nor the returning sign-in's logo, so there are never two logos in a row and the member goes straight
+ *    to Home (D1),
  *  - never shows either on a focus screen (a live workout, /workouts/active, the AI Form Check camera
  *    /workouts/form-check, or the activity recorder,
  *    /activity/record): the account's film waits for the next app page,
@@ -212,6 +218,10 @@ export function buildIntroBootstrapScript({ manifests, fixture }: { manifests: F
       try { window.dispatchEvent(new Event("${INTRO_PENDING_EVENT}")); } catch (e) {}
       return true;
     };
+    var handoffAt = read("sessionStorage", "${FILM_HANDOFF_KEY}");
+    if (handoffAt !== null) write("sessionStorage", "${FILM_HANDOFF_KEY}", null);
+    var handoffAge = Date.now() - Number(handoffAt);
+    var handoff = handoffAt !== null && handoffAge >= 0 && handoffAge < ${FILM_HANDOFF_MS};
     var here = place();
     var gate = pick(here);
     if (gate && hidden()) {
@@ -236,7 +246,7 @@ export function buildIntroBootstrapScript({ manifests, fixture }: { manifests: F
     }
     if (welcome && !hidden()) {
       forget();
-      if (!still()) {
+      if (!still() && !handoff) {
         root.setAttribute("data-fitx-loader", "welcome");
         var done = function () {
           if (root.getAttribute("data-fitx-loader") === "welcome") root.removeAttribute("data-fitx-loader");
@@ -255,7 +265,7 @@ export function buildIntroBootstrapScript({ manifests, fixture }: { manifests: F
     // The account's film was skipped because this device started the welcome film lately: as good as seen.
     var waived = here.app && cookie("fitx_intro") === "play" && seenRecently();
     var intro = gate === "account" || waived ? "seen" : cookie("fitx_intro");
-    if (still() || intro !== "seen" || here.focus) return;
+    if (still() || intro !== "seen" || here.focus || handoff) return;
     root.setAttribute("data-fitx-loader", "on");
     var shownAt = Date.now();
     var gone = false;

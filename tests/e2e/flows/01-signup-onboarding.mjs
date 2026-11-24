@@ -1,8 +1,9 @@
 // Flow 1: sign up with e-mail and password, setup in three short pages (about you, your body with dials, your goal
 // with photo cards; no workout or food questions), then the welcome film (BRIEF-2 D1 and 3.3, S6's real cuts since
-// release 2b) once, in the same document as the Finish click, with exactly one Skip control (skipped here), then Home
-// with the greeting and today's quote; the account is recorded (intro_completed_at), no film plays on Home, and a
-// reload shows only the short loader (the same quote). With the film fixture's 2 s welcome film, a second account's
+// release 2b) once, in the same document as the Finish click, with exactly one Skip control (skipped here) and Tab
+// kept on its own controls, then Home with the greeting and today's quote, straight after the film's logo (no brand
+// loader); the account is recorded (intro_completed_at), no film plays on Home, and a reload shows only the short
+// loader (the same quote). With the film fixture's 2 s welcome film, a second account's
 // film plays to its end by itself, then Home. Last, an account that finished setup but never saw its film, signing in
 // on this same device after those films, gets the welcome film once on its first app page (the account gate): the
 // device's film flag goes with the session that played the film.
@@ -217,6 +218,9 @@ export const flow = {
       const log = await t.rootLog();
       t.note("<html> attributes on the first dashboard load", log);
       t.expect(!log.some((entry) => entry.name === "data-fitx-intro-gate"), "no film on Home after the welcome film", log);
+      // The film ended on the FITX logo, so Home opens straight on: no brand loader drawing the logo again (D1).
+      t.expect(!log.some((entry) => entry.name === "data-fitx-loader"), "no brand loader on the first Home load after the film's logo", log);
+      t.expect((await page.evaluate(() => window.sessionStorage.getItem("fitx-film-handoff"))) === null, "the hand-off note is used up by that page load");
       const cookies = await t.context.cookies();
       t.expect(cookies.find((cookie) => cookie.name === "fitx_intro")?.value === "seen", "after the film the device cookie should say seen");
       // The account remembers it too, so another device doesn't replay it.
@@ -298,6 +302,9 @@ export const flow = {
       await t.settle();
       const log = await t.rootLog();
       t.expect(!log.some((entry) => entry.name === "data-fitx-intro-gate"), "no film on Home after the welcome film", log);
+      // The film ended on the FITX logo, so Home opens straight on: no brand loader drawing the logo again (D1).
+      t.expect(!log.some((entry) => entry.name === "data-fitx-loader"), "no brand loader on the first Home load after the film's logo", log);
+      t.expect((await page.evaluate(() => window.sessionStorage.getItem("fitx-film-handoff"))) === null, "the hand-off note is used up by that page load");
       const after = await t.context.cookies();
       t.expect(after.find((cookie) => cookie.name === "fitx_intro")?.value === "seen", "the device cookie says seen");
       t.expect(await introCompleted(standin, page, second.email), "profiles.intro_completed_at is set by the welcome film");

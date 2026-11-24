@@ -41,6 +41,16 @@ export const FILM_SEEN_KEY = "fitx-film-seen";
 export const FILM_SEEN_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * sessionStorage: when the sequence after onboarding (PostOnboardingSequence: the welcome film, or its logo) ended on
+ * the FITX logo in this tab, as ms since the epoch. Home's full page load follows at once, and its head script reads
+ * and removes this, then shows neither the brand loader nor the returning sign-in's logo: two logos never play in a
+ * row (D1, the owner's "after the logo, straight to Home"). A key older than FILM_HANDOFF_MS is removed and ignored.
+ */
+export const FILM_HANDOFF_KEY = "fitx-film-handoff";
+
+export const FILM_HANDOFF_MS = 60 * 1000;
+
+/**
  * Window event that replays a film: `detail?: { film?: "intro" | "welcome" }`; no detail means the intro.
  * Dispatched by IntroReplayControl, handled by CinematicIntro.
  */

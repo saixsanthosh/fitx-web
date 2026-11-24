@@ -6,8 +6,16 @@ import { Logo } from "@/components/ui/Logo";
 import { inertOutside, releaseInert } from "@/components/brand/inertPage";
 import { manifestFor } from "@/components/brand/films/manifest";
 import { POST_ONBOARDING_FILM } from "@/components/onboarding/post-onboarding-film";
-import { logoHoldMs, postOnboardingSteps, type PostStep } from "@/lib/onboarding/post-sequence";
+import { logoHoldMs, markFilmHandoff, postOnboardingSteps, type PostStep } from "@/lib/onboarding/post-sequence";
 import styles from "./PostOnboarding.module.css";
+
+function tabStorage(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * What plays once onboarding is finished (owner's phase 4, steps 4 to 6), then `onDone` (which loads Home): the
@@ -42,8 +50,10 @@ export function PostOnboardingSequence({ onDone, firstName = null }: { onDone: (
   const done = useCallback(() => {
     if (finished.current) return;
     finished.current = true;
+    // It ended on the logo (the film's lockup, or the logo step): Home opens straight on, without the loader.
+    if (steps.length) markFilmHandoff(tabStorage());
     onDone();
-  }, [onDone]);
+  }, [onDone, steps]);
 
   // Nothing to play (the account film is pending and ends on the logo itself): straight on.
   useEffect(() => {

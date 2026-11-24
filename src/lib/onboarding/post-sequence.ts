@@ -8,6 +8,8 @@
  *  - without it, exactly what wave 1 did: nothing when the device still owes the account its one-time intro film
  *    (cookie `fitx_intro=play`; that film plays on the first dashboard load and ends on the logo), else the logo.
  */
+import { FILM_HANDOFF_KEY } from "@/components/brand/introKeys";
+
 export type PostStep = "film" | "logo";
 
 export const INTRO_COOKIE_NAME = "fitx_intro";
@@ -31,6 +33,21 @@ export function postOnboardingSteps({ cookies, hasFilm }: { cookies: string; has
   if (hasFilm) return ["film"];
   if (readCookie(cookies, INTRO_COOKIE_NAME) === "play") return [];
   return ["logo"];
+}
+
+/**
+ * The sequence ended on the FITX logo (the welcome film's end, or the logo step): Home's page load, which follows at
+ * once in this tab, opens without the brand loader (introBootstrap.ts reads and removes FILM_HANDOFF_KEY), so two logos
+ * never play in a row (D1). Session storage: only this tab's next page load counts. Blocked storage: the loader shows.
+ */
+export function markFilmHandoff(storage: Pick<Storage, "setItem"> | null, now: number = Date.now()): boolean {
+  try {
+    if (!storage) return false;
+    storage.setItem(FILM_HANDOFF_KEY, String(now));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** How long the logo step holds before moving on: the mark's formation plus a beat (static with reduced motion). */
