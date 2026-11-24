@@ -81,8 +81,9 @@ function filmVideo(element: HTMLElement): HTMLVideoElement | null {
 
 /**
  * The composition the film is being played in: `<html data-fitx-film-cut>` (set by the head script and
- * the player, and updated on a rotation swap), else the viewport's own band. Follows changes to the
- * attribute, so a swap moves the matte and the callouts with the picture.
+ * the player, and updated on a rotation swap, or for the live film once a resize settles), else the
+ * viewport's own band. Follows changes to the attribute, so a swap moves the matte and the callouts
+ * with the picture.
  */
 function readComposition(): FilmComposition {
   const attribute = document.documentElement.getAttribute(FILM_CUT_ATTR);
@@ -103,7 +104,7 @@ function useFilmComposition(): FilmComposition | null {
     const sync = () => setComp(readComposition());
     const observer = typeof MutationObserver === "function" ? new MutationObserver(sync) : null;
     observer?.observe(document.documentElement, { attributes: true, attributeFilter: [FILM_CUT_ATTR] });
-    // Without the attribute (a live film), the band follows the window.
+    // Without the attribute, the band follows the window.
     window.addEventListener("resize", sync);
     return () => {
       observer?.disconnect();

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { FILM_CUT_ATTR, pickComposition, type FilmComposition, type FilmId, type FilmOverlayProps, type FilmTheme } from "./compositions";
 import { cutBitrate, cutsIn, cutType, isLite, manifestFor, posterIn, type FilmCut, type FilmManifest } from "./manifest";
-import { FILM_TIMING, filmStageAt, swapAllowed } from "./timing";
+import { FILM_TIMING, filmStageAt, RESIZE_SETTLE_MS, swapAllowed } from "./timing";
 import { FILM_POSTER_VAR } from "../introKeys";
 import styles from "../FitxIntroScene.module.css";
 
@@ -28,8 +28,6 @@ type BufferResult = "ready" | "slow" | "timeout";
 
 /** How often an overlay hears the film clock while it plays (stage changes are reported at once). */
 const OVERLAY_TICK_MS = 250;
-/** A resize settles this long before the cut is swapped for the new composition. */
-const RESIZE_SETTLE_MS = 220;
 
 /**
  * Buffers ahead of playback. "ready" once the browser expects to play through; "slow" if media is

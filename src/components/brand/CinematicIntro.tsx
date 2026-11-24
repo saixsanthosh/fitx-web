@@ -15,6 +15,7 @@ import { FILM_ATTR, FILM_CUT_ATTR, pickComposition, type FilmId } from "./films/
 import { filmAllowed, manifestFor, posterIn, type FilmAudio } from "./films/manifest";
 import { useFilmSound } from "./films/filmSound";
 import { SoundControl } from "./films/SoundControl";
+import { RESIZE_SETTLE_MS } from "./films/timing";
 import { WelcomeFilm } from "./films/WelcomeFilm";
 import styles from "./CinematicIntro.module.css";
 
@@ -386,6 +387,33 @@ export function CinematicIntro() {
     document.addEventListener("visibilitychange", syncVisibility);
     return () => document.removeEventListener("visibilitychange", syncVisibility);
   }, [armWatchdog]);
+
+  // The live film (`?intro=live`) follows a resize with its camera at once. Once the resize settles, the composition it
+  // now frames is marked again (with that composition's poster, by begin's rule), so the letterbox and the callouts,
+  // which FilmGraphics keys on data-fitx-film-cut, follow it too. The pre-rendered cut marks its own swaps (FilmVideo).
+  const liveFilm = film === "intro" && source === "live" && (playback === "loading" || playback === "three");
+  useEffect(() => {
+    if (!liveFilm) return;
+    let timer = 0;
+    const onResize = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (!activeRef.current || sourceRef.current !== "live") return;
+        const root = document.documentElement;
+        const manifest = manifestFor("intro");
+        const comp = pickComposition(window.innerWidth, window.innerHeight, manifest?.comps);
+        if (root.getAttribute(FILM_CUT_ATTR) === comp) return;
+        root.setAttribute(FILM_CUT_ATTR, comp);
+        const poster = posterIn(manifest, root.dataset.fitxIntroTheme === "dark" ? "dark" : "light", comp);
+        if (poster) root.style.setProperty(FILM_POSTER_VAR, `url("${poster}")`);
+      }, RESIZE_SETTLE_MS);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [liveFilm]);
 
   useEffect(() => {
     const onReplay = (event: Event) => {
