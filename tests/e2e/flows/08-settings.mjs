@@ -57,7 +57,9 @@ export const flow = {
     await t.step("Settings replays the intro and, now that S6's welcome cuts exist, the welcome film", async () => {
       const intro = page.getByRole("button", { name: "Replay intro" });
       await intro.waitFor({ timeout: 10000 });
-      t.expect((await page.getByRole("button", { name: "Replay welcome film" }).count()) === 1, "the welcome replay is there (S6's welcome cuts)");
+      // Shown once the page has read the manifest in the browser (S6's welcome cuts).
+      await page.getByRole("button", { name: "Replay welcome film" }).waitFor({ timeout: 10000 });
+      t.expect((await page.getByRole("button", { name: "Replay welcome film" }).count()) === 1, "one welcome replay");
       await intro.click();
       await page.getByRole("button", { name: /^Skip intro/ }).waitFor({ state: "visible", timeout: 10000 });
       t.expect((await page.evaluate(() => document.documentElement.getAttribute("data-fitx-film"))) === "intro", "the intro is the film playing");
