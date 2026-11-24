@@ -94,14 +94,22 @@ const FIRST_PENDING = "20261115100000";
 const SEPTEMBER = MIGRATIONS.filter((name) => name < FIRST_PENDING);
 const PENDING = MIGRATIONS.filter((name) => name >= FIRST_PENDING);
 /**
- * The newest file production has applied since its copy was made (2026-11-23; tests/integration/applied-migrations
+ * The newest file production has applied since its copy was made (2026-11-24; tests/integration/applied-migrations
  * .test.mjs pins those files). The runbook's earlier sittings applied the pending files up to it and recorded them
- * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest, #52 to #54 (wave 2's
- * three files, not applied anywhere yet).
+ * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest. There is no rest now:
+ * #52 to #54, wave 2's three files, were applied on 2026-11-24, so THIS_SITTING is empty and the runbook says nothing
+ * is pending.
  */
-const LAST_APPLIED = "20261123100060";
+const LAST_APPLIED = "20261124100020";
 const APPLIED_SINCE = PENDING.filter((name) => name.slice(0, 14) <= LAST_APPLIED);
 const THIS_SITTING = PENDING.filter((name) => name.slice(0, 14) > LAST_APPLIED);
+/** The first file of production's latest sitting (2026-11-24: #52 to #54). */
+const LATEST_SITTING_FROM = "20261124100000";
+/**
+ * The files Start 2 is for: this sitting's or, with nothing pending, the latest sitting's, whose list the runbook keeps
+ * as its record. Start 2 runs before the first of them and again after the last file (section 6.1), as on that day.
+ */
+const START_2_SITTING = THIS_SITTING.length > 0 ? THIS_SITTING : APPLIED_SINCE.filter((name) => name.slice(0, 14) >= LATEST_SITTING_FROM);
 const FOOD_PARTS = PENDING.filter((name) => /_fitx_food_catalog_seed_part_\d+\.sql$/.test(name));
 /** Adds search words to six foods from the first food part, so it moves with the parts. */
 const RAJMA = "20261118200000_fitx_food_catalog_rajma_keywords.sql";
@@ -602,11 +610,12 @@ const START_2_LIST = [...blockOf("Start 2").sql.matchAll(/\('(\d{14})', '[a-z]+'
 // runs, in order: the rows, or a function of (rows, { cron, cronAvailable }) giving what the rows must be. Every other
 // query must give exactly what its Expect line says. The copy has no member rows, so counts of them are 0.
 const RUNBOOK_PINNED = {
-  // Before #52: production's rows and #1 to #51 under their own numbers.
+  // Before this sitting (today, with nothing pending): production's rows and every applied file under its own number.
   "Start 1": [byVersion([...PRODUCTION_ROWS, ...APPLIED_SINCE.map(historyRow)]), (rows, { cron }) =>
     // After section 5; #27's undo needs pg_cron, so without it its file keeps its row.
     byVersion([...PRODUCTION_ROWS, ...[...KEPT_BY_SECTION_5, ...(cron ? [] : [27])].map((number) => historyRow(PENDING[number - 1]))])],
-  // Before #52 its Expect line holds ("no rows"); after the last file (section 6.1) it lists every row.
+  // Before the first file of its sitting (#52, kept as the 2026-11-24 sitting's record) its Expect line holds ("no
+  // rows"); after the last file (section 6.1) it lists every row.
   "Start 2": [undefined, START_2_LIST],
   // The local cluster's postgres is a superuser; production's is not.
   "Start 3": [[{ applying_role: "postgres", rolsuper: true, rolbypassrls: true, owner_of_existing_tables: "postgres" }]],
@@ -669,13 +678,15 @@ const runbookNotRun = ({ cron }) => ({
   ...(cron ? {} : { "Before 20261118160001": NO_CRON, "Check 20261118160001": NO_CRON }),
 });
 
-/**
- * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #51): the
- * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
- * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 68 rows, the
- * connector records #52 to #54 under their times, then History 0 to 2. `ask` runs a runbook query and keeps its
- * result; returns whether History 1 ran both times.
- */
+/** The six files that go through the SQL editor (section 0.2) and are recorded with their own Record query. */
+const inSqlEditor = (name) => name.startsWith("20261118130010_") || FOOD_PARTS.includes(name);
+
+/** Runs History 1 (an update) and counts the history rows it gave their file's number: `{ ok, rows, stderr }`. */
+function historyOne(pg) {
+  const result = pg.run(`with q as (\n${blockOf("History 1").sql.replace(/;\s*$/, "")}\nreturning 1\n)\nselect count(*) from q;`);
+  return { ok: result.ok, rows: result.ok ? Number(result.stdout) : null, stderr: result.stderr };
+}
+
 /** The day after the newest pending file's date (yyyymmdd), the simulated day the connector applies them. */
 const APPLY_DAY = (() => {
   const newest = PENDING.at(-1).slice(0, 8);
@@ -683,6 +694,14 @@ const APPLY_DAY = (() => {
   return day.toISOString().slice(0, 10).replaceAll("-", "");
 })();
 
+/**
+ * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #54): the
+ * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
+ * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 71 rows, the
+ * connector records this sitting's files under their times (none: nothing is pending), then History 0 to 2. `ask`
+ * runs a runbook query and keeps its result; returns whether History 1 ran both times, and how many rows each run
+ * gave their file's number.
+ */
 function historyAsTheRunbookLeavesIt(pg, ask) {
   pg.exec(`
 create schema supabase_migrations;
@@ -690,7 +709,6 @@ create table supabase_migrations.schema_migrations (
   version text primary key, statements text[], name text, created_by text, idempotency_key text, rollback text[]);
 insert into supabase_migrations.schema_migrations (version, name) values
   ${PRODUCTION_HISTORY.map(([version, name]) => `('${version}', '${name}')`).join(",\n  ")};`);
-  const inSqlEditor = (name) => name.startsWith("20261118130010_") || FOOD_PARTS.includes(name);
   const record = (name) => {
     const index = PENDING.indexOf(name);
     const { version, name: shortName } = historyRow(name);
@@ -701,15 +719,17 @@ insert into supabase_migrations.schema_migrations (version, name) values
     else pg.exec(`insert into supabase_migrations.schema_migrations (version, name) values ('${appliedAt}', '${shortName}');`);
   };
   APPLIED_SINCE.forEach(record);
-  const earlier = pg.run(blockOf("History 1").sql);
-  ask(blockOf("Start 1"), `before #${APPLIED_SINCE.length + 1}`);
-  ask(blockOf("Start 8"), `before #${APPLIED_SINCE.length + 1}`);
+  const earlier = historyOne(pg);
+  const today = THIS_SITTING.length > 0 ? `before #${APPLIED_SINCE.length + 1}` : "today, with nothing pending";
+  ask(blockOf("Start 1"), today);
+  ask(blockOf("Start 8"), today);
   THIS_SITTING.forEach(record);
   ask(blockOf("History 0"), `after #${PENDING.length}`);
-  const history1 = pg.run(blockOf("History 1").sql);
+  const history1 = historyOne(pg);
   ask(blockOf("History 2"), "after History 1");
-  if (!earlier.ok) return `after the earlier sittings: ${errorText(earlier.stderr)}`;
-  return history1.ok ? "applied" : errorText(history1.stderr);
+  if (!earlier.ok) return { outcome: `after the earlier sittings: ${errorText(earlier.stderr)}` };
+  if (!history1.ok) return { outcome: errorText(history1.stderr) };
+  return { outcome: "applied", earlier: earlier.rows, thisSitting: history1.rows };
 }
 
 // What production may have saved after its copy was made (2026-11-17) and the runbook's queries on the day must catch,
@@ -996,19 +1016,50 @@ test("the runbook applies and records every pending migration, and only those", 
   assert.deepEqual(recorded, PENDING, "History 1 gives every pending migration its own version and name");
 });
 
-test("the runbook gives each file of this sitting the md5 of its final text, for the staged, md5-checked apply", () => {
+test("the runbook gives each file of this sitting (with nothing pending, of the latest one) the md5 of its final text, for the staged, md5-checked apply", () => {
   const runbook = readFileSync(RUNBOOK, "utf8");
-  assert.ok(THIS_SITTING.length > 0, "this sitting applies at least one file");
-  for (const name of THIS_SITTING) {
-    const heading = `### #${PENDING.indexOf(name) + 1} \`${name.slice(0, -".sql".length)}\``;
-    const start = runbook.indexOf(heading);
-    assert.ok(start >= 0, `section 3 has ${heading}`);
-    const end = runbook.indexOf("\n#", start + heading.length);
-    const section = runbook.slice(start, end === -1 ? undefined : end);
-    const stated = section.match(/md5 of the file \(`md5 -q`\): `([0-9a-f]{32})`/)?.[1];
-    const actual = createHash("md5").update(readFileSync(path.join(MIGRATIONS_DIR, name))).digest("hex");
-    assert.equal(stated, actual, `${name}: the runbook's md5 must be the file's (md5 -q ${name})`);
+  // Each md5 section 3 states, under its file's heading (a section ends at the next heading). With nothing pending, the
+  // latest sitting's files keep theirs as its record, so those are required instead.
+  const stated = new Map();
+  for (const [, name, body] of runbook.matchAll(/^### #\d+ `(\d{14}_[a-z0-9_]+)`[^\n]*\n([^]*?)(?=^#{2,3} |(?![^]))/gm)) {
+    const md5 = body.match(/md5 of the file \(`md5 -q`\): `([0-9a-f]{32})`/)?.[1];
+    if (md5) stated.set(`${name}.sql`, md5);
   }
+  assert.ok(START_2_SITTING.length > 0, "this sitting, or with nothing pending the latest one, has at least one file");
+  for (const name of START_2_SITTING) assert.ok(stated.has(name), `section 3 gives ${name} its md5`);
+  for (const [name, md5] of stated) {
+    assert.ok(PENDING.includes(name), `section 3 gives an md5 for ${name}, which is not a migration file`);
+    const actual = createHash("md5").update(readFileSync(path.join(MIGRATIONS_DIR, name))).digest("hex");
+    assert.equal(md5, actual, `${name}: the runbook's md5 must be the file's (md5 -q ${name})`);
+  }
+});
+
+test("Start 2 checks one object of each file of this sitting, or with nothing pending of the latest sitting, in order", () => {
+  assert.deepEqual(START_2_LIST.map(({ file }) => file), START_2_SITTING.map((name) => name.slice(0, 14)));
+});
+
+test("the runbook says where production stands and what is pending, as LAST_APPLIED has it", () => {
+  const runbook = readFileSync(RUNBOOK, "utf8");
+  /** The text of the runbook's top bullet that starts "- **<label>", its continuation lines joined. */
+  const bullet = (label) => {
+    const lines = runbook.slice(Math.max(0, runbook.indexOf(`\n- **${label}`) + 1)).split("\n");
+    const kept = [lines[0]];
+    for (const line of lines.slice(1)) {
+      if (!line.startsWith("  ")) break;
+      kept.push(line);
+    }
+    return kept.join(" ").replace(/\s+/g, " ").replace(/^- \*\*[^*]*\*\* /, "");
+  };
+  const rows = PRODUCTION_HISTORY.length + APPLIED_SINCE.length;
+  const last = historyRow(APPLIED_SINCE.at(-1));
+  assert.equal(blockOf("Start 1").expect, `${rows} rows, from ${PRODUCTION_HISTORY[0].join(" ")} to ${last.version} ${last.name}`);
+  assert.match(blockOf("History 2").expect ?? "", new RegExp(`^${PRODUCTION_HISTORY.length + PENDING.length} rows in version order`));
+  const stands = bullet("Where production stands");
+  assert.ok(stands.includes(`${rows} rows in its history`), `the top says production's history has ${rows} rows: ${stands}`);
+  assert.ok(stands.includes(`\`${last.version}\``), `the top names the last file applied, ${last.version}`);
+  const pending = bullet("What is pending");
+  if (THIS_SITTING.length === 0) assert.match(pending, /^nothing\./, "with every file applied, the top says nothing is pending");
+  else for (const name of [THIS_SITTING[0], THIS_SITTING.at(-1)]) assert.ok(pending.includes(`\`${name.slice(0, 14)}\``), `the top names ${name} as pending`);
 });
 
 test("nothing in the app, Admin or the scripts uses what production's hand-applied changes left behind", () => {
@@ -1184,13 +1235,13 @@ describe("every pending migration on a copy of production's database", { skip },
     runbook.catalogue.today = rowDigests(pg, catalogue);
     // Section 1 on the day: the Start queries (Start 1 and 8 read the history table, which this copy only gets
     // with the history steps below), and what they and the Before queries for #1 and #2 catch, rolled back.
-    // Start 2 is this sitting's, before #52.
+    // Start 2 runs before the first file of its sitting (START_2_SITTING: with nothing pending, the latest one's, #52).
     for (const block of RUNBOOK_BLOCKS) if (/^Start \d+$/.test(block.key) && !["Start 1", "Start 2", "Start 8"].includes(block.key)) ask(block, "before #1");
     runbook.dayOf = whatTheDayOfQueriesCatch(pg);
     // Each file with its Before queries first and its Checks and Smoke after; the optional backup copy before #12.
     run = applyInOrder(pg, PENDING, cron, {
       beforeFile: (name) => {
-        if (name === THIS_SITTING[0]) ask(blockOf("Start 2"), `before ${number(name)}`);
+        if (name === START_2_SITTING[0]) ask(blockOf("Start 2"), `before ${number(name)}`);
         for (const block of RUNBOOK_BLOCKS) if (block.key === `Before ${name.slice(0, 14)}`) ask(block, `before ${number(name)}`);
         if (name.startsWith("20261118130010_")) runbook.backup = pg.run(blockOf("Backup 20261118130010").sql);
       },
@@ -1416,7 +1467,11 @@ describe("every pending migration on a copy of production's database", { skip },
 
   test("History 1 runs once the files of each sitting are recorded, next to production's 17 rows", (t) => {
     if (run.failure) return t.skip(notChecked());
-    assert.equal(runbook.history1, "applied", "History 1 gives every pending file its own number (Start 1, History 0 and 2 are compared above)");
+    assert.equal(runbook.history1.outcome, "applied", "History 1 gives every pending file its own number (Start 1, History 0 and 2 are compared above)");
+    // It renumbers only the rows the connector recorded under a time: the earlier sittings' (the SQL editor's six files
+    // are recorded under their own numbers), then this sitting's, none while nothing is pending (section 6.3).
+    assert.equal(runbook.history1.earlier, APPLIED_SINCE.filter((name) => !inSqlEditor(name)).length, "after the earlier sittings");
+    assert.equal(runbook.history1.thisSitting, THIS_SITTING.filter((name) => !inSqlEditor(name)).length, "after this sitting");
   });
 });
 
