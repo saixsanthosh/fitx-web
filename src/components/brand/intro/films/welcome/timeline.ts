@@ -82,7 +82,8 @@ export const WELCOME_REVEAL_AT = WELCOME_STAGE_START[WELCOME_STAGE.ignite];
 
 /**
  * The beats each shot plays on, all on measured hits of score #5 (above), so the picture and the mix share one clock
- * (film-audio places plate effects #3 and #4 on `plateSeat`). PROVISIONAL until gate A has passed and the owner has
+ * (the mix, `scripts/brand/films/audio/welcome.cues.mjs`, puts #3 on each `plateSeat` and #4, Dre's lock, on his
+ * `settle`). PROVISIONAL until gate A has passed and the owner has
  * approved the D5 animatic: the shots read every time from here, so a retime is one edit.
  *
  * - `flicker`: the strip light stutters on three times in the dark (the score's three opening hits); `lightOn` it holds.

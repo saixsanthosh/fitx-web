@@ -64,6 +64,19 @@ export const SHOTS = [
 
 export type ShotId = (typeof SHOTS)[number]["id"];
 
+/**
+ * Film times (s) of the two in-shot sound accents, for the mix (`scripts/brand/films/audio/intro.cues.mjs`), rounded
+ * to the frame (1/60 s). Nothing in the picture reads them. Found by evaluating the shots' own motion in node: the
+ * real `update()` of each shot on the stand-in stage, bisected for the first contact
+ * (`tests/brand/intro-sound-accents.test.ts` does it again and fails if a shot's motion moves):
+ * - `plateSeat`: in `3a-plate` the thrown plate first meets the stack, seated on the sleeve, `PLATE.home` = 0.2 s into
+ *   the shot: 5.3 s, frame 318 exactly. (It rebounds 9 mm and the collar slams it home at 5.4 s.)
+ * - `barDrop`: in `3d-drop` the plates first touch the platform at the lift's `dropTime` (2.57 s on Dre's clock,
+ *   `DROP_IMPACT` = 0.14 s into the shot): 7.39 s, frame 443.4, so frame 443 (the bar is still 22 mm up on frame 443
+ *   and 5 mm into the bumpers on frame 444).
+ */
+export const INTRO_SOUND_ACCENTS = Object.freeze({ plateSeat: 318 / 60, barDrop: 443 / 60 });
+
 /** Big kinetic titles rendered by the DOM overlay. Times are film time. */
 export const TITLES = [
   { text: "TRAIN", start: 1.75, end: 3.4 },

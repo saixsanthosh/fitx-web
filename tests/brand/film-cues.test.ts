@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { FILM_DURATION, SHOTS, STAGE_START } from "@/components/brand/intro/timeline";
-import { WELCOME_DURATION, WELCOME_SHOTS, WELCOME_STAGE_START } from "@/components/brand/intro/films/welcome/timeline";
+import { WELCOME_BEATS, WELCOME_DURATION, WELCOME_SCORE_HITS, welcomeShotAt } from "@/components/brand/intro/films/welcome/timeline";
 import {
   buildMixGraph,
   checkOutput,
@@ -23,7 +23,7 @@ import {
 } from "../../scripts/brand/films/audio/lib.mjs";
 import { SOURCES } from "../../scripts/brand/films/audio/sources.mjs";
 import { BOOM_AT, INTRO_ACCENTS, INTRO_SHEET, introSheet, plateSeat, REVEAL_PLATES } from "../../scripts/brand/films/audio/intro.cues.mjs";
-import { WELCOME_SEATS, WELCOME_SHEET, welcomeSheet } from "../../scripts/brand/films/audio/welcome.cues.mjs";
+import { BIG_PLATE_SLIDE_LEAD, WELCOME_SEATS, WELCOME_SETTLES, WELCOME_SHEET, welcomeSheet } from "../../scripts/brand/films/audio/welcome.cues.mjs";
 import { STING_DURATION, STING_SHEET } from "../../scripts/brand/films/audio/sting.cues.mjs";
 
 type Cue = { id: string; source: string; at: number; from?: number; to?: number; gainDb?: number; fadeIn?: number; fadeOut?: number; lowpass?: number };
@@ -133,7 +133,7 @@ test("the film-end plates follow the mark's CSS formation: #3 when plate 1 seats
   near(plateSeat("plate-3"), 1.21, 0.002);
 });
 
-test("the welcome mix plays score #5 from 0 s at full length, and the plates seat on the loading shots' cuts", () => {
+test("the welcome mix plays score #5 from 0 s at full length, and the plate sounds sit on the loading shots' beats", () => {
   const score = cue(WELCOME_SHEET, "score");
   assert.equal(score.source, "score");
   assert.equal(score.at, 0);
@@ -141,15 +141,37 @@ test("the welcome mix plays score #5 from 0 s at full length, and the plates sea
   near(where.start, 0);
   near(where.from, 0, 1e-9, "from the score's first sample, so score time is film time");
   near(where.end, Math.min(WELCOME_DURATION, SOURCES.get("score")!.duration), 1e-6, "full length");
-  assert.deepEqual([...WELCOME_SEATS], [WELCOME_STAGE_START[2], WELCOME_STAGE_START[3], WELCOME_STAGE_START[4]]);
-  assert.equal(cue(WELCOME_SHEET, "plate-1").at, WELCOME_STAGE_START[2]);
-  assert.equal(cue(WELCOME_SHEET, "plate-2").at, WELCOME_STAGE_START[3]);
-  assert.equal(cue(WELCOME_SHEET, "plate-3-lock").at, WELCOME_STAGE_START[4]);
-  assert.equal(cue(WELCOME_SHEET, "plate-3-lock").source, "plate-lock");
-  assert.ok(cue(WELCOME_SHEET, "plate-3-slide").at < cue(WELCOME_SHEET, "plate-3-lock").at);
-  // Each plate seats at the end of its loading shot.
-  const shotEnd = (id: string) => WELCOME_SHOTS.find((entry) => entry.id === id)!.end;
-  assert.deepEqual([...WELCOME_SEATS], [shotEnd("w1-maya"), shotEnd("w2-leo"), shotEnd("w3-dre")]);
+  // The beats come from the welcome timeline (WELCOME_BEATS), not copies.
+  assert.deepEqual([...WELCOME_SEATS], [...WELCOME_BEATS.plateSeat]);
+  assert.deepEqual([...WELCOME_SETTLES], [...WELCOME_BEATS.settle]);
+  assert.deepEqual([...WELCOME_SEATS], [2.4, 4.48, 5.86]);
+  assert.deepEqual(WELCOME_SEATS.map(welcomeShotAt), ["w1-maya", "w2-leo", "w3-dre"], "each plate meets the stack in its own loading shot");
+  // Maya's and Leo's plates: #3's clang where the plate meets the stack.
+  assert.equal(cue(WELCOME_SHEET, "plate-1").at, WELCOME_BEATS.plateSeat[0]);
+  assert.equal(cue(WELCOME_SHEET, "plate-2").at, WELCOME_BEATS.plateSeat[1]);
+  // Dre's: #3 slides it on, its clang on his seat; #4 locks it on his after-tap (settle), still in his shot.
+  const slide = cue(WELCOME_SHEET, "plate-3-slide");
+  const lock = cue(WELCOME_SHEET, "plate-3-lock");
+  assert.equal(slide.at, WELCOME_BEATS.plateSeat[2]);
+  assert.equal(lock.at, WELCOME_BEATS.settle[2]);
+  assert.equal(welcomeShotAt(lock.at), "w3-dre");
+  near(lock.at - slide.at, BIG_PLATE_SLIDE_LEAD, 1e-9, "the slide leads the lock by settle - plateSeat");
+  near(BIG_PLATE_SLIDE_LEAD, 0.26, 1e-9);
+  // Every plate sound lands on a measured hit of score #5, like the beats themselves.
+  for (const entry of WELCOME_SHEET.cues.filter((item: Cue) => item.source !== "score")) {
+    assert.ok(WELCOME_SCORE_HITS.includes(entry.at), `${entry.id} at ${entry.at} s is a measured hit`);
+  }
+  // Only the timing moved: each plate cue keeps its sound file, trim, gain and fades.
+  const plates = WELCOME_SHEET.cues.filter((item: Cue) => item.source !== "score");
+  assert.deepEqual(
+    plates.map((item: Cue) => [item.id, item.source, item.from ?? 0, item.to ?? null, item.gainDb, item.fadeIn ?? 0, item.fadeOut]),
+    [
+      ["plate-1", "plate-slide", 0, null, -5, 0, 0.3],
+      ["plate-2", "plate-slide", 0, null, -5, 0, 0.3],
+      ["plate-3-slide", "plate-slide", 0, 0.6, -8, 0, 0.2],
+      ["plate-3-lock", "plate-lock", 0, null, -5, 0, 0.3],
+    ],
+  );
   assert.deepEqual(validateSheet(welcomeSheet(), SOURCES), []);
 });
 

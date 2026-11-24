@@ -9,8 +9,9 @@
  * - #3 then #4 on the film-end plates: the reveal's plate 1 seating, then plate 3 locking on.
  *
  * `gainDb` is relative to the cue's levelled loudness (−23 LUFS); the whole mix then goes to −16 LUFS.
- * The two in-shot accents (`plateSeat`, `barDrop`) are defaults inside their shots until film-intro fixes the
- * frames: when `timeline.ts` exports `INTRO_SOUND_ACCENTS` (`{ plateSeat?, barDrop? }`, film seconds), those win.
+ * The two in-shot accents (`plateSeat`, `barDrop`) come from `INTRO_SOUND_ACCENTS` in `timeline.ts` (film seconds,
+ * the frames where the shots' own motion seats the plate and lands the bar); the defaults below are only a fallback
+ * for a timeline without that export.
  */
 import * as timeline from "../../../../src/components/brand/intro/timeline.ts";
 import { cubicBezier } from "./lib.mjs";
