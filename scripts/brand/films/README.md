@@ -100,6 +100,8 @@ How a frame is made:
   `team-<theme>.webp` (1600×900, the team walk at 9.9 s). Those times were recovered by matching the shipped stills
   against every frame of the shipped 60 fps cuts (mean squared error 1.3, 3.7 and 1.1 on 8-bit grey at 160 px, against
   90 to 200 for the neighbouring frames). The reel masters are then encoded as today's reels (H.264 30 fps).
+  S6 (2026-11-24, rev `3b29b285`) re-cut the shipped reels, posters and team stills from the refined intro: the same
+  sizes, 279 frames, CRF and keyint, now tagged BT.709 tv.
 - `login-stills`: the sign-in scene's stills (`public/media/login/still-<theme>-{wide,tall}.webp`, 1600×800 and
   1000×1100). It opens `/signin` in the lab's `next dev`, pins the scene's host to the still's exact size, calls the
   scene's development hook `window.__fitxLoginScene.freeze(5)` (`STILL_SECONDS`) and reads the canvas in the same task,

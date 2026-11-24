@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { REEL_IDLE_TIMEOUT_MS, afterLoadAndIdle, posterSource, reelSource, shapeFor, type ReelWindow } from "@/components/landing/film";
 
 const ROOT = new URL("../../", import.meta.url);
@@ -91,13 +92,22 @@ test("phones get the 30 fps phone cut (540 × 960), wider screens the landscape 
     assert.ok(statSync(phone).size < statSync(wide).size, `${theme}: the phone cut is the smaller file`);
     assert.ok(statSync(new URL(`public${posterSource(theme, "portrait")}`, ROOT)).size < 50 * 1024, "the still is small");
   }
-  let probe = "";
-  try {
-    probe = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate", "-of", "csv=p=0", new URL(`public${reelSource("dark", "portrait")}`, ROOT).pathname], { encoding: "utf8" }).trim();
-  } catch {
-    // ffprobe is not on every machine; the sizes above still hold.
+  // A file path, not URL.pathname: the checkout's path can hold a space ("all files"), which .pathname keeps as %20.
+  const probe = (file: string) => {
+    try {
+      return execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate", "-of", "csv=p=0", fileURLToPath(new URL(`public${file}`, ROOT))], { encoding: "utf8" }).trim();
+    } catch (error) {
+      // ffprobe is not on every machine; the sizes above still hold. Any other failure (a missing file) fails the test.
+      if ((error as { code?: string }).code === "ENOENT") return null;
+      throw error;
+    }
+  };
+  for (const theme of ["light", "dark"] as const) {
+    for (const [shape, expected] of [["portrait", "540,960,30/1"], ["landscape", "1280,720,30/1"]] as const) {
+      const facts = probe(reelSource(theme, shape));
+      if (facts !== null) assert.equal(facts, expected, `${theme} ${shape}`);
+    }
   }
-  if (probe) assert.equal(probe, "540,960,30/1");
 });
 
 test("the hero mounts its video only once the gate opened, so the first screen never fetches the reel", () => {

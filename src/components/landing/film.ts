@@ -1,7 +1,8 @@
 /**
- * The landing page's film reel: a cut of FITX's own intro film (public/brand/intro, the procedural 3D film), from the
- * sprint start to the team walk (film time 1.3 s to 10.6 s), re-encoded for the web in public/media/landing-film/
- * (light and dark, landscape and portrait). Its chapters double as the tour of what FITX does.
+ * The landing page's film reel: a cut of FITX's own intro film (the procedural 3D film), from the sprint start to the
+ * team walk (film time 1.3 s to 10.6 s), rendered by the film lab (scripts/brand/films, job `landing-reel`) and encoded
+ * for the web in public/media/landing-film/ (light and dark, landscape and portrait). Its chapters double as the tour
+ * of what FITX does.
  */
 
 export type FilmTheme = "light" | "dark";
@@ -54,7 +55,7 @@ function wrap(seconds: number) {
 
 /**
  * The reel file for a theme and a viewport shape (portrait below an aspect of 0.9). Every cut is 30 fps H.264; the
- * portrait one (540 × 960, about 1.4 MB) is the phone cut, the landscape one (1280 × 720, about 1.6 MB) is for wider
+ * portrait one (540 × 960, about 1.35 MB) is the phone cut, the landscape one (1280 × 720, about 1.65 MB) is for wider
  * screens.
  */
 export function reelSource(theme: FilmTheme, shape: FilmShape): string {
