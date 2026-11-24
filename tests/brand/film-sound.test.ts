@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   FilmSoundController,
+  followFilmVideo,
   readSoundPref,
   SOUND_PREF_KEY,
   SOUND_START,
   soundReducer,
   type SoundAction,
   type SoundElement,
+  type SoundState,
 } from "@/components/brand/films/filmSound";
 import { playReturnSting } from "@/components/brand/films/sting";
 import { FILM_MANIFESTS, RETURN_STING } from "@/components/brand/films/cuts.generated";
@@ -174,6 +176,110 @@ test("holds pause it, a resume follows the picture if it is on, and the end fade
   const off = controller();
   off.sound.resume();
   assert.deepEqual(off.audio.log, [], "a sound never turned on stays off");
+});
+
+/** A film's <video> as its sound follows it: the clock, and the events a browser fires (playing, waiting, pause, ended). */
+class FakeFilmVideo extends EventTarget {
+  currentTime = 0;
+  paused = true;
+  fire(type: "playing" | "waiting" | "pause" | "ended") {
+    if (type === "playing") this.paused = false;
+    if (type === "pause" || type === "ended") this.paused = true;
+    this.dispatchEvent(new Event(type));
+  }
+}
+
+/**
+ * One page with CinematicIntro's sound in it, as useFilmSound wires it: one controller for the film's sound (keyed on
+ * its file, so the same one on every run of the intro), the reducer's state, and `play(video)`, which is each film's
+ * video arriving (FilmVideo's onVideo); its result is the video's clean-up (FilmVideo unmounting).
+ */
+function filmPage({ pref = null as string | null } = {}) {
+  const audio = fakeAudio();
+  const storage = store(pref ? { [SOUND_PREF_KEY]: pref } : {});
+  let state: SoundState = SOUND_START;
+  let current: FakeFilmVideo | null = null;
+  const timers: Array<() => void> = [];
+  const sound = new FilmSoundController({
+    src: "/brand/films/intro/abcd1234/sound.m4a",
+    createAudio: () => audio.element,
+    clock: () => current,
+    dispatch: (action) => {
+      state = soundReducer(state, action);
+    },
+    storage,
+    setTimer: (fn) => timers.push(fn),
+    clearTimer: () => undefined,
+  });
+  const doc = Object.assign(new EventTarget(), { hidden: false });
+  const env = { doc, setInterval: () => 0, clearInterval: () => undefined };
+  const play = (video: FakeFilmVideo) => {
+    current = video;
+    return followFilmVideo(() => sound, video, env);
+  };
+  const plays = () => audio.log.filter((entry) => entry.startsWith("play@"));
+  return { sound, audio, storage, timers, state: () => state, play, plays };
+}
+
+test("a film ended or skipped with its sound on: the next film in the same page (Replay) plays its sound again", async () => {
+  for (const end of ["skip", "natural end"] as const) {
+    const page = filmPage();
+    const first = new FakeFilmVideo();
+    const gone = page.play(first);
+    first.currentTime = 0.5;
+    first.fire("playing");
+    assert.deepEqual(page.plays(), [], `${end}: no stored choice, no sound`);
+    first.currentTime = 3;
+    await page.sound.toggle();
+    assert.equal(page.state().on, true, `${end}: Sound on`);
+    if (end === "natural end") {
+      // A video pauses before it ends: the sound is held, so the fade that follows has nothing left to fade.
+      first.currentTime = 12.6;
+      first.fire("pause");
+      first.fire("ended");
+    }
+    page.sound.fadeOut(200);
+    while (page.timers.length) page.timers.shift()!();
+    gone();
+    assert.equal(page.audio.element.paused, true, `${end}: the film's sound stopped with it`);
+
+    // Replay intro: a new film, a new video. It starts with Sound off, and its first frame tries the stored "on".
+    const replay = new FakeFilmVideo();
+    page.play(replay);
+    assert.deepEqual(page.state(), SOUND_START, `${end}: the control never says on while nothing plays`);
+    replay.currentTime = 0.4;
+    replay.fire("playing");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(page.plays().at(-1), "play@0.4", `${end}: the replay's sound plays from its first frame`);
+    assert.equal(page.audio.element.paused, false, end);
+    assert.equal(page.audio.element.volume, 1, `${end}: at full volume, not the faded-out one`);
+    assert.deepEqual(page.state(), { on: true, needsTap: false }, `${end}: and Sound says so`);
+  }
+});
+
+test("a replay after Sound was turned off, or never on, stays silent with Sound off", async () => {
+  const page = filmPage();
+  const first = new FakeFilmVideo();
+  const gone = page.play(first);
+  first.fire("playing");
+  await page.sound.toggle();
+  page.sound.toggle();
+  assert.equal(page.storage.map.get(SOUND_PREF_KEY), "off");
+  gone();
+  const replay = new FakeFilmVideo();
+  page.play(replay);
+  replay.fire("playing");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(page.plays().length, 1, "only the tap's play");
+  assert.deepEqual(page.state(), SOUND_START);
+  // A stall later in the replay never brings back a sound that was not asked for.
+  replay.fire("waiting");
+  replay.fire("playing");
+  assert.equal(page.plays().length, 1);
+  // The hook hands each video to followFilmVideo (and nothing else follows the video's events).
+  const hook = readFileSync("src/components/brand/films/filmSound.ts", "utf8");
+  assert.match(hook, /if \(!video \|\| !src\) return;\s*return followFilmVideo\(\(\) => controller\.current, video\);/);
+  assert.match(hook, /export function followFilmVideo\([\s\S]*?\{\s*sound\(\)\?\.restart\(\);/);
 });
 
 test("the stored choice reads only 'on' and 'off', and blocked storage reads as no choice", () => {

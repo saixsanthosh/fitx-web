@@ -5,7 +5,8 @@
 // which shows "Tap for sound"; a tap on Sound then starts the audio element inside the gesture. Headless Chrome lets
 // unmuted media play even under its default policy, so the page is given the strict rule Safari and a fresh Chrome
 // profile apply (recordMediaPlays' strictAutoplay: an unmuted play() without transient user activation is refused).
-// That also proves the tap calls play() synchronously, while the activation still holds.
+// That also proves the tap calls play() synchronously, while the activation still holds. Last, "Replay intro" in the
+// same page after a film skipped with its sound on tries the sound again, and Sound never reads on over silence.
 import { recordMediaPlays, serveFilmFixture } from "../fixtures/films/route.mjs";
 
 const plays = (page) => page.evaluate(() => (window.__e2ePlays ?? []).map((entry) => ({ ...entry })));
@@ -83,6 +84,39 @@ export const flow = {
       t.expect(!(await page.getByText("Tap for sound").isVisible()), "the hint goes once the sound plays");
       t.expect((await page.evaluate(() => window.localStorage.getItem("fitx-film-sound"))) === "on", "the choice is remembered");
       await t.checkpoint("film with Sound on", { fullPage: false, settle: false });
+      await closeFilm(page);
+    });
+
+    await t.step("Replay intro in the same page after that film: the stored on is tried again, never a silent Sound on", async () => {
+      // The film above was skipped with its sound on. "Replay intro" plays it again in this document, so the same
+      // sound player meets a new video: its first frame tries the stored "on" again. Whether this browser lets that
+      // play() through (the strict rule allows a second after the Replay tap), Sound has to say what really happened.
+      const before = (await soundPlays(page)).length;
+      const replay = page.getByRole("button", { name: "Replay intro" }).first();
+      await replay.scrollIntoViewIfNeeded();
+      await replay.click();
+      await page.waitForFunction(() => document.documentElement.getAttribute("data-fitx-intro-ready") === "video", null, { timeout: 15000 });
+      await page.evaluate(() => {
+        const video = document.querySelector("video[data-fitx-film-video]");
+        if (video) video.playbackRate = 0.2;
+      });
+      const tried = await page.waitForFunction((count) => {
+        const audio = (window.__e2ePlays ?? []).filter((entry) => entry.tag === "audio");
+        return audio.length > count && audio.at(-1).result !== "pending";
+      }, before, { timeout: 5000 }).then(() => true, () => false);
+      await page.waitForTimeout(150);
+      const state = await page.evaluate(() => {
+        const sound = document.querySelector("[data-fitx-film-sound]");
+        const hint = [...document.querySelectorAll("[role=status]")].some((node) => node.textContent === "Tap for sound");
+        return { pressed: sound?.getAttribute("aria-pressed") ?? null, hint, playing: document.documentElement.getAttribute("data-fitx-intro") };
+      });
+      const audio = (await soundPlays(page)).slice(before);
+      t.note("the replay's sound", { tried, audio, state });
+      t.expect(tried && audio.length >= 1, "the replay tried its sound again", { audio, state });
+      const last = audio.at(-1);
+      const honest = last?.result === "played" ? state.pressed === "true" && !state.hint : last?.result === "NotAllowedError" && state.pressed === "false" && state.hint;
+      t.expect(honest, "Sound says on only while the sound plays (else it asks for a tap)", { audio, state });
+      await t.checkpoint("replay with the sound tried again", { fullPage: false, settle: false });
       await closeFilm(page);
     });
   },

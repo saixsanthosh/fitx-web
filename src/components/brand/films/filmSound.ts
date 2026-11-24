@@ -186,6 +186,24 @@ export class FilmSoundController {
     }
   }
 
+  /**
+   * A new film starts (a new video: Replay in the same page, say). Nothing carries over from the last film, which may
+   * have left the sound wanted but paused (faded out on Skip, or held when its video paused at the end): a fade still
+   * running stops, the sound pauses and reads off, so the new film's first frame tries the stored choice afresh
+   * (`tryStored`). The audio element stays, so a browser that let it play once lets it play again.
+   */
+  restart() {
+    this.cancelFade();
+    this.wanted = false;
+    if (this.audio && !this.audio.paused) this.audio.pause();
+    this.options.dispatch({ type: "off" });
+  }
+
+  private cancelFade() {
+    if (this.fade !== null) (this.options.clearTimer ?? ((id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>)))(this.fade);
+    this.fade = null;
+  }
+
   /** The film is finishing: the sound fades out over 200 ms, then stops (iOS ignores volume and just stops). */
   fadeOut(ms = SOUND_FADE_MS) {
     const audio = this.audio;
@@ -211,8 +229,7 @@ export class FilmSoundController {
   }
 
   dispose() {
-    if (this.fade !== null) (this.options.clearTimer ?? ((id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>)))(this.fade);
-    this.fade = null;
+    this.cancelFade();
     this.wanted = false;
     if (this.audio) {
       this.audio.pause();
@@ -235,11 +252,68 @@ function makeAudio(src: string): SoundElement {
   return audio;
 }
 
+/** The parts of a film's `<video>` its sound follows. */
+export type SoundVideo = SoundClock & Pick<EventTarget, "addEventListener" | "removeEventListener">;
+
+/** Where `followFilmVideo` hears a hidden tab and keeps its sync timer (the browser's own by default). */
+export type SoundFollowEnv = {
+  doc: { readonly hidden: boolean } & Pick<EventTarget, "addEventListener" | "removeEventListener">;
+  setInterval: (fn: () => void, ms: number) => unknown;
+  clearInterval: (id: unknown) => void;
+};
+
+function browserFollowEnv(): SoundFollowEnv {
+  return {
+    doc: document,
+    setInterval: (fn, ms) => window.setInterval(fn, ms),
+    clearInterval: (id) => window.clearInterval(id as number),
+  };
+}
+
+/**
+ * The sound follows one film's video. Each video is a new film (FilmVideo makes one each time it plays a film), so the
+ * sound starts afresh with it (`restart`): its first "playing" tries the stored choice, never assumed, and a replay in
+ * the same page is never silent behind a "Sound" control that says on. After that a "playing" resumes the sound,
+ * "waiting", "pause" and a hidden tab hold it, and four times a second it is kept on the picture. Returns the clean-up.
+ */
+export function followFilmVideo(sound: () => FilmSoundController | null, video: SoundVideo, env: SoundFollowEnv = browserFollowEnv()): () => void {
+  sound()?.restart();
+  let tried = false;
+  const onPlaying = () => {
+    const controller = sound();
+    if (!controller) return;
+    if (!tried) {
+      tried = true;
+      void controller.tryStored();
+    } else {
+      controller.resume();
+    }
+  };
+  const onWaiting = () => sound()?.hold();
+  const onVisibility = () => {
+    if (env.doc.hidden) sound()?.hold();
+  };
+  const timer = env.setInterval(() => sound()?.sync(), SYNC_MS);
+  video.addEventListener("playing", onPlaying);
+  video.addEventListener("waiting", onWaiting);
+  video.addEventListener("pause", onWaiting);
+  env.doc.addEventListener("visibilitychange", onVisibility);
+  if (!video.paused) onPlaying();
+  return () => {
+    env.clearInterval(timer);
+    video.removeEventListener("playing", onPlaying);
+    video.removeEventListener("waiting", onWaiting);
+    video.removeEventListener("pause", onWaiting);
+    env.doc.removeEventListener("visibilitychange", onVisibility);
+  };
+}
+
 export type FilmSound = { available: boolean; on: boolean; needsTap: boolean; toggle(): void };
 
 /**
  * The sound of the film playing in `video`. `available` is false (and the control renders nothing) when the film has
- * no sound. A stored "on" is tried when the film starts; `held` and `ending` pause and fade it.
+ * no sound. A stored "on" is tried when each film starts (each new video, so also on a replay in the same page);
+ * `held` and `ending` pause and fade it.
  */
 export function useFilmSound(video: HTMLVideoElement | null, audio: FilmAudio | null, opts: { held: boolean; ending: boolean }): FilmSound {
   const [state, dispatch] = useReducer(soundReducer, SOUND_START);
@@ -262,37 +336,11 @@ export function useFilmSound(video: HTMLVideoElement | null, audio: FilmAudio | 
     };
   }, [src]);
 
-  // The film's own clock: the sound tries a stored "on" when it starts, waits while it buffers, follows it.
+  // The film's own clock: each new video starts the sound afresh (a stored "on" tried on its first frame), which then
+  // waits while it buffers and follows it.
   useEffect(() => {
     if (!video || !src) return;
-    let tried = false;
-    const onPlaying = () => {
-      const sound = controller.current;
-      if (!sound) return;
-      if (!tried) {
-        tried = true;
-        void sound.tryStored();
-      } else {
-        sound.resume();
-      }
-    };
-    const onWaiting = () => controller.current?.hold();
-    const onVisibility = () => {
-      if (document.hidden) controller.current?.hold();
-    };
-    const timer = window.setInterval(() => controller.current?.sync(), SYNC_MS);
-    video.addEventListener("playing", onPlaying);
-    video.addEventListener("waiting", onWaiting);
-    video.addEventListener("pause", onWaiting);
-    document.addEventListener("visibilitychange", onVisibility);
-    if (!video.paused) onPlaying();
-    return () => {
-      window.clearInterval(timer);
-      video.removeEventListener("playing", onPlaying);
-      video.removeEventListener("waiting", onWaiting);
-      video.removeEventListener("pause", onWaiting);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
+    return followFilmVideo(() => controller.current, video);
   }, [video, src]);
 
   useEffect(() => {
