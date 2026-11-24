@@ -10,8 +10,22 @@ import {
   RETURNING_WELCOME_COOKIE,
   VISITOR_FILM_SEEN_KEY,
 } from "@/components/brand/introKeys";
+import type { FilmComposition, FilmId, FilmTheme } from "@/components/brand/films/compositions";
 import { FILM_MANIFESTS } from "@/components/brand/films/cuts.generated";
 import { FIXTURE_MANIFESTS } from "@/components/brand/films/fixture";
+
+/**
+ * The poster S6 rendered for a film's composition and theme (cuts.generated.ts), which the head script preloads: the
+ * film's frame 0 at public/brand/films/<film>/<rev8>/<composition>-<theme>.webp. A window without sizes is served 16:9,
+ * so the laptop composition.
+ */
+const posterOf = (film: FilmId, comp: FilmComposition = "laptop", theme: FilmTheme = "light") => {
+  const manifest = FILM_MANIFESTS[film];
+  assert.ok(manifest, `${film} has S6's cuts`);
+  const poster = manifest.posters[`${comp}-${theme}`];
+  assert.equal(poster, `/brand/films/${film}/${manifest.rev}/${comp}-${theme}.webp`);
+  return poster;
+};
 
 type Listener = (event: unknown) => void;
 type Run = {
@@ -197,7 +211,9 @@ test("plays the account's one-time film on the first app page and consumes the c
   assert.equal(attrs.get("data-fitx-intro-gate"), "account");
   assert.equal(attrs.get("data-fitx-auth"), "1");
   assert.match(cookieWrites[0] ?? "", /^fitx_intro=seen; Path=\/; Max-Age=34560000; SameSite=Lax; Secure$/);
-  assert.deepEqual(preloads, ["/brand/intro/fitx-intro-light-landscape.webp"]);
+  // The account's film is the welcome film now that its cuts exist (D1, release 2b).
+  assert.equal(attrs.get("data-fitx-film"), "welcome");
+  assert.deepEqual(preloads, [posterOf("welcome")]);
   assert.deepEqual(events, [INTRO_PENDING_EVENT]);
   assert.deepEqual(timers.map((timer) => timer.ms), [8000], "gives the page back if the app never starts it");
   claimOf(page);
@@ -271,7 +287,8 @@ test("signed-out visitors get the film on the home page once per device, and it 
       assert.equal(first.attrs.get("data-fitx-intro-gate"), "visitor", label);
       assert.equal(first.attrs.get("data-fitx-loader"), undefined, `${label}: the film, not the loader`);
       assert.equal(first.attrs.get("data-fitx-auth"), undefined, label);
-      assert.deepEqual(first.preloads, ["/brand/intro/fitx-intro-light-landscape.webp"], label);
+      assert.equal(first.attrs.get("data-fitx-film"), "intro", `${label}: the visitor's film is the intro`);
+      assert.deepEqual(first.preloads, [posterOf("intro")], label);
       // No cookie, so a pending account film is left alone; the tab is remembered by CinematicIntro once the film starts.
       assert.deepEqual(first.cookieWrites, [], label);
       assert.deepEqual(first.storageWrites, [], label);
@@ -514,7 +531,8 @@ test("a tab that loads hidden (in the background, or prerendered) waits until it
       assert.equal(page.attrs.get("data-fitx-intro"), "pending", label);
       assert.equal(page.attrs.get("data-fitx-intro-gate"), gate, label);
       assert.deepEqual(page.events, [INTRO_PENDING_EVENT], `${label}: the app, already running, is told`);
-      assert.deepEqual(page.preloads, ["/brand/intro/fitx-intro-light-landscape.webp"], label);
+      // The account's film is the welcome film (D1); the visitor's film and ?intro=video are the intro.
+      assert.deepEqual(page.preloads, [posterOf(gate === "account" ? "welcome" : "intro")], label);
       assert.deepEqual(page.timers.map((timer) => timer.ms), [8000], label);
       assert.equal(page.cookieWrites.length, gate === "account" ? 1 : 0, label);
       // Hidden and shown again later: it happens once.
@@ -664,23 +682,25 @@ test("never under reduced motion, on a focus screen, outside the app, or over th
 
 // Wave 2 (BRIEF-2 3.1 and D1): the composition, its poster from the manifest, the welcome film and its seen flag.
 
-/** A build whose manifests have a welcome film (the fixture's, standing in for S6's). */
+/** A build whose manifests have a welcome film: the fixture's 2 s one, beside S6's intro. */
 const WITH_WELCOME = buildIntroBootstrapScript({ manifests: { intro: FILM_MANIFESTS.intro, welcome: FIXTURE_MANIFESTS.welcome }, fixture: null });
+/** A build without welcome cuts (D1's dormant case, as release 2a shipped). */
+const DORMANT = buildIntroBootstrapScript({ manifests: { intro: FILM_MANIFESTS.intro, welcome: null }, fixture: null });
 const ISO = (ms: number) => new Date(ms).toISOString();
 
-test("the poster follows the composition the viewport's aspect picks, not the orientation (a square window is landscape)", () => {
-  const cases: Array<[number, number, string, string]> = [
-    [390, 844, "phone", "portrait"],
-    [820, 1180, "tablet-p", "portrait"],
-    [1000, 1000, "tablet-l", "landscape"],
-    [1180, 820, "tablet-l", "landscape"],
-    [1440, 900, "laptop", "landscape"],
-    [1920, 947, "desktop", "landscape"],
+test("the poster is the one of the composition the viewport's aspect picks, not the orientation's (a square window is tablet-l)", () => {
+  const cases: Array<[number, number, FilmComposition]> = [
+    [390, 844, "phone"],
+    [820, 1180, "tablet-p"],
+    [1000, 1000, "tablet-l"],
+    [1180, 820, "tablet-l"],
+    [1440, 900, "laptop"],
+    [1920, 947, "desktop"],
   ];
-  for (const [width, height, comp, shape] of cases) {
-    for (const theme of ["light", "dark"]) {
+  for (const [width, height, comp] of cases) {
+    for (const theme of ["light", "dark"] as const) {
       const page = run({ path: "/", width, height, theme });
-      const poster = `/brand/intro/fitx-intro-${theme}-${shape}.webp`;
+      const poster = posterOf("intro", comp, theme);
       assert.equal(page.attrs.get("data-fitx-film-cut"), comp, `${width}×${height}`);
       assert.equal(page.attrs.get("data-fitx-film"), "intro");
       assert.deepEqual(page.preloads, [poster], `${width}×${height} ${theme}`);
@@ -697,15 +717,36 @@ test("the film's claim goes when the page is given back before the app starts it
   assert.equal(page.attrs.get("data-fitx-film-cut"), "phone", "the composition stays (it says nothing is playing on its own)");
 });
 
-test("D1 dormant: without welcome cuts the account gate plays the intro and ?intro=welcome plays nothing", () => {
-  const account = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", width: 1440, height: 900 });
+test("D1's dormant case: a build without welcome cuts plays the intro at the account gate, and ?intro=welcome nothing", () => {
+  const account = run({ script: DORMANT, path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", width: 1440, height: 900 });
   assert.equal(account.attrs.get("data-fitx-intro-gate"), "account");
   assert.equal(account.attrs.get("data-fitx-film"), "intro");
+  assert.deepEqual(account.preloads, [posterOf("intro")]);
   for (const path of ["/", "/settings"]) {
-    const asked = run({ path, search: "?intro=welcome", cookie: "fitx_intro=seen" });
+    const asked = run({ script: DORMANT, path, search: "?intro=welcome", cookie: "fitx_intro=seen" });
     assert.equal(asked.attrs.get("data-fitx-intro"), undefined, path);
     assert.equal(asked.attrs.get("data-fitx-film"), undefined, path);
   }
+});
+
+test("release 2b: this build has S6's welcome cuts, so the account gate and ?intro=welcome claim the welcome film", () => {
+  assert.ok(FILM_MANIFESTS.welcome, "S6's welcome manifest");
+  const account = run({ path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", width: 390, height: 844, theme: "dark" });
+  assert.equal(account.attrs.get("data-fitx-intro-gate"), "account");
+  assert.equal(account.attrs.get("data-fitx-film"), "welcome");
+  assert.equal(account.attrs.get("data-fitx-film-cut"), "phone");
+  assert.deepEqual(account.preloads, [posterOf("welcome", "phone", "dark")]);
+  assert.equal(account.styles.get(FILM_POSTER_VAR), `url("${posterOf("welcome", "phone", "dark")}")`);
+  for (const path of ["/", "/settings"]) {
+    const replay = run({ path, search: "?intro=welcome", cookie: "fitx_auth=1; fitx_intro=seen", width: 1440, height: 900 });
+    assert.equal(replay.attrs.get("data-fitx-intro-gate"), "replay", path);
+    assert.equal(replay.attrs.get("data-fitx-film"), "welcome", path);
+    assert.deepEqual(replay.preloads, [posterOf("welcome", "laptop", "light")], path);
+  }
+  // The visitor's film and the other replays stay the intro.
+  assert.equal(run({ path: "/" }).attrs.get("data-fitx-film"), "intro");
+  assert.equal(run({ path: "/settings", search: "?intro=video", cookie: "fitx_auth=1; fitx_intro=seen" }).attrs.get("data-fitx-film"), "intro");
+  assert.equal(run({ path: "/", search: "?intro=welcome", reduce: true }).attrs.get("data-fitx-intro"), undefined, "never with reduced motion");
 });
 
 test("with welcome cuts: the account gate and ?intro=welcome claim the welcome film and preload its poster", () => {
@@ -725,7 +766,7 @@ test("with welcome cuts: the account gate and ?intro=welcome claim the welcome f
 });
 
 test("the seen flag: for 7 days after the welcome film started here, the account gate is skipped and the cookie kept", () => {
-  for (const script of [INTRO_BOOTSTRAP_SCRIPT, WITH_WELCOME]) {
+  for (const script of [INTRO_BOOTSTRAP_SCRIPT, WITH_WELCOME, DORMANT]) {
     const recent = run({ script, path: "/dashboard", cookie: "fitx_auth=1; fitx_intro=play", local: { [FILM_SEEN_KEY]: ISO(NOW - 6 * 24 * HOUR) } });
     assert.equal(recent.attrs.get("data-fitx-intro"), undefined, "no film on /dashboard after a failed report");
     assert.deepEqual(recent.cookieWrites, [], "the cookie stays play, so IntroCompletionReporter retries the report");
@@ -746,9 +787,9 @@ test("the e2e fixture: only a fixture build, and only with the fitx_film_fixture
   const welcome = run({ script: fixtureBuild, path: "/", search: "?intro=welcome", cookie: "fitx_film_fixture=1" });
   assert.equal(welcome.attrs.get("data-fitx-film"), "welcome");
   const without = run({ script: fixtureBuild, path: "/", width: 390, height: 844 });
-  assert.deepEqual(without.preloads, ["/brand/intro/fitx-intro-light-portrait.webp"]);
+  assert.deepEqual(without.preloads, [posterOf("intro", "phone")]);
   // This build (no flag in the unit tests) carries no fixture at all.
   assert.equal(INTRO_BOOTSTRAP_SCRIPT.includes("__fitx-fixture"), process.env.NEXT_PUBLIC_FITX_FILM_FIXTURE === "1");
-  assert.deepEqual(run({ path: "/", cookie: "fitx_film_fixture=1", width: 390, height: 844 }).preloads, ["/brand/intro/fitx-intro-light-portrait.webp"]);
-  for (const script of [fixtureBuild, WITH_WELCOME]) assert.equal(script.includes(String.fromCharCode(92)), false, "no backslashes");
+  assert.deepEqual(run({ path: "/", cookie: "fitx_film_fixture=1", width: 390, height: 844 }).preloads, [posterOf("intro", "phone")]);
+  for (const script of [fixtureBuild, WITH_WELCOME, DORMANT]) assert.equal(script.includes(String.fromCharCode(92)), false, "no backslashes");
 });

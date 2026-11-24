@@ -91,7 +91,7 @@ export function activeManifests(cookies: string = pageCookies()): FilmManifests 
   return fixtureActive(cookies) ? FIXTURE_MANIFESTS : FILM_MANIFESTS;
 }
 
-/** The returning-reveal sting this page may play (null until S6, and in every build without one). */
+/** The returning-reveal sting this page may play (S6's, or the fixture's in an e2e page; null in a build without one). */
 export function activeSting(cookies: string = pageCookies()) {
   return fixtureActive(cookies) ? FIXTURE_STING : RETURN_STING;
 }

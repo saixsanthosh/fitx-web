@@ -34,7 +34,7 @@ export function ReturningLogin() {
     if (root.getAttribute("data-fitx-loader") === WELCOME_LOADER) root.removeAttribute("data-fitx-loader");
   }, []);
 
-  // The sting (BRIEF-2 3.4): once, as the reveal starts, only with film sound turned on (null until S6: silent).
+  // The sting (BRIEF-2 3.4): once, as the reveal starts, only with film sound turned on (a build without one: silent).
   useEffect(() => {
     // Hydration renders with the server's guess (active); only a page the head script really marked plays it.
     if (!active || !welcoming()) return;

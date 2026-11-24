@@ -1,7 +1,7 @@
 /**
  * Which steps play after onboarding (no React, so it runs under `node --test`).
  *
- * D1 (BRIEF-2 section 0), dormant until the welcome cuts exist:
+ * D1 (BRIEF-2 section 0), live since S6's welcome cuts shipped (release 2b; dormant in a build without them):
  *  - with the welcome film (`hasFilm`: its manifest exists), just ["film"], whatever the cookie says: the film ends on
  *    the logo (LogoReveal "film-end"), so there are never two logo reveals in a row, and it records itself (the seen
  *    flag and /api/intro/complete), so the dashboard does not play the account's intro film after it;

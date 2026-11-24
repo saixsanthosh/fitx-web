@@ -24,14 +24,22 @@ import { WELCOME_STAGE_START } from "@/components/brand/intro/films/welcome/time
 const source = (file: string) => readFileSync(file, "utf8");
 const DAY = 24 * 60 * 60 * 1000;
 
-test("no welcome manifest: the film is never rendered (D1 dormant), whatever else is true", () => {
+test("no welcome manifest (D1's dormant case, a build without welcome cuts): the film is never rendered, whatever else is true", () => {
   for (const reduced of [false, true]) {
     for (const filmAllowed of [false, true]) assert.equal(welcomeMode({ hasManifest: false, reduced, filmAllowed }), "none");
   }
-  assert.equal(FILM_MANIFESTS.welcome, null, "and today there is none");
   const film = source("src/components/brand/films/WelcomeFilm.tsx");
   assert.match(film, /if \(chosen === "none"\) \{\s*endNow\(\);/, "it calls onEnd straight away");
   assert.match(film, /if \(mode === null \|\| mode === "none"\) return null;/, "and renders nothing");
+});
+
+test("release 2b: S6's welcome cuts are in the manifest, so a member's page takes the film case (D1 is live)", () => {
+  const welcome = FILM_MANIFESTS.welcome;
+  assert.ok(welcome, "S6's welcome manifest");
+  assert.equal(activeManifests("").welcome, welcome, "a member's page (no fixture cookie) reads it");
+  assert.equal(welcomeMode({ hasManifest: welcome !== null, reduced: false, filmAllowed: true }), "film");
+  // The head script gets its compositions and posters too, so the account gate and ?intro=welcome claim it.
+  assert.deepEqual(bootstrapFilms(FILM_MANIFESTS).welcome, { comps: welcome.comps, posters: welcome.posters });
 });
 
 test("reduced motion: the still mark and 'Welcome, <first name>' for 2.0 s, then onEnd", () => {
@@ -78,7 +86,7 @@ test("the film ends on the reveal at the last stage, fades its stage out over 30
   assert.match(source("src/components/brand/films/WelcomeFilm.tsx"), /exitTimer\.current = window\.setTimeout\(endNow, WELCOME_EXIT_MS\)/);
 });
 
-test("6.1b registers WelcomeOverlay, and that alone changes nothing for members while the welcome manifest is null", () => {
+test("6.1b registers WelcomeOverlay, which WelcomeFilm draws only in its film case, so only with a welcome manifest", () => {
   // registry.ts imports WelcomeOverlay.tsx, which `node --test` cannot load (JSX), so the wiring is checked in the source.
   const registry = source("src/components/brand/films/registry.ts");
   assert.match(registry, /^import \{ WelcomeOverlay \} from "\.\/welcome\/WelcomeOverlay";$/m);
@@ -105,7 +113,8 @@ test("6.1b registers WelcomeOverlay, and that alone changes nothing for members 
   assert.match(source("src/components/brand/films/FilmVideo.tsx"), /\{Overlay && <Overlay film=\{film\} stage=\{clock\.stage\}/);
   assert.match(source("src/components/brand/films/welcome/WelcomeOverlay.tsx"), /if \(film !== "welcome"\) return null;/);
 
-  // A member's page (no fixture cookie) reads the generated manifests; with welcome null, WelcomeFilm is "none".
+  // A member's page (no fixture cookie) reads the generated manifests, which hold S6's welcome cuts since release 2b;
+  // a build with welcome null would make WelcomeFilm "none" and draw no overlay.
   assert.equal(activeManifests("").welcome, FILM_MANIFESTS.welcome);
   const dormant = { intro: FILM_MANIFESTS.intro, welcome: null };
   for (const reduced of [false, true]) {
@@ -172,6 +181,12 @@ test("a phone in landscape (852×393): the desktop composition on the avc30 rung
   assert.equal(lite, true);
   const cuts = cutsIn(FIXTURE_MANIFESTS.welcome, "dark", comp, lite);
   assert.deepEqual(cuts.map((cut) => [cut.comp, cut.rung]), [["desktop", "avc30"]]);
+  // S6's welcome film: the desktop composition's 1440×720 AVC 30 cut, alone.
+  const welcome = FILM_MANIFESTS.welcome!;
+  assert.equal(pickComposition(852, 393, welcome.comps), "desktop");
+  assert.deepEqual(cutsIn(welcome, "dark", "desktop", lite).map((cut) => [cut.src, cut.width, cut.height, cut.fps]), [
+    [`/brand/films/welcome/${welcome.rev}/desktop-dark-avc30.mp4`, 1440, 720, 30],
+  ]);
   assert.match(source("src/components/brand/films/FilmVideo.tsx"), /chooseCut\(manifest, filmTheme, comp, isLite\(\)\)/, "the player asks the same rule");
 });
 

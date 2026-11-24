@@ -144,7 +144,7 @@ test("nominal aspects are each composition's real screen", () => {
   for (const comp of ids) assert.ok(Math.abs(nominalAspect(comp) - expected[comp]) < 1e-12, comp);
 });
 
-test("today's 11.9 s cuts keep wave 1's matte and callout spots; only the films the zones were authored for get them", async () => {
+test("wave 1's 11.9 s cuts and the 2 s fixture keep wave 1's matte and callout spots; only the films the zones were authored for get them", async () => {
   const { overlayLayoutFor } = await import("@/components/brand/introOverlayTiming");
   const { SEED_PLACEMENT } = await import("@/components/brand/intro/timeline");
   const { FILM_MANIFESTS } = await import("@/components/brand/films/cuts.generated");
@@ -155,9 +155,10 @@ test("today's 11.9 s cuts keep wave 1's matte and callout spots; only the films 
   assert.equal(overlayLayoutFor(FILM_DURATION), "zoned");
   assert.equal(overlayLayoutFor(756 / 60), "zoned");
   assert.equal(overlayLayoutFor(null), "zoned");
-  // While the manifest still points at the seed cuts, members see wave 1's layout.
+  // S6's intro cuts (12.6 s, release 2b) are the films the zones were authored for: members see the zoned layout.
   const intro = FILM_MANIFESTS.intro;
-  if (intro && intro.rev === "seed-w1") assert.equal(overlayLayoutFor(intro.duration), "seed");
+  assert.ok(intro, "S6's intro cuts");
+  assert.equal(overlayLayoutFor(intro.duration), "zoned");
 
   // Wave 1's placement for every callout, the same on every screen.
   assert.deepEqual(Object.keys(SEED_PLACEMENT).sort(), CALLOUTS.map((callout) => callout.id).sort());

@@ -1,11 +1,38 @@
 // Flow 1: sign up with e-mail and password, setup in three short pages (about you, your body with dials, your goal
-// with photo cards; no workout or food questions), the once-per-account intro film on the first app page (skipped),
-// the short loader on reload, and Home with the greeting and today's quote (the same after the reload). That is
-// today's behaviour, without welcome cuts (D1 dormant). Then, with the film fixture standing in for the welcome cuts
-// (BRIEF-2 D1 and 3.3): a second account's setup ends on the welcome film in the same document, with exactly one Skip
-// control, then Home; the account is recorded (intro_completed_at) and no film plays on Home or on reload.
+// with photo cards; no workout or food questions), then the welcome film (BRIEF-2 D1 and 3.3, S6's real cuts since
+// release 2b) once, in the same document as the Finish click, with exactly one Skip control (skipped here), then Home
+// with the greeting and today's quote; the account is recorded (intro_completed_at), no film plays on Home, and a
+// reload shows only the short loader (the same quote). With the film fixture's 2 s welcome film, a second account's
+// film plays to its end by itself, then Home. Last, an account that finished setup but never saw its film, signing in
+// on another device, gets the welcome film once on its first app page (the account gate).
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { serveFilmFixture } from "../fixtures/films/route.mjs";
-import { choose, seeText, textOf } from "./common.mjs";
+import { choose, seeText, signInUi, textOf } from "./common.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/** S6's welcome manifest, as the build serves it (src/components/brand/films/cuts.generated.ts). */
+async function welcomeManifest() {
+  const { FILM_MANIFESTS } = await import(pathToFileURL(path.join(ROOT, "src/components/brand/films/cuts.generated.ts")).href);
+  return FILM_MANIFESTS.welcome;
+}
+
+/** The welcome film's cut the page is playing (its site path), once FilmVideo has chosen one. */
+async function welcomeCut(page) {
+  await page.waitForFunction(() => Boolean(document.querySelector('video[data-fitx-film-video="welcome"]')?.getAttribute("src")), null, { timeout: 15000 });
+  return page.evaluate(() => document.querySelector('video[data-fitx-film-video="welcome"]')?.getAttribute("src") ?? null);
+}
+
+/** profiles.intro_completed_at for the account with `email`, waiting up to 5 s for the film's report to land. */
+async function introCompleted(standin, page, email) {
+  let stored = null;
+  for (let i = 0; i < 20 && !stored?.intro_completed_at; i += 1) {
+    stored = await standin.one(`select p.intro_completed_at from public.profiles p join auth.users u on u.id = p.id where u.email = '${email}'`);
+    if (!stored?.intro_completed_at) await page.waitForTimeout(250);
+  }
+  return Boolean(stored?.intro_completed_at);
+}
 
 const BIRTH_DATE = "1997-03-14";
 /** Whole years from BIRTH_DATE to today in Asia/Kolkata (the browser's zone in these runs). */
@@ -43,7 +70,7 @@ async function signUpAndSetUp(t, account) {
 
 export const flow = {
   id: "01-signup-onboarding",
-  title: "Sign up → three short setup pages → film once → Home with greeting and quote; with welcome cuts, the welcome film",
+  title: "Sign up → three short setup pages → the welcome film once → Home with greeting and quote; the account gate's welcome film",
   sizes: ["phone", "tablet", "desktop"],
   schemes: (schemes) => schemes,
   async run(t, { standin }) {
@@ -146,32 +173,38 @@ export const flow = {
       t.expect(/162 cm/.test(stageText) && /68\.5 kg/.test(stageText) && new RegExp(`${expectedAge} yrs`).test(stageText), "the stage should read back age, height and weight", stageText);
       t.expect((await page.locator("fieldset img").count()) >= 8, "goal and activity choices are photo cards");
       await t.checkpoint("setup your goal");
-      // The device still owes the account its film, so the post-onboarding logo step is skipped: straight to Home.
-      await Promise.all([
-        page.waitForURL("**/dashboard", { timeout: 30000 }),
-        page.getByRole("button", { name: "Finish setup" }).click(),
-      ]);
+      // The welcome film plays next, in this document (D1): Finish does not leave the page.
+      await page.getByRole("button", { name: "Finish setup" }).click();
     });
 
-    await t.step("the account's film starts once on the first app page, and Skip works", async () => {
-      await page.waitForTimeout(600);
+    await t.step("the welcome film (S6's cuts) plays once after setup, with one Skip and its sound off; Skip goes Home", async () => {
+      const welcome = await welcomeManifest();
+      const stage = page.locator("[data-welcome-film]");
+      await stage.waitFor({ state: "attached", timeout: 15000 });
+      const kind = await stage.getAttribute("data-welcome-film");
+      t.note("welcome case", kind);
+      t.expect(kind === "film", "the film plays (not the reduced-motion still or the reveal-only case)", kind);
+      t.expect(new URL(page.url()).pathname === "/onboarding", "in the same document as the Finish click", page.url());
+      const skip = page.getByRole("button", { name: "Skip welcome film" });
+      await skip.waitFor({ state: "visible", timeout: 10000 });
+      const skips = await page.getByRole("button", { name: /^Skip/ }).count();
+      t.expect(skips === 1, `exactly one Skip control while the film plays (found ${skips})`);
+      t.expect((await page.getByRole("button", { name: "Sound" }).getAttribute("aria-pressed")) === "false", "the film has its sound, off until asked");
+      const cut = await welcomeCut(page);
+      t.note("welcome cut", cut);
+      t.expect(typeof cut === "string" && cut.startsWith(`/brand/films/welcome/${welcome.rev}/`) && /-(hevc60|avc30)\.mp4$/.test(cut), "S6's welcome cut plays", cut);
+      await t.checkpoint("welcome film playing", { fullPage: false, settle: false });
+      await Promise.all([page.waitForURL("**/dashboard", { timeout: 20000 }), skip.click()]);
+      const seen = await page.evaluate(() => window.localStorage.getItem("fitx-film-seen"));
+      t.expect(seen && Number.isFinite(Date.parse(seen)), "the device remembers when the welcome film started", seen);
+      await t.settle();
       const log = await t.rootLog();
       t.note("<html> attributes on the first dashboard load", log);
-      t.expect(log.some((entry) => entry.name === "data-fitx-intro-gate" && entry.value === "account"), "the head script should open the account's film gate on the first dashboard visit", log);
-      const skip = page.getByRole("button", { name: /Skip intro/ });
-      await skip.waitFor({ state: "visible", timeout: 10000 });
-      await t.checkpoint("intro film playing", { fullPage: false, settle: false });
-      await skip.click();
-      await page.waitForFunction(() => !document.documentElement.hasAttribute("data-fitx-intro"), null, { timeout: 8000 });
+      t.expect(!log.some((entry) => entry.name === "data-fitx-intro-gate"), "no film on Home after the welcome film", log);
       const cookies = await t.context.cookies();
       t.expect(cookies.find((cookie) => cookie.name === "fitx_intro")?.value === "seen", "after the film the device cookie should say seen");
       // The account remembers it too, so another device doesn't replay it.
-      let stored = null;
-      for (let i = 0; i < 20 && !stored?.intro_completed_at; i += 1) {
-        stored = await standin.one(`select intro_completed_at from public.profiles where id = '${userId}'`);
-        if (!stored?.intro_completed_at) await page.waitForTimeout(250);
-      }
-      t.expect(Boolean(stored?.intro_completed_at), "profiles.intro_completed_at should be set once the film started");
+      t.expect(await introCompleted(standin, page, account.email), "profiles.intro_completed_at should be set once the film started");
     });
 
     let quoteText = "";
@@ -220,7 +253,7 @@ export const flow = {
       t.expect(row.shown_quote && quoteText.includes(row.shown_quote.slice(0, 20)), "the quote shown is the one stored for today", { row: row.shown_quote, quoteText });
     });
 
-    await t.step("with welcome cuts (the fixture), the next account's setup ends on the welcome film with one Skip", async () => {
+    await t.step("with the fixture's 2 s welcome film, the next account's film plays to its end by itself, then Home", async () => {
       // Signed out (the session and hint cookies go; the cookie choice in localStorage stays), then the fixture.
       await t.context.clearCookies();
       const asked = await serveFilmFixture(t);
@@ -251,12 +284,7 @@ export const flow = {
       t.expect(!log.some((entry) => entry.name === "data-fitx-intro-gate"), "no film on Home after the welcome film", log);
       const after = await t.context.cookies();
       t.expect(after.find((cookie) => cookie.name === "fitx_intro")?.value === "seen", "the device cookie says seen");
-      let stored = null;
-      for (let i = 0; i < 20 && !stored?.intro_completed_at; i += 1) {
-        stored = await standin.one(`select p.intro_completed_at from public.profiles p join auth.users u on u.id = p.id where u.email = '${second.email}'`);
-        if (!stored?.intro_completed_at) await page.waitForTimeout(250);
-      }
-      t.expect(Boolean(stored?.intro_completed_at), "profiles.intro_completed_at is set by the welcome film");
+      t.expect(await introCompleted(standin, page, second.email), "profiles.intro_completed_at is set by the welcome film");
       await page.getByRole("heading", { level: 1, name: /Ravi$/ }).waitFor({ timeout: 15000 });
       await t.checkpoint("home after the welcome film");
       await page.reload({ waitUntil: "load" });
@@ -264,6 +292,36 @@ export const flow = {
       const reload = await t.rootLog();
       t.expect(!log.concat(reload).some((entry) => entry.name === "data-fitx-intro-gate"), "and none on reload", reload);
       t.expect((await page.locator("[data-welcome-film]").count()) === 0, "the welcome film is gone");
+    });
+
+    await t.step("an account that finished setup but never saw its film gets the welcome film once on its first app page", async () => {
+      // Signed out again (the fixture cookie goes too); a sign-in on this device marks it fitx_intro=play, and the first
+      // app page opens the account gate, which plays the welcome film now that its cuts exist (D1). The film flag from
+      // the steps above would skip the gate for 7 days (the guard for a failed report), so this device forgets it
+      // first, like another device would.
+      await t.context.clearCookies();
+      await page.evaluate(() => window.localStorage.removeItem("fitx-film-seen"));
+      const owed = await standin.createAccount({ name: "Meera Iyer", tag: "gate", introSeen: false });
+      await signInUi(t, owed);
+      const log = await t.rootLog();
+      t.note("<html> attributes on the first app page", log);
+      t.expect(log.some((entry) => entry.name === "data-fitx-intro-gate" && entry.value === "account"), "the account gate opens on the first app page", log);
+      t.expect((await page.evaluate(() => document.documentElement.getAttribute("data-fitx-film"))) === "welcome", "the account's film is the welcome film");
+      const skip = page.getByRole("button", { name: "Skip welcome film" });
+      await skip.waitFor({ state: "visible", timeout: 10000 });
+      t.expect((await page.getByRole("button", { name: /^Skip/ }).count()) === 1, "exactly one Skip control");
+      const cut = await welcomeCut(page);
+      t.expect(typeof cut === "string" && cut.startsWith(`/brand/films/welcome/${(await welcomeManifest()).rev}/`), "S6's welcome cut plays", cut);
+      await t.checkpoint("account gate welcome film", { fullPage: false, settle: false });
+      await skip.click();
+      await page.waitForFunction(() => !document.documentElement.hasAttribute("data-fitx-intro"), null, { timeout: 8000 });
+      const cookies = await t.context.cookies();
+      t.expect(cookies.find((cookie) => cookie.name === "fitx_intro")?.value === "seen", "the device cookie says seen");
+      t.expect(await introCompleted(standin, page, owed.email), "profiles.intro_completed_at is set once the film started");
+      await page.reload({ waitUntil: "load" });
+      await t.settle();
+      const reload = await t.rootLog();
+      t.expect(!reload.some((entry) => entry.name === "data-fitx-intro-gate"), "it does not play again on reload", reload);
     });
   },
 };

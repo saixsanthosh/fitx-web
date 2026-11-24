@@ -1,5 +1,6 @@
-// Flow 23: film sound (BRIEF-2 3.4) under Chrome's own autoplay policy (sound needs a gesture). Without the fixture the
-// films have no sound yet, so there is no "Sound" control at all. With the fixture (a 2 s tone as the film's sound):
+// Flow 23: film sound (BRIEF-2 3.4) under Chrome's own autoplay policy (sound needs a gesture). S6's films have their
+// sound (release 2b), so the real intro shows the "Sound" control, off, and plays nothing until asked (a film without
+// sound shows no control at all: tests/brand/film-sound.test.ts). With the fixture (a 2 s tone as the film's sound):
 // the film starts muted with "Sound" off; a stored "on" is tried as the film starts, and without a gesture it is refused,
 // which shows "Tap for sound"; a tap on Sound then starts the audio element inside the gesture. Headless Chrome lets
 // unmuted media play even under its default policy, so the page is given the strict rule Safari and a fresh Chrome
@@ -35,10 +36,13 @@ export const flow = {
     const page = await t.open();
     await recordMediaPlays(t.context, { strictAutoplay: true });
 
-    await t.step("without sound in the manifest there is no Sound control", async () => {
+    await t.step("S6's intro has its sound: the Sound control shows, off, and nothing plays until asked", async () => {
       await openFilm(t, page);
-      t.expect((await page.getByRole("button", { name: "Sound" }).count()) === 0, "no Sound button for a film without sound");
-      t.expect((await soundPlays(page)).length === 0, "nothing tried to play sound");
+      const sound = page.getByRole("button", { name: "Sound" });
+      await sound.waitFor({ state: "visible", timeout: 5000 });
+      t.expect((await sound.getAttribute("aria-pressed")) === "false", "Sound starts off");
+      t.expect((await soundPlays(page)).length === 0, "nothing tried to play sound", await plays(page));
+      await closeFilm(page);
     });
 
     const asked = await serveFilmFixture(t);

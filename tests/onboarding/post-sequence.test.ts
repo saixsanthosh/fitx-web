@@ -15,10 +15,14 @@ test("with the welcome film: just the film, whatever the cookie says (it ends on
   for (const cookies of ["", "fitx_intro=seen", "a=1; fitx_intro=play; b=2"]) assert.deepEqual(postOnboardingSteps({ cookies, hasFilm: true }), ["film"], cookies);
 });
 
-test("the slot holds the welcome film, which stays dormant until its cuts exist", () => {
+test("the slot holds the welcome film, and its cuts exist (S6), so a new sign-up's setup ends on the film, then Home", () => {
   const slot = readFileSync(new URL("../../src/components/onboarding/post-onboarding-film.ts", import.meta.url), "utf8");
   assert.match(slot, /= WelcomeFilm;/);
-  assert.equal(FILM_MANIFESTS.welcome, null, "no welcome cuts before S6, so new sign-ups see what they see today");
+  assert.ok(FILM_MANIFESTS.welcome, "S6's welcome cuts are in the manifest (release 2b)");
+  // What PostOnboardingSequence computes for a new sign-up, whose device still owes the account its film.
+  const sequence = readFileSync(new URL("../../src/components/onboarding/PostOnboardingSequence.tsx", import.meta.url), "utf8");
+  assert.match(sequence, /hasFilm: POST_ONBOARDING_FILM !== null && manifestFor\("welcome"\) !== null/);
+  assert.deepEqual(postOnboardingSteps({ cookies: "fitx_intro=play", hasFilm: FILM_MANIFESTS.welcome !== null }), ["film"]);
 });
 
 test("cookies are read exactly, decoded, and missing ones are null", () => {

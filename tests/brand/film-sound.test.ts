@@ -11,7 +11,8 @@ import {
   type SoundElement,
 } from "@/components/brand/films/filmSound";
 import { playReturnSting } from "@/components/brand/films/sting";
-import type { FilmAudio } from "@/components/brand/films/manifest";
+import { FILM_MANIFESTS, RETURN_STING } from "@/components/brand/films/cuts.generated";
+import { activeSting, type FilmAudio } from "@/components/brand/films/manifest";
 
 /** A localStorage stand-in. */
 function store(initial: Record<string, string> = {}) {
@@ -194,7 +195,7 @@ test("the returning-reveal sting: plays once only with sound on, a sting and mot
   for (const pref of ["off", null]) {
     assert.equal(playReturnSting({ sting: STING, storage: store(pref ? { [SOUND_PREF_KEY]: pref } : {}), reduced: false, createAudio }), false);
   }
-  // 3. No sting yet (RETURN_STING is null until S6): silent.
+  // 3. No sting (a build without one, as before S6): silent.
   assert.equal(playReturnSting({ sting: null, storage: store({ [SOUND_PREF_KEY]: "on" }), reduced: false, createAudio }), false);
   // 4. Reduced motion: silent.
   assert.equal(playReturnSting({ sting: STING, storage: store({ [SOUND_PREF_KEY]: "on" }), reduced: true, createAudio }), false);
@@ -208,5 +209,18 @@ test("the returning-reveal sting: plays once only with sound on, a sting and mot
   assert.equal(caught, false, "the refusal never surfaces");
   const login = readFileSync("src/components/brand/logo/ReturningLogin.tsx", "utf8");
   assert.match(login, /playReturnSting\(\{/);
+  assert.match(login, /sting: activeSting\(\),/);
   assert.match(login, /prefers-reduced-motion: reduce/);
+  // Since release 2b a member's page has S6's sting (tests/brand/film-manifest.test.ts checks its file and level).
+  assert.ok(RETURN_STING, "S6's sting");
+  assert.equal(activeSting(""), RETURN_STING);
+});
+
+test("a film without sound shows no Sound control, never a dummy one; S6's films both have their sound", () => {
+  // The e2e run can no longer see the no-sound case on a real film (flow 23), so the wiring is checked in the source.
+  const hook = readFileSync("src/components/brand/films/filmSound.ts", "utf8");
+  assert.match(hook, /const src = audio\?\.src \?\? null;/);
+  assert.match(hook, /return \{ available: src !== null, /);
+  assert.match(readFileSync("src/components/brand/films/SoundControl.tsx", "utf8"), /if \(!sound\.available\) return null;/);
+  for (const film of ["intro", "welcome"] as const) assert.ok(FILM_MANIFESTS[film]?.audio, `${film}: S6's sound`);
 });

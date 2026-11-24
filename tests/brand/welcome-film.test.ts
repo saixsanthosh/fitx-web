@@ -296,7 +296,7 @@ test("the overlay renders only for the welcome film, never takes the pointer, an
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.doesNotMatch(css.replace(/\/\*[\s\S]*?\*\//g, ""), /#[0-9a-f]{3,8}\b|rgba?\(/i, "tokens only");
   // The integrator registered it (6.1b); WelcomeFilm draws it only in its film case, so no welcome manifest, no overlay
-  // (tests/brand/welcome-film-runtime.test.ts).
+  // (tests/brand/welcome-film-runtime.test.ts). Since release 2b the manifest holds S6's welcome cuts, so it draws.
   assert.match(source("src/components/brand/films/registry.ts"), /WELCOME_FILM_OVERLAY: ComponentType<FilmOverlayProps> \| null = WelcomeOverlay;/);
-  assert.match(source("src/components/brand/films/cuts.generated.ts"), /welcome: null/);
+  assert.match(source("src/components/brand/films/cuts.generated.ts"), /^ {2}welcome: \{\n {4}rev: "[0-9a-f]{8}",$/m);
 });

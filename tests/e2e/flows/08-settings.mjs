@@ -1,8 +1,9 @@
 // Flow 8: Settings and Profile. Profile edits the date of birth in place (the age follows it) and the nutrition
 // goal, where High protein raises the protein target; then Settings: the account section, a theme choice saved to the account (kept after reload and adopted by
 // a second device), the Help link, "Download my data" (every table FITX exports, the new ones included, plus the
-// list of uploaded images), both film replays ("Replay intro"; "Replay welcome film" only once the welcome cuts exist,
-// here the film fixture's), Log out, and "Delete my account": a session older than 15 minutes is asked to sign in
+// list of uploaded images), both film replays ("Replay intro", and "Replay welcome film", shown since S6's welcome cuts
+// exist; the fixture's 2 s welcome film plays to its end), Log out, and "Delete my account": a session older than 15
+// minutes is asked to sign in
 // again, then typing DELETE removes the login, every row and the uploaded files.
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -53,15 +54,30 @@ export const flow = {
       await t.checkpoint("settings");
     });
 
-    await t.step("Settings replays the intro, and the welcome film once its cuts exist (the fixture here)", async () => {
+    await t.step("Settings replays the intro and, now that S6's welcome cuts exist, the welcome film", async () => {
       const intro = page.getByRole("button", { name: "Replay intro" });
       await intro.waitFor({ timeout: 10000 });
-      t.expect((await page.getByRole("button", { name: "Replay welcome film" }).count()) === 0, "no welcome replay while there are no welcome cuts");
+      t.expect((await page.getByRole("button", { name: "Replay welcome film" }).count()) === 1, "the welcome replay is there (S6's welcome cuts)");
       await intro.click();
       await page.getByRole("button", { name: /^Skip intro/ }).waitFor({ state: "visible", timeout: 10000 });
       t.expect((await page.evaluate(() => document.documentElement.getAttribute("data-fitx-film"))) === "intro", "the intro is the film playing");
       await page.getByRole("button", { name: /^Skip intro/ }).click();
       await page.waitForFunction(() => !document.documentElement.hasAttribute("data-fitx-intro"), null, { timeout: 8000 });
+
+      // S6's welcome film: its own cut, one Skip control; skipped here (its 2 s stand-in below plays to the end).
+      const { FILM_MANIFESTS } = await import(pathToFileURL(path.join(ROOT, "src/components/brand/films/cuts.generated.ts")).href);
+      await page.getByRole("button", { name: "Replay welcome film" }).click();
+      const skipWelcome = page.getByRole("button", { name: "Skip welcome film" });
+      await skipWelcome.waitFor({ state: "visible", timeout: 10000 });
+      t.expect((await page.getByRole("button", { name: /^Skip/ }).count()) === 1, "exactly one Skip control during the welcome film");
+      t.expect((await page.evaluate(() => document.documentElement.getAttribute("data-fitx-film"))) === "welcome", "the welcome film is the film playing");
+      await page.waitForFunction(() => Boolean(document.querySelector('video[data-fitx-film-video="welcome"]')?.getAttribute("src")), null, { timeout: 15000 });
+      const cut = await page.evaluate(() => document.querySelector('video[data-fitx-film-video="welcome"]')?.getAttribute("src") ?? null);
+      t.note("welcome cut", cut);
+      t.expect(typeof cut === "string" && cut.startsWith(`/brand/films/welcome/${FILM_MANIFESTS.welcome.rev}/`) && /-(hevc60|avc30)\.mp4$/.test(cut), "S6's welcome cut plays", cut);
+      await skipWelcome.click();
+      await page.waitForFunction(() => !document.documentElement.hasAttribute("data-fitx-intro"), null, { timeout: 8000 });
+      t.expect((await page.locator("[data-welcome-film]").count()) === 0, "Skip gave the page back");
 
       const asked = await serveFilmFixture(t);
       await t.goto("/settings", { label: "settings with welcome cuts" });

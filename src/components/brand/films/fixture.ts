@@ -1,5 +1,6 @@
 /**
- * The film fixture (BRIEF-2 3.4, "Fixtures"), so the e2e run covers sound and the welcome film before S6 exists.
+ * The film fixture (BRIEF-2 3.4, "Fixtures"), so the e2e run covers sound and the welcome film with 2 s files (it was
+ * written before S6 existed; S6's real cuts are 12 s and up to 3.4 MB each).
  *
  * Selected only when the build has `NEXT_PUBLIC_FITX_FILM_FIXTURE=1` (the e2e build; next.config.ts refuses it on a
  * Vercel production build) **and** the page has the cookie `fitx_film_fixture=1` (set by flows 01, 22 and 23 only).

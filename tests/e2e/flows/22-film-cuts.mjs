@@ -1,14 +1,25 @@
 // Flow 22: the film's composition per device (BRIEF-2 3.1). The head script marks <html data-fitx-film-cut> from the
-// viewport's aspect and preloads that composition's poster from the manifest (today's seed cuts: portrait for phone
-// and tablet-p, landscape for the rest), a square window gets the landscape composition, the player loads the cut for
-// it, and with the film fixture a Replay plays to the end and gives the page back on its own.
+// viewport's aspect and preloads that composition's poster from the manifest (S6's cuts: one cut and one poster per
+// composition and theme, in public/brand/films/intro/<rev8>/), a square window gets the tablet-l composition, the
+// player loads the cut for it, and with the film fixture a Replay plays to the end and gives the page back on its own.
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { serveFilmFixture } from "../fixtures/films/route.mjs";
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/** The composition each e2e size is served (390×844 phone, 820×1180 tablet, 1440×900 desktop). */
 const EXPECTED = {
-  phone: { comp: "phone", shape: "portrait" },
-  tablet: { comp: "tablet-p", shape: "portrait" },
-  desktop: { comp: "laptop", shape: "landscape" },
+  phone: { comp: "phone" },
+  tablet: { comp: "tablet-p" },
+  desktop: { comp: "laptop" },
 };
+
+/** S6's intro manifest, as the build serves it (src/components/brand/films/cuts.generated.ts). */
+async function introManifest() {
+  const { FILM_MANIFESTS } = await import(pathToFileURL(path.join(ROOT, "src/components/brand/films/cuts.generated.ts")).href);
+  return FILM_MANIFESTS.intro;
+}
 
 /** What the head script and the player left on the page. */
 const filmState = (page) => page.evaluate(() => ({
@@ -38,18 +49,21 @@ export const flow = {
     const theme = scheme === "dark" ? "dark" : "light";
 
     await t.step("the head script marks the composition and preloads its poster", async () => {
+      const intro = await introManifest();
       await page.goto("/?intro=video", { waitUntil: "domcontentloaded" });
       const early = await filmState(page);
       t.note("on first paint", early);
       t.expect(early.cut === expected.comp, `the cut attribute should be ${expected.comp}`, early);
       t.expect(early.film === "intro", "the intro is the film claimed", early);
-      const poster = `/brand/intro/fitx-intro-${theme}-${expected.shape}.webp`;
-      t.expect(early.preloads.includes(poster), `the ${expected.shape} poster should be preloaded`, early);
+      const poster = intro.posters[`${expected.comp}-${theme}`];
+      t.expect(poster === `/brand/films/intro/${intro.rev}/${expected.comp}-${theme}.webp`, "S6's poster for this composition and theme", poster);
+      t.expect(early.preloads.includes(poster), `the ${expected.comp} poster should be preloaded`, early);
       t.expect(early.posterVar.includes(poster), "the overlay's poster follows it", early);
       await page.waitForFunction(() => document.documentElement.getAttribute("data-fitx-intro-ready") === "video", null, { timeout: 15000 });
       const playing = await filmState(page);
       t.note("playing", playing);
-      t.expect(playing.variant?.includes(`-${expected.shape}-`), `the player loads the ${expected.shape} cut`, playing);
+      // HEVC 60 where this browser plays it smoothly, else (and on a phone, the light rung) AVC 30.
+      t.expect(new RegExp(`^${expected.comp}-${theme}-(hevc60|avc30)\\.mp4$`).test(playing.variant ?? ""), `the player loads the ${expected.comp} cut`, playing);
       await t.checkpoint("film playing", { fullPage: false, settle: false });
       await skipIfPlaying(page);
       const after = await filmState(page);
@@ -57,15 +71,16 @@ export const flow = {
     });
 
     if (size === "desktop") {
-      await t.step("a square window gets the landscape composition (tablet-l), not a portrait frame", async () => {
+      await t.step("a square window gets the tablet-l composition (a landscape frame), not a portrait one", async () => {
         await page.setViewportSize({ width: 1000, height: 1000 });
         await page.goto("/?intro=video", { waitUntil: "domcontentloaded" });
         const square = await filmState(page);
         t.note("square window", square);
         t.expect(square.cut === "tablet-l", "1000×1000 is tablet-l", square);
-        t.expect(square.preloads.includes(`/brand/intro/fitx-intro-${theme}-landscape.webp`), "its poster is the landscape one", square);
+        const intro = await introManifest();
+        t.expect(square.preloads.includes(intro.posters[`tablet-l-${theme}`]), "its poster is tablet-l's", square);
         await page.waitForFunction(() => document.documentElement.getAttribute("data-fitx-intro-ready") === "video", null, { timeout: 15000 });
-        t.expect((await filmState(page)).variant?.includes("-landscape-"), "and so is its cut");
+        t.expect((await filmState(page)).variant?.startsWith(`tablet-l-${theme}-`), "and so is its cut");
         await t.checkpoint("square window film", { fullPage: false, settle: false });
         await skipIfPlaying(page);
         await page.setViewportSize({ width: 1440, height: 900 });
