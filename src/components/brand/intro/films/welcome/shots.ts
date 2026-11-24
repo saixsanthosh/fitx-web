@@ -31,6 +31,7 @@ import type { LightingPreset } from "../../lighting";
 import { applyHeadLook, blinkAmount } from "../../motion/layers";
 import { PonytailSpring } from "../../motion/secondary";
 import { clamp01, lerp, smoothstep } from "../../math";
+import { setGymLampBulbs } from "../../sets/gym";
 import type { Theme } from "../../types";
 import type { FilmComposition } from "../../../films/compositions";
 import { CRANE_LIMITS, closestRevealRatio, ignitionAt, MARK_IGNITION_ORDER, topDownFraming } from "./mark-floor";
@@ -199,6 +200,12 @@ function base(ctx: ShotContext, cast: readonly CharacterId[] = []) {
   // out of frame in the others (tested).
   const leo = ctx.cast.leo;
   if (leo && cast.includes("leo")) leoIndoors(welcome, leo);
+  // The gym's hanging lamps are dark in The Forge (its warm light is the strip, where `forgeLight` puts the
+  // practicals): from the loaders' low lenses a far lamp's bulb sat right behind Leo's head (w2) and Dre's (w3). Off in
+  // every shot, not only those two: the lamp behind Dre also shows at the top of w1 on phone and tablet (and at the
+  // start of w4 on tablet-p), so hiding it in w2/w3 alone would switch it off across the cut. `hideStage` turns the
+  // bulbs back on before each shot, so this runs at every shot's start. Only the bulbs go; the lighting is unchanged.
+  setGymLampBulbs(ctx.sets.gym, false);
   return welcome;
 }
 

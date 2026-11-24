@@ -68,6 +68,17 @@ function paneTexture(cols: number, rows: number, seed: number) {
   return canvas;
 }
 
+/**
+ * Shows or hides the hanging lamps' visible bulbs (the `lamp-bulbs` emitter, and with it their bloom). Only the bulbs:
+ * the practical lights, the shades and the lamps' place in the environment bake stay as they are. On by default, as
+ * the intro shows them; the welcome film turns them off in its shots, and `hideStage` turns them back on before
+ * every shot.
+ */
+export function setGymLampBulbs(set: IntroSet, visible: boolean) {
+  const bulbs = set.group.userData.lampBulbs as THREE.Object3D | undefined;
+  if (bulbs) bulbs.visible = visible;
+}
+
 export function createGymSet(renderer: THREE.WebGLRenderer, theme: Theme, options: SetOptions = {}): IntroSet {
   void options;
   const clock = new Stopwatch();
@@ -224,6 +235,7 @@ export function createGymSet(renderer: THREE.WebGLRenderer, theme: Theme, option
   const bulbs = new THREE.Mesh(bulbBatch.build(), bulbMat);
   bulbs.name = "lamp-bulbs";
   group.add(bulbs);
+  group.userData.lampBulbs = bulbs;
   disposer.track(bulbs.geometry);
 
   // Volumetrics.

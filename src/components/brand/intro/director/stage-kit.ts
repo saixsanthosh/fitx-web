@@ -29,6 +29,7 @@ import {
 } from "../sets";
 import { createChalkBurst, createDustBurst, createGritBurst, createSunFlare, type LitBurst, type ParticleBurst, type SunFlare } from "../fx";
 import type { QualitySettings } from "../fx/quality";
+import { setGymLampBulbs } from "../sets/gym";
 import { setKitchenForeground } from "../sets/kitchen";
 import { setStudioBarLevel } from "../sets/studio";
 import type { Theme } from "../types";
@@ -252,6 +253,8 @@ export function hideStage(stage: Stage, cast: Partial<Record<CharacterId, Charac
   // Set-level state the Act 3 shots drive per frame: the toast's near plant and the studio bar.
   setKitchenForeground(stage.sets.kitchen, false);
   setStudioBarLevel(stage.sets.studio, 1, 0);
+  // The gym's lamp bulbs are on unless a shot turns them off (the welcome film does, in every shot).
+  setGymLampBulbs(stage.sets.gym, true);
   rings.group.visible = false;
   rings.setProgress(0);
   rings.setOpacity(1);
