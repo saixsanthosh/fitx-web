@@ -8,8 +8,10 @@
  *
  * The bars are the page colour until the film plays, the dark of a film stage while it plays (data-film-playing; the
  * intro's letterbox takes the same dark there, IntroFilmOverlay.module.css), and the page colour again from the film's
- * reveal stage (data-film-tail), when the film itself clears to the page: so the film opens into the matte and hands
- * back to the page without a seam, as the intro's letterbox slides in and out. Theme tokens only; opacity only.
+ * tail (data-film-tail, FILM_TIMING in timing.ts), when the film itself clears to the page, as long and on the same
+ * curve as its picture does (the frame's --film-tail-ms and --film-tail-ease): the intro at its brand stage, the
+ * welcome film as its ignite shot clears. So the film opens into the matte and hands back to the page without a seam,
+ * as the intro's letterbox slides in and out. Theme tokens only; opacity only.
  */
 .matte { display: none; }
 
@@ -44,3 +46,8 @@
 }
 
 .frame[data-film-playing]:not([data-film-tail]) .matte::after { opacity: 1; }
+
+.frame[data-film-tail] .matte::after {
+  transition-duration: var(--film-tail-ms, 400ms);
+  transition-timing-function: var(--film-tail-ease, cubic-bezier(.22, .72, .2, 1));
+}

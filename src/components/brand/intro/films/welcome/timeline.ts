@@ -103,6 +103,13 @@ export const WELCOME_BEATS = Object.freeze({
   bloomPeak: 9.68,
 });
 
+/**
+ * The ignite shot clears its frame to the page's background between these film times (shots.ts igniteClear, eased),
+ * once the lines have been seen igniting: from here to the end the picture is the page colour. The runtime's scope
+ * matte hands its side bars back to the page colour on the same clock (films/timing.ts, FILM_TIMING's tail).
+ */
+export const WELCOME_CLEAR = Object.freeze({ start: WELCOME_BEATS.reveal + 0.46, end: WELCOME_BEATS.reveal + 1.6 });
+
 /** A beat time's shot (the shot whose `[start, end)` holds it). */
 export function welcomeShotAt(time: number): WelcomeShotId {
   let id: WelcomeShotId = WELCOME_SHOTS[0].id;

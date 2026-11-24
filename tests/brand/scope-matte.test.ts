@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { COMPOSITIONS, pickComposition, type FilmComposition } from "@/components/brand/films/compositions";
+import { FILM_TIMING } from "@/components/brand/films/timing";
+import { STAGE, STAGE_START } from "@/components/brand/intro/timeline";
+import { WELCOME_CLEAR, WELCOME_DURATION, WELCOME_STAGE_START } from "@/components/brand/intro/films/welcome/timeline";
+import { igniteClear } from "@/components/brand/intro/films/welcome/shots";
 import { findRawColors } from "../../scripts/checks/check-raw-colors.mjs";
 
 // BRIEF-2 3.1, the desktop band: "1.89 and wider; cover up to 2.20, a scope matte (side bars) above". The matte is CSS
@@ -115,22 +119,69 @@ test("the stages are size containers, and the posters, the video and the graphic
   assert.match(source("src/components/brand/films/FilmVideo.tsx"), /<video\s+ref=\{videoRef\}\s+className=\{`\$\{styles\.surface\} \$\{frameStyles\.video\}`\}/);
 });
 
-test("the bars: hidden without the matte, the page colour until the film plays, dark until its reveal stage", () => {
+/** A CSS cubic-bezier(x1, y1, x2, y2) timing function at progress x (Newton steps on the curve's x, then its y). */
+function cubicBezier([x1, y1, x2, y2]: number[], x: number) {
+  const at = (a: number, b: number, s: number) => 3 * (1 - s) ** 2 * s * a + 3 * (1 - s) * s * s * b + s ** 3;
+  let lo = 0;
+  let hi = 1;
+  for (let step = 0; step < 60; step += 1) {
+    const mid = (lo + hi) / 2;
+    if (at(x1, x2, mid) < x) lo = mid;
+    else hi = mid;
+  }
+  return at(y1, y2, (lo + hi) / 2);
+}
+
+test("the bars: hidden without the matte, the page colour until the film plays, dark until the film clears to the page", () => {
   const css = source(FILES.video);
   assert.match(css, /^\.matte \{ display: none; \}$/m);
   const bars = BLOCKS.video[0].body;
   assert.match(bars, /\.matte \{[^}]*display: block;[^}]*width: calc\(50% - 110cqh\);[^}]*background: var\(--fitx-bg\);/);
   assert.match(css, /\.matte::after \{[^}]*background: var\(--fitx-stage\);[^}]*opacity: 0;[^}]*transition: opacity 400ms/);
   assert.match(css, /\.frame\[data-film-playing\]:not\(\[data-film-tail\]\) \.matte::after \{ opacity: 1; \}/);
+  // From the tail, the bars clear as long and on the curve the film's own clear takes (the frame carries both).
+  assert.match(css, /\.frame\[data-film-tail\] \.matte::after \{\s*transition-duration: var\(--film-tail-ms, 400ms\);\s*transition-timing-function: var\(--film-tail-ease, cubic-bezier\(\.22, \.72, \.2, 1\)\);\s*\}/);
   const player = source("src/components/brand/films/FilmVideo.tsx");
   assert.match(player, /<i className=\{`\$\{frameStyles\.matte\} \$\{frameStyles\.matteLeft\}`\} \/>\s*<i className=\{`\$\{frameStyles\.matte\} \$\{frameStyles\.matteRight\}`\} \/>/);
-  // Dark with the first frame, and back to the page colour from the reveal stage, when the film clears to the page.
+  assert.match(player, /const frameStyle = \{ "--film-tail-ms": `\$\{tail\.ms\}ms`, "--film-tail-ease": tail\.ease \} as CSSProperties;/);
+  assert.match(player, /className=\{`\$\{styles\.canvas\} \$\{frameStyles\.frame\}`\} style=\{frameStyle\}/);
+  // Dark with the first frame, and back to the page colour from the film's tail, on the video clock (a timer is armed
+  // for the tail as for a stage boundary, so it is never early).
   assert.match(player, /started = true;\s*video\.style\.visibility = "";[\s\S]{0,120}frame\?\.setAttribute\("data-film-playing", ""\);/);
-  assert.match(player, /if \(next >= timing\.revealStage\) frame\?\.setAttribute\("data-film-tail", ""\);/);
+  assert.match(player, /if \(!tail && time >= timing\.tail\.at\) \{\s*tail = true;\s*frame\?\.setAttribute\("data-film-tail", ""\);/);
+  assert.match(player, /const boundary = !tail && \(stageBoundary === undefined \|\| timing\.tail\.at < stageBoundary\) \? timing\.tail\.at : stageBoundary;/);
   // Theme tokens only, no raw colour anywhere in the matte.
+  assert.deepEqual(findRawColors(css, { file: FILES.video, css: true }), [], "the tail adds none");
   for (const [key, file] of Object.entries(FILES)) {
     const blocks = BLOCKS[key as keyof typeof FILES].map((block) => block.body).join("\n");
     assert.deepEqual(findRawColors(blocks, { file, css: true }), [], key);
   }
   assert.deepEqual(findRawColors(css, { file: FILES.video, css: true }), []);
+});
+
+test("each film's tail is when its picture really clears to the page: the intro at its end card, the welcome film with its ignite shot", () => {
+  // The intro: its frame is the page colour as the brand stage starts (the end card), so the bars go then, briskly.
+  assert.equal(FILM_TIMING.intro.tail.at, STAGE_START[STAGE.brand]);
+  assert.equal(FILM_TIMING.intro.revealStage, STAGE.brand);
+  assert.deepEqual([FILM_TIMING.intro.tail.ms, FILM_TIMING.intro.tail.ease], [400, "cubic-bezier(.22, .72, .2, 1)"]);
+  // The welcome film: its reveal stage starts at 9.29 s, but the frame is still the dark forge then; it clears to the
+  // page from 9.75 s to 10.89 s (igniteClear). Bars that cleared at 9.29 s would sit near-white beside a dark picture.
+  const welcome = FILM_TIMING.welcome.tail;
+  assert.equal(WELCOME_STAGE_START[FILM_TIMING.welcome.revealStage], 9.29);
+  assert.ok(welcome.at > WELCOME_STAGE_START[FILM_TIMING.welcome.revealStage], "later than the reveal stage");
+  assert.deepEqual([welcome.at, welcome.ms], [WELCOME_CLEAR.start, Math.round((WELCOME_CLEAR.end - WELCOME_CLEAR.start) * 1000)]);
+  assert.equal(igniteClear(welcome.at - 0.01), 0, "the picture has not begun to clear before the tail");
+  assert.ok(igniteClear(welcome.at + 0.05) > 0, "and begins with it");
+  assert.equal(igniteClear(welcome.at + welcome.ms / 1000), 1, "it is clear as the bars are");
+  // The bars follow the picture's curve: the CSS timing function within 2% of igniteClear all the way.
+  const ease = welcome.ease.match(/^cubic-bezier\(([-.\d]+), ([-.\d]+), ([-.\d]+), ([-.\d]+)\)$/)?.slice(1).map(Number);
+  assert.ok(ease, welcome.ease);
+  for (let step = 0; step <= 40; step += 1) {
+    const time = welcome.at + (step / 40) * (welcome.ms / 1000);
+    const bars = cubicBezier(ease, step / 40);
+    assert.ok(Math.abs(bars - igniteClear(time)) < 0.02, `at ${time.toFixed(3)} s the bars are ${bars.toFixed(3)} of the way, the picture ${igniteClear(time).toFixed(3)}`);
+  }
+  // Both films' picture is the page colour from the tail on to the end.
+  assert.ok(welcome.at + welcome.ms / 1000 < WELCOME_DURATION);
+  assert.equal(igniteClear(WELCOME_DURATION), 1);
 });

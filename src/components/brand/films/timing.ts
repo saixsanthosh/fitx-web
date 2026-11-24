@@ -1,14 +1,35 @@
 import type { FilmId } from "./compositions";
 import { FILM_DURATION, STAGE_START } from "../intro/timeline";
-import { WELCOME_DURATION, WELCOME_STAGE, WELCOME_STAGE_START } from "../intro/films/welcome/timeline";
+import { WELCOME_CLEAR, WELCOME_DURATION, WELCOME_STAGE, WELCOME_STAGE_START } from "../intro/films/welcome/timeline";
 
-/** Each film's stage table, as the player drives its overlay from the video clock. */
-export type FilmTiming = { stageStart: readonly number[]; duration: number; revealStage: number };
+/**
+ * When a film hands its picture back to the page (film seconds), and how the scope matte's side bars follow it from the
+ * stage dark to the page colour from then (FilmVideo's data-film-tail): over `ms`, on `ease` (a CSS timing function).
+ */
+export type FilmTail = { at: number; ms: number; ease: string };
+
+/** Each film's stage table, as the player drives its overlay from the video clock, and its tail. */
+export type FilmTiming = { stageStart: readonly number[]; duration: number; revealStage: number; tail: FilmTail };
+
+const INTRO_BRAND_AT = STAGE_START[STAGE_START.length - 1];
 
 export const FILM_TIMING: Record<FilmId, FilmTiming> = {
-  intro: { stageStart: STAGE_START, duration: FILM_DURATION, revealStage: STAGE_START.length - 1 },
-  // The reveal (LogoReveal "film-end") locks over the igniting lines from the last stage, 9.29 s.
-  welcome: { stageStart: WELCOME_STAGE_START, duration: WELCOME_DURATION, revealStage: WELCOME_STAGE.ignite },
+  // The intro's frame is already the page colour as its brand stage starts (the end card): the bars go with it.
+  intro: {
+    stageStart: STAGE_START,
+    duration: FILM_DURATION,
+    revealStage: STAGE_START.length - 1,
+    tail: { at: INTRO_BRAND_AT, ms: 400, ease: "cubic-bezier(.22, .72, .2, 1)" },
+  },
+  // The reveal (LogoReveal "film-end") locks over the igniting lines from the last stage, 9.29 s, but the frame only
+  // clears to the page from 9.75 s to 10.89 s (WELCOME_CLEAR, shots.ts igniteClear): the bars clear with it, as long
+  // and on its curve (a smoothstep of a smoothstep, which this cubic-bezier follows within 2%).
+  welcome: {
+    stageStart: WELCOME_STAGE_START,
+    duration: WELCOME_DURATION,
+    revealStage: WELCOME_STAGE.ignite,
+    tail: { at: WELCOME_CLEAR.start, ms: Math.round((WELCOME_CLEAR.end - WELCOME_CLEAR.start) * 1000), ease: "cubic-bezier(.61, 0, .39, 1)" },
+  },
 };
 
 /** The stage a film is in at `time` (seconds of film time). */

@@ -55,7 +55,7 @@ import {
   WELCOME_COLOURS,
   WELCOME_PLATES,
 } from "./props";
-import { WELCOME_BEATS, WELCOME_DURATION, WELCOME_SHOTS } from "./timeline";
+import { WELCOME_BEATS, WELCOME_CLEAR, WELCOME_DURATION, WELCOME_SHOTS } from "./timeline";
 
 const SHOT = Object.fromEntries(WELCOME_SHOTS.map((shot) => [shot.id, shot])) as Record<(typeof WELCOME_SHOTS)[number]["id"], (typeof WELCOME_SHOTS)[number]>;
 
@@ -652,9 +652,12 @@ function igniteCamera(comp: FilmComposition, local: number, out: CameraState) {
   return out;
 }
 
-/** The frame clears to the page's background from 9.75 s, fully by 10.9 s (the reveal's mark has formed by 10.73 s). */
+/**
+ * The frame clears to the page's background from 9.75 s, fully by 10.9 s (WELCOME_CLEAR; the reveal's mark has formed
+ * by 10.73 s), on a smoothstep of a smoothstep. The scope matte's side bars follow it (films/timing.ts).
+ */
 export function igniteClear(time: number) {
-  const u = window01(WELCOME_BEATS.reveal + 0.46, WELCOME_BEATS.reveal + 1.6, time);
+  const u = window01(WELCOME_CLEAR.start, WELCOME_CLEAR.end, time);
   return u * u * (3 - 2 * u);
 }
 

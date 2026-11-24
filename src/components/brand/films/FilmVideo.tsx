@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { FILM_CUT_ATTR, pickComposition, type FilmComposition, type FilmId, type FilmOverlayProps, type FilmTheme } from "./compositions";
 import { cutBitrate, cutsIn, cutType, isLite, manifestFor, posterIn, type FilmCut, type FilmManifest } from "./manifest";
 import { FILM_TIMING, filmStageAt, RESIZE_SETTLE_MS, swapAllowed } from "./timing";
@@ -143,6 +143,7 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
     let finished = false;
     let retried = false;
     let held = false;
+    let tail = false;
     let current: FilmCut | null = null;
     let light: FilmCut | null = null;
     let comp: FilmComposition = "laptop";
@@ -165,10 +166,11 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
       timer = 0;
     };
     /**
-     * Reports stage changes from the video clock without a per-frame loop: one timer per stage boundary, re-armed
-     * from the clock whenever it fires, so a stall or a late timer can only delay a stage change, never run it early.
-     * A clock that moved less than half as far as the time that passed (WebKit reports nearly the paused time for up
-     * to ~0.15 s after a resume) is checked every frame for about half a second, then four times a second.
+     * Reports stage changes from the video clock without a per-frame loop: one timer per stage boundary (and one for
+     * the film's tail), re-armed from the clock whenever it fires, so a stall or a late timer can only delay a change,
+     * never run it early. A clock that moved less than half as far as the time that passed (WebKit reports nearly the
+     * paused time for up to ~0.15 s after a resume) is checked every frame for about half a second, then four times a
+     * second.
      */
     const sync = (fromTimer: boolean) => {
       stop();
@@ -179,16 +181,21 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
       const next = filmStageAt(film, time);
       if (next !== stage) {
         stage = next;
-        // From the reveal stage the film clears to the page: so do the scope matte's bars.
-        if (next >= timing.revealStage) frame?.setAttribute("data-film-tail", "");
         callbacks.current.onStage(next);
         report();
+      }
+      // From the film's tail its picture clears to the page, and the scope matte's bars clear with it (as long and on
+      // the same curve: the frame's --film-tail-ms and --film-tail-ease).
+      if (!tail && time >= timing.tail.at) {
+        tail = true;
+        frame?.setAttribute("data-film-tail", "");
       }
       const lagging = fromTimer && time - lastTime < ((at - lastAt) / 1000) * rate * 0.5;
       slowChecks = lagging ? slowChecks + 1 : 0;
       lastTime = time;
       lastAt = at;
-      const boundary = timing.stageStart[next + 1];
+      const stageBoundary = timing.stageStart[next + 1];
+      const boundary = !tail && (stageBoundary === undefined || timing.tail.at < stageBoundary) ? timing.tail.at : stageBoundary;
       if (boundary === undefined || video.paused || !(rate > 0)) return;
       const delay = lagging ? (slowChecks <= 30 ? 16 : 250) : Math.max(4, ((boundary - time) / rate) * 1000);
       timer = window.setTimeout(sync, delay, true);
@@ -349,9 +356,11 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
     };
   }, [film, overlayOn]);
 
+  const tail = FILM_TIMING[film].tail;
+  const frameStyle = { "--film-tail-ms": `${tail.ms}ms`, "--film-tail-ease": tail.ease } as CSSProperties;
   return (
     <>
-      <div ref={frameRef} className={`${styles.canvas} ${frameStyles.frame}`} aria-hidden="true">
+      <div ref={frameRef} className={`${styles.canvas} ${frameStyles.frame}`} style={frameStyle} aria-hidden="true">
         <video
           ref={videoRef}
           className={`${styles.surface} ${frameStyles.video}`}
