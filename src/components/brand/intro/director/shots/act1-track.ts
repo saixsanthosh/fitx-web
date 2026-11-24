@@ -555,7 +555,7 @@ const shotCadence: Shot = {
 
 /** WHEEL_TRACK's frame on each composition (BRIEF-2 3.2; checked in tests/brand/intro-framing.test.ts). */
 const WHEEL_COMPS: CameraTrack["compositions"] = {
-  // The tall frames open further back and higher, so Leo's lifted face clears the CADENCE readout at the top; the
+  // The tall frames open further back and higher, so Leo's lifted face clears the SPEED readout at the top; the
   // crane still lands on the same match frame (the last key), where the wheel fills the frame's height.
   phone: {
     keys: [

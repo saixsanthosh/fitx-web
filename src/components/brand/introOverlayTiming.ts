@@ -185,11 +185,9 @@ export type CountToken = { kind: "text"; text: string } | CountNumber;
 
 const NUMBER = /\d+(?::[0-5]\d|\.\d+)?/g;
 
-/** Where a count starts, by the unit that follows it: loads from zero, rates from a warm-up value, pace from slower. */
+/** Where a count starts, by the unit that follows it: distances, loads and food from zero, speed from a warm-up value, pace from slower. */
 function countStart(to: number, clock: boolean, unit: string): number {
   if (clock) return to * 1.22;
-  if (unit.startsWith("BPM")) return to * 0.72;
-  if (unit.startsWith("RPM")) return to * 0.7;
   if (unit.startsWith("KM/H") || unit.startsWith("MPH")) return to * 0.68;
   return 0;
 }

@@ -15,6 +15,8 @@ import {
   stageRestTime,
   stageStart,
   titleTiming,
+  tokenizeCount,
+  type CountNumber,
 } from "@/components/brand/introOverlayTiming";
 import { revealPlan } from "@/components/brand/logo/reveal-plan";
 
@@ -90,4 +92,44 @@ test("stage helpers: items live during a stage, the ones that begin in it, rest 
   assert.deepEqual(beginningInStage(CALLOUTS, STAGE.refuel).map((callout) => callout.id), ["macros"]);
   assert.equal(stageStart(99), STAGE_START[STAGE.brand]);
   for (let stage = 0; stage <= STAGE.brand; stage += 1) assert.ok(stageRestTime(stage) < FILM_DURATION, `stage ${stage}`);
+});
+
+test("the callouts show readings FITX really takes (pace, speed, distance, a lift's PR, a meal's macros and kcal), never a heart rate or a cadence", () => {
+  // FITX keeps no heart-rate data (the activity import says so, and the privacy page: "Heart rate in a file is not saved")
+  // and measures no cadence, so the product's own film may not show either.
+  assert.deepEqual(CALLOUTS.map((callout) => [callout.id, callout.label, callout.value, callout.detail]), [
+    ["pace", "PACE", "3:58 /KM", "5.2 KM"],
+    ["speed", "SPEED", "41.2 KM/H", "18.6 KM"],
+    ["pr", "DEADLIFT", "200 KG", "NEW PR"],
+    ["macros", "REFUEL", "P 42 G · C 64 G · F 18 G", "612 KCAL"],
+  ]);
+  const shown = CALLOUTS.map((callout) => `${callout.id} ${callout.label} ${callout.value} ${callout.detail}`).join(" | ");
+  assert.doesNotMatch(shown, /\b(BPM|RPM|SPM|CADENCE|HEART|HR|PULSE|WATTS?)\b/i);
+  // Every number carries a unit the app shows: pace per km, km/h, km, kg, grams and kcal.
+  const units = new Set(["/KM", "KM/H", "KM", "KG", "G", "KCAL"]);
+  for (const callout of CALLOUTS) {
+    for (const text of [callout.value, callout.detail]) {
+      const tokens = tokenizeCount(text);
+      tokens.forEach((token, index) => {
+        if (token.kind !== "number") return;
+        const next = tokens[index + 1];
+        const unit = next?.kind === "text" ? next.text.trim().split(/\s+/)[0] : "";
+        assert.ok(units.has(unit), `${callout.id}: “${text}” has the unit ${unit || "(none)"}`);
+      });
+    }
+  }
+});
+
+test("the readings count the way instruments settle: pace from slower, speed from a warm-up value, distance, loads and food from zero", () => {
+  const numbers = (text: string): CountNumber[] => tokenizeCount(text).flatMap((token) => (token.kind === "number" ? [token] : []));
+  const [pace] = numbers("3:58 /KM");
+  assert.ok(pace.clock && pace.to === 238 && Math.abs(pace.from - 238 * 1.22) < 1e-9);
+  const [speed] = numbers("41.2 KM/H");
+  assert.ok(!speed.clock && speed.decimals === 1 && Math.abs(speed.from - 41.2 * 0.68) < 1e-9);
+  for (const text of ["5.2 KM", "18.6 KM", "200 KG", "612 KCAL", "P 42 G · C 64 G · F 18 G"]) {
+    for (const reading of numbers(text)) assert.equal(reading.from, 0, `${text}: ${reading.text}`);
+  }
+  // The ghost that sizes each reel is its widest frame, so a chip never jitters while it counts.
+  assert.deepEqual(numbers("18.6 KM").map((reading) => reading.widest), ["18.6"]);
+  assert.deepEqual(numbers("41.2 KM/H").map((reading) => reading.widest), ["41.2"]);
 });

@@ -113,7 +113,7 @@ test("zones by time: the matte for the whole film, each title and callout only w
     const top = zones.find((zone) => zone.id === "letterbox-top");
     assert.ok(top && top.start === LETTERBOX.inStart && top.end === LETTERBOX.outEnd, comp);
     const atPace = overlayZonesAt(comp, 3).map((zone) => zone.id);
-    assert.ok(atPace.includes("callout-pace") && atPace.includes("title-train") && !atPace.includes("callout-cadence"));
+    assert.ok(atPace.includes("callout-pace") && atPace.includes("title-train") && !atPace.includes("callout-speed"));
     assert.ok(!overlayZonesAt(comp, STAGE_START[6] + 1).some((zone) => zone.id.startsWith("letterbox")), "the matte is gone in the tail");
   }
 });
@@ -162,7 +162,7 @@ test("wave 1's 11.9 s cuts and the 2 s fixture keep wave 1's matte and callout s
 
   // Wave 1's placement for every callout, the same on every screen.
   assert.deepEqual(Object.keys(SEED_PLACEMENT).sort(), CALLOUTS.map((callout) => callout.id).sort());
-  assert.deepEqual({ ...SEED_PLACEMENT }, { pace: "right", cadence: "left", pr: "right", macros: "bottom" });
+  assert.deepEqual({ ...SEED_PLACEMENT }, { pace: "right", speed: "left", pr: "right", macros: "bottom" });
 
   // The overlay writes data-comp (and the zone properties) only for the zoned layout.
   const tsx = readFileSync("src/components/brand/IntroFilmOverlay.tsx", "utf8");

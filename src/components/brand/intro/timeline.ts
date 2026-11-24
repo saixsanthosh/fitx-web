@@ -98,12 +98,15 @@ const everywhere = (placement: CalloutPlacement): Readonly<Record<FilmCompositio
 
 /**
  * Small data callouts (the product's tracking language) rendered by the DOM overlay. They are the
- * film's own staged readouts, not anyone's data. `placement` is per composition (BRIEF-2 3.3); the
- * areas themselves are in `overlay-zones.ts`.
+ * film's own staged readouts, not anyone's data, but each is a reading FITX really takes: pace, speed
+ * and distance on a recorded activity, a lift's personal record, a meal's macros and kcal. Never a
+ * heart rate or a cadence: FITX keeps no heart-rate data (the activity import and the privacy page
+ * say so) and measures no cadence. `placement` is per composition (BRIEF-2 3.3); the areas
+ * themselves are in `overlay-zones.ts`.
  */
 export const CALLOUTS = [
-  { id: "pace", start: 2.45, end: 3.4, label: "PACE", value: "3:58 /KM", detail: "168 BPM", placement: everywhere("right") },
-  { id: "cadence", start: 3.7, end: 4.95, label: "CADENCE", value: "94 RPM", detail: "41.2 KM/H", placement: everywhere("left") },
+  { id: "pace", start: 2.45, end: 3.4, label: "PACE", value: "3:58 /KM", detail: "5.2 KM", placement: everywhere("right") },
+  { id: "speed", start: 3.7, end: 4.95, label: "SPEED", value: "41.2 KM/H", detail: "18.6 KM", placement: everywhere("left") },
   { id: "pr", start: 6.95, end: 7.55, label: "DEADLIFT", value: "200 KG", detail: "NEW PR", placement: everywhere("right") },
   // On the tall frames the two meals fill the lower half: the readout rides the top there.
   { id: "macros", start: 7.7, end: 8.3, label: "REFUEL", value: "P 42 G · C 64 G · F 18 G", detail: "612 KCAL", placement: { ...everywhere("bottom"), phone: "right", "tablet-p": "right" } },
@@ -117,7 +120,7 @@ export const CALLOUTS = [
  */
 export const SEED_PLACEMENT: Readonly<Record<(typeof CALLOUTS)[number]["id"], CalloutPlacement>> = {
   pace: "right",
-  cadence: "left",
+  speed: "left",
   pr: "right",
   macros: "bottom",
 };
