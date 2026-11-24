@@ -719,25 +719,40 @@ describe("privacy page", () => {
     assert.doesNotMatch(used, /Food searches and barcodes are sent from FITX to Open Food Facts/, "most searches stay in FITX's own catalogue");
   });
 
-  test("release 2b: the films' two keys kept on the device, what each holds and how long, and the Pixabay credit", async () => {
-    // The keys and the 7 days are the code's (BRIEF-2 3.4 and D1).
+  test("release 2b: every key the films keep on the device, what each holds and how long, and the Pixabay credit", async () => {
+    // The keys and the 7 days are the code's (BRIEF-2 3.4 and D1): the films' sound, the visitor's intro, the account
+    // film's claim, the welcome film's 7-day note and the tab's hand-off to Home after the setup film.
     const { SOUND_PREF_KEY } = await import("@/components/brand/films/filmSound");
-    const { FILM_SEEN_KEY, FILM_SEEN_MS } = await import("@/components/brand/introKeys");
-    assert.deepEqual([SOUND_PREF_KEY, FILM_SEEN_KEY], ["fitx-film-sound", "fitx-film-seen"]);
+    const { ACCOUNT_FILM_STARTED_KEY, FILM_HANDOFF_KEY, FILM_SEEN_KEY, FILM_SEEN_MS, VISITOR_FILM_SEEN_KEY } = await import("@/components/brand/introKeys");
+    const keys = [SOUND_PREF_KEY, VISITOR_FILM_SEEN_KEY, ACCOUNT_FILM_STARTED_KEY, FILM_SEEN_KEY, FILM_HANDOFF_KEY];
+    assert.deepEqual(keys, ["fitx-film-sound", "fitx-cinematic-seen", "fitx-intro-account", "fitx-film-seen", "fitx-film-handoff"]);
     assert.equal(FILM_SEEN_MS, 7 * 24 * 60 * 60 * 1000);
     assert.match(read("src/components/brand/films/welcome-runtime.ts"), /storage\.setItem\(FILM_SEEN_KEY, now\.toISOString\(\)\)/, "a date and time");
     assert.match(read("src/components/brand/films/filmSound.ts"), /storage\?\.setItem\(SOUND_PREF_KEY, on \? "on" : "off"\)/, "only “on” or “off”");
     assert.match(read("src/components/brand/films/sting.ts"), /readSoundPref\(storage\) !== "on"\) return false;/, "the sign-in animation's sound follows it");
+    assert.match(read("src/components/brand/CinematicIntro.tsx"), /window\.localStorage\.setItem\(VISITOR_FILM_SEEN_KEY, "1"\)/, "only “1”");
+    // The account's claim and the 7-day note go on the first signed-out page load (and the note at Log out too); the
+    // hand-off is session storage, written as the setup film ends and removed by the next page.
+    const head = read("src/components/brand/introBootstrap.ts");
+    assert.match(head, /else \{\s*if \(read\("localStorage", "\$\{ACCOUNT_FILM_STARTED_KEY\}"\) !== null\) write\("localStorage", "\$\{ACCOUNT_FILM_STARTED_KEY\}", null\);\s*if \(read\("localStorage", "\$\{FILM_SEEN_KEY\}"\) !== null\) write\("localStorage", "\$\{FILM_SEEN_KEY\}", null\);\s*\}/);
+    assert.match(read("src/lib/account/device-cleanup.ts"), /key === FILM_SEEN_KEY/);
+    assert.match(read("src/lib/onboarding/post-sequence.ts"), /storage\.setItem\(FILM_HANDOFF_KEY, String\(now\)\)/, "only the time");
+    assert.match(head, /if \(handoffAt !== null\) write\("sessionStorage", "\$\{FILM_HANDOFF_KEY\}", null\);/);
 
     const films = section("FITX films");
     assert.ok(films, "the page has a films section");
     assert.match(films, /\bthey start muted\b/);
     assert.match(films, /\bonly then does your browser download it, also from FITX’s site\b/);
-    assert.match(films, /\bon this device only \(they are never sent to FITX\)/);
+    assert.match(films, /\bYour browser keeps these notes for the films, on this device only \(they are never sent to FITX\)/);
+    assert.doesNotMatch(films, /\btwo notes\b/);
+    for (const key of keys) assert.match(films, new RegExp(`\\b${key}\\b`), `${key} is named`);
     assert.match(films, /\bfitx-film-sound\s+holds whether you last turned the films’ sound on or off, and stays until you change it or clear this site’s data\b/);
+    assert.match(films, /\bfitx-cinematic-seen\s+notes that the intro film has played on this device, or was skipped, so it plays by itself only on a first visit to FITX’s home page\b/);
+    assert.match(films, /\bfitx-intro-account\s+holds when this device started your account’s one-time welcome film, so pages opened at the same moment \(tabs restored together, say\) play it only once\b/);
     assert.match(films, /\bfitx-film-seen\s+holds when the welcome film started on this device after you set up FITX, so that for 7 days it doesn’t play again by itself here\b/);
-    assert.match(films, /\bAfter those 7 days it is no longer used, but it stays until you clear this site’s data\b/);
-    assert.match(section("Analytics and storage"), /\byour choice of sound for the FITX films and when the welcome film started on this device \(see FITX films above\)/);
+    assert.match(films, /\bThose last two belong to your signed-in session: the first page you open once you are signed out removes them, and logging out removes the 7-day note straight away, so another account on this device still gets its own film\./);
+    assert.match(films, /\bfitx-film-handoff\s+\(session storage\) for a moment: it notes that the film has just ended on the FITX logo, so Home opens without the short loader showing the logo again, and the next page removes it\./);
+    assert.match(section("Analytics and storage"), /\byour choice of sound for the FITX films, whether the home page’s film has played on this device and when the welcome film started here \(see FITX films above\)/);
 
     // The credit says what src/data/DATA_SOURCES.md's "Film sound (Pixabay)" section says, and the page points to it.
     const credit = read("src/data/DATA_SOURCES.md").split(/^## /m).find((part) => part.startsWith("Film sound (Pixabay)\n")) ?? "";
@@ -748,8 +763,12 @@ describe("privacy page", () => {
 
     const cookies = read("src/app/(marketing)/cookies/page.tsx");
     const kept = cookies.match(/<h2>Kept on this device<\/h2><p>These stay in your browser and are never sent to FITX:<\/p>([\s\S]*?)<\/section>/)?.[1] ?? "";
+    for (const key of keys) assert.match(kept, new RegExp(`<li><strong>${key}</strong> \\((local|session) storage`), `${key} is listed`);
     assert.match(kept, /<li><strong>fitx-film-sound<\/strong> \(local storage\): whether you last turned the FITX films’ sound on or off, [^<]* It holds only “on” or “off” and stays until you change it or clear this site’s data\.<\/li>/);
-    assert.match(kept, /<li><strong>fitx-film-seen<\/strong> \(local storage\): when the welcome film started on this device after you set up FITX, as a date and time\. For 7 days after that, [^<]* After that it is no longer used, but it stays until you clear this site’s data\.<\/li>/);
+    assert.match(kept, /<li><strong>fitx-cinematic-seen<\/strong> \(local storage\): that the intro film has played on this device, or was skipped, [^<]* It holds only “1” and stays until you clear this site’s data\.<\/li>/);
+    assert.match(kept, /<li><strong>fitx-intro-account<\/strong> \(local storage\): when this device started your account’s one-time welcome film, [^<]* It is removed on the first page you open once you are signed out\.<\/li>/);
+    assert.match(kept, /<li><strong>fitx-film-seen<\/strong> \(local storage\): when the welcome film started on this device after you set up FITX, as a date and time\. For 7 days after that, [^<]* It is removed when you log out, or on the first page you open once you are signed out, so another account on this device still gets its own film\.<\/li>/);
+    assert.match(kept, /<li><strong>fitx-film-handoff<\/strong> \(session storage, that tab only\): set as the welcome film after setup ends on the FITX logo, [^<]* It holds only the time and is removed by that next page\.<\/li>/);
   });
 
   test("release 2b: fitx_intro is the account's one-time welcome film on this device, as the code sets and reads it", async () => {
