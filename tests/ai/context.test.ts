@@ -563,6 +563,7 @@ describe("privacy page", () => {
     const ages = section("Explore age rules");
     assert.match(ages, /\bMessages, communities and leaderboards are for members aged 18 and over\b/);
     assert.match(ages, /“Add your date of birth”/);
+    assert.match(ages, /\bfrom the date of birth in your profile, not from the age you entered\b/);
     const moderation = section("Explore reports and moderation");
     assert.match(moderation, /\bthe copy is kept for 90 days and then deleted\b/);
     assert.match(moderation, /\beach time a moderator opens a report, FITX Admin records who opened it\b/);

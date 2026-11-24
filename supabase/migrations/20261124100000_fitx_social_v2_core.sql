@@ -17,10 +17,11 @@
 --     posts, comments and stories from everyone else; 'upload' stops uploads. Deleting, blocking, unblocking, reporting,
 --     unfollowing, the notification and privacy reads and "Your Explore content" stay open (fitx_social_member_any), and
 --     so does all of it while Explore is switched off in Admin (platform_settings.features.explore = false).
---   * Age bands from profiles.date_of_birth, else profiles.age: adult (18+), teen (13 to 17), child (under 13, no Explore
---     profile) or unknown (teen rules). Members with no date of birth can add one once (fitx_social_set_birth_date);
---     a saved date of birth is then changed or cleared only by FITX support (trigger profiles_birth_date_locked), and one
---     a member adds from Profile after making an Explore profile is stamped for Admin too (profiles_birth_date_added).
+--   * Age bands from profiles.date_of_birth: adult (18+), teen (13 to 17), child (under 13, no Explore profile) or
+--     unknown (teen rules). Without a date of birth nobody is an adult; profiles.age only marks a child or a teen.
+--     Members with no date of birth can add one once (fitx_social_set_birth_date); a saved date of birth is then
+--     changed or cleared only by FITX support (trigger profiles_birth_date_locked), and one a member adds from Profile
+--     after making an Explore profile is stamped for Admin too (profiles_birth_date_added).
 --   * Safety fixes: a report accepts content addressed to the reporter even across a block, and an account report no
 --     longer needs the reported member to be unblocked; restricting is rate limited. Reports snapshot their evidence.
 --   * Stories (24 hours, photo or video), video posts (one video of at most 30 s with a poster), the video switch
@@ -495,7 +496,9 @@ as $function$
          or not exists (select 1 from public.social_restricts r where r.user_id = p_post_owner and r.restricted_id = p_author));
 $function$;
 
--- The member's age band: adult (18+), teen (13 to 17), child (under 13) or unknown, from the date of birth, else the age.
+-- The member's age band: adult (18+), teen (13 to 17), child (under 13) or unknown, from the date of birth. Without one
+-- (O1 (a)) a member is never an adult: the age they entered only keeps an under-13 out (child) or a 13 to 17 on teen
+-- rules, and anyone else is unknown (teen rules) until they add a date of birth.
 create or replace function public.fitx_social_age_band(p_user uuid)
 returns text
 language sql
@@ -509,8 +512,8 @@ as $function$
         case when p.date_of_birth <= (current_date - interval '18 years')::date then 'adult'
              when p.date_of_birth <= (current_date - interval '13 years')::date then 'teen'
              else 'child' end
-      when p.age is not null then
-        case when p.age >= 18 then 'adult' when p.age >= 13 then 'teen' else 'child' end
+      when p.age is not null and p.age < 13 then 'child'
+      when p.age is not null and p.age < 18 then 'teen'
       end
     from public.profiles p where p.id = p_user), 'unknown');
 $function$;

@@ -30,7 +30,7 @@ export const flow = {
   schemes: () => ["light"],
   async run(t, { standin, appUrl, outDir }) {
     const page = await t.open();
-    const account = await standin.createAccount({ name: "Sana Qureshi", tag: "settings" });
+    const account = await standin.createAccount({ name: "Sana Qureshi", tag: "settings", profile: { date_of_birth: null } });
     await seedExportData(standin, account.id);
     const uploaded = await standin.upload(await standin.passwordSession(account.email, account.password), "fitx-user-media", `${account.id}/avatar-e2e.png`, PNG, "image/png");
     t.note("uploaded test image", uploaded);

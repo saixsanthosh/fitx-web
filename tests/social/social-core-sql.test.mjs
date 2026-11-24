@@ -90,6 +90,25 @@ describe("Explore part 2 core", { skip }, () => {
     assert.ok(!edit(W, "date '2010-01-01'").ok, "once only");
   });
 
+  test("without a date of birth the age entered never makes a member an adult (O1 (a))", () => {
+    const V = "ffffffff-2222-4000-8000-0000000000f7";
+    const band = () => pg.json(`select to_jsonb(public.fitx_social_age_band('${V}'));`);
+    const setAge = (age) => pg.run(`update public.profiles set age = ${age} where id = '${V}';`, as(V));
+    pg.exec(`insert into auth.users (id, email) values ('${V}', 'v@example.test'); update public.profiles set date_of_birth = null, age = 30 where id = '${V}';`);
+    assert.equal(band(), "unknown", "an age of 30 with no date of birth gets the teen rules");
+    assert.ok(setAge(15).ok);
+    assert.equal(band(), "teen");
+    assert.ok(setAge(40).ok, "the member can still edit their age");
+    assert.equal(band(), "unknown", "and editing it to 18 or more does not make them an adult");
+    assert.ok(setAge(10).ok);
+    assert.equal(band(), "child", "an age under 13 still keeps them out");
+    fails(V, "public.fitx_social_save_profile('vik.core', 'V', '', false, 'everyone')", /social_age_restricted/);
+    assert.ok(setAge(30).ok);
+    pg.exec(`select public.fitx_social_save_profile('vik.core', 'V', '', false, 'everyone');`, as(V));
+    assert.equal(call(V, "public.fitx_social_set_birth_date(date '1994-06-15')"), "adult", "adding a date of birth decides it");
+    assert.equal(band(), "adult");
+  });
+
   test("a report reaches content addressed to the reporter across a block, and accounts despite one", () => {
     const post = photoPost(A, "Mention @ben.core");
     const comment = call(B, `public.fitx_social_add_comment('${post.id}', null, 'Rude comment')`);

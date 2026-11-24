@@ -1494,8 +1494,8 @@ group tables get only own-row read policies for now (a member's own messages, si
 badges); the challenge templates, the trash and the moderation record have no policy and no grant to members at all
 (service role and `security definer` functions only, section 6.1). Posts and comments get a moderation state
 (visible, limited or hidden); an active Explore sanction stops the member's own Explore use and hides their posts,
-comments and stories from everyone else; age bands come from the date of birth (else the age), and members without a
-date of birth can add one once, and a saved date of birth is then changed or cleared only by FITX support (the trigger
+comments and stories from everyone else; age bands come from the date of birth (without one a member is never an adult: the age entered only marks
+an under-13 or a teen, O1 (a)), and members without a date of birth can add one once, and a saved date of birth is then changed or cleared only by FITX support (the trigger
 `profiles_birth_date_locked` refuses a member's change; service role and the SQL editor may; a date a member adds from
 Profile after joining Explore is stamped for Admin like one from Explore settings); Admin's Explore switch (`platform_settings`) is enforced in the database, with
 deleting, blocking, reporting and settings kept open. Reports keep an evidence snapshot (removed 90 days after
@@ -1516,7 +1516,7 @@ Explore suspension, and a message request's notice only while the request waits.
 from now on (so `/explore/stories/new` is always the story composer); a member who already has it keeps it. A second
 run changes nothing. After it, #51's Check gives other numbers: use this one.
 
-md5 of the file (`md5 -q`): `4fb3a21631e1663d90d85584eff20cf5`. The session compares it with the file it sends before it runs it.
+md5 of the file (`md5 -q`): `ed9473c19c4a587f5201fb0a79710b4f`. The session compares it with the file it sends before it runs it.
 
 ```sql
 -- Check 20261124100000: expect 30, 30, 82, 0, 1, 44, 5, 9, 2, 1, 1

@@ -108,12 +108,18 @@ export class Standin {
 
   /**
    * An account that has finished onboarding, with the rows onboarding writes (profile, preferences, home
-   * equipment, a starting weigh-in). `introSeen` marks the one-time film as already played.
+   * equipment, a starting weigh-in). `introSeen` marks the one-time film as already played. Like onboarding, it saves a
+   * date of birth that gives `profile.age` (Explore's age rules read only the date: O1 (a)); pass
+   * `profile.date_of_birth` to choose one, or `null` for an account with no date of birth.
    */
   async createAccount({ name = "E2E Tester", tag = "user", profile = {}, prefs = {}, homeEquipment = ["dumbbell", "resistance_band", "bench"], introSeen = true } = {}) {
     const credentials = this.newCredentials(name, tag);
     const id = await this.signUp(credentials);
     const p = { age: 30, gender: "female", height: 165, weight: 72, target_weight: 66, ...profile };
+    // 40 days past the birthday, so the age the date gives is p.age (profiles.age follows the date of birth).
+    const birthDate = "date_of_birth" in profile
+      ? (profile.date_of_birth === null ? "null" : `${quote(profile.date_of_birth)}::date`)
+      : (p.age === null || p.age === undefined ? "null" : `((current_date - make_interval(years => ${Number(p.age)}))::date - 40)`);
     const q = {
       workout_location: "both", fitness_level: "intermediate", primary_goal: "fat_loss", workouts_per_week: 4,
       session_duration_minutes: 45, workout_split: "full_body", activity_level: "moderate", diet_type: "non_vegetarian",
@@ -121,7 +127,7 @@ export class Standin {
       equipment: homeEquipment, ...prefs,
     };
     await this.sql(`
-      update public.profiles set name = ${quote(name)}, age = ${Number(p.age)}, gender = ${quote(p.gender)}, height = ${Number(p.height)},
+      update public.profiles set name = ${quote(name)}, age = ${Number(p.age)}, date_of_birth = ${birthDate}, gender = ${quote(p.gender)}, height = ${Number(p.height)},
         weight = ${Number(p.weight)}, target_weight = ${p.target_weight === null ? "null" : Number(p.target_weight)}, onboarded = true,
         intro_completed_at = ${introSeen ? "now()" : "null"} where id = ${quote(id)};
       insert into public.user_preferences (user_id, workout_location, equipment, fitness_level, primary_goal, workouts_per_week, session_duration_minutes,
