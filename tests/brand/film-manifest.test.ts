@@ -174,6 +174,35 @@ test("budgets hold for every film file, all under public/brand/films, which hold
   assert.ok(2 * 10 * (BUDGET.hevc60 + BUDGET.avc30 + BUDGET.poster) + 2 * BUDGET.mix + BUDGET.sting <= BUDGET.total);
 });
 
+test("wave 1's cuts are gone with their folder, nothing asks for them, and the mixer's preview picture is S6's", async () => {
+  // Their folder and site path, built here so this file does not match its own search below.
+  const folder = ["public", "brand", "intro"].join("/");
+  const url = ["", "brand", "intro", ""].join("/");
+  assert.equal(existsSync(folder), false, `${folder} is deleted`);
+  // No app file, test or script names a file that was there (src/components/brand/intro is the film's source, which
+  // stays).
+  const pattern = `${folder}|(^|[^A-Za-z0-9_.-])${url}|fitx-intro-(dark|light)-`;
+  // What it finds, and what it leaves alone (the same expression in JavaScript and in git grep -E).
+  for (const line of [`url("${url}a.webp")`, `"${url}a.mp4"`, `path.join(REPO, "${folder}")`, `fitx-intro-${"light"}-portrait.webp`]) assert.match(line, new RegExp(pattern), line);
+  for (const line of ['from "@/components/brand/intro/timeline"', '"../../src/components/brand/intro/timeline.ts"', "/brand/films/intro/9f45eed7/a.webp"]) assert.doesNotMatch(line, new RegExp(pattern), line);
+  let hits = "";
+  try {
+    hits = execFileSync("git", ["grep", "-n", "-I", "-E", pattern, "--", "src", "tests", "scripts/*.mjs", "next.config.ts", "vercel.json"], { encoding: "utf8" });
+  } catch (error) {
+    // Exit status 1 is git grep's "no match"; anything else is a real failure.
+    if ((error as { status?: number }).status !== 1) throw error;
+  }
+  assert.equal(hits.trim(), "");
+  // mix.mjs --preview puts a film's shipped light cut under its timing strip when no --video is given.
+  const { shippedCut } = await import("../../scripts/brand/films/audio/mix.mjs");
+  for (const [film, manifest] of everyManifest()) {
+    const cut = manifest.cuts.find((entry) => entry.comp === "laptop" && entry.theme === "dark" && entry.rung === "avc30");
+    assert.ok(cut, `${film}: a laptop dark AVC 30 cut`);
+    assert.equal(shippedCut(film), path.resolve(publicFile(cut.src)), film);
+  }
+  assert.equal(shippedCut("intro", { intro: null, welcome: null }), null, "no cut, no picture: the timing strip alone");
+});
+
 test("each cut and poster is what the manifest says (ffprobe): codec, tag, size, frame rate and every frame", () => {
   // A file path relative to the checkout (its path can hold a space, "all files"). ffprobe is not on every machine:
   // without it this check is skipped and the sizes and hashes above still hold; any other failure fails the test.

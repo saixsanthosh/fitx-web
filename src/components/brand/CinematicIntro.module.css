@@ -62,7 +62,10 @@
 /*
  * The film's opening frame (the same picture as the video's first frame), from the first paint
  * (bootstrap "pending") until the film plays over it: the intro starts on the film, never on a logo.
- * The bootstrap preloads the matching file; theme comes from data-fitx-intro-theme.
+ * It is the poster of the composition being served, in the theme the film plays in: the head script, CinematicIntro
+ * and FilmVideo set --fitx-film-poster (with data-fitx-film-cut) from the manifest by the viewport's aspect, so a
+ * square window gets the tablet-l frame its cut has, and the head script preloads the same file. They set it before
+ * the poster shows; a film without a poster leaves the page colour.
  */
 .poster {
   position: absolute;
@@ -70,27 +73,12 @@
   inset: 0;
   display: none;
   background: var(--fitx-bg) center / cover no-repeat;
-  background-image: url("/brand/intro/fitx-intro-light-landscape.webp");
+  background-image: var(--fitx-film-poster, none);
 }
 
 :global(:root[data-fitx-intro="pending"]) .poster,
 .intro[data-intro-playback="loading"] .poster,
 .intro[data-intro-playback="three"] .poster { display: block; }
-
-:global(:root[data-fitx-intro-theme="dark"]) .poster { background-image: url("/brand/intro/fitx-intro-dark-landscape.webp"); }
-
-@media (orientation: portrait) {
-  .poster { background-image: url("/brand/intro/fitx-intro-light-portrait.webp"); }
-  :global(:root[data-fitx-intro-theme="dark"]) .poster { background-image: url("/brand/intro/fitx-intro-dark-portrait.webp"); }
-}
-
-/*
- * The poster of the composition being served: the head script, CinematicIntro and FilmVideo set --fitx-film-poster
- * from the manifest by the viewport's aspect, so a square window gets the landscape frame its cut has. The
- * orientation rules above are only the fallback before any film has been opened.
- */
-:global(:root[data-fitx-film-cut]) .poster,
-:global(:root[data-fitx-film-cut][data-fitx-intro-theme="dark"]) .poster { background-image: var(--fitx-film-poster); }
 
 /*
  * The scope matte (BRIEF-2 3.1): on a screen wider than 2.20:1 served the desktop composition, the cut keeps a centred

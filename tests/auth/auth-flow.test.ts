@@ -14,6 +14,7 @@ const callback = await import("@/app/auth/callback/route");
 const sessionRoute = await import("@/app/api/auth/session/route");
 const introRoute = await import("@/app/api/intro/complete/route");
 const { unstable_doesMiddlewareMatch } = await import("next/experimental/testing/server.js");
+const { FILM_MANIFESTS, RETURN_STING } = await import("@/components/brand/films/cuts.generated");
 
 const ONBOARDED = { id: "11111111-1111-4111-8111-111111111111", email: "done@example.test" };
 const NEWCOMER = { id: "22222222-2222-4222-8222-222222222222", email: "new@example.test" };
@@ -55,12 +56,19 @@ beforeEach(() => fake.reset());
 after(() => fake.stop());
 
 describe("proxy", () => {
-  test("matches pages but not assets, API routes, the film or the pose runtime", async () => {
+  test("matches pages but not assets, API routes, the films or the pose runtime", async () => {
     for (const url of ["/", "/dashboard", "/signin", "/workouts/active", "/activity/record", "/form-coach", "/help"]) {
       assert.equal(unstable_doesMiddlewareMatch({ config, url }), true, url);
     }
+    // The films' files (S6's cuts, posters and sound under /brand/films/; .m4a is not an extension the matcher lists).
+    const films = [
+      ...Object.values(FILM_MANIFESTS).flatMap((manifest) => (manifest ? [manifest.cuts[0].src, manifest.posters["phone-dark"] ?? "", manifest.audio?.src ?? ""] : [])),
+      RETURN_STING?.src ?? "",
+    ];
+    assert.deepEqual(films.filter((src) => !src.startsWith("/brand/films/")), [], "every film file is under /brand/films/");
     for (const url of [
-      "/api/foods/search", "/brand/intro/fitx-intro-light-portrait-60.mp4", "/manifest.webmanifest", "/_next/static/chunks/a.js", "/icon.svg",
+      ...films,
+      "/api/foods/search", "/manifest.webmanifest", "/_next/static/chunks/a.js", "/icon.svg",
       // The camera form coach's self-hosted MediaPipe runtime (11 MB) and models skip the session check.
       "/models/pose/wasm-0.10.35/vision_wasm_internal.js", "/models/pose/wasm-0.10.35/vision_wasm_internal.wasm",
       "/models/pose/landmarker-float16-v1/pose_landmarker_lite.task",

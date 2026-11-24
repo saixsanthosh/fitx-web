@@ -25,7 +25,8 @@ mixes ship, and only S6 commits them.
 worktrees/heavy.sh node scripts/brand/films/audio/analyse.mjs --check
 
 # Preview mixes for the owner (to .alteration/audio/previews/): intro.m4a, welcome.m4a, sting.m4a, a *-preview.mp4 for
-# each (the film's picture when one exists, with a timing strip under it) and summary.json:
+# each (--video's picture, else the film's shipped laptop dark AVC 30 cut from cuts.generated.ts, with a timing strip
+# under it; the sting has the strip alone) and summary.json:
 worktrees/heavy.sh node scripts/brand/films/audio/mix.mjs --preview --intro-duration=12.6 \
   [--video=intro=<2 fps preview.mp4>] [--video=welcome=<animatic.mp4>]
 

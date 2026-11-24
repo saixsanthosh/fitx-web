@@ -145,10 +145,11 @@ budgets in `lib/encoders.mjs` are decimal bytes, the caps `tests/brand/film-mani
   served band's real edges, shrunk 9% a side) and outside the zones. Shots report "no subjects() yet" until film-intro
   and film-welcome add `ShotModule.subjects`.
 
-## The shipped cuts' settings (recovered for gate A)
+## Wave 1's cuts' settings (recovered for gate A)
 
-Read on 2026-11-23 from `public/brand/intro/*` with ffprobe and the encoders' SEI strings (all through libavcodec
-62.28.101 / libavformat 62.12.101):
+Read on 2026-11-23 from wave 1's 16 cut and poster files (then in `public/brand/intro/`, deleted in release 2b when
+S6's cuts in `public/brand/films/` replaced them; `git show 71d75b9:<path>` brings one back) with ffprobe and the
+encoders' SEI strings (all through libavcodec 62.28.101 / libavformat 62.12.101):
 
 - **HEVC 60** (`-60.hevc.mp4`): 1920×1080 (portrait 1080×1920), 715 frames, 60/1, 11.917 s, Main, level 4.1 high tier,
   `hvc1`; x265 4.2 with the **medium** preset's analysis (`rd=3 subme=2 me=1 ref=3 rc-lookahead=20`), `crf=29`,
@@ -169,14 +170,15 @@ Read on 2026-11-23 from `public/brand/intro/*` with ffprobe and the encoders' SE
 
 ## Gate A
 
-Re-render today's film (11.9 s, 715 frames) at 1920×1080, dark, through the lab, and compare with the shipped
-`fitx-intro-dark-landscape-60.hevc.mp4` (BRIEF-2 1.2):
+Re-render wave 1's film (11.9 s, 715 frames) at 1920×1080, dark, through the lab, and compare with wave 1's
+`fitx-intro-dark-landscape-60.hevc.mp4` (BRIEF-2 1.2). Gate A passed on 2026-11-23 (BRIEF-2 D10). To run it again,
+restore that cut first (`git show 71d75b9:public/brand/intro/fitx-intro-dark-landscape-60.hevc.mp4 > $R/wave1-dark.mp4`):
 
 ```sh
 heavy.sh node scripts/brand/films/render.mjs --job=intro --comp=laptop --theme=dark --frames=0-714 --rev=gate-a-v1
 heavy.sh node scripts/brand/films/encode.mjs --master=$R/intro/gate-a-v1/laptop-dark/master.mkv --legacy
 heavy.sh node scripts/brand/films/verify.mjs --compare=$R/intro/gate-a-v1/laptop-dark/laptop-dark-legacy-hevc60.mp4 \
-  --a-matrix=bt601 --against=public/brand/intro/fitx-intro-dark-landscape-60.hevc.mp4 --b-matrix=bt601
+  --a-matrix=bt601 --against=$R/wave1-dark.mp4 --b-matrix=bt601
 heavy.sh node scripts/brand/films/render.mjs --job=intro --comp=laptop --theme=dark --rev=gate-a-det --pick=<24 frames>
 heavy.sh node scripts/brand/films/verify.mjs --determinism=$R/intro/gate-a-det/laptop-dark/master.mkv \
   --against=$R/intro/gate-a-v1/laptop-dark/master.mkv --pick=<the same 24 frames>

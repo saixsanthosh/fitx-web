@@ -266,7 +266,7 @@ export function FilmVideo({ film, theme, onStage, onHold, onEnd, onUnsupported, 
         comp = next;
         markComposition(manifest, filmTheme, next);
         report();
-        // The seed's portrait (and landscape) compositions share one file: nothing to swap.
+        // Two compositions served by one file (a manifest may share one; S6's never do): nothing to swap.
         if (cut.src === current.src) return;
         const at = video.currentTime;
         load(cut, at);

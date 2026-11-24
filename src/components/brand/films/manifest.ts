@@ -4,8 +4,8 @@ import { FIXTURE_MANIFESTS, FIXTURE_STING, fixtureRequested } from "./fixture";
 
 /**
  * The encoded films (BRIEF-2 3.1): which cut a browser plays for a film, a theme and a composition, and its poster.
- * The data is `cuts.generated.ts` (S6 regenerates it from encode.mjs and mix.mjs; until then it points at today's
- * cuts in public/brand/intro). Pure apart from `activeManifests()`, which reads the page's cookies.
+ * The data is `cuts.generated.ts`, which S6 writes from encode.mjs and mix.mjs (its files are under
+ * public/brand/films/<film>/<rev8>/). Pure apart from `activeManifests()`, which reads the page's cookies.
  */
 
 /** "hevc60": the full-size 60 fps rung (HEVC first). "avc30": the light rung, 30 fps H.264 at 0.75× the size. */

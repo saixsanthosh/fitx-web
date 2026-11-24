@@ -1,7 +1,8 @@
-// Encoder settings (BRIEF-2 3.2) and the settings the shipped cuts were made with (recovered for gate A from the
-// encoder SEI strings and ffprobe; README.md lists them). Pure: these build ffmpeg argument lists, nothing runs here.
+// Encoder settings (BRIEF-2 3.2) and the settings wave 1's cuts were made with (recovered for gate A from the
+// encoder SEI strings and ffprobe; README.md lists them; those cuts were deleted in release 2b, when S6's replaced
+// them). Pure: these build ffmpeg argument lists, nothing runs here.
 
-/** The colour tags every new file carries (today's cuts are untagged, except HEVC's range). */
+/** The colour tags every new file carries (wave 1's cuts were untagged, except HEVC's range). */
 export const BT709_TV = Object.freeze(["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]);
 
 /** The 0.75× AVC 30 sizes per composition. */
@@ -34,7 +35,7 @@ export const ENCODER = Object.freeze({
 export const BUDGET = Object.freeze({ hevc60: 3_400_000, avc30: 1_600_000, poster: 50_000 });
 
 /**
- * The shipped cuts' settings, exactly as their SEI strings say (x265 4.2 / x264 core 165, through ffmpeg's libavcodec
+ * Wave 1's cuts' settings, exactly as their SEI strings say (x265 4.2 / x264 core 165, through ffmpeg's libavcodec
  * 62.28.101). Masters were converted from RGB without a colour matrix, so ffmpeg's default (BT.601, limited range)
  * applied, and nothing was tagged except HEVC's range.
  */

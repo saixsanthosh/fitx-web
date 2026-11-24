@@ -55,9 +55,16 @@ import { stingSheet } from "./sting.cues.mjs";
 import { WELCOME_SEATS, welcomeSheet } from "./welcome.cues.mjs";
 import { SHOTS } from "../../../../src/components/brand/intro/timeline.ts";
 import { WELCOME_SHOTS } from "../../../../src/components/brand/intro/films/welcome/timeline.ts";
+import { FILM_MANIFESTS } from "../../../../src/components/brand/films/cuts.generated.ts";
 
 const PUBLIC_FILMS = path.join(REPO, "public", "brand", "films");
-const SHIPPED_INTRO_CUT = path.join(REPO, "public", "brand", "intro", "fitx-intro-dark-landscape-30.mp4");
+
+/** A film's shipped light cut (laptop, dark, AVC 30, from cuts.generated.ts): a preview's picture when no --video is given. */
+export function shippedCut(film, manifests = FILM_MANIFESTS) {
+  const cut = manifests[film]?.cuts.find((entry) => entry.comp === "laptop" && entry.theme === "dark" && entry.rung === "avc30");
+  const file = cut ? path.join(REPO, "public", cut.src) : null;
+  return file && existsSync(file) ? file : null;
+}
 
 const r = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 
@@ -296,7 +303,7 @@ function main() {
       mkdirSync(path.dirname(output), { recursive: true });
       const result = mixSheet(sheet, sources, work, output);
       if (!final) {
-        const video = args.video?.[sheet.film] ?? (sheet.film === "intro" && existsSync(SHIPPED_INTRO_CUT) ? SHIPPED_INTRO_CUT : null);
+        const video = args.video?.[sheet.film] ?? (sheet.film === "sting" ? null : shippedCut(sheet.film));
         const previewFile = path.join(out, `${sheet.film}-preview.mp4`);
         previewVideo({ audioFile: output, sheet, shots: shotsFor(sheet), video, output: previewFile, work });
         result.preview = { file: previewFile, picture: video ? path.relative(REPO, video).startsWith("..") ? video : path.relative(REPO, video) : "timing strip only" };
