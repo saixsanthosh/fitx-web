@@ -8,7 +8,7 @@ run every command through `worktrees/heavy.sh`, never in the browser lane. Node 
 | --- | --- |
 | `sources.json` | The six owner-approved Pixabay originals: file, size, SHA-256, length and the measured **anchor** (the moment a cue lines up with the film). |
 | `intro.cues.mjs` | The intro's cues, from `STAGE_START`, `SHOTS`, `FILM_DURATION` and the mark's CSS plate timing. |
-| `welcome.cues.mjs` | The welcome film's cues, from the welcome timeline (`WELCOME_STAGE_START`). |
+| `welcome.cues.mjs` | The welcome film's cues, from the welcome timeline (`WELCOME_DURATION`, `WELCOME_BEATS`). |
 | `sting.cues.mjs` | The returning-reveal sting: 1.2 s of impact #6. |
 | `lib.mjs` | Pure helpers: spans, validation, the ffmpeg graph, meter parsing, onset scan. |
 | `io.mjs`, `sources.mjs` | Source checks against `.alteration/audio/CREDITS.md`, ffmpeg calls. |
@@ -56,7 +56,9 @@ Other options: `--films=intro,welcome,sting`, `--audio-dir=<.alteration/audio>`,
 
 - Intro: the plate seating in `3a-plate` and the bar meeting the platform in `3d-drop` default to 5.38 s and 7.30 s.
   When film-intro exports `INTRO_SOUND_ACCENTS = { plateSeat, barDrop }` from `intro/timeline.ts`, those win.
-- Welcome: the three plates seat on the loading shots' cuts (3.6, 4.88, 6.91 s). When film-welcome exports
-  `WELCOME_PLATE_SEATS` (three film times) from its `timeline.ts`, those win.
+- Welcome: the plate sounds sit on the beats the loading shots play, imported from `WELCOME_BEATS` in the welcome
+  `timeline.ts` (each a measured hit of score #5): #3's clang where each plate meets the stack (`plateSeat`: 2.4, 4.48
+  and 5.86 s), and #4, Dre's lock, on his plate's after-tap (`settle[2]`: 6.12 s), so his slide leads the lock by
+  0.26 s. Maya's and Leo's after-taps (`settle` 3.6 and 4.71 s) have no cue.
 - The film-end plates follow `.fitx-mark__piece--plate-N` in `src/app/globals.css`; `tests/brand/film-cues.test.ts`
   fails if the CSS and `REVEAL_PLATES` drift apart.
