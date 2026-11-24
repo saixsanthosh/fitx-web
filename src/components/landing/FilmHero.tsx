@@ -6,7 +6,7 @@ import { ArrowRight, Pause, Play } from "lucide-react";
 import { useInView } from "framer-motion";
 import { useReducedMotionSafe, usePageVisible } from "@/components/motion";
 import { IntroReplayControl } from "@/components/brand/IntroReplayControl";
-import { CHAPTERS, POSTER_SECONDS, afterLoadAndIdle, chapterAt, chapterProgress, reelAllowed, reelSource, shapeFor, type FilmShape } from "./film";
+import { CHAPTERS, INTRO_COVER_ATTR, POSTER_SECONDS, afterLoadAndIdle, chapterAt, chapterProgress, introCovers, reelAllowed, reelSource, shapeFor, whenIntroReleased, type FilmShape } from "./film";
 import { useSiteTheme } from "./useSiteTheme";
 import styles from "./landing.module.css";
 
@@ -17,6 +17,12 @@ function subscribeShape(onChange: () => void) {
   return () => window.removeEventListener("resize", onChange);
 }
 const readShape = (): FilmShape => shapeFor(window.innerWidth, window.innerHeight);
+function subscribeIntro(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: [INTRO_COVER_ATTR] });
+  return () => observer.disconnect();
+}
+const readIntroCovers = () => introCovers(document.documentElement);
 
 /**
  * The opening frame: FITX's own film, from the sprint start to the team walk, playing muted behind the headline.
@@ -25,7 +31,9 @@ const readShape = (): FilmShape => shapeFor(window.innerWidth, window.innerHeigh
  * is a plain list. The film stops while it is off screen or the tab is hidden, and has its own pause control.
  * The still comes first: the reel is fetched only after the page's `load` event and an idle moment (film.ts
  * afterLoadAndIdle), so it never competes with the first screen, and only once the real viewport is known, so a phone
- * fetches only the phone cut. The still is the reel POSTER_SECONDS in, and the reel starts playing there.
+ * fetches only the phone cut. The still is the reel POSTER_SECONDS in, and the reel starts playing there. While a film
+ * covers the page (`<html data-fitx-intro>`: the visitor's intro on a first visit, or Replay) the reel is neither
+ * fetched nor played: nobody sees it, and the intro needs the bandwidth (film.ts whenIntroReleased).
  */
 export function FilmHero() {
   const reduced = useReducedMotionSafe();
@@ -33,6 +41,8 @@ export function FilmHero() {
   const theme = useSiteTheme();
   const shape = useSyncExternalStore(subscribeShape, readShape, () => "landscape" as FilmShape);
   const visible = usePageVisible();
+  // A film over the page (the visitor's intro on a first visit, or Replay): nobody sees the reel under it.
+  const covered = useSyncExternalStore(subscribeIntro, readIntroCovers, () => false);
   const root = useRef<HTMLElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const rail = useRef<HTMLOListElement>(null);
@@ -48,11 +58,19 @@ export function FilmHero() {
   const live = allowed && theme !== null;
   const source = settled && theme && allowed ? reelSource(theme, shape) : null;
 
+  // The reel is fetched only once the intro has given the page back (the page itself has loaded by then, usually).
   useEffect(() => {
     if (!allowed) return;
-    return afterLoadAndIdle(window, () => setSettled(true));
+    let stopIdle = () => {};
+    const stopWaiting = whenIntroReleased(document.documentElement, () => {
+      stopIdle = afterLoadAndIdle(window, () => setSettled(true));
+    });
+    return () => {
+      stopWaiting();
+      stopIdle();
+    };
   }, [allowed]);
-  const shouldPlay = allowed && !paused && visible && inView;
+  const shouldPlay = allowed && !paused && visible && inView && !covered;
 
   // Swap the file when the theme or the shape changes, keeping the place in the film.
   useEffect(() => {

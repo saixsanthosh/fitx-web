@@ -1,5 +1,5 @@
 // Flow 14: the public home page, four screens. The film's still comes first and the reel loads only after the page
-// has loaded (the phone cut on phones); the film plays behind the headline and its chapter rail jumps the film; the capability deck moves on by itself, holds still under keyboard focus, pauses and plays, answers tabs, arrow
+// has loaded and the first visit's intro film has given the page back (the phone cut on phones); the film plays behind the headline and its chapter rail jumps the film; the capability deck moves on by itself, holds still under keyboard focus, pauses and plays, answers tabs, arrow
 // keys and the idli stepper, and shows its seventh (Explore) card; the idea and the
 // contact cards show; on wide screens the Form Check card fills its left side (the photo's own colours and the knee-angle
 // trace); nothing scrolls sideways and the page stays short; with reduced motion nothing moves (no film,
@@ -50,6 +50,15 @@ export const flow = {
 
     await t.step("the page opens with the film behind the headline and no sideways scroll", async () => {
       await t.goto("/", { label: "home" });
+      // A first visit plays the intro film over the page. The reel under it is seen by nobody, so it waits for the
+      // film to give the page back, even once the page has loaded and had its idle moment (which alone opens it).
+      await page.waitForFunction(() => {
+        const nav = performance.getEntriesByType("navigation")[0];
+        return !document.documentElement.hasAttribute("data-fitx-intro") || (nav?.loadEventEnd > 0 && performance.now() > nav.loadEventEnd + 3000);
+      }, null, { timeout: 15000 });
+      const underIntro = { covered: await page.evaluate(() => document.documentElement.hasAttribute("data-fitx-intro")), ...(await reelTiming(page)) };
+      t.note("while the intro covers the page", underIntro);
+      if (underIntro.covered) t.expect(underIntro.reels.length === 0 && underIntro.shape === null, "the reel is not fetched while the intro film covers the page", underIntro);
       await skipFilmIfShown(t);
       const title = await textOf(page.getByRole("heading", { level: 1 }));
       t.expect(/Train smart\.\s*Live fit\./.test(title), `hero title: ${title}`);
@@ -69,6 +78,8 @@ export const flow = {
       const timing = await reelTiming(page);
       t.note("reel timing", timing);
       t.expect(timing.loadEnd !== null && timing.reels.length > 0 && timing.reels.every((reel) => reel.start >= timing.loadEnd), "the reel is fetched only after the page has loaded (the still comes first)", timing);
+      const released = (await t.rootLog()).filter((entry) => entry.name === "data-fitx-intro" && entry.value === null).at(-1)?.t ?? null;
+      if (underIntro.covered) t.expect(released !== null && timing.reels.every((reel) => reel.start >= released), "and only after the intro gave the page back", { released, timing });
       const cut = size === "phone" ? "portrait" : "landscape";
       t.expect(timing.shape === cut && timing.reels.every((reel) => reel.file.includes(cut)), `this screen gets the ${cut} cut only`, timing);
       await fadesSettled(page);

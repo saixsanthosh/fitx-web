@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { POSTER_SECONDS, REEL_IDLE_TIMEOUT_MS, REEL_SECONDS, afterLoadAndIdle, chapterAt, chapterProgress, posterSource, reelSource, shapeFor, type ReelWindow } from "@/components/landing/film";
+import { INTRO_COVER_ATTR, POSTER_SECONDS, REEL_IDLE_TIMEOUT_MS, REEL_SECONDS, afterLoadAndIdle, chapterAt, chapterProgress, introCovers, posterSource, reelSource, shapeFor, whenIntroReleased, type ReelWindow } from "@/components/landing/film";
 import { JOBS } from "../../scripts/brand/films/lib/plan.mjs";
 
 const ROOT = new URL("../../", import.meta.url);
@@ -130,9 +130,69 @@ test("the reel starts on the still's own frame, so the fade from the still never
   assert.match(hero, /startAt\.current = CHAPTERS\[index\]\.start \+ 0\.01;/);
 });
 
+/** `<html>` as the reel's gate reads it, and a MutationObserver stand-in that the test fires by hand. */
+function fakeRoot(covered: boolean) {
+  let attribute = covered;
+  const observers: Array<{ callback: () => void; watching: boolean; filter: string[] }> = [];
+  class Watch {
+    callback: () => void;
+    constructor(callback: () => void) {
+      this.callback = callback;
+    }
+    observe(_target: unknown, options: { attributeFilter: string[] }) {
+      observers.push({ callback: this.callback, watching: true, filter: options.attributeFilter });
+    }
+    disconnect() {
+      for (const entry of observers) if (entry.callback === this.callback) entry.watching = false;
+    }
+  }
+  const root = { hasAttribute: (name: string) => name === INTRO_COVER_ATTR && attribute };
+  const set = (value: boolean) => {
+    attribute = value;
+    for (const entry of [...observers]) if (entry.watching) entry.callback();
+  };
+  return { root: root as unknown as Element, Watch: Watch as unknown as typeof MutationObserver, observers, set };
+}
+
+test("while a film covers the page (the visitor's intro, a Replay), the reel waits: it starts once the page is given back", () => {
+  assert.equal(INTRO_COVER_ATTR, "data-fitx-intro");
+  // No film: at once, nothing watched.
+  const free = fakeRoot(false);
+  let started = 0;
+  whenIntroReleased(free.root, () => { started += 1; }, free.Watch);
+  assert.equal(started, 1);
+  assert.equal(free.observers.length, 0);
+  // The intro covers the page: nothing until its attribute goes (pending → active is still covered).
+  const covered = fakeRoot(true);
+  let later = 0;
+  whenIntroReleased(covered.root, () => { later += 1; }, covered.Watch);
+  assert.equal(later, 0);
+  assert.deepEqual(covered.observers.map((entry) => entry.filter), [[INTRO_COVER_ATTR]]);
+  covered.set(true);
+  assert.equal(later, 0, "still covered");
+  covered.set(false);
+  assert.equal(later, 1, "given back: the reel's own gate (load and idle) runs now");
+  covered.set(true);
+  covered.set(false);
+  assert.equal(later, 1, "once only");
+  assert.equal(covered.observers[0].watching, false, "and it stops watching");
+  // Cancelled first (the hero unmounts): never.
+  const gone = fakeRoot(true);
+  let never = 0;
+  const cancel = whenIntroReleased(gone.root, () => { never += 1; }, gone.Watch);
+  cancel();
+  gone.set(false);
+  assert.equal(never, 0);
+  assert.equal(introCovers(fakeRoot(true).root), true);
+});
+
 test("the hero mounts its video only once the gate opened, so the first screen never fetches the reel", () => {
   const hero = readFileSync(new URL("src/components/landing/FilmHero.tsx", ROOT), "utf8");
-  assert.match(hero, /return afterLoadAndIdle\(window, \(\) => setSettled\(true\)\);/);
+  // Only once no film covers the page, then after load and an idle moment; and it never plays under a film (Replay).
+  assert.match(hero, /const stopWaiting = whenIntroReleased\(document\.documentElement, \(\) => \{\s*stopIdle = afterLoadAndIdle\(window, \(\) => setSettled\(true\)\);\s*\}\);/);
+  assert.match(hero, /return \(\) => \{\s*stopWaiting\(\);\s*stopIdle\(\);\s*\};/);
+  assert.match(hero, /const covered = useSyncExternalStore\(subscribeIntro, readIntroCovers, \(\) => false\);/);
+  assert.match(hero, /const shouldPlay = allowed && !paused && visible && inView && !covered;/);
   assert.match(hero, /const source = settled && theme && allowed \? reelSource\(theme, shape\) : null;/);
   assert.match(hero, /\{source && \(\s*<video/);
   assert.match(hero, /data-film=\{filmState\}/);

@@ -86,6 +86,42 @@ export function reelAllowed({ reducedMotion, saveData }: { reducedMotion: boolea
   return !reducedMotion && !saveData;
 }
 
+/**
+ * `<html data-fitx-intro>`: a film covers the page (the head script marks it "pending" before the first paint, and
+ * CinematicIntro "active" while one plays, a Replay included). Nothing of the reel shows under it, so the reel waits.
+ */
+export const INTRO_COVER_ATTR = "data-fitx-intro";
+
+/** Whether a film covers the page now. */
+export function introCovers(root: Pick<Element, "hasAttribute">): boolean {
+  return root.hasAttribute(INTRO_COVER_ATTR);
+}
+
+/**
+ * Calls `start` once no film covers the page: at once when none does, else when the intro gives the page back (the
+ * attribute goes). On a first visit to / the intro film streams for 12.6 s over the hero, and the reel under it is
+ * seen by nobody, so it must not take a phone's bandwidth from the film. Returns a cancel function; after it, `start`
+ * is never called.
+ */
+export function whenIntroReleased(root: Element, start: () => void, Watch: typeof MutationObserver = MutationObserver): () => void {
+  if (!introCovers(root)) {
+    start();
+    return () => undefined;
+  }
+  let done = false;
+  const watcher = new Watch(() => {
+    if (done || introCovers(root)) return;
+    done = true;
+    watcher.disconnect();
+    start();
+  });
+  watcher.observe(root, { attributes: true, attributeFilter: [INTRO_COVER_ATTR] });
+  return () => {
+    done = true;
+    watcher.disconnect();
+  };
+}
+
 /** Longest wait for an idle moment once the page has loaded, in ms. */
 export const REEL_IDLE_TIMEOUT_MS = 2500;
 
