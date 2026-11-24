@@ -751,6 +751,34 @@ describe("privacy page", () => {
     assert.match(kept, /<li><strong>fitx-film-sound<\/strong> \(local storage\): whether you last turned the FITX films’ sound on or off, [^<]* It holds only “on” or “off” and stays until you change it or clear this site’s data\.<\/li>/);
     assert.match(kept, /<li><strong>fitx-film-seen<\/strong> \(local storage\): when the welcome film started on this device after you set up FITX, as a date and time\. For 7 days after that, [^<]* After that it is no longer used, but it stays until you clear this site’s data\.<\/li>/);
   });
+
+  test("release 2b: fitx_intro is the account's one-time welcome film on this device, as the code sets and reads it", async () => {
+    // The cookie, and how long a pending "play" lives (src/lib/auth/cookies.ts).
+    const { INTRO_COOKIE, INTRO_PLAY_MAX_AGE } = await import("@/lib/auth/cookies");
+    assert.equal(INTRO_COOKIE, "fitx_intro");
+    assert.equal(INTRO_PLAY_MAX_AGE, 24 * 60 * 60, "a pending play lasts a day");
+    // "play" from the account at sign-in (and from the proxy, once per device and account); "seen" once the film starts.
+    assert.match(read("src/lib/auth/post-sign-in.ts"), /const intro: IntroState = result\.error \|\| !introColumn \|\| row\?\.intro_completed_at \? "seen" : "play";/);
+    assert.match(read("src/proxy.ts"), /const intro = introMissing \|\| row\?\.intro_completed_at \? "seen" : "play";/);
+    assert.match(read("src/app/api/intro/complete/route.ts"), /response\.cookies\.set\(INTRO_COOKIE, "seen"/);
+    // The head script: a "play" opens the account's film, the welcome film once its cuts exist (D1), and is "seen" at
+    // once; with "seen" a page load shows the short brand loader.
+    const head = read("src/components/brand/introBootstrap.ts");
+    assert.match(head, /if \(here\.app && cookie\("fitx_intro"\) === "play" && !seenRecently\(\)\) return "account";/);
+    assert.match(head, /\(gate === "account" && films\.welcome\) \? "welcome" : "intro"/);
+    assert.match(head, /if \(gate === "account"\) \{\s*document\.cookie = "fitx_intro=seen;/);
+    assert.match(head, /if \(still\(\) \|\| intro !== "seen" \|\| here\.focus\) return;\s*root\.setAttribute\("data-fitx-loader", "on"\);/);
+
+    const cookies = read("src/app/(marketing)/cookies/page.tsx");
+    const own = cookies.match(/<h2>FITX’s own cookies<\/h2>([\s\S]*?)<\/section>/)?.[1] ?? "";
+    const intro = own.match(/<li><strong>fitx_intro<\/strong>: ([^<]*)<\/li>/)?.[1] ?? "";
+    assert.match(intro, /^whether this device still has to play your account’s one-time welcome film\. /);
+    assert.match(intro, /\bIt says “play” when you sign in, or on the first page you open on a device that was already signed in, while your account has not seen the film \(a pending “play” lasts a day\)/);
+    assert.match(intro, /\band “seen” once the film starts here or if your account has already seen it\. /);
+    assert.match(intro, /\bWith “seen”, pages show the short FITX loader while they open\.$/);
+    assert.match(section("Analytics and storage"), /\bone for your account’s one-time welcome film\b/);
+    assert.doesNotMatch(own + section("Analytics and storage"), /\bintro film\b/, "the account's film is the welcome film now");
+  });
 });
 
 describe("privacy wording elsewhere", () => {
