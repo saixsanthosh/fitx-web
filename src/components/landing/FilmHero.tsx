@@ -6,7 +6,7 @@ import { ArrowRight, Pause, Play } from "lucide-react";
 import { useInView } from "framer-motion";
 import { useReducedMotionSafe, usePageVisible } from "@/components/motion";
 import { IntroReplayControl } from "@/components/brand/IntroReplayControl";
-import { CHAPTERS, afterLoadAndIdle, chapterAt, chapterProgress, reelAllowed, reelSource, shapeFor, type FilmShape } from "./film";
+import { CHAPTERS, POSTER_SECONDS, afterLoadAndIdle, chapterAt, chapterProgress, reelAllowed, reelSource, shapeFor, type FilmShape } from "./film";
 import { useSiteTheme } from "./useSiteTheme";
 import styles from "./landing.module.css";
 
@@ -25,7 +25,7 @@ const readShape = (): FilmShape => shapeFor(window.innerWidth, window.innerHeigh
  * is a plain list. The film stops while it is off screen or the tab is hidden, and has its own pause control.
  * The still comes first: the reel is fetched only after the page's `load` event and an idle moment (film.ts
  * afterLoadAndIdle), so it never competes with the first screen, and only once the real viewport is known, so a phone
- * fetches only the phone cut.
+ * fetches only the phone cut. The still is the reel POSTER_SECONDS in, and the reel starts playing there.
  */
 export function FilmHero() {
   const reduced = useReducedMotionSafe();
@@ -41,8 +41,9 @@ export function FilmHero() {
   const [chapter, setChapter] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [settled, setSettled] = useState(false);
-  // A chapter chosen before the reel has loaded: the reel starts there.
-  const startAt = useRef(0);
+  // Where the reel starts: on the still's own frame, so the fade-in never jumps the film back; a chapter chosen
+  // before the reel has loaded replaces it.
+  const startAt = useRef(POSTER_SECONDS);
   const allowed = reelAllowed({ reducedMotion: reduced, saveData });
   const live = allowed && theme !== null;
   const source = settled && theme && allowed ? reelSource(theme, shape) : null;

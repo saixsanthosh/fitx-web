@@ -63,12 +63,19 @@ export function reelSource(theme: FilmTheme, shape: FilmShape): string {
 }
 
 /**
- * The still shown first and kept with reduced motion or Save-Data: the same cut 0.75 s in (film time 2.05 s, the
- * film lab's `landing-reel` job), not its frame 0.
+ * The still shown first and kept with reduced motion or Save-Data: the same cut `POSTER_SECONDS` in (film time
+ * 2.05 s, the film lab's `landing-reel` job), not its frame 0.
  */
 export function posterSource(theme: FilmTheme, shape: FilmShape): string {
   return `/media/landing-film/poster-${theme}-${shape}.webp`;
 }
+
+/**
+ * Reel seconds of the still: the `landing-reel` job takes both posters at film time 2.05 s, and the reel starts at
+ * film time 1.3 s. The reel starts playing here (FilmHero), so its fade-in dissolves the still into the same frame
+ * instead of rewinding the sprint to its start; the loop then runs from 0.
+ */
+export const POSTER_SECONDS = 0.75;
 
 export function shapeFor(width: number, height: number): FilmShape {
   return height > 0 && width / height < 0.9 ? "portrait" : "landscape";

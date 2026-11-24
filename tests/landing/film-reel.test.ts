@@ -1,11 +1,12 @@
-// The hero reel's start-up: the still first, the reel only after the page's load event and an idle moment, and the
-// phone cut on phones.
+// The hero reel's start-up: the still first, the reel only after the page's load event and an idle moment, the
+// phone cut on phones, and the reel starting on the still's own frame.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { REEL_IDLE_TIMEOUT_MS, afterLoadAndIdle, posterSource, reelSource, shapeFor, type ReelWindow } from "@/components/landing/film";
+import { POSTER_SECONDS, REEL_IDLE_TIMEOUT_MS, REEL_SECONDS, afterLoadAndIdle, chapterAt, chapterProgress, posterSource, reelSource, shapeFor, type ReelWindow } from "@/components/landing/film";
+import { JOBS } from "../../scripts/brand/films/lib/plan.mjs";
 
 const ROOT = new URL("../../", import.meta.url);
 
@@ -108,6 +109,25 @@ test("phones get the 30 fps phone cut (540 × 960), wider screens the landscape 
       if (facts !== null) assert.equal(facts, expected, `${theme} ${shape}`);
     }
   }
+});
+
+test("the reel starts on the still's own frame, so the fade from the still never jumps the sprint back", () => {
+  // The posters are the reel's frame at the film lab's still time (the reel starts at its `from`, film time 1.3 s).
+  const reel = JOBS["landing-reel"];
+  for (const id of ["poster-landscape", "poster-portrait"] as const) {
+    assert.ok(Math.abs(reel.stills[id].time - reel.from - POSTER_SECONDS) < 1e-9, `${id}: film ${reel.stills[id].time} s is reel ${POSTER_SECONDS} s`);
+  }
+  assert.ok(POSTER_SECONDS > 0 && POSTER_SECONDS < REEL_SECONDS);
+  assert.equal(chapterAt(POSTER_SECONDS), 0, "the rail opens in Run");
+  assert.ok(Math.abs(chapterProgress(0, POSTER_SECONDS) - 0.75 / 2.2) < 1e-9, "a third of the way through it, where the film is");
+  // The hero's first source seeks there on loadedmetadata (before the first frame is painted); a chapter chosen
+  // before the reel has loaded replaces it, and a theme or shape swap keeps the place the film has reached.
+  const hero = readFileSync(new URL("src/components/landing/FilmHero.tsx", ROOT), "utf8");
+  assert.match(hero, /const startAt = useRef\(POSTER_SECONDS\);/);
+  assert.match(hero, /const at = element\.currentTime \|\| startAt\.current;/);
+  assert.match(hero, /if \(at\) element\.currentTime = at;/);
+  assert.match(hero, /element\.addEventListener\("loadedmetadata", resume, \{ once: true \}\);/);
+  assert.match(hero, /startAt\.current = CHAPTERS\[index\]\.start \+ 0\.01;/);
 });
 
 test("the hero mounts its video only once the gate opened, so the first screen never fetches the reel", () => {

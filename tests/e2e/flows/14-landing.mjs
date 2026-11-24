@@ -3,8 +3,13 @@
 // keys and the idli stepper, and shows its seventh (Explore) card; the idea and the
 // contact cards show; on wide screens the Form Check card fills its left side (the photo's own colours and the knee-angle
 // trace); nothing scrolls sideways and the page stays short; with reduced motion nothing moves (no film,
-// no auto-advance) and the brand loader stays away; a returning device gets the short loader.
+// no auto-advance) and the brand loader stays away; a returning device gets the short loader. The reel starts on
+// the still's own frame (POSTER_SECONDS in film.ts), so the fade from the still never jumps the film back.
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { skipFilmIfShown, textOf } from "./common.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 const deckState = (page) => page.evaluate(() => {
   const deck = document.querySelector("#capabilities");
@@ -53,6 +58,14 @@ export const flow = {
       const film = await page.locator("section[data-film]").getAttribute("data-film");
       t.note("film state", film);
       t.expect(film === "playing", `the film plays (data-film=${film})`);
+      // The first stretch the reel played starts where the still was taken, not at its frame 0.
+      const { POSTER_SECONDS } = await import(pathToFileURL(path.join(ROOT, "src/components/landing/film.ts")).href);
+      const played = await page.evaluate(() => {
+        const video = document.querySelector("section[data-film] video");
+        return video && video.played.length ? { start: video.played.start(0), ranges: video.played.length, now: video.currentTime } : null;
+      });
+      t.note("first played stretch of the reel", played);
+      t.expect(played !== null && Math.abs(played.start - POSTER_SECONDS) < 0.05, `the reel starts on the still's frame (${POSTER_SECONDS} s), not at 0`, played);
       const timing = await reelTiming(page);
       t.note("reel timing", timing);
       t.expect(timing.loadEnd !== null && timing.reels.length > 0 && timing.reels.every((reel) => reel.start >= timing.loadEnd), "the reel is fetched only after the page has loaded (the still comes first)", timing);
