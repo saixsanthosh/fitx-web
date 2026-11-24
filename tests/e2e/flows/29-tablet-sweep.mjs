@@ -14,20 +14,40 @@ async function fadesSettled(page) {
   }), null, { timeout: 4000 }).catch(() => undefined);
 }
 
-/** Visible buttons, links and fields in the page that are under 44 px in either direction (text links inside prose are left out). */
-const smallTargets = (page) => page.evaluate(() => {
+/**
+ * Visible buttons, links and fields in the page that are under 44 px in either direction (text links inside prose are
+ * left out), each measured by the box a member taps. A radio or checkbox is tapped through its label: Segmented's
+ * radios (Progress, Activity) are visually hidden on purpose (1 × 1, `sr-only`) inside the label that draws the 44 px
+ * segment, and the label around a visible checkbox makes the whole row the target. Any other visually hidden control
+ * is measured by its label too, or not at all without one: nobody can tap it. Runs in the page through
+ * page.evaluate, so it uses nothing from outside itself (tests/ui/touch-targets.test.ts runs it on a stand-in DOM).
+ */
+export function findSmallTargets() {
+  const tapTarget = (element) => {
+    if (element.tagName !== "INPUT") return element;
+    const own = element.getBoundingClientRect();
+    const hidden = own.width <= 1 && own.height <= 1;
+    if (!hidden && element.type !== "radio" && element.type !== "checkbox") return element;
+    return element.closest("label") ?? element.labels?.[0] ?? (hidden ? null : element);
+  };
   const found = [];
+  const measured = new Set();
   for (const element of document.querySelectorAll("main a[href], main button, main input:not([type=hidden]), main select, main [role=tab], main [role=switch]")) {
-    const box = element.getBoundingClientRect();
+    const target = tapTarget(element);
+    if (!target || measured.has(target)) continue;
+    measured.add(target);
+    const box = target.getBoundingClientRect();
     if (box.width === 0 || box.height === 0) continue;
     if (element.tagName === "A" && element.closest("p, li") && getComputedStyle(element).display === "inline") continue;
     if (box.width < 44 || box.height < 44) {
-      const name = (element.getAttribute("aria-label") || element.textContent || element.getAttribute("name") || element.tagName).replace(/\s+/g, " ").trim().slice(0, 40);
+      const name = (element.getAttribute("aria-label") || target.textContent || element.getAttribute("name") || element.tagName).replace(/\s+/g, " ").trim().slice(0, 40);
       found.push(`${name} ${Math.round(box.width)}×${Math.round(box.height)}`);
     }
   }
   return found.slice(0, 12);
-});
+}
+
+const smallTargets = (page) => page.evaluate(findSmallTargets);
 
 const PAGES = [
   { path: "/dashboard", label: "Home", heading: { level: 1 } },
