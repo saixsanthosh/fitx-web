@@ -1,8 +1,10 @@
 import "server-only";
 import { requireAdmin } from "@/lib/admin-auth";
+import { statusCounts } from "@/lib/data/support";
 import { logServerError } from "@/lib/log";
 import { isMissingFunction } from "@/lib/schema";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { SUPPORT_STATUSES, type SupportStatus } from "@/lib/support-catalog";
 
 const METRIC_KEYS = [
   "accounts",
@@ -113,21 +115,23 @@ async function readDailyTrends(days: number): Promise<TrendsResult> {
   return { state: "ready", days: parsed };
 }
 
-export async function getSupportCounts(): Promise<Record<string, number> | null> {
+/**
+ * Help requests per status, for the Dashboard's banner (support.view), read as Support's inbox reads them
+ * (statusCounts): a status the database leaves out has no requests, a real 0; a count that cannot be read is null,
+ * logged, and shows as "Not known", never as 0. A failed query leaves every count unknown (logged). Null only when
+ * there is nothing to read: no server key, or fitx_admin_support_counts (20261118180005) is not there yet.
+ */
+export async function getSupportCounts(): Promise<Record<SupportStatus, number | null> | null> {
   await requireAdmin("support.view");
   const admin = createAdminSupabase();
   if (!admin) return null;
   const { data, error } = await admin.rpc("fitx_admin_support_counts");
   if (error) {
-    if (!isMissingFunction(error)) logServerError("data.support_counts", error);
-    return null;
+    if (isMissingFunction(error)) return null;
+    logServerError("data.support_counts", error);
+    return Object.fromEntries(SUPPORT_STATUSES.map((status) => [status, null])) as Record<SupportStatus, number | null>;
   }
-  const result: Record<string, number> = {};
-  for (const [status, value] of Object.entries((data as Record<string, unknown> | null) ?? {})) {
-    const parsed = count(value);
-    if (parsed !== null) result[status] = parsed;
-  }
-  return result;
+  return statusCounts(data);
 }
 
 export type OverviewExtras = {

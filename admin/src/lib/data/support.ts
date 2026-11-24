@@ -243,9 +243,9 @@ function countOf(raw: unknown): number | null {
  * Requests per status from the database's counts (fitx_admin_support_inbox's by_status, or the older
  * fitx_admin_support_counts), which group the requests by status, so a status with no requests is left out: a real 0.
  * A count that is there but is not a count, or counts that are not an object at all, could not be read: null, and
- * logged, never shown as 0.
+ * logged, never shown as 0. The Dashboard's banner reads the older counts the same way (data/metrics.ts).
  */
-function statusCounts(value: unknown): Record<SupportStatus, number | null> {
+export function statusCounts(value: unknown): Record<SupportStatus, number | null> {
   const source = value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
   if (!source) logServerError("data.support_status_counts", { message: "the counts by status are not an object" });
   return Object.fromEntries(SUPPORT_STATUSES.map((status) => {
