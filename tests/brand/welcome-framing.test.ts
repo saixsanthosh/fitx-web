@@ -16,7 +16,7 @@ import { COMPOSITIONS, type FilmComposition } from "@/components/brand/films/com
 import { CAST_ORDER } from "@/components/brand/intro/character/cast";
 import type { CharacterInstance } from "@/components/brand/intro/character/assemble";
 import { BARBELL } from "@/components/brand/intro/dimensions";
-import { applyCameraState } from "@/components/brand/intro/director/camera";
+import { applyCameraState, createCameraState, evaluateCameraTrack, type CameraTrack } from "@/components/brand/intro/director/camera";
 import type { FilmContext, ShotFrame, ShotModule, SubjectBox } from "@/components/brand/intro/director/shot-types";
 import { hideStage, type Stage } from "@/components/brand/intro/director/stage-kit";
 import { headBox, landmarkWorld, PALM_HALF_WIDTH } from "@/components/brand/intro/director/subject-boxes";
@@ -24,9 +24,9 @@ import { WELCOME_FILM } from "@/components/brand/intro/films/welcome/def";
 import { gripAt, LOADS } from "@/components/brand/intro/films/welcome/load-motion";
 import { MARK_FLOOR_BOUNDS } from "@/components/brand/intro/films/welcome/mark-floor";
 import { BAR_CENTRE, FLOOR_Y, INLAY_TOP, PLATE_SEATS, plateWorld, SLEEVE_LENGTH, sleeveZ, welcomePlates, WELCOME_PLATES } from "@/components/brand/intro/films/welcome/props";
-import { dreAction, FIRST_SEAT_OUT, HUB_HALF } from "@/components/brand/intro/films/welcome/shots";
+import { dreAction, FIRST_SEAT_OUT, HUB_HALF, WELCOME_LAB } from "@/components/brand/intro/films/welcome/shots";
 import { pointOf } from "@/components/brand/intro/rig/skeleton";
-import { boxFromNdc } from "../../scripts/brand/films/lib/framing.mjs";
+import { boxFromNdc, framingFailures, intersect, servedEdges, visibleRegion } from "../../scripts/brand/films/lib/framing.mjs";
 import { contextFor } from "./intro-stage";
 
 type Box = { x0: number; y0: number; x1: number; y1: number };
@@ -219,6 +219,101 @@ test("the boxes are the parts they name, from the posed rigs and the props", () 
   const w5 = WELCOME_FILM.shots[5];
   const [mark] = w5.subjects!(ctx, { ...frame, time: w5.start, local: 0 });
   assert.deepEqual([mark.min, mark.max], [[MARK_FLOOR_BOUNDS.minX, FLOOR_Y, MARK_FLOOR_BOUNDS.minZ], [MARK_FLOOR_BOUNDS.maxX, INLAY_TOP, MARK_FLOOR_BOUNDS.maxZ]]);
+});
+
+// ------------------------------------------------------------------------------------------------- on every screen
+
+/** The part of each composition's frame visible at every edge of the bands it serves (unshrunk). */
+function visibleArea(comp: FilmComposition): Box {
+  const band = COMPOSITIONS.find((entry) => entry.id === comp)!;
+  let box: Box = { x0: 0, y0: 0, x1: 1, y1: 1 };
+  for (const edge of servedEdges(comp)) box = intersect(box, visibleRegion(band.aspect, edge));
+  return box;
+}
+
+test("no essential part is ever cut off: every must box stays inside the frame seen at both edges of its band", () => {
+  const cut: string[] = [];
+  for (const comp of COMPS) {
+    const area = visibleArea(comp);
+    play(comp, FRAMES, ({ index, shot, subjects }) => {
+      for (const subject of subjects) {
+        if (!subject.must) continue;
+        const b = subject.box;
+        if (!b) cut.push(`${comp} ${index} ${shot.id} ${subject.id}: behind the camera`);
+        else if (b.x0 < area.x0 - 1e-6 || b.y0 < area.y0 - 1e-6 || b.x1 > area.x1 + 1e-6 || b.y1 > area.y1 + 1e-6) cut.push(`${comp} ${index} ${shot.id} ${subject.id}`);
+      }
+    });
+  }
+  assert.deepEqual(cut, []);
+});
+
+/**
+ * The overhangs that remain past the protected box (the visible frame shrunk 9% a side), every one inside the visible
+ * frame (above), so not cut off on any screen; measured at every frame, as a share of the frame. They may shrink, never
+ * grow, and an entry that no longer occurs is removed.
+ */
+const REMAINING: Record<string, number> = {
+  "phone w1-maya maya-face": 0.0162,
+  "phone w2-leo leo-face": 0.0362,
+  "tablet-p w3-dre dre-face": 0.0058,
+  "tablet-p w3-dre plate-3-hub": 0.0046,
+  "tablet-l w5-ignite mark": 0.0064,
+  "laptop w1-maya maya-face": 0.0206,
+  "laptop w1-maya plate-1-hub": 0.0599,
+  "laptop w3-dre plate-3-hub": 0.0679,
+  "laptop w3-dre hands": 0.0495,
+  "laptop w5-ignite mark": 0.0092,
+  "desktop w1-maya maya-face": 0.0335,
+  "desktop w1-maya plate-1-hub": 0.0728,
+  "desktop w3-dre plate-3-hub": 0.0808,
+  "desktop w3-dre hands": 0.0624,
+};
+
+test("every must box stays inside the protected box, but for the measured remaining overhangs, which may only shrink", () => {
+  const worst = new Map<string, number>();
+  for (const comp of COMPS) {
+    play(comp, FRAMES, ({ shot, subjects }) => {
+      const failures = framingFailures({ comp, subjects: subjects.map((subject) => ({ id: subject.id, must: subject.must, box: subject.box })) }) as { id: string; box?: Box; area?: Box; problem: string }[];
+      for (const failure of failures) {
+        assert.ok(failure.box && failure.area, `${comp} ${shot.id} ${failure.id}: ${failure.problem}`);
+        const { box, area } = failure as { box: Box; area: Box };
+        const over = Math.max(area.x0 - box.x0, box.x1 - area.x1, area.y0 - box.y0, box.y1 - area.y1);
+        const key = `${comp} ${shot.id} ${failure.id}`;
+        worst.set(key, Math.max(worst.get(key) ?? 0, over));
+      }
+    });
+  }
+  for (const [key, over] of worst) {
+    assert.ok(key in REMAINING, `${key}: ${over.toFixed(4)} past the protected box`);
+    assert.ok(over <= REMAINING[key] + 5e-5, `${key}: ${over.toFixed(4)}, more than the measured ${REMAINING[key]}`);
+  }
+  for (const key of Object.keys(REMAINING)) assert.ok(worst.has(key), `${key} no longer overhangs: remove it from REMAINING`);
+});
+
+// ------------------------------------------------------------------------------------------------- the camera changes
+
+test("the framing fixes are per composition (dolly and truck only); every other composition frames exactly as keyed", () => {
+  const changed: Record<string, readonly FilmComposition[]> = { LEO_TRACK: ["tablet-l", "laptop", "desktop"], DRE_TRACK: ["phone", "tablet-l"] };
+  for (const name of ["LIGHT_TRACK", "MAYA_TRACK", "LEO_TRACK", "DRE_TRACK"] as const) {
+    const track = WELCOME_LAB[name] as CameraTrack;
+    const comps = changed[name] ?? [];
+    assert.deepEqual(Object.keys(track.compositions ?? {}).sort(), [...comps].sort(), `${name}: the compositions it changes`);
+    for (const spec of Object.values(track.compositions ?? {})) {
+      assert.equal(spec.keys, undefined, `${name}: same keys`);
+      assert.equal(spec.focalScale, undefined, `${name}: same lens`);
+    }
+    const keyed: CameraTrack = { ...track, compositions: undefined };
+    const a = createCameraState();
+    const b = createCameraState();
+    for (const band of COMPOSITIONS) {
+      if (comps.includes(band.id)) continue;
+      for (let t = 0; t <= 2.4; t += 0.1) {
+        evaluateCameraTrack(track, t, band.aspect, a);
+        evaluateCameraTrack(keyed, t, band.aspect, b);
+        assert.ok(a.position.distanceTo(b.position) < 1e-12 && a.target.distanceTo(b.target) < 1e-12 && Math.abs(a.focal - b.focal) < 1e-12 && a.roll === b.roll, `${name} ${band.id} at ${t}`);
+      }
+    }
+  }
 });
 
 test("the intro's shot helpers are the shared, node-safe subject boxes", () => {

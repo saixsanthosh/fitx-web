@@ -418,6 +418,15 @@ const LEO_TRACK: CameraTrack = {
       { t: 1.28, position: [2.45, 0.66, 0.22], target: [0.95, 0.66, 1.3], focal: 23 },
     ],
   },
+  // The landscape frames as keyed cut off Leo's face (top, and right on tablet-l) and his plate's hub (bottom) at the
+  // bands' edges while his palms are on the plate: the smallest dolly back along the same line (same lens), with a
+  // 2 cm lift (and on tablet-l a 10 cm truck right), that holds the face, the hands and the hub inside the protected
+  // box (tests/brand/welcome-framing.test.ts). The phone and tablet-p frames are unchanged (the portrait keys, as before).
+  compositions: {
+    "tablet-l": { distanceScale: 1.15, offset: [0.1, 0.02, 0] },
+    laptop: { distanceScale: 1.33, offset: [0, 0.02, 0] },
+    desktop: { distanceScale: 1.37, offset: [0, 0.02, 0] },
+  },
   shake: { amplitude: 0.2, frequency: 1.4, seed: 63 },
 };
 
@@ -469,6 +478,13 @@ const DRE_TRACK: CameraTrack = {
       { t: 0, position: [-0.75, 0.42, 0.62], target: [0.94, 0.66, 1.62], focal: 20, ease: "inOut" },
       { t: 2.03, position: [-0.6, 0.45, 0.74], target: [0.94, 0.7, 1.62], focal: 21 },
     ],
+  },
+  // As keyed, the narrowest phones (0.42) and square tablet-l screens (1.0) cut off Dre's face, hands and plate hub at
+  // the left edge while he drives the plate home: the smallest truck left (same angle and lens) that holds them inside
+  // the protected box (tests/brand/welcome-framing.test.ts). tablet-p, laptop and desktop are unchanged.
+  compositions: {
+    phone: { offset: [-0.225, 0, 0] },
+    "tablet-l": { offset: [-0.19, 0, 0] },
   },
   shake: { amplitude: 0.08, frequency: 0.7, seed: 64 },
 };
