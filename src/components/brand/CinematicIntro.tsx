@@ -492,7 +492,7 @@ export function CinematicIntro() {
     >
       {debug && <DebugBackdrop image={debug.image} theme={theme} />}
       {/* The film's opening frame from the first paint (bootstrap "pending") until the film covers it. */}
-      {!debug && <div className={styles.poster} aria-hidden="true" />}
+      {!debug && <div className={styles.poster} aria-hidden="true" data-fitx-intro-poster="" />}
       {welcome && <WelcomeFilm onEnd={finish} firstName={memberName} record={false} focusSkip={welcomeFocus} />}
       {!welcome && (playback === "loading" || filmPlaying) && source === "live" && IntroScene && !debug && (
         <IntroScene

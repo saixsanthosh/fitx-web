@@ -81,6 +81,15 @@
 .intro[data-intro-playback="three"] .poster { display: block; }
 
 /*
+ * The welcome film draws its own frame 0 and, at its end or on Skip, fades its whole stage out (WelcomeFilm.module.css);
+ * the reveal it plays when it cannot play the cut fades out the same way (LogoReveal). So once its stage is in this
+ * overlay, the opening frame here (the welcome film's frame 0, near-black in both themes) and the vignette make way:
+ * the fade hands over to this overlay's page colour, never back to frame 0. Until then they hold the first frames.
+ */
+.intro:has([data-welcome-film]) .poster,
+.intro:has([data-welcome-film]) .ambient { display: none; }
+
+/*
  * The scope matte (BRIEF-2 3.1): on a screen wider than 2.20:1 served the desktop composition, the cut keeps a centred
  * 2.20:1 picture with side bars instead of cropping more (FilmVideo.module.css draws the bars). The opening frame takes
  * the same box, so the film starts exactly where its poster was; the page colour shows beside it. The vignette stays

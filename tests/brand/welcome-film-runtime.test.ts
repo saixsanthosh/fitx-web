@@ -79,6 +79,27 @@ test("exactly one Skip control while the film plays: WelcomeFilm's own, since fi
   assert.match(intro, /<WelcomeFilm onEnd=\{finish\} firstName=\{memberName\} record=\{false\}/);
 });
 
+test("inside the intro overlay (the account gate, Replay), the welcome film's fade hands over to the page colour, never to frame 0", () => {
+  const css = source("src/components/brand/CinematicIntro.module.css");
+  // The overlay's opening frame (the claimed film's frame 0: the welcome film's is near-black) covers the first frames...
+  const shows = '.intro[data-intro-playback="three"] .poster { display: block; }';
+  assert.ok(css.includes(shows));
+  assert.match(css, /\.intro\[data-intro-playback="loading"\] \.poster,/, "the welcome film keeps the overlay 'loading' while it plays");
+  // ... until WelcomeFilm's own stage is in the overlay: then it and the vignette make way. The same specificity as the
+  // rules that show it, so it comes after them.
+  const makesWay = /\.intro:has\(\[data-welcome-film\]\) \.poster,\s*\.intro:has\(\[data-welcome-film\]\) \.ambient \{ display: none; \}/;
+  assert.match(css, makesWay);
+  assert.ok(css.search(makesWay) > css.indexOf(shows), "after the rules that show the opening frame");
+  // Behind it the overlay is the page colour, which the film's last frame is (igniteClear) and the reveal's stage too.
+  assert.match(css, /^\.intro \{[^}]*background: var\(--fitx-bg\);/m);
+  // Every case WelcomeFilm draws carries the attribute (the film, the reduced-motion still, the reveal-only case), and
+  // the film's stage fades to transparent before onEnd, which is what exposed the opening frame.
+  const film = source("src/components/brand/films/WelcomeFilm.tsx");
+  for (const kind of ["film", "still", "reveal"]) assert.match(film, new RegExp(`data-welcome-film="${kind}"`), kind);
+  assert.match(source("src/components/brand/films/WelcomeFilm.module.css"), /^\.leaving \{ opacity: 0; pointer-events: none; \}$/m);
+  assert.match(source("src/components/brand/CinematicIntro.tsx"), /<div className=\{styles\.poster\} aria-hidden="true" data-fitx-intro-poster="" \/>/, "e2e flow 08 reads it");
+});
+
 test("the film ends on the reveal at the last stage, fades its stage out over 300 ms, then onEnd", () => {
   assert.equal(FILM_TIMING.welcome.revealStage, WELCOME_STAGE_START.length - 1);
   assert.equal(WELCOME_STAGE_START[FILM_TIMING.welcome.revealStage], 9.29);

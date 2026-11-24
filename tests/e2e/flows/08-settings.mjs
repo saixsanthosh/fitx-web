@@ -77,7 +77,19 @@ export const flow = {
       const cut = await page.evaluate(() => document.querySelector('video[data-fitx-film-video="welcome"]')?.getAttribute("src") ?? null);
       t.note("welcome cut", cut);
       t.expect(typeof cut === "string" && cut.startsWith(`/brand/films/welcome/${FILM_MANIFESTS.welcome.rev}/`) && /-(hevc60|avc30)\.mp4$/.test(cut), "S6's welcome cut plays", cut);
+      // The overlay's opening frame (the welcome film's frame 0, near-black) makes way once the film's own stage is up,
+      // so the film's 300 ms fade after Skip hands over to the page colour, not back to frame 0.
+      const openingFrame = () => page.evaluate(() => ({
+        stage: document.querySelector("[data-welcome-film]")?.getAttribute("data-welcome-film") ?? null,
+        leaving: Number(getComputedStyle(document.querySelector("[data-welcome-film]") ?? document.body).opacity),
+        poster: getComputedStyle(document.querySelector("[data-fitx-intro-poster]")).display,
+      }));
+      const during = await openingFrame();
+      t.expect(during.stage === "film" && during.poster === "none", "the overlay's opening frame is hidden under the welcome film", during);
       await skipWelcome.click();
+      const fading = await openingFrame();
+      t.note("as Skip fades the film", fading);
+      t.expect(fading.stage === null || fading.poster === "none", "and stays hidden while the film's stage fades out", fading);
       await page.waitForFunction(() => !document.documentElement.hasAttribute("data-fitx-intro"), null, { timeout: 8000 });
       t.expect((await page.locator("[data-welcome-film]").count()) === 0, "Skip gave the page back");
 
