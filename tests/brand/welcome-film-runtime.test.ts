@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { bootstrapFilms } from "@/components/brand/films/bootstrap-twin";
 import { pickComposition } from "@/components/brand/films/compositions";
 import { FILM_MANIFESTS } from "@/components/brand/films/cuts.generated";
 import { FIXTURE_MANIFESTS } from "@/components/brand/films/fixture";
-import { cutsIn, liteRung } from "@/components/brand/films/manifest";
-import { WELCOME_FILM_OVERLAY } from "@/components/brand/films/registry";
+import { activeManifests, cutsIn, liteRung } from "@/components/brand/films/manifest";
 import { FILM_TIMING } from "@/components/brand/films/timing";
 import {
   filmSeenRecently,
@@ -75,7 +76,50 @@ test("the film ends on the reveal at the last stage, fades its stage out over 30
   assert.equal(WELCOME_STAGE_START[FILM_TIMING.welcome.revealStage], 9.29);
   assert.equal(WELCOME_EXIT_MS, 300);
   assert.match(source("src/components/brand/films/WelcomeFilm.tsx"), /exitTimer\.current = window\.setTimeout\(endNow, WELCOME_EXIT_MS\)/);
-  assert.equal(WELCOME_FILM_OVERLAY, null, "the integrator sets WelcomeOverlay in 6.1b");
+});
+
+test("6.1b registers WelcomeOverlay, and that alone changes nothing for members while the welcome manifest is null", () => {
+  // registry.ts imports WelcomeOverlay.tsx, which `node --test` cannot load (JSX), so the wiring is checked in the source.
+  const registry = source("src/components/brand/films/registry.ts");
+  assert.match(registry, /^import \{ WelcomeOverlay \} from "\.\/welcome\/WelcomeOverlay";$/m);
+  assert.match(registry, /^export const WELCOME_FILM_OVERLAY: ComponentType<FilmOverlayProps> \| null = WelcomeOverlay;$/m);
+
+  // The registry's only reader is WelcomeFilm, ...
+  const REGISTRY = "src/components/brand/films/registry";
+  const resolve = (file: string, specifier: string) =>
+    specifier.startsWith("@/") ? `src/${specifier.slice(2)}` : specifier.startsWith(".") ? path.posix.join(path.posix.dirname(file), specifier) : specifier;
+  const readers = (readdirSync("src", { recursive: true }) as string[])
+    .map((file) => `src/${file.split(path.sep).join("/")}`)
+    .filter((file) => /\.tsx?$/.test(file) && [...source(file).matchAll(/from "([^"]+)"/g)].some(([, specifier]) => resolve(file, specifier) === REGISTRY));
+  assert.deepEqual(readers, ["src/components/brand/films/WelcomeFilm.tsx"]);
+  // ... which reads its manifest once, returns nothing in the "none" case (no manifest: onEnd at once) and hands the overlay
+  // to FilmVideo only in its film case, ...
+  const film = source("src/components/brand/films/WelcomeFilm.tsx");
+  assert.match(film, /useState<FilmManifest \| null>\(\(\) => \(typeof document === "undefined" \? null : manifestFor\("welcome"\)\)\)/);
+  assert.match(film, /const chosen = welcomeMode\(\{ hasManifest: manifest !== null, reduced, filmAllowed: filmAllowed\(\) \}\);\s*if \(chosen === "none"\) \{\s*endNow\(\);\s*return;/);
+  assert.equal(film.split("WELCOME_FILM_OVERLAY").length - 1, 2, "imported once, used once");
+  const nothing = film.indexOf('if (mode === null || mode === "none") return null;');
+  const handed = film.indexOf("overlay={WELCOME_FILM_OVERLAY ?? undefined}");
+  assert.ok(nothing > 0 && handed > film.indexOf('if (mode === "still")') && handed > nothing, "only the film case passes the overlay on");
+  // ... and FilmVideo draws it only beside its own playing film, which the overlay requires to be the welcome film.
+  assert.match(source("src/components/brand/films/FilmVideo.tsx"), /\{Overlay && <Overlay film=\{film\} stage=\{clock\.stage\}/);
+  assert.match(source("src/components/brand/films/welcome/WelcomeOverlay.tsx"), /if \(film !== "welcome"\) return null;/);
+
+  // A member's page (no fixture cookie) reads the generated manifests; with welcome null, WelcomeFilm is "none".
+  assert.equal(activeManifests("").welcome, FILM_MANIFESTS.welcome);
+  const dormant = { intro: FILM_MANIFESTS.intro, welcome: null };
+  for (const reduced of [false, true]) {
+    for (const filmAllowed of [false, true]) assert.equal(welcomeMode({ hasManifest: false, reduced, filmAllowed }), "none");
+  }
+  // Every way into the welcome film asks for its manifest first: the head script's account gate and ?intro=welcome,
+  // Replay and the account gate in CinematicIntro, the onboarding sequence and Settings' "Replay welcome film".
+  assert.equal(bootstrapFilms(dormant).welcome, null);
+  const bootstrap = source("src/components/brand/introBootstrap.ts");
+  assert.match(bootstrap, /asked === "welcome"\) return films\.welcome \? "replay" : null;/);
+  assert.match(bootstrap, /\(gate === "account" && films\.welcome\) \? "welcome" : "intro"/);
+  assert.match(source("src/components/brand/CinematicIntro.tsx"), /if \(manifestFor\("welcome"\)\) return "welcome";\s*return requested === "welcome" \? null : "intro";/);
+  assert.match(source("src/components/onboarding/PostOnboardingSequence.tsx"), /hasFilm: POST_ONBOARDING_FILM !== null && manifestFor\("welcome"\) !== null/);
+  assert.match(source("src/app/(dashboard)/settings/SettingsAppearance.tsx"), /setWelcomeFilm\(manifestFor\("welcome"\) !== null\);/);
 });
 
 test("when it starts: the seen flag (ISO time), and the completion call with keepalive, retried once after 2 s", async () => {
