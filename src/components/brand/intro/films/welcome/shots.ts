@@ -6,7 +6,7 @@
  *   w0-light   0.00-1.40  black; the strip light stutters on with the score's three opening hits and holds on the
  *                         swell's arrival; a macro along the empty bar on its loading blocks, chalk dust in the beam
  *   w1-maya    1.40-3.60  Maya rolls the 20 kg plate down the sleeve; it seats on the cymbal crash (2.40)
- *   w2-leo     3.60-4.88  over the seated plate: Leo shoves the 10 kg plate home (4.48), a small after-tap (4.71)
+ *   w2-leo     3.60-4.88  over the seated plate: Leo shoves the 10 kg plate home (4.48)
  *   w3-dre     4.88-6.91  slow motion, low hero angle: Dre drives the last plate home (5.86), chalk off his palms
  *   w4-crane   6.91-9.29  the three stand round the platform; the lens cranes up and over until it looks straight
  *                         down, where the bar, its three plates and the floor lines line up into the mark

@@ -82,13 +82,14 @@ export const WELCOME_REVEAL_AT = WELCOME_STAGE_START[WELCOME_STAGE.ignite];
 
 /**
  * The beats each shot plays on, all on measured hits of score #5 (above), so the picture and the mix share one clock
- * (the mix, `scripts/brand/films/audio/welcome.cues.mjs`, puts #3 on each `plateSeat` and #4, Dre's lock, on his
- * `settle`). PROVISIONAL until gate A has passed and the owner has
+ * (the mix, `scripts/brand/films/audio/welcome.cues.mjs`, puts the plate sounds on each `plateSeat`: #3's clang for
+ * Maya and Leo, #3's slide into #4's lock for Dre). PROVISIONAL until gate A has passed and the owner has
  * approved the D5 animatic: the shots read every time from here, so a retime is one edit.
  *
  * - `flicker`: the strip light stutters on three times in the dark (the score's three opening hits); `lightOn` it holds.
  * - `plateSeat`: plates 1 to 3 seat against the stack (Maya on the cymbal crash, Leo, then Dre in slow motion).
- * - `settle`: the small after-tap of each plate (rebound and settle), on the next hit.
+ * - `settle`: the score's next hit after each seat. No shot animates anything on it (each plate's rebound is over
+ *   within 0.05 s of its clip's seat) and no sound is cued on it.
  * - `craneHits`: the floor lines catch the strip light one after another as the crane rises.
  */
 export const WELCOME_BEATS = Object.freeze({
