@@ -410,3 +410,26 @@ test("the lab opens only in development with FITX_LAB=1, is noindex, and loads f
   assert.match(lab, /quality: LAB_QUALITY/);
   assert.match(lab, /gl\.readPixels\(/);
 });
+
+test("sub-frames: the segment filter keeps one frame per run of samples, on the output clock", async () => {
+  const { segmentFilter } = await import("../../scripts/brand/films/lib/segment.mjs");
+  const blur = segmentFilter({ outWidth: 32, outHeight: 32, fps: 60, subframes: 2, flip: true });
+  assert.match(blur, /^vflip,tmix=frames=2,select='eq\(mod\(n\\,2\)\\,1\)',setpts=N\/\(60\*TB\),scale=32:32:/);
+  // Retiming on FRAME_RATE (the input's 120 fps) made `-r 60` drop every other kept frame: 402 of 756 frames.
+  assert.doesNotMatch(blur, /FRAME_RATE/);
+  const plain = segmentFilter({ outWidth: 32, outHeight: 32, fps: 60, subframes: 1, flip: false });
+  assert.doesNotMatch(plain, /tmix|select|setpts/);
+  assert.throws(() => segmentFilter({ outWidth: 32, outHeight: 32, fps: 0, subframes: 2, flip: false }), /output fps/);
+
+  // The real thing, where this Mac's ffmpeg is installed: N output frames from N × subframes samples.
+  const ffmpeg = "/opt/homebrew/bin/ffmpeg";
+  if (!existsSync(ffmpeg)) return;
+  const { execFileSync } = await import("node:child_process");
+  for (const subframes of [2, 4]) {
+    const filter = segmentFilter({ outWidth: 32, outHeight: 32, fps: 60, subframes, flip: false });
+    const out = execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `testsrc=size=64x64:rate=${60 * subframes}:duration=0.5`,
+      "-vf", filter, "-r", "60", "-f", "framemd5", "-"], { encoding: "utf8" });
+    const frames = out.split("\n").filter((line) => line && !line.startsWith("#")).length;
+    assert.equal(frames, 30, `${subframes} sub-frames: 0.5 s at 60 fps is 30 frames`);
+  }
+});

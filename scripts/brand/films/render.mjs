@@ -14,6 +14,7 @@ import { HEAVY, WORKTREES, laneHandle, stopChildrenOnSignal, track, withLane } f
 import { COMP_SIZES, JOBS, framePlan, parseArgs, readSources, reelPlan, renderArgsForRev, revHash, segmentsOf } from "./lib/plan.mjs";
 import { CHROME, CWEBP, FFMPEG, PLAYWRIGHT_CORE, preflightProblems, runPreflight, SOFTWARE_RENDERER } from "./lib/preflight.mjs";
 import { ENCODER } from "./lib/encoders.mjs";
+import { segmentFilter } from "./lib/segment.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../../..");
@@ -137,15 +138,6 @@ function startSink() {
   });
 }
 
-function segmentFilter({ width, height, outWidth, outHeight, subframes, flip }) {
-  const parts = [];
-  if (flip) parts.push("vflip");
-  if (subframes > 1) parts.push(`tmix=frames=${subframes}`, `select='eq(mod(n\\,${subframes})\\,${subframes - 1})'`, "setpts=N/FRAME_RATE/TB");
-  parts.push(`scale=${outWidth}:${outHeight}:flags=lanczos:out_color_matrix=bt709:out_range=tv`, "format=yuv444p10le", "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv");
-  void width;
-  void height;
-  return parts.join(",");
-}
 
 /** One ffmpeg reading raw RGBA (or PNG screenshots) on stdin into an FFV1 segment. */
 function startSegmentEncoder({ file, width, height, outWidth, outHeight, fps, subframes, mode }) {
@@ -154,7 +146,7 @@ function startSegmentEncoder({ file, width, height, outWidth, outHeight, fps, su
     : ["-f", "rawvideo", "-pix_fmt", "rgba", "-s", `${width}x${height}`, "-framerate", String(fps * subframes), "-i", "-"];
   const args = [
     "-hide_banner", "-loglevel", "error", "-y", ...input,
-    "-vf", segmentFilter({ width, height, outWidth, outHeight, subframes, flip: mode !== "png" }),
+    "-vf", segmentFilter({ outWidth, outHeight, fps, subframes, flip: mode !== "png" }),
     "-r", String(fps), "-c:v", "ffv1", "-level", "3", "-g", "1", "-slices", "4", "-slicecrc", "1",
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv", file,
   ];
