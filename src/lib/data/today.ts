@@ -186,11 +186,12 @@ export async function logWater(db: Db, userId: string, localDate: string, amount
 /**
  * Records today's weigh-in the way Progress and Profile do (logWeighIn): the body_metrics row, then the profile's
  * copy of the weight, so targets and every screen use the new weight. Returns false when only the profile copy
- * could not be updated (the weigh-in itself is saved).
+ * could not be updated (the weigh-in itself is saved). Kept to 0.01 kg, the stored precision (profile-options.ts), so
+ * a weight typed in pounds comes back as typed (bug 6: 0.1 kg turned 150 lb into 149.9 lb).
  */
 export async function saveWeighIn(db: Db, userId: string, kg: number): Promise<boolean> {
   if (!Number.isFinite(kg) || kg < 30 || kg > 500) throw new DataError("Enter a weight between 30 and 500 kg.");
-  const result = await logWeighIn(db, userId, Math.round(kg * 10) / 10, "");
+  const result = await logWeighIn(db, userId, Math.round(kg * 100) / 100, "");
   if (result.error) throw new DataError("That weigh-in could not be saved.", result.error);
   return result.synced;
 }
