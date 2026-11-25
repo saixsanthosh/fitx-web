@@ -19,14 +19,15 @@ export function ConversationList({
   activeId: string | null;
   onOpen: (id: string) => void;
   onNew: () => void;
-  onDelete: (thread: CoachThreadSummary) => void;
+  /** `list`: this list's own element, so focus can move to the row that takes the deleted one's place. */
+  onDelete: (thread: CoachThreadSummary, list: HTMLElement | null) => void;
   busy: boolean;
 }) {
   // Days and times are in the viewer's own time zone, so they appear once the page is running in the browser.
   const hydrated = useHydrated();
   return (
     <nav aria-label="Coach conversations" className="flex min-h-0 flex-col">
-      <button type="button" onClick={onNew} disabled={busy} className="fitx-button fitx-button-secondary w-full justify-start">
+      <button type="button" data-coach-new="" onClick={onNew} disabled={busy} className="fitx-button fitx-button-secondary w-full justify-start">
         <MessageSquarePlus size={17} aria-hidden="true" /> New conversation
       </button>
       {threads.length === 0 ? (
@@ -37,6 +38,7 @@ export function ConversationList({
             <li key={thread.id} className="group flex items-center gap-1">
               <button
                 type="button"
+                data-coach-thread={thread.id}
                 onClick={() => onOpen(thread.id)}
                 disabled={busy}
                 aria-current={thread.id === activeId ? "true" : undefined}
@@ -50,7 +52,7 @@ export function ConversationList({
               </button>
               <button
                 type="button"
-                onClick={() => onDelete(thread)}
+                onClick={(event) => onDelete(thread, event.currentTarget.closest("nav"))}
                 disabled={busy}
                 aria-label={`Delete conversation: ${thread.title}`}
                 className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-fitx-text-disabled opacity-100 transition hover:bg-fitx-hover hover:text-fitx-danger focus-visible:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"

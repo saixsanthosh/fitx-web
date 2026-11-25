@@ -230,7 +230,8 @@ export function VoiceButton({
     <div className={styles.voice}>
       <button
         type="button"
-        disabled={disabled}
+        // aria-disabled while an answer is coming: the button sent the words and keeps keyboard focus (press() checks).
+        aria-disabled={disabled || undefined}
         aria-pressed={listening}
         aria-label={listening ? "Stop talking" : "Hold to talk"}
         title="Hold to talk, or tap to start and tap again to stop"

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { Dumbbell, Footprints, History, Loader2, MessageCircle, MessageSquarePlus, Settings2, Target, UserRound, Utensils, X } from "lucide-react";
 import { useHydrated } from "@/components/ui/use-hydrated";
 import { capabilityStarters, generalPrompts } from "@/lib/ai/capabilities";
@@ -18,6 +19,7 @@ import { ReadAloudToggle, VoiceButton, useReadAloud } from "./CoachVoice";
 import { ConsentPanel } from "./ConsentPanel";
 import { ConsentRenewal } from "./ConsentRenewal";
 import { ConversationList } from "./ConversationList";
+import { announcementText, focusAfterDelete } from "./focus-rules";
 import { formatResetTime } from "./format";
 import type { PlanActions } from "./MealPlanCard";
 import { MessageView } from "./MessageView";
@@ -53,7 +55,11 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   const [loadingThread, setLoadingThread] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [announcement, setAnnouncement] = useState("");
+  // The page's one polite live region, kept in place across the coach, consent and paused views (see the return).
+  const [announcement, setAnnouncement] = useState({ text: "", count: 0 });
+  const announce = useCallback((text: string) => setAnnouncement((old) => ({ text, count: old.count + 1 })), []);
+  // The consent screen takes focus on its heading when it replaces the coach (after "Delete my coach data").
+  const [focusConsent, setFocusConsent] = useState(false);
   const [focusKey, setFocusKey] = useState(0);
   const stopper = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -144,6 +150,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     }
     const failure = error instanceof CoachRequestError ? error : new CoachRequestError("failed", "Something went wrong. Please try again.");
     if (failure.code === "consent_required") {
+      setFocusConsent(true);
       setStatus((old) => ({ ...old, state: "consent" }));
       // The reason may be a profile change (now under 18), so the consent screen takes its details afresh.
       void fetchStatus().then(setStatus).catch(() => {});
@@ -262,13 +269,23 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     setHistoryOpen(false);
   }
 
-  async function removeThread(thread: CoachThreadSummary) {
+  /**
+   * `list`: the conversation list the Delete button was pressed in (the rail, or the history drawer). The deleted row
+   * goes, so focus moves to the conversation that takes its place, or to "New conversation" (focusAfterDelete).
+   */
+  async function removeThread(thread: CoachThreadSummary, list: HTMLElement | null) {
     if (!window.confirm(`Delete “${thread.title}”? This can't be undone. Foods and workouts you added stay.`)) return;
     try {
       await deleteThread(thread.id);
-      setThreads((old) => old.filter((item) => item.id !== thread.id));
-      if (thread.id === threadId) newConversation();
-      setAnnouncement("Conversation deleted.");
+      const target = focusAfterDelete(threads.map((item) => item.id), thread.id);
+      // Committed at once, so the row is gone and its replacement is there to focus.
+      flushSync(() => {
+        setThreads((old) => old.filter((item) => item.id !== thread.id));
+        if (thread.id === threadId) newConversation();
+      });
+      const next = target.kind === "thread" ? list?.querySelector<HTMLElement>(`[data-coach-thread="${target.id}"]`) : list?.querySelector<HTMLElement>("[data-coach-new]");
+      next?.focus();
+      announce(`Deleted “${thread.title}”.`);
     } catch (error) {
       handleFailure(error, "");
     }
@@ -282,11 +299,11 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
         applyAction(id)
           .then((result) => {
             setActionStates((old) => ({ ...old, [id]: "applied" }));
-            setAnnouncement(result.kind === "workout_plan" ? "Saved as a workout draft in Workouts." : "Saved to My foods in Nutrition. Nothing was logged as eaten.");
+            announce(result.kind === "workout_plan" ? "Saved as a workout draft in Workouts." : "Saved to My foods in Nutrition. Nothing was logged as eaten.");
           })
           .catch((error) => {
             setActionStates((old) => ({ ...old, [id]: "error" }));
-            setAnnouncement(error instanceof CoachRequestError ? error.message : "Couldn't add it. Please try again.");
+            announce(error instanceof CoachRequestError ? error.message : "Couldn't add it. Please try again.");
           });
       },
       swapsFor: (id) => (id ? swaps[id] ?? [] : []),
@@ -295,6 +312,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
           const result = await requestSwap(id, note);
           recordActions([result.action]);
           updateQuota(result.quota);
+          announce(`Swap found: ${result.swap.item.name}, shown below the food it replaces.`);
           return null;
         } catch (error) {
           if (error instanceof CoachRequestError) {
@@ -308,7 +326,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       },
       canSwap: plansAllowed && !status.careMode,
     }),
-    [actionStates, swaps, plansAllowed, status.careMode, recordActions, refreshCareMode],
+    [actionStates, swaps, plansAllowed, status.careMode, recordActions, refreshCareMode, announce],
   );
 
   const settings = (
@@ -326,7 +344,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
         if (!share) { setMode("chat"); newConversation(); }
         // Prompts written from the member's data appear once sharing is on (and go once it is off).
         void fetchStatus().then((fresh) => setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts }))).catch(() => {});
-        setAnnouncement(share
+        announce(share
           ? "The coach can now use your FITX data."
           : "Questions only: the coach no longer gets your logs or profile, only your questions and what its safety rules need, such as the lowest daily calories it may suggest. Your next message starts a new conversation.");
       }}
@@ -335,7 +353,9 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
         newConversation();
         setThreads([]);
         setShareData(false);
-        setAnnouncement("Your coach data was deleted.");
+        // The consent screen replaces the coach: focus goes to its heading, and the live region (kept in place) says why.
+        setFocusConsent(true);
+        announce("Your coach data was deleted.");
         void fetchStatus()
           .then((fresh) => {
             setStatus(fresh);
@@ -347,35 +367,48 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     />
   );
 
+  // One polite live region, at the same place in every view, so an announcement made as the view changes (the
+  // consent screen replacing the coach) is still read, and the same words twice are read twice (announcementText).
+  const live = <p className="sr-only" aria-live="polite">{announcementText(announcement.text, announcement.count)}</p>;
+
   if (UNAVAILABLE.has(status.state)) {
     // Paused or not set up: a member who used the coach can still change sharing or delete their coach data.
     const hasCoachData = status.state !== "not_available" && (status.consent !== null || threads.length > 0);
     return (
       <>
-        <CoachUnavailable state={status.state as "paused" | "not_configured" | "not_available"} onSettings={hasCoachData ? () => setSettingsOpen(true) : undefined} />
-        {hasCoachData && settings}
-        <p className="sr-only" aria-live="polite">{announcement}</p>
+        <>
+          <CoachUnavailable state={status.state as "paused" | "not_configured" | "not_available"} onSettings={hasCoachData ? () => setSettingsOpen(true) : undefined} />
+          {hasCoachData && settings}
+        </>
+        {live}
       </>
     );
   }
   if (status.state === "consent") {
     return (
-      <ConsentPanel
-        providers={status.providers}
-        sharedSummary={status.sharedSummary}
-        minor={status.minor}
-        ageMissing={status.ageMissing}
-        memberDataAvailable={status.memberDataAvailable}
-        onDone={(share) => {
-          setShareData(share);
-          setStatus((old) => ({ ...old, state: "ready", consent: { shareData: share, consentedAt: new Date().toISOString() } }));
-          void fetchStatus().then((fresh) => {
-            setQuotas(fresh.quotas);
-            setThreads(fresh.threads);
-            setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts }));
-          }).catch(() => {});
-        }}
-      />
+      <>
+        <ConsentPanel
+          providers={status.providers}
+          sharedSummary={status.sharedSummary}
+          minor={status.minor}
+          ageMissing={status.ageMissing}
+          memberDataAvailable={status.memberDataAvailable}
+          focusHeading={focusConsent}
+          onDone={(share) => {
+            setShareData(share);
+            setFocusConsent(false);
+            // The coach replaces the consent screen: focus goes to the message box (Composer's focusKey).
+            setFocusKey((key) => key + 1);
+            setStatus((old) => ({ ...old, state: "ready", consent: { shareData: share, consentedAt: new Date().toISOString() } }));
+            void fetchStatus().then((fresh) => {
+              setQuotas(fresh.quotas);
+              setThreads(fresh.threads);
+              setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts, careMode: fresh.careMode }));
+            }).catch(() => {});
+          }}
+        />
+        {live}
+      </>
     );
   }
 
@@ -395,159 +428,163 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   }
 
   const list = (
-    <ConversationList threads={threads} activeId={threadId} onOpen={(id) => void openThread(id)} onNew={newConversation} onDelete={(thread) => void removeThread(thread)} busy={busy} />
+    <ConversationList threads={threads} activeId={threadId} onOpen={(id) => void openThread(id)} onNew={newConversation} onDelete={(thread, list) => void removeThread(thread, list)} busy={busy} />
   );
 
   return (
-    <div className={cn(styles.layout, inPanel && styles.panelLayout)}>
-      {!inPanel && <aside className={styles.rail} aria-label="Conversations and limits">
-        <div className={styles.railInner}>
-          <div className={styles.railList}>{list}</div>
-          {(chatQuota || planQuota) && (
-            <div className={styles.limits}>
-              <h2 className={styles.limitsTitle}>Last 24 hours</h2>
-              {chatQuota && <QuotaLine label="Messages" quota={chatQuota} />}
-              {planQuota && <QuotaLine label="Plans" quota={planQuota} />}
-            </div>
-          )}
-        </div>
-      </aside>}
-
-      <div className={styles.chat}>
-        <div className={styles.bar}>
-          <p className={styles.mode}>
-            <span aria-hidden="true" className={cn(styles.dot, plansAllowed && styles.dotOn)} />
-            {plansAllowed ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
-          </p>
-          <div className={styles.tools}>
-            <ReadAloudToggle readAloud={readAloud} />
-            <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
-              <History size={17} aria-hidden="true" /><span className="sr-only sm:not-sr-only">History</span>
-            </button>
-            <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className={cn("grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
-              <MessageSquarePlus size={18} aria-hidden="true" />
-            </button>
-            <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Coach settings" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
-              <Settings2 size={18} aria-hidden="true" />
-            </button>
+    <>
+      <div className={cn(styles.layout, inPanel && styles.panelLayout)}>
+        {!inPanel && <aside className={styles.rail} aria-label="Conversations and limits">
+          <div className={styles.railInner}>
+            <div className={styles.railList}>{list}</div>
+            {(chatQuota || planQuota) && (
+              <div className={styles.limits}>
+                <h2 className={styles.limitsTitle}>Last 24 hours</h2>
+                {chatQuota && <QuotaLine label="Messages" quota={chatQuota} />}
+                {planQuota && <QuotaLine label="Plans" quota={planQuota} />}
+              </div>
+            )}
           </div>
-        </div>
+        </aside>}
 
-        {status.renewal && (
-          <ConsentRenewal
-            renewal={status.renewal}
-            onAgreed={() => {
-              setStatus((old) => ({ ...old, renewal: null }));
-              setAnnouncement("Agreed to the updated terms.");
-              // The services' notices and the prompts written from the member's data follow the new consent.
-              void fetchStatus().then((fresh) => setStatus((old) => ({ ...old, providers: fresh.providers, memberDataAvailable: fresh.memberDataAvailable, quickPrompts: fresh.quickPrompts, renewal: fresh.renewal }))).catch(() => {});
-            }}
-          />
-        )}
+        <div className={styles.chat}>
+          <div className={styles.bar}>
+            <p className={styles.mode}>
+              <span aria-hidden="true" className={cn(styles.dot, plansAllowed && styles.dotOn)} />
+              {plansAllowed ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
+            </p>
+            <div className={styles.tools}>
+              <ReadAloudToggle readAloud={readAloud} />
+              <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
+                <History size={17} aria-hidden="true" /><span className="sr-only sm:not-sr-only">History</span>
+              </button>
+              <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className={cn("grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
+                <MessageSquarePlus size={18} aria-hidden="true" />
+              </button>
+              <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Coach settings" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
+                <Settings2 size={18} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
 
-        <section ref={threadBox} aria-label="Conversation" aria-busy={busy || loadingThread} className={styles.thread}>
-          {loadingThread ? (
-            <p className={styles.thinking}><Loader2 size={16} aria-hidden="true" className="animate-spin" /> Opening conversation…</p>
-          ) : messages.length === 0 && !pending ? (
-            <div className={styles.hello}>
-              <div>
-                <h2 className={styles.helloTitle}>What can I help with?</h2>
-                {status.providers.length > 0 && (
-                  <p className={styles.services}>
-                    <span className={styles.service}><span aria-hidden="true" className={cn(styles.dot, styles.dotOn)} />{status.providers.length === 1 ? "1 AI service ready" : `${status.providers.length} AI services ready`}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{status.providers.map((provider) => provider.name).join(", ")}</span>
+          {status.renewal && (
+            <ConsentRenewal
+              renewal={status.renewal}
+              // The prompt goes: focus moves to the message box rather than to the page body.
+              onClosed={() => setFocusKey((key) => key + 1)}
+              onAgreed={() => {
+                setStatus((old) => ({ ...old, renewal: null }));
+                announce("Agreed to the updated terms.");
+                // The services' notices and the prompts written from the member's data follow the new consent.
+                void fetchStatus().then((fresh) => setStatus((old) => ({ ...old, providers: fresh.providers, memberDataAvailable: fresh.memberDataAvailable, quickPrompts: fresh.quickPrompts, renewal: fresh.renewal }))).catch(() => {});
+              }}
+            />
+          )}
+
+          <section ref={threadBox} aria-label="Conversation" aria-busy={busy || loadingThread} className={styles.thread}>
+            {loadingThread ? (
+              <p className={styles.thinking}><Loader2 size={16} aria-hidden="true" className="animate-spin" /> Opening conversation…</p>
+            ) : messages.length === 0 && !pending ? (
+              <div className={styles.hello}>
+                <div>
+                  <h2 className={styles.helloTitle}>What can I help with?</h2>
+                  {status.providers.length > 0 && (
+                    <p className={styles.services}>
+                      <span className={styles.service}><span aria-hidden="true" className={cn(styles.dot, styles.dotOn)} />{status.providers.length === 1 ? "1 AI service ready" : `${status.providers.length} AI services ready`}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{status.providers.map((provider) => provider.name).join(", ")}</span>
+                    </p>
+                  )}
+                </div>
+                <ul className={styles.skills} aria-label="What the coach can do">
+                  {capabilityStarters({ sharesData: plansAllowed, careMode: status.careMode }).map((starter) => (
+                    <li key={starter.id}>
+                      <button type="button" onClick={() => choosePrompt({ id: `skill-${starter.id}`, source: "general", context: starter.label, text: starter.text, mode: starter.mode })} className={styles.skill}>
+                        {starter.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <ul className={styles.prompts} aria-label="Suggested questions">
+                  {prompts.map((prompt) => {
+                    const Icon = PROMPT_ICONS[prompt.source];
+                    return (
+                      <li key={prompt.id}>
+                        <button type="button" onClick={() => choosePrompt(prompt)} className={styles.prompt}>
+                          <span className={styles.promptContext}><Icon size={14} aria-hidden="true" /><span>{prompt.context}</span></span>
+                          <span className={styles.promptText}>{prompt.text}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <div key={message.id} id={`coach-message-${message.id}`} className="scroll-mt-24">
+                  <MessageView message={message} actions={planActions} />
+                </div>
+              ))
+            )}
+
+            {pending && (
+              <div className="grid gap-2.5" aria-live="polite">
+                <p className={styles.replyMeta}><span aria-hidden="true" className={styles.mark}>FX</span>FITX Coach</p>
+                {pending.text ? (
+                  <div><RichText text={pending.text} /><span aria-hidden="true" className={styles.caret} /></div>
+                ) : (
+                  <p className={styles.thinking}>
+                    <span aria-hidden="true" className={styles.dots}><span /><span /><span /></span>
+                    {pending.status ? `${pending.status}…` : "Thinking…"}
                   </p>
                 )}
               </div>
-              <ul className={styles.skills} aria-label="What the coach can do">
-                {capabilityStarters({ sharesData: plansAllowed, careMode: status.careMode }).map((starter) => (
-                  <li key={starter.id}>
-                    <button type="button" onClick={() => choosePrompt({ id: `skill-${starter.id}`, source: "general", context: starter.label, text: starter.text, mode: starter.mode })} className={styles.skill}>
-                      {starter.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <ul className={styles.prompts} aria-label="Suggested questions">
-                {prompts.map((prompt) => {
-                  const Icon = PROMPT_ICONS[prompt.source];
-                  return (
-                    <li key={prompt.id}>
-                      <button type="button" onClick={() => choosePrompt(prompt)} className={styles.prompt}>
-                        <span className={styles.promptContext}><Icon size={14} aria-hidden="true" /><span>{prompt.context}</span></span>
-                        <span className={styles.promptText}>{prompt.text}</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <div key={message.id} id={`coach-message-${message.id}`} className="scroll-mt-24">
-                <MessageView message={message} actions={planActions} />
+            )}
+
+            {problem && (
+              <div role="alert" className="fitx-alert fitx-alert-danger flex items-start justify-between gap-3">
+                <span>{problem.message}</span>
+                <button type="button" onClick={() => setProblem(null)} aria-label="Dismiss" className="-m-2 grid h-11 w-11 shrink-0 place-items-center rounded-lg hover:bg-fitx-hover"><X size={16} aria-hidden="true" /></button>
               </div>
-            ))
-          )}
+            )}
+            {/* Clears the sticky composer when scrolled to. */}
+            <div ref={end} className={styles.end} />
+          </section>
 
-          {pending && (
-            <div className="grid gap-2.5" aria-live="polite">
-              <p className={styles.replyMeta}><span aria-hidden="true" className={styles.mark}>FX</span>FITX Coach</p>
-              {pending.text ? (
-                <div><RichText text={pending.text} /><span aria-hidden="true" className={styles.caret} /></div>
-              ) : (
-                <p className={styles.thinking}>
-                  <span aria-hidden="true" className={styles.dots}><span /><span /><span /></span>
-                  {pending.status ? `${pending.status}…` : "Thinking…"}
-                </p>
-              )}
-            </div>
-          )}
-
-          {problem && (
-            <div role="alert" className="fitx-alert fitx-alert-danger flex items-start justify-between gap-3">
-              <span>{problem.message}</span>
-              <button type="button" onClick={() => setProblem(null)} aria-label="Dismiss" className="-m-2 grid h-11 w-11 shrink-0 place-items-center rounded-lg hover:bg-fitx-hover"><X size={16} aria-hidden="true" /></button>
-            </div>
-          )}
-          {/* Clears the sticky composer when scrolled to. */}
-          <div ref={end} className={styles.end} />
-        </section>
-
-        <div ref={measureDock} className={styles.composerDock}>
-          <Composer
-            draft={draft}
-            onDraft={setDraft}
-            mode={mode}
-            onMode={setMode}
-            budget={budget}
-            onBudget={setBudget}
-            plansAllowed={plansAllowed}
-            mealPlansPaused={status.careMode}
-            plansNote={status.minor ? "Plans aren't available for under-18 accounts." : status.ageMissing ? "Plans need your age in Profile and “Use my FITX data”." : !shareData ? "Plans need “Use my FITX data”, in Coach settings." : null}
-            busy={busy}
-            onSend={() => void send()}
-            onStop={() => stopper.current?.abort()}
-            hint={quotaHint}
-            focusKey={focusKey}
-            voice={
-              <VoiceButton
-                  disabled={busy}
-                  onStart={() => { readAloud.cancel(); setMode("chat"); }}
-                  onTranscript={setDraft}
-                  onFinished={(text) => void send(text)}
-                />
-            }
-          />
+          <div ref={measureDock} className={styles.composerDock}>
+            <Composer
+              draft={draft}
+              onDraft={setDraft}
+              mode={mode}
+              onMode={setMode}
+              budget={budget}
+              onBudget={setBudget}
+              plansAllowed={plansAllowed}
+              mealPlansPaused={status.careMode}
+              plansNote={status.minor ? "Plans aren't available for under-18 accounts." : status.ageMissing ? "Plans need your age in Profile and “Use my FITX data”." : !shareData ? "Plans need “Use my FITX data”, in Coach settings." : null}
+              busy={busy}
+              onSend={() => void send()}
+              onStop={() => stopper.current?.abort()}
+              hint={quotaHint}
+              focusKey={focusKey}
+              voice={
+                <VoiceButton
+                    disabled={busy}
+                    onStart={() => { readAloud.cancel(); setMode("chat"); }}
+                    onTranscript={setDraft}
+                    onFinished={(text) => void send(text)}
+                  />
+              }
+            />
+          </div>
         </div>
+
+        <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} closeWhenWide={!inPanel}>{list}</HistoryDrawer>
+
+        {settings}
       </div>
-
-      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} closeWhenWide={!inPanel}>{list}</HistoryDrawer>
-
-      {settings}
-      <p className="sr-only" aria-live="polite">{announcement}</p>
-    </div>
+      {live}
+    </>
   );
 }
 

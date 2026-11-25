@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { X } from "lucide-react";
 import type { ProviderNotice } from "@/lib/ai/status";
 import { CoachRequestError, deleteCoachData, saveConsent } from "./coach-client";
@@ -36,6 +37,22 @@ export function CoachSettings({
   const on = shareData && mayShare;
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
+  const askId = useId();
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+
+  // The pressed button is replaced, so focus moves to its replacement inside the dialog (BRIEF-3 D5): to Cancel, the
+  // choice that deletes nothing, when the question appears, and back to "Delete my coach data" after Cancel.
+  function askToDelete() {
+    flushSync(() => setConfirming(true));
+    cancelButton.current?.focus();
+  }
+
+  function cancelDelete() {
+    if (saving) return;
+    flushSync(() => setConfirming(false));
+    deleteButton.current?.focus();
+  }
 
   useEffect(() => {
     const element = dialog.current;
@@ -45,6 +62,8 @@ export function CoachSettings({
   }, [open]);
 
   async function toggleSharing() {
+    // The switch stays focusable while saving (aria-disabled): a disabled control drops keyboard focus in Chrome.
+    if (saving) return;
     setSaving(true);
     setError("");
     try {
@@ -58,6 +77,7 @@ export function CoachSettings({
   }
 
   async function deleteAll() {
+    if (saving) return;
     setSaving(true);
     setError("");
     try {
@@ -105,9 +125,10 @@ export function CoachSettings({
               role="switch"
               aria-checked={on}
               aria-labelledby="coach-share-title"
-              disabled={!mayShare || saving}
+              disabled={!mayShare}
+              aria-disabled={saving || undefined}
               onClick={toggleSharing}
-              className="relative mt-0.5 inline-flex h-11 w-14 shrink-0 items-center justify-center disabled:opacity-50"
+              className="relative mt-0.5 inline-flex h-11 w-14 shrink-0 items-center justify-center disabled:opacity-50 aria-disabled:opacity-50"
             >
               <span aria-hidden="true" className={`block h-7 w-12 rounded-full transition-colors ${on ? "bg-fitx-primary" : "bg-fitx-track"}`} />
               <span aria-hidden="true" className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-fitx-surface shadow transition-all ${on ? "left-[30px]" : "left-[8px]"}`} />
@@ -136,12 +157,15 @@ export function CoachSettings({
             Removes every coach conversation and suggestion, FITX’s safety notes and your consent. Foods and workouts you already added stay in Nutrition and Workouts.
           </p>
           {confirming ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={deleteAll} disabled={saving} className="fitx-button fitx-button-danger">{saving ? "Deleting…" : "Yes, delete everything"}</button>
-              <button type="button" onClick={() => setConfirming(false)} disabled={saving} className="fitx-button fitx-button-quiet">Cancel</button>
+            <div role="group" aria-labelledby={askId} className="mt-3">
+              <p id={askId} className="text-sm font-semibold">Delete all your coach data? This can’t be undone.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" onClick={() => void deleteAll()} aria-disabled={saving || undefined} className="fitx-button fitx-button-danger aria-disabled:opacity-60">{saving ? "Deleting…" : "Yes, delete everything"}</button>
+                <button ref={cancelButton} type="button" onClick={cancelDelete} aria-disabled={saving || undefined} className="fitx-button fitx-button-quiet aria-disabled:opacity-60">Cancel</button>
+              </div>
             </div>
           ) : (
-            <button type="button" onClick={() => setConfirming(true)} className="fitx-button fitx-button-danger mt-3">Delete my coach data</button>
+            <button ref={deleteButton} type="button" onClick={askToDelete} className="fitx-button fitx-button-danger mt-3">Delete my coach data</button>
           )}
         </section>
         {error && <p role="alert" className="fitx-alert fitx-alert-danger">{error}</p>}

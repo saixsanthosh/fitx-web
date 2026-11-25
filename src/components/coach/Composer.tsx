@@ -84,6 +84,8 @@ export function Composer({
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    // Send is aria-disabled, not disabled, when there is nothing to send: a focused button that turns disabled (as
+    // Send does once an answer arrives and the box is empty) drops keyboard focus to the page in Chrome.
     if (canSend) onSend();
   }
 
@@ -159,7 +161,7 @@ export function Composer({
             <Square size={15} aria-hidden="true" fill="currentColor" />
           </button>
         ) : (
-          <button type="submit" disabled={!canSend} aria-label={mode === "chat" ? "Send" : mode === "meal_plan" ? "Make my meal plan" : "Make my workout"} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-fitx-primary text-fitx-on-primary transition-colors hover:bg-fitx-primary-bright disabled:opacity-40">
+          <button type="submit" aria-disabled={!canSend || undefined} aria-label={mode === "chat" ? "Send" : mode === "meal_plan" ? "Make my meal plan" : "Make my workout"} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-fitx-primary text-fitx-on-primary transition-colors hover:bg-fitx-primary-bright aria-disabled:opacity-40 aria-disabled:hover:bg-fitx-primary">
             <ArrowUp size={18} aria-hidden="true" />
           </button>
         )}

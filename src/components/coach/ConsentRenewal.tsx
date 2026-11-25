@@ -22,7 +22,8 @@ function storage(): Storage | null {
  * "Not now" changes nothing and the prompt does not come back on this device. Coach settings still says which
  * services get only "Questions only" until then.
  */
-export function ConsentRenewal({ renewal, onAgreed }: { renewal: Renewal; onAgreed: () => void }) {
+/** onClosed: the prompt is gone (Agree saved, or Not now), so the page moves focus on instead of leaving it on nothing. */
+export function ConsentRenewal({ renewal, onAgreed, onClosed }: { renewal: Renewal; onAgreed: () => void; onClosed?: () => void }) {
   const hydrated = useHydrated();
   const [closed, setClosed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -30,6 +31,8 @@ export function ConsentRenewal({ renewal, onAgreed }: { renewal: Renewal; onAgre
   if (!hydrated || closed || renewalSeen(storage(), renewal.version)) return null;
 
   async function agree() {
+    // Agree stays focusable while saving (aria-disabled), so a failure's message is read with focus kept.
+    if (saving) return;
     setSaving(true);
     setError("");
     try {
@@ -37,6 +40,7 @@ export function ConsentRenewal({ renewal, onAgreed }: { renewal: Renewal; onAgre
       markRenewalSeen(storage(), renewal.version);
       setClosed(true);
       onAgreed();
+      onClosed?.();
     } catch {
       setError("That didn't save. Try again in a moment.");
     } finally {
@@ -45,8 +49,10 @@ export function ConsentRenewal({ renewal, onAgreed }: { renewal: Renewal; onAgre
   }
 
   function later() {
+    if (saving) return;
     markRenewalSeen(storage(), renewal.version);
     setClosed(true);
+    onClosed?.();
   }
 
   return (
@@ -58,8 +64,8 @@ export function ConsentRenewal({ renewal, onAgreed }: { renewal: Renewal; onAgre
         {error && <p role="alert" className={styles.renewalError}>{error}</p>}
       </div>
       <div className={styles.renewalActions}>
-        <button type="button" onClick={later} disabled={saving} className="fitx-button fitx-button-quiet">Not now</button>
-        <button type="button" onClick={() => void agree()} disabled={saving} className="fitx-button">{saving ? "Saving…" : "Agree"}</button>
+        <button type="button" onClick={later} aria-disabled={saving || undefined} className="fitx-button fitx-button-quiet aria-disabled:opacity-60">Not now</button>
+        <button type="button" onClick={() => void agree()} aria-disabled={saving || undefined} className="fitx-button aria-disabled:opacity-60">{saving ? "Saving…" : "Agree"}</button>
       </div>
     </section>
   );
