@@ -55,7 +55,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
-import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, listedFoods, noSearchReason, openingPortion, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
+import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, focusAfterRetry, listedFoods, noSearchReason, openingPortion, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -432,11 +432,20 @@ export default function NutritionPage() {
     }
   }, [household]);
 
-  const lookupBarcode = useCallback(async (value: string) => {
+  const lookupBarcode = useCallback(async (value: string, { retry = false }: { retry?: boolean } = {}) => {
     const checked = checkBarcode(value);
     if (!checked.ok) { setError(barcodeProblem(checked.reason)); return; }
     // A newer lookup, closing Log food or going to Search replaces this one: its answer, when it comes, is dropped.
     const current = barcodeGate.current.start();
+    // After Try again, an answer that no longer offers it takes its button away: the focus moves on (focusAfterRetry)
+    // instead of falling to the page.
+    const refocus = (target: string | null) => {
+      if (!retry || !target) return;
+      window.setTimeout(() => {
+        if (document.activeElement && document.activeElement !== document.body) return;
+        document.getElementById(target)?.focus();
+      }, 60);
+    };
     // Trying the same barcode again keeps its answer on screen (and its Try again button under the focus) until the new one.
     setBusy(true); setError(""); setNotice(""); setBarcodeMiss((miss) => (miss?.code === checked.code ? miss : null));
     try {
@@ -452,10 +461,21 @@ export default function NutritionPage() {
         chooseFood(data.foods[0]);
         // The barcode controls make way for the product: its amount takes the focus.
         window.setTimeout(() => document.getElementById("log-portion-amount")?.focus({ preventScroll: true }), 60);
-      } else if (data.barcodeStatus === "invalid") { setBarcodeMiss(null); setError(data.error || barcodeProblem("check-digit")); }
-      // Unknown, no label, or not checked (busy, no answer): each says why and offers to add the product with this barcode.
-      else { setSelected(null); setBarcodeMiss(barcodeMissFor(data.barcodeStatus, checked.code, data.productName)); }
-    } catch (cause) { if (current()) { setBarcodeMiss(null); setError(cause instanceof Error ? cause.message : "Barcode lookup failed."); } }
+      } else if (data.barcodeStatus === "invalid") {
+        setBarcodeMiss(null); setError(data.error || barcodeProblem("check-digit"));
+        refocus(focusAfterRetry({ found: false, miss: null }));
+      } else {
+        // Unknown, no label, or not checked (busy, no answer): each says why and offers to add the product with this barcode.
+        const miss = barcodeMissFor(data.barcodeStatus, checked.code, data.productName);
+        setSelected(null); setBarcodeMiss(miss);
+        refocus(focusAfterRetry({ found: false, miss }));
+      }
+    } catch (cause) {
+      if (current()) {
+        setBarcodeMiss(null); setError(cause instanceof Error ? cause.message : "Barcode lookup failed.");
+        refocus(focusAfterRetry({ found: false, miss: null }));
+      }
+    }
     finally { setBusy(false); }
   }, [chooseFood]);
 
@@ -1251,7 +1271,7 @@ export default function NutritionPage() {
                   <p role="status">{said.text}</p>
                   <div className={ui.toolbar}>
                     <button type="button" id="log-barcode-create" className="fitx-button min-h-11 px-3 text-xs" onClick={() => { hideLog("log-barcode-create"); setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } }); }}>Create a food</button>
-                    {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-3 text-xs ${ui.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) void lookupBarcode(barcodeMiss.code); }}>{busy ? "Checking…" : "Try again"}</button>}
+                    {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-3 text-xs ${ui.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) void lookupBarcode(barcodeMiss.code, { retry: true }); }}>{busy ? "Checking…" : "Try again"}</button>}
                     <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={searchByName}>Search by name</button>
                     {said.addToOpenFoodFacts && <a className={ui.textButton} href={`https://world.openfoodfacts.org/product/${barcodeMiss.code}`} target="_blank" rel="noopener noreferrer">Add to Open Food Facts</a>}
                   </div>

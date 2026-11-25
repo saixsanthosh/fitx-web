@@ -110,3 +110,14 @@ export function barcodeMissText(miss: BarcodeMiss): { text: string; retry: boole
     : `No product with barcode ${miss.code} on Open Food Facts. Nothing was guessed.`;
   return { text, retry: false, addToOpenFoodFacts: true };
 }
+
+/**
+ * Where the focus goes once Try again has its answer (an element id), or null when it may stay where it is: the
+ * product was found (its amount takes the focus), or the new answer offers Try again too, so its button stays. Else
+ * the button has gone: to the answer's Create a food, or to the barcode box when no answer is shown (an error).
+ */
+export function focusAfterRetry(answer: { found: boolean; miss: BarcodeMiss | null }): string | null {
+  if (answer.found) return null;
+  if (!answer.miss) return "barcode-number";
+  return barcodeMissText(answer.miss).retry ? null : "log-barcode-create";
+}

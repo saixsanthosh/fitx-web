@@ -43,7 +43,7 @@ test("the start view drops what is still to come and never waits for a dropped s
   assert.match(lookup, /const current = barcodeGate\.current\.start\(\);/, "a barcode lookup is numbered too");
   assert.ok(lookup.indexOf("if (!current()) return;") > lookup.indexOf("await response.json()"), "and its answer is checked once it comes");
   assert.ok(lookup.indexOf("if (!current()) return;") < lookup.indexOf('setSearchMode("barcode")'), "before it sets anything");
-  assert.match(lookup, /catch \(cause\) \{ if \(current\(\)\) \{/);
+  assert.match(lookup, /catch \(cause\) \{\s*if \(current\(\)\) \{/, "a late failure is dropped too");
 });
 
 test("every way out of the sheet that doesn't come back starts the next Log food afresh, barcode box included", () => {
