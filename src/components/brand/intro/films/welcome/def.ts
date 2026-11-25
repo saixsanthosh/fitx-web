@@ -2,9 +2,10 @@
  * The welcome film ("The Forge") as a `FilmDef` (BRIEF-2 3.2 and 3.3): six shots on the gym set with the three
  * athletes (D5 (a)), both themes (D4), all five compositions. Reached only through `FILM_DEFS.welcome`.
  *
- * Its timings are PROVISIONAL (BRIEF-2 1.2): they follow the C0 timeline and the beats in `timeline.ts`, and are fixed
- * only after gate A has passed and the owner has approved the D5 animatic. `FILM_MANIFESTS.welcome` stays null (D1
- * dormant) until the coordinator's final render pass (S6).
+ * Its timings follow the C0 timeline and the beats in `timeline.ts`, and are final: gate A passed (BRIEF-2 D10) and the
+ * owner approved the D5 animatic (D11). The film is live since release 2b: `FILM_MANIFESTS.welcome`
+ * (`films/cuts.generated.ts`) holds the cuts S6, the coordinator's final render pass, made from this definition, so a
+ * change here reaches members only with the next final render.
  *
  * Imports stay node-safe, so node tests load it (`tests/brand/film-lab-defs.test.ts`, `tests/brand/welcome-film.test.ts`).
  * Created as a stub by film-lab's film-def commit; film-welcome owns it.
