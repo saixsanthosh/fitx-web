@@ -6,9 +6,16 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { announcementText, focusAfterDelete } from "@/components/coach/focus-rules";
+import { UNAVAILABLE_STATES, announcementText, focusAfterDelete, settingsReachable, statusAfterDelete } from "@/components/coach/focus-rules";
+import type { CoachState, CoachStatus } from "@/lib/ai/status";
 
 const source = (file: string) => readFileSync(new URL(`../../src/components/coach/${file}`, import.meta.url), "utf8");
+
+const coachStatus = (state: CoachState, consent: CoachStatus["consent"], threadCount: number): CoachStatus => ({
+  state, consent, threads: Array.from({ length: threadCount }, (_, index) => ({ id: `t${index}`, title: "Rest days", updatedAt: "2026-11-26T00:00:00Z" })),
+  providers: [], minor: false, ageMissing: false, sharedSummary: [], memberDataAvailable: true, quotas: [], quickPrompts: [], renewal: null, careMode: false,
+});
+const consented = { shareData: true, consentedAt: "2026-11-20T10:00:00Z" };
 
 describe("where focus goes after a conversation is deleted", () => {
   test("to the conversation that takes its place, else the one before it, else New conversation", () => {
@@ -62,16 +69,63 @@ describe("Delete my coach data", () => {
 
   test("after everything is deleted, the consent screen takes focus on its heading and the result is announced", () => {
     const app = source("CoachApp.tsx");
-    assert.match(app, /setFocusConsent\(true\);\n\s+announce\("Your coach data was deleted\."\);/);
-    assert.match(app, /focusHeading=\{focusConsent\}/);
+    assert.match(app, /setStatus\(statusAfterDelete\);\n\s+focusHeading\(\);\n\s+announce\("Your coach data was deleted\."\);/);
+    assert.match(app, /const focusHeading = useCallback\(\(\) => setHeadingFocus\(\(key\) => key \+ 1\), \[\]\);/);
+    assert.equal(app.match(/focusKey=\{headingFocus\}/g)?.length, 2, "the consent screen and the paused screen");
+    assert.doesNotMatch(app, /focusConsent/);
     const panel = source("ConsentPanel.tsx");
-    assert.match(panel, /useEffect\(\(\) => \{\n\s+if \(focusHeading\) heading\.current\?\.focus\(\);\n\s+\}, \[focusHeading\]\);/);
+    assert.match(panel, /useEffect\(\(\) => \{\n\s+if \(focusKey\) heading\.current\?\.focus\(\);\n\s+\}, \[focusKey\]\);/);
     assert.match(panel, /<h2 ref=\{heading\} tabIndex=\{-1\} id="coach-consent-title"/);
+  });
+
+  test("on the paused screen, Coach settings goes at once after the delete, with the dialog (review round)", () => {
+    for (const state of ["paused", "not_configured"] as const) {
+      const before = coachStatus(state, consented, 2);
+      assert.equal(settingsReachable(before, 2), true, `${state}: a member with coach data can open Coach settings`);
+      const after = statusAfterDelete(before);
+      assert.equal(after.consent, null);
+      assert.deepEqual(after.threads, []);
+      assert.equal(after.state, state);
+      assert.equal(settingsReachable(after, 0), false, `${state}: nothing is left for Coach settings`);
+    }
+    // Conversations alone keep it, and FITX that can't keep conversations never offers it.
+    assert.equal(settingsReachable(coachStatus("paused", null, 1), 1), true);
+    assert.equal(settingsReachable(coachStatus("not_available", consented, 1), 1), false);
+    // On the coach itself the status waits for the fresh one (the consent screen needs its details).
+    const ready = coachStatus("ready", consented, 2);
+    assert.equal(statusAfterDelete(ready), ready);
+    assert.deepEqual([...UNAVAILABLE_STATES].sort(), ["not_available", "not_configured", "paused"]);
+    const app = source("CoachApp.tsx");
+    assert.match(app, /const hasCoachData = settingsReachable\(status, threads\.length\);/);
+    assert.match(app, /\{hasCoachData && settings\}/, "the dialog goes in the same update as the button");
+  });
+
+  test("the paused screen takes focus on its heading when asked, and not on load (review round)", () => {
+    const screen = source("CoachUnavailable.tsx");
+    assert.match(screen, /^"use client";/);
+    assert.match(screen, /useEffect\(\(\) => \{\n\s+if \(focusKey\) heading\.current\?\.focus\(\);\n\s+\}, \[focusKey\]\);/);
+    assert.match(screen, /focusKey = 0 \}/);
+    assert.match(screen, /<h2 ref=\{heading\} tabIndex=\{-1\} id="coach-unavailable-title"/);
+    assert.doesNotMatch(screen, /focus:outline-none|outline-none/, "the focus ring stays");
+    const app = source("CoachApp.tsx");
+    assert.match(app, /onSettings=\{hasCoachData \? \(\) => setSettingsOpen\(true\) : undefined\}\n\s+focusKey=\{headingFocus\}/);
+  });
+
+  test("a reply that finds the coach paused or the consent gone moves focus to the screen that replaces the coach", () => {
+    const app = source("CoachApp.tsx");
+    assert.match(app, /if \(failure\.code === "consent_required"\) \{\n\s+focusHeading\(\);/);
+    assert.match(app, /failure\.code === "not_available"\) \{\n\s+\/\/ [^\n]*\n\s+focusHeading\(\);\n\s+setStatus\(\(old\) => \(\{ \.\.\.old, state: failure\.code as CoachState \}\)\);/);
+  });
+
+  test("after the delete, the paused screen no longer says the conversations are safe", () => {
+    const screen = source("CoachUnavailable.tsx");
+    assert.match(screen, /text: "The FITX team has paused the AI coach for now\.", kept: "Your conversations are safe and will be here when it's back\."/);
+    assert.match(screen, /\{onSettings && kept \? `\$\{text\} \$\{kept\}` : text\}/);
   });
 
   test("Start coaching hands focus to the message box, and keeps it while saving", () => {
     const app = source("CoachApp.tsx");
-    assert.match(app, /setFocusConsent\(false\);\n\s+\/\/ [^\n]*\n\s+setFocusKey\(\(key\) => key \+ 1\);/);
+    assert.match(app, /onDone=\{\(share\) => \{\n\s+setShareData\(share\);\n\s+\/\/ [^\n]*\n\s+setFocusKey\(\(key\) => key \+ 1\);/);
     const panel = source("ConsentPanel.tsx");
     assert.match(panel, /disabled=\{!chosen\} aria-disabled=\{saving \|\| undefined\}/, "still disabled until a choice is made (e2e flow 06b)");
     assert.match(panel, /if \(!chosen \|\| saving\) return;/);

@@ -19,7 +19,7 @@ import { ReadAloudToggle, VoiceButton, useReadAloud } from "./CoachVoice";
 import { ConsentPanel } from "./ConsentPanel";
 import { ConsentRenewal } from "./ConsentRenewal";
 import { ConversationList } from "./ConversationList";
-import { announcementText, focusAfterDelete } from "./focus-rules";
+import { UNAVAILABLE_STATES as UNAVAILABLE, announcementText, focusAfterDelete, settingsReachable, statusAfterDelete } from "./focus-rules";
 import { formatResetTime } from "./format";
 import type { PlanActions } from "./MealPlanCard";
 import { MessageView } from "./MessageView";
@@ -28,8 +28,6 @@ import styles from "./Coach.module.css";
 
 type Pending = { task: ComposerMode; status: string | null; text: string };
 type Problem = { message: string; retryAt?: string };
-
-const UNAVAILABLE = new Set<CoachState>(["paused", "not_configured", "not_available"]);
 
 /**
  * variant "page": the AI Coach page (conversation rail on wide screens, the window scrolls).
@@ -58,8 +56,10 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   // The page's one polite live region, kept in place across the coach, consent and paused views (see the return).
   const [announcement, setAnnouncement] = useState({ text: "", count: 0 });
   const announce = useCallback((text: string) => setAnnouncement((old) => ({ text, count: old.count + 1 })), []);
-  // The consent screen takes focus on its heading when it replaces the coach (after "Delete my coach data").
-  const [focusConsent, setFocusConsent] = useState(false);
+  // A screen that replaces the coach (the consent screen, or the paused one) takes focus on its heading, and so does the
+  // paused screen when its Coach settings button goes: each request is a new key (ConsentPanel, CoachUnavailable).
+  const [headingFocus, setHeadingFocus] = useState(0);
+  const focusHeading = useCallback(() => setHeadingFocus((key) => key + 1), []);
   const [focusKey, setFocusKey] = useState(0);
   const stopper = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -150,13 +150,15 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     }
     const failure = error instanceof CoachRequestError ? error : new CoachRequestError("failed", "Something went wrong. Please try again.");
     if (failure.code === "consent_required") {
-      setFocusConsent(true);
+      focusHeading();
       setStatus((old) => ({ ...old, state: "consent" }));
       // The reason may be a profile change (now under 18), so the consent screen takes its details afresh.
       void fetchStatus().then(setStatus).catch(() => {});
       return;
     }
     if (failure.code === "paused" || failure.code === "not_configured" || failure.code === "not_available") {
+      // The paused screen replaces the coach and the control in use: focus goes to its heading.
+      focusHeading();
       setStatus((old) => ({ ...old, state: failure.code as CoachState }));
       return;
     }
@@ -353,8 +355,11 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
         newConversation();
         setThreads([]);
         setShareData(false);
-        // The consent screen replaces the coach: focus goes to its heading, and the live region (kept in place) says why.
-        setFocusConsent(true);
+        // On the paused screen, Coach settings goes now (statusAfterDelete); otherwise the consent screen replaces the
+        // coach once the fresh status arrives. Either way focus goes to that screen's heading, and the live region (kept
+        // in place) says why.
+        setStatus(statusAfterDelete);
+        focusHeading();
         announce("Your coach data was deleted.");
         void fetchStatus()
           .then((fresh) => {
@@ -373,11 +378,15 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
 
   if (UNAVAILABLE.has(status.state)) {
     // Paused or not set up: a member who used the coach can still change sharing or delete their coach data.
-    const hasCoachData = status.state !== "not_available" && (status.consent !== null || threads.length > 0);
+    const hasCoachData = settingsReachable(status, threads.length);
     return (
       <>
         <>
-          <CoachUnavailable state={status.state as "paused" | "not_configured" | "not_available"} onSettings={hasCoachData ? () => setSettingsOpen(true) : undefined} />
+          <CoachUnavailable
+            state={status.state as "paused" | "not_configured" | "not_available"}
+            onSettings={hasCoachData ? () => setSettingsOpen(true) : undefined}
+            focusKey={headingFocus}
+          />
           {hasCoachData && settings}
         </>
         {live}
@@ -393,10 +402,9 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
           minor={status.minor}
           ageMissing={status.ageMissing}
           memberDataAvailable={status.memberDataAvailable}
-          focusHeading={focusConsent}
+          focusKey={headingFocus}
           onDone={(share) => {
             setShareData(share);
-            setFocusConsent(false);
             // The coach replaces the consent screen: focus goes to the message box (Composer's focusKey).
             setFocusKey((key) => key + 1);
             setStatus((old) => ({ ...old, state: "ready", consent: { shareData: share, consentedAt: new Date().toISOString() } }));

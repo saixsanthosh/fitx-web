@@ -18,7 +18,7 @@ export function ConsentPanel({
   minor,
   ageMissing,
   memberDataAvailable,
-  focusHeading = false,
+  focusKey = 0,
   onDone,
 }: {
   providers: ProviderNotice[];
@@ -27,8 +27,11 @@ export function ConsentPanel({
   /** No age in the profile: "Use my FITX data" waits for one (the server refuses it too). */
   ageMissing: boolean;
   memberDataAvailable: boolean;
-  /** The screen replaced the coach (after "Delete my coach data"): focus starts on its heading, not on the page body. */
-  focusHeading?: boolean;
+  /**
+   * A new key moves focus to the heading: the screen replaced the coach (after "Delete my coach data", or when a reply
+   * found the consent gone), so focus starts there, not on the page body. 0 (on load) leaves focus alone.
+   */
+  focusKey?: number;
   onDone: (shareData: boolean) => void;
 }) {
   // null until the member chooses; under-18 accounts never share.
@@ -39,8 +42,8 @@ export function ConsentPanel({
   const heading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    if (focusHeading) heading.current?.focus();
-  }, [focusHeading]);
+    if (focusKey) heading.current?.focus();
+  }, [focusKey]);
 
   async function start() {
     // Start coaching stays focusable while saving (aria-disabled), so a refusal's message is read with focus kept.
