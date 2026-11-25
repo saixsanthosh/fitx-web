@@ -93,10 +93,11 @@ test("globals.css keeps the larger of the two clear when scrolling to a control,
   assert.match(html, /scroll-padding-bottom: calc\(max\(var\(--fitx-inset-bottom-bar, 0px\), var\(--fitx-inset-consent, 0px\)\) \+ 12px\);/);
   const body = globals.match(/^body \{([^}]*)\}/m)?.[1] ?? "";
   assert.match(body, /padding-bottom: var\(--fitx-inset-consent, 0px\);/, "room at the page's end while the banner is open");
-  // The public footer's dark band takes that room inside itself, so no light strip shows below it.
-  assert.match(globals, /^\.fitx-ends-in-band \{ margin-bottom: calc\(-1 \* var\(--fitx-inset-consent, 0px\)\); \}/m);
+  // The public footer's dark band takes that room inside itself, so no light strip shows below it (the app's frame,
+  // the onboarding frame and the status screens do the same: end-room.test.ts).
+  assert.match(globals, /^\.fitx-holds-end-room \{ margin-bottom: calc\(-1 \* var\(--fitx-inset-consent, 0px\)\); \}/m);
   assert.match(globals, /^\.fitx-band-end \{ padding-bottom: calc\(env\(safe-area-inset-bottom\) \+ var\(--fitx-inset-consent, 0px\)\); \}/m);
-  assert.match(source("src/app/(marketing)/layout.tsx"), /className="fitx-ends-in-band flex min-h-dvh flex-col"><PublicHeader\/>\{children\}<PublicFooter\/>/);
+  assert.match(source("src/app/(marketing)/layout.tsx"), /className="fitx-holds-end-room flex min-h-dvh flex-col"><PublicHeader\/>\{children\}<PublicFooter\/>/);
   assert.match(source("src/components/layout/PublicFooter.tsx"), /<footer className="fitx-inverse fitx-band-end /);
   // The banner floats above the phone's bar, so the bar's links are never under it.
   assert.match(globals, /^\.fitx-consent \{ bottom: max\(calc\(var\(--fitx-inset-bottom-bar, 0px\) \+ 8px\), env\(safe-area-inset-bottom\), 12px\); \}/m);

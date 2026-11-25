@@ -18,13 +18,16 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <UserContextProvider>
-      <div className="flex min-h-dvh bg-background">
+      {/* While the privacy banner is open, the room kept after the page's end goes inside this frame, at the foot
+          of the page's column (globals.css, .fitx-holds-end-room and .fitx-end-room): the frame reaches the end of
+          the page, so the sidebar and rail, sticky inside it, stay pinned when the page is scrolled to its end. */}
+      <div className="fitx-holds-end-room flex min-h-dvh bg-background">
         {/* Idle unless the head script marked the film pending (once per account) or Replay is pressed. A fixed
             overlay, first in the page so that once it is gone Tab carries on from the top of the page (Skip to
             content), not from after the last control. */}
         <CinematicIntro />
         <Sidebar />
-        <div className="min-w-0 flex-1">
+        <div className="fitx-end-room min-w-0 flex-1">
           {/* Help opened by an account still in setup: this header, with the way back to setup, takes the place of
               the app's menu, account menu and AI Coach button (setup-mode.ts). Hidden otherwise. */}
           <SetupHeader />

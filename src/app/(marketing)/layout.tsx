@@ -8,6 +8,6 @@ export const revalidate = 300;
 
 export default function PublicLayout({ children }: { children: ReactNode }) {
   // The page ends in the footer's dark band: while the privacy banner is open, the room kept after the page's end
-  // goes inside the band (globals.css, .fitx-ends-in-band and the footer's .fitx-band-end).
-  return <div className="fitx-ends-in-band flex min-h-dvh flex-col"><PublicHeader/>{children}<PublicFooter/></div>;
+  // goes inside the band (globals.css, .fitx-holds-end-room and the footer's .fitx-band-end).
+  return <div className="fitx-holds-end-room flex min-h-dvh flex-col"><PublicHeader/>{children}<PublicFooter/></div>;
 }
