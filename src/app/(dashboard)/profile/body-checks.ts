@@ -1,5 +1,5 @@
 /**
- * Profile > Body's height and weight messages (bugs 32 and 8 on Profile; the onboarding stream's edit H2).
+ * Profile > Body's height and weight messages (bugs 32 and 8 on Profile; the onboarding stream's edits H2 and H3).
  *
  * Setup and Profile check a height or weight the same way: in the unit it is shown in, against HEIGHT_LIMITS and
  * WEIGHT_LIMITS, so a message names exactly the limits that are accepted (2 ft 11 in is under 90 cm, so the feet and
@@ -9,7 +9,7 @@
  * No React here, so node tests cover it (tests/profile/body-units.test.ts); BodySection draws the messages.
  */
 import { heightError, weightError, type HeightUnit, type WeightUnit } from "@/lib/domain/profile-options";
-import type { MeasureKey } from "@/lib/onboarding/form";
+import { MEASURED_IN, type MeasureKey } from "@/lib/onboarding/form";
 
 /** The parts of Profile's Body draft the checks read: values in cm and kg (null when empty, NaN when not a number). */
 export type BodyMeasures = {
@@ -32,4 +32,19 @@ export function bodyMeasureProblems(draft: BodyMeasures): MeasureProblems {
   const target = weightError(draft.targetWeightKg, draft.weightUnit, { target: true });
   if (target) found.targetWeightKg = target;
   return found;
+}
+
+/**
+ * The messages left once the member changes `key`: its own goes, and a unit change also takes the messages of the
+ * answers measured in that unit (MEASURED_IN, as setup), since they named the old unit's limits. Profile checks again
+ * only on Save, so it can't say them again in the new unit (setup can: lib/onboarding/form.ts messagesAfterUnitChange).
+ * The same object comes back when no message goes, so nothing re-renders for it.
+ */
+export function messagesAfterEdit(messages: Record<string, string>, key: string): Record<string, string> {
+  const measured: readonly string[] = key === "heightUnit" || key === "weightUnit" ? MEASURED_IN[key] : [];
+  const gone = [key, ...measured].filter((field) => field in messages);
+  if (!gone.length) return messages;
+  const left = { ...messages };
+  for (const field of gone) delete left[field];
+  return left;
 }

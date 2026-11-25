@@ -69,7 +69,7 @@ import { changedFields, loadBirthDate, logWeighIn, markNutritionSetupAnswered, m
 import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
 import { equipmentLabel } from "@/lib/training/equipment";
-import { bodyMeasureProblems } from "./body-checks";
+import { bodyMeasureProblems, messagesAfterEdit } from "./body-checks";
 import { ChipList, Detail, DetailList, EditActions, NotSet, SectionCard, type SectionNotice } from "./ProfileParts";
 import { foodAnswersKnown, foodSaveMarksSetup, foodSaveProblem, goalAnswers, homeEquipmentKnown, mealsText, sessionAnswer } from "./profile-answers";
 
@@ -130,7 +130,8 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
   const formRef = useRef<HTMLFormElement>(null);
   const set = <K extends keyof BodyDraft>(key: K, value: BodyDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
-    setErrors((current) => withoutKey(current, key));
+    // A unit change also clears its fields' messages: they named the old unit's limits (body-checks.ts).
+    setErrors((current) => messagesAfterEdit(current, key));
     setError("");
   };
 

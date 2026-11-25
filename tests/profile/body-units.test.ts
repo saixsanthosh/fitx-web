@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { feetInchesToCm, sameWeightKg, weightFromUnit } from "@/lib/domain/profile-options";
 import { measureRead } from "@/lib/onboarding/measure-field";
-import { bodyMeasureProblems, type BodyMeasures } from "@/app/(dashboard)/profile/body-checks";
+import { bodyMeasureProblems, messagesAfterEdit, type BodyMeasures } from "@/app/(dashboard)/profile/body-checks";
 
 const ROOT = new URL("../../", import.meta.url);
 const source = readFileSync(new URL("src/app/(dashboard)/profile/ProfileSections.tsx", ROOT), "utf8");
@@ -72,5 +72,32 @@ describe("H2: Profile's height and weight messages name the limits accepted, in 
   test("the section uses those checks; the old messages with the wrong imperial limits are gone", () => {
     assert.match(body, /Object\.assign\(found, bodyMeasureProblems\(draft\)\);/);
     assert.doesNotMatch(source, /\(2 ft 11 in to 8 ft 2 in\)|\(66 to 1,102 lb\)|between 30 and 500 kg|HEIGHT_RANGE_CM|WEIGHT_RANGE_KG/);
+  });
+});
+
+describe("H3: a unit change clears the messages that named the old unit's limits", () => {
+  const shown = {
+    heightCm: "Enter a height between 90 and 250 cm, or leave it empty.",
+    weightKg: "Enter a weight between 30 and 500 kg.",
+    targetWeightKg: "Enter a target between 30 and 500 kg, or leave it empty.",
+    birthDate: "FITX is for ages 13 to 100.",
+  };
+
+  test("the height unit takes the height's message; the weight unit takes both weights'; the rest stay", () => {
+    assert.deepEqual(messagesAfterEdit(shown, "heightUnit"), { weightKg: shown.weightKg, targetWeightKg: shown.targetWeightKg, birthDate: shown.birthDate });
+    assert.deepEqual(messagesAfterEdit(shown, "weightUnit"), { heightCm: shown.heightCm, birthDate: shown.birthDate });
+  });
+
+  test("any other change takes only its own message, and nothing changes when there is none to take", () => {
+    assert.deepEqual(messagesAfterEdit(shown, "weightKg"), { heightCm: shown.heightCm, targetWeightKg: shown.targetWeightKg, birthDate: shown.birthDate });
+    assert.deepEqual(messagesAfterEdit(shown, "gender"), shown);
+    const none = { birthDate: shown.birthDate };
+    assert.equal(messagesAfterEdit(none, "heightUnit"), none, "the same object: no re-render for nothing");
+    assert.equal(messagesAfterEdit(none, "gender"), none);
+  });
+
+  test("the section clears messages through it whenever a Body answer changes", () => {
+    assert.match(body, /setErrors\(\(current\) => messagesAfterEdit\(current, key\)\);/);
+    assert.doesNotMatch(body, /withoutKey\(/);
   });
 });
