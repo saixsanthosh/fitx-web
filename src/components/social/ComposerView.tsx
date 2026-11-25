@@ -9,10 +9,12 @@ import { Segmented } from "@/components/ui/Segmented";
 import { postPhotoPath, SOCIAL_BUCKET, SOCIAL_LIMITS, socialApi, toSocialError, type CommentPolicy } from "@/lib/social";
 import { PHOTO_AREA_HINT, shareBlock, shareBlockText } from "@/lib/social/compose";
 import { compressPhoto, type CompressedPhoto } from "@/lib/social/compress";
+import { focusAfterRemoval, photoMoveFocus, photoToolId } from "@/lib/social/focus";
 import { createClient } from "@/lib/supabase/client";
 import { COMMENT_POLICY_OPTIONS } from "./EditPostSheet";
 import { useReadyExplore } from "./ExploreContext";
 import { TopicPicker } from "./TopicPicker";
+import { useFocusAfterRender } from "./useFocusAfterRender";
 import styles from "./Explore.module.css";
 
 type Picked = { key: string; photo: CompressedPhoto; preview: string; alt: string };
@@ -38,6 +40,7 @@ export function ComposerView() {
   const [nudged, setNudged] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const previews = useRef<string[]>([]);
+  const focusAfter = useFocusAfterRender();
 
   useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
@@ -64,13 +67,24 @@ export function ComposerView() {
     }
   }
 
-  const move = (index: number, by: number) => setItems((current) => {
-    const next = [...current];
-    const [item] = next.splice(index, 1);
-    next.splice(index + by, 0, item);
-    return next;
-  });
-  const drop = (key: string) => setItems((current) => current.filter((item) => item.key !== key));
+  // Focus follows a photo that moves (its button at the end is disabled, and the move may take its buttons out and put
+  // them back), and a removed photo hands it to the next photo's Remove, else the one before, else Add photos (D5).
+  const move = (index: number, by: -1 | 1) => {
+    const key = items[index]?.key;
+    setItems((current) => {
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      next.splice(index + by, 0, item);
+      return next;
+    });
+    const tool = photoMoveFocus(index + by, by, items.length);
+    if (key && tool) focusAfter(photoToolId(key, tool));
+  };
+  const drop = (key: string) => {
+    const order = items.map((item) => photoToolId(item.key, "remove"));
+    setItems((current) => current.filter((item) => item.key !== key));
+    focusAfter(focusAfterRemoval(order, [photoToolId(key, "remove")]), () => input.current);
+  };
 
   async function publish() {
     const storage = createClient()?.storage;
@@ -119,9 +133,10 @@ export function ComposerView() {
             <img src={item.preview} alt={`Photo ${index + 1}`} />
             <span className={styles.pickIndex} aria-hidden="true">{index + 1}</span>
             <div className={styles.pickTools}>
-              <button type="button" className={styles.pickTool} aria-label={`Move photo ${index + 1} earlier`} disabled={index === 0 || busy} onClick={() => move(index, -1)}><ArrowLeft size={15} aria-hidden="true" /></button>
-              <button type="button" className={styles.pickTool} aria-label={`Remove photo ${index + 1}`} disabled={busy} onClick={() => drop(item.key)}><X size={15} aria-hidden="true" /></button>
-              <button type="button" className={styles.pickTool} aria-label={`Move photo ${index + 1} later`} disabled={index === items.length - 1 || busy} onClick={() => move(index, 1)}><ArrowRight size={15} aria-hidden="true" /></button>
+              {/* Disabled while the post is being shared: focus is on Share post then (aria-disabled), never here. */}
+              <button type="button" id={photoToolId(item.key, "earlier")} className={styles.pickTool} aria-label={`Move photo ${index + 1} earlier`} disabled={index === 0 || busy} onClick={() => move(index, -1)}><ArrowLeft size={15} aria-hidden="true" /></button>
+              <button type="button" id={photoToolId(item.key, "remove")} className={styles.pickTool} aria-label={`Remove photo ${index + 1}`} disabled={busy} onClick={() => drop(item.key)}><X size={15} aria-hidden="true" /></button>
+              <button type="button" id={photoToolId(item.key, "later")} className={styles.pickTool} aria-label={`Move photo ${index + 1} later`} disabled={index === items.length - 1 || busy} onClick={() => move(index, 1)}><ArrowRight size={15} aria-hidden="true" /></button>
             </div>
           </div>
         ))}

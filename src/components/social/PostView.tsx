@@ -68,7 +68,8 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
   async function send(event: React.FormEvent) {
     event.preventDefault();
     const text = body.trim();
-    if (!text) return;
+    if (!text || busy) return;
+    const edited = editing?.id ?? null;
     setBusy(true);
     try {
       if (editing) {
@@ -82,6 +83,9 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
         setReplyTo(null);
       }
       setBody("");
+      // The emptied box disables Post, which cannot keep focus (D5): the box takes it, ready for the next comment. After
+      // an edit on a post that no longer takes comments the box goes as well: back to that comment's options.
+      focusAfter("comment-body", () => (edited ? document.getElementById(optionsId(edited)) : null) ?? heading.current);
     } catch (error) {
       toast.error(toSocialError(error).message);
     } finally {
@@ -158,7 +162,8 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
               onChange={(event) => setBody(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
             />
-            <button type="submit" className={styles.smallButton} disabled={busy || !body.trim()}>{editing ? "Save" : "Post"}</button>
+            {/* Busy is aria-disabled, not disabled: a disabled button drops keyboard focus to the page (D5). */}
+            <button type="submit" className={styles.smallButton} disabled={!body.trim()} aria-disabled={busy || undefined}>{editing ? "Save" : "Post"}</button>
           </div>
         </form>
       )}

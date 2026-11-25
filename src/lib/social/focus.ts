@@ -17,3 +17,21 @@ export function focusAfterRemoval(order: readonly string[], removed: readonly st
 export function postOptionsId(postId: string): string {
   return `post-options-${postId}`;
 }
+
+/** The ids of a picked photo's buttons in the post composer, so focus can follow a photo that moves or goes. */
+export function photoToolId(photoKey: string, tool: "earlier" | "later" | "remove"): string {
+  return `photo-${tool}-${photoKey}`;
+}
+
+/**
+ * Which of a moved photo's buttons takes focus after it moves one place (`by`) to position `to` of `count` (D5): the
+ * one for the same direction while the photo can still go that way, else the other one, since a button at the end is
+ * disabled and cannot hold focus (null: neither can move it, one photo). Moving can also take the photo's buttons out
+ * of the page and put them back, which drops focus by itself, so the composer always moves it explicitly.
+ */
+export function photoMoveFocus(to: number, by: -1 | 1, count: number): "earlier" | "later" | null {
+  const earlier = to > 0;
+  const later = to < count - 1;
+  if (by < 0) return earlier ? "earlier" : later ? "later" : null;
+  return later ? "later" : earlier ? "earlier" : null;
+}

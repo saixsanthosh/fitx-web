@@ -107,6 +107,8 @@ export function ConversationView({ id }: { id: string }) {
       setBody("");
       setMessages((current) => mergeNewest(current, [result.message]));
       if (result.status !== head.status) setHead({ ...head, status: result.status });
+      // The emptied box disables Send, which cannot keep focus (D5): the box takes it, ready for the next message.
+      focusAfter("conversation-message");
     } catch (failure) {
       toast.error(messageErrorText(failure));
     } finally {
@@ -282,7 +284,8 @@ export function ConversationView({ id }: { id: string }) {
                 onChange={(event) => setBody(event.target.value)}
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }}
               />
-              <button type="submit" className={styles.send} aria-label="Send" disabled={!draft.ok || sending}>
+              {/* Sending is aria-disabled, not disabled: a disabled button drops keyboard focus to the page (D5). */}
+              <button type="submit" className={styles.send} aria-label="Send" disabled={!draft.ok} aria-disabled={sending || undefined}>
                 {sending ? <Loader2 size={18} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <SendHorizontal size={18} aria-hidden="true" />}
               </button>
             </div>

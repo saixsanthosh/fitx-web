@@ -41,11 +41,11 @@ export function ProfileForm({ db, initial, submitLabel, compact = false, onSaved
   }, [db, name, problem, unchanged]);
 
   const taken = availability?.name === name && !availability.free;
-  const canSave = Boolean(name) && !problem && !taken && displayName.trim().length > 0 && !busy;
+  const canSave = Boolean(name) && !problem && !taken && displayName.trim().length > 0;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!canSave) return;
+    if (!canSave || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -97,7 +97,8 @@ export function ProfileForm({ db, initial, submitLabel, compact = false, onSaved
         </div>
       )}
       {error && <p className={styles.alert} role="alert">{error}</p>}
-      <button type="submit" className="fitx-button" disabled={!canSave}>{busy ? "Saving…" : submitLabel}</button>
+      {/* Saving is aria-disabled, not disabled: a disabled button drops keyboard focus to the page (D5). */}
+      <button type="submit" className="fitx-button aria-disabled:opacity-60" disabled={!canSave} aria-disabled={busy || undefined}>{busy ? "Saving…" : submitLabel}</button>
     </form>
   );
 }

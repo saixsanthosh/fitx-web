@@ -10,6 +10,7 @@ import { compressPhoto, type CompressedPhoto } from "@/lib/social/compress";
 import { storyFilePath } from "@/lib/social/stories";
 import { createClient } from "@/lib/supabase/client";
 import { useReadyExplore } from "../ExploreContext";
+import { useFocusAfterRender } from "../useFocusAfterRender";
 import exploreStyles from "../Explore.module.css";
 import { uploadProblem, uploadVideo } from "../videos/upload";
 import { VideoPicker, type PreparedVideo } from "../videos/VideoPicker";
@@ -35,10 +36,12 @@ export function StoryComposer() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const urls = useRef<string[]>([]);
+  const focusAfter = useFocusAfterRender();
 
   useEffect(() => () => urls.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
   async function pickPhoto(file: File) {
+    if (preparing) return;
     setError(null);
     setPreparing(true);
     try {
@@ -47,6 +50,8 @@ export function StoryComposer() {
       urls.current.push(url);
       setPhoto({ photo: compressed, url });
       setKind("photo");
+      // The choices give way to the caption and Share story: focus goes on to the caption, not to the page (D5).
+      focusAfter("story-caption");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "That photo could not be used.");
     } finally {
@@ -55,15 +60,19 @@ export function StoryComposer() {
   }
 
   function reset() {
+    if (busy) return;
     setKind(null);
     setPhoto(null);
     setVideo(null);
     setError(null);
+    // Start again takes the form away: focus goes to the first choice that comes back.
+    focusAfter("story-photo");
   }
 
+  const ready = (kind === "photo" && photo) || (kind === "video" && video);
   async function share() {
     const storage = createClient()?.storage;
-    if (!storage) return;
+    if (!storage || busy || !ready) return;
     const storyId = crypto.randomUUID();
     setBusy(true);
     setError(null);
@@ -95,7 +104,6 @@ export function StoryComposer() {
     }
   }
 
-  const ready = (kind === "photo" && photo) || (kind === "video" && video);
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title="New story" />
@@ -125,11 +133,13 @@ export function StoryComposer() {
                   <span className={styles.choiceLabel}>{preparing ? "Preparing the photo…" : "Photo"}</span>
                   <span className={styles.choiceHint}>Made smaller on your device first.</span>
                 </span>
-                <input type="file" accept="image/*" className="sr-only" aria-label="Add a photo" disabled={preparing}
+                {/* Preparing is aria-disabled, not disabled, so a refused photo leaves focus here with the reason (D5). */}
+                <input id="story-photo" type="file" accept="image/*" className="sr-only" aria-label="Add a photo" aria-disabled={preparing || undefined}
+                  onClick={(event) => { if (preparing) event.preventDefault(); }}
                   onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void pickPhoto(file); }} />
               </label>
               {videosOn && (
-                <button type="button" className={styles.choice} onClick={() => setKind("video")}>
+                <button type="button" className={styles.choice} onClick={() => { setKind("video"); focusAfter("video-choose"); }}>
                   <span className={styles.choiceIcon} aria-hidden="true"><Clapperboard size={22} /></span>
                   <span className={styles.choiceText}>
                     <span className={styles.choiceLabel}>Video</span>
@@ -152,8 +162,9 @@ export function StoryComposer() {
               </p>
               {error && <p className={exploreStyles.alert} role="alert">{error}</p>}
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="fitx-button" disabled={!ready || busy} onClick={() => void share()}>{busy ? "Sharing…" : "Share story"}</button>
-                <button type="button" className="fitx-button fitx-button-secondary" disabled={busy} onClick={reset}><RotateCcw size={16} aria-hidden="true" />Start again</button>
+                {/* Sharing is aria-disabled, not disabled: both buttons keep keyboard focus while it goes (D5). */}
+                <button type="button" className="fitx-button aria-disabled:opacity-60" disabled={!ready} aria-disabled={busy || undefined} onClick={() => void share()}>{busy ? "Sharing…" : "Share story"}</button>
+                <button type="button" className="fitx-button fitx-button-secondary aria-disabled:opacity-60" aria-disabled={busy || undefined} onClick={reset}><RotateCcw size={16} aria-hidden="true" />Start again</button>
               </div>
             </div>
           )}
