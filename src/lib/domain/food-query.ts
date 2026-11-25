@@ -51,6 +51,11 @@ export interface FoodPortion {
   derivedFrom?: { label: string; grams: number };
   /** A household vessel (katori, bowl, glass): its volume and whether the member set it. The weight is an estimate. */
   vessel?: { ml: number; custom: boolean };
+  /**
+   * The member's own size of a cup or spoon (the "1 cup" they saved for their masala chai, 150 g): it counts as itself
+   * ("2 cups" is 300 g), but nobody said it is a US cup, so no ml, spoon, katori or bowl is ever worked out from it.
+   */
+  ownSize?: boolean;
 }
 
 export type PortionResolution =
@@ -455,12 +460,15 @@ function pickPortion(portions: readonly FoodPortion[], unit: FoodUnit | null, si
   return candidates.length === 1 && !NOT_A_COUNT.test(candidates[0].label) ? candidates[0] : null;
 }
 
-/** The volume measure nearest in size to the one asked for, so "2 tsp ghee" scales USDA's tablespoon, not its cup. */
+/**
+ * The volume measure nearest in size to the one asked for, so "2 tsp ghee" scales USDA's tablespoon, not its cup. Never
+ * a cup or spoon of the member's own size (`ownSize`), which says nothing about a US teaspoon or millilitre.
+ */
 function closestVolumePortion(portions: readonly FoodPortion[], unit: VolumeUnit): FoodPortion | null {
   let best: FoodPortion | null = null;
   let bestDistance = Infinity;
   for (const portion of portions) {
-    if (!isVolumeUnit(portion.unit)) continue;
+    if (!isVolumeUnit(portion.unit) || portion.ownSize) continue;
     const distance = Math.abs(Math.log(VOLUME_ML[portion.unit] / VOLUME_ML[unit]));
     if (distance < bestDistance) { best = portion; bestDistance = distance; }
   }
@@ -558,7 +566,7 @@ function isMassUnit(unit: FoodUnit): unit is MassUnit {
   return unit in MASS_GRAMS;
 }
 
-function isVolumeUnit(unit: FoodUnit): unit is VolumeUnit {
+export function isVolumeUnit(unit: FoodUnit): unit is VolumeUnit {
   return unit in VOLUME_ML;
 }
 
@@ -605,9 +613,12 @@ const DERIVED_VOLUMES: ReadonlyArray<{ unit: VolumeUnit; label: string }> = [
   { unit: "cup", label: "1 cup" },
 ];
 
-/** Grams per millilitre from the food's own USDA volume measure (US cup or spoon), or null when it has none. */
+/**
+ * Grams per millilitre from the food's own USDA volume measure (US cup or spoon), or null when it has none. A cup or
+ * spoon of the member's own size (`ownSize`) is never one: it may be a 150 ml teacup.
+ */
 export function densityFromPortions(portions: readonly FoodPortion[]): { gramsPerMl: number; from: FoodPortion } | null {
-  const volume = portions.find((portion) => isVolumeUnit(portion.unit) && portion.grams > 0);
+  const volume = portions.find((portion) => isVolumeUnit(portion.unit) && portion.grams > 0 && !portion.ownSize);
   if (!volume || !isVolumeUnit(volume.unit)) return null;
   return { gramsPerMl: volume.grams / VOLUME_ML[volume.unit as VolumeUnit], from: volume };
 }
@@ -672,4 +683,16 @@ export function extraPortions(portions: readonly FoodPortion[], foodName: string
 /** Why a food has no ml, cup or katori option, in one line, or null when it has some. */
 export function noVolumeReason(portions: readonly FoodPortion[]): string | null {
   return densityFromPortions(portions) ? null : "This food has no volume measure from its source, so ml, cups and katori are not offered. Use grams or a piece.";
+}
+
+/**
+ * The line under the amount when the measures offered (the food's own and those worked out for it) have no ml or
+ * katori, or null when they have. A cup or spoon of the member's own size is named: it counts, but nothing else is
+ * worked out from it.
+ */
+export function volumeNote(options: readonly FoodPortion[]): string | null {
+  if (options.some((portion) => portion.unit === "ml" || portion.vessel)) return null;
+  const own = options.find((portion) => portion.ownSize && isVolumeUnit(portion.unit));
+  if (own) return `Your “${own.label}” is your own measure: FITX counts it, but doesn't work out ml or katori from it.`;
+  return "No ml, cup or katori: the source has no volume measure for this food.";
 }

@@ -36,7 +36,7 @@ function row(fields: Partial<CustomFoodRow> & Pick<CustomFoodRow, "id" | "name">
 
 test("a saved serving that names one measure counts as that measure", () => {
   assert.deepEqual(customServingPortion("1 item", 38), { label: "1 item", unit: "piece", grams: 38, countDefault: true, estimate: false });
-  assert.deepEqual(customServingPortion("1 cup", 240), { label: "1 cup", unit: "cup", grams: 240, countDefault: true, estimate: false });
+  assert.deepEqual(customServingPortion("1 cup", 240), { label: "1 cup", unit: "cup", grams: 240, countDefault: true, estimate: false, ownSize: true }, "the member's own cup (review N6)");
   assert.equal(customServingPortion("1 bowl", 180).unit, "bowl", "the member's own bowl weight answers \"1 bowl poha\"");
   assert.deepEqual(customServingPortion("100 g", 100), { label: "1 serving (100 g)", unit: "serving", grams: 100, estimate: false }, "a weight is not a count");
   const plainIdli = customFoodResult(row({ id: "c-own", name: "Idli", value_basis: "user_entered" }));
@@ -46,7 +46,8 @@ test("a saved serving that names one measure counts as that measure", () => {
   assert.equal(customServingPortion(null, null).grams, 100);
   const dal = customFoodResult(row({ id: "c-dal", name: "Dal", serving_size: "1 cup", serving_grams: 240, value_basis: "user_entered" }));
   assert.equal(grams(dal, "1 cup dal"), 240);
-  assert.equal(grams(dal, "1 katori dal"), 152.2, "katori and ml follow from the saved cup");
+  assert.equal(grams(dal, "2 cups dal"), 480);
+  assert.equal(grams(dal, "1 katori dal"), null, "the member's cup is their own size, not a US cup: no katori or ml from it (review N6)");
 });
 
 test("Save to My foods keeps the measure in use as the serving, not 100 g", () => {

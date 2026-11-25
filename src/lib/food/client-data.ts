@@ -88,7 +88,8 @@ export interface MealSnapshot {
   kind?: string;
   /** The food's diet label when it was logged, so the diet filter also applies to Recent. */
   diet_type?: DietType;
-  portion?: { count?: number; label?: string; unit?: FoodPortion["unit"]; grams_each?: number; estimate?: boolean; converted_from?: { label: string; grams: number } };
+  /** own_size: the member's own cup or spoon (FoodPortion.ownSize), never a US measure to work others out from. */
+  portion?: { count?: number; label?: string; unit?: FoodPortion["unit"]; grams_each?: number; estimate?: boolean; converted_from?: { label: string; grams: number }; own_size?: boolean };
 }
 
 export const MEAL_COLUMNS = "id,date,meal,food_name,brand,barcode,servings,calories,protein,carbs,fat,quantity_grams,source,provider_id,serving_size,nutrition_snapshot";
@@ -163,7 +164,7 @@ export function foodFromEntry(entry: MealEntry): FoodResult | null {
   const valueBasis = entryBasis(entry);
   const portion = snapshot?.portion;
   const portions: FoodPortion[] = portion?.label && portion.unit && Number(portion.grams_each) > 0
-    ? [{ label: portion.label, unit: portion.unit, grams: Number(portion.grams_each), estimate: portion.estimate !== false, countDefault: portion.unit === "piece" || portion.unit === "serving" }]
+    ? [{ label: portion.label, unit: portion.unit, grams: Number(portion.grams_each), estimate: portion.estimate !== false, countDefault: portion.unit === "piece" || portion.unit === "serving", ...(portion.own_size === true ? { ownSize: true } : {}) }]
     : [];
   const stored = snapshot?.per_100g;
   const optional = (value: number | null | undefined) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : round1(Number(value)));

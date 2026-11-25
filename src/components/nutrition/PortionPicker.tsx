@@ -2,7 +2,7 @@
 
 import { Minus, Plus } from "lucide-react";
 import { Segmented } from "@/components/ui/Segmented";
-import { formatAmount, stepAmount, stepKindOf } from "@/lib/domain/food-query";
+import { formatAmount, stepAmount, stepKindOf, volumeNote } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodUnit } from "@/lib/domain/food-query";
 import type { FoodMacros, MacroKey } from "@/lib/domain/nutrition";
 import { amountMode, countMode, pieceSizeLabel } from "@/lib/food/pieces";
@@ -45,7 +45,8 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
   const problemId = `${idPrefix}-amount-problem`;
   const kind = stepKindOf(chosen?.unit ?? null);
   const step = (direction: 1 | -1) => onAmount(formatAmount(stepAmount(Number(amount), direction, kind)));
-  const hasVolume = options.some((portion) => portion.unit === "ml" || portion.vessel);
+  // No ml or katori offered: why (the source has no volume measure, or the cup offered is the member's own size).
+  const noVolume = volumeNote(options);
   const hasVessel = options.some((portion) => portion.vessel);
   // Pieces only where the food's own data weighs one (USDA, the label, your saved serving); otherwise grams, and why.
   const counting = countMode(food, options);
@@ -110,7 +111,7 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
               ? `One serving is FITX's whole recipe: ${formatAmount(chosen.grams)} g of ingredients.`
               : `USDA average for ${chosen.label}: ${formatAmount(chosen.grams)} g.`} Real pieces and cups vary; weigh it for an exact log.
       </p>}
-      {!hasVolume && <p className={styles.portionSource}>No ml, cup or katori: the source has no volume measure for this food.</p>}
+      {noVolume && <p className={styles.portionSource}>{noVolume}</p>}
       {hasVessel && onMeasures && <button type="button" id={`${idPrefix}-measures`} className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}
       {prompt && <div className={styles.prompt} role="status">
         <p>{prompt.message}</p>

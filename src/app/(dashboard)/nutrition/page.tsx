@@ -621,6 +621,8 @@ export default function NutritionPage() {
             count: amountNumber, label: portion.label, unit: portion.unit, grams_each: portion.grams, estimate: portion.estimate !== false,
             ...(portion.derivedFrom ? { converted_from: { label: portion.derivedFrom.label, grams: portion.derivedFrom.grams } } : {}),
             ...(portion.vessel ? { vessel_ml: portion.vessel.ml, vessel_set_by_you: portion.vessel.custom } : {}),
+            // The member's own cup or spoon: logged again from Frequent, it still counts only as itself.
+            ...(portion.ownSize ? { own_size: true } : {}),
           },
         } : {}),
       },
