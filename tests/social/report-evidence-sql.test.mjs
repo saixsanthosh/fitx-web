@@ -2,7 +2,9 @@
 // the copy FITX stores with their report (here, a message its sender has since unsent); after it they still read what
 // they reported, their reason and details, the status and the dates, and the columns "Download my data" names, but
 // never the evidence or its purge time, in any form. Reporting, the clean-up and the server key's reads (Admin's own
-// select lists) are unchanged, signed-out visitors read nothing, and the header's undo and a second run work.
+// select lists) are unchanged, signed-out visitors read nothing, and the header's undo and a second run work. #51's
+// file, run again by mistake, is put right by #52's file and then this one; run again as the last step of section 5's
+// undo of #52 (which comes after this file's undo) it leaves the reports as after #51, with nothing more to run.
 // Skipped when the Postgres binaries are not on PATH.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -16,6 +18,10 @@ const skip = available() ? false : "Postgres binaries (initdb, pg_ctl, psql) are
 const VERSION = "20261125100000";
 const FILE = path.join(MIGRATIONS_DIR, `${VERSION}_fitx_social_reports_column_privileges.sql`);
 const V1 = path.join(MIGRATIONS_DIR, "20261123100060_fitx_social_v1.sql");
+/** #52, which added the evidence, and #53 and #54: section 5 of the runbook undoes this file, then #54, #53 and #52. */
+const V2 = path.join(MIGRATIONS_DIR, "20261124100000_fitx_social_v2_core.sql");
+const V2_GROUPS = path.join(MIGRATIONS_DIR, "20261124100010_fitx_social_v2_groups.sql");
+const ADMIN_FILE = path.join(MIGRATIONS_DIR, "20261124100020_fitx_admin_explore.sql");
 const ADMIN_EXPLORE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "admin", "src", "lib", "data", "explore.ts");
 const ASHA = "aaaaaaaa-5555-4000-8000-0000000000a1"; // the reporter
 const BEN = "bbbbbbbb-5555-4000-8000-0000000000b2"; // the reported member
@@ -34,12 +40,22 @@ const ACL = `select jsonb_build_object(
   'columns', (select jsonb_object_agg(t.attname, t.acl) from (
     select a.attname, (select coalesce(jsonb_agg(x::text order by x::text), '[]') from unnest(a.attacl) x) as acl
     from pg_attribute a where a.attrelid = 'public.social_reports'::regclass and a.attnum > 0 and not a.attisdropped) t));`;
+/** A migration header's undo: its "--   " lines after "-- Undo", up to the first statement, without the "-- then" notes. */
+function headerUndo(file) {
+  const lines = readFileSync(file, "utf8").split("\n");
+  const start = lines.findIndex((line) => line.startsWith("-- Undo"));
+  const end = lines.findIndex((line, index) => index > start && !line.startsWith("--"));
+  return lines.slice(start + 1, end).filter((line) => line.startsWith("--   ")).map((line) => line.slice(5))
+    .filter((line) => !line.startsWith("-- then")).join("\n");
+}
 
 describe("Explore reports: the reporter reads their report, not its evidence", { skip }, () => {
   /** @type {LocalPostgres} */
   let pg;
   /** As production has it before this file: what the reporter could read, and the grants. */
   const beforeFile = { evidence: null, acl: null };
+  /** The grants right after #51, before #52 added the evidence columns. */
+  let afterV1 = null;
   let afterFile = null;
   let applied = [];
   const reads = (who, sql) => pg.run(sql, as(who));
@@ -51,7 +67,9 @@ describe("Explore reports: the reporter reads their report, not its evidence", {
 
   before(() => {
     pg = new LocalPostgres().start();
-    pg.applyMigrations({ before: VERSION });
+    pg.applyMigrations({ before: "20261124100000" });
+    afterV1 = pg.json(ACL);
+    pg.applyMigrations({ from: "20261124100000", before: VERSION });
     pg.exec(`insert into auth.users (id, email) values ('${ASHA}', 'asha@example.test'), ('${BEN}', 'ben@example.test'), ('${CHEN}', 'chen@example.test');
       update public.profiles set date_of_birth = date '1990-01-01' where id in ('${ASHA}', '${BEN}', '${CHEN}');`);
     for (const [who, name, bio] of [[ASHA, "asha.five", ""], [BEN, "ben.five", "Message me for cheap followers"], [CHEN, "chen.five", ""]]) {
@@ -168,9 +186,7 @@ describe("Explore reports: the reporter reads their report, not its evidence", {
   });
 
   test("the header's undo gives back exactly the grants before the file, and the file then applies again, twice", () => {
-    const header = readFileSync(FILE, "utf8").split("\n");
-    const start = header.findIndex((line) => line.startsWith("-- Undo"));
-    const undo = header.slice(start + 1).filter((line) => line.startsWith("--   ")).map((line) => line.slice(5)).join("\n");
+    const undo = headerUndo(FILE);
     assert.match(undo, /^begin;\n[^]*\ncommit;$/);
     const ran = pg.run(undo);
     assert.ok(ran.ok, ran.stderr);
@@ -182,12 +198,25 @@ describe("Explore reports: the reporter reads their report, not its evidence", {
     refused(ASHA, "select evidence from public.social_reports;");
   });
 
-  test("#51's file, run again, gives members every column back, so this file runs again after it", () => {
+  test("#51's file, run again by mistake while #52 and this file are in place, gives members every column back; #52's file and then this one, run again after it, put that right", () => {
     pg.applyFile(V1, { singleTransaction: true });
     assert.deepEqual(pg.json(ACL), beforeFile.acl, "#51's grant names the whole table");
     assert.ok(reads(ASHA, "select evidence from public.social_reports;").ok);
+    pg.applyFile(V2, { singleTransaction: true });
+    assert.deepEqual(pg.json(ACL), beforeFile.acl, "#52's file leaves the reports' grants as it finds them, so this file runs after it");
     pg.applyFile(FILE, { singleTransaction: true });
     assert.deepEqual(pg.json(ACL), afterFile);
     refused(ASHA, "select evidence from public.social_reports;");
+  });
+
+  // Last: it takes Explore part 2 away.
+  test("section 5 undoes this file before #52, so #51's file, run again as the last step of #52's undo, leaves the reports as after #51 and this file does not run again", () => {
+    for (const file of [FILE, ADMIN_FILE, V2_GROUPS, V2]) {
+      const ran = pg.run(headerUndo(file));
+      assert.ok(ran.ok, `${path.basename(file)}'s undo: ${ran.stderr}`);
+    }
+    pg.applyFile(V1, { singleTransaction: true });
+    assert.deepEqual(pg.json(ACL), afterV1, "members' read of their reports is exactly as after #51, and no evidence column is left to hide");
+    assert.ok(reads(ASHA, "select * from public.social_reports;").ok, "the reporter reads every column of their reports, as after #51");
   });
 });

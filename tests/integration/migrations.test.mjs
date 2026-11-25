@@ -215,8 +215,9 @@ const KNOWN_RERUN_PROBLEMS = {
       "and item-level visibility, and adds back the five-parameter fitx_social_save_notification_prefs beside the nine-parameter " +
       "one; run again after 20261125100000 it gives members a read of every column of their own reports again, the evidence " +
       "included, in place of that file's ten column reads; production has it applied, so its history never runs it again, and it " +
-      "must never be pasted into the SQL editor again while 20261124100000 is in place (only after section 5's undo of #52); " +
-      "20261124100000 and 20261125100000, run again after it, restore everything",
+      "must never be pasted into the SQL editor again while 20261124100000 is in place (only as the last step of section 5's undo " +
+      "of #52, which comes after 20261125100000's undo, so nothing runs again after it there); run by mistake while both are in " +
+      "place, 20261124100000 and then 20261125100000, run again after it, restore everything",
   },
 };
 
@@ -1319,6 +1320,23 @@ describe("every pending migration on a copy of production's database", { skip },
     const problems = rerunProblems(t, run.status, stillDiffers);
     assert.deepEqual(stillDiffers, [], "after the second run, production's copy must be as the first run left it");
     assert.ok(problems.length === 0, problems.join("\n"));
+  });
+
+  test("what #51's file moves when it runs again by mistake, #52's and then #55's files, run again after it, put back (section 0.1)", (t) => {
+    if (run.failure) return t.skip(notChecked());
+    // In the second run #51's file runs while #52 to #55 are in place, as a mistaken run on production would. The
+    // runbook's remedy names only #52 and #55, so they must put back all of it, the reports' grants by #55.
+    const second = (version) => run.status.get(PENDING.find((name) => name.startsWith(`${version}_`)))?.second;
+    /** "changed function public.f(a integer): definition ..." -> "function public.f(a integer)" */
+    const objects = (lines) => lines.map((line) => line.replace(/^(?:added|removed|changed) /, "").split(": ")[0]);
+    const moved = objects(second("20261123100060").moved);
+    const putBack = { reports: new Set(objects(second("20261125100000").restored)), rest: new Set(objects(second("20261124100000").restored)) };
+    const onReports = (object) => /^\w+ public\.social_reports(\.|$)/.test(object);
+    assert.ok(moved.some(onReports) && moved.some((object) => object.startsWith("function ")),
+      `#51's file moves the reports' grants and part 2's functions: ${moved.join(", ")}`);
+    const left = moved.filter((object) => !putBack[onReports(object) ? "reports" : "rest"].has(object));
+    assert.deepEqual(left, [], "#55's file puts back the reports' grants and #52's everything else, so no other file needs to run again");
+    t.diagnostic(`#51's file moves ${moved.length} objects: #52's file puts back ${moved.filter((object) => !onReports(object)).length}, #55's ${moved.filter(onReports).length}`);
   });
 
   test("every public table on production's copy has row level security on and at least one policy", (t) => {

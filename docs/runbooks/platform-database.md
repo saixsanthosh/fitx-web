@@ -57,10 +57,11 @@ For each file, in the order of section 2:
 - One file per step. Never two files in one call, never part of a file.
 - Only the pending file, #55, and only from `master` (or, before release 2c is merged, from the branch that carries
   it). Never #1 to #54 again: production has them, and #7 must never run a second time. #51 must never run again
-  either (except after #52's undo, section 5): it would put back part 1's Explore functions and read policies over
-  #52's, and members' read of every column of their reports over #55's (run #55 again after it). Never #42 or #43
-  again: they would put back the 21-permission role table and the five-switch settings save (#54, run again,
-  restores both).
+  either, except as the last step of #52's undo (section 5); #55 is undone before #52, so nothing runs again after
+  #51 there. Run by mistake while #52 and #55 are in place, #51 would put back part 1's Explore functions and read
+  policies over #52's, and members' read of every column of their reports over #55's (#52 and then #55, run again
+  after it, restore both). Never #42 or #43 again: they would put back the 21-permission role table and the
+  five-switch settings save (#54, run again, restores both).
   Never a copy from another
   branch or worktree, never the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from the
   repository), and never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
@@ -409,7 +410,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 52 | `20261124100000_fitx_social_v2_core` | Explore, part 2 core: stories (with views and likes), member sanctions, the storage trash, conversations and messages, communities and members, challenges (templates, entries, badges) and the moderation record (15 tables); moderation states on posts and comments; item-level visibility, sanctions, age bands and the Explore switch enforced in the database; report evidence; video posts; the bucket also takes `video/mp4`; the hourly clean-up job `fitx-social-hourly`; Realtime inbox pings; an index for the project's daily video plays. 25 new functions, 36 of #51's rewritten under the same names and arguments, the notification settings save from 5 to 9 parameters. | Additive (one relaxed rule: a notification may name no member) · yes | #51; #41 (date of birth), #42 (operator links), #43 (the Explore switch), #45 (its write limits); #27's pg_cron for the hourly job (skipped without the `cron` schema) | Explore part 2 (stories, video, groups, challenges, moderation) | Large (149 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore keeps working with it. Once it is applied, never run #51 again (section 0.1). It deletes no row. |
 | 53 | `20261124100010_fitx_social_v2_groups` | Explore part 2 groups: direct messages (requests, who can message you, blocks, unsend, a stop on repeated text, unread counts, Realtime pings), communities run by FITX (directory, private requests, member posts and discussions, removal by a community's moderators), challenges with values computed only from the member's own workouts and activities, opt-in leaderboards for adults, "Completed" and "Top 3" badges, templates that open a challenge each week and month, and the hourly job `fitx-challenge-hourly`. 24 new functions and one index; no table, policy or trigger. | Additive · yes | #52 (all its tables and helpers); #27's pg_cron for the job (skipped without the `cron` schema) | Explore messages, communities and challenges | Large (70 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore does not call it. It changes no row. |
 | 54 | `20261124100020_fitx_admin_explore` | Admin's Explore section: the `explore.view` and `explore.moderate` permissions (the role table recreated with 23 permissions; support agents view only); the `explore` and `explore_video` switches in the settings save (a switch the form leaves out keeps its saved value); moderating reports (dismiss, take for review, limit, hide, unhide, remove, clear photo or bio, warn, suspend, lift), each closing the reports, telling the reporters, keeping evidence 90 days and writing the audit row in one transaction; FITX's communities, their moderators, challenges (closed through #53's `fitx_social_challenge_tick`), templates; the Free-plan meter. No table; one index. | Additive · yes | #52 (every table it uses); #42 and #43 (the functions it recreates); #53 (the challenge close) | Admin's Explore section; the Explore switches in Settings | Large (47 KB): section 0.1. Before the wave-2 deploy. Once it is applied, never run #42 or #43 again (section 0.1). |
-| 55 | `20261125100000_fitx_social_reports_column_privileges` | Members still read their own Explore reports (what they reported, their reason and note, the status and the dates) but no longer the evidence FITX stores with them (`evidence` and `evidence_purge_at`): a read of ten columns in place of #51's read of the whole table. Admin and the server key are unchanged. | Takes privileges away · yes | #51 (the table and its read), #52 (the evidence columns) | A reporter can no longer fetch the copy of what they reported through the API | Small (3 KB): the connector takes it whole (section 3). No deploy needs it; members notice nothing. If #51's file ever runs again (only after #52's undo), run #55 again after it. |
+| 55 | `20261125100000_fitx_social_reports_column_privileges` | Members still read their own Explore reports (what they reported, their reason and note, the status and the dates) but no longer the evidence FITX stores with them (`evidence` and `evidence_purge_at`): a read of ten columns in place of #51's read of the whole table. Admin and the server key are unchanged. | Takes privileges away · yes | #51 (the table and its read), #52 (the evidence columns) | A reporter can no longer fetch the copy of what they reported through the API | Small (3 KB): the connector takes it whole (section 3). No deploy needs it; members notice nothing. Undone before #52 (section 5), so it does not run again after #51's file at the end of #52's undo. Only if #51's file runs by mistake while #52 and #55 are in place, run #52 and then #55 again after it (section 0.1). |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1650,10 +1651,12 @@ through the API, even after its author deleted or unsent the item. After #55 mem
 the ten columns "Download my data" reads. Nothing else moves: row level security still lets each member read only
 their own reports, signed-out visitors still read nothing, and the server key keeps every right, so Admin's Explore
 section, the hourly clean-up and reporting itself work as before. Members notice nothing: the app never reads the
-evidence. It changes no row, table, policy or function, and a second run changes nothing. If #51's file ever runs
-again (only after #52's undo, section 5), it gives members every column back: run #55 again after it.
+evidence. It changes no row, table, policy or function, and a second run changes nothing. #51's file runs again
+only as the last step of #52's undo (section 5), which comes after #55's undo: members then already read every
+column of their reports, as after #51, so #55 does not run again. If #51's file ever runs by mistake while #52 and
+#55 are in place, it gives members every column back: run #52 and then #55 again after it (section 0.1).
 
-md5 of the file (`md5 -q`): `9b0dd683dd3fc7490bef6c7bfe75a4bc`. The session compares it with the file it sends before
+md5 of the file (`md5 -q`): `16b1603f1e40c02cc21eb18cde948d88`. The session compares it with the file it sends before
 it runs it. The file is small (3 KB), so the connector's `apply_migration` takes it whole (section 0, step 3); the
 session then checks that `md5(statements[1])` of the history row the connector recorded is this md5, and History 1
 (section 6.3) gives that row #55's number. (With the staged method of section 0.1 instead, the row is recorded

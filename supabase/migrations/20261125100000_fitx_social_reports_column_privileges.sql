@@ -19,9 +19,10 @@
 -- owner, so reporting, the 90-day purge, moderation and the meter work as before.
 --
 -- Safe to run again: revoke and grant are idempotent, so a second run ends as the first did. It changes no row,
--- column, policy or function. 20261123100060, run again, would give members every column back (its grant names the
--- whole table), so this file must run again after it (that file runs again only after #52's undo, section 5 of
--- docs/runbooks/platform-database.md).
+-- column, policy or function. 20261123100060 (#51) runs again only as the last step of #52's undo (section 5 of
+-- docs/runbooks/platform-database.md), which comes after this file's undo, so this file does not run again after it
+-- there. Run by mistake while #52 and this file are in place, #51 would give members every column back (its grant
+-- names the whole table): 20261124100000 (#52) and then this file, run again after it, put everything back.
 --
 -- Undo (members read every column of their own reports again, the evidence included):
 --   begin;
