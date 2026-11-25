@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRight, ChevronRight, ListChecks } from "lucide-react";
 import { ExerciseThumb } from "@/components/exercises/ExerciseThumb";
+import { todayStart, type ActiveWorkout } from "@/app/(dashboard)/workouts/_lib/today-start";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { planSummary, rowPrescription } from "@/lib/training/plan-summary";
@@ -27,21 +28,22 @@ export type TodayWorkoutPlan = {
  * The workout the page leads with, laid out like a gym log: the plan's name and size, each exercise as a row with
  * its photo and sets × reps, and one Start button. A row opens the exercise's details. `rows` is null while loading.
  */
-export function TodayWorkout({ plan, rows, failed, catalog, starting, startError, inProgress, onStart, onDetails, onInfo, onRetry }: {
+export function TodayWorkout({ plan, rows, failed, catalog, starting, startError, active, onStart, onDetails, onInfo, onRetry }: {
   plan: TodayWorkoutPlan;
   rows: readonly PlanExerciseRow[] | null;
   failed: boolean;
   catalog: ReadonlyMap<string, CatalogExercise>;
   starting: boolean;
   startError: string;
-  /** A workout is already in progress: Start opens it instead. */
-  inProgress: boolean;
+  /** The workout in progress, if any: Start opens it instead, and the card says which one it is (bug 30). */
+  active: ActiveWorkout | null;
   onStart: () => void;
   onDetails: () => void;
   onInfo: (exercise: CatalogExercise) => void;
   onRetry: () => void;
 }) {
   const summary = rows ? planSummary(rows) : null;
+  const start = todayStart(plan, active);
   const shown = rows?.slice(0, SHOWN) ?? [];
   const more = rows ? rows.length - shown.length : 0;
   return (
@@ -92,8 +94,9 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
 
       <footer className={styles.foot}>
         {startError && <p role="alert" className="fitx-alert fitx-alert-danger w-full">{startError}</p>}
-        <button type="button" onClick={onStart} disabled={starting || (!inProgress && !rows?.length)} className={`fitx-button ${styles.start}`}>
-          {starting ? "Starting…" : inProgress ? "Continue workout" : "Start workout"}<ArrowRight size={17} aria-hidden="true" />
+        {start.note && <p id="today-workout-start-note" className="w-full text-xs text-fitx-text-secondary">{start.note}</p>}
+        <button type="button" onClick={onStart} disabled={starting || (start.kind === "start" && !rows?.length)} aria-describedby={start.note ? "today-workout-start-note" : undefined} className={`fitx-button ${styles.start}`}>
+          {starting ? "Starting…" : start.label}<ArrowRight size={17} aria-hidden="true" />
         </button>
         <button type="button" aria-haspopup="dialog" onClick={onDetails} className={`fitx-button fitx-button-secondary ${styles.details}`}><ListChecks size={16} aria-hidden="true" />Details</button>
       </footer>

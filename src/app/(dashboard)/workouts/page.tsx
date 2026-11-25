@@ -321,7 +321,8 @@ export default function WorkoutsPage() {
       supabase.from("user_preferences").select("workout_location,equipment,fitness_level,session_duration_minutes,workout_split").eq("user_id", uid).maybeSingle(),
       fetchPlanPage(supabase, uid, todayKey, FIRST_PLAN_PAGE),
       supabase.from("workout_sessions").select("id,name,started_at,duration_seconds,total_volume,status,plan_id").eq("user_id", uid).eq("status", "completed").order("started_at", { ascending: false }).limit(HISTORY_LIMIT),
-      supabase.from("workout_sessions").select("id,name,started_at,duration_seconds,total_volume,status").eq("user_id", uid).eq("status", "in_progress").order("started_at", { ascending: false }).limit(1).maybeSingle(),
+      // With its plan, so a card can tell its own workout in progress from another one (bug 30).
+      supabase.from("workout_sessions").select("id,name,started_at,duration_seconds,total_volume,status,plan_id").eq("user_id", uid).eq("status", "in_progress").order("started_at", { ascending: false }).limit(1).maybeSingle(),
       // Exact totals for the tiles; the lists above stay short. Programme days are counted in the programme card.
       supabase.from("workout_sessions").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "completed"),
       withOptionalColumns(PROGRAMME_PLAN_COLUMNS, (include) => planCountQuery(include)),
@@ -1134,7 +1135,7 @@ export default function WorkoutsPage() {
       <div className={styles.topGrid}>
         <Section title={today.kind === "next" ? "Up next" : "Today"} id="today" className={styles.todaySection}>
           {todayCard
-            ? <TodayWorkout plan={todayCard} rows={loadedToday?.rows ?? null} failed={Boolean(loadedToday?.failed)} catalog={catalogById} starting={starting === todayCard.id} startError={todayStartError} inProgress={Boolean(activeSession)}
+            ? <TodayWorkout plan={todayCard} rows={loadedToday?.rows ?? null} failed={Boolean(loadedToday?.failed)} catalog={catalogById} starting={starting === todayCard.id} startError={todayStartError} active={activeSession ? { id: activeSession.id, name: activeSession.name, planId: activeSession.plan_id ?? null } : null}
                 onStart={() => void startToday(todayCard.id)} onDetails={() => setPreviewPlanId(todayCard.id)} onInfo={setInfoExercise} onRetry={() => setLoadVersion((value) => value + 1)} />
             : <TodayEmpty title={doneToday ? "Done for today" : "Nothing planned today"} record={doneToday ? { id: doneToday.id, name: doneToday.name } : null}>
                 <button type="button" className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16} aria-hidden="true" />Plan today</button>
