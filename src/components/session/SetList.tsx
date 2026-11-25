@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Camera, Check, Minus, Plus } from "lucide-react";
+import { setInputId, setProblemId } from "@/app/(dashboard)/workouts/active/_lib/set-entry";
 import { cn } from "@/lib/utils";
 import type { DraftField, LiveExercise, LiveSet } from "./types";
 
@@ -22,6 +23,11 @@ type SetListProps = {
   cameraFor: (set: LiveSet) => boolean;
   /** A timed movement's set timer for the current set: its text, whether it runs, and its Start/Stop button. */
   timer: { text: string; running: boolean; control: ReactNode } | null;
+  /**
+   * Why a set could not be saved: shown in that set's row, beside its Complete button, with the box at fault (if
+   * any) marked invalid and described by it (bug 11: such messages were only at the top of the page).
+   */
+  problem?: { setId: string; field: DraftField | null; message: string } | null;
   onChange: (setId: string, field: DraftField, value: string) => void;
   onStep: (setId: string, field: DraftField, delta: number) => void;
   onToggle: (set: LiveSet) => void;
@@ -32,7 +38,7 @@ type SetListProps = {
  * a set's Complete button from its reps box). The current set is drawn large with −/+ steppers for gym hands; the
  * others stay compact and editable, so sets can still be logged in any order.
  */
-export function SetList({ exercise, currentSetId, showDuration, disabled, currentTarget, lastFor, cameraFor, timer, onChange, onStep, onToggle }: SetListProps) {
+export function SetList({ exercise, currentSetId, showDuration, disabled, currentTarget, lastFor, cameraFor, timer, problem = null, onChange, onStep, onToggle }: SetListProps) {
   const workField: DraftField = showDuration ? "draftDuration" : "draftReps";
   const workLabel = showDuration ? "Seconds" : "Reps";
   return (
@@ -48,15 +54,21 @@ export function SetList({ exercise, currentSetId, showDuration, disabled, curren
           const last = lastFor(set);
           const camera = cameraFor(set);
           const locked = disabled || done;
+          const problemHere = problem && problem.setId === set.id ? problem : null;
+          const problemId = problemHere ? setProblemId(set.id) : undefined;
           const input = (field: DraftField, large: boolean, place = "") => {
             const weight = field === "draftWeight";
             const seconds = field === "draftDuration";
+            const invalid = problemHere?.field === field;
             return (
               <input
                 key={field}
+                id={setInputId(set.id, field)}
                 aria-label={weight ? `${label} weight in kg` : seconds ? `${label} duration in seconds` : `${label} repetitions`}
+                aria-invalid={invalid || undefined}
+                aria-describedby={invalid ? problemId : undefined}
                 disabled={locked}
-                className={cn("fitx-field px-1 text-center tabular-nums sm:px-3", large ? "h-14 text-xl font-semibold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" : "h-12", place)}
+                className={cn("fitx-field px-1 text-center tabular-nums aria-invalid:border-fitx-danger! sm:px-3", large ? "h-14 text-xl font-semibold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" : "h-12", place)}
                 type="number"
                 inputMode={weight ? "decimal" : "numeric"}
                 min="0"
@@ -89,6 +101,7 @@ export function SetList({ exercise, currentSetId, showDuration, disabled, curren
               disabled={disabled}
               onClick={() => onToggle(set)}
               aria-label={done ? "Mark set incomplete" : "Complete set"}
+              aria-describedby={problemId}
               className={large
                 ? "fitx-button col-span-full mt-1 min-h-14 w-full text-base"
                 : cn("grid h-12 w-12 place-items-center rounded-lg border transition-colors disabled:opacity-50", done ? "border-fitx-primary/50 bg-fitx-primary/10 text-fitx-primary" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-primary")}
@@ -96,6 +109,10 @@ export function SetList({ exercise, currentSetId, showDuration, disabled, curren
               <Check size={large ? 20 : 19} aria-hidden="true" />{large ? "Complete set" : null}
             </button>
           );
+          // Beside the Complete button, so whoever pressed it sees why the set was not saved.
+          const message = problemHere ? (
+            <p key="problem" id={problemId} role="alert" className="col-span-full m-0 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg px-3 py-2 text-sm text-fitx-danger">{problemHere.message}</p>
+          ) : null;
           const notes = [last ? `Last time ${last}` : null].filter(Boolean);
           const caption = notes.length || camera ? (
             <p key="caption" className="col-span-full m-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-fitx-text-secondary">
@@ -128,6 +145,7 @@ export function SetList({ exercise, currentSetId, showDuration, disabled, curren
                     {timer.control}
                   </div>
                 ) : null}
+                {message}
                 {toggle(true)}
                 {caption}
               </li>
@@ -139,6 +157,7 @@ export function SetList({ exercise, currentSetId, showDuration, disabled, curren
               {input("draftWeight", false)}
               {input(workField, false)}
               {toggle(false)}
+              {message}
               {caption}
             </li>
           );

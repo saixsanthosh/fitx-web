@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useId, useState, type CSSProperties } from "react";
 import { Layers, ListOrdered } from "lucide-react";
 import { BodyMap } from "@/components/anatomy/BodyMap";
 import { programmeLengthLabel, programmeMeta } from "@/data/programmes/meta";
 import { equipmentLabel } from "@/lib/training/equipment";
 import { FOCUS_AREAS, focusLabel, type FocusArea } from "@/lib/training/focus";
-import { programmeRegionLevels, programmesForArea, slotPrescription, weeklyPattern, type Programme } from "@/lib/training/programmes";
+import { followDaysSummary, programmeRegionLevels, programmesForArea, slotPrescription, weeklyPattern, type Programme } from "@/lib/training/programmes";
 import { Sheet } from "./Sheet";
 import styles from "./ProgrammeBrowser.module.css";
 
@@ -61,7 +61,7 @@ export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, di
                 </div>
                 <div className={styles.cardActions}>
                   <button type="button" aria-haspopup="dialog" onClick={() => setDaysOf(programme)} className="fitx-button fitx-button-quiet min-h-11 flex-1 px-3 text-sm"><ListOrdered size={15} aria-hidden="true" />Days</button>
-                  <button type="button" aria-haspopup="dialog" disabled={!enrolAvailable || busy} onClick={() => setEnrolling(programme)} className="fitx-button min-h-11 flex-1 px-4 text-sm">Follow</button>
+                  <button type="button" aria-haspopup="dialog" disabled={!enrolAvailable} aria-disabled={busy || undefined} onClick={() => { if (!busy) setEnrolling(programme); }} className="fitx-button min-h-11 flex-1 px-4 text-sm aria-disabled:opacity-60">Follow</button>
                 </div>
               </article>
             </li>
@@ -111,15 +111,21 @@ function EnrolSheet({ programme, busy, onClose, onConfirm }: { programme: Progra
   const [weekdays, setWeekdays] = useState<number[]>([...programme.defaultWeekdays]);
   const [time, setTime] = useState("18:00");
   const [error, setError] = useState("");
+  const summaryId = useId();
   const meta = programmeMeta(programme.id);
-  const week = weeklyPattern(weekdays);
+  const days = followDaysSummary(weekdays, { daysPerWeek: programme.daysPerWeek, dayCount: programme.days.length });
+  // Never disabled (a disabled button leaves the Tab order and drops focus): with no day picked it stays reachable and
+  // is described by "Pick at least one training day…"; a press then, or while planning, does nothing (bug 50).
+  const blocked = busy || !days.canStart;
   const toggle = (day: number) => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day]);
   return (
     <Sheet title={`Follow ${programme.title}`} onClose={onClose}
       description={`${programmeLengthLabel(meta?.lengthDays)}. FITX keeps the next 7 days planned on the days you pick. Each workout you finish moves you to the next day of the programme.`}
       footer={<>
         <button type="button" onClick={onClose} className="fitx-button fitx-button-quiet">Cancel</button>
-        <button type="button" disabled={busy || !weekdays.length} onClick={async () => { setError(""); const message = await onConfirm(weekdays, time); if (message) setError(message); }} className="fitx-button">{busy ? "Planning…" : "Start programme"}</button>
+        <button type="button" aria-disabled={blocked || undefined} aria-describedby={days.canStart ? undefined : summaryId}
+          onClick={async () => { if (blocked) return; setError(""); const message = await onConfirm(weekdays, time); if (message) setError(message); }}
+          className="fitx-button aria-disabled:opacity-60">{busy ? "Planning…" : "Start programme"}</button>
       </>}>
       <fieldset>
         <legend className="mb-2 text-sm font-medium">Training days <span className="font-normal text-fitx-text-secondary">· suggested {programme.daysPerWeek} a week</span></legend>
@@ -131,17 +137,17 @@ function EnrolSheet({ programme, busy, onClose, onConfirm }: { programme: Progra
         </div>
       </fieldset>
       <div className="mt-3 rounded-lg bg-fitx-surface-variant p-3" role="status">
-        <p className="text-sm font-medium">{week.training} training day{week.training === 1 ? "" : "s"} and {week.rest} rest day{week.rest === 1 ? "" : "s"} a week</p>
+        <p id={summaryId} className="text-sm font-medium">{days.summary}</p>
         <ol aria-hidden="true" className="mt-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-[.06em]">
           {WEEKDAYS.map(([label, day]) => {
             const on = weekdays.includes(day);
             return <li key={day} className={`rounded-md py-1.5 ${on ? "bg-fitx-primary/10 text-fitx-primary-text" : "text-fitx-text-secondary"}`}>{label.slice(0, 2)}<span className="mt-0.5 block font-normal normal-case tracking-normal">{on ? "Train" : "Rest"}</span></li>;
           })}
         </ol>
-        <p className="mt-2 text-xs text-fitx-text-secondary">Rest days are part of the plan, never a missed workout.</p>
+        {days.canStart && <p className="mt-2 text-xs text-fitx-text-secondary">Rest days are part of the plan, never a missed workout.</p>}
       </div>
       <label className="mt-4 grid max-w-48 gap-1.5 text-sm">Usual start time<input type="time" className="fitx-field" value={time} onChange={(event) => setTime(event.target.value)} /></label>
-      {weekdays.length !== programme.daysPerWeek && <p className="mt-3 text-xs text-fitx-text-secondary">You picked {weekdays.length} day{weekdays.length === 1 ? "" : "s"}; the programme cycles through its {programme.days.length} days in order either way.</p>}
+      {days.note && <p className="mt-3 text-xs text-fitx-text-secondary">{days.note}</p>}
       {error && <p role="alert" className="fitx-alert fitx-alert-danger mt-4 px-3 py-2 text-sm">{error}</p>}
     </Sheet>
   );

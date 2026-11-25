@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, CalendarPlus, Flag, LogOut, Pause, Play } from "lucide-react";
 import { programmeLengthLabel, programmeMeta } from "@/data/programmes/meta";
 import { topUpWindow, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
@@ -48,7 +48,7 @@ function SessionsRingMark({ done, target }: { done: number; target: number | nul
  * (rest days shown as planned recovery). Choosing a day shows it in one row; its workout opens in the plan preview.
  * One visible action besides the journey link (Pause or Resume); planning ahead and leaving sit in a "more" menu.
  */
-export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false, todayKey, busy, planning = false, activeSession = false, onPreview, onPlanAhead, onLeave, onPause, onResume, onFinish }: {
+export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false, todayKey, busy, planning = false, activeSession = false, note = null, onPreview, onPlanAhead, onLeave, onPause, onResume, onFinish }: {
   programme: Programme;
   enrolment: Enrolment;
   /** The enrolment's plans from a week back on. */
@@ -61,6 +61,11 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
   planning?: boolean;
   /** A workout is in progress (pausing waits for it). */
   activeSession?: boolean;
+  /**
+   * A line beside the card's buttons (D6): days re-planned for a changed equipment list (bug 17), what Pause or "Plan
+   * the next 7 days" did, or why a programme action did not work (`tone: "error"`).
+   */
+  note?: { tone: "info" | "error"; text: string } | null;
   onPreview: (planId: string) => void;
   onPlanAhead: () => void;
   onLeave: () => void;
@@ -75,6 +80,19 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
   const status = programmeStatus({ enrolment, programme, days, todayKey, target });
   const [selected, setSelected] = useState(todayKey);
   const paused = enrolment.status === "paused";
+  const waitNoteId = useId();
+  // Pause and Resume replace each other: once the programme is paused (or running again), the other button takes
+  // focus, so keyboard focus never drops to the page (bug 84's rule, here for the programme).
+  const pauseRef = useRef<HTMLButtonElement>(null);
+  const resumeRef = useRef<HTMLButtonElement>(null);
+  const handoff = useRef<"pause" | "resume" | null>(null);
+  useEffect(() => {
+    const target = handoff.current === "resume" && paused ? resumeRef.current : handoff.current === "pause" && !paused ? pauseRef.current : null;
+    if (!target) return;
+    handoff.current = null;
+    target.focus();
+  }, [paused]);
+  const pauseBlocked = busy || planning || activeSession;
   const trainingDays = new Set(enrolment.weekdays).size;
   const canPlan = !paused && !plansFailed && !planning && !status.complete
     && topUpWindow({ enrolment, plans, todayKey, target, dayCount: programme.days.length }) !== null;
@@ -98,11 +116,13 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
         <ActionsMenu label="More programme actions" items={more} className={styles.more} />
       </div>
       <p className={styles.where}><span className="font-semibold text-fitx-text">{whereYouAre(status, upNext, paused)}</span><span aria-hidden="true"> · </span><span className="sr-only">. </span><span className="whitespace-nowrap">{weekLine}</span></p>
+      <p role="status" className={note?.tone === "info" ? "mt-2 rounded-lg bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary" : "sr-only"}>{note?.tone === "info" ? note.text : ""}</p>
+      {note?.tone === "error" && <p role="alert" className="fitx-alert fitx-alert-danger mt-2 px-3 py-2 text-sm">{note.text}</p>}
 
       {status.complete && !paused && (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-fitx-success-border bg-fitx-success-bg p-3 text-sm">
           <p className="min-w-0 flex-1 font-semibold text-fitx-success">All {target} sessions done. Finish to choose your next programme.</p>
-          <button type="button" onClick={onFinish} disabled={busy || planning} className="fitx-button min-h-11 text-sm"><Flag size={15} aria-hidden="true" />Finish programme</button>
+          <button type="button" onClick={() => { if (!busy && !planning) onFinish(); }} aria-disabled={busy || planning || undefined} className="fitx-button min-h-11 text-sm aria-disabled:opacity-60"><Flag size={15} aria-hidden="true" />Finish programme</button>
         </div>
       )}
 
@@ -116,11 +136,12 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
 
       <div className={styles.actions}>
         <Link href="/workouts/programme" className={styles.journey}>See the whole programme<ArrowRight size={15} aria-hidden="true" /></Link>
+        {/* Busy or waiting, never disabled (a disabled button drops focus and leaves the Tab order): a press then is ignored. */}
         {paused
-          ? <button type="button" onClick={onResume} disabled={busy} className="fitx-button min-h-11 px-4 text-sm"><Play size={15} aria-hidden="true" />Resume programme</button>
-          : !status.complete && <button type="button" onClick={onPause} disabled={busy || planning || activeSession} className="fitx-button fitx-button-quiet min-h-11 px-4 text-sm"><Pause size={15} aria-hidden="true" />Pause</button>}
+          ? <button ref={resumeRef} type="button" onClick={() => { if (busy) return; handoff.current = "pause"; onResume(); }} aria-disabled={busy || undefined} className="fitx-button min-h-11 px-4 text-sm aria-disabled:opacity-60"><Play size={15} aria-hidden="true" />Resume programme</button>
+          : !status.complete && <button ref={pauseRef} type="button" onClick={() => { if (pauseBlocked) return; handoff.current = "resume"; onPause(); }} aria-disabled={pauseBlocked || undefined} aria-describedby={activeSession ? waitNoteId : undefined} className="fitx-button fitx-button-quiet min-h-11 px-4 text-sm aria-disabled:opacity-60"><Pause size={15} aria-hidden="true" />Pause</button>}
       </div>
-      {activeSession && !paused && <p className="mt-2 text-xs text-fitx-text-secondary">Pausing waits until your workout in progress is finished.</p>}
+      {activeSession && !paused && <p id={waitNoteId} className="mt-2 text-xs text-fitx-text-secondary">Pausing waits until your workout in progress is finished.</p>}
     </section>
   );
 }

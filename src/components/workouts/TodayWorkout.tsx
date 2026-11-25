@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ArrowRight, ChevronRight, ListChecks } from "lucide-react";
 import { ExerciseThumb } from "@/components/exercises/ExerciseThumb";
+import { todayStart, type ActiveWorkout } from "@/app/(dashboard)/workouts/_lib/today-start";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 import { planSummary, rowPrescription } from "@/lib/training/plan-summary";
@@ -27,21 +28,36 @@ export type TodayWorkoutPlan = {
  * The workout the page leads with, laid out like a gym log: the plan's name and size, each exercise as a row with
  * its photo and sets × reps, and one Start button. A row opens the exercise's details. `rows` is null while loading.
  */
-export function TodayWorkout({ plan, rows, failed, catalog, starting, startError, inProgress, onStart, onDetails, onInfo, onRetry }: {
+export function TodayWorkout({ plan, rows, failed, catalog, starting, startError, active, gap = null, onStart, onDetails, onInfo, onRetry }: {
   plan: TodayWorkoutPlan;
   rows: readonly PlanExerciseRow[] | null;
   failed: boolean;
   catalog: ReadonlyMap<string, CatalogExercise>;
   starting: boolean;
   startError: string;
-  /** A workout is already in progress: Start opens it instead. */
-  inProgress: boolean;
+  /** The workout in progress, if any: Start opens it instead, and the card says which one it is (bug 30). */
+  active: ActiveWorkout | null;
+  /**
+   * Exercises the member's list does not allow (bug 17): what to say, and for a programme day a way to re-plan it with
+   * the planner's rules (`note`: how that went). Null when every exercise fits.
+   */
+  gap?: { message: string; onReplan: (() => void) | null; replanning: boolean; note: string } | null;
+  /* `message` is "" once a re-plan has fixed the day: only its note is left. */
   onStart: () => void;
   onDetails: () => void;
   onInfo: (exercise: CatalogExercise) => void;
   onRetry: () => void;
 }) {
   const summary = rows ? planSummary(rows) : null;
+  const start = todayStart(plan, active);
+  // A re-plan that fixes the day takes "Re-plan this day" away: if it had focus, Start takes it (D5).
+  const startRef = useRef<HTMLButtonElement>(null);
+  const canReplan = Boolean(gap?.onReplan);
+  const hadReplan = useRef(canReplan);
+  useEffect(() => {
+    if (hadReplan.current && !canReplan && (!document.activeElement || document.activeElement === document.body)) startRef.current?.focus();
+    hadReplan.current = canReplan;
+  }, [canReplan]);
   const shown = rows?.slice(0, SHOWN) ?? [];
   const more = rows ? rows.length - shown.length : 0;
   return (
@@ -89,11 +105,22 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
         </ol>
       )}
       {more > 0 && <p className={styles.more}>and {more} more</p>}
+      {gap && (
+        <div className="mx-4 mt-3 rounded-lg border border-fitx-warning/50 bg-fitx-surface px-3 py-2.5 text-sm sm:mx-5">
+          {gap.message && <p className="m-0 text-fitx-text">{gap.message}{gap.onReplan ? "" : " Open Details to swap them."}</p>}
+          {gap.onReplan && (
+            <button type="button" onClick={() => { if (!gap.replanning) gap.onReplan?.(); }} aria-disabled={gap.replanning || undefined}
+              className="fitx-button fitx-button-secondary mt-2 min-h-11 px-3 text-sm aria-disabled:opacity-60">{gap.replanning ? "Re-planning…" : "Re-plan this day"}</button>
+          )}
+          <p role="status" className={gap.note ? "m-0 mt-1 text-xs text-fitx-text-secondary" : "sr-only"}>{gap.note}</p>
+        </div>
+      )}
 
       <footer className={styles.foot}>
         {startError && <p role="alert" className="fitx-alert fitx-alert-danger w-full">{startError}</p>}
-        <button type="button" onClick={onStart} disabled={starting || (!inProgress && !rows?.length)} className={`fitx-button ${styles.start}`}>
-          {starting ? "Starting…" : inProgress ? "Continue workout" : "Start workout"}<ArrowRight size={17} aria-hidden="true" />
+        {start.note && <p id="today-workout-start-note" className="w-full text-xs text-fitx-text-secondary">{start.note}</p>}
+        <button ref={startRef} type="button" onClick={() => { if (!starting) onStart(); }} disabled={start.kind === "start" && !rows?.length} aria-disabled={starting || undefined} aria-describedby={start.note ? "today-workout-start-note" : undefined} className={`fitx-button aria-disabled:opacity-60 ${styles.start}`}>
+          {starting ? "Starting…" : start.label}<ArrowRight size={17} aria-hidden="true" />
         </button>
         <button type="button" aria-haspopup="dialog" onClick={onDetails} className={`fitx-button fitx-button-secondary ${styles.details}`}><ListChecks size={16} aria-hidden="true" />Details</button>
       </footer>

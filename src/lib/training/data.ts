@@ -25,18 +25,27 @@ export async function loadCatalog(supabase: Db): Promise<{ error: unknown; exerc
 /** Saved Home and Gym lists; null means the user has not saved that list yet. */
 export type EquipmentProfiles = { home: string[] | null; gym: string[] | null; available: boolean };
 
-/** `available` is false until the equipment migration exists; lists then cannot be saved yet. */
-export async function loadEquipmentProfiles(supabase: Db, userId: string): Promise<{ error: unknown; profiles: EquipmentProfiles }> {
-  const result = await supabase.from("user_equipment_profiles").select("context,equipment_keys").eq("user_id", userId);
+/** When each list was last saved (user_equipment_profiles.updated_at); null for a list never saved. */
+export type EquipmentSavedAt = Record<TrainingContext, string | null>;
+
+/**
+ * `available` is false until the equipment migration exists; lists then cannot be saved yet. `savedAt` tells a
+ * programme's days planned before the list changed from those saved since (bug 17: programme-replan.ts).
+ */
+export async function loadEquipmentProfiles(supabase: Db, userId: string): Promise<{ error: unknown; profiles: EquipmentProfiles; savedAt: EquipmentSavedAt }> {
+  const savedAt: EquipmentSavedAt = { home: null, gym: null };
+  const result = await supabase.from("user_equipment_profiles").select("context,equipment_keys,updated_at").eq("user_id", userId);
   if (result.error) {
     const missing = isMissingTableError(result.error);
-    return { error: missing ? null : result.error, profiles: { home: null, gym: null, available: !missing } };
+    return { error: missing ? null : result.error, profiles: { home: null, gym: null, available: !missing }, savedAt };
   }
   const profiles: EquipmentProfiles = { home: null, gym: null, available: true };
-  for (const row of (result.data ?? []) as Array<{ context: string; equipment_keys: string[] | null }>) {
-    if (row.context === "home" || row.context === "gym") profiles[row.context] = sortEquipmentKeys(row.equipment_keys ?? []);
+  for (const row of (result.data ?? []) as Array<{ context: string; equipment_keys: string[] | null; updated_at?: string | null }>) {
+    if (row.context !== "home" && row.context !== "gym") continue;
+    profiles[row.context] = sortEquipmentKeys(row.equipment_keys ?? []);
+    savedAt[row.context] = row.updated_at ?? null;
   }
-  return { error: null, profiles };
+  return { error: null, profiles, savedAt };
 }
 
 const HOME_FRIENDLY = new Set(EQUIPMENT.filter((item) => item.homeFriendly).map((item) => item.key));

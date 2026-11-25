@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Check, CircleDashed, Dumbbell, Minus, Moon } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { StatStrip } from "@/components/training/StatStrip";
 import { PlanPreviewSheet } from "@/components/workouts/PlanPreviewSheet";
 import { ProgrammeJourney, startedLabel } from "@/components/workouts/ProgrammeJourney";
@@ -18,8 +19,11 @@ import { loadCurrentEnrolment, loadEnrolmentPlans, programmeShortTitle, type Enr
 import { expandOwnedEquipment } from "@/lib/training/equipment";
 import { startFailureMessage, startPlanSession } from "@/lib/training/plans";
 import { addDays, groupByWeek, mondayOf, programmeCalendar, programmeStatus, sessionsLeftToPlan, targetSessions } from "@/lib/training/programme-calendar";
+import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import type { Programme } from "@/lib/training/programmes";
-import type { TrainingContext } from "@/lib/training/taxonomy";
+import { loadRecentExerciseDays } from "@/lib/training/recent-days";
+import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
+import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 
 type Loaded = {
   userId: string;
@@ -32,11 +36,17 @@ type Loaded = {
   profiles: EquipmentProfiles;
   legacyEquipment: string[] | null;
   activeSession: { id: string; name: string } | null;
+  /** What checking the days ahead against the member's equipment list changed (bug 17); "" when nothing. */
+  replanNote: string;
 };
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Weeks loaded at a time, back from today. */
 const WEEKS_BACK = 4;
+
+function asLevel(value: string | null | undefined): Level {
+  return (LEVELS as readonly string[]).includes(value ?? "") ? (value as Level) : "beginner";
+}
 
 /**
  * The programme the member follows, start to finish: every week from the day they started (four at a time back from
@@ -52,6 +62,9 @@ export default function ProgrammeJourneyPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
+  // "Show earlier weeks" goes once the first week is shown: the earliest week it brought then takes focus (D5).
+  const [weekFocus, setWeekFocus] = useState<{ shown: string[]; seq: number } | null>(null);
+  const handledWeekFocus = useRef(0);
 
   const load = useCallback(async (backTo?: string) => {
     const supabase = createClient();
@@ -71,16 +84,35 @@ export default function ProgrammeJourneyPage() {
       loadEnrolmentPlans(supabase, user.id, enrolment.id, fromKey, { limit: 400 }),
       loadCatalog(supabase),
       loadEquipmentProfiles(supabase, user.id),
-      supabase.from("user_preferences").select("equipment").eq("user_id", user.id).maybeSingle(),
+      supabase.from("user_preferences").select("equipment,fitness_level").eq("user_id", user.id).maybeSingle(),
       supabase.from("workout_sessions").select("id,name").eq("user_id", user.id).eq("status", "in_progress").limit(1).maybeSingle(),
     ]);
     const programme = programmes.programmes.find((item) => item.id === enrolment.programme_id) ?? programmeById(enrolment.programme_id);
     if (plans.error) { setMessage("Your programme days couldn’t be loaded. Check your connection and try again."); setState("error"); return; }
     if (!programme) { setMessage("The programme you follow is no longer available. Your finished workouts stay in your history."); setState("error"); return; }
-    const words = (preferences.data as { equipment?: string[] | null } | null)?.equipment;
+    const row = preferences.data as { equipment?: string[] | null; fitness_level?: string | null } | null;
+    const words = row?.equipment;
+    const legacyEquipment = Array.isArray(words) ? words : null;
+    // A day can be begun here without opening Workouts, so days planned before the member's list was last saved (in the
+    // library, Profile or on another device) are checked against it first (bug 17). A day saved since, the member's
+    // own edit included, is left as it is.
+    let dayPlans = plans.plans;
+    let replanNote = "";
+    if (enrolment.status === "active" && catalog.exercises.length && !profiles.error) {
+      const checked = await replanUpcomingProgrammeDays(supabase, {
+        userId: user.id, enrolment, programme, catalog: catalog.exercises,
+        owned: expandOwnedEquipment(equipmentFor(profiles.profiles, enrolment.context, legacyEquipment).keys), level: asLevel(row?.fitness_level),
+        recentDays: () => loadRecentExerciseDays(supabase, user.id), todayKey, includeTargets: true, mode: "visit", listSavedAt: profiles.savedAt[enrolment.context],
+      });
+      if (checked.replanned.length) {
+        const fresh = await loadEnrolmentPlans(supabase, user.id, enrolment.id, fromKey, { limit: 400 });
+        if (!fresh.error) dayPlans = fresh.plans;
+      }
+      replanNote = [replanMessage(checked, enrolment.context), checked.error ? "Some days ahead couldn’t be checked against your equipment list. Open Workouts to try again." : ""].filter(Boolean).join(" ");
+    }
     setLoaded({
-      userId: user.id, enrolment, programme, plans: plans.plans, fromKey, catalog: catalog.exercises, profiles: profiles.profiles,
-      legacyEquipment: Array.isArray(words) ? words : null, activeSession: (active.data as { id: string; name: string } | null) ?? null,
+      userId: user.id, enrolment, programme, plans: dayPlans, fromKey, catalog: catalog.exercises, profiles: profiles.profiles,
+      legacyEquipment, activeSession: (active.data as { id: string; name: string } | null) ?? null, replanNote,
     });
     setState("ready");
   }, [todayKey]);
@@ -104,6 +136,18 @@ export default function ProgrammeJourneyPage() {
     return { meta, target, days, weeks, status };
   }, [loaded, todayKey]);
 
+  // After "Show earlier weeks" (once per press): the button keeps focus while there are earlier weeks; once it goes,
+  // the earliest week it brought takes focus (its heading), where the member carries on reading.
+  useEffect(() => {
+    if (!weekFocus || weekFocus.seq === handledWeekFocus.current || !view || !loaded) return;
+    handledWeekFocus.current = weekFocus.seq;
+    const target = focusAfterShowMore({ more: loaded.fromKey > mondayOf(loaded.enrolment.started_on), shown: weekFocus.shown, added: addedIds(weekFocus.shown, view.weeks.map((week) => week.weekStart)) });
+    const heading = target && target !== "button" ? document.querySelector<HTMLElement>(`[data-journey-week="${target}"] h2`) : null;
+    if (!heading) return;
+    heading.tabIndex = -1;
+    heading.focus();
+  }, [weekFocus, view, loaded]);
+
   async function begin(planId: string, title: string): Promise<string | null> {
     const supabase = createClient();
     if (!supabase || !loaded) return "FITX is not connected to Supabase.";
@@ -116,16 +160,20 @@ export default function ProgrammeJourneyPage() {
   }
 
   async function showEarlier() {
-    if (!loaded) return;
+    if (!loaded || loadingEarlier) return;
+    const shown = view?.weeks.map((week) => week.weekStart) ?? [];
     setLoadingEarlier(true);
     await load(mondayOf(addDays(loaded.fromKey, -7 * WEEKS_BACK)));
     setLoadingEarlier(false);
+    setWeekFocus((current) => ({ shown, seq: (current?.seq ?? 0) + 1 }));
   }
 
-  const back = <Link href="/workouts" className="inline-flex min-h-10 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workouts</Link>;
-  if (state === "loading") return <div className="space-y-4" role="status" aria-label="Loading your programme">{back}<div className="h-9 w-1/2 animate-pulse rounded bg-fitx-surface-variant motion-reduce:animate-none" /><div className="h-24 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /><div className="h-40 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /></div>;
-  if (state === "error") return <div className="space-y-4">{back}<EmptyState title="Programme unavailable" description={message} action={<button type="button" className="fitx-button fitx-button-secondary" onClick={() => { setState("loading"); void load(); }}>Try again</button>} /></div>;
-  if (state === "none" || !loaded || !view) return <div className="space-y-4">{back}<EmptyState title="You’re not following a programme" description="Pick a programme on the Workouts page. FITX plans your training days on the weekdays you choose, with rest days in between." action={<Link href="/workouts" className="fitx-button">Choose a programme</Link>} /></div>;
+  const back = <Link href="/workouts" className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workouts</Link>;
+  // Every state has one main heading (bug 94): "Programme" until the programme's own name can be shown.
+  const heading = <PageHeader title="Programme" className="mb-0 sm:mb-0" />;
+  if (state === "loading") return <div className="space-y-4">{back}{heading}<div role="status" aria-label="Loading your programme" className="space-y-4"><div className="h-24 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /><div className="h-40 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /></div></div>;
+  if (state === "error") return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="Programme unavailable" description={message} action={<button type="button" className="fitx-button fitx-button-secondary" onClick={() => { setState("loading"); void load(); }}>Try again</button>} /></div>;
+  if (state === "none" || !loaded || !view) return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="You’re not following a programme" description="Pick a programme on the Workouts page. FITX plans your training days on the weekdays you choose, with rest days in between." action={<Link href="/workouts" className="fitx-button">Choose a programme</Link>} /></div>;
 
   const { enrolment, programme } = loaded;
   const paused = enrolment.status === "paused";
@@ -138,6 +186,8 @@ export default function ProgrammeJourneyPage() {
       {back}
       <PageHeading title={programme.title} description={view.meta?.objective ?? programme.summary} />
       {paused && <p role="status" className="fitx-alert">This programme is paused: no days are planned and your place is kept. Resume it from your programme card on the Workouts page.</p>}
+      {/* Days ahead checked against the equipment list as the page opened (bug 17): what changed, above the days. */}
+      <p role="status" className={loaded.replanNote ? "fitx-alert" : "sr-only"}>{loaded.replanNote}</p>
       <StatStrip label="Your programme" stats={[
         { label: "Sessions done", value: view.target ? `${view.status.sessionsCompleted} of ${view.target}` : view.status.sessionsCompleted, note: "Completed workouts only" },
         { label: "Plan", value: programmeLengthLabel(view.meta?.lengthDays), note: view.target ? "A missed day moves the end later" : `Repeats its ${programme.days.length} days` },
@@ -145,7 +195,7 @@ export default function ProgrammeJourneyPage() {
         { label: "Training days", value: weekdays || "—", note: startedLabel(enrolment.started_on) },
       ]} />
       <Legend />
-      {canGoBack && <button type="button" onClick={() => void showEarlier()} disabled={loadingEarlier} className="fitx-button fitx-button-secondary min-h-11 text-sm">{loadingEarlier ? "Loading…" : "Show earlier weeks"}</button>}
+      {canGoBack && <button type="button" onClick={() => void showEarlier()} aria-disabled={loadingEarlier || undefined} className="fitx-button fitx-button-secondary min-h-11 text-sm aria-disabled:opacity-60">{loadingEarlier ? "Loading…" : "Show earlier weeks"}</button>}
       <ProgrammeJourney weeks={view.weeks} startedOn={enrolment.started_on} selected={selected} onSelect={setSelected} busy={starting} onPreview={setPreview} nextTraining={view.status.nextTraining} />
       {view.target !== null && !view.status.complete && <p className="text-xs text-fitx-text-secondary">The plan ends after its {view.target} sessions. Days after the ones planned are not planned yet: FITX plans each training day about a week ahead when you open Workouts.</p>}
       <p className="text-xs text-fitx-text-secondary">{programme.sourceNotes}</p>

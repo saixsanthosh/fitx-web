@@ -10,6 +10,8 @@ export type TodayCandidate = {
   last_done_key: string | null;
   /** The programme day's position in its cycle; null for the member's own plans. */
   programme_day_index?: number | null;
+  /** Where the member's own plan is done ("gym", "home"…), for its equipment check; a programme day uses its programme's. */
+  workout_location?: string | null;
 };
 
 export type TodayPick =

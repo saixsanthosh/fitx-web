@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ArrowLeft, Camera, Check, Info, Play, RotateCcw, Trophy } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { ExerciseThumb } from "@/components/exercises/ExerciseThumb";
 import { StatStrip } from "@/components/training/StatStrip";
 import { formatHistorySet } from "@/app/(dashboard)/workouts/active/_lib/last-time";
@@ -37,6 +38,11 @@ const setText = (set: RecordSet, timed: boolean) => formatHistorySet({ setNumber
  * every exercise with the sets logged, its note and the records it still holds. An abandoned workout opens read-only
  * and is marked as not counted. "Repeat this workout" saves a copy to the member's plans.
  */
+/** A state without a record to show (loading, missing, unavailable, still running): the page's h1, then the state. */
+function RecordState({ children }: { children: ReactNode }) {
+  return <div className="mx-auto max-w-4xl"><PageHeader title="Workout record" />{children}</div>;
+}
+
 export function SessionRecordScreen({ id }: { id: string }) {
   const router = useRouter();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -55,7 +61,8 @@ export function SessionRecordScreen({ id }: { id: string }) {
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
   const current = loaded?.id === id ? loaded : null;
-  if (!current) return <div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading the workout record…</div>;
+  // Every state has one main heading (bug 94): "Workout record" until the workout's own name can be shown.
+  if (!current) return <RecordState><div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary motion-reduce:animate-none">Loading the workout record…</div></RecordState>;
   if ("error" in current) {
     const copy = {
       missing: { title: "Workout not found", description: "There’s no workout with this link in your history. It may have been removed." },
@@ -63,16 +70,16 @@ export function SessionRecordScreen({ id }: { id: string }) {
       "signed-out": { title: "Sign in to see this workout", description: "Workout records are private to your account." },
       offline: { title: "Workout record unavailable", description: "FITX is not connected to its database in this environment." },
     }[current.error];
-    return <EmptyState title={copy.title} description={copy.description} action={<div className="flex flex-wrap justify-center gap-2">
+    return <RecordState><EmptyState headingLevel={2} title={copy.title} description={copy.description} action={<div className="flex flex-wrap justify-center gap-2">
       {current.error === "failed" && <button type="button" onClick={() => { setLoaded(null); void load(); }} className="fitx-button">Try again</button>}
       <Link href="/workouts/history" className="fitx-button fitx-button-secondary"><ArrowLeft size={15} aria-hidden="true" />Workout history</Link>
-    </div>} />;
+    </div>} /></RecordState>;
   }
 
   const { record, userId } = current;
   const { session } = record;
   if (session.status === "in_progress") {
-    return <EmptyState title="This workout is still in progress" description="Its record is ready once you finish it." action={<Link href={`/workouts/active?session=${encodeURIComponent(session.id)}`} className="fitx-button"><Play size={15} aria-hidden="true" />Resume the workout</Link>} />;
+    return <RecordState><EmptyState headingLevel={2} title="This workout is still in progress" description="Its record is ready once you finish it." action={<Link href={`/workouts/active?session=${encodeURIComponent(session.id)}`} className="fitx-button"><Play size={15} aria-hidden="true" />Resume the workout</Link>} /></RecordState>;
   }
   const counted = session.status === "completed";
   const badge = statusBadge(session.status);
@@ -107,7 +114,7 @@ export function SessionRecordScreen({ id }: { id: string }) {
       <PageHeading
         title={session.name}
         description={<>{dateLine(session.started_at, session.completed_at)}{badge && <span className="ml-2 inline-flex rounded-full border border-fitx-border bg-fitx-surface-variant px-2.5 py-0.5 align-middle text-xs font-semibold text-fitx-text">{badge}</span>}</>}
-        actions={<button type="button" onClick={() => void repeat()} disabled={repeating} className="fitx-button min-h-11"><RotateCcw size={15} aria-hidden="true" />{repeating ? "Copying…" : "Repeat this workout"}</button>}
+        actions={<button type="button" onClick={() => { if (!repeating) void repeat(); }} aria-disabled={repeating || undefined} className="fitx-button min-h-11 aria-disabled:opacity-60"><RotateCcw size={15} aria-hidden="true" />{repeating ? "Copying…" : "Repeat this workout"}</button>}
       />
       {repeatError && <p role="alert" className="fitx-alert fitx-alert-danger">{repeatError}</p>}
       <p className="-mt-3 text-xs text-fitx-text-secondary">Repeat saves a copy to your plans, ready to start.{!record.musclesFailed && repeatPreview.leftOut > 0 && ` ${repeatPreview.leftOut === 1 ? "1 exercise is" : `${repeatPreview.leftOut} exercises are`} no longer in the library and will be left out.`}</p>
@@ -204,7 +211,8 @@ function SessionNote({ record, userId, editable }: { record: SessionRecord; user
 
   async function save() {
     const supabase = createClient();
-    if (!supabase) return;
+    // Pressed while saving, or with nothing new to save: ignored (the button stays focusable, D5).
+    if (!supabase || state === "saving" || !changed) return;
     setState("saving");
     const result = await saveSessionNote(supabase, userId, record.session.id, draft);
     if (result.error) { setState("failed"); return; }
@@ -224,7 +232,8 @@ function SessionNote({ record, userId, editable }: { record: SessionRecord; user
             <span className="text-xs tabular-nums text-fitx-text-secondary">{draft.length}/{NOTE_MAX_LENGTH}</span>
             <div className="flex items-center gap-3">
               <span role="status" className="text-xs text-fitx-text-secondary">{state === "saved" ? <span className="inline-flex items-center gap-1"><Check size={13} aria-hidden="true" />Saved</span> : state === "failed" ? "The note couldn’t be saved. Try again." : ""}</span>
-              <button type="submit" disabled={!changed || state === "saving"} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm">{state === "saving" ? "Saving…" : "Save note"}</button>
+              {/* Never disabled: a disabled button drops focus, and it would be, on the button just pressed, once saved. */}
+              <button type="submit" aria-disabled={!changed || state === "saving" || undefined} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm aria-disabled:opacity-60">{state === "saving" ? "Saving…" : "Save note"}</button>
             </div>
           </div>
         </form>

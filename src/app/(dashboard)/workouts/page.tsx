@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, CalendarDays, ChevronDown, Copy, Info, Pencil, Plus, RotateCcw, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { EquipmentThumb } from "@/components/equipment/EquipmentTile";
@@ -9,6 +9,7 @@ import { Reveal } from "@/components/motion";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Section } from "@/components/ui/Section";
 import { MuscleRail } from "@/components/training/MuscleRail";
+import { ActionNote } from "@/components/workouts/ActionNote";
 import { ActionsMenu } from "@/components/workouts/ActionsMenu";
 import { AreaLaunchRail } from "@/components/workouts/AreaLaunchRail";
 import { HomeCollection } from "@/components/workouts/HomeCollection";
@@ -29,6 +30,7 @@ import { TodayEmpty, TodayWorkout, type TodayWorkoutPlan } from "@/components/wo
 import { programmeById } from "@/data/programmes";
 import { programmeMeta } from "@/data/programmes/meta";
 import { createClient } from "@/lib/supabase/client";
+import { isUuidString } from "@/lib/security/body";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { columnList, hasValuesIn, isMissingColumnError, isMissingFunctionError, isMissingRelationshipError, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { timedItemDay } from "@/lib/domain/todo";
@@ -45,19 +47,27 @@ import { initialMode, modeDirection, readStoredMode, writeStoredMode, type Worko
 import { contextForLocation, planSummary } from "@/lib/training/plan-summary";
 import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
+import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
+import { loadRecentExerciseDays } from "@/lib/training/recent-days";
+import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
-import { MAX_PLAN_EXERCISES, moveRow, plannedFrom, removeRow, selectedIds, swapRow, toggleRow, type PlannedExercise } from "./_lib/builder-rows";
+import { BUILDER_FIELD_IDS, builderSaveProblem, type BuilderProblem } from "./_lib/builder-save";
+import { builderSplit } from "./_lib/split-source";
+import { MAX_PLAN_EXERCISES, focusAfterMove, focusAfterRemove, focusAfterSwap, moveNotice, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
+import { focusAfterPlanDelete, historyNote, moreNote, planCardNote, plansLineNote, type ListNote } from "./_lib/list-notes";
+import { deletePlanAndItsItem, itemLeftMessage } from "./_lib/plan-delete";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
+import { equipmentGapMessage, equipmentGaps, listChanged } from "./_lib/today-equipment";
 import { pickToday } from "./_lib/today-pick";
 import { fetchUpcomingScheduled, joinScheduledToPlans, type ScheduledItem } from "./_lib/scheduled";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
 
 /** `last_done_key`: local day of the plan's latest finished session, or null when none is known. */
-type PlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; last_done_key: string | null };
+type PlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; workout_location: string | null; last_done_key: string | null };
 type PlanListRow = Omit<PlanRow, "last_done_key"> & { workout_sessions?: Array<{ started_at: string }> | null };
 /** A plan opened in the builder; `programme_enrolment_id` is read once the programme migrations are applied. */
 type EditedPlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; notes: string | null; workout_location: string | null; programme_enrolment_id?: string | null };
@@ -70,13 +80,15 @@ type BuilderMode = "focus" | "auto" | "custom";
 
 const PLAN_PAGE_SIZE = 30;
 const PLAN_LIST_STATUSES = ["draft", "scheduled"];
-const PLAN_LIST_COLUMNS = "id,title,planned_for,status,split";
+// workout_location: which equipment list the Today card checks a plan against (bug 17).
+const PLAN_LIST_COLUMNS = "id,title,planned_for,status,split,workout_location";
 // Each plan's latest finished session, for the "Done" label: one embedded row per plan.
 const PLAN_LAST_DONE_EMBED = "workout_sessions(started_at)";
 const HISTORY_LIMIT = 6;
 /** Equipment icons shown in the Gym equipment card before "+N". */
 const EQUIPMENT_SHOWN = 9;
 const TARGETS_UNAVAILABLE_NOTICE = "Weight and time targets arrive with the next FITX update. Everything else saves.";
+const SETUP_SAVED = "Setup saved. Workouts now follows your answers.";
 const BUILDER_MODES: ReadonlyArray<[BuilderMode, string]> = [["focus", "Body areas"], ["auto", "Your split"], ["custom", "Blank"]];
 
 /** "Done" in the success colour; the other statuses stay neutral. */
@@ -105,8 +117,19 @@ function toPlannedExercise(row: PlanExerciseRow, exercise: CatalogExercise): Pla
 }
 function toPlanRow(row: PlanListRow): PlanRow {
   const lastDone = row.workout_sessions?.[0]?.started_at;
-  return { id: row.id, title: row.title, planned_for: row.planned_for, status: row.status, split: row.split, last_done_key: lastDone ? localDateKey(new Date(lastDone)) : null };
+  return { id: row.id, title: row.title, planned_for: row.planned_for, status: row.status, split: row.split, workout_location: row.workout_location ?? null, last_done_key: lastDone ? localDateKey(new Date(lastDone)) : null };
 }
+/**
+ * Checks the followed programme's days ahead against the member's list for its place, re-planning those with
+ * exercises the list no longer allows (bug 17), and reads the days again when any changed (`plans`: null otherwise).
+ */
+async function replanProgrammeDays(supabase: SupabaseBrowserClient, input: Parameters<typeof replanUpcomingProgrammeDays>[1] & { plansFrom: string }) {
+  const { plansFrom, ...check } = input;
+  const outcome = await replanUpcomingProgrammeDays(supabase, check);
+  const fresh = outcome.replanned.length ? await loadEnrolmentPlans(supabase, check.userId, check.enrolment.id, plansFrom) : null;
+  return { outcome, plans: fresh && !fresh.error ? fresh.plans : null };
+}
+
 function asLevel(value: string | undefined): Level {
   return (LEVELS as readonly string[]).includes(value ?? "") ? (value as Level) : "beginner";
 }
@@ -186,17 +209,6 @@ async function fetchPlanById(supabase: SupabaseBrowserClient, uid: string, planI
   return result.error || !result.data ? null : toPlanRow(result.data as unknown as PlanListRow);
 }
 
-/** Exercise id -> days since the user last trained it, from the last two weeks, for variety. */
-async function fetchRecentExerciseDays(supabase: SupabaseBrowserClient, uid: string): Promise<Map<string, number>> {
-  const since = new Date(Date.now() - 14 * 86400000);
-  const result = await supabase.from("workout_session_exercises").select("exercise_id,created_at").eq("user_id", uid).gte("created_at", since.toISOString()).order("created_at", { ascending: false }).limit(300);
-  const days = new Map<string, number>();
-  for (const row of (result.data ?? []) as Array<{ exercise_id: string | null; created_at: string }>) {
-    if (row.exercise_id && !days.has(row.exercise_id)) days.set(row.exercise_id, Math.floor((Date.now() - Date.parse(row.created_at)) / 86400000));
-  }
-  return days;
-}
-
 export default function WorkoutsPage() {
   const builderRef = useRef<HTMLDivElement>(null);
   const [userId, setUserId] = useState("");
@@ -231,6 +243,15 @@ export default function WorkoutsPage() {
   // Whether workout_plan_exercises has the weight and time target columns: null until known.
   const [targetsSupported, setTargetsSupported] = useState<boolean | null>(null);
   const [notice, setNotice] = useState("");
+  // What a plan card's or a History row's action did, beside that control (D6, workouts-r5); and, after a plan is
+  // deleted, the plan whose Start takes focus (null: the empty list's Build a workout).
+  const [listNote, setListNote] = useState<ListNote | null>(null);
+  const [planFocus, setPlanFocus] = useState<{ planId: string | null; seq: number } | null>(null);
+  useEffect(() => {
+    if (!planFocus) return;
+    const card = planFocus.planId ? document.querySelector<HTMLElement>(`[id="workout-plan-${planFocus.planId}"] [data-plan-start]`) : null;
+    (card ?? document.querySelector<HTMLElement>("[data-plan-start]") ?? document.getElementById("plans-build-first"))?.focus();
+  }, [planFocus]);
   // The plan list is paged; `listDayKey` is the "today" its segments and labels were built with.
   const [planCursor, setPlanCursor] = useState<PlanPageCursor | null>(null);
   const [loadingMorePlans, setLoadingMorePlans] = useState(false);
@@ -251,6 +272,15 @@ export default function WorkoutsPage() {
   const [programmePlans, setProgrammePlans] = useState<ProgrammePlan[]>([]);
   const [recentDays, setRecentDays] = useState<Map<string, number>>(() => new Map());
   const [programmeBusy, setProgrammeBusy] = useState(false);
+  // Leaving or finishing replaces the programme card, and the control that held focus with it: focus moves to the
+  // section's heading, under which the result is said (D5).
+  const [programmeFocus, setProgrammeFocus] = useState(0);
+  useEffect(() => {
+    const heading = programmeFocus ? document.getElementById("programme-title") : null;
+    if (!heading) return;
+    heading.tabIndex = -1;
+    heading.focus();
+  }, [programmeFocus]);
   // The next programme days are being planned in the background (see topUpProgrammeDays).
   const [planningAhead, setPlanningAhead] = useState(false);
   // A list that failed to load is not shown as empty: saving the equipment list, following a programme
@@ -259,7 +289,23 @@ export default function WorkoutsPage() {
   const [programmeLoadFailed, setProgrammeLoadFailed] = useState(false);
   const [equipmentEditor, setEquipmentEditor] = useState<{ context: TrainingContext; keys: string[] } | null>(null);
   const [equipmentSaving, setEquipmentSaving] = useState(false);
+  // Why the list could not be saved, inside its sheet (D6); and, on the card, what saving it did to the programme.
+  const [equipmentError, setEquipmentError] = useState("");
+  const [equipmentNote, setEquipmentNote] = useState<{ context: TrainingContext; text: string } | null>(null);
+  // The programme card's own line (D6): days re-planned for a changed equipment list (bug 17), or what a programme
+  // action did or why it did not work, beside the card's buttons rather than at the top of the page.
+  const [programmeNote, setProgrammeNote] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  // The Today card's "Re-plan this day": the day, whether it runs, and how it went.
+  const [todayReplan, setTodayReplan] = useState<{ planId: string; busy: boolean; note: string } | null>(null);
   const [swapIndex, setSwapIndex] = useState<number | null>(null);
+  // After a swap or a remove takes the focused button away, the control that takes focus (seq: once per action), and
+  // what the builder's live region says about it (bug 14).
+  const [builderFocus, setBuilderFocus] = useState<{ target: BuilderFocus; seq: number } | null>(null);
+  const [builderNotice, setBuilderNotice] = useState("");
+  // Why the builder could not save or add, beside the control it is about (bug 85); a field problem focuses that field.
+  const [builderProblem, setBuilderProblem] = useState<BuilderProblem | null>(null);
+  const [builderFieldFocus, setBuilderFieldFocus] = useState<{ id: string; seq: number } | null>(null);
+  useEffect(() => { if (builderFieldFocus) document.getElementById(builderFieldFocus.id)?.focus(); }, [builderFieldFocus]);
   const [autoDay, setAutoDay] = useState(0);
   const [autoSeed, setAutoSeed] = useState(0);
   const [autoNote, setAutoNote] = useState("");
@@ -307,7 +353,9 @@ export default function WorkoutsPage() {
     const uid = auth.data.user.id;
     const todayKey = localDateKey();
     // The dashboard links to /workouts?plan=<id>; that plan is fetched on its own in case it is not on the first page.
-    const linkedPlanId = new URLSearchParams(window.location.search).get("plan");
+    // A malformed id (a link cut short) names no plan: it is not sent to the database (bug 49's rule).
+    const requestedPlan = new URLSearchParams(window.location.search).get("plan");
+    const linkedPlanId = isUuidString(requestedPlan) ? requestedPlan : null;
     // A GET (one row at most) rather than HEAD: a HEAD error has no body, so a missing column could not be recognised.
     const planCountQuery = (onlyOwnPlans: boolean) => {
       const query = supabase.from("workout_plans").select("id", { count: "exact" }).eq("user_id", uid).in("status", PLAN_LIST_STATUSES);
@@ -318,7 +366,8 @@ export default function WorkoutsPage() {
       supabase.from("user_preferences").select("workout_location,equipment,fitness_level,session_duration_minutes,workout_split").eq("user_id", uid).maybeSingle(),
       fetchPlanPage(supabase, uid, todayKey, FIRST_PLAN_PAGE),
       supabase.from("workout_sessions").select("id,name,started_at,duration_seconds,total_volume,status,plan_id").eq("user_id", uid).eq("status", "completed").order("started_at", { ascending: false }).limit(HISTORY_LIMIT),
-      supabase.from("workout_sessions").select("id,name,started_at,duration_seconds,total_volume,status").eq("user_id", uid).eq("status", "in_progress").order("started_at", { ascending: false }).limit(1).maybeSingle(),
+      // With its plan, so a card can tell its own workout in progress from another one (bug 30).
+      supabase.from("workout_sessions").select("id,name,started_at,duration_seconds,total_volume,status,plan_id").eq("user_id", uid).eq("status", "in_progress").order("started_at", { ascending: false }).limit(1).maybeSingle(),
       // Exact totals for the tiles; the lists above stay short. Programme days are counted in the programme card.
       supabase.from("workout_sessions").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("status", "completed"),
       withOptionalColumns(PROGRAMME_PLAN_COLUMNS, (include) => planCountQuery(include)),
@@ -329,7 +378,7 @@ export default function WorkoutsPage() {
       loadEquipmentProfiles(supabase, uid),
       loadProgrammes(supabase),
       loadCurrentEnrolment(supabase, uid),
-      fetchRecentExerciseDays(supabase, uid),
+      loadRecentExerciseDays(supabase, uid),
       loadWorkoutSetup(supabase, uid),
     ]);
     const failure = [catalogResult, preferencesResult, planPage, historyResult, activeResult].find((result) => result.error);
@@ -385,12 +434,23 @@ export default function WorkoutsPage() {
     // exercises fit what the member has).
     const followed = followedProgramme(programmeResult.programmes, currentEnrolment);
     if (!currentEnrolment || currentEnrolment.status !== "active" || !followed || enrolmentPlans.error || profileResult.error || !catalogResult.exercises.length) return;
+    const programmeOwned = expandOwnedEquipment(equipmentFor(profileResult.profiles, currentEnrolment.context, prefs.equipment).keys);
+    // The list may have changed where no check ran (Profile, another device): days saved before it was last saved are
+    // checked against it (bug 17). A day saved since, the member's own edit included, is left as it is ("visit").
+    const checked = await replanProgrammeDays(supabase, {
+      userId: uid, enrolment: currentEnrolment, programme: followed, catalog: catalogResult.exercises, owned: programmeOwned,
+      level: asLevel(prefs.fitness_level), recentDays: recent, todayKey, includeTargets: !targetsMissing, plansFrom,
+      mode: "visit", listSavedAt: profileResult.savedAt[currentEnrolment.context],
+    });
+    if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
+    const replanned = replanMessage(checked.outcome, currentEnrolment.context);
+    if (replanned) setProgrammeNote({ tone: "info", text: replanned });
     const target = targetSessions(currentEnrolment.started_on, currentEnrolment.weekdays, programmeMeta(followed.id)?.lengthDays);
     if (!topUpWindow({ enrolment: currentEnrolment, plans: enrolmentPlans.plans, todayKey, target, dayCount: followed.days.length })) return;
     setPlanningAhead(true);
     const planned = await topUpProgrammeDays(supabase, {
       userId: uid, enrolment: currentEnrolment, programme: followed, catalog: catalogResult.exercises,
-      owned: expandOwnedEquipment(equipmentFor(profileResult.profiles, currentEnrolment.context, prefs.equipment).keys),
+      owned: programmeOwned,
       level: asLevel(prefs.fitness_level), recentDays: recent, includeTargets: !targetsMissing, plans: enrolmentPlans.plans, todayKey, target,
     });
     setPlanningAhead(false);
@@ -429,12 +489,34 @@ export default function WorkoutsPage() {
 
   function setupSaved(next: WorkoutSetup) {
     const firstTime = !setup?.done;
+    // The list the followed programme's days were planned with, before this save (a starting list until one is saved).
+    const programmeList = enrolment ? equipmentFor(profiles, enrolment.context, preferences.equipment).keys : null;
     setSetup(next);
     setProfiles(next.profiles);
     setPreferences((current) => ({ ...current, workout_location: next.location, fitness_level: next.level, equipment: next.profiles.home ?? current.equipment }));
     setSetupOpen(false);
-    setNotice("Setup saved. Workouts now follows your answers.");
+    setNotice(SETUP_SAVED);
     if (firstTime) changeMode(modeForLocation(next.location));
+    const keys = enrolment ? next.profiles[enrolment.context] : null;
+    if (programmeList && listChanged(programmeList, keys)) void replanAfterSetup(next, keys!);
+  }
+
+  /** Setup saved a new list for the followed programme's place: its days ahead follow it (bug 17), as after Save list. */
+  async function replanAfterSetup(next: WorkoutSetup, keys: readonly string[]) {
+    const supabase = createClient();
+    const programme = followedProgramme(programmes, enrolment);
+    if (!supabase || !userId || !enrolment || enrolment.status !== "active" || !programme || !catalog.length || programmeLoadFailed) return;
+    const todayKey = localDateKey();
+    const checked = await replanProgrammeDays(supabase, {
+      userId, enrolment, programme, catalog, owned: expandOwnedEquipment(keys), level: asLevel(next.level), recentDays, todayKey,
+      includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey, mode: "list-saved",
+    });
+    if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
+    // Said with the setup's own line, under the Workout setup button that opened it (D6).
+    const said = checked.outcome.error
+      ? "Your programme’s days ahead couldn’t be checked against your new list. Reload Workouts to try again."
+      : replanMessage(checked.outcome, enrolment.context);
+    if (said) setNotice((current) => (current === SETUP_SAVED ? `${SETUP_SAVED} ${said}` : current));
   }
 
   useEffect(() => {
@@ -448,7 +530,7 @@ export default function WorkoutsPage() {
       setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle("Custom workout"); setPlanNotes(""); setSplit(preferences.workout_split || "full_body"); setPlanLocation(preferences.workout_location || "gym");
       setPlannedFor(localDateKey());
       setPreview([plannedFrom(exercise, 0)]); setAutoNote("");
-      setCreatorOpen(true);
+      setBuilderNotice(""); setBuilderProblem(null); setCreatorOpen(true);
       window.history.replaceState(null, "", "/workouts");
     });
   }, [catalog, loading, preferences.workout_split, preferences.workout_location]);
@@ -495,12 +577,24 @@ export default function WorkoutsPage() {
       const controls = getFocusable();
       if (!controls.length) return;
       const first = controls[0]; const last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      // Focus outside the builder (the page body, after its control went away): Tab brings it back in, never behind.
+      if (!dialog!.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
     document.addEventListener("keydown", keepFocusInside);
     return () => { document.removeEventListener("keydown", keepFocusInside); previousFocus?.focus(); };
   }, [creatorOpen]);
+
+  // A swap rebuilds its row and a remove deletes one: the sensible control in the builder takes focus (bug 14).
+  useEffect(() => {
+    const dialog = builderRef.current;
+    if (!builderFocus || !dialog) return;
+    const target = "heading" in builderFocus.target
+      ? dialog.querySelector<HTMLElement>("#builder-order-title")
+      : dialog.querySelector<HTMLElement>(`[data-builder-row="${builderFocus.target.row}"] [data-builder-control="${builderFocus.target.control}"]`);
+    target?.focus();
+  }, [builderFocus]);
 
   // "Last time" for the builder's exercises: the member's latest completed session with each, fetched once per exercise.
   useEffect(() => {
@@ -555,10 +649,21 @@ export default function WorkoutsPage() {
     return details;
   }, [creatorOpen, builderMode, catalog, builderOwned]);
 
-  /** The authored days an Auto plan draws from: the user's split at the gym, a home track at home. */
+  /**
+   * Where "Your split" takes its days from (bug 51): the programme the member follows when it is for this place, else
+   * the Profile's training split at the gym, a home track at home (see _lib/split-source.ts).
+   */
+  function autoSplit(target: TrainingContext) {
+    const followed = followedProgramme(programmes, enrolment);
+    // The Profile's training split at the gym (a home track at home), for when no programme is followed for this place.
+    const splitId = splitProgrammeId(preferences.workout_split, target, ownedFor(target).has("dumbbell"));
+    return builderSplit({
+      target, followed: followed && enrolment ? { programme: followed, nextDayIndex: enrolment.next_day_index } : null,
+      split: preferences.workout_split, splitId, programmes,
+    });
+  }
   function autoProgramme(target: TrainingContext): Programme | undefined {
-    const id = splitProgrammeId(preferences.workout_split, target, ownedFor(target).has("dumbbell"));
-    return programmes.find((programme) => programme.id === id) ?? programmes.find((programme) => programme.context === target);
+    return autoSplit(target)?.programme;
   }
 
   function generateAuto(target: TrainingContext, dayIndex: number, seed: number) {
@@ -601,6 +706,13 @@ export default function WorkoutsPage() {
     setSplit(areas.length === 1 && areas[0] === "full_body" ? "full_body" : "custom");
   }
 
+  /** Opens the builder with its live region quiet (nothing from an earlier visit is read out again). */
+  function showBuilder() {
+    setBuilderNotice("");
+    setBuilderProblem(null);
+    setCreatorOpen(true);
+  }
+
   function openCreator(nextMode: BuilderMode, target: TrainingContext = context, areas: readonly FocusArea[] = []) {
     setBuilderMode(nextMode);
     setEditingPlanId(null); setEditingProgrammeDay(false);
@@ -610,13 +722,15 @@ export default function WorkoutsPage() {
     setPlanLocation(target === "home" ? "home" : "gym");
     setPlannedFor(localDateKey());
     setTime("18:00");
-    setAutoDay(0); setAutoSeed(0); setAutoNote("");
+    // A followed programme opens on the day the member is on.
+    const startDay = nextMode === "auto" ? autoSplit(target)?.startDay ?? 0 : 0;
+    setAutoDay(startDay); setAutoSeed(0); setAutoNote("");
     setFocusAreas([...areas]);
     setFocusPickerOpen(areas.length === 0);
-    if (nextMode === "auto") applyAuto(target, 0, 0);
+    if (nextMode === "auto") applyAuto(target, startDay, 0);
     else if (nextMode === "focus") applyFocus(target, areas, 0);
     else setPreview([]);
-    setCreatorOpen(true);
+    showBuilder();
     setError("");
     setNotice("");
   }
@@ -626,7 +740,13 @@ export default function WorkoutsPage() {
     if (next === builderMode) return;
     setBuilderMode(next);
     const target = contextForLocation(planLocation);
-    if (next === "auto") applyAuto(target, autoDay, autoSeed);
+    if (next === "auto") {
+      // A followed programme opens on the day the member is on (bug 51); otherwise the day chosen before, if any.
+      const split = autoSplit(target);
+      const day = split?.source === "programme" ? split.startDay : autoDay;
+      setAutoDay(day);
+      applyAuto(target, day, autoSeed);
+    }
     else if (next === "focus" && focusAreas.length) applyFocus(target, focusAreas, autoSeed);
     else setAutoNote("");
   }
@@ -646,42 +766,90 @@ export default function WorkoutsPage() {
 
   async function repeatSession(session: SessionRow) {
     const supabase = createClient();
-    if (!supabase || !userId) return;
-    setError(""); setNotice(""); setSaving(true);
+    if (!supabase || !userId || saving) return;
+    setNotice(""); setListNote(null); setSaving(true);
     const outcome = await withOptionalColumns(PRESCRIPTION_TARGET_COLUMNS, (include) =>
       supabase.from("workout_session_exercises").select(columnList(["id", "exercise_id", "exercise_name", "sort_order", "target_sets", "reps_min", "reps_max", "rest_seconds"], PRESCRIPTION_TARGET_COLUMNS, include)).eq("session_id", session.id).eq("user_id", userId).order("sort_order"),
     { includeOptional: targetsSupported !== false });
     setSaving(false);
-    if (outcome.result.error) return setError("That workout couldn’t be loaded to repeat. Check your connection and try again.");
+    // A problem is said in the workout's own History row, beside its Repeat button (D6).
+    const problem = (text: string) => setListNote({ at: "history", sessionId: session.id, text });
+    if (outcome.result.error) return problem("That workout couldn’t be loaded to repeat. Check your connection and try again.");
     const rows = (outcome.result.data || []) as unknown as PlanExerciseRow[];
     const nextPreview = rows.flatMap((row) => {
       const exercise = row.exercise_id ? catalog.find((item) => item.id === survivingExerciseId(row.exercise_id!)) : undefined;
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     }).map((row, sort_order) => ({ ...row, sort_order }));
-    if (!nextPreview.length) return setError("The movements from that workout are no longer in the library.");
+    if (!nextPreview.length) return problem("The movements from that workout are no longer in the library.");
     setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
-    setPlanLocation("gym"); setPlannedFor(localDateKey()); setTime("18:00"); setAutoNote("");
-    setPreview(nextPreview); setCreatorOpen(true);
-    if (nextPreview.length < rows.length) setNotice(`${rows.length - nextPreview.length} movement${rows.length - nextPreview.length === 1 ? " is" : "s are"} no longer in the library and ${rows.length - nextPreview.length === 1 ? "was" : "were"} left out.`);
+    setPlanLocation("gym"); setPlannedFor(localDateKey()); setTime("18:00");
+    setPreview(nextPreview); showBuilder();
+    // What was left out is said inside the builder, which now covers the page (D6), not behind it.
+    const missing = rows.length - nextPreview.length;
+    setAutoNote(missing > 0 ? `${missing} movement${missing === 1 ? " is" : "s are"} no longer in the library and ${missing === 1 ? "was" : "were"} left out.` : "");
   }
 
   /** Keeps the user's sets and rest; reps or time follow the new movement when its type differs (see swapRow). */
   function swapPreview(index: number, replacement: CatalogExercise) {
+    const from = preview[index]?.exercise.name;
     setPreview((rows) => swapRow(rows, index, replacement));
     setSwapIndex(null);
+    if (from) setBuilderNotice(swapNotice(from, replacement.name));
+    setBuilderFocus((current) => ({ target: focusAfterSwap(index), seq: (current?.seq ?? 0) + 1 }));
+  }
+
+  /** Removes a row; focus moves to the row that takes its place (or the list's heading), and the change is announced. */
+  function removePreview(index: number, item: PlannedExercise) {
+    setPreview((rows) => removeRow(rows, item.exercise.id));
+    setBuilderNotice(removeNotice(item.exercise.name, preview.length - 1));
+    setBuilderFocus((current) => ({ target: focusAfterRemove(preview.length, index), seq: (current?.seq ?? 0) + 1 }));
   }
 
   async function saveEquipment() {
     const supabase = createClient();
-    if (!supabase || !userId || !equipmentEditor || equipmentLoadFailed) return;
-    setEquipmentSaving(true);
-    const result = await saveEquipmentProfile(supabase, userId, equipmentEditor.context, equipmentEditor.keys);
-    setEquipmentSaving(false);
-    if (result.error) return setError("Your equipment list couldn’t be saved. Check your connection and try again.");
-    setProfiles((current) => ({ ...current, [equipmentEditor.context]: equipmentEditor.keys }));
+    if (!supabase || !userId || !equipmentEditor || equipmentLoadFailed || equipmentSaving) return;
+    const saved = equipmentEditor;
+    setEquipmentSaving(true); setEquipmentError(""); setEquipmentNote(null);
+    const result = await saveEquipmentProfile(supabase, userId, saved.context, saved.keys);
+    if (result.error) { setEquipmentSaving(false); return setEquipmentError("Your equipment list couldn’t be saved. Check your connection and try again."); }
+    setProfiles((current) => ({ ...current, [saved.context]: saved.keys }));
     // A saved list counts as setup done (brief 3.4), so the first-visit setup steps aside.
-    setSetup((current) => current ? { ...current, profiles: { ...current.profiles, [equipmentEditor.context]: equipmentEditor.keys }, done: true } : current);
+    setSetup((current) => current ? { ...current, profiles: { ...current.profiles, [saved.context]: saved.keys }, done: true } : current);
+    // The followed programme's days ahead follow the new list (bug 17): what that changed is said on the list's card.
+    const programme = followedProgramme(programmes, enrolment);
+    let note = "List saved.";
+    if (enrolment && enrolment.status === "active" && enrolment.context === saved.context && programme && catalog.length && !programmeLoadFailed) {
+      const todayKey = localDateKey();
+      const checked = await replanProgrammeDays(supabase, {
+        userId, enrolment, programme, catalog, owned: expandOwnedEquipment(saved.keys), level, recentDays, todayKey,
+        includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey, mode: "list-saved",
+      });
+      if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
+      note = checked.outcome.error
+        ? "List saved, but your programme’s days ahead couldn’t be checked against it. Reload Workouts to try again."
+        : [note, replanMessage(checked.outcome, saved.context)].filter(Boolean).join(" ");
+    }
+    setEquipmentSaving(false);
+    setEquipmentNote({ context: saved.context, text: note });
     setEquipmentEditor(null);
+  }
+
+  /** The Today card's "Re-plan this day": the planner's rules again, for this day and the member's current list. */
+  async function replanToday(planId: string) {
+    const supabase = createClient();
+    const programme = followedProgramme(programmes, enrolment);
+    if (!supabase || !userId || !enrolment || !programme || todayReplan?.busy) return;
+    setTodayReplan({ planId, busy: true, note: "" });
+    const todayKey = localDateKey();
+    const checked = await replanProgrammeDays(supabase, {
+      userId, enrolment, programme, catalog, owned: ownedFor(enrolment.context), level, recentDays, todayKey,
+      includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey, onlyPlanId: planId, mode: "asked",
+    });
+    if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
+    setTodayReplan({
+      planId, busy: false,
+      note: checked.outcome.error ? "This day couldn’t be re-planned. Check your connection and try again." : replanMessage(checked.outcome, enrolment.context) || "Nothing to change: this day has started, or every exercise fits your list.",
+    });
   }
 
   async function enrol(programme: Programme, weekdays: number[], startTime: string): Promise<string | null> {
@@ -700,7 +868,8 @@ export default function WorkoutsPage() {
     });
     setProgrammeBusy(false);
     await load();
-    setNotice(programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays));
+    // Said on the new programme card, where the Follow sheet closed (D6).
+    setProgrammeNote({ tone: scheduled.error && !scheduled.created ? "error" : "info", text: programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays) });
     return null;
   }
 
@@ -709,7 +878,7 @@ export default function WorkoutsPage() {
     const supabase = createClient();
     const programme = followedProgramme(programmes, enrolment);
     if (!supabase || !userId || !enrolment || !programme || programmeLoadFailed) return;
-    setProgrammeBusy(true); setError(""); setNotice("");
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
     const todayKey = localDateKey();
     const scheduled = await topUpProgrammeDays(supabase, {
       userId, enrolment, programme, catalog, owned: ownedFor(enrolment.context), level, recentDays, includeTargets: targetsSupported !== false,
@@ -717,22 +886,26 @@ export default function WorkoutsPage() {
     });
     setProgrammeBusy(false);
     await load();
-    setNotice(scheduled.ran ? programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays)
+    setProgrammeNote({ tone: scheduled.ran && scheduled.error && !scheduled.created ? "error" : "info", text: scheduled.ran ? programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays)
       : scheduled.skipped === "busy" ? "Your next days are being planned in another tab. Check again in a moment."
-      : "Your next 7 days are already planned.");
+      : "Your next 7 days are already planned." });
   }
 
   async function leave() {
     const supabase = createClient();
     const programme = followedProgramme(programmes, enrolment);
     // Not while the next days are being planned: they would be created after the removal (see topUpProgrammeDays).
-    if (!supabase || !userId || !enrolment || planningAhead) return;
+    if (!supabase || !userId || !enrolment || planningAhead || programmeBusy) return;
     if (!window.confirm(`Stop following ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner. Finished workouts stay in your history.`)) return;
-    setProgrammeBusy(true);
+    // The last status line was about this programme (for example days just planned): it goes with it.
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
     const result = await leaveProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
     setProgrammeBusy(false);
-    if (result.error) return setError("The programme couldn’t be left. Check your connection and try again.");
+    if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be left. Check your connection and try again." });
     await load();
+    // Said in the Programme section, where the card was (D6), and focus goes there (D5).
+    setProgrammeNote({ tone: "info", text: `You no longer follow ${programme ? programmeShortTitle(programme) : "the programme"}. Its upcoming days are removed; finished workouts stay in your history.` });
+    setProgrammeFocus((value) => value + 1);
   }
 
   async function pause() {
@@ -740,22 +913,22 @@ export default function WorkoutsPage() {
     const programme = followedProgramme(programmes, enrolment);
     if (!supabase || !userId || !enrolment || activeSession || planningAhead) return;
     if (!window.confirm(`Pause ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner until you resume. Your place in the programme is kept.`)) return;
-    setProgrammeBusy(true); setError(""); setNotice("");
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
     const result = await pauseProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
     setProgrammeBusy(false);
-    if (result.error) return setError("The programme couldn’t be paused. Check your connection and try again.");
+    if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be paused. Check your connection and try again." });
     await load();
-    setNotice("Programme paused. Resume it whenever you’re ready; it picks up at the day you’re on.");
+    setProgrammeNote({ tone: "info", text: "Programme paused. Resume it whenever you’re ready; it picks up at the day you’re on." });
   }
 
   async function resume() {
     const supabase = createClient();
     if (!supabase || !userId || !enrolment) return;
-    setProgrammeBusy(true); setError(""); setNotice("");
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
     const result = await resumeProgramme(supabase, { userId, enrolmentId: enrolment.id });
     setProgrammeBusy(false);
-    if (result.alreadyActive) return setError("You follow another programme now. Leave it to resume this one.");
-    if (result.error) return setError("The programme couldn’t be resumed. Check your connection and try again.");
+    if (result.alreadyActive) return setProgrammeNote({ tone: "error", text: "You follow another programme now. Leave it to resume this one." });
+    if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be resumed. Check your connection and try again." });
     // Loading again plans the next 7 days from today, at the day the member is on.
     await load();
   }
@@ -763,12 +936,13 @@ export default function WorkoutsPage() {
   async function finish() {
     const supabase = createClient();
     if (!supabase || !userId || !enrolment || planningAhead) return;
-    setProgrammeBusy(true); setError("");
+    setProgrammeBusy(true); setError(""); setProgrammeNote(null);
     const result = await finishProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
     setProgrammeBusy(false);
-    if (result.error) return setError("The programme couldn’t be finished. Check your connection and try again.");
+    if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be finished. Check your connection and try again." });
     await load();
-    setNotice("Programme finished. Choose your next one below; your workouts stay in your history.");
+    setProgrammeNote({ tone: "info", text: "Programme finished. Choose your next one below; your workouts stay in your history." });
+    setProgrammeFocus((value) => value + 1);
   }
 
   /** Start on the Today card: straight into the session (its exercises are on the card already). */
@@ -790,7 +964,8 @@ export default function WorkoutsPage() {
   /** Ticking adds the exercise at the end; unticking removes it. The other rows keep their order and edits. */
   function toggleSelected(exercise: CatalogExercise) {
     const next = toggleRow(preview, exercise);
-    if (!next) { setError(`A workout can contain up to ${MAX_PLAN_EXERCISES} exercises.`); return; }
+    if (!next) { setBuilderProblem({ at: "picker", message: `A workout can contain up to ${MAX_PLAN_EXERCISES} exercises.` }); return; }
+    setBuilderProblem((current) => (current?.at === "picker" ? null : current));
     setPreview(next);
   }
 
@@ -816,14 +991,24 @@ export default function WorkoutsPage() {
     } : row));
   }
 
+  /** Moves a row; focus follows it to its new place (the page moves the row, which drops focus), and the place is said. */
   function movePreview(index: number, direction: -1 | 1) {
+    const moved = preview[index];
+    if (!moved || index + direction < 0 || index + direction >= preview.length) return;
     setPreview((rows) => moveRow(rows, index, direction));
+    setBuilderNotice(moveNotice(moved.exercise.name, index + direction + 1, preview.length));
+    setBuilderFocus((current) => ({ target: focusAfterMove(index, direction, preview.length), seq: (current?.seq ?? 0) + 1 }));
   }
 
-  async function editPlan(planId: string) {
+  /**
+   * Opens a plan in the builder. Resolves with why it could not, for the caller to say where it was asked: in the
+   * plan's card, or in the plan preview (D6). `beforeOpen` runs as the builder opens (the preview closes then).
+   */
+  async function editPlan(planId: string, beforeOpen?: () => void): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return;
-    setError(""); setNotice(""); setSaving(true);
+    if (!supabase || !userId) return "FITX is not connected to Supabase.";
+    if (saving) return null;
+    setNotice(""); setListNote(null); setSaving(true);
     const [planResult, exercisesResult, eventResult] = await Promise.all([
       withOptionalColumns(PROGRAMME_PLAN_COLUMNS, (include) =>
         supabase.from("workout_plans").select(columnList(["id", "title", "planned_for", "status", "split", "notes", "workout_location"], PROGRAMME_PLAN_COLUMNS, include)).eq("id", planId).eq("user_id", userId).maybeSingle()),
@@ -833,7 +1018,7 @@ export default function WorkoutsPage() {
     ]);
     const planRow = planResult.result.data as unknown as EditedPlanRow | null;
     if (planResult.result.error || !planRow || exercisesResult.error) {
-      setSaving(false); setError("This workout could not be opened for editing. Check your connection and try again."); return;
+      setSaving(false); return "This workout could not be opened for editing. Check your connection and try again.";
     }
     const rows = exercisesResult.rows;
     const nextPreview = rows.flatMap((row) => {
@@ -841,8 +1026,9 @@ export default function WorkoutsPage() {
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     });
     if (rows.length && !nextPreview.length) {
-      setSaving(false); setError("The saved movements are no longer available in the active library."); return;
+      setSaving(false); return "The saved movements are no longer available in the active library.";
     }
+    beforeOpen?.();
     setBuilderMode("custom"); setEditingPlanId(planId); setEditingPlannedFor(planRow.planned_for || null); setTitle(planRow.title); setPlanNotes(planRow.notes || ""); setSplit(planRow.split); setPlanLocation(planRow.workout_location || "gym");
     setEditingProgrammeDay(Boolean(planRow.programme_enrolment_id && planRow.planned_for));
     // A To-Do workout linked to the plan has its own time: prefer the scheduled event on the plan's day.
@@ -850,56 +1036,82 @@ export default function WorkoutsPage() {
     const timedEvents = (eventResult.data || []) as Array<{ status: string; starts_at: string }>;
     const ownEvent = timedEvents.find((event) => event.status === "scheduled" && localDateKey(new Date(event.starts_at)) === planDay) ?? timedEvents[0];
     setPlannedFor(planRow.planned_for || ""); setTime(ownEvent ? new Date(ownEvent.starts_at).toTimeString().slice(0, 5) : "18:00");
-    setAutoNote(""); setPreview(nextPreview); setCreatorOpen(true); setSaving(false);
+    setAutoNote(""); setPreview(nextPreview); showBuilder(); setSaving(false);
+    return null;
   }
 
-  async function duplicatePlan(plan: PlanRow) {
+  /** Opens a copy of a plan in the builder; resolves with why it could not (said in the plan's card). */
+  async function duplicatePlan(plan: PlanRow): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return;
-    setError(""); setNotice(""); setSaving(true);
+    if (!supabase || !userId) return "FITX is not connected to Supabase.";
+    if (saving) return null;
+    setNotice(""); setListNote(null); setSaving(true);
     const [planResult, exercisesResult] = await Promise.all([
       supabase.from("workout_plans").select("title,split,notes,workout_location").eq("id", plan.id).eq("user_id", userId).maybeSingle(),
       readPlanRows(plan.id),
     ]);
-    if (planResult.error || !planResult.data || exercisesResult.error) { setSaving(false); setError("This workout could not be copied. Check your connection and try again."); return; }
-    if (!exercisesResult.rows.length) { setSaving(false); setError("This plan has no exercises to copy yet. Edit it to add some first."); return; }
+    if (planResult.error || !planResult.data || exercisesResult.error) { setSaving(false); return "This workout could not be copied. Check your connection and try again."; }
+    if (!exercisesResult.rows.length) { setSaving(false); return "This plan has no exercises to copy yet. Edit it to add some first."; }
     const nextPreview = exercisesResult.rows.flatMap((row) => {
       const exercise = row.exercise_id ? catalog.find((item) => item.id === survivingExerciseId(row.exercise_id!)) : undefined;
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     });
-    if (!nextPreview.length) { setSaving(false); setError("The saved movements are no longer available in the active library."); return; }
+    if (!nextPreview.length) { setSaving(false); return "The saved movements are no longer available in the active library."; }
     setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
-    setAutoNote(""); setPreview(nextPreview); setCreatorOpen(true); setSaving(false);
+    setAutoNote(""); setPreview(nextPreview); showBuilder(); setSaving(false);
+    return null;
+  }
+
+  /** A plan card's menu action said what went wrong in that card (D6). */
+  function sayOnPlan(planId: string, message: string | null) {
+    if (message) setListNote({ at: "plan", planId, tone: "error", text: message });
   }
 
   async function loadMorePlans() {
     const supabase = createClient();
     if (!supabase || !userId || !planCursor || loadingMorePlans) return;
-    setLoadingMorePlans(true); setError("");
+    setLoadingMorePlans(true); setListNote((current) => (current?.at === "more" ? null : current));
     const page = await fetchPlanPage(supabase, userId, listDayKey, planCursor);
     setLoadingMorePlans(false);
-    if (page.error) return setError("More plans couldn’t be loaded. Check your connection and try again.");
+    // Said beside the button, at the bottom of the list (D6).
+    if (page.error) return setListNote({ at: "more", text: "More plans couldn’t be loaded. Check your connection and try again." });
     setPlans((current) => mergePlansById(current, page.rows));
     setPlanCursor(page.next);
+    // The button keeps focus while there are more; once it goes, the first plan it brought takes focus (D5).
+    const shown = plans.map((plan) => plan.id);
+    const target = focusAfterShowMore({ more: Boolean(page.next), shown, added: addedIds(shown, page.rows.map((plan) => plan.id)) });
+    if (target !== "button") setPlanFocus((current) => ({ planId: target, seq: (current?.seq ?? 0) + 1 }));
   }
 
   async function deletePlan(plan: PlanRow) {
     if (!window.confirm(`Delete “${plan.title}” and its saved exercise order? Completed workout sessions will remain in your history.`)) return;
     const supabase = createClient();
     if (!supabase || !userId) return;
-    const result = await supabase.from("workout_plans").delete().eq("id", plan.id).eq("user_id", userId);
-    if (result.error) setError("That workout could not be deleted."); else await load();
+    setListNote(null);
+    // The planner item FITX scheduled for the plan's date goes with it, once the plan is gone (bug 48, Also seen; a
+    // failed delete leaves both as they were). A To-Do item the member linked to the plan stays, unlinked.
+    const outcome = await deletePlanAndItsItem(supabase, userId, plan);
+    if (outcome.status === "failed") return setListNote({ at: "plan", planId: plan.id, tone: "error", text: "That workout could not be deleted. Check your connection and try again." });
+    // Its card goes, and the menu that held focus with it: the next plan's Start takes focus (D5); the list's line says why.
+    const next = focusAfterPlanDelete(plans, plan.id);
+    await load();
+    setListNote({ at: "plans", tone: "info", text: outcome.status === "deleted-item-left" ? itemLeftMessage(plan.title) : `Deleted “${plan.title}”.` });
+    setPlanFocus((current) => ({ planId: next, seq: (current?.seq ?? 0) + 1 }));
   }
 
   async function savePlan(thenStart = false) {
-    setError(""); setNotice("");
-    if (!userId || !title.trim() || preview.length === 0) {
-      setError(preview.length === 0 ? "Choose at least one exercise for your workout." : "Give this workout a name.");
+    // Not disabled while saving (Chrome would drop focus from the pressed button): a second press is ignored.
+    if (saving) return;
+    setError(""); setNotice(""); setBuilderProblem(null);
+    const problem = builderSaveProblem({ title, exerciseCount: preview.length, programmeDay: editingProgrammeDay, plannedFor, originalPlannedFor: editingPlannedFor });
+    if (problem) {
+      setBuilderProblem(problem);
+      if (problem.at === "name" || problem.at === "date") setBuilderFieldFocus((current) => ({ id: BUILDER_FIELD_IDS[problem.at as "name" | "date"].field, seq: (current?.seq ?? 0) + 1 }));
       return;
     }
-    if (editingProgrammeDay && plannedFor !== editingPlannedFor) return setError("A programme day keeps its date.");
+    const saveProblem = (message: string) => { setBuilderProblem({ at: "save", message }); };
     const supabase = createClient();
-    if (!supabase) return setError("FITX is not connected to Supabase.");
+    if (!userId || !supabase) return saveProblem("FITX is not connected to Supabase.");
     setSaving(true);
     const patch = {
       title: title.trim(), split, workout_location: planLocation,
@@ -921,7 +1133,7 @@ export default function WorkoutsPage() {
     if (!rpc.error) return afterSave(supabase, rpc.data as string, false, thenStart, previousPlannedFor);
     if (!isMissingFunctionError(rpc.error)) {
       setSaving(false);
-      return setError(editingPlanId ? "The workout could not be updated. Your saved plan is unchanged." : "The workout could not be saved. Please try again.");
+      return saveProblem(editingPlanId ? "The workout could not be updated. Your saved plan is unchanged." : "The workout could not be saved. Please try again.");
     }
 
     if (editingPlanId) {
@@ -930,21 +1142,21 @@ export default function WorkoutsPage() {
         readPlanRows(editingPlanId),
       ]);
       if (currentPlan.error || !currentPlan.data || currentExercises.error) {
-        setSaving(false); return setError("The saved workout could not be prepared for an update. Check your connection and try again.");
+        setSaving(false); return saveProblem("The saved workout could not be prepared for an update. Check your connection and try again.");
       }
       originalPlan = currentPlan.data;
       originalRows = currentExercises.rows;
       if (!currentExercises.includedTargets) includeTargets = false;
       const updated = await supabase.from("workout_plans").update(patch).eq("id", editingPlanId).eq("user_id", userId);
-      if (updated.error) { setSaving(false); return setError("The workout details could not be updated."); }
+      if (updated.error) { setSaving(false); return saveProblem("The workout details could not be updated."); }
       const removed = await supabase.from("workout_plan_exercises").delete().eq("plan_id", editingPlanId).eq("user_id", userId);
       if (removed.error) {
         await supabase.from("workout_plans").update(originalPlan).eq("id", editingPlanId).eq("user_id", userId);
-        setSaving(false); return setError("The workout exercises could not be updated. Your previous plan was restored.");
+        setSaving(false); return saveProblem("The workout exercises could not be updated. Your previous plan was restored.");
       }
     } else {
       const inserted = await supabase.from("workout_plans").insert({ user_id: userId, ...patch }).select("id").single();
-      if (inserted.error || !inserted.data) { setSaving(false); return setError("The workout could not be saved. Please try again."); }
+      if (inserted.error || !inserted.data) { setSaving(false); return saveProblem("The workout could not be saved. Please try again."); }
       planId = inserted.data.id;
     }
 
@@ -973,11 +1185,11 @@ export default function WorkoutsPage() {
         await supabase.from("workout_plans").delete().eq("id", planId).eq("user_id", userId);
       }
       setSaving(false);
-      return setError(restored ? "The workout exercises could not be saved. Your previous plan was restored." : "The workout update was interrupted. Reload this page and check the saved exercise list.");
+      return saveProblem(restored ? "The workout exercises could not be saved. Your previous plan was restored." : "The workout update was interrupted. Reload this page and check the saved exercise list.");
     }
     // Only possible when the builder showed target fields before the database said it lacks them.
     const droppedTargets = !savedExercises.includedOptional && hasValuesIn(rows, PRESCRIPTION_TARGET_COLUMNS);
-    if (!planId) { setSaving(false); return setError("The workout could not be saved. Please try again."); }
+    if (!planId) { setSaving(false); return saveProblem("The workout could not be saved. Please try again."); }
     return afterSave(supabase, planId, droppedTargets, thenStart, originalPlan ? originalPlan.planned_for : previousPlannedFor);
   }
 
@@ -1020,16 +1232,19 @@ export default function WorkoutsPage() {
       }
     }
     const savedTitle = title.trim();
+    // The builder closes: what happened next is said with the saved plan, in its card in Your plans, or on the
+    // programme card for a programme day (D6), not at the top of the page.
+    const sayOnSaved = (tone: "info" | "error", text: string) => (editingProgrammeDay ? setProgrammeNote({ tone, text }) : setListNote({ at: "plan", planId, tone, text }));
     setSaving(false);
     setCreatorOpen(false);
     if (thenStart) {
       const message = await startWorkout(planId, savedTitle);
-      if (message) { await load(); setError(message); }
+      if (message) { await load(); sayOnSaved("error", message); }
       return;
     }
     await load();
-    if (scheduleWarning) setError(scheduleWarning);
-    if (droppedTargets) setNotice("Workout saved. Weight and time targets aren’t available yet while FITX finishes an update, so those values weren’t stored. Everything else in the plan is saved.");
+    const saved = [scheduleWarning, droppedTargets ? "Workout saved. Weight and time targets aren’t available yet while FITX finishes an update, so those values weren’t stored. Everything else in the plan is saved." : ""].filter(Boolean).join(" ");
+    if (saved) sayOnSaved(scheduleWarning ? "error" : "info", saved);
   }
 
   /**
@@ -1054,19 +1269,21 @@ export default function WorkoutsPage() {
     return startFailureMessage(started.failure);
   }
 
+  // The page's h1 is there in every state (bug 94), loading and unavailable included.
   if (loading) return (
-    <div className={styles.page} aria-busy="true" aria-label="Loading workouts">
-      <div className="mb-8 h-9 w-40 rounded-lg bg-fitx-surface-variant" />
-      <div className={styles.topGrid}><div className={`${styles.skeleton} h-96`} /><div className={`${styles.skeleton} hidden h-96 lg:block`} /></div>
+    <div className={styles.page}>
+      <PageHeader title="Workouts" />
+      <div className={styles.topGrid} aria-busy="true" aria-label="Loading workouts"><div className={`${styles.skeleton} h-96`} /><div className={`${styles.skeleton} hidden h-96 lg:block`} /></div>
     </div>
   );
-  if (error && !userId) return <EmptyState title="Workouts unavailable" description={error} action={<button className="fitx-button fitx-button-secondary" onClick={() => { setLoading(true); void load(); }}>Try again</button>} />;
+  if (error && !userId) return <div className={styles.page}><PageHeader title="Workouts" /><EmptyState headingLevel={2} title="Workouts unavailable" description={error} action={<button className="fitx-button fitx-button-secondary" onClick={() => { setLoading(true); void load(); }}>Try again</button>} /></div>;
   // Hidden only once the database has said it lacks the target columns, so nothing typed is lost on save.
   const showTargets = targetsSupported !== false;
   const gymEquipment = equipmentFor(profiles, "gym", preferences.equipment);
   const gymProgrammes = programmes.filter((programme) => programme.context === "gym");
   const enrolledProgramme = followedProgramme(programmes, enrolment);
-  const builderProgramme = builderMode === "auto" && !editingPlanId ? autoProgramme(builderContext) : undefined;
+  const builderSplitSource = builderMode === "auto" && !editingPlanId ? autoSplit(builderContext) : null;
+  const builderProgramme = builderSplitSource?.programme;
   const rowToSwap = swapIndex !== null ? preview[swapIndex] : undefined;
   const builderSummary = planSummary(preview);
   const previewProgramme = enrolment && enrolledProgramme
@@ -1079,6 +1296,17 @@ export default function WorkoutsPage() {
     programme: today.programme && enrolledProgramme ? programmeEyebrow(today.plan.title, today.plan.programme_day_index ?? null, enrolledProgramme) : null,
   };
   const loadedToday = todayCard && todayRows?.planId === todayCard.id ? todayRows : null;
+  // The card checks its exercises against the list for where the workout happens (bug 17): a programme day its
+  // programme's place, the member's own plan its own. A programme day the list rules out can be re-planned here.
+  const todayContext: TrainingContext = today.kind !== "none" && today.programme && enrolment ? enrolment.context : contextForLocation(today.kind === "none" ? null : today.plan.workout_location);
+  const todayGaps = todayCard && loadedToday?.rows ? equipmentGaps(loadedToday.rows, catalogById, ownedFor(todayContext)) : null;
+  const todayReplanHere = todayCard && todayReplan?.planId === todayCard.id ? todayReplan : null;
+  const todayGap = todayCard && (todayGaps?.count || todayReplanHere?.note) ? {
+    message: todayGaps?.count ? equipmentGapMessage(todayGaps, todayContext, equipmentLabel) : "",
+    onReplan: todayGaps?.count && today.kind !== "none" && today.programme && enrolment?.status === "active" ? () => void replanToday(todayCard.id) : null,
+    replanning: Boolean(todayReplanHere?.busy),
+    note: todayReplanHere?.note ?? "",
+  } : null;
   const doneToday = sessions.find((session) => localDateKey(new Date(session.started_at)) === todayKey) ?? null;
   const hiddenEquipment = Math.max(0, gymEquipment.keys.length - EQUIPMENT_SHOWN);
   const homeEquipment = equipmentFor(profiles, "home", preferences.equipment);
@@ -1130,7 +1358,7 @@ export default function WorkoutsPage() {
       <div className={styles.topGrid}>
         <Section title={today.kind === "next" ? "Up next" : "Today"} id="today" className={styles.todaySection}>
           {todayCard
-            ? <TodayWorkout plan={todayCard} rows={loadedToday?.rows ?? null} failed={Boolean(loadedToday?.failed)} catalog={catalogById} starting={starting === todayCard.id} startError={todayStartError} inProgress={Boolean(activeSession)}
+            ? <TodayWorkout plan={todayCard} rows={loadedToday?.rows ?? null} failed={Boolean(loadedToday?.failed)} catalog={catalogById} starting={starting === todayCard.id} startError={todayStartError} active={activeSession ? { id: activeSession.id, name: activeSession.name, planId: activeSession.plan_id ?? null } : null} gap={todayGap}
                 onStart={() => void startToday(todayCard.id)} onDetails={() => setPreviewPlanId(todayCard.id)} onInfo={setInfoExercise} onRetry={() => setLoadVersion((value) => value + 1)} />
             : <TodayEmpty title={doneToday ? "Done for today" : "Nothing planned today"} record={doneToday ? { id: doneToday.id, name: doneToday.name } : null}>
                 <button type="button" className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16} aria-hidden="true" />Plan today</button>
@@ -1159,7 +1387,9 @@ export default function WorkoutsPage() {
                         </span>
                       </span>
                     </Link>
-                    <button type="button" disabled={saving} onClick={() => void repeatSession(session)} aria-label={`Repeat ${session.name}`} title="Repeat" className={styles.iconButton}><RotateCcw size={16} aria-hidden="true" /></button>
+                    <button type="button" aria-disabled={saving || undefined} onClick={() => void repeatSession(session)} aria-label={`Repeat ${session.name}`} title="Repeat" className={styles.iconButton}><RotateCcw size={16} aria-hidden="true" /></button>
+                    {/* Why Repeat did not work, in this row beside the button (D6). */}
+                    {historyNote(listNote, session.id) && <p role="alert" className={styles.rowNote}>{historyNote(listNote, session.id)}</p>}
                   </li>
                 );
               })}
@@ -1180,15 +1410,21 @@ export default function WorkoutsPage() {
         <Section title="Programme" id="programme">
           {enrolment
             ? enrolledProgramme
-              ? <ProgrammeCard programme={enrolledProgramme} enrolment={enrolment} plans={programmePlans} plansFailed={programmeLoadFailed} todayKey={todayKey} busy={programmeBusy || Boolean(starting)} planning={planningAhead} activeSession={Boolean(activeSession)}
+              ? <ProgrammeCard programme={enrolledProgramme} enrolment={enrolment} plans={programmePlans} plansFailed={programmeLoadFailed} todayKey={todayKey} busy={programmeBusy || Boolean(starting)} planning={planningAhead} activeSession={Boolean(activeSession)} note={programmeNote}
                   onPreview={(planId) => setPreviewPlanId(planId)} onPlanAhead={() => void planAhead()} onLeave={() => void leave()} onPause={() => void pause()} onResume={() => void resume()} onFinish={() => void finish()} />
               : <section aria-label="Your programme" className={styles.quietEmpty}>
                   <p className="font-medium">This programme is no longer available</p>
                   <p className="text-sm text-fitx-text-secondary">Your workouts stay in your history.</p>
-                  <button type="button" onClick={() => void leave()} disabled={programmeBusy} className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start text-sm">Leave programme</button>
+                  <button type="button" onClick={() => void leave()} aria-disabled={programmeBusy || undefined} className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start text-sm aria-disabled:opacity-60">Leave programme</button>
+                  {/* Why Leave did not work, beside it (D6): ProgrammeCard shows the same note for a programme it can show. */}
+                  <ActionNote note={programmeNote} live className="mt-2" />
                 </section>
-            : <ProgrammeBrowser programmes={gymProgrammes} enrolAvailable={enrolAvailable && !programmeLoadFailed} busy={programmeBusy} onEnrol={enrol}
-                disabledNote={programmeLoadFailed ? "Following waits until your programme has loaded." : !enrolAvailable ? "Following a programme arrives with the next FITX update." : undefined} />}
+            : <>
+                {/* What leaving or finishing did, where the card was (D6). */}
+                <ActionNote note={programmeNote} live />
+                <ProgrammeBrowser programmes={gymProgrammes} enrolAvailable={enrolAvailable && !programmeLoadFailed} busy={programmeBusy} onEnrol={enrol}
+                  disabledNote={programmeLoadFailed ? "Following waits until your programme has loaded." : !enrolAvailable ? "Following a programme arrives with the next FITX update." : undefined} />
+              </>}
         </Section>
       </Reveal>
       )}
@@ -1198,39 +1434,48 @@ export default function WorkoutsPage() {
         <Section title="Your plans" id="plans">
           {/* Each plan once: its scheduled item joins its row (time, and today's Start keeps the planner item). */}
           <ScheduledWorkouts items={plansWithScheduled.rest} dayLabel={(day) => whenLabel(day, listDayKey || localDateKey())} onStart={startScheduled} starting={Boolean(starting)} />
+          {/* The list's own line (D6): a deleted plan, or a message for a plan that is not on the list. */}
+          <ActionNote note={plansLineNote(listNote, plans)} live />
           {plans.length ? (
             <div className={styles.planList}>
               {plans.map((plan) => {
                 const event = plansWithScheduled.byPlan.get(plan.id);
                 const time = event?.startsAt ? readableDate(new Date(event.startsAt), { hour: "numeric", minute: "2-digit" }) : null;
+                // What this card's Edit, Duplicate or Delete did, right under it (D6).
+                const cardNote = planCardNote(listNote, plan.id);
                 return (
-                <article key={plan.id} id={`workout-plan-${plan.id}`} className={styles.planRow}>
+                <Fragment key={plan.id}>
+                <article id={`workout-plan-${plan.id}`} className={styles.planRow}>
                   <div className="min-w-0 flex-1">
                     <h3 className={styles.itemTitle}>{plan.title}</h3>
                     <p className={styles.itemMeta}><CalendarDays size={13} aria-hidden="true" />{plan.planned_for ? whenLabel(plan.planned_for, todayKey) : "No date"}{time ? `, ${time}` : ""}<PlanStatusChip status={planCardStatus(plan.planned_for, todayKey, plan.last_done_key)} /></p>
                   </div>
-                  <button type="button" aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`}
-                    onClick={() => (event?.startHref ? startScheduled(plan.id, event.id) : setPreviewPlanId(plan.id))}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
+                  <button type="button" data-plan-start aria-haspopup="dialog" aria-disabled={Boolean(starting) || undefined} className={`fitx-button ${styles.planStart} aria-disabled:opacity-60`}
+                    onClick={() => { if (starting) return; if (event?.startHref) startScheduled(plan.id, event.id); else setPreviewPlanId(plan.id); }}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
                   {/* One visible action per row (phase 7.4); editing, copying and deleting sit in its menu. */}
                   <ActionsMenu label={`More actions for ${plan.title}`} items={[
-                    { label: "Edit", name: `Edit ${plan.title}`, icon: Pencil, onSelect: () => void editPlan(plan.id), disabled: saving },
-                    { label: "Duplicate", name: `Duplicate ${plan.title}`, icon: Copy, onSelect: () => void duplicatePlan(plan), disabled: saving },
+                    { label: "Edit", name: `Edit ${plan.title}`, icon: Pencil, onSelect: () => void editPlan(plan.id).then((message) => sayOnPlan(plan.id, message)), disabled: saving },
+                    { label: "Duplicate", name: `Duplicate ${plan.title}`, icon: Copy, onSelect: () => void duplicatePlan(plan).then((message) => sayOnPlan(plan.id, message)), disabled: saving },
                     { label: "Delete", name: `Delete ${plan.title}`, icon: Trash2, onSelect: () => void deletePlan(plan), tone: "danger" },
                   ]} />
                 </article>
+                {cardNote && <ActionNote note={cardNote} />}
+                </Fragment>
                 );
               })}
               {(planCursor || (counts.plans !== null && counts.plans > plans.length)) && (
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <p className="text-xs text-fitx-text-secondary">{plans.length.toLocaleString()}{counts.plans !== null && counts.plans >= plans.length ? ` of ${counts.plans.toLocaleString()}` : ""} plans</p>
-                  {planCursor && <button type="button" onClick={() => void loadMorePlans()} disabled={loadingMorePlans} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}
+                  {planCursor && <button type="button" onClick={() => void loadMorePlans()} aria-disabled={loadingMorePlans || undefined} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm aria-disabled:opacity-60">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}
+                  {/* Why more plans did not load, beside the button at the bottom of the list (D6). */}
+                  {moreNote(listNote) && <p role="alert" className="m-0 basis-full text-sm text-fitx-danger">{moreNote(listNote)}</p>}
                 </div>
               )}
             </div>
           ) : (
             <div className={styles.quietEmpty}>
               <p className="font-medium">No saved plans</p>
-              <button type="button" className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start" onClick={() => openCreator("focus")}><Plus size={16} aria-hidden="true" />Build a workout</button>
+              <button type="button" id="plans-build-first" className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start" onClick={() => openCreator("focus")}><Plus size={16} aria-hidden="true" />Build a workout</button>
             </div>
           )}
         </Section>
@@ -1246,6 +1491,8 @@ export default function WorkoutsPage() {
               <p className="text-xs text-fitx-text-secondary">{gymEquipment.saved ? `${gymEquipment.keys.length} items` : "A full gym until you edit it"}{!catalogCurated ? " · matching is approximate" : ""}</p>
               <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-sm" onClick={() => setEquipmentEditor({ context: "gym", keys: gymEquipment.keys })}><Pencil size={14} aria-hidden="true" />Edit equipment</button>
             </div>
+            {/* What saving the list did, beside the button that opened it (D6): the programme's days ahead follow it (bug 17). */}
+            <p role="status" className={equipmentNote?.context === "gym" ? "m-0 mt-3 text-xs text-fitx-text-secondary" : "sr-only"}>{equipmentNote?.context === "gym" ? equipmentNote.text : ""}</p>
           </div>
         </Section>
       </div>
@@ -1257,7 +1504,7 @@ export default function WorkoutsPage() {
 
       {creatorOpen && <div className="fixed inset-0 z-50 flex items-end justify-center bg-fitx-scrim/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="builder-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreatorOpen(false); }}><div ref={builderRef} className="max-h-[94dvh] w-full max-w-4xl overflow-y-auto rounded-t-[22px] border border-fitx-border bg-fitx-elevated shadow-2xl sm:max-h-[90dvh] sm:rounded-[22px]">
         <div className="p-4 sm:p-6">
-          <div className="mb-5 flex items-start justify-between gap-3"><div className="min-w-0"><h2 id="builder-title" className="font-heading text-2xl font-bold tracking-[-.03em]">{editingPlanId ? "Edit workout plan" : builderMode === "auto" ? "Build from your split" : builderMode === "focus" ? "Build by body area" : "Create a workout"}</h2>{builderProgramme && <p className="mt-1 text-sm text-fitx-text-secondary">From {builderProgramme.title}</p>}</div><button type="button" onClick={() => setCreatorOpen(false)} aria-label="Close workout builder" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18} aria-hidden="true"/></button></div>
+          <div className="mb-5 flex items-start justify-between gap-3"><div className="min-w-0"><h2 id="builder-title" className="font-heading text-2xl font-bold tracking-[-.03em]">{editingPlanId ? "Edit workout plan" : builderMode === "auto" ? "Build from your split" : builderMode === "focus" ? "Build by body area" : "Create a workout"}</h2>{builderSplitSource && <p className="mt-1 text-sm text-fitx-text-secondary">{builderSplitSource.label}</p>}</div><button type="button" onClick={() => setCreatorOpen(false)} aria-label="Close workout builder" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18} aria-hidden="true"/></button></div>
           {!editingPlanId && <div role="group" aria-label="Start from" className="mb-5 grid grid-cols-3 gap-1 rounded-xl border border-fitx-border bg-fitx-surface-variant p-1 sm:inline-grid">
             {BUILDER_MODES.map(([value, label]) => <button key={value} type="button" aria-pressed={builderMode === value} onClick={() => switchMode(value)} className={`min-h-11 rounded-lg px-3 text-sm font-semibold ${builderMode === value ? "bg-fitx-surface text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>{label}</button>)}
           </div>}
@@ -1269,8 +1516,23 @@ export default function WorkoutsPage() {
             {(focusPickerOpen || !focusAreas.length) && <div id="builder-focus-tiles"><MuscleRail bleed={false} value={focusAreas} label="Body areas to train" details={focusDetails} onChange={(areas) => { setFocusAreas(areas); applyFocus(builderContext, areas, autoSeed); }} /></div>}
           </div>}
           <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Workout name<input className="fitx-field" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Date<input className="fitx-field" type="date" value={plannedFor} onChange={(event) => setPlannedFor(event.target.value)} disabled={editingProgrammeDay} aria-describedby={editingProgrammeDay ? "programme-day-date-note" : undefined} />{editingProgrammeDay && <span id="programme-day-date-note">A programme day keeps its date.</span>}</label>
+            {/* A problem with the name or date shows right under the field, which is marked invalid and takes focus (bug 85). */}
+            <div className="grid content-start gap-1.5">
+              <label htmlFor={BUILDER_FIELD_IDS.name.field} className="text-xs text-fitx-text-secondary">Workout name</label>
+              <input id={BUILDER_FIELD_IDS.name.field} className="fitx-field aria-invalid:border-fitx-danger!" maxLength={120} value={title}
+                aria-invalid={builderProblem?.at === "name" || undefined} aria-describedby={builderProblem?.at === "name" ? BUILDER_FIELD_IDS.name.message : undefined}
+                onChange={(event) => { setTitle(event.target.value); setBuilderProblem((current) => (current?.at === "name" ? null : current)); }} />
+              {builderProblem?.at === "name" && <p id={BUILDER_FIELD_IDS.name.message} role="alert" className="m-0 text-xs font-medium text-fitx-danger">{builderProblem.message}</p>}
+            </div>
+            <div className="grid content-start gap-1.5">
+              <label htmlFor={BUILDER_FIELD_IDS.date.field} className="text-xs text-fitx-text-secondary">Date</label>
+              <input id={BUILDER_FIELD_IDS.date.field} className="fitx-field aria-invalid:border-fitx-danger!" type="date" value={plannedFor} disabled={editingProgrammeDay}
+                aria-invalid={builderProblem?.at === "date" || undefined}
+                aria-describedby={[editingProgrammeDay ? "programme-day-date-note" : "", builderProblem?.at === "date" ? BUILDER_FIELD_IDS.date.message : ""].filter(Boolean).join(" ") || undefined}
+                onChange={(event) => { setPlannedFor(event.target.value); setBuilderProblem((current) => (current?.at === "date" ? null : current)); }} />
+              {editingProgrammeDay && <span id="programme-day-date-note" className="text-xs text-fitx-text-secondary">A programme day keeps its date.</span>}
+              {builderProblem?.at === "date" && <p id={BUILDER_FIELD_IDS.date.message} role="alert" className="m-0 text-xs font-medium text-fitx-danger">{builderProblem.message}</p>}
+            </div>
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Start time<input className="fitx-field" type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={!plannedFor} /></label>
             {builderProgramme && <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Day<select className="fitx-field" value={autoDay % builderProgramme.days.length} onChange={(event) => { const day = Number(event.target.value); setAutoDay(day); applyAuto(builderContext, day, autoSeed); }}>{builderProgramme.days.map((day, index) => <option key={day.key} value={index}>{day.title}</option>)}</select></label>}
           </div>
@@ -1285,35 +1547,46 @@ export default function WorkoutsPage() {
           </details>
           <div className="mt-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold">Exercise order <span className="font-normal text-fitx-text-secondary">· {preview.length}</span></h3>
+              <h3 id="builder-order-title" tabIndex={-1} className="text-sm font-semibold">Exercise order <span className="font-normal text-fitx-text-secondary">· {preview.length}</span></h3>
               {((builderProgramme) || (builderMode === "focus" && !editingPlanId && focusAreas.length > 0)) && <button type="button" onClick={() => { const seed = autoSeed + 1; setAutoSeed(seed); if (builderMode === "focus") applyFocus(builderContext, focusAreas, seed); else applyAuto(builderContext, autoDay, seed); }} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">Regenerate plan</button>}
             </div>
             {preview.length > 0 && <p className="mb-3 text-xs text-fitx-text-secondary" aria-live="polite">{builderSummary.exercises} exercise{builderSummary.exercises === 1 ? "" : "s"} · {builderSummary.totalSets} sets{builderSummary.estimateMinutes ? ` · ≈ ${builderSummary.estimateMinutes} min (estimate)` : ""}</p>}
+            <p role="status" className="sr-only">{builderNotice}</p>
             {autoNote && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{autoNote}</span></p>}
             {!showTargets && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{TARGETS_UNAVAILABLE_NOTICE}</span></p>}
             {preview.length ? <ol className="space-y-2">{preview.map((item, index) => (
               <BuilderRow key={item.exercise.id} item={item} index={index} count={preview.length} owned={builderOwned} listName={builderContext} showTargets={showTargets} lastTime={lastTimes.get(item.exercise.id)}
                 onMove={(direction) => movePreview(index, direction)} onUpdate={(field, value) => updatePreview(index, field, value)} onUpdateTarget={(field, raw) => updateOptionalTarget(index, field, raw)}
-                onSwap={() => setSwapIndex(index)} onRemove={() => setPreview((rows) => removeRow(rows, item.exercise.id))} onInfo={() => setInfoExercise(item.exercise)} />
+                onSwap={() => setSwapIndex(index)} onRemove={() => removePreview(index, item)} onInfo={() => setInfoExercise(item.exercise)} />
             ))}</ol> : <p className="rounded-xl border border-dashed border-fitx-border px-4 py-5 text-sm text-fitx-text-secondary">{builderMode === "focus" && !editingPlanId && !focusAreas.length ? "Pick an area above or add exercises below." : "Add exercises below."}</p>}
           </div>
           <LibraryPicker catalog={catalog} selectedIds={selected} owned={builderOwned} listName={builderContext} full={preview.length >= MAX_PLAN_EXERCISES} onToggle={toggleSelected} onInfo={setInfoExercise} />
-          {error && <p role="alert" className="fitx-alert fitx-alert-danger mt-4 px-3 py-2 text-sm">{error}</p>}
+          {builderProblem?.at === "picker" && <p role="alert" className="fitx-alert fitx-alert-danger mt-4 px-3 py-2 text-sm">{builderProblem.message}</p>}
         </div>
-        <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-fitx-divider bg-fitx-elevated p-3 sm:flex sm:justify-end sm:px-6 sm:py-4"><button disabled={saving || !preview.length} onClick={() => void savePlan()} className={`fitx-button ${activeSession ? "col-span-2" : "fitx-button-secondary"}`}>{saving ? "Saving…" : editingPlanId ? "Save changes" : "Save workout"}<CalendarDays size={16}/></button>{!activeSession && <button disabled={saving || !preview.length || Boolean(starting)} onClick={() => void savePlan(true)} className="fitx-button">{starting ? "Starting…" : "Save and start"}<ArrowRight size={16}/></button>}</div>
+        <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-fitx-divider bg-fitx-elevated p-3 sm:flex sm:flex-wrap sm:justify-end sm:px-6 sm:py-4">
+          {/* A save that did not work says so here, beside the buttons (D6); the buttons keep focus while saving. */}
+          {builderProblem?.at === "save" && <p role="alert" className="fitx-alert fitx-alert-danger col-span-2 m-0 px-3 py-2 text-sm sm:basis-full">{builderProblem.message}</p>}
+          <button disabled={!preview.length} aria-disabled={saving || undefined} onClick={() => void savePlan()} className={`fitx-button aria-disabled:opacity-60 ${activeSession ? "col-span-2" : "fitx-button-secondary"}`}>{saving ? "Saving…" : editingPlanId ? "Save changes" : "Save workout"}<CalendarDays size={16}/></button>
+          {!activeSession && <button disabled={!preview.length} aria-disabled={saving || Boolean(starting) || undefined} onClick={() => { if (!starting) void savePlan(true); }} className="fitx-button aria-disabled:opacity-60">{starting ? "Starting…" : "Save and start"}<ArrowRight size={16}/></button>}
+        </div>
       </div></div>}
 
       {rowToSwap && <SwapSheet target={rowToSwap.exercise} catalog={catalog} owned={builderOwned} level={level} exclude={new Set(preview.map((row) => row.exercise.id))} contextLabel={builderContext} onPick={(exercise) => swapPreview(swapIndex!, exercise)} onClose={() => setSwapIndex(null)} />}
       {infoExercise && <ExerciseInfoSheet exerciseId={infoExercise.id} name={infoExercise.name} owned={builderOwned} listName={builderContext} fullPageLink={false} onClose={() => setInfoExercise(null)} />}
       {previewPlanId && userId && <PlanPreviewSheet planId={previewPlanId} userId={userId} catalog={catalog} ownedFor={ownedFor} todayKey={listDayKey || localDateKey()} programme={previewProgramme}
         activeSession={activeSession ? { id: activeSession.id, name: activeSession.name } : null} starting={starting === previewPlanId} includeTargets={targetsSupported !== false}
-        onBegin={startWorkout} onEdit={(planId) => { setPreviewPlanId(null); void editPlan(planId); }} onClose={() => setPreviewPlanId(null)} />}
+        onBegin={startWorkout} onEdit={(planId) => editPlan(planId, () => setPreviewPlanId(null))} onClose={() => setPreviewPlanId(null)} />}
       {setupOpen && setup && <Sheet title="Workout setup" size="lg" onClose={() => setSetupOpen(false)}>
         <WorkoutSetupFlow setup={{ ...setup, profiles }} userId={userId} legacyWords={preferences.equipment} variant="sheet" onSaved={setupSaved} />
       </Sheet>}
-      {equipmentEditor && <Sheet title={equipmentEditor.context === "home" ? "Your home equipment" : "Your gym equipment"} size="lg" onClose={() => setEquipmentEditor(null)}
+      {equipmentEditor && <Sheet title={equipmentEditor.context === "home" ? "Your home equipment" : "Your gym equipment"} size="lg" onClose={() => { setEquipmentEditor(null); setEquipmentError(""); }}
         description={equipmentEditor.context === "home" ? "Workouts and swaps use only what you pick." : "Remove anything your gym lacks."}
-        footer={<><button type="button" onClick={() => setEquipmentEditor(null)} className="fitx-button fitx-button-quiet">Cancel</button><button type="button" disabled={equipmentSaving || !profiles.available || equipmentLoadFailed} onClick={() => void saveEquipment()} className="fitx-button">{equipmentSaving ? "Saving…" : "Save list"}</button></>}>
+        footer={<>
+          <button type="button" onClick={() => { setEquipmentEditor(null); setEquipmentError(""); }} className="fitx-button fitx-button-quiet">Cancel</button>
+          {/* Busy without being disabled, so focus stays on it; a failed save says why right here, above the buttons (D6). */}
+          <button type="button" disabled={!profiles.available || equipmentLoadFailed} aria-disabled={equipmentSaving || undefined} onClick={() => void saveEquipment()} className="fitx-button aria-disabled:opacity-60">{equipmentSaving ? "Saving…" : "Save list"}</button>
+          {equipmentError && <p role="alert" className="fitx-alert fitx-alert-danger m-0 px-3 py-2 text-sm sm:order-first sm:basis-full">{equipmentError}</p>}
+        </>}>
         {!profiles.available && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Saving lists arrives with the next FITX update.</p>}
         {profiles.available && equipmentLoadFailed && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Your saved list couldn’t be loaded, so saving is off. Close this and choose Try again.</p>}
         <EquipmentPicker value={equipmentEditor.keys} context={equipmentEditor.context} onChange={(keys) => setEquipmentEditor({ context: equipmentEditor.context, keys })} />

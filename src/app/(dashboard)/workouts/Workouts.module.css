@@ -103,8 +103,10 @@
   color: var(--fitx-text-secondary);
 }
 
-.iconButton:hover:not(:disabled) { background: var(--fitx-hover); color: var(--fitx-text); }
-.iconButton:disabled { opacity: 0.45; }
+.iconButton:hover:not(:disabled, [aria-disabled="true"]) { background: var(--fitx-hover); color: var(--fitx-text); }
+/* Busy buttons stay focusable (aria-disabled): a disabled one drops keyboard focus in Chrome (D5). */
+.iconButton:disabled,
+.iconButton[aria-disabled="true"] { opacity: 0.45; }
 
 .quietEmpty {
   display: flex;
@@ -126,7 +128,17 @@
   background: var(--fitx-card-bg);
 }
 
-.historyItem { display: flex; align-items: center; gap: 4px; padding-right: 4px; }
+.historyItem { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-right: 4px; }
+
+/* An action's problem inside its row, under the row's controls (D6). */
+.rowNote {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0 10px 8px;
+  color: var(--fitx-danger);
+  font-size: 12px;
+  font-weight: 500;
+}
 .historyItem + .historyItem { border-top: 1px solid var(--fitx-divider); }
 .historyItem:nth-child(n + 4) { display: none; }
 

@@ -41,7 +41,7 @@ export function EquipmentPicker({ value, onChange, context, disabled = false }: 
                 const on = selected.has(item.key);
                 return (
                   <button key={item.key} type="button" disabled={disabled} aria-pressed={on} onClick={() => toggle(item.key)}
-                    className={`inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors ${on ? "border-fitx-primary bg-fitx-primary/[.08] text-fitx-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40"}`}>
+                    className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors ${on ? "border-fitx-primary bg-fitx-primary/[.08] text-fitx-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40"}`}>
                     {on && <Check size={14} aria-hidden="true" className="text-fitx-primary-text" />}{item.label}
                   </button>
                 );

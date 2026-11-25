@@ -43,7 +43,9 @@ export function Sheet({ title, description, onClose, children, footer, size = "m
       const items = focusable();
       if (!items.length) return;
       const first = items[0]; const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      // Focus outside the sheet (the page body, after its control went away): Tab brings it back in (bug 14's rule).
+      if (!panel.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", onKey);
@@ -64,7 +66,7 @@ export function Sheet({ title, description, onClose, children, footer, size = "m
           <button type="button" onClick={onClose} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18} /></button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
-        {footer && <div className="flex flex-col-reverse justify-end gap-2 border-t border-fitx-divider p-4 sm:flex-row sm:px-5">{footer}</div>}
+        {footer && <div className="flex flex-col-reverse justify-end gap-2 border-t border-fitx-divider p-4 sm:flex-row sm:flex-wrap sm:px-5">{footer}</div>}
       </div>
     </div>
   );

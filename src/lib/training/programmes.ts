@@ -161,6 +161,28 @@ export function weeklyPattern(weekdays: readonly number[]): { training: number; 
   return { training, rest: 7 - training };
 }
 
+/**
+ * What the Follow form says about the days picked (bug 50). No day picked: the programme cannot start, and the form
+ * says to pick one (it used to say the programme runs "either way" beside a disabled Start programme). Otherwise the
+ * week's training and rest days, and, when the count differs from the programme's own, that its days run in order.
+ */
+export function followDaysSummary(weekdays: readonly number[], programme: { daysPerWeek: number; dayCount: number }): {
+  canStart: boolean;
+  /** The headline: the week's pattern, or what to do first. */
+  summary: string;
+  /** A second line, or null. */
+  note: string | null;
+} {
+  const week = weeklyPattern(weekdays);
+  if (week.training === 0) return { canStart: false, summary: "Pick at least one training day to start the programme.", note: null };
+  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  return {
+    canStart: true,
+    summary: `${plural(week.training, "training day")} and ${plural(week.rest, "rest day")} a week`,
+    note: week.training !== programme.daysPerWeek ? `You picked ${plural(week.training, "day")}; the programme works through its ${programme.dayCount} days in order.` : null,
+  };
+}
+
 /** The authored day that matches a profile's workout_split, for one-off "Auto plan" workouts. */
 export function splitProgrammeId(split: string | null | undefined, context: TrainingContext, hasDumbbells: boolean): string {
   if (context === "home") return hasDumbbells ? "home-dumbbell-4" : "home-bodyweight-3";

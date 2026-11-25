@@ -14,13 +14,15 @@ import { SearchField } from "@/components/exercises/discovery/SearchField";
 import { MuscleRail } from "@/components/training/MuscleRail";
 import { ModePanel, ModeTabs } from "@/components/workouts/ModeTabs";
 import { clearRecentSearches, forgetSearch, readRecentExercises, readRecentSearches, rememberSearch } from "@/lib/domain/exercise-preferences";
+import { localDateKey } from "@/lib/domain/dates";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
-import { focusAreaCounts, loadCatalogThumbnails, queryCatalog, relaxSuggestions, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
+import { focusAreaCounts, loadCatalogThumbnails, queryCatalog, relaxSuggestions, resultCountLine, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
 import { equipmentFor, saveEquipmentProfile } from "@/lib/training/data";
 import { expandOwnedEquipment, sortEquipmentKeys } from "@/lib/training/equipment";
 import { survivingExerciseIds } from "@/lib/training/exercise-merges";
-import { FOCUS_AREAS } from "@/lib/training/focus";
+import { replanAfterListSaved, replanMessage } from "@/lib/training/programme-replan";
+import { FOCUS_AREAS, FOCUS_COUNT_NOTE } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
@@ -97,6 +99,10 @@ export default function ExerciseLibraryPage() {
   const requestedThumbs = useRef(new Set<string>());
   const [listNote, setListNote] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [savingList, setSavingList] = useState(false);
+  // Once saved, "Save as my … list" goes (the search's list is the saved one): Edit list, beside it, takes focus (D5).
+  const editListLink = useRef<HTMLAnchorElement>(null);
+  const [listSaved, setListSaved] = useState(0);
+  useEffect(() => { if (listSaved) editListLink.current?.focus(); }, [listSaved]);
 
   // Links from earlier versions (?equipment=, ?location=, a single ?muscle=full_body) are rewritten once.
   useEffect(() => {
@@ -229,17 +235,29 @@ export default function ExerciseLibraryPage() {
   async function saveHaveList() {
     const supabase = createClient();
     if (!supabase || account.status !== "ready" || !state.have) return;
+    const { context } = state;
+    const keys = state.have;
     setSavingList(true);
-    const { error } = await saveEquipmentProfile(supabase, account.userId, state.context, state.have);
+    const { error } = await saveEquipmentProfile(supabase, account.userId, context, keys);
     setSavingList(false);
     if (error) { setListNote({ tone: "error", text: `Your ${contextName} list could not be saved. Check your connection and try again.` }); return; }
-    await reloadProfiles({ context: state.context, keys: state.have });
+    await reloadProfiles({ context, keys });
     navigate({ ...state, have: null });
-    setListNote({ tone: "info", text: `Saved as your ${contextName} list. Workouts uses it too.` });
+    setListSaved((value) => value + 1);
+    const saved = `Saved as your ${contextName} list. Workouts uses it too.`;
+    setListNote({ tone: "info", text: saved });
+    // The programme the member follows plans its days ahead from this list: they follow it now (bug 17), as when the
+    // list is saved on Workouts, and what changed is said here. Workouts checks again when it opens if this fails.
+    const checked = await replanAfterListSaved(supabase, { userId: account.userId, context, keys, catalog: exercises ?? [], level: account.level ?? "beginner", todayKey: localDateKey() });
+    const replanned = !checked ? "" : checked.error
+      ? "Your programme’s days ahead couldn’t be checked against it yet: Workouts checks them when you open it."
+      : replanMessage(checked, context);
+    if (replanned) setListNote((current) => (current?.text === saved ? { tone: "info", text: `${saved} ${replanned}` } : current));
   }
 
   const resultsTitle = !result ? (catalogue.status === "error" ? "Exercises unavailable" : "Loading exercises") : `${result.items.length.toLocaleString()} ${result.items.length === 1 ? "exercise" : "exercises"}`;
-  const directCount = result && view.focus.length ? result.items.filter((item) => item.focusTier === 0).length : null;
+  // Main-muscle results, what the member can do of those, and the ones that only assist (the same "you can do" as Workouts).
+  const countLine = result && result.items.length ? resultCountLine(result.items, { focused: view.focus.length > 0, doableOnly: view.doable, ownedKnown: owned !== null }) : null;
   const levelChoice = quickLevel(state);
 
   const renderCard = (item: RankedExercise, index = 0) => (
@@ -335,6 +353,7 @@ export default function ExerciseLibraryPage() {
         <section aria-labelledby="focus-title" className="grid gap-3">
           <h2 id="focus-title" className="m-0 font-heading text-lg font-semibold tracking-[-.02em]">Target muscles</h2>
           <MuscleRail value={state.focus} onChange={(focus) => update({ focus })} details={focusDetails} label="Focus areas" />
+          {focusDetails && <p className="m-0 text-xs text-fitx-text-secondary">{FOCUS_COUNT_NOTE}</p>}
         </section>
       )}
 
@@ -354,13 +373,13 @@ export default function ExerciseLibraryPage() {
               </button>
               <div className="flex flex-wrap items-center gap-2">
                 {state.have && account.status === "ready" && account.profiles.available && (
-                  <button type="button" onClick={() => void saveHaveList()} disabled={savingList} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm">
+                  <button type="button" onClick={() => { if (!savingList) void saveHaveList(); }} aria-disabled={savingList || undefined} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm aria-disabled:opacity-60">
                     {savingList ? "Saving…" : `Save as my ${contextName} list`}
                   </button>
                 )}
                 {state.have && <button type="button" onClick={() => update({ have: null })} className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-fitx-primary-text underline underline-offset-4">{list?.saved ? "Use my saved list" : "Use the starting list"}</button>}
                 {!state.have && account.status === "ready" && account.profiles.available && (
-                  <Link href={`/workouts?equipment=${state.context}`} className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-fitx-primary-text underline underline-offset-4">Edit list</Link>
+                  <Link ref={editListLink} href={`/workouts?equipment=${state.context}`} className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-fitx-primary-text underline underline-offset-4">Edit list</Link>
                 )}
               </div>
             </div>
@@ -398,13 +417,7 @@ export default function ExerciseLibraryPage() {
           <div className="min-w-0">
             <p className="m-0 text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-primary-text">{searching ? "Results" : CONTEXT_TITLES[state.context]}</p>
             <h2 id="exercise-results" className="m-0 mt-1 font-heading text-xl font-semibold tracking-[-.02em]">{resultsTitle}</h2>
-            {result && result.items.length > 0 && (directCount !== null || result.doableCount !== null) && (
-              <p className="m-0 mt-0.5 text-xs text-fitx-text-secondary">
-                {directCount !== null && `${directCount.toLocaleString()} main-muscle`}
-                {directCount !== null && result.doableCount !== null && " · "}
-                {result.doableCount !== null && `${result.doableCount.toLocaleString()} you can do`}
-              </p>
-            )}
+            {countLine && <p className="m-0 mt-0.5 text-xs text-fitx-text-secondary">{countLine}</p>}
           </div>
           <label className="flex items-center gap-2 text-xs font-medium text-fitx-text-secondary">
             <span className="sr-only sm:not-sr-only">Sort</span>

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { rememberExercise, type SavedStore } from "@/lib/domain/exercise-preferences";
 import { cameraRuleFor } from "@/lib/form-rules/catalog";
@@ -32,6 +33,8 @@ const NOT_FOUND = "This exercise is not in the library. It may have been removed
 function DetailSkeleton() {
   return (
     <div role="status" className="space-y-4">
+      {/* No h1 while loading: the page's h1 is the exercise's own name (e2e flows wait for it), or "Exercise" when it
+          cannot be shown. */}
       <div className="h-11 w-40 animate-pulse rounded-md bg-fitx-surface-variant motion-reduce:animate-none" />
       <div className="h-9 w-2/3 max-w-md animate-pulse rounded-md bg-fitx-surface-variant motion-reduce:animate-none" />
       <div className="h-7 w-1/2 max-w-sm animate-pulse rounded-md bg-fitx-surface-variant motion-reduce:animate-none" />
@@ -121,11 +124,15 @@ export function ExerciseDetailView({ id, initialTab }: { id: string; initialTab:
   if (!loaded || loaded.id !== id) return <DetailSkeleton />;
   if (!loaded.detail) {
     return (
-      <EmptyState
-        title="Exercise unavailable"
-        description={loaded.error}
-        action={<Link href="/exercises" className="fitx-button fitx-button-secondary"><ArrowLeft size={15} aria-hidden="true" />Exercise library</Link>}
-      />
+      <div className="mx-auto max-w-6xl">
+        <PageHeader title="Exercise" />
+        <EmptyState
+          headingLevel={2}
+          title="Exercise unavailable"
+          description={loaded.error}
+          action={<Link href="/exercises" className="fitx-button fitx-button-secondary"><ArrowLeft size={15} aria-hidden="true" />Exercise library</Link>}
+        />
+      </div>
     );
   }
 

@@ -336,15 +336,17 @@ export function countCatalog(catalog: readonly CatalogExercise[], query: Catalog
 }
 
 export type FocusAreaCount = {
-  /** Exercises the query would show with only this area chosen (main or assisting muscle). */
+  /** Exercises the query would show with only this area chosen that train it as their main muscle. */
   total: number;
   /** How many of those the member can do; null when their equipment is not known. */
   doable: number | null;
 };
 
 /**
- * For the focus tiles: per area, what queryCatalog would show with the query's other filters and only that area
- * chosen (`items.length` and `doableCount`), so a tile's figures match the results it opens.
+ * For the focus tiles: per area, the main-muscle results queryCatalog would show with the query's other filters and
+ * only that area chosen (the tier above "Assisting muscle"), and how many of them the member can do. "You can do"
+ * counts main-muscle exercises only, as Workouts does (bug 52: the library counted any involvement, so Chest at home
+ * said 23 here and 13 on Workouts); exercises that only assist an area are listed after them, under their own label.
  */
 export function focusAreaCounts(catalog: readonly CatalogExercise[], query: CatalogQuery, context: QueryContext): Record<FocusArea, FocusAreaCount> {
   const counts = Object.fromEntries(FOCUS_AREAS.map((area) => [area, { total: 0, doable: context.owned ? 0 : null }])) as Record<FocusArea, FocusAreaCount>;
@@ -353,12 +355,29 @@ export function focusAreaCounts(catalog: readonly CatalogExercise[], query: Cata
     const ranked = evaluate(exercise, prepared, context);
     if (!ranked) continue;
     for (const area of FOCUS_AREAS) {
-      if (!focusRole(exercise, area)) continue;
+      if (focusRole(exercise, area) !== "primary") continue;
       counts[area].total += 1;
       if (ranked.doable) counts[area].doable = (counts[area].doable ?? 0) + 1;
     }
   }
   return counts;
+}
+
+/**
+ * The results' count line under "N exercises". With focus areas: the main-muscle results, how many of those the
+ * member can do (left out when the list already shows only what they can do, or their equipment is unknown) and the
+ * ones that only assist: "51 main-muscle · 13 you can do · 32 assisting". Without: how many they can do. Null when
+ * there is nothing to say.
+ */
+export function resultCountLine(items: readonly Pick<RankedExercise, "focusTier" | "doable">[], options: { focused: boolean; doableOnly: boolean; ownedKnown: boolean }, locale?: string): string | null {
+  const count = (value: number) => value.toLocaleString(locale);
+  if (!options.focused) return options.ownedKnown ? `${count(items.filter((item) => item.doable).length)} you can do` : null;
+  const main = items.filter((item) => item.focusTier === 0);
+  const assisting = items.filter((item) => item.focusTier === 1).length;
+  const parts = [`${count(main.length)} main-muscle`];
+  if (options.ownedKnown && !options.doableOnly) parts.push(`${count(main.filter((item) => item.doable).length)} you can do`);
+  if (assisting) parts.push(`${count(assisting)} assisting`);
+  return parts.join(" · ");
 }
 
 export type RelaxSuggestion = { facet: QueryFacet; count: number };

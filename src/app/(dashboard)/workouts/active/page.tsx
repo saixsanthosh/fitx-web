@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Check, ChevronLeft, ChevronRight, History, Info, Pause, Play, Plus, Smartphone, Square, Trophy, Volume2, VolumeX, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { CountWithCamera, cameraFitsSet, cameraRuleFor, type CameraCountResult } from "@/components/form-coach";
 import { ExerciseDemo } from "@/components/session/ExerciseDemo";
 import { RestDock } from "@/components/session/RestDock";
@@ -35,7 +36,10 @@ import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS, SET_REP_SOURCE_COLUMNS } from "../_lib/workout-columns";
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { readWithOptional, recordHref, stripStats } from "../history/_lib/session-record";
+import { exerciseProblem, problemAfterExerciseChange, type ActionProblem } from "./_lib/action-problem";
 import { formatHistorySet, lastTimeForSet, summariseLastTime } from "./_lib/last-time";
+import { SESSION_NOT_FOUND, sessionLinkFrom, type SessionLink } from "./_lib/session-link";
+import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId } from "./_lib/set-entry";
 import {
   adjustRest, describeNextStep, exerciseAfterTick, exerciseProgress, formatKg, formatRest, restRemaining, sessionProgress, setHeadline, setTarget, setsLeftLabel,
   sessionTally, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, timerSecondsDone, updateSet, workTarget,
@@ -56,7 +60,10 @@ const SESSION_COLUMNS = ["id", "user_id", "plan_id", "name", "started_at", "stat
 const SESSION_EXERCISE_COLUMNS = ["id", "exercise_id", "exercise_name", "target_sets", "reps_min", "reps_max", "rest_seconds", "sort_order"] as const;
 const SET_COLUMNS = ["id", "set_number", "target_reps", "reps", "weight_kg", "completed_at"] as const;
 /** −/+ limits for the number boxes: the database's own ranges. */
-const DRAFT_LIMITS: Record<DraftField, { max: number; decimals: number }> = { draftWeight: { max: 2000, decimals: 2 }, draftReps: { max: 500, decimals: 0 }, draftDuration: { max: 86400, decimals: 0 } };
+const DRAFT_LIMITS: Record<DraftField, { max: number; decimals: number }> = { draftWeight: { max: SET_LIMITS.weightKg, decimals: 2 }, draftReps: { max: SET_LIMITS.reps, decimals: 0 }, draftDuration: { max: SET_LIMITS.seconds, decimals: 0 } };
+
+/** An action's problem, beside the control that was used. */
+const PROBLEM_CLASS = "m-0 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg px-3 py-2 text-sm text-fitx-danger";
 
 /** One calm line naming what this database cannot store yet; empty when everything is available. */
 function unavailableFieldsNotice(targetsSupported: boolean, timedSetsSupported: boolean) {
@@ -66,6 +73,11 @@ function unavailableFieldsNotice(targetsSupported: boolean, timedSetsSupported: 
 }
 
 type Supabase = NonNullable<ReturnType<typeof createClient>>;
+
+/** A page state without a running workout (loading, none, unavailable, abandoned): the page's h1, then the state. */
+function ActiveState({ children }: { children: ReactNode }) {
+  return <div className="mx-auto max-w-5xl"><PageHeader title="Workout" />{children}</div>;
+}
 
 /** The browser's time zone, so the database counts the session's day as the user does. */
 function browserTimeZone(): string | null {
@@ -117,7 +129,11 @@ export default function ActiveWorkoutPage() {
   // False once the database has said it lacks the column(s); the matching fields are then hidden.
   const [targetsSupported, setTargetsSupported] = useState(true);
   const [timedSetsSupported, setTimedSetsSupported] = useState(true);
+  // Why the session could not be opened (the page then shows only that); an action's problem shows beside its control.
   const [error, setError] = useState("");
+  const [problem, setProblem] = useState<ActionProblem | null>(null);
+  // The box a set problem is about, focused once the page has marked it (seq: the same box again moves focus again).
+  const [focusBox, setFocusBox] = useState<{ id: string; seq: number } | null>(null);
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
   // The rest as set (planned plus −/+), which the rest ring measures against.
   const [restTotal, setRestTotal] = useState(0);
@@ -150,6 +166,10 @@ export default function ActiveWorkoutPage() {
   const exercisesRef = useRef(exercises);
   useEffect(() => { exercisesRef.current = exercises; }, [exercises]);
   const chipsRef = useRef<HTMLElement>(null);
+  // The clock's Pause/Resume button: where focus goes when the paused banner's "Resume workout" goes away (bug 84).
+  const clockButtonRef = useRef<HTMLButtonElement>(null);
+  const [focusClock, setFocusClock] = useState(0);
+  useEffect(() => { if (focusClock) clockButtonRef.current?.focus(); }, [focusClock]);
   const restCueRef = useRef<{ endsAt: number | null; cued: boolean }>({ endsAt: null, cued: true });
   useEffect(() => { timerRef.current = setTimer; }, [setTimer]);
   useEffect(() => { restCueRef.current = { endsAt: restEndsAt, cued: restEndsAt === null || restEndsAt <= Date.now() }; }, [restEndsAt]);
@@ -161,8 +181,17 @@ export default function ActiveWorkoutPage() {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     nav.scrollTo({ left: Math.max(0, chip.offsetLeft - (nav.clientWidth - chip.clientWidth) / 2), behavior: reduced ? "auto" : "smooth" });
   }, [exerciseIndex, exercises.length]);
+  // A set refused for one of its boxes: that box, now marked and described by the message, takes focus to be fixed.
+  useEffect(() => {
+    if (!focusBox) return;
+    const box = document.getElementById(focusBox.id);
+    if (box instanceof HTMLInputElement && !box.disabled) { box.focus(); box.select(); }
+  }, [focusBox]);
 
-  const load = useCallback(async (requested: string) => {
+  const load = useCallback(async (link: SessionLink) => {
+    // A malformed ?session= is a workout that cannot be found: no request is made for it.
+    if (link.kind === "invalid") { setLoading(false); setError(SESSION_NOT_FOUND); return; }
+    const requested = link.kind === "id" ? link.id : "";
     const supabase = createClient();
     if (!supabase) { setLoading(false); setError("FITX is not connected to Supabase."); return; }
     const { data: auth } = await supabase.auth.getUser();
@@ -184,7 +213,7 @@ export default function ActiveWorkoutPage() {
       supabase.from("workout_sessions").select(columnList(SESSION_COLUMNS, SESSION_PAUSE_COLUMNS, include)).eq("id", id).eq("user_id", uid).maybeSingle());
     if (sessionQuery.result.error) { setLoading(false); setError("This workout session could not be loaded. Check your connection and try again."); return; }
     const sessionRow = sessionQuery.result.data as unknown as Session | null;
-    if (!sessionRow) { setLoading(false); setError("This workout session could not be found."); return; }
+    if (!sessionRow) { setLoading(false); setError(SESSION_NOT_FOUND); return; }
     // A finished or abandoned session is a record now: open it there.
     if (sessionRow.status !== "in_progress") { setRedirecting(true); routerRef.current.replace(recordHref(sessionRow.id)); return; }
     const supportsDurablePause = sessionQuery.includedOptional;
@@ -237,7 +266,7 @@ export default function ActiveWorkoutPage() {
     setLoading(false); setError("");
   }, []);
 
-  useEffect(() => { const id = new URLSearchParams(window.location.search).get("session") || ""; void Promise.resolve().then(() => load(id)); }, [load]);
+  useEffect(() => { const link = sessionLinkFrom(window.location.search); void Promise.resolve().then(() => load(link)); }, [load]);
   useEffect(() => {
     const timer = window.setInterval(() => {
       const current = Date.now();
@@ -357,7 +386,7 @@ export default function ActiveWorkoutPage() {
   async function swapExercise(replacement: CatalogExercise) {
     const exercise = currentExercise;
     if (!exercise || !session) return;
-    if (exercise.sets.some((set) => Boolean(set.completed_at))) { setSwapOpen(false); return setError("Swap an exercise before logging its sets."); }
+    if (exercise.sets.some((set) => Boolean(set.completed_at))) { setSwapOpen(false); return setProblem({ at: "swap", exerciseId: exercise.id, message: "Swap an exercise before logging its sets." }); }
     const supabase = createClient();
     if (!supabase) return;
     // Reps or seconds follow the new movement when its type differs (a hold for push-ups, or the reverse).
@@ -367,7 +396,7 @@ export default function ActiveWorkoutPage() {
     const outcome = await withOptionalColumns(["target_duration_seconds"], (include) =>
       supabase.from("workout_session_exercises").update(payloadFor(patch, ["target_duration_seconds"], include)).eq("id", exercise.id).eq("user_id", session.user_id).select("id").maybeSingle(),
     { includeOptional: targetsSupported });
-    if (outcome.result.error || !outcome.result.data) { setSwapOpen(false); return setError("That exercise couldn’t be swapped. Check your connection and try again."); }
+    if (outcome.result.error || !outcome.result.data) { setSwapOpen(false); return setProblem({ at: "swap", exerciseId: exercise.id, message: "That exercise couldn’t be swapped. Check your connection and try again." }); }
     const stored = { ...prescription, target_duration_seconds: outcome.includedOptional ? prescription.target_duration_seconds : exercise.target_duration_seconds };
     const changed = stored.reps_min !== exercise.reps_min || stored.reps_max !== exercise.reps_max || stored.target_duration_seconds !== exercise.target_duration_seconds;
     const targetReps = setTargetReps(stored);
@@ -381,10 +410,22 @@ export default function ActiveWorkoutPage() {
     }));
     if (setTimer?.exerciseId === exercise.id) setSetTimer(null);
     setSwapOpen(false);
-    setError("");
+    setProblem(null);
+  }
+
+  /** Moves to another exercise; a Swap or Add set problem was about the one left, so it goes (workouts-r3). */
+  function showExercise(next: number | ((index: number) => number)) {
+    setExerciseIndex(next);
+    setProblem(problemAfterExerciseChange);
+  }
+
+  /** A set's problem goes once the member changes that set: it was about what the boxes held. */
+  function clearSetProblem(setId: string) {
+    setProblem((current) => (current?.at === "set" && current.setId === setId ? null : current));
   }
 
   function changeSet(exerciseId: string, setId: string, field: DraftField, value: string) {
+    clearSetProblem(setId);
     setExercises((items) => items.map((exercise) => exercise.id !== exerciseId ? exercise : {
       ...exercise, sets: exercise.sets.map((set) => set.id === setId ? { ...set, [field]: value } : set),
     }));
@@ -392,6 +433,7 @@ export default function ActiveWorkoutPage() {
 
   /** −/+ beside the current set's boxes: the typed value moves by one step, within the database's limits. */
   function stepSet(exerciseId: string, setId: string, field: DraftField, delta: number) {
+    clearSetProblem(setId);
     setExercises((items) => items.map((exercise) => exercise.id !== exerciseId ? exercise : {
       ...exercise, sets: exercise.sets.map((set) => set.id === setId ? { ...set, [field]: stepValue(set[field], delta, DRAFT_LIMITS[field]) } : set),
     }));
@@ -404,9 +446,10 @@ export default function ActiveWorkoutPage() {
     setCameraCounts((counts) => new Map(counts).set(setId, { kind: result.kind, value }));
   }
 
-  async function togglePause() {
+  /** Pause or resume, from the clock's button or the paused banner's (`from`: where a problem is shown). */
+  async function togglePause(from: "clock" | "banner" = "clock") {
     if (!session || !clock || clockSaving) return;
-    setError("");
+    setProblem(null);
     const supabase = createClient();
     const nowDate = new Date();
     if (clock.paused) {
@@ -414,12 +457,15 @@ export default function ActiveWorkoutPage() {
         setClockSaving(true);
         const resumed = await supabase.from("workout_sessions").update({ paused_at: null, resumed_at: nowDate.toISOString() }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress").not("paused_at", "is", null).select("id,paused_at,resumed_at,active_duration_seconds").maybeSingle();
         setClockSaving(false);
-        if (resumed.error || !resumed.data) return setError("The workout could not be resumed. Check your connection and try again.");
+        if (resumed.error || !resumed.data) return setProblem({ at: from, message: "The workout could not be resumed. Check your connection and try again." });
         setSession({ ...session, paused_at: null, resumed_at: resumed.data.resumed_at, active_duration_seconds: Number(resumed.data.active_duration_seconds || 0) });
       }
       setClock({ elapsedSeconds: clock.elapsedSeconds, segmentStartedAt: Date.now(), paused: false });
       if (restHeldSeconds > 0) setRestEndsAt(Date.now() + restHeldSeconds * 1000);
       setRestHeldSeconds(0);
+      setTimerNotice("Workout resumed.");
+      // The banner and its button go: focus moves to the clock's button, now Pause session. The clock's own button stays.
+      if (from === "banner") setFocusClock((value) => value + 1);
       return;
     }
     const elapsed = elapsedSeconds;
@@ -427,7 +473,7 @@ export default function ActiveWorkoutPage() {
       setClockSaving(true);
       const paused = await supabase.from("workout_sessions").update({ active_duration_seconds: elapsed, paused_at: nowDate.toISOString(), resumed_at: null }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress").is("paused_at", null).select("id,paused_at,resumed_at,active_duration_seconds").maybeSingle();
       setClockSaving(false);
-      if (paused.error || !paused.data) return setError("The workout could not be paused. Check your connection and try again.");
+      if (paused.error || !paused.data) return setProblem({ at: from, message: "The workout could not be paused. Check your connection and try again." });
       setSession({ ...session, paused_at: paused.data.paused_at, resumed_at: null, active_duration_seconds: Number(paused.data.active_duration_seconds || elapsed) });
     }
     // A set timer stops at the moment of the pause and keeps the seconds held so far.
@@ -435,18 +481,24 @@ export default function ActiveWorkoutPage() {
     setClock({ elapsedSeconds: elapsed, segmentStartedAt: null, paused: true });
     setRestHeldSeconds(restLeft);
     setRestEndsAt(null);
+    setTimerNotice("Workout paused. Your training timer and rest are held.");
   }
 
   async function saveSet(exerciseId: string, set: LiveSet, complete: boolean) {
     if (clock?.paused) return;
     // A tap: browsers allow the end-of-rest sound only after one.
     if (complete) cues.prime();
-    const weight = Number(set.draftWeight || 0); const reps = Number(set.draftReps || 0);
     // The duration field is hidden when the database cannot store it, so nothing typed is dropped.
-    const duration = timedSetsSupported ? Number(set.draftDuration || 0) : 0;
+    const { weight, reps, duration } = readSetEntry(set, timedSetsSupported);
     const exercise = exercises.find((item) => item.id === exerciseId);
     const requiresDuration = timedSetsSupported && Boolean(exercise?.target_duration_seconds);
-    if (!Number.isFinite(weight) || weight < 0 || weight > 2000 || !Number.isInteger(reps) || reps < 0 || reps > 500 || !Number.isInteger(duration) || duration < 0 || duration > 86400 || (complete && (requiresDuration ? duration === 0 : reps === 0 && duration === 0))) { setError(requiresDuration ? "Enter the completed duration before logging this timed movement." : timedSetsSupported ? "Enter a positive rep count or duration before completing a set." : "Enter a positive rep count before completing a set."); return; }
+    // Each box is checked on its own, so the message is about the box at fault (an over-limit weight, not the reps).
+    const entryProblem = setEntryProblem({ weight, reps, duration }, { complete, timed: requiresDuration });
+    if (entryProblem) {
+      setProblem({ at: "set", setId: set.id, field: entryProblem.field, message: entryProblem.message });
+      setFocusBox((current) => ({ id: setInputId(set.id, entryProblem.field), seq: (current?.seq ?? 0) + 1 }));
+      return;
+    }
     const supabase = createClient(); if (!supabase || !session) return;
     const patch = { weight_kg: weight, reps: reps > 0 ? reps : null, duration_seconds: duration > 0 ? duration : null, completed_at: complete ? new Date().toISOString() : null };
     // "camera" while the number is still the one the camera counted and the user confirmed.
@@ -463,7 +515,7 @@ export default function ActiveWorkoutPage() {
     }, { includeOptional: timedSetsSupported });
     if (!includeSource && repSourceSupported) setRepSourceSupported(false);
     if (!updated.includedOptional) setTimedSetsSupported(false);
-    if (updated.result.error || !updated.result.data) { setError("That set could not be saved. Check your connection and try again."); return; }
+    if (updated.result.error || !updated.result.data) { setProblem({ at: "set", setId: set.id, field: null, message: "That set could not be saved. Check your connection and try again." }); return; }
     // What the database now holds: a duration it could not store is not kept as saved.
     const saved = { ...(updated.includedOptional ? patch : { ...patch, duration_seconds: null }), rep_source: includeSource ? repSource : null };
     // Applied to the exercises as they are now, not as they were when the set was tapped: ticks, typing and timer
@@ -471,7 +523,7 @@ export default function ActiveWorkoutPage() {
     const applySaved = (items: LiveExercise[]) => updateSet(items, exerciseId, set.id, (entry) => ({ ...entry, ...saved, draftWeight: String(weight), draftReps: String(reps), draftDuration: saved.duration_seconds ? String(saved.duration_seconds) : "" }));
     const nextExercises = applySaved(exercisesRef.current);
     setExercises(applySaved);
-    setError("");
+    setProblem(null);
     if (complete) {
       // Rest follows every set except the last one of the workout.
       const left = sessionProgress(nextExercises).setsLeft;
@@ -493,7 +545,7 @@ export default function ActiveWorkoutPage() {
 
   async function addSet(exercise: LiveExercise) {
     const supabase = createClient(); if (!supabase || !session || clock?.paused) return;
-    if (exercise.sets.length >= 30) return setError("A movement can have up to 30 sets in one session.");
+    if (exercise.sets.length >= 30) return setProblem({ at: "add-set", exerciseId: exercise.id, message: "A movement can have up to 30 sets in one session." });
     const next = exercise.sets.length + 1;
     // No rep target for a timed movement: its sets are logged by time.
     const targetReps = setTargetReps(exercise);
@@ -502,9 +554,9 @@ export default function ActiveWorkoutPage() {
     { includeOptional: timedSetsSupported });
     if (!inserted.includedOptional) setTimedSetsSupported(false);
     const row = inserted.result.data as unknown as SetRow | null;
-    if (inserted.result.error || !row) return setError("A new set could not be added.");
+    if (inserted.result.error || !row) return setProblem({ at: "add-set", exerciseId: exercise.id, message: "A new set could not be added. Check your connection and try again." });
     setExercises((items) => items.map((item) => item.id === exercise.id ? { ...item, sets: [...item.sets, { id: row.id, set_number: row.set_number, target_reps: row.target_reps, reps: row.reps, completed_at: row.completed_at, weight_kg: exercise.target_weight_kg ?? 0, duration_seconds: null, rep_source: null, draftWeight: String(exercise.target_weight_kg ?? ""), draftReps: targetReps == null ? "" : String(targetReps), draftDuration: "" }] } : item));
-    setError("");
+    setProblem(null);
   }
 
   /** The muscles the finished session trained, for the summary (muscle-history.ts: the one counting rule). */
@@ -536,10 +588,11 @@ export default function ActiveWorkoutPage() {
   }
 
   async function finishWorkout() {
-    const supabase = createClient(); if (!supabase || !session || saving || clock?.paused) return;
+    // Not disabled while saving (Chrome would drop focus): a press meanwhile is ignored here.
+    const supabase = createClient(); if (!supabase || !session || saving || clockSaving || clock?.paused) return;
     const validSets = completedSets.filter((set) => Number(set.reps) > 0 || Number(set.duration_seconds) > 0);
-    if (!validSets.length) { setError("Complete at least one set before finishing your workout."); return; }
-    setSaving(true); setError("");
+    if (!validSets.length) { setProblem({ at: "finish", message: "Complete at least one set before finishing your workout." }); return; }
+    setSaving(true); setProblem(null);
     const nowDate = new Date();
     const duration = elapsedSeconds;
     // One transaction when the database has fitx_finish_workout_session: totals, records, the planner
@@ -550,12 +603,12 @@ export default function ActiveWorkoutPage() {
     if (!viaRpc.fallback) {
       setSaving(false);
       const message = String((viaRpc.error as { message?: string } | null)?.message ?? "");
-      return setError(message.includes("at least one set") ? "Complete at least one set before finishing your workout." : "This session was already closed or could not be completed. Reload to check its status.");
+      return setProblem({ at: "finish", message: message.includes("at least one set") ? "Complete at least one set before finishing your workout." : "This session was already closed or could not be completed. Reload to check its status." });
     }
     // Without fitx_finish_workout_session: the same steps, one request at a time.
     const volume = liftedKilograms;
     const sessionUpdate = await supabase.from("workout_sessions").update({ status: "completed", completed_at: nowDate.toISOString(), duration_seconds: duration, total_volume: volume }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress").select("id").maybeSingle();
-    if (sessionUpdate.error || !sessionUpdate.data) { setSaving(false); return setError("This session was already closed or could not be completed. Reload to check its status."); }
+    if (sessionUpdate.error || !sessionUpdate.data) { setSaving(false); return setProblem({ at: "finish", message: "This session was already closed or could not be completed. Reload to check its status." }); }
     let recordCount = 0;
     for (const exercise of exercises) {
       const liftSets = exercise.sets.filter((set) => set.completed_at && isLiftSet(set, isTimedPrescription(exercise)));
@@ -604,21 +657,22 @@ export default function ActiveWorkoutPage() {
   }
 
   async function abandonWorkout() {
-    if (!session || !window.confirm("Abandon this workout? The sets you completed stay in your workout history, but it won’t count as a completed workout.")) return;
+    if (!session || saving || clockSaving || !window.confirm("Abandon this workout? The sets you completed stay in your workout history, but it won’t count as a completed workout.")) return;
     const supabase = createClient(); if (!supabase || saving) return;
-    setSaving(true); setError("");
+    setSaving(true); setProblem(null);
     const result = await supabase.from("workout_sessions").update({ status: "abandoned", duration_seconds: elapsedSeconds }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress").select("id").maybeSingle();
     setSaving(false);
-    if (result.error || !result.data) return setError("The session could not be abandoned. Check your connection and try again.");
+    if (result.error || !result.data) return setProblem({ at: "finish", message: "The session could not be abandoned. Check your connection and try again." });
     try { window.localStorage.removeItem(sessionUiKey(session.id)); } catch { /* Ignore unavailable browser storage. */ }
     setRestEndsAt(null);
     setSetTimer(null);
     setSession({ ...session, status: "abandoned" });
   }
 
-  if (loading || redirecting) return <div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">{redirecting ? "Opening the workout record…" : "Loading workout…"}</div>;
-  if (noSession) return <EmptyState title="No workout in progress" description="Start a workout from your plans or a programme day. Finished workouts are kept in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href="/workouts" className="fitx-button">Go to workouts</Link><Link href="/workouts/history" className="fitx-button fitx-button-secondary"><History size={15} aria-hidden="true" />Workout history</Link></div>} />;
-  if (!session) return <EmptyState title="Workout not available" description={error || "This workout session could not be loaded."} action={<Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link>} />;
+  // Every state of the page has one main heading (bug 94): "Workout" over a state, the workout's name while it runs.
+  if (loading || redirecting) return <ActiveState><div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary motion-reduce:animate-none">{redirecting ? "Opening the workout record…" : "Loading workout…"}</div></ActiveState>;
+  if (noSession) return <ActiveState><EmptyState headingLevel={2} title="No workout in progress" description="Start a workout from your plans or a programme day. Finished workouts are kept in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href="/workouts" className="fitx-button">Go to workouts</Link><Link href="/workouts/history" className="fitx-button fitx-button-secondary"><History size={15} aria-hidden="true" />Workout history</Link></div>} /></ActiveState>;
+  if (!session) return <ActiveState><EmptyState headingLevel={2} title="Workout not available" description={error || "This workout session could not be loaded."} action={<Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link>} /></ActiveState>;
   if (finished && completion) {
     const stats = sessionStats({ status: "completed", started_at: session.started_at, completed_at: completion.finishedAt, duration_seconds: completion.duration }, exercises);
     return <div className="mx-auto max-w-4xl space-y-5">
@@ -643,8 +697,8 @@ export default function ActiveWorkoutPage() {
       </section>
     </div>;
   }
-  if (session.status === "abandoned") return <EmptyState title="Workout abandoned" description="It doesn’t count as a completed workout. The sets you completed are kept with it in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href={recordHref(session.id)} className="fitx-button">View its record</Link><Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link></div>} />;
-  if (session.status !== "in_progress") return <EmptyState title="Opening the workout record" description="This workout has finished." action={<Link href={recordHref(session.id)} className="fitx-button">View its record</Link>} />;
+  if (session.status === "abandoned") return <ActiveState><EmptyState headingLevel={2} title="Workout abandoned" description="It doesn’t count as a completed workout. The sets you completed are kept with it in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href={recordHref(session.id)} className="fitx-button">View its record</Link><Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link></div>} /></ActiveState>;
+  if (session.status !== "in_progress") return <ActiveState><EmptyState headingLevel={2} title="Opening the workout record" description="This workout has finished." action={<Link href={recordHref(session.id)} className="fitx-button">View its record</Link>} /></ActiveState>;
 
   const paused = Boolean(clock?.paused);
   const fieldsNotice = unavailableFieldsNotice(targetsSupported, timedSetsSupported);
@@ -652,6 +706,11 @@ export default function ActiveWorkoutPage() {
   const swapTarget = currentExercise?.exercise_id ? catalog.find((exercise) => exercise.id === currentExercise.exercise_id) : undefined;
   const swapMissing = swapTarget ? missingEquipment(swapTarget.required_equipment, owned) : [];
   const currentProgress = currentExercise ? exerciseProgress(currentExercise) : null;
+  const atFirst = currentExerciseIndex === 0;
+  const atLast = currentExerciseIndex >= exercises.length - 1;
+  // Only the exercise on screen's own Swap and Add set problems show under its buttons.
+  const swapProblem = exerciseProblem(problem, "swap", currentExercise?.id);
+  const addSetProblem = exerciseProblem(problem, "add-set", currentExercise?.id);
   const currentSet = currentProgress?.current && currentExercise ? currentExercise.sets.find((set) => set.id === currentProgress.current!.id) ?? null : null;
   const target = currentExercise ? setTarget(currentExercise, currentSet) : null;
   const showDuration = Boolean(currentExercise && timedSetsSupported && isTimedPrescription(currentExercise));
@@ -680,7 +739,6 @@ export default function ActiveWorkoutPage() {
       <p className="text-xs text-fitx-text-secondary">Sets save as you tick them.</p>
     </div>
     <h1 className="text-[24px] font-bold leading-tight tracking-[-.03em] text-fitx-text sm:text-[30px]">{session.name}</h1>
-    {error && <p role="alert" className="rounded-lg border border-fitx-warning/30 bg-fitx-warning/5 px-4 py-3 text-sm text-fitx-warning">{error}</p>}
     <p role="status" className="sr-only">{timerNotice}</p>
     {fieldsNotice && <p role="status" className="flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-4 py-3 text-xs text-fitx-text-secondary"><Info size={15} aria-hidden="true" className="mt-px shrink-0 text-fitx-info" /><span>{fieldsNotice}</span></p>}
 
@@ -689,26 +747,29 @@ export default function ActiveWorkoutPage() {
         <p className="text-[11px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Elapsed training time</p>
         <p className="mt-1 font-mono text-2xl font-semibold tabular-nums tracking-tight sm:text-[28px]">{formatClock(elapsedSeconds)}</p>
       </div>
-      <button type="button" onClick={() => void togglePause()} disabled={clockSaving} className="fitx-button fitx-button-secondary min-h-11 px-4 sm:col-start-3">{paused ? <Play size={15} aria-hidden="true" /> : <Pause size={15} aria-hidden="true" />}{clockSaving ? "Saving…" : paused ? "Resume" : <span>Pause<span className="sr-only sm:not-sr-only"> session</span></span>}</button>
+      {/* Not disabled while the pause or resume saves (Chrome would drop focus): togglePause ignores a press meanwhile. */}
+      <button ref={clockButtonRef} type="button" onClick={() => void togglePause()} aria-disabled={clockSaving || undefined} className="fitx-button fitx-button-secondary min-h-11 px-4 aria-disabled:opacity-60 sm:col-start-3">{paused ? <Play size={15} aria-hidden="true" /> : <Pause size={15} aria-hidden="true" />}{clockSaving ? "Saving…" : paused ? "Resume" : <span>Pause<span className="sr-only sm:not-sr-only"> session</span></span>}</button>
       <div className="col-span-2 min-w-0 sm:col-span-1 sm:col-start-2 sm:row-start-1">
         <div className="flex items-baseline justify-between gap-3 text-xs text-fitx-text-secondary"><span><span className="font-semibold text-fitx-text">{progress.setsDone}</span> of {progress.setsTotal} sets done</span><span>{progress.setsLeft ? `${progress.setsLeft} to go` : progress.setsTotal ? "All sets done" : ""}</span></div>
         <div className="fitx-progress-track mt-2 h-2" role="progressbar" aria-label="Workout sets completed" aria-valuemin={0} aria-valuemax={Math.max(1, progress.setsTotal)} aria-valuenow={progress.setsDone}><div className="fitx-progress-fill motion-reduce:transition-none" style={{ width: `${progress.setsTotal ? Math.min(100, progress.setsDone / progress.setsTotal * 100) : 0}%` }} /></div>
       </div>
+      {problem?.at === "clock" && <p role="alert" className={`col-span-2 sm:col-span-3 ${PROBLEM_CLASS}`}>{problem.message}</p>}
     </section>
 
-    {paused && <section role="status" className="flex flex-col gap-3 rounded-lg border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Session paused</p><p className="mt-1 text-xs text-fitx-text-secondary">Your training timer and rest are held. Resume when you’re ready.</p></div><button type="button" onClick={() => void togglePause()} disabled={clockSaving} className="fitx-button min-h-11">{clockSaving ? "Saving…" : "Resume workout"}<Play size={14} aria-hidden="true" /></button></section>}
+    {paused && <section role="status" className="flex flex-col gap-3 rounded-lg border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Session paused</p><p className="mt-1 text-xs text-fitx-text-secondary">Your training timer and rest are held. Resume when you’re ready.</p></div><button type="button" onClick={() => void togglePause("banner")} aria-disabled={clockSaving || undefined} className="fitx-button min-h-11 aria-disabled:opacity-60">{clockSaving ? "Saving…" : "Resume workout"}<Play size={14} aria-hidden="true" /></button></section>}
+    {paused && problem?.at === "banner" && <p role="alert" className={PROBLEM_CLASS}>{problem.message}</p>}
 
     {exercises.length > 0 && <nav ref={chipsRef} aria-label="Workout exercises" className="relative -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{exercises.map((exercise, index) => {
       const chip = exerciseProgress(exercise);
       const complete = chip.total > 0 && chip.left === 0;
-      return <button key={exercise.id} type="button" aria-current={currentExerciseIndex === index ? "step" : undefined} onClick={() => setExerciseIndex(index)} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm transition-colors ${currentExerciseIndex === index ? "border-fitx-primary bg-fitx-primary/[.08] text-fitx-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40"}`}>
+      return <button key={exercise.id} type="button" aria-current={currentExerciseIndex === index ? "step" : undefined} onClick={() => showExercise(index)} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm transition-colors ${currentExerciseIndex === index ? "border-fitx-primary bg-fitx-primary/[.08] text-fitx-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40"}`}>
         <span className="font-mono text-[11px] text-fitx-text-secondary">{String(index + 1).padStart(2, "0")}</span>
         <span className="max-w-36 truncate">{exercise.name}</span>
         <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${complete ? "bg-fitx-primary/10 text-fitx-primary-text" : "bg-fitx-surface-variant text-fitx-text-secondary"}`}>{complete ? <Check size={11} aria-hidden="true" className="inline" /> : null}{chip.done}/{chip.total}<span className="sr-only"> sets done</span></span>
       </button>;
     })}</nav>}
 
-    {!exercises.length && <EmptyState title="No exercises in this session" description="This workout has no movements yet. Go back and start a saved plan with exercises." />}
+    {!exercises.length && <EmptyState headingLevel={2} title="No exercises in this session" description="This workout has no movements yet. Go back and start a saved plan with exercises." />}
     {currentExercise && currentProgress && <section aria-labelledby="current-exercise-title" className="fitx-panel overflow-hidden">
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:gap-7">
         <div className="min-w-0"><ExerciseDemo exerciseId={survivor} name={currentExercise.name} /></div>
@@ -729,10 +790,13 @@ export default function ActiveWorkoutPage() {
             <button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button>
             {survivor && <Link href={`/exercises/${encodeURIComponent(survivor)}`} target="_blank" rel="noopener noreferrer" className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><Info size={14} aria-hidden="true" />About<span className="sr-only"> {currentExercise.name} (opens in a new tab)</span></Link>}
             <span className="ml-auto flex items-center gap-2">
-              <button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} aria-label="Previous exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronLeft size={18} aria-hidden="true" /></button>
-              <button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} aria-label="Next exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronRight size={18} aria-hidden="true" /></button>
+              {/* At the first or last exercise these stay focusable (aria-disabled): pressing Next onto the last exercise used to
+                  disable the button in the member's hand, and Chrome then drops focus to the page (D5). */}
+              <button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} aria-label="Previous exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border aria-disabled:opacity-40"><ChevronLeft size={18} aria-hidden="true" /></button>
+              <button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} aria-label="Next exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border aria-disabled:opacity-40"><ChevronRight size={18} aria-hidden="true" /></button>
             </span>
           </div>
+          {swapProblem && <p role="alert" className={PROBLEM_CLASS}>{swapProblem}</p>}
           <SessionRings target={target} setTimer={timerHere && setTimer ? { remaining: timerRemaining, total: setTimer.seconds } : null} rest={restRing} plannedRestSeconds={currentExercise.rest_seconds} setsDone={currentProgress.done} setsTotal={currentProgress.total} />
         </div>
       </div>
@@ -752,6 +816,7 @@ export default function ActiveWorkoutPage() {
             const counted = cameraCounts.get(set.id);
             return Boolean(counted && Number(counted.kind === "reps" ? set.draftReps : set.draftDuration) === counted.value);
           }}
+          problem={problem?.at === "set" ? problem : null}
           timer={showDuration && currentSet && currentExercise.target_duration_seconds != null ? {
             running: timerHere,
             text: timerHere && setTimer ? `Set ${setTimer.setNumber}: ${timerRemaining}s left` : `Set ${currentSet.set_number}: ${currentExercise.target_duration_seconds}s`,
@@ -774,12 +839,18 @@ export default function ActiveWorkoutPage() {
             onUse={(result) => applyCameraCount(currentExercise.id, currentSet.id, result)}
           />}
         </div>
+        {addSetProblem && <p role="alert" className={PROBLEM_CLASS}>{addSetProblem}</p>}
         {upNext && <UpNext title={upNext.title} detail={upNext.detail} finish={nextAfterSet.kind === "finish"} exercise={upNextExercise ? { id: upNextId, name: upNextExercise.name, sourceRef: upNextId ? catalog.find((item) => item.id === upNextId)?.source_ref ?? null : null } : null} />}
         </div>
       </div>
     </section>}
 
-    <section className="fitx-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Trophy size={16} aria-hidden="true" className="shrink-0 text-fitx-primary" /><span>{tally}</span></p><div className="flex flex-col-reverse gap-2 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} disabled={saving || clockSaving} className="fitx-button fitx-button-quiet min-h-11"><X size={14} aria-hidden="true" />Abandon</button><button type="button" disabled={saving || clockSaving || paused} onClick={() => void finishWorkout()} className="fitx-button min-h-12">{saving ? "Saving…" : "Finish workout"}<Check size={15} aria-hidden="true" /></button></div></section>
+    {/* Finish and Abandon say why they did not work right above the buttons (on a phone, beside Finish). */}
+    <section className="fitx-panel grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <p className="flex items-center gap-2 text-sm text-fitx-text-secondary sm:row-start-1"><Trophy size={16} aria-hidden="true" className="shrink-0 text-fitx-primary" /><span>{tally}</span></p>
+      {problem?.at === "finish" && <p role="alert" className={`sm:col-span-2 sm:row-start-2 ${PROBLEM_CLASS}`}>{problem.message}</p>}
+      <div className="flex flex-col-reverse gap-2 sm:col-start-2 sm:row-start-1 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} aria-disabled={saving || clockSaving || undefined} className="fitx-button fitx-button-quiet min-h-11 aria-disabled:opacity-60"><X size={14} aria-hidden="true" />Abandon</button><button type="button" disabled={paused} aria-disabled={saving || clockSaving || undefined} onClick={() => void finishWorkout()} className="fitx-button min-h-12 aria-disabled:opacity-60">{saving ? "Saving…" : "Finish workout"}<Check size={15} aria-hidden="true" /></button></div>
+    </section>
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <button type="button" onClick={cues.toggleCues} aria-pressed={cues.cuesOn} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">{cues.cuesOn ? <Volume2 size={14} aria-hidden="true" /> : <VolumeX size={14} aria-hidden="true" />}{cues.cuesOn ? "Rest alert on" : "Rest alert off"}</button>
       <button type="button" onClick={cues.toggleKeepAwake} aria-pressed={cues.keepAwake} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><Smartphone size={14} aria-hidden="true" />{cues.keepAwake ? "Keep screen on" : "Screen can sleep"}</button>
@@ -787,7 +858,7 @@ export default function ActiveWorkoutPage() {
     </div>
 
     {resting && <RestDock remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
-    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+.75rem)] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} className="fitx-button fitx-button-secondary min-h-12"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} className="fitx-button min-h-12">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
+    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+.75rem)] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} className="fitx-button fitx-button-secondary min-h-12 aria-disabled:opacity-60"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} className="fitx-button min-h-12 aria-disabled:opacity-60">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
     {swapOpen && swapTarget && <SwapSheet target={swapTarget} catalog={catalog} owned={owned} level={level} exclude={new Set(exercises.flatMap((exercise) => (exercise.exercise_id ? [exercise.exercise_id] : [])))} contextLabel={ownedContext} onPick={(exercise) => void swapExercise(exercise)} onClose={() => setSwapOpen(false)} />}
   </div>;
 }

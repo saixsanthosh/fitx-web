@@ -3,11 +3,16 @@ import { redirect } from "next/navigation";
 import { ExerciseDetailView } from "@/components/exercises/detail/ExerciseDetailView";
 import { exerciseHref, exerciseTabFrom } from "@/components/exercises/detail/detail-tabs";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
-
-export const metadata: Metadata = { title: "Exercise" };
+import { exercisePageTitle } from "@/lib/training/exercise-title";
 
 type Params = Promise<{ id: string }>;
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+/** The exercise's own name as the page title ("Front Plank | FITX"), "Exercise not found" for an unknown one (bug 78). */
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { id } = await params;
+  return { title: await exercisePageTitle(survivingExerciseId(id)) };
+}
 
 /**
  * An exercise's page: /exercises/<id>?tab=guide|muscles|history|progress. A merged duplicate (an old link, a saved
