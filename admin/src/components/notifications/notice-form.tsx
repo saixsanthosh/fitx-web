@@ -71,7 +71,7 @@ export function NoticeForm({ canEveryone, canUseEmails, recipients }: { canEvery
         {audience === "everyone" && <label className="check-label"><input type="checkbox" name="confirm_everyone" value="yes" required />Show to every signed-in member</label>}
         {state?.error && <p role="alert" className="form-error">{state.error}</p>}
         {state?.sent && <p role="status" className="inline-notice notice-success">{state.sent}</p>}
-        <button className="primary-button" type="submit" disabled={pending}>
+        <button className="primary-button" type="submit" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
           {pending ? <LoaderCircle aria-hidden="true" className="spin" size={17} /> : <Send aria-hidden="true" size={16} />}
           <span>{pending ? "Sending…" : audience === "everyone" ? "Publish to everyone" : "Send notice"}</span>
         </button>
