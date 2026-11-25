@@ -50,7 +50,7 @@ import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
-import { MAX_PLAN_EXERCISES, moveRow, plannedFrom, removeRow, selectedIds, swapRow, toggleRow, type PlannedExercise } from "./_lib/builder-rows";
+import { MAX_PLAN_EXERCISES, focusAfterRemove, focusAfterSwap, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { pickToday } from "./_lib/today-pick";
 import { fetchUpcomingScheduled, joinScheduledToPlans, type ScheduledItem } from "./_lib/scheduled";
@@ -261,6 +261,10 @@ export default function WorkoutsPage() {
   const [equipmentEditor, setEquipmentEditor] = useState<{ context: TrainingContext; keys: string[] } | null>(null);
   const [equipmentSaving, setEquipmentSaving] = useState(false);
   const [swapIndex, setSwapIndex] = useState<number | null>(null);
+  // After a swap or a remove takes the focused button away, the control that takes focus (seq: once per action), and
+  // what the builder's live region says about it (bug 14).
+  const [builderFocus, setBuilderFocus] = useState<{ target: BuilderFocus; seq: number } | null>(null);
+  const [builderNotice, setBuilderNotice] = useState("");
   const [autoDay, setAutoDay] = useState(0);
   const [autoSeed, setAutoSeed] = useState(0);
   const [autoNote, setAutoNote] = useState("");
@@ -452,7 +456,7 @@ export default function WorkoutsPage() {
       setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle("Custom workout"); setPlanNotes(""); setSplit(preferences.workout_split || "full_body"); setPlanLocation(preferences.workout_location || "gym");
       setPlannedFor(localDateKey());
       setPreview([plannedFrom(exercise, 0)]); setAutoNote("");
-      setCreatorOpen(true);
+      setBuilderNotice(""); setCreatorOpen(true);
       window.history.replaceState(null, "", "/workouts");
     });
   }, [catalog, loading, preferences.workout_split, preferences.workout_location]);
@@ -499,12 +503,24 @@ export default function WorkoutsPage() {
       const controls = getFocusable();
       if (!controls.length) return;
       const first = controls[0]; const last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      // Focus outside the builder (the page body, after its control went away): Tab brings it back in, never behind.
+      if (!dialog!.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
     document.addEventListener("keydown", keepFocusInside);
     return () => { document.removeEventListener("keydown", keepFocusInside); previousFocus?.focus(); };
   }, [creatorOpen]);
+
+  // A swap rebuilds its row and a remove deletes one: the sensible control in the builder takes focus (bug 14).
+  useEffect(() => {
+    const dialog = builderRef.current;
+    if (!builderFocus || !dialog) return;
+    const target = "heading" in builderFocus.target
+      ? dialog.querySelector<HTMLElement>("#builder-order-title")
+      : dialog.querySelector<HTMLElement>(`[data-builder-row="${builderFocus.target.row}"] [data-builder-control="${builderFocus.target.control}"]`);
+    target?.focus();
+  }, [builderFocus]);
 
   // "Last time" for the builder's exercises: the member's latest completed session with each, fetched once per exercise.
   useEffect(() => {
@@ -620,7 +636,7 @@ export default function WorkoutsPage() {
     if (nextMode === "auto") applyAuto(target, 0, 0);
     else if (nextMode === "focus") applyFocus(target, areas, 0);
     else setPreview([]);
-    setCreatorOpen(true);
+    showBuilder();
     setError("");
     setNotice("");
   }
@@ -665,14 +681,30 @@ export default function WorkoutsPage() {
     if (!nextPreview.length) return setError("The movements from that workout are no longer in the library.");
     setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
     setPlanLocation("gym"); setPlannedFor(localDateKey()); setTime("18:00"); setAutoNote("");
-    setPreview(nextPreview); setCreatorOpen(true);
+    setPreview(nextPreview); showBuilder();
     if (nextPreview.length < rows.length) setNotice(`${rows.length - nextPreview.length} movement${rows.length - nextPreview.length === 1 ? " is" : "s are"} no longer in the library and ${rows.length - nextPreview.length === 1 ? "was" : "were"} left out.`);
   }
 
   /** Keeps the user's sets and rest; reps or time follow the new movement when its type differs (see swapRow). */
   function swapPreview(index: number, replacement: CatalogExercise) {
+    const from = preview[index]?.exercise.name;
     setPreview((rows) => swapRow(rows, index, replacement));
     setSwapIndex(null);
+    if (from) setBuilderNotice(swapNotice(from, replacement.name));
+    setBuilderFocus((current) => ({ target: focusAfterSwap(index), seq: (current?.seq ?? 0) + 1 }));
+  }
+
+  /** Opens the builder with its live region quiet (nothing from an earlier visit is read out again). */
+  function showBuilder() {
+    setBuilderNotice("");
+    setCreatorOpen(true);
+  }
+
+  /** Removes a row; focus moves to the row that takes its place (or the list's heading), and the change is announced. */
+  function removePreview(index: number, item: PlannedExercise) {
+    setPreview((rows) => removeRow(rows, item.exercise.id));
+    setBuilderNotice(removeNotice(item.exercise.name, preview.length - 1));
+    setBuilderFocus((current) => ({ target: focusAfterRemove(preview.length, index), seq: (current?.seq ?? 0) + 1 }));
   }
 
   async function saveEquipment() {
@@ -854,7 +886,7 @@ export default function WorkoutsPage() {
     const timedEvents = (eventResult.data || []) as Array<{ status: string; starts_at: string }>;
     const ownEvent = timedEvents.find((event) => event.status === "scheduled" && localDateKey(new Date(event.starts_at)) === planDay) ?? timedEvents[0];
     setPlannedFor(planRow.planned_for || ""); setTime(ownEvent ? new Date(ownEvent.starts_at).toTimeString().slice(0, 5) : "18:00");
-    setAutoNote(""); setPreview(nextPreview); setCreatorOpen(true); setSaving(false);
+    setAutoNote(""); setPreview(nextPreview); showBuilder(); setSaving(false);
   }
 
   async function duplicatePlan(plan: PlanRow) {
@@ -873,7 +905,7 @@ export default function WorkoutsPage() {
     });
     if (!nextPreview.length) { setSaving(false); setError("The saved movements are no longer available in the active library."); return; }
     setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
-    setAutoNote(""); setPreview(nextPreview); setCreatorOpen(true); setSaving(false);
+    setAutoNote(""); setPreview(nextPreview); showBuilder(); setSaving(false);
   }
 
   async function loadMorePlans() {
@@ -1290,16 +1322,17 @@ export default function WorkoutsPage() {
           </details>
           <div className="mt-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold">Exercise order <span className="font-normal text-fitx-text-secondary">· {preview.length}</span></h3>
+              <h3 id="builder-order-title" tabIndex={-1} className="text-sm font-semibold">Exercise order <span className="font-normal text-fitx-text-secondary">· {preview.length}</span></h3>
               {((builderProgramme) || (builderMode === "focus" && !editingPlanId && focusAreas.length > 0)) && <button type="button" onClick={() => { const seed = autoSeed + 1; setAutoSeed(seed); if (builderMode === "focus") applyFocus(builderContext, focusAreas, seed); else applyAuto(builderContext, autoDay, seed); }} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">Regenerate plan</button>}
             </div>
             {preview.length > 0 && <p className="mb-3 text-xs text-fitx-text-secondary" aria-live="polite">{builderSummary.exercises} exercise{builderSummary.exercises === 1 ? "" : "s"} · {builderSummary.totalSets} sets{builderSummary.estimateMinutes ? ` · ≈ ${builderSummary.estimateMinutes} min (estimate)` : ""}</p>}
+            <p role="status" className="sr-only">{builderNotice}</p>
             {autoNote && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{autoNote}</span></p>}
             {!showTargets && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{TARGETS_UNAVAILABLE_NOTICE}</span></p>}
             {preview.length ? <ol className="space-y-2">{preview.map((item, index) => (
               <BuilderRow key={item.exercise.id} item={item} index={index} count={preview.length} owned={builderOwned} listName={builderContext} showTargets={showTargets} lastTime={lastTimes.get(item.exercise.id)}
                 onMove={(direction) => movePreview(index, direction)} onUpdate={(field, value) => updatePreview(index, field, value)} onUpdateTarget={(field, raw) => updateOptionalTarget(index, field, raw)}
-                onSwap={() => setSwapIndex(index)} onRemove={() => setPreview((rows) => removeRow(rows, item.exercise.id))} onInfo={() => setInfoExercise(item.exercise)} />
+                onSwap={() => setSwapIndex(index)} onRemove={() => removePreview(index, item)} onInfo={() => setInfoExercise(item.exercise)} />
             ))}</ol> : <p className="rounded-xl border border-dashed border-fitx-border px-4 py-5 text-sm text-fitx-text-secondary">{builderMode === "focus" && !editingPlanId && !focusAreas.length ? "Pick an area above or add exercises below." : "Add exercises below."}</p>}
           </div>
           <LibraryPicker catalog={catalog} selectedIds={selected} owned={builderOwned} listName={builderContext} full={preview.length >= MAX_PLAN_EXERCISES} onToggle={toggleSelected} onInfo={setInfoExercise} />

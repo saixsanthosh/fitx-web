@@ -43,7 +43,9 @@ export function Sheet({ title, description, onClose, children, footer, size = "m
       const items = focusable();
       if (!items.length) return;
       const first = items[0]; const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      // Focus outside the sheet (the page body, after its control went away): Tab brings it back in (bug 14's rule).
+      if (!panel.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", onKey);

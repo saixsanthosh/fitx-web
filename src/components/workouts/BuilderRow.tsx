@@ -46,7 +46,7 @@ export function BuilderRow({ item, index, count, owned, listName, showTargets, l
   const timed = isTimedPlanned(item);
   const input = "fitx-field min-h-11 px-2 text-center tabular-nums";
   return (
-    <li className="rounded-xl border border-fitx-border bg-fitx-surface p-3">
+    <li data-builder-row={index} className="rounded-xl border border-fitx-border bg-fitx-surface p-3">
       <div className="flex items-start gap-3">
         <div className="flex shrink-0 flex-col items-center gap-1">
           <button type="button" onClick={() => onMove(-1)} disabled={index === 0} aria-label={`Move ${name} earlier`} className="grid h-8 w-9 place-items-center rounded border border-fitx-border disabled:opacity-35"><ArrowUp size={14} aria-hidden="true" /></button>
@@ -66,8 +66,8 @@ export function BuilderRow({ item, index, count, owned, listName, showTargets, l
           {lastTime && <p className="mt-0.5 text-xs text-fitx-text-secondary">{lastTime}</p>}
         </div>
         <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row">
-          <button type="button" onClick={onSwap} aria-label={`Swap ${name}`} className={`grid h-11 w-11 place-items-center rounded border ${missing.length ? "border-fitx-warning/50 text-fitx-warning" : "border-fitx-border text-fitx-text-secondary"} hover:text-fitx-primary`}><ArrowRightLeft size={15} aria-hidden="true" /></button>
-          <button type="button" onClick={onRemove} aria-label={`Remove ${name}`} className="grid h-11 w-11 place-items-center rounded border border-fitx-border text-fitx-text-secondary hover:text-fitx-primary"><X size={15} aria-hidden="true" /></button>
+          <button type="button" onClick={onSwap} data-builder-control="swap" aria-label={`Swap ${name}`} className={`grid h-11 w-11 place-items-center rounded border ${missing.length ? "border-fitx-warning/50 text-fitx-warning" : "border-fitx-border text-fitx-text-secondary"} hover:text-fitx-primary`}><ArrowRightLeft size={15} aria-hidden="true" /></button>
+          <button type="button" onClick={onRemove} data-builder-control="remove" aria-label={`Remove ${name}`} className="grid h-11 w-11 place-items-center rounded border border-fitx-border text-fitx-text-secondary hover:text-fitx-primary"><X size={15} aria-hidden="true" /></button>
         </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
