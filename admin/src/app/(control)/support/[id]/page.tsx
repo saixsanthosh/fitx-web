@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { ModuleState } from "@/components/module-state";
 import { PendingButton } from "@/components/pending-button";
+import { ReplyForm } from "@/components/support/reply-form";
+import { SUPPORT_NOTICES } from "@/components/support/support-notices";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getSupportThread, markSupportRead } from "@/lib/data/support";
 import { can } from "@/lib/roles";
@@ -13,27 +15,14 @@ import {
   SUPPORT_CATEGORY_LABELS,
   SUPPORT_PRIORITIES,
   SUPPORT_PRIORITY_LABELS,
-  SUPPORT_REPLY_MAX,
   SUPPORT_STATUS_LABELS,
   SUPPORT_STATUSES,
 } from "@/lib/support-catalog";
 import { formatIstDateTime } from "@/lib/time";
-import { replyToRequest, updateRequest } from "../actions";
+import { updateRequest } from "../actions";
 
 export const metadata: Metadata = { title: "Help request" };
 
-const notices: Record<string, { tone: "success" | "error"; text: string }> = {
-  replied: { tone: "success", text: "Reply sent. The person sees it on their Help page." },
-  updated: { tone: "success", text: "Request updated and recorded in the audit log." },
-  reply_length: { tone: "error", text: `A reply needs 1 to ${SUPPORT_REPLY_MAX} characters.` },
-  invalid: { tone: "error", text: "Check the status, priority and assignee." },
-  assignee: { tone: "error", text: "The assignee must be an active operator with support access." },
-  changed: { tone: "error", text: "Nothing was saved: this request changed after you opened it (for example, the person replied). Check the latest version below and save again." },
-  forbidden: { tone: "error", text: "Your role cannot change help requests." },
-  migration: { tone: "error", text: `This needs migration ${MIGRATIONS.adminV2}.` },
-  configuration: { tone: "error", text: "Server data access is not configured." },
-  failed: { tone: "error", text: "The change did not complete. The server log has the details." },
-};
 
 export default async function SupportRequestPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ notice?: string }> }) {
   const actor = await requireAdmin("support.view");
@@ -47,7 +36,7 @@ export default async function SupportRequestPage({ params, searchParams }: { par
   const thread = result.thread;
   // Opening the request marks it read (the database audits it when it was unread).
   await markSupportRead(thread.id);
-  const message = noticeWords(notices, pageNotice(notice, actor.id));
+  const message = noticeWords(SUPPORT_NOTICES, pageNotice(notice, actor.id));
   const mayReply = can(actor.role, "support.reply");
 
   return (
@@ -68,16 +57,7 @@ export default async function SupportRequestPage({ params, searchParams }: { par
               <p>{entry.body}</p>
             </article>
           ))}
-          {mayReply && (
-            <form action={replyToRequest} className="stack-form reply-form">
-              <input type="hidden" name="requestId" value={thread.id} />
-              <label>Reply as FITX Support<textarea name="body" required maxLength={SUPPORT_REPLY_MAX} rows={5} placeholder="The person sees this on their Help page. Your name and email are not shown to them." /></label>
-              <div className="form-row">
-                <label>Then set the status to<select name="status" defaultValue="waiting_on_user">{SUPPORT_STATUSES.map((status) => <option key={status} value={status}>{SUPPORT_STATUS_LABELS[status]}</option>)}</select></label>
-                <PendingButton className="primary-button" pendingLabel="Sending…">Send reply</PendingButton>
-              </div>
-            </form>
-          )}
+          {mayReply && <ReplyForm requestId={thread.id} />}
         </section>
 
         <aside className="table-panel side-panel" aria-label="Request details">
