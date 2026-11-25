@@ -1,6 +1,7 @@
 /**
  * The coach composer's decisions, kept free of React and imports so `node --test` can run them (the test runner has
- * no DOM): which modes it offers, which mode a starter picks, and how the arrow keys move in its radio group.
+ * no DOM): which modes it offers, which mode a starter picks, how the arrow keys move in its radio group, and what it
+ * says about the message's length.
  */
 
 export type ComposerMode = "chat" | "meal_plan" | "workout_plan";
@@ -54,4 +55,19 @@ export function nextMode(current: ComposerMode, key: string, choosable: readonly
 /** The radio group's one Tab stop: the chosen mode, or the first that can be chosen when the chosen one can't. */
 export function radioTabStop(current: ComposerMode, choosable: readonly ComposerMode[]): ComposerMode | null {
   return choosable.includes(current) ? current : choosable[0] ?? null;
+}
+
+/** The message box's limit, as the coach's route checks it (coach.ts MESSAGE_MAX). */
+export const MESSAGE_MAX = 2000;
+
+/**
+ * What the message box says about its length. The counter shows from 200 characters before the limit (red past it)
+ * and only then is part of the box's description. Screen readers hear about the length only when it comes near or
+ * goes over the limit: `live` changes only at those two points, never on each key press.
+ */
+export function lengthNotice(length: number, max = MESSAGE_MAX): { shown: boolean; over: boolean; live: string } {
+  const limit = max.toLocaleString("en-IN");
+  if (length > max) return { shown: true, over: true, live: `Over the ${limit}-character limit. Shorten your message to send it.` };
+  if (length > max - 200) return { shown: true, over: false, live: `Close to the ${limit}-character limit.` };
+  return { shown: false, over: false, live: "" };
 }
