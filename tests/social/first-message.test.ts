@@ -56,3 +56,20 @@ test("the sheet shows the note or the refusal, and is told the follow state wher
   assert.match(source("src/components/social/messages/MessagesView.tsx"), /setInitialFollowing\(page\.relation\.following\);/);
   assert.match(source("src/components/social/messages/SendTo.tsx"), /messageErrorText\(failure, \{ username \}\)/);
 });
+
+// Review of bug 19: refused, Close, Follow, Message again, and the sheet opened on the old refusal ("If you follow them
+// first…"), announced again, where the note about what will happen goes. The sheet never unmounts between openings.
+test("a refusal never outlives its attempt: closing, reopening or another person brings back the note, and the draft stays", () => {
+  const sheet = source("src/components/social/messages/NewMessageSheet.tsx");
+  const start = sheet.indexOf("if (shown.open !== open || shown.initial !== initial) {");
+  assert.ok(start > 0, "the sheet notices both a new opening and a new person");
+  const reset = sheet.slice(start, sheet.indexOf("}", sheet.indexOf("setError(null);", start)) + 1);
+  assert.match(reset, /if \(shown\.initial !== initial\) setTo\(initial\);/, "a new person replaces the old one");
+  assert.match(reset, /setShown\(\{ open, initial \}\);/);
+  assert.match(reset, /setError\(null\);/, "on close, on reopen and for a new person");
+  assert.doesNotMatch(reset, /setBody\(/, "the draft is kept");
+  assert.ok(sheet.indexOf("const [error, setError]") < start, "the refusal's state is there before it is cleared");
+  // Both hosts keep the sheet mounted and open it again with a fresh person (or the same null), so this is the only reset.
+  assert.match(source("src/components/social/messages/MessageButton.tsx"), /<NewMessageSheet db=\{db\} userId=\{self\} open=\{person !== null\} initial=\{person\}/);
+  assert.match(source("src/components/social/messages/MessagesView.tsx"), /<NewMessageSheet db=\{db\} userId=\{userId\} open=\{composing\} initial=\{initial\}/);
+});

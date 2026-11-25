@@ -33,14 +33,19 @@ type Props = {
 export function NewMessageSheet({ db, userId, open, onClose, initial = null, following = null, returnFocus }: Props) {
   const router = useRouter();
   const [to, setTo] = useState<SocialAuthor | null>(initial);
-  const [shownInitial, setShownInitial] = useState(initial);
-  if (shownInitial !== initial) {
-    setShownInitial(initial);
-    setTo(initial);
+  const [error, setError] = useState<string | null>(null);
+  // The sheet stays mounted between openings (MessageButton, MessagesView) and keeps the draft. A refusal answers one
+  // attempt, though: closing the sheet, opening it again or opening it for someone else clears it. Otherwise the sheet
+  // would open on the old refusal, announced again where the note about what will happen goes, with advice worked out
+  // from that attempt's follow state (from before the member followed, say).
+  const [shown, setShown] = useState({ open, initial });
+  if (shown.open !== open || shown.initial !== initial) {
+    if (shown.initial !== initial) setTo(initial);
+    setShown({ open, initial });
+    setError(null);
   }
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const draft = draftState(body);
 
   async function send() {
