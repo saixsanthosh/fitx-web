@@ -9,7 +9,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { EXERCISE_ID } from "@/lib/content/exercise-input";
 import { CATEGORY_LABELS, MUSCLE_GROUP_LABELS, humanise, type MuscleGroup } from "@/lib/content/vocabulary";
 import { getExercise, type ExerciseMediaItem } from "@/lib/data/exercises";
-import { firstParam } from "@/lib/search-params";
+import { pageNotice } from "@/lib/notice";
 import { formatIstDate } from "@/lib/time";
 import { deleteExercise, finishExerciseUpload, prepareExerciseUpload, removeExerciseMedia, saveExercise, setExerciseActive } from "../../actions";
 
@@ -54,7 +54,7 @@ function MediaCard({ item, exerciseId }: { item: ExerciseMediaItem; exerciseId: 
 }
 
 export default async function ExercisePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireAdmin("content.manage");
+  const actor = await requireAdmin("content.manage");
   const { id: raw } = await params;
   const id = decodeURIComponent(raw);
   if (!EXERCISE_ID.test(id)) notFound();
@@ -93,7 +93,7 @@ export default async function ExercisePage({ params, searchParams }: { params: P
           </>
         }
       />
-      <StateNotice state={firstParam(query.state)} messages={NOTICES} />
+      <StateNotice code={pageNotice(query.state, actor.id)?.code} messages={NOTICES} />
       {exercise.merged_into && <p className={styles.hint}>A duplicate merged into {exercise.merged_into}; it stays hidden.</p>}
 
       <div className={styles.split}>

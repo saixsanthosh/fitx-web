@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { ANNOUNCEMENT_STATUSES, validateAnnouncement, type AnnouncementStatus } from "@/lib/announcement-input";
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
+import { noticeHref } from "@/lib/notice";
 import { isMissingFunction, isPermissionError, MIGRATIONS } from "@/lib/schema";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { istInputToIso } from "@/lib/time";
@@ -67,7 +68,7 @@ export async function saveAnnouncement(_previous: AnnouncementFormState, formDat
   }
   const savedId = typeof data === "string" ? data : id;
   revalidatePath("/announcements");
-  redirect(savedId ? `/announcements/${savedId}?notice=saved` : "/announcements");
+  redirect(savedId ? noticeHref(`/announcements/${savedId}`, "saved", actor.id) : "/announcements");
 }
 
 export async function setAnnouncementStatus(formData: FormData) {
@@ -75,18 +76,19 @@ export async function setAnnouncementStatus(formData: FormData) {
   const id = formData.get("id");
   const status = formData.get("status");
   if (!isUuid(id)) redirect("/announcements");
-  if (typeof status !== "string" || !(ANNOUNCEMENT_STATUSES as readonly string[]).includes(status)) redirect(`/announcements/${id}?notice=invalid`);
+  const back = `/announcements/${id.toLowerCase()}`;
+  if (typeof status !== "string" || !(ANNOUNCEMENT_STATUSES as readonly string[]).includes(status)) redirect(noticeHref(back, "invalid", actor.id));
 
   const admin = createAdminSupabase();
-  if (!admin) redirect(`/announcements/${id}?notice=configuration`);
+  if (!admin) redirect(noticeHref(back, "configuration", actor.id));
   const { error } = await admin.rpc("fitx_admin_op_set_announcement_status", { p_operator_id: actor.id, p_id: id, p_status: status as AnnouncementStatus });
   if (error) {
-    if (isMissingFunction(error)) redirect(`/announcements/${id}?notice=migration`);
-    if (isPermissionError(error)) redirect(`/announcements/${id}?notice=forbidden`);
+    if (isMissingFunction(error)) redirect(noticeHref(back, "migration", actor.id));
+    if (isPermissionError(error)) redirect(noticeHref(back, "forbidden", actor.id));
     logServerError("announcements.status", error);
-    redirect(`/announcements/${id}?notice=failed`);
+    redirect(noticeHref(back, "failed", actor.id));
   }
   revalidatePath("/announcements");
-  revalidatePath(`/announcements/${id}`);
-  redirect(`/announcements/${id}?notice=${status}`);
+  revalidatePath(back);
+  redirect(noticeHref(back, status, actor.id));
 }

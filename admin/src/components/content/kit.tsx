@@ -41,10 +41,13 @@ export function ContentTabs({ label, items }: { label: string; items: TabItem[] 
   );
 }
 
-/** A result line from a Server Action redirect (?state=…), or nothing for an unknown state. */
-export function StateNotice({ state, messages }: { state: string; messages: Record<string, { text: string; good: boolean }> }) {
-  if (!state || !Object.hasOwn(messages, state)) return null;
-  const { text, good } = messages[state];
+/**
+ * A Server Action's result line, by the code it sealed into ?state= for this operator (lib/notice.ts pageNotice), or
+ * nothing for no code or one the page does not have. Never words from the address.
+ */
+export function StateNotice({ code, messages }: { code: string | null | undefined; messages: Record<string, { text: string; good: boolean }> }) {
+  if (!code || !Object.hasOwn(messages, code)) return null;
+  const { text, good } = messages[code];
   return <Notice good={good}>{text}</Notice>;
 }
 

@@ -6,8 +6,8 @@ import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listOperators } from "@/lib/operators";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
+import { noticeWords, pageNotice } from "@/lib/notice";
 import { ADMIN_ROLES, can, PERMISSIONS, ROLE_DESCRIPTIONS, ROLE_LABELS, type AdminRole } from "@/lib/roles";
-import { firstParam } from "@/lib/search-params";
 import { formatIstDate } from "@/lib/time";
 import { addOperator, changeOperator, resetPassword } from "./actions";
 
@@ -42,8 +42,7 @@ export default async function AccessControlPage({ searchParams }: { searchParams
   const params = await searchParams;
   const result = await listOperators();
   const manage = can(actor.role, "access.manage");
-  const state = firstParam(params.state);
-  const notice = state ? notices[state] : undefined;
+  const notice = noticeWords(notices, pageNotice(params.state, actor.id));
 
   return <div className="page-stack">
     <PageHead eyebrow="Admin and security" title="Operators" meta={result.ok ? `${result.value.filter((operator) => operator.isActive).length} active · ${ADMIN_ROLES.length} roles` : undefined} />

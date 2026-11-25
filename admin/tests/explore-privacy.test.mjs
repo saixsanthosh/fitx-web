@@ -33,7 +33,8 @@ test("every Explore page needs explore.view and every Explore action explore.mod
     for (const fn of source.matchAll(/export async function (\w+)\(/g)) {
       if (!name.endsWith("actions.ts")) continue;
       const body = source.slice(fn.index, source.indexOf("\n}\n", fn.index));
-      assert.match(body, /^export async function \w+\(formData: FormData\) \{\n  const actor = await requireAdmin\("explore\.moderate"\);/, `${name}: ${fn[1]}`);
+      // A plain form action, or one for useActionState (the forms that keep what was typed when refused).
+      assert.match(body, /^export async function \w+\((?:_previous: FormState, )?formData: FormData\)(?:: Promise<FormState>)? \{\n  const actor = await requireAdmin\("explore\.moderate"\);/, `${name}: ${fn[1]}`);
     }
   }
   const data = await readFile(new URL("lib/data/explore.ts", SRC), "utf8");

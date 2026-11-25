@@ -7,6 +7,7 @@ import { PendingButton } from "@/components/pending-button";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getSupportThread, markSupportRead } from "@/lib/data/support";
 import { can } from "@/lib/roles";
+import { noticeWords, pageNotice } from "@/lib/notice";
 import { MIGRATIONS } from "@/lib/schema";
 import {
   SUPPORT_CATEGORY_LABELS,
@@ -46,7 +47,7 @@ export default async function SupportRequestPage({ params, searchParams }: { par
   const thread = result.thread;
   // Opening the request marks it read (the database audits it when it was unread).
   await markSupportRead(thread.id);
-  const message = notice ? notices[notice] : undefined;
+  const message = noticeWords(notices, pageNotice(notice, actor.id));
   const mayReply = can(actor.role, "support.reply");
 
   return (

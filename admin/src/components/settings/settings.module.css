@@ -22,5 +22,6 @@
 .maintenanceFields { display: grid; gap: 14px; transition: opacity 180ms ease; }
 .fieldset { display: grid; gap: 14px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .saveBar { position: sticky; bottom: 12px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(10px); }
-.saveBar > span { color: var(--muted); font-size: 12px; }
+.saveText { display: grid; gap: 4px; min-width: 0; }
+.saveText > span { color: var(--muted); font-size: 12px; }
 @media (min-width: 768px) { .switches { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

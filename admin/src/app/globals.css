@@ -298,6 +298,7 @@ button:disabled, button[aria-disabled="true"] { cursor: not-allowed; opacity: .5
 .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .field-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .form-error { margin: 0; color: var(--red); font-size: 13px; font-weight: 600; line-height: 1.5; }
+.form-saved { margin: 0; color: var(--green); font-size: 13px; font-weight: 600; line-height: 1.5; }
 
 .filter-tabs { position: relative; display: flex; gap: 6px; overflow-x: auto; padding: 12px 14px; border-bottom: 1px solid var(--line); scrollbar-width: none; }
 .filter-tabs::-webkit-scrollbar { display: none; }

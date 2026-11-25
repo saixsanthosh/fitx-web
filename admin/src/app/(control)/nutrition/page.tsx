@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { CONTENT_MIGRATION } from "@/lib/content/errors";
 import { DIET_LABELS } from "@/lib/content/vocabulary";
 import { FOOD_PAGE_SIZE, NO_CATEGORY, getFoodCategories, listFoods, parseFoodFilters, type FoodFilters, type FoodRow } from "@/lib/data/foods";
+import { pageNotice } from "@/lib/notice";
 import { firstParam } from "@/lib/search-params";
 import { renameFoodCategory, setFoodActive } from "./actions";
 
@@ -127,7 +128,7 @@ async function FoodsTab({ filters, categories }: { filters: FoodFilters; categor
 }
 
 export default async function NutritionPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin("nutrition.manage");
+  const actor = await requireAdmin("nutrition.manage");
   const params = await searchParams;
   const tabParam = firstParam(params.tab);
   // FITX has no shared meal-plan catalogue (each member's plan is their own), so Nutrition has two tabs; an old link
@@ -147,7 +148,7 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
         meta={totalFoods !== null ? `${formatCount(shownFoods)} foods in search of ${formatCount(totalFoods)}` : undefined}
         actions={<Link className={styles.button} href="/nutrition/foods/new"><Plus aria-hidden="true" size={16} />Add food</Link>}
       />
-      <StateNotice state={firstParam(params.state)} messages={NOTICES} />
+      <StateNotice code={pageNotice(params.state, actor.id)?.code} messages={NOTICES} />
       <ContentTabs
         label="Nutrition"
         items={[

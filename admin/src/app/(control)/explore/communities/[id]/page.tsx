@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Notice, Panel, consoleStyles as ui } from "@/components/console/ui";
-import { CoverPicker } from "@/components/explore/cover-picker";
+import { CommunityForm } from "@/components/explore/community-form";
 import styles from "@/components/explore/explore.module.css";
 import { exploreNotice } from "@/components/explore/notices";
 import { ModuleState } from "@/components/module-state";
@@ -11,11 +11,11 @@ import { PendingButton } from "@/components/pending-button";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { exploreReadiness, getCommunity, type CommunityDetail } from "@/lib/data/explore";
 import { signedLink } from "@/lib/data/explore-evidence";
-import { COMMUNITY_LIMITS, EXPLORE_MIGRATION } from "@/lib/explore-rules";
-import { firstParam } from "@/lib/search-params";
+import { EXPLORE_MIGRATION } from "@/lib/explore-rules";
+import { pageNotice } from "@/lib/notice";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { formatIstDate } from "@/lib/time";
-import { saveCommunity, setCommunityRole } from "../../actions";
+import { setCommunityRole } from "../../actions";
 
 export const metadata: Metadata = { title: "Community" };
 
@@ -39,7 +39,7 @@ export default async function CommunityPage({ params, searchParams }: { params: 
   }
   const admin = createAdminSupabase();
   const cover = admin && community?.coverPath ? await signedLink(admin, community.coverPath) : null;
-  const notice = exploreNotice(firstParam(query.notice), firstParam(query.message));
+  const notice = exploreNotice(pageNotice(query.notice, actor.id)?.code);
 
   return (
     <div className="page-stack narrow-stack">
@@ -53,21 +53,12 @@ export default async function CommunityPage({ params, searchParams }: { params: 
       </div>
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
 
-      <form action={saveCommunity} className={`stack-form ${ui.rise}`}>
-        {community && <input type="hidden" name="id" value={community.id} />}
-        <Panel title="Details">
-          <fieldset className={`stack-form ${styles.fieldset}`} disabled={!moderator}>
-            <label>Name<input name="name" required maxLength={COMMUNITY_LIMITS.name} defaultValue={community?.name ?? ""} /></label>
-            <label>Address<input name="slug" maxLength={COMMUNITY_LIMITS.slugMax} pattern="[a-z0-9][a-z0-9\-]{1,38}[a-z0-9]" defaultValue={community?.slug ?? ""} aria-describedby="slug-note" /></label>
-            <p className="field-note" id="slug-note">Lower-case letters, digits and dashes. Leave it empty to make one from the name.</p>
-            <label>Description<textarea name="description" maxLength={COMMUNITY_LIMITS.description} rows={3} defaultValue={community?.description ?? ""} /></label>
-            <label>Who can join<select name="visibility" defaultValue={community?.visibility ?? "public"}><option value="public">Public: adults join freely</option><option value="private">Private: by request</option></select></label>
-            <CoverPicker currentUrl={cover} />
-            {community?.coverPath && <label className="check-label"><input type="checkbox" name="remove_cover" />Remove the cover</label>}
-          </fieldset>
-        </Panel>
-        {moderator && <PendingButton className="primary-button" pendingLabel="Saving…">Save community</PendingButton>}
-      </form>
+      <CommunityForm
+        className={ui.rise}
+        moderator={moderator}
+        coverUrl={cover}
+        community={community ? { id: community.id, name: community.name, slug: community.slug, description: community.description, visibility: community.visibility, hasCover: Boolean(community.coverPath) } : null}
+      />
 
       {community && (
         <Panel title="Moderators" hint="Accepted adult members who approve requests and can remove posts in this community" className={ui.onScroll}>

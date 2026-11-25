@@ -19,6 +19,7 @@ import {
 } from "@/lib/content/vocabulary";
 import { EXERCISE_PAGE_SIZE, getTrainingCounts, listExercises, parseExerciseFilters, type ExerciseFilters, type ExerciseRow } from "@/lib/data/exercises";
 import { listProgrammes, type Programme } from "@/lib/data/programmes";
+import { pageNotice } from "@/lib/notice";
 import { firstParam } from "@/lib/search-params";
 import { formatIstDate } from "@/lib/time";
 import { setExerciseActive, setProgrammeStatus } from "./actions";
@@ -256,7 +257,7 @@ function LibraryTab({ counts }: { counts: Awaited<ReturnType<typeof getTrainingC
 }
 
 export default async function TrainingPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin("content.manage");
+  const actor = await requireAdmin("content.manage");
   const params = await searchParams;
   const tabParam = firstParam(params.tab);
   const tab: Tab = tabParam === "programmes" || tabParam === "library" ? tabParam : "exercises";
@@ -271,7 +272,7 @@ export default async function TrainingPage({ searchParams }: { searchParams: Pro
         meta={ready ? `${formatCount(ready.exercises.active)} exercises shown of ${formatCount(ready.exercises.total)}` : undefined}
         actions={<Link className={styles.button} href="/training/exercises/new"><Plus aria-hidden="true" size={16} />Add exercise</Link>}
       />
-      <StateNotice state={firstParam(params.state)} messages={NOTICES} />
+      <StateNotice code={pageNotice(params.state, actor.id)?.code} messages={NOTICES} />
       {ready && (
         <Stats label="Exercise library">
           <Stat label="Shown in the app" value={ready.exercises.active} />

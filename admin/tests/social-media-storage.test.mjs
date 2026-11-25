@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { fake, resetFakes, rpcCalls, SESSION_STUBS, setTestEnv } from "./helpers/fakes.mjs";
+import { sealedRedirect } from "./helpers/notices.mjs";
 import { importTypeScriptModule } from "./helpers/typescript-module.mjs";
 
 const social = await importTypeScriptModule("src/lib/social-media-storage.ts");
@@ -116,7 +117,10 @@ beforeEach(() => {
 
 test("Admin's deleteAccount removes the member's Explore photos before it deletes the login", async () => {
   fake.handler = deletionHandler();
-  await assert.rejects(userActions.deleteAccount(deletionForm()), (error) => error.url === "/users?notice=deleted");
+  await assert.rejects(userActions.deleteAccount(deletionForm()), (error) => {
+    assert.deepEqual(sealedRedirect(error.url, operator.id), { path: "/users", notice: { code: "deleted", count: null } });
+    return true;
+  });
   const socialRemove = fake.calls.findIndex((call) => call.storage === "social-media" && call.op === "remove");
   const deleteUser = fake.calls.findIndex((call) => call.auth === "deleteUser");
   assert.ok(socialRemove >= 0, "the Explore photos are removed");
@@ -128,7 +132,10 @@ test("Admin's deleteAccount removes the member's Explore photos before it delete
 
 test("when the Explore photos cannot be removed, the account is kept and the failure is audited", async () => {
   fake.handler = deletionHandler({ socialListError: { message: "storage unavailable" } });
-  await assert.rejects(userActions.deleteAccount(deletionForm()), (error) => error.url === `/users/${MEMBER}?notice=delete_failed`);
+  await assert.rejects(userActions.deleteAccount(deletionForm()), (error) => {
+    assert.deepEqual(sealedRedirect(error.url, operator.id), { path: `/users/${MEMBER}`, notice: { code: "delete_failed", count: null } });
+    return true;
+  });
   assert.equal(fake.calls.some((call) => call.auth === "deleteUser"), false);
   const failed = rpcCalls("fitx_admin_op_log_event").find((call) => call.args.p_action === "user_delete_failed");
   assert.equal(failed.args.p_details.step, "social_storage");

@@ -8,7 +8,7 @@ import { ModuleState } from "@/components/module-state";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { listCommunities } from "@/lib/data/explore";
 import { EXPLORE_MIGRATION } from "@/lib/explore-rules";
-import { firstParam } from "@/lib/search-params";
+import { pageNotice } from "@/lib/notice";
 
 export const metadata: Metadata = { title: "Communities" };
 
@@ -16,7 +16,7 @@ const STATE = { visible: null, limited: "Limited by FITX", hidden: "Hidden by FI
 
 export default async function CommunitiesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const actor = await requireAdmin("explore.view");
-  const notice = exploreNotice(firstParam((await searchParams).notice));
+  const notice = exploreNotice(pageNotice((await searchParams).notice, actor.id)?.code);
   const result = await listCommunities();
   const moderator = hasPermission(actor, "explore.moderate");
   return (

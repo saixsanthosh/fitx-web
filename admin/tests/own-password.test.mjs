@@ -100,9 +100,10 @@ test("a changed password whose new session fails is reported as changed, and the
   assert.equal(cleared.options.maxAge, 0);
 
   const action = await readFile(new URL("../src/app/(control)/account/actions.ts", import.meta.url), "utf8");
-  assert.match(action, /if \(result\.ok && !result\.signedIn\) redirect\("\/login\?state=password_changed"\)/);
+  // Sealed (lib/notice.ts) for the sign-in page, where nobody is signed in: a link cannot show it.
+  assert.match(action, /if \(result\.ok && !result\.signedIn\) redirect\(noticeHref\("\/login", "password_changed", SIGN_IN_NOTICE, \{ param: "state" \}\)\)/);
   const login = await readFile(new URL("../src/app/login/page.tsx", import.meta.url), "utf8");
-  assert.match(login, /=== "password_changed" && <p[^>]*role="status">Password changed\./);
+  assert.match(login, /pageNotice\(params\.state, SIGN_IN_NOTICE\)\?\.code === "password_changed" && <p[^>]*role="status">Password changed\./);
 });
 
 test("the root, a weak or unchanged new password never reach the limits", async () => {

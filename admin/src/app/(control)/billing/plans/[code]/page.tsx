@@ -5,14 +5,14 @@ import { PlanForm } from "@/components/content/plan-form";
 import { requireAdmin } from "@/lib/admin-auth";
 import { PLAN_CODE } from "@/lib/content/plan-input";
 import { loadPlan } from "@/lib/data/billing";
-import { firstParam } from "@/lib/search-params";
+import { pageNotice } from "@/lib/notice";
 import { savePlan } from "../../actions";
 import { formatInr, periodLabel } from "../../format";
 
 export const metadata: Metadata = { title: "Plan" };
 
 export default async function PlanPage({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireAdmin("billing.manage");
+  const actor = await requireAdmin("billing.manage");
   const { code } = await params;
   if (!PLAN_CODE.test(code)) notFound();
   const query = await searchParams;
@@ -31,7 +31,7 @@ export default async function PlanPage({ params, searchParams }: { params: Promi
   return (
     <div className={styles.page}>
       <ContentHeader eyebrow="05 Subscriptions" title={plan.name} back={{ href: "/billing", label: "Subscriptions" }} meta={`${price} · ${plan.code}`} />
-      <StateNotice state={firstParam(query.state)} messages={{ created: { text: "Plan added.", good: true } }} />
+      <StateNotice code={pageNotice(query.state, actor.id)?.code} messages={{ created: { text: "Plan added.", good: true } }} />
       <PlanForm
         action={savePlan.bind(null, plan.code)}
         creating={false}

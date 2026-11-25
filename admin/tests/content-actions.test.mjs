@@ -5,6 +5,7 @@ import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { fake, resetFakes, rpcCalls, SESSION_STUBS, setTestEnv } from "./helpers/fakes.mjs";
+import { sealedRedirect } from "./helpers/notices.mjs";
 import { importTypeScriptModule } from "./helpers/typescript-module.mjs";
 
 const storage = `
@@ -61,7 +62,7 @@ test("an invalid exercise form is answered field by field and never reaches the 
 test("a new exercise is saved by the operator's function and opens its own page", async () => {
   fake.handler = (call) => (call.rpc === "fitx_admin_op_save_exercise" ? { data: "fitx-tempo-goblet-squat", error: null } : { data: null, error: null });
   const { error } = await outcome(training.saveExercise(null, { status: "idle" }, exerciseForm()));
-  assert.equal(error?.url, "/training/exercises/fitx-tempo-goblet-squat?state=created");
+  assert.deepEqual(sealedRedirect(error?.url, operator.id, "state"), { path: "/training/exercises/fitx-tempo-goblet-squat", notice: { code: "created", count: null } });
   const [call] = rpcCalls("fitx_admin_op_save_exercise");
   assert.equal(call.args.p_operator_id, operator.id);
   assert.equal(call.args.p_exercise_id, null);
@@ -130,11 +131,11 @@ test("a repeated finish for a file that is already recorded leaves that file in 
 test("deleting an exercise removes its uploaded files only after the database agreed", async () => {
   fake.handler = () => ({ data: null, error: { code: "FXC01", message: "in use" } });
   const inUse = await outcome(training.deleteExercise(form([["exerciseId", "fitx-squat"]])));
-  assert.equal(inUse.error.url, "/training/exercises/fitx-squat?state=in_use");
+  assert.deepEqual(sealedRedirect(inUse.error.url, operator.id, "state"), { path: "/training/exercises/fitx-squat", notice: { code: "in_use", count: null } });
   assert.equal(fake.storage.length, 0);
   fake.handler = () => ({ data: ["admin/fitx-squat/video-AbCdEf123456.mp4"], error: null });
   const done = await outcome(training.deleteExercise(form([["exerciseId", "fitx-squat"]])));
-  assert.equal(done.error.url, "/training?state=deleted");
+  assert.deepEqual(sealedRedirect(done.error.url, operator.id, "state"), { path: "/training", notice: { code: "deleted", count: null } });
   assert.deepEqual(fake.storage.at(-1), ["remove", "exercise-media", ["admin/fitx-squat/video-AbCdEf123456.mp4"]]);
 });
 

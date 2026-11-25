@@ -200,14 +200,17 @@ export function slugFromName(name: string): string {
     .replace(/-+$/g, "");
 }
 
-export function validateCommunity(input: { slug: unknown; name: unknown; description: unknown; visibility: unknown }): { ok: true; value: CommunityInput } | { ok: false; error: string } {
+/** A refused form: Admin's own words, and the form field (its input's name) they are about. */
+export type FieldRefusal = { ok: false; error: string; field: string };
+
+export function validateCommunity(input: { slug: unknown; name: unknown; description: unknown; visibility: unknown }): { ok: true; value: CommunityInput } | FieldRefusal {
   const name = clean(input.name);
   const slug = clean(input.slug).toLowerCase() || slugFromName(name);
   const description = clean(input.description);
-  if (chars(name) < 1 || chars(name) > COMMUNITY_LIMITS.name) return { ok: false, error: `The name needs 1 to ${COMMUNITY_LIMITS.name} characters.` };
-  if (!SLUG.test(slug)) return { ok: false, error: "The address needs 3 to 40 lower-case letters, digits or dashes, starting and ending with a letter or digit." };
-  if (chars(description) > COMMUNITY_LIMITS.description) return { ok: false, error: `The description can have at most ${COMMUNITY_LIMITS.description} characters.` };
-  if (input.visibility !== "public" && input.visibility !== "private") return { ok: false, error: "Choose public or private." };
+  if (chars(name) < 1 || chars(name) > COMMUNITY_LIMITS.name) return { ok: false, error: `The name needs 1 to ${COMMUNITY_LIMITS.name} characters.`, field: "name" };
+  if (!SLUG.test(slug)) return { ok: false, error: "The address needs 3 to 40 lower-case letters, digits or dashes, starting and ending with a letter or digit.", field: "slug" };
+  if (chars(description) > COMMUNITY_LIMITS.description) return { ok: false, error: `The description can have at most ${COMMUNITY_LIMITS.description} characters.`, field: "description" };
+  if (input.visibility !== "public" && input.visibility !== "private") return { ok: false, error: "Choose public or private.", field: "visibility" };
   return { ok: true, value: { slug, name, description, visibility: input.visibility } };
 }
 
@@ -276,43 +279,43 @@ export type TemplateInput = Omit<ChallengeInput, "startsAt" | "endsAt" | "commun
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function common(input: { kind: unknown; title: unknown; metric: unknown; sport: unknown; target: unknown }):
-  { ok: true; value: Omit<TemplateInput, "active"> } | { ok: false; error: string } {
+  { ok: true; value: Omit<TemplateInput, "active"> } | FieldRefusal {
   const title = clean(input.title);
-  if (input.kind !== "weekly" && input.kind !== "monthly") return { ok: false, error: "Choose weekly or monthly." };
-  if (chars(title) < 1 || chars(title) > 80) return { ok: false, error: "The title needs 1 to 80 characters." };
-  if (!(CHALLENGE_METRICS as readonly unknown[]).includes(input.metric)) return { ok: false, error: "Choose what the challenge counts." };
+  if (input.kind !== "weekly" && input.kind !== "monthly") return { ok: false, error: "Choose weekly or monthly.", field: "kind" };
+  if (chars(title) < 1 || chars(title) > 80) return { ok: false, error: "The title needs 1 to 80 characters.", field: "title" };
+  if (!(CHALLENGE_METRICS as readonly unknown[]).includes(input.metric)) return { ok: false, error: "Choose what the challenge counts.", field: "metric" };
   const metric = input.metric as ChallengeMetric;
   const sportText = clean(input.sport);
   let sport: ChallengeSport | null = null;
   if (sportText) {
-    if (metric !== "distance_km" && metric !== "active_minutes") return { ok: false, error: "A sport applies only to distance and active minutes." };
-    if (!(CHALLENGE_SPORTS as readonly string[]).includes(sportText)) return { ok: false, error: "Choose a sport from the list." };
+    if (metric !== "distance_km" && metric !== "active_minutes") return { ok: false, error: "A sport applies only to distance and active minutes.", field: "sport" };
+    if (!(CHALLENGE_SPORTS as readonly string[]).includes(sportText)) return { ok: false, error: "Choose a sport from the list.", field: "sport" };
     sport = sportText as ChallengeSport;
   }
   const targetText = clean(input.target);
   let target: number | null = null;
   if (targetText) {
     const value = Number(targetText);
-    if (!Number.isFinite(value) || value <= 0 || value > 100000) return { ok: false, error: "The target must be a number above 0 (up to 100,000), or empty." };
+    if (!Number.isFinite(value) || value <= 0 || value > 100000) return { ok: false, error: "The target must be a number above 0 (up to 100,000), or empty.", field: "target" };
     target = Math.round(value * 100) / 100;
   }
   return { ok: true, value: { kind: input.kind, title, metric, sport, target } };
 }
 
 export function validateChallenge(input: { kind: unknown; title: unknown; metric: unknown; sport: unknown; target: unknown; day: unknown; communityId: unknown }, now = Date.now()):
-  { ok: true; value: ChallengeInput } | { ok: false; error: string } {
+  { ok: true; value: ChallengeInput } | FieldRefusal {
   const base = common(input);
   if (!base.ok) return base;
   const window = typeof input.day === "string" ? challengeWindow(base.value.kind, input.day) : null;
-  if (!window) return { ok: false, error: "Choose the week or month it runs in." };
-  if (Date.parse(window.endsAt) <= now) return { ok: false, error: "That week or month is over. Choose this one or a later one." };
+  if (!window) return { ok: false, error: "Choose the week or month it runs in.", field: "day" };
+  if (Date.parse(window.endsAt) <= now) return { ok: false, error: "That week or month is over. Choose this one or a later one.", field: "day" };
   const community = clean(input.communityId);
-  if (community && !UUID.test(community)) return { ok: false, error: "Choose a community from the list, or none." };
+  if (community && !UUID.test(community)) return { ok: false, error: "Choose a community from the list, or none.", field: "community" };
   return { ok: true, value: { ...base.value, ...window, communityId: community ? community.toLowerCase() : null } };
 }
 
 export function validateTemplate(input: { kind: unknown; title: unknown; metric: unknown; sport: unknown; target: unknown; active: unknown }):
-  { ok: true; value: TemplateInput } | { ok: false; error: string } {
+  { ok: true; value: TemplateInput } | FieldRefusal {
   const base = common(input);
   if (!base.ok) return base;
   return { ok: true, value: { ...base.value, active: input.active === true } };

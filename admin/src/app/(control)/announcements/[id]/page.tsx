@@ -7,6 +7,7 @@ import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
 import { announcementStatus, ANNOUNCEMENT_TONE_LABELS } from "@/lib/announcement-input";
 import { getAnnouncement } from "@/lib/data/announcements";
+import { noticeWords, pageNotice } from "@/lib/notice";
 import { MIGRATIONS } from "@/lib/schema";
 import { formatIstDateTime, isoToIstInput } from "@/lib/time";
 import { setAnnouncementStatus } from "../actions";
@@ -36,7 +37,7 @@ function StatusButton({ id, status, label, primary = false }: { id: string; stat
 }
 
 export default async function AnnouncementPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ notice?: string }> }) {
-  await requireAdmin("announcements.manage");
+  const actor = await requireAdmin("announcements.manage");
   const { id } = await params;
   const { notice } = await searchParams;
   const result = await getAnnouncement(id);
@@ -46,9 +47,10 @@ export default async function AnnouncementPage({ params, searchParams }: { param
 
   const row = result.row;
   const status = announcementStatus(row);
-  const message = notice === "saved" && row.status === "published"
+  const opened = pageNotice(notice, actor.id);
+  const message = opened?.code === "saved" && row.status === "published"
     ? { tone: "success" as const, text: "Saved and recorded in the audit log. Signed-in people see these changes from their next visit, during its time window." }
-    : notice ? notices[notice] : undefined;
+    : noticeWords(notices, opened);
 
   return (
     <div className="page-stack narrow-stack">

@@ -157,7 +157,9 @@ test("every refusal the migration raises has words on the screen, and so does ev
   assert.equal(rules.moderationNotice({ code: "23505", message: "duplicate key" }), "slug_taken");
   assert.equal(rules.moderationNotice({ code: "XX000", message: "boom" }), "failed");
   assert.equal(rules.moderationNotice({ code: "P0001", message: "explore_hide" }), "failed", "only the codes the functions use are trusted");
-  assert.equal(notices.exploreNotice("invalid_input", "The title needs 1 to 80 characters.").text, "The title needs 1 to 80 characters.");
+  // Words come only from the code: there is no code that shows text from the address (BUGS.md 1).
+  assert.equal(notices.exploreNotice("invalid_input"), null);
+  assert.equal(notices.exploreNotice("constructor"), null);
   assert.equal(notices.exploreNotice("nonsense"), null);
   assert.equal(notices.exploreNotice(""), null);
 });
