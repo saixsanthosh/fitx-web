@@ -3,9 +3,11 @@ import type { ActivitySource, ImportFormat, Sport } from "../types";
 
 /*
  * Before anything is saved, each file is checked against the account and the other files chosen
- * with it: the same session twice (same device id) is imported once, a session already in FITX is
- * not imported again, and one that overlaps another activity in time (a walk recorded with FITX
- * while the watch recorded it too) is held back until the person says to import it anyway.
+ * with it: the same session twice (same device id) is imported once (the file with the most of it),
+ * a session already in FITX is not imported again unless this file holds more of it than the saved
+ * import (that one was cut short), when it is offered as a replacement, and one that overlaps
+ * another activity in time (a walk recorded with FITX while the watch recorded it too) is held back
+ * until the person says to import it anyway.
  */
 
 /** Two activities closer than this (seconds of shared time) are not called overlapping: clocks differ a little. */
@@ -30,6 +32,9 @@ export type KnownActivity = {
   pointCount?: number;
   chunkCount?: number;
   sourceFormat?: ImportFormat | null;
+  /** Its distance and moving time, to compare with a fuller file (from the account). */
+  distanceM?: number;
+  movingSeconds?: number;
 };
 
 export type Candidate = { key: string; clientId: string; startedAt: number; endedAt: number };
@@ -42,6 +47,8 @@ export type ImportCheck =
   | { kind: "already"; activity: KnownActivity }
   /** The account has this session from an earlier import, without all its GPS points. */
   | { kind: "incomplete"; activity: KnownActivity }
+  /** The account has this session from an earlier import that holds less of it: this file can replace it. */
+  | { kind: "fuller"; activity: KnownActivity }
   /** It overlaps an activity in the account (or on this device), or another chosen file. */
   | { kind: "overlap"; activity: KnownActivity | null; otherKey: string | null };
 
@@ -68,8 +75,8 @@ export function checkImport(candidate: Candidate, existing: readonly KnownActivi
   return { kind: "ready" };
 }
 
-/** What a file builds to, for comparing with the saved row before filling in its points. */
-export type RecordShape = { startedAt: number; endedAt: number; pointCount: number; chunkCount: number; sourceFormat: ImportFormat | null };
+/** What a file builds to, for comparing with the saved row before filling in its points or replacing it. */
+export type RecordShape = { startedAt: number; endedAt: number; pointCount: number; chunkCount: number; sourceFormat: ImportFormat | null; distanceM?: number; movingSeconds?: number };
 
 /**
  * Whether a file can fill in the missing points of an earlier, incomplete import: only when it
@@ -85,6 +92,49 @@ export function refillsSaved(activity: KnownActivity, shape: RecordShape | null)
     && activity.chunkCount === shape.chunkCount
     && Math.abs(activity.startedAt - shape.startedAt) < 1000
     && Math.abs(activity.endedAt - shape.endedAt) < 1000;
+}
+
+/** Two exports of one session that end within this of each other are the same length (clock and rounding). */
+export const SAME_END_MS = 5_000;
+
+/** Whether `a` holds more of a session than `b`: it ends later, or ends together and has more points. */
+export function holdsMore(a: { endedAt: number; pointCount: number }, b: { endedAt: number; pointCount: number }): boolean {
+  if (Math.abs(a.endedAt - b.endedAt) > SAME_END_MS) return a.endedAt > b.endedAt;
+  return a.pointCount > b.pointCount;
+}
+
+/**
+ * Whether a file is a fuller export of a saved import of its session (same device id): the saved one was
+ * cut short (the watch was still syncing, or the export stopped part way), and this file ends later with
+ * more points. Only a saved import can be replaced, never a FITX recording or a copy on this device.
+ */
+export function isFullerExport(saved: KnownActivity, shape: RecordShape | null): boolean {
+  if (!shape || !saved.id || saved.local || saved.source !== "file" || saved.pointCount === undefined) return false;
+  return shape.endedAt > saved.endedAt + SAME_END_MS && shape.pointCount > saved.pointCount;
+}
+
+/**
+ * Settles a file whose session is already in FITX: an incomplete import is filled in only by the file that
+ * made it (refillsSaved); a fuller export of a saved import is offered as its replacement instead of being
+ * called a repeat; anything else is already in FITX.
+ */
+export function settleRepeat(check: ImportCheck, shape: RecordShape | null): ImportCheck {
+  const settled: ImportCheck = check.kind === "incomplete" && !refillsSaved(check.activity, shape) ? { kind: "already", activity: check.activity } : check;
+  if (settled.kind === "already" && isFullerExport(settled.activity, shape)) return { kind: "fuller", activity: settled.activity };
+  return settled;
+}
+
+/**
+ * Among files chosen together that are the same session (same device id), the one to import: the one that
+ * holds the most of it (the first of equals). The others are "the same activity as" that one.
+ */
+export function fullestOfEachSession(files: ReadonlyArray<{ key: string; clientId: string; endedAt: number; pointCount: number }>): Set<string> {
+  const best = new Map<string, { key: string; endedAt: number; pointCount: number }>();
+  for (const file of files) {
+    const current = best.get(file.clientId);
+    if (!current || holdsMore(file, current)) best.set(file.clientId, file);
+  }
+  return new Set([...best.values()].map((file) => file.key));
 }
 
 /** The key one known activity is held under: saved and device copies of a session are kept apart. */
@@ -108,21 +158,27 @@ export function mergeKnown(previous: readonly KnownActivity[], found: readonly K
 /** What happened to one file. */
 export type ImportResult =
   | { kind: "imported"; id: string }
+  /** A saved import that held less of the session was replaced by this file. */
+  | { kind: "replaced"; id: string }
   | { kind: "already"; id: string | null }
+  /** A fuller file whose replacement the person didn't ask for: the saved copy is kept. */
+  | { kind: "kept"; id: string | null }
   | { kind: "skipped"; reason: "overlap" | "same-file" }
   | { kind: "unsupported"; label: string }
   | { kind: "failed"; reason: string };
 
-/** "3 imported, 1 already in FITX, 1 skipped (overlaps another activity), 1 not a sport FITX records, 1 failed." */
+/** "3 imported, 1 replaced, 1 already in FITX, 1 skipped, 1 not a sport FITX records, 1 not imported." */
 export function summariseResults(results: readonly ImportResult[]): string {
   const count = (kind: ImportResult["kind"]) => results.filter((result) => result.kind === kind).length;
   const parts: string[] = [];
   const imported = count("imported");
-  const already = count("already");
+  const replaced = count("replaced");
+  const already = count("already") + count("kept");
   const skipped = count("skipped");
   const unsupported = count("unsupported");
   const failed = count("failed");
   if (imported) parts.push(`${imported} imported`);
+  if (replaced) parts.push(`${replaced} replaced`);
   if (already) parts.push(`${already} already in FITX`);
   if (skipped) parts.push(`${skipped} skipped`);
   if (unsupported) parts.push(`${unsupported} not a sport FITX records`);
