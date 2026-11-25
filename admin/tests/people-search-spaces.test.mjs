@@ -10,6 +10,9 @@ const people = await importTypeScriptModule("src/components/users/people-filters
 const data = await importTypeScriptModule("src/lib/data/people.ts", SESSION_STUBS);
 const actions = await importTypeScriptModule("src/app/(control)/users/actions.ts", SESSION_STUBS);
 const search = await importTypeScriptModule("src/lib/people-search.ts");
+const params = await importTypeScriptModule("src/lib/search-params.ts");
+const exercises = await importTypeScriptModule("src/lib/data/exercises.ts", SESSION_STUBS);
+const foods = await importTypeScriptModule("src/lib/data/foods.ts", SESSION_STUBS);
 const OPERATOR = { id: "00000000-0000-4000-8000-0000000000a1", username: "huntadmin", role: "super_admin", permissions: ["people.view"] };
 
 beforeEach(() => {
@@ -35,4 +38,11 @@ test("the search form seals the normalised text, and the database gets it as one
   fake.handler = () => ({ data: [], error: null });
   await data.searchPeopleFiltered({ q: people.normalisePeopleQuery("Asha  Local"), status: null, method: null, plan: null, page: 1 });
   assert.equal(rpcCalls("fitx_admin_search_users_v2")[0].args.p_query, "Asha Local");
+});
+
+test("the same rule for the Workouts and Nutrition library searches (the same mistake there)", () => {
+  assert.equal(params.searchText("  Dumbbell   Bench\tPress ", 80), "Dumbbell Bench Press");
+  assert.equal(params.searchText(`${"a".repeat(79)}   b`, 80), "a".repeat(79));
+  assert.equal(exercises.parseExerciseFilters({ q: "Dumbbell  Bench Press" }).q, "Dumbbell Bench Press");
+  assert.equal(foods.parseFoodFilters({ q: " masala   dosa " }).q, "masala dosa");
 });

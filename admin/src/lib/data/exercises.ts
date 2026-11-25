@@ -7,6 +7,7 @@ import { publicUrlFor } from "@/lib/content/storage";
 import { EQUIPMENT_KEYS, EXERCISE_CATEGORIES, MUSCLE_GROUPS } from "@/lib/content/vocabulary";
 import { logServerError } from "@/lib/log";
 import { isMissingTable } from "@/lib/schema";
+import { searchText } from "@/lib/search-params";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
 export const EXERCISE_PAGE_SIZE = 30;
@@ -45,7 +46,7 @@ export function parseExerciseFilters(params: Params): ExerciseFilters {
   const visibility = first(params.visibility);
   const page = Number(first(params.page));
   return {
-    q: first(params.q).trim().slice(0, 80),
+    q: searchText(first(params.q), 80),
     group: (MUSCLE_GROUPS as readonly string[]).includes(group) ? group : "",
     category: (EXERCISE_CATEGORIES as readonly string[]).includes(category) ? category : "",
     equipment: equipment === "none" || EQUIPMENT_KEYS.includes(equipment) ? equipment : "",

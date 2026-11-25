@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { isContentMigrationMissing } from "@/lib/content/errors";
 import { logServerError } from "@/lib/log";
 import { isMissingTable } from "@/lib/schema";
+import { searchText } from "@/lib/search-params";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { likePattern } from "./exercises";
 
@@ -20,7 +21,7 @@ export function parseFoodFilters(params: Params): FoodFilters {
   const source = first(params.source);
   const page = Number(first(params.page));
   return {
-    q: first(params.q).trim().slice(0, 80),
+    q: searchText(first(params.q), 80),
     category: first(params.category).slice(0, 120),
     visibility: visibility === "shown" || visibility === "hidden" ? visibility : "all",
     source: source === "admin" || source === "usda" ? source : "all",
