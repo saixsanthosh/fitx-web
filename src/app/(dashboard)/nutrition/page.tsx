@@ -34,7 +34,7 @@ import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { legacyDietaryPreferences, profileAge } from "@/lib/domain/profile-options";
 import { loadBirthDate, notifyUserContextChanged } from "@/lib/domain/user-context";
 import { isMissingColumnError } from "@/lib/supabase/errors";
-import { amountAfterUnitChange, askForGramsMessage, describePortion, describeTypedAmount, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
+import { amountAfterUnitChange, amountProblemMessage, askForGramsMessage, describePortion, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { checkSectionName, mealForTime, mealSections } from "@/lib/domain/meal-time";
 import { estimateNutritionTargets, resolveDayTargets, resolveWaterTarget, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
@@ -42,6 +42,7 @@ import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
 import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
+import { searchOutcome } from "@/lib/food/search-outcome";
 import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, writeSnooze, type NutritionSetupAnswers } from "@/lib/food/setup";
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
@@ -362,8 +363,12 @@ export default function NutritionPage() {
       // Nothing typed: one of the food's own pieces or servings when it has one, otherwise 100 g.
       // The label's own serving is the default for a scanned product.
       const index = portions.findIndex((portion) => portion.countDefault || (food.kind === "packaged" && portion.unit === "serving" && portion.estimate === false));
-      setAmount(index >= 0 ? "1" : "100");
       setUnitKey(index >= 0 ? `portion:${index}` : "g");
+      if (typed.problem) {
+        // "0 idli" or "-2 idli": no amount is assumed; the panel says why and waits for one.
+        setAmount("");
+        setAmountPrompt({ message: amountProblemMessage(typed.problem, false), actions: [] });
+      } else setAmount(index >= 0 ? "1" : "100");
     }
   }, [household]);
 
@@ -422,7 +427,7 @@ export default function NutritionPage() {
     if (typed.text.length < 2) {
       if (!value.trim()) { void browseFoods(); setLastSearch(""); setLastQuery(NO_AMOUNT); return; }
       setResults([]);
-      if (typed.amount !== null) setError("Add a food name after the amount, for example “150 g rice”.");
+      if (typed.amount !== null || typed.problem) setError("Add a food name after the amount, for example “150 g rice”.");
       return;
     }
     setSearchingFoods(true); setError(""); setNotice(""); setPickHint(""); setBarcodeMiss(null);
@@ -443,27 +448,15 @@ export default function NutritionPage() {
             ? "Open Food Facts didn't answer just now. Try again in a minute, or scan the product's barcode."
             : "No packaged product matched. Try other words, or scan the barcode."
           : "No matching food was found. Try other words, search packaged products, or add your own food.");
-      } else if (typed.amount !== null && !packaged) {
-        // Select a food only when it is clearly the one meant (its whole name or alias is what was typed); otherwise
-        // the user taps one, and the typed amount is applied to it.
-        const pick = data.pick ? found.find((food) => food.source === data.pick?.source && food.id === data.pick?.id) ?? null : null;
-        // The diet filter hides a food, so it is never selected behind the user's back either.
-        const hiddenPick = pick && hiddenByDiet(pick.dietType, dietFilter) ? pick : null;
-        const visible = found.filter((food) => !hiddenByDiet(food.dietType, dietFilter));
-        if (pick && !hiddenPick) chooseFood(pick, typed);
-        else {
-          setSelected(null);
-          setDerived(null);
-          setAmountPrompt(null);
-          const amountText = describeTypedAmount(typed);
-          setPickHint(hiddenPick
-            ? `“${hiddenPick.name}” is marked ${hiddenPick.dietType === "egg" ? "egg" : "non-veg"}, so it is hidden. Turn off “Hide ${hiddenPick.dietType === "egg" ? "egg" : "non-veg"}” to log it.`
-            : visible.length === 1
-              ? `Is it “${visible[0].name}”? Tap it to keep ${amountText}.`
-              : visible.length
-                ? `Tap the “${typed.text}” you mean to keep ${amountText}.`
-                : `Every food that matches “${typed.text}” is hidden by the diet filter.`);
-        }
+      }
+      // Select the food that is clearly meant, or ask which one (keeping the amount, or saying why it can't be used).
+      const outcome = searchOutcome(typed, found, data.pick, dietFilter, packaged);
+      if (outcome.kind === "pick") chooseFood(outcome.food, typed);
+      else if (outcome.kind === "choose") {
+        setSelected(null);
+        setDerived(null);
+        setAmountPrompt(null);
+        setPickHint(outcome.hint);
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
     finally { setSearchingFoods(false); }
@@ -982,7 +975,7 @@ export default function NutritionPage() {
               {choosing && <section className={styles.choose} aria-labelledby="choose-title">
                 <h3 id="choose-title" className="sr-only">Add to log</h3>
                 <p className={styles.chooseTitle}>Choose a food</p>
-                <p className={styles.chooseText}>{pickHint}</p>
+                <p role="status" className={styles.chooseText}>{pickHint}</p>
               </section>}
               {foodList}
               {visibleSources.length > 0 && !showBrowse && <p className={styles.sources} aria-label="Sources for these results">{visibleSources.map((source) => <span key={source.id} className={source.status === "ok" || source.status === "no_results" ? styles.sourceChip : styles.sourceChipDown}>{sourceText(source)}</span>)}</p>}

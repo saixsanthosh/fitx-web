@@ -30,6 +30,11 @@ export interface ParsedFoodQuery {
   unit: FoodUnit | null;
   /** A size word typed next to the amount, as in "2 large rotis". */
   size: PortionSize | null;
+  /**
+   * An amount typed as 0 ("0 idli") or below 0 ("-2 idli"). It is not used (`amount` is null) and is not part of the
+   * food's name; the app says so and asks how much was eaten, instead of searching for "0 idli" or logging 2.
+   */
+  problem?: "zero" | "negative";
 }
 
 export interface FoodPortion {
@@ -144,17 +149,22 @@ export const NOT_A_COUNT = /cubic inch|container|carton|\bpacks?\b|package|packe
 
 /** Splits a typed phrase into the food words and the amount. */
 export function parseFoodQuery(input: string): ParsedFoodQuery {
-  const tokens = tokenize(input);
+  const signed = tokenizeWithSigns(input);
+  const tokens = signed.map((item) => item.token);
   let amount: number | null = null;
   let unit: FoodUnit | null = null;
   let size: PortionSize | null = null;
+  let problem: ParsedFoodQuery["problem"];
   let start = -1;
   let end = -1;
 
   for (let index = 0; index < tokens.length && start < 0; index += 1) {
     const read = readAmount(tokens, index);
     if (!read) continue;
-    amount = read.value;
+    // "0 idli" and "-2 idli" name no amount that can be eaten: say so, rather than search "0 idli" or log 2.
+    if (read.value === 0) problem = "zero";
+    else if (signed[index].negative) problem = "negative";
+    amount = problem ? null : read.value;
     let next = read.next;
     if (tokens[next] === "x") next += 1;
     if (SIZE_WORDS[tokens[next]]) { size = SIZE_WORDS[tokens[next]]; next += 1; }
@@ -176,7 +186,13 @@ export function parseFoodQuery(input: string): ParsedFoodQuery {
 
   const rest = start < 0 ? tokens : [...tokens.slice(0, start), ...tokens.slice(end)];
   const words = unique(rest.flatMap(splitText).filter((word) => !FILLER_WORDS.has(word)));
-  return { text: words.join(" "), words, amount, unit, size };
+  return problem ? { text: words.join(" "), words, amount: null, unit: null, size: null, problem } : { text: words.join(" "), words, amount, unit, size };
+}
+
+/** What to tell the member about an amount of 0 or below, before they pick a food (`picking`) or in the food's panel. */
+export function amountProblemMessage(problem: NonNullable<ParsedFoodQuery["problem"]>, picking: boolean): string {
+  const said = problem === "zero" ? "An amount of 0 can't be logged." : "An amount below 0 can't be logged.";
+  return `${said} ${picking ? "Tap the food you mean, then enter how much you had." : "Enter how much you had."}`;
 }
 
 /** "idlis" -> "idli", "tomatoes" -> "tomato", "berries" -> "berry". */
@@ -364,7 +380,12 @@ export function formatAmount(value: number): string {
 }
 
 function tokenize(input: string): string[] {
-  let text = String(input ?? "").toLowerCase();
+  return tokenizeWithSigns(input).map((item) => item.token);
+}
+
+/** The tokens, each marked when it was a number typed with a minus sign ("-2", "−2"), which the token itself drops. */
+function tokenizeWithSigns(input: string): Array<{ token: string; negative: boolean }> {
+  let text = String(input ?? "").toLowerCase().replace(/[−–]/g, "-");
   for (const [glyph, ascii] of Object.entries(UNICODE_FRACTIONS)) text = text.replaceAll(glyph, ` ${ascii} `);
   text = text
     .normalize("NFKC")
@@ -379,8 +400,8 @@ function tokenize(input: string): string[] {
   text = text.replace(UNIT_SUFFIX, "$1 $2");
   return text
     .split(/\s+/)
-    .map((token) => token.replace(/^['-]+|[.'-]+$/g, "").replace(/^\.(?!\d)/, ""))
-    .filter(Boolean);
+    .map((raw) => ({ token: raw.replace(/^['-]+|[.'-]+$/g, "").replace(/^\.(?!\d)/, ""), negative: /^-+\.?\d/.test(raw) }))
+    .filter((item) => item.token);
 }
 
 /** "200g" -> "200 g", "1.5cups" -> "1.5 cups", but "7up" stays one word. */
@@ -403,7 +424,8 @@ function readAmount(tokens: string[], index: number): { value: number; next: num
     value *= 12;
     next += 1;
   }
-  return value > 0 ? { value, next } : null;
+  // 0 is read as an amount too, so "0 idli" is not a search for a food called "0 idli" (parseFoodQuery flags it).
+  return value >= 0 ? { value, next } : null;
 }
 
 function parseNumberToken(token: string | undefined): number | null {
