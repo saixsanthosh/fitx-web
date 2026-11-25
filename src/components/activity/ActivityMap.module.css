@@ -12,6 +12,9 @@
   inset: 0;
 }
 
+/* MapLibre's zoom buttons take the top-right corner: 10 px in from the edges, two 44 px buttons inside a 1 px
+   border, so a column 46 px wide and 90 px tall. FITX's own controls and notices over the map keep out of it. */
+
 /* A control laid over the map's top-left corner (the Record screen's Hide map button) sets
    --fitx-map-inset-top, so the notice sits below it instead of under it. */
 .notice {
@@ -30,9 +33,19 @@
   line-height: 1.4;
 }
 
+/* The notice over a working map (its tiles failed to load), on the Record screen and on an activity's page, stops
+   10 px short of the zoom column, so the buttons stay visible and usable. The no-WebGL notice has no zoom buttons
+   beside it and keeps the full width. */
+.notice.clearOfZoom {
+  right: 66px;
+}
+
+/* Re-centre sits bottom-left: the right-hand side has the zoom column at the top and the attribution at the
+   bottom, and on a short map (the phone Record screen while recording) there is no room between them. It stays
+   44 px up, clear of the attribution, which can run the width of a phone's map. */
 .recenter {
   position: absolute;
-  right: 10px;
+  left: 10px;
   bottom: calc(44px + var(--fitx-map-inset-bottom, 0px));
   z-index: 2;
   display: grid;
