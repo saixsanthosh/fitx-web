@@ -89,7 +89,8 @@ export function BodyMap({
     });
     observer.observe(svg);
     return () => observer.disconnect();
-  }, [interactive]);
+    // Front and Back swap the figure's svg on phones: the new one is measured.
+  }, [interactive, view]);
   const hitAreas = useMemo(() => (interactive && figurePx ? { front: pickerHitAreas("front", figurePx), back: pickerHitAreas("back", figurePx) } : null), [interactive, figurePx]);
   const clipPrefix = `bm${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
   const visible = (key: RegionKey) => views.some((side) => regionInView(key, side));

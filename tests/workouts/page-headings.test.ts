@@ -56,9 +56,13 @@ describe("every state has one h1", () => {
     assert.equal(screen.match(/return <RecordState><EmptyState headingLevel=\{2\}/g)?.length, 2);
   });
 
-  test("/exercises/[id]: an sr-only h1 while loading, and 'Exercise' over the unavailable state", () => {
+  test("/exercises/[id]: the exercise's name, or 'Exercise' over the unavailable state (none while loading)", () => {
     const view = source("src/components/exercises/detail/ExerciseDetailView.tsx");
-    assert.match(view, /<h1 className="sr-only">Exercise<\/h1>/);
+    // While it loads there is no h1 at all, rather than a stand-in one: e2e flows wait for the page's h1 and then read
+    // what it shows.
+    const skeleton = view.slice(view.indexOf("function DetailSkeleton()"), view.indexOf("export function ExerciseDetailView"));
+    assert.doesNotMatch(skeleton, /<h1/);
+    assert.match(source("src/components/exercises/detail/ExerciseHeader.tsx"), /<h1 [^>]*>\{exercise\.name\}<\/h1>/);
     assert.match(view, /<PageHeader title="Exercise" \/>\s+<EmptyState\s+headingLevel=\{2\}\s+title="Exercise unavailable"/);
   });
 });

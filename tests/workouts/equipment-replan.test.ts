@@ -54,6 +54,7 @@ describe("the Workouts page (JSX, read from the source)", () => {
     assert.match(page, /onReplan: todayGaps\?\.count && today\.kind !== "none" && today\.programme && enrolment\?\.status === "active" \? \(\) => void replanToday\(todayCard\.id\) : null/);
     assert.match(card, /\{gap\.replanning \? "Re-planning…" : "Re-plan this day"\}/);
     assert.match(card, /" Open Details to swap them\."/, "the member's own plan points to Details, where each exercise can be swapped");
+    assert.match(card, /if \(hadReplan\.current && !canReplan && \(!document\.activeElement \|\| document\.activeElement === document\.body\)\) startRef\.current\?\.focus\(\);/, "a fixed day's Re-plan button goes; focus moves to Start");
     assert.match(programmeCard, /<p role="status" className=\{note\?\.tone === "info"/);
   });
 

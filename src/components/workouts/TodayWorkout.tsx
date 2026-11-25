@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ArrowRight, ChevronRight, ListChecks } from "lucide-react";
 import { ExerciseThumb } from "@/components/exercises/ExerciseThumb";
 import { todayStart, type ActiveWorkout } from "@/app/(dashboard)/workouts/_lib/today-start";
@@ -50,6 +50,14 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
 }) {
   const summary = rows ? planSummary(rows) : null;
   const start = todayStart(plan, active);
+  // A re-plan that fixes the day takes "Re-plan this day" away: if it had focus, Start takes it (D5).
+  const startRef = useRef<HTMLButtonElement>(null);
+  const canReplan = Boolean(gap?.onReplan);
+  const hadReplan = useRef(canReplan);
+  useEffect(() => {
+    if (hadReplan.current && !canReplan && (!document.activeElement || document.activeElement === document.body)) startRef.current?.focus();
+    hadReplan.current = canReplan;
+  }, [canReplan]);
   const shown = rows?.slice(0, SHOWN) ?? [];
   const more = rows ? rows.length - shown.length : 0;
   return (
@@ -111,7 +119,7 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
       <footer className={styles.foot}>
         {startError && <p role="alert" className="fitx-alert fitx-alert-danger w-full">{startError}</p>}
         {start.note && <p id="today-workout-start-note" className="w-full text-xs text-fitx-text-secondary">{start.note}</p>}
-        <button type="button" onClick={() => { if (!starting) onStart(); }} disabled={start.kind === "start" && !rows?.length} aria-disabled={starting || undefined} aria-describedby={start.note ? "today-workout-start-note" : undefined} className={`fitx-button aria-disabled:opacity-60 ${styles.start}`}>
+        <button ref={startRef} type="button" onClick={() => { if (!starting) onStart(); }} disabled={start.kind === "start" && !rows?.length} aria-disabled={starting || undefined} aria-describedby={start.note ? "today-workout-start-note" : undefined} className={`fitx-button aria-disabled:opacity-60 ${styles.start}`}>
           {starting ? "Starting…" : start.label}<ArrowRight size={17} aria-hidden="true" />
         </button>
         <button type="button" aria-haspopup="dialog" onClick={onDetails} className={`fitx-button fitx-button-secondary ${styles.details}`}><ListChecks size={16} aria-hidden="true" />Details</button>

@@ -77,6 +77,7 @@ describe("the map and its page (JSX, read from the source)", () => {
     assert.match(map, /aria-hidden="true">\{hitShapes\}\{plates\}<\/g>/, "the copy in the other view too");
     assert.match(map, /pickerHitAreas\("front", figurePx\)/);
     assert.match(map, /new ResizeObserver/);
+    assert.match(map, /\}, \[interactive, view\]\);/, "Front and Back swap the svg on phones: the new one is measured");
     assert.match(css, /\.hit \{ fill: transparent; stroke: none; pointer-events: all; \}/);
   });
 

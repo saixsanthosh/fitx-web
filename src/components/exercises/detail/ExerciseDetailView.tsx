@@ -33,8 +33,8 @@ const NOT_FOUND = "This exercise is not in the library. It may have been removed
 function DetailSkeleton() {
   return (
     <div role="status" className="space-y-4">
-      {/* The page's main heading while the exercise loads (bug 94); its own name replaces it. */}
-      <h1 className="sr-only">Exercise</h1>
+      {/* No h1 while loading: the page's h1 is the exercise's own name (e2e flows wait for it), or "Exercise" when it
+          cannot be shown. */}
       <div className="h-11 w-40 animate-pulse rounded-md bg-fitx-surface-variant motion-reduce:animate-none" />
       <div className="h-9 w-2/3 max-w-md animate-pulse rounded-md bg-fitx-surface-variant motion-reduce:animate-none" />
       <div className="h-7 w-1/2 max-w-sm animate-pulse rounded-md bg-fitx-surface-variant motion-reduce:animate-none" />
