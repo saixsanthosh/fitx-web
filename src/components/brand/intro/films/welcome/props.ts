@@ -8,7 +8,9 @@
  *   stutters on in the opening and keys the platform;
  * - two black rubber loading blocks that hold the empty bar at plate height, so plates roll and slide on;
  * - the loaded bar: the gym's own barbell (`FilmProps.barbell`), turned to lie along the mark's bar line, with three of
- *   its plates resized to the mark's three plates (450, 350 and 260 mm) and everything else hidden;
+ *   its plates resized to the mark's three plates (450, 350 and 260 mm) and everything else hidden; each plate's face
+ *   reads its own weight (20, 10 and 5 KG): Dre's 5 kg plate is one of the gym's 20 kg bumpers scaled down, so it wears
+ *   a clone of that bumper's material with the same artwork reading 5 KG (D14), disposed with these props;
  * - Leo's helmet spot (D11): indoors Leo wears neither his cycling helmet nor his sunglasses. His own helmet mesh is
  *   moved onto the gym floor just off the platform with the stage's `carryHelmet` (which `hideStage` undoes before
  *   every shot), its rim resting flat, and his sunglasses are hidden (`leoIndoors`).
@@ -23,7 +25,9 @@ import type { CharacterInstance } from "../../character/assemble";
 import { carryHelmet } from "../../director/stage-kit";
 import { BARBELL, PLATFORM } from "../../dimensions";
 import type { FitxMarkPieceId } from "../../../logo/geometry";
+import { PLATE_BODY, PLATE_FACES } from "../../sets/props/barbell";
 import type { BarbellPlate, BarbellProp, IntroSet } from "../../sets/types";
+import { plateArtwork } from "../../sets/util/canvas";
 import type { Theme } from "../../types";
 import { MARK_BAR_LINE, MARK_FLOOR_DEPTH, MARK_FLOOR_SCALE, MARK_IGNITION, MARK_PLATES, parseMarkPath } from "./mark-floor";
 import { FITX_MARK_PATHS } from "../../../logo/geometry";
@@ -35,11 +39,14 @@ export const INLAY_TOP = FLOOR_Y + MARK_FLOOR_DEPTH;
 /** The bar's centre height when plate 1 stands on the inlay (its radius). */
 export const BAR_Y = INLAY_TOP + BARBELL.plates[0].diameter / 2;
 
-/** The three plates, inside out: which of the barbell's +X plates plays each, and its size (m). */
+/**
+ * The three plates, inside out: which of the barbell's +X plates plays each, its size (m) and the weight its face reads
+ * (film-welcome's design: Maya's 20 kg, Leo's 10 kg, Dre's 5 kg).
+ */
 export const WELCOME_PLATES = [
-  { owner: "maya", index: 0, diameter: 0.45, thickness: 0.089 },
-  { owner: "leo", index: 4, diameter: 0.35, thickness: 0.084 },
-  { owner: "dre", index: 1, diameter: 0.26, thickness: 0.078 },
+  { owner: "maya", index: 0, diameter: 0.45, thickness: 0.089, face: "20 KG" },
+  { owner: "leo", index: 4, diameter: 0.35, thickness: 0.084, face: "10 KG" },
+  { owner: "dre", index: 1, diameter: 0.26, thickness: 0.078, face: "5 KG" },
 ] as const;
 const PLATE_GAP = 0.0015;
 /** The sleeve starts this far from the bar centre (the inner collar); plate positions below are relative to it. */
@@ -92,6 +99,12 @@ export interface WelcomeProps {
   setIgnition(id: FitxMarkPieceId, amount: number, heat: number): void;
   /** Every piece dark. */
   resetIgnition(): void;
+  /**
+   * Puts each loaded plate's weight on its face (`WELCOME_PLATES[].face`). A plate whose barbell plate already reads
+   * that weight keeps the barbell's material; any other (Dre's) wears a clone of it whose artwork reads its own weight
+   * in the same style, made once and disposed with these props.
+   */
+  dressPlates(barbell: BarbellProp): void;
   applyTheme(theme: Theme): void;
   dispose(): void;
 }
@@ -228,6 +241,25 @@ function buildProps(gym: IntroSet, theme: Theme): WelcomeProps {
   helmetSpot.position.set(HELMET_SPOT.x, 0, HELMET_SPOT.z);
   gym.group.add(helmetSpot);
 
+  // ------------------------------------------------------------------ the plates' faces (D14)
+  // One clone per barbell material and weight, made the first time the bar is staged (it needs the barbell's own
+  // material, and a canvas for the artwork): the barbell's face artwork in the same style and size with the plate's own
+  // weight, on copies of its two face textures that keep every sampling setting. Shared by every shot.
+  const faces = new Map<string, THREE.MeshStandardMaterial>();
+  const dressed = new Set<THREE.Mesh>();
+  const faceMaterial = (own: FacedMaterial, kind: BarbellPlate["kind"], face: string) => {
+    const key = `${own.uuid}:${face}`;
+    let material = faces.get(key);
+    if (!material) {
+      const art = plateArtwork((own.map.image as HTMLCanvasElement).width, { ...PLATE_FACES[kind], text: face });
+      material = track(own.clone());
+      material.map = track(redrawn(own.map, art.colour));
+      material.bumpMap = track(redrawn(own.bumpMap, art.height));
+      faces.set(key, material);
+    }
+    return material;
+  };
+
   const applyTheme = (next: Theme) => {
     for (const piece of pieces) piece.material.color.setHex(next === "light" ? 0x3b3f43 : 0x2b2e31);
   };
@@ -260,12 +292,31 @@ function buildProps(gym: IntroSet, theme: Theme): WelcomeProps {
         piece.material.emissiveIntensity = 0;
       }
     },
+    dressPlates(barbell) {
+      welcomePlates(barbell).forEach((plate, index) => {
+        const body = plateBody(plate);
+        if (!body) return;
+        const own = ownFaces.get(body) ?? body.material;
+        const face = WELCOME_PLATES[index].face;
+        // Its own face already reads the weight (Maya's, Leo's), or it has no face artwork to redraw.
+        if (face === PLATE_FACES[plate.kind].text || !isFaced(own)) {
+          wearOwnFace(body);
+          return;
+        }
+        ownFaces.set(body, own);
+        dressed.add(body);
+        body.material = faceMaterial(own, plate.kind, face);
+      });
+    },
     applyTheme,
     dispose() {
       mark.removeFromParent();
       strip.removeFromParent();
       blocks.removeFromParent();
       helmetSpot.removeFromParent();
+      // No barbell plate is left wearing a disposed face.
+      for (const body of dressed) wearOwnFace(body);
+      dressed.clear();
       for (const item of disposables) item.dispose();
     },
   };
@@ -275,6 +326,37 @@ function buildProps(gym: IntroSet, theme: Theme): WelcomeProps {
 export function welcomePlates(barbell: BarbellProp): [BarbellPlate, BarbellPlate, BarbellPlate] {
   const left = barbell.plates.left;
   return [left[WELCOME_PLATES[0].index], left[WELCOME_PLATES[1].index], left[WELCOME_PLATES[2].index]];
+}
+
+/** A plate material with face artwork: the barbell's bumpers have a colour map and a height (bump) map. */
+type FacedMaterial = THREE.MeshStandardMaterial & { map: THREE.Texture; bumpMap: THREE.Texture };
+
+const isFaced = (material: THREE.Material | THREE.Material[]): material is FacedMaterial =>
+  material instanceof THREE.MeshStandardMaterial && material.map !== null && material.bumpMap !== null;
+
+/** The barbell plates' own face materials, kept while a welcome plate wears another (`WelcomeProps.dressPlates`). */
+const ownFaces = new WeakMap<THREE.Mesh, THREE.Material | THREE.Material[]>();
+
+/** A barbell plate's rubber body, the mesh that wears its face, or null for a stand-in plate without meshes. */
+function plateBody(plate: BarbellPlate): THREE.Mesh | null {
+  const body = plate.object.getObjectByName(PLATE_BODY) as THREE.Mesh | undefined;
+  return body?.isMesh ? body : null;
+}
+
+/** Puts a barbell plate's own face material back, if a welcome face was put on it. */
+function wearOwnFace(body: THREE.Mesh) {
+  const own = ownFaces.get(body);
+  if (!own) return;
+  body.material = own;
+  ownFaces.delete(body);
+}
+
+/** A copy of one of a plate's face textures, every sampling setting kept, on new artwork. */
+function redrawn(texture: THREE.Texture, canvas: HTMLCanvasElement) {
+  const copy = texture.clone();
+  copy.source = new THREE.TextureSource(canvas);
+  copy.needsUpdate = true;
+  return copy;
 }
 
 /**
@@ -324,11 +406,19 @@ export function resetWelcomeProps(welcome: WelcomeProps, barbell: BarbellProp) {
   welcome.setStrip(1);
   welcome.resetIgnition();
   stageBar(barbell);
+  welcome.dressPlates(barbell);
 }
 
-/** Barbell plates the welcome film resized, back to their own size (the intro never shares this director, but be tidy). */
+/**
+ * Barbell plates the welcome film resized and re-faced, back to their own size and face (the intro never shares this
+ * director, but be tidy).
+ */
 export function restoreBarbell(barbell: BarbellProp) {
-  for (const plate of [...barbell.plates.left, ...barbell.plates.right]) plate.object.scale.set(1, 1, 1);
+  for (const plate of [...barbell.plates.left, ...barbell.plates.right]) {
+    plate.object.scale.set(1, 1, 1);
+    const body = plateBody(plate);
+    if (body) wearOwnFace(body);
+  }
 }
 
 /** World position of a plate's centre (after the bar's transform). */

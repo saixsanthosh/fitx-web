@@ -24,6 +24,18 @@ const PEAK_DIP = 0.1;
 const KNURL_TILE = 0.0128;
 const SHAFT_SEGMENTS_PER_M = 90;
 
+/**
+ * The bumpers' face artwork (`plateArtwork`): the coral 20 kg and the graphite 10 kg plate. The welcome film's 5 kg
+ * plate wears the coral face with its own weight (`films/welcome/props.ts`).
+ */
+export const PLATE_FACES = {
+  coral: { base: "#c44933", ink: "#f4efe8", text: "20 KG", small: "OLYMPIC BUMPER", ringInk: "#a83c29" },
+  graphite: { base: "#34383b", ink: "#cfcdc8", text: "10 KG", small: "OLYMPIC BUMPER", ringInk: "#2a2d30" },
+} as const;
+
+/** Name of each plate's rubber body mesh, the one that wears the face artwork (the hub insert is steel). */
+export const PLATE_BODY = "plate-body";
+
 /** Diamond knurl height pattern (8 × 8 diamonds per tile) for a bump map. */
 function knurlCanvas(size = 256) {
   const { canvas, ctx } = canvas2d(size, size);
@@ -122,8 +134,8 @@ export function createBarbell(): BarbellProp {
   const knurlMat = disposer.track(new THREE.MeshStandardMaterial({ color: 0xc2c6c9, metalness: 1, roughness: 0.36, bumpMap: knurlTex, bumpScale: 1.4 }));
   const smoothMat = disposer.track(new THREE.MeshStandardMaterial({ color: 0xcfd2d5, metalness: 1, roughness: 0.22 }));
   const chromeMat = disposer.track(new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 1, roughness: 0.12 }));
-  const coralArt = plateArtwork(512, { base: "#c44933", ink: "#f4efe8", text: "20 KG", small: "OLYMPIC BUMPER", ringInk: "#a83c29" });
-  const graphiteArt = plateArtwork(512, { base: "#34383b", ink: "#cfcdc8", text: "10 KG", small: "OLYMPIC BUMPER", ringInk: "#2a2d30" });
+  const coralArt = plateArtwork(512, PLATE_FACES.coral);
+  const graphiteArt = plateArtwork(512, PLATE_FACES.graphite);
   const coralMat = disposer.track(
     new THREE.MeshStandardMaterial({
       map: disposer.track(canvasTexture(coralArt.colour, { anisotropy: 8 })),
@@ -242,6 +254,7 @@ export function createBarbell(): BarbellProp {
       const restX = (x + spec.thickness / 2) * side;
       plate.position.x = restX;
       const bodyMesh = new THREE.Mesh(body, spec.color === "coral" ? coralMat : graphiteMat);
+      bodyMesh.name = PLATE_BODY;
       const hubMesh = new THREE.Mesh(hub, hubMat);
       plate.add(bodyMesh, hubMesh);
       spin.add(plate);
