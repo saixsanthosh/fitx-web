@@ -259,7 +259,8 @@
   font-weight: 650;
   cursor: pointer;
 }
-.signOut span { display: none; }
+/* Below 640 px the words are hidden from the eye only, so the button is still named "Sign out" for screen readers. */
+.signOut span { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .signOut:hover { border-color: var(--ink-soft); }
 
 .main {
@@ -299,7 +300,7 @@
 .drawerTop .iconButton:hover { border-color: color-mix(in srgb, var(--on-stage) 24%, transparent); background: transparent; }
 
 @media (min-width: 640px) {
-  .signOut span { display: inline; }
+  .signOut span { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; clip-path: none; white-space: nowrap; }
   .main { padding: 28px 24px 64px; }
 }
 
