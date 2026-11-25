@@ -75,7 +75,7 @@ export function BottomNav() {
         onClose={() => { setOpen(false); moreButton.current?.focus(); }}
         onClick={(event) => { if (event.target === event.currentTarget) closeSheet(); }}
       >
-        <div className="fitx-sheet__panel">
+        <div className="fitx-sheet__panel fitx-scroll-cue">
           <span aria-hidden="true" className="mx-auto mb-1 block h-1 w-9 rounded-full bg-fitx-track" />
           <div className="flex items-center justify-between gap-3 px-2 pb-1">
             <h2 id="more-sheet-title" className="font-heading text-base font-semibold text-fitx-text">More</h2>

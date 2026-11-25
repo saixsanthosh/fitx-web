@@ -69,7 +69,12 @@ test("the account is one row at the foot; its menu holds Profile, Settings, Help
 
 test("on a shorter window the menu scrolls and shows that it does", () => {
   assert.ok(tokens(classOf(sidebar, /<nav ref=\{nav\} aria-label="Main navigation" className="([^"]+)"/)).includes("fitx-scroll-cue"));
-  const cue = source("src/app/globals.css").match(/^\.fitx-scroll-cue \{([^}]*)\}/m)?.[1] ?? "";
-  assert.equal((cue.match(/ no-repeat local/g) ?? []).length, 2, "two covers that scroll with the list");
-  assert.equal((cue.match(/ no-repeat scroll/g) ?? []).length, 2, "two shades fixed at the edges");
+  const globals = source("src/app/globals.css");
+  const cue = globals.match(/^\.fitx-scroll-cue \{([^}]*)\}/m)?.[1] ?? "";
+  assert.match(cue, /background-attachment: local, local, scroll, scroll;/, "two covers that scroll with the list, two shades fixed at its edges");
+  assert.doesNotMatch(cue, /background:/, "longhands only: the list keeps its own background colour");
+  // The same cue on the phone's More sheet and the public menu, whose panel is the elevated surface.
+  for (const file of ["BottomNav.tsx", "PublicMobileMenu.tsx"]) assert.match(source(`src/components/layout/${file}`), /<div className="fitx-sheet__panel fitx-scroll-cue">/, file);
+  const panel = globals.match(/^\.fitx-sheet__panel \{([^}]*)\}/m)?.[1] ?? "";
+  assert.match(panel, /background-color: var\(--fitx-elevated\); --fitx-scroll-cue-bg: var\(--fitx-elevated\);/);
 });

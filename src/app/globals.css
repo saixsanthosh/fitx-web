@@ -554,14 +554,20 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 .fitx-glass { -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2); }
 
 /* A list that scrolls shows that it does: a soft shade at each edge with more items beyond it, and none when
-   everything fits. Two covers in the page colour scroll with the list and hide each shade at its own end (Lea
-   Verou's scrolling shadows; CSS only). Used by the sidebar's menu on short windows (bug 73). */
+   everything fits. Two covers in the list's own colour (--fitx-scroll-cue-bg, the page colour by default) scroll
+   with the list and hide each shade at its own end (Lea Verou's scrolling shadows; CSS only). Longhands, so the
+   list keeps its own background colour. Used by the sidebar's menu on short windows (bug 73) and the sheets. */
 .fitx-scroll-cue {
-  background:
-    linear-gradient(var(--fitx-bg) 40%, transparent) top / 100% 28px no-repeat local,
-    linear-gradient(transparent, var(--fitx-bg) 60%) bottom / 100% 28px no-repeat local,
-    linear-gradient(color-mix(in srgb, var(--fitx-text) 14%, transparent), transparent) top / 100% 10px no-repeat scroll,
-    linear-gradient(transparent, color-mix(in srgb, var(--fitx-text) 14%, transparent)) bottom / 100% 10px no-repeat scroll;
+  --fitx-scroll-cue-shade: color-mix(in srgb, var(--fitx-text) 14%, transparent);
+  background-image:
+    linear-gradient(var(--fitx-scroll-cue-bg, var(--fitx-bg)) 40%, transparent),
+    linear-gradient(transparent, var(--fitx-scroll-cue-bg, var(--fitx-bg)) 60%),
+    linear-gradient(var(--fitx-scroll-cue-shade), transparent),
+    linear-gradient(transparent, var(--fitx-scroll-cue-shade));
+  background-position: top, bottom, top, bottom;
+  background-size: 100% 28px, 100% 28px, 100% 10px, 100% 10px;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
 }
 
 /* Unlayered like the rest of this file, so Tailwind utilities cannot override it: hide a skip link by
@@ -580,7 +586,7 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 .fitx-sheet::backdrop { background: rgba(5, 8, 8, .5); }
 .fitx-sheet__panel {
   max-height: min(85dvh, 640px); overflow-y: auto; border: 1px solid var(--fitx-border); border-bottom: 0; border-radius: 18px 18px 0 0;
-  background: var(--fitx-elevated); padding: 10px max(10px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background-color: var(--fitx-elevated); --fitx-scroll-cue-bg: var(--fitx-elevated); padding: 10px max(10px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   box-shadow: 0 -18px 50px rgba(0, 0, 0, .22);
 }
 .fitx-sheet--top .fitx-sheet__panel { border: 1px solid var(--fitx-border); border-top: 0; border-radius: 0 0 18px 18px; padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 16px max(14px, env(safe-area-inset-left)); box-shadow: 0 18px 50px rgba(0, 0, 0, .22); }
