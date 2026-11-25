@@ -7,6 +7,7 @@ import { Camera, Download, Pencil, RotateCcw, Settings, Trash2, UserRound } from
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { CountUp } from "@/components/motion";
+import { PHOTO_HEADER_BYTES, PHOTO_NOT_AN_IMAGE, checkPhotoFile, isOwnPhoto, replacePhoto } from "@/components/profile/photo-file";
 import type { NutritionTargets } from "@/lib/domain/nutrition";
 import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, NAME_MAX_LENGTH, formatWeight, optionLabel } from "@/lib/domain/profile-options";
 import { targetReason } from "@/lib/domain/target-reason";
@@ -16,8 +17,36 @@ import type { SectionNotice } from "./ProfileParts";
 import { BodySection, FoodSection, GoalSection, LimitsSection, TrainingSection, type SectionId, type SectionProps } from "./ProfileSections";
 
 const MEDIA_BUCKET = "fitx-user-media";
-const PHOTO_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
-const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+/** How long a picture may take to open before it counts as one that doesn't. */
+const OPEN_LIMIT_MS = 15_000;
+
+/** Whether the browser can open `src` as a picture (it loads and has a size). */
+function imageOpens(src: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    // window.Image: the bare name is next/image's component in this file.
+    const image = new window.Image();
+    const finish = (opened: boolean) => {
+      window.clearTimeout(timer);
+      image.onload = null;
+      image.onerror = null;
+      resolve(opened);
+    };
+    const timer = window.setTimeout(() => finish(false), OPEN_LIMIT_MS);
+    image.onload = () => finish(image.naturalWidth > 0 && image.naturalHeight > 0);
+    image.onerror = () => finish(false);
+    image.src = src;
+  });
+}
+
+/** Whether a picked file opens as a picture in this browser, before anything is uploaded. */
+async function fileOpens(file: Blob): Promise<boolean> {
+  const url = URL.createObjectURL(file);
+  try {
+    return await imageOpens(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 type Status = "loading" | "ready" | "signed_out" | "unavailable" | "error";
 
@@ -159,6 +188,7 @@ export function ProfileView() {
 
 function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; avatarUrl: string | null; onSaved: (message: string) => Promise<void> }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const cameraButton = useRef<HTMLButtonElement>(null);
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(data.profile?.name ?? "");
   const [busy, setBusy] = useState<"" | "name" | "photo">("");
@@ -171,7 +201,10 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
   // A photo that fails to load (an external Google picture, an expired link) shows the placeholder instead.
   const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
   // A photo uploaded to FITX (not the Google picture, which is only a link) can be downloaded.
-  const uploadedPhoto = Boolean(storedAvatar && storedAvatar.startsWith(`${data.userId}/`));
+  const uploadedPhoto = isOwnPhoto(storedAvatar, data.userId);
+  // The photo buttons stay focusable while a photo is being worked on (aria-disabled, not disabled), so keyboard
+  // focus isn't dropped to the page; a second press meanwhile does nothing.
+  const photoBusy = busy === "photo";
 
   async function saveName(event: FormEvent) {
     event.preventDefault();
@@ -198,31 +231,45 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     setEditingName(false);
   }
 
+  /**
+   * The picked file's content decides: its first bytes must be a JPEG, PNG or WebP and the browser must open it as
+   * a picture, whatever its name says. It is stored with that real type, and the old photo goes only once the new one
+   * is stored, opens from storage and is on the profile (photo-file.ts replacePhoto).
+   */
   async function uploadPhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
-    const extension = PHOTO_TYPES[file.type];
-    if (!extension) return setError("Choose a JPEG, PNG or WebP image.");
-    if (file.size > PHOTO_MAX_BYTES) return setError("Choose an image under 5 MB.");
-    const supabase = createClient();
-    if (!supabase) return setError("Your photo couldn't be uploaded right now.");
+    if (!file || photoBusy) return;
     setBusy("photo");
     setError("");
-    // A new name each time, so no cached copy of the old photo is ever shown.
-    const path = `${data.userId}/avatar-${Date.now()}.${extension}`;
-    const uploaded = await supabase.storage.from(MEDIA_BUCKET).upload(path, file, { contentType: file.type, upsert: false });
-    if (uploaded.error) {
+    setNotice("");
+    const stop = (message: string) => {
       setBusy("");
-      return setError("Your photo couldn't be uploaded. Try again.");
+      setError(message);
+    };
+    let header: Uint8Array;
+    try {
+      header = new Uint8Array(await file.slice(0, PHOTO_HEADER_BYTES).arrayBuffer());
+    } catch {
+      return stop(PHOTO_NOT_AN_IMAGE);
     }
-    const saved = await updateProfileRow(supabase, data.userId, { avatar: path });
-    if (saved.error) {
-      await supabase.storage.from(MEDIA_BUCKET).remove([path]);
-      setBusy("");
-      return setError("Your photo couldn't be saved. Try again.");
-    }
-    if (storedAvatar && storedAvatar.startsWith(`${data.userId}/`)) await supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]);
+    const check = checkPhotoFile(file, header);
+    if (!check.ok) return stop(check.message);
+    if (!(await fileOpens(file))) return stop(PHOTO_NOT_AN_IMAGE);
+    const supabase = createClient();
+    if (!supabase) return stop("Your photo couldn't be uploaded right now.");
+    const bucket = supabase.storage.from(MEDIA_BUCKET);
+    const outcome = await replacePhoto({
+      // A Blob of the real type: storage takes the stored type from the Blob, not from the contentType option.
+      upload: (path, type) => bucket.upload(path, file.slice(0, file.size, type), { contentType: type, upsert: false }),
+      opens: async (path) => {
+        const signed = await bucket.createSignedUrl(path, 120);
+        return signed.data?.signedUrl ? imageOpens(signed.data.signedUrl) : false;
+      },
+      save: (path) => updateProfileRow(supabase, data.userId, { avatar: path }),
+      remove: (paths) => bucket.remove(paths),
+    }, { userId: data.userId, type: check.type, previous: storedAvatar, now: Date.now() });
+    if (!outcome.ok) return stop(outcome.message);
     await onSaved("Photo updated.");
     setNotice("Photo updated");
     setBusy("");
@@ -230,7 +277,7 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
 
   /** A one-minute link that downloads the uploaded photo as a file. */
   async function downloadPhoto() {
-    if (!storedAvatar) return;
+    if (!storedAvatar || photoBusy) return;
     const supabase = createClient();
     if (!supabase) return setError("Your photo couldn't be downloaded right now.");
     setBusy("photo");
@@ -243,6 +290,7 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
   }
 
   async function removePhoto() {
+    if (photoBusy) return;
     const supabase = createClient();
     if (!supabase) return;
     setBusy("photo");
@@ -252,10 +300,12 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
       setBusy("");
       return setError("Your photo couldn't be removed. Try again.");
     }
-    if (storedAvatar && storedAvatar.startsWith(`${data.userId}/`)) await supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]);
+    if (isOwnPhoto(storedAvatar, data.userId)) await supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]);
     await onSaved("Photo removed.");
     setNotice("Photo removed");
     setBusy("");
+    // Remove photo and Download photo are gone now: keep the keyboard on the photo control, now "Add photo".
+    cameraButton.current?.focus();
   }
 
   return (
@@ -267,8 +317,8 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
             {avatarUrl && avatarUrl !== failedAvatar ? <Image src={avatarUrl} alt="Your profile photo" width={112} height={112} unoptimized onError={() => setFailedAvatar(avatarUrl)} className="h-full w-full object-cover" /> : <UserRound size={36} aria-hidden="true" />}
           </div>
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => void uploadPhoto(event)} />
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy === "photo"} aria-label={storedAvatar ? "Change photo" : "Add photo"}
-            className="absolute -bottom-1 -right-1 grid h-11 w-11 place-items-center rounded-full border-4 border-fitx-bg bg-fitx-strong text-fitx-on-strong transition-transform motion-safe:hover:scale-105 disabled:opacity-60">
+          <button ref={cameraButton} type="button" onClick={() => { if (!photoBusy) fileInput.current?.click(); }} aria-disabled={photoBusy || undefined} aria-label={storedAvatar ? "Change photo" : "Add photo"}
+            className="absolute -bottom-1 -right-1 grid h-11 w-11 place-items-center rounded-full border-4 border-fitx-bg bg-fitx-strong text-fitx-on-strong transition-transform motion-safe:hover:scale-105 aria-disabled:opacity-60">
             <Camera size={16} aria-hidden="true" />
           </button>
         </div>
@@ -303,12 +353,12 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
           {(uploadedPhoto || storedAvatar) && (
             <div className="mt-2 flex flex-wrap gap-x-1">
               {uploadedPhoto && (
-                <button type="button" onClick={() => void downloadPhoto()} disabled={busy === "photo"} className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-2 text-sm text-fitx-text-secondary hover:text-fitx-text">
+                <button type="button" onClick={() => void downloadPhoto()} aria-disabled={photoBusy || undefined} className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-2 text-sm text-fitx-text-secondary hover:text-fitx-text aria-disabled:opacity-60">
                   <Download size={14} aria-hidden="true" />Download photo
                 </button>
               )}
               {storedAvatar && (
-                <button type="button" onClick={() => void removePhoto()} disabled={busy === "photo"} className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-2 text-sm text-fitx-text-secondary hover:text-fitx-text">
+                <button type="button" onClick={() => void removePhoto()} aria-disabled={photoBusy || undefined} className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-2 text-sm text-fitx-text-secondary hover:text-fitx-text aria-disabled:opacity-60">
                   <Trash2 size={14} aria-hidden="true" />Remove photo
                 </button>
               )}
