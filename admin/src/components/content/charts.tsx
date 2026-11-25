@@ -81,8 +81,11 @@ export function LineChart({ series, labels, label, height = 200 }: { series: Lin
   );
 }
 
-/** Shares of a total as labelled meters, largest first. */
-export function Meters({ items, total, format = (n: number) => n.toLocaleString("en-IN") }: { items: Array<{ label: string; value: number }>; total: number; format?: (n: number) => string }) {
+/**
+ * Shares of a total as labelled meters, largest first. `of` names the whole when the items overlap (a workout has
+ * several exercises): "3% of completed workouts".
+ */
+export function Meters({ items, total, of, format = (n: number) => n.toLocaleString("en-IN") }: { items: Array<{ label: string; value: number }>; total: number; of?: string; format?: (n: number) => string }) {
   return (
     <ul className={styles.meters}>
       {items.map((item) => {
@@ -93,7 +96,7 @@ export function Meters({ items, total, format = (n: number) => n.toLocaleString(
               <span>{item.label}</span>
               <span>
                 {format(item.value)}
-                {total > 0 && ` · ${Math.round(share * 100)}%`}
+                {total > 0 && ` · ${Math.round(share * 100)}%${of ? ` of ${of}` : ""}`}
               </span>
             </div>
             <svg className={styles.meterTrack} viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false">
