@@ -342,14 +342,40 @@
 }
 
 * { box-sizing: border-box; }
-html { min-height: 100%; -webkit-text-size-adjust: 100%; scroll-padding-top: 84px; }
+/* When the browser scrolls a control into view (Tab, scrollIntoView, an anchor), it keeps these clear: at the top
+   the sticky header; at the bottom whatever is fixed there, the phone's bar or the privacy banner while it is open
+   (each sets its own inset while it shows: components/layout/bottom-inset.ts), plus room for the focus ring. */
+html {
+  min-height: 100%;
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 84px;
+  scroll-padding-bottom: calc(max(var(--fitx-inset-bottom-bar, 0px), var(--fitx-inset-consent, 0px)) + 12px);
+}
 body {
   min-height: 100vh;
   margin: 0;
+  /* While the privacy banner is open the page gets as much room after its end, so its last controls can be
+     scrolled clear of the banner too. A layout drawn in a full-height frame of its own takes that room inside the
+     frame instead: its root cancels the body's room (.fitx-holds-end-room) and the part that ends the page adds it
+     back (.fitx-end-room; the public footer's .fitx-band-end, with the home indicator's inset). The frame then
+     still reaches the end of the page: the app's sidebar and rail, sticky inside the app's frame, stay pinned
+     instead of sliding up off the top as the page scrolls into the room; the footer's band and the onboarding
+     photo reach the bottom with no strip of page colour under them; and a page shorter than the window does not
+     scroll at all, since the room counts towards the frame's min-height (also .auth-layout, .fitx-status). */
+  padding-bottom: var(--fitx-inset-consent, 0px);
   background: var(--fitx-bg);
   color: var(--fitx-text);
   font-family: var(--font-inter), Arial, sans-serif;
   -webkit-tap-highlight-color: transparent;
+}
+.fitx-holds-end-room { margin-bottom: calc(-1 * var(--fitx-inset-consent, 0px)); }
+.fitx-end-room { padding-bottom: var(--fitx-inset-consent, 0px); }
+.fitx-band-end { padding-bottom: calc(env(safe-area-inset-bottom) + var(--fitx-inset-consent, 0px)); }
+/* The privacy banner (AnalyticsConsent): it floats at the bottom of the screen, above the phone's bar when that
+   shows, so the bar's links are never under it. */
+.fitx-consent { bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 8px), env(safe-area-inset-bottom), 12px); }
+@media (min-width: 640px) {
+  .fitx-consent { bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 12px), env(safe-area-inset-bottom), 24px); }
 }
 /* Form controls inherit the page font through Tailwind's preflight (in @layer base), so size utilities
    such as text-sm still apply to buttons and inputs. Do not add an unlayered `font: inherit` here: it
@@ -487,12 +513,19 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
   font-weight: 680;
   transition: background-color .18s ease, border-color .18s ease, transform .18s ease;
 }
-.fitx-button:hover { background: var(--fitx-primary-bright); }
+/* The main fill brightens on hover: only on the main button. A variant (any fitx-button-* class) keeps its own
+   surface and text and has its own hover rule below; the quiet one once took this red fill under its grey label
+   (1.14:1). :where() keeps the rule at its old weight (0,2,0). scripts/checks/check-contrast.mjs checks every
+   variant's label at rest, on hover and on keyboard focus. */
+.fitx-button:hover:where(:not([class*="fitx-button-"])) { background: var(--fitx-primary-bright); }
 .fitx-button:active { transform: translateY(1px); }
 .fitx-button:disabled { opacity: .58; }
 .fitx-button-secondary { border-color: var(--fitx-border); background: var(--fitx-surface-variant); color: var(--fitx-text); }
 .fitx-button-secondary:hover { border-color: color-mix(in srgb, var(--fitx-primary) 48%, var(--fitx-border)); background: var(--fitx-surface-variant); }
 .fitx-button-quiet { border-color: var(--fitx-border); background: transparent; color: var(--fitx-text-secondary); }
+/* Hovered, or reached with the keyboard: the label turns to body text on the hover tint and the edge picks up the
+   brand colour, as the secondary button's does, so it still reads as the second choice beside a main button. */
+.fitx-button-quiet:hover, .fitx-button-quiet:focus-visible { border-color: color-mix(in srgb, var(--fitx-primary) 48%, var(--fitx-border)); background: var(--fitx-hover); color: var(--fitx-text); }
 .fitx-button-danger { border-color: var(--fitx-danger-border); background: var(--fitx-danger-bg); color: var(--fitx-danger); }
 .fitx-button-danger:hover { border-color: var(--fitx-danger); background: var(--fitx-danger-bg); }
 .fitx-progress-track { overflow: hidden; border-radius: 999px; background: var(--fitx-track); }
@@ -526,6 +559,23 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 /* Frosted bars; low-power devices get a solid bar instead (see data-fitx-lite below). */
 .fitx-glass { -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2); }
 
+/* A list that scrolls shows that it does: a soft shade at each edge with more items beyond it, and none when
+   everything fits. Two covers in the list's own colour (--fitx-scroll-cue-bg, the page colour by default) scroll
+   with the list and hide each shade at its own end (Lea Verou's scrolling shadows; CSS only). Longhands, so the
+   list keeps its own background colour. Used by the sidebar's menu on short windows (bug 73) and the sheets. */
+.fitx-scroll-cue {
+  --fitx-scroll-cue-shade: color-mix(in srgb, var(--fitx-text) 14%, transparent);
+  background-image:
+    linear-gradient(var(--fitx-scroll-cue-bg, var(--fitx-bg)) 40%, transparent),
+    linear-gradient(transparent, var(--fitx-scroll-cue-bg, var(--fitx-bg)) 60%),
+    linear-gradient(var(--fitx-scroll-cue-shade), transparent),
+    linear-gradient(transparent, var(--fitx-scroll-cue-shade));
+  background-position: top, bottom, top, bottom;
+  background-size: 100% 28px, 100% 28px, 100% 10px, 100% 10px;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
+
 /* Unlayered like the rest of this file, so Tailwind utilities cannot override it: hide a skip link by
    wrapping it (e.g. <div className="md:hidden">), never with a class on the link. */
 .fitx-skip-link {
@@ -542,7 +592,7 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 .fitx-sheet::backdrop { background: rgba(5, 8, 8, .5); }
 .fitx-sheet__panel {
   max-height: min(85dvh, 640px); overflow-y: auto; border: 1px solid var(--fitx-border); border-bottom: 0; border-radius: 18px 18px 0 0;
-  background: var(--fitx-elevated); padding: 10px max(10px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background-color: var(--fitx-elevated); --fitx-scroll-cue-bg: var(--fitx-elevated); padding: 10px max(10px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   box-shadow: 0 -18px 50px rgba(0, 0, 0, .22);
 }
 .fitx-sheet--top .fitx-sheet__panel { border: 1px solid var(--fitx-border); border-top: 0; border-radius: 0 0 18px 18px; padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 16px max(14px, env(safe-area-inset-left)); box-shadow: 0 18px 50px rgba(0, 0, 0, .22); }
@@ -589,8 +639,17 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 :root:not([data-fitx-auth="1"]) .fitx-when-signed-in { display: none !important; }
 :root[data-fitx-auth="1"] .fitx-when-signed-out { display: none !important; }
 
-/* Not-found and global error screens. */
-.fitx-status { display: flex; min-height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 28px; background: var(--fitx-bg); color: var(--fitx-text); padding: 48px var(--fitx-gutter); }
+/* Setup mode (components/layout/setup-mode.ts): Help opened by an account still in setup. A hidden marker in the
+   page turns the app's menu, account menu and AI Coach button off (.fitx-app-only) and the setup header, with
+   "Back to setup", on (.fitx-setup-only). Read from the page itself, so the server's HTML is right from the first
+   paint; a browser without :has() keeps the app's menu, as before. */
+.fitx-setup-only { display: none; }
+:root:has([data-fitx-setup]) .fitx-setup-only { display: block; }
+:root:has([data-fitx-setup]) .fitx-app-only { display: none !important; }
+
+/* Not-found and global error screens. One screen tall: the privacy banner's room goes inside it (see body), so the
+   card is centred above the banner and the screen does not scroll for nothing. */
+.fitx-status { display: flex; min-height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 28px; margin-bottom: calc(-1 * var(--fitx-inset-consent, 0px)); background: var(--fitx-bg); color: var(--fitx-text); padding: 48px var(--fitx-gutter) calc(48px + var(--fitx-inset-consent, 0px)); }
 .fitx-status__brand { display: inline-flex; min-height: 44px; align-items: center; }
 .fitx-status__card { width: min(100%, 520px); border: 1px solid var(--fitx-border); border-radius: 18px; background: var(--fitx-card-bg); padding: clamp(24px, 5vw, 40px); text-align: center; box-shadow: 0 18px 50px rgba(20, 24, 20, .07); }
 .fitx-status__code { margin: 0; color: var(--fitx-primary-text); font-family: var(--font-jetbrains), ui-monospace, monospace; font-size: .8125rem; font-weight: 600; letter-spacing: .3em; }
@@ -601,8 +660,11 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 .fitx-status__ref { margin: 20px 0 0; color: var(--fitx-text-secondary); font-size: .75rem; }
 .fitx-status__ref span { font-family: ui-monospace, monospace; }
 
-/* The photo is a contextual part of the auth composition, never a loading gate. */
-.auth-layout { display: grid; min-height: 100svh; grid-template-columns: minmax(0, 1.03fr) minmax(430px, .97fr); background: var(--fitx-bg); }
+/* The photo is a contextual part of the auth composition, never a loading gate. The onboarding frame (AuthChrome)
+   holds the privacy banner's room inside itself, at the foot of the form's column (see body): the grid's row grows
+   and the dark photo column with it, so no strip of page colour shows under the photo, and a step that fits the
+   window does not scroll. */
+.auth-layout { display: grid; min-height: 100svh; grid-template-columns: minmax(0, 1.03fr) minmax(430px, .97fr); margin-bottom: calc(-1 * var(--fitx-inset-consent, 0px)); background: var(--fitx-bg); }
 .auth-visual { position: relative; min-width: 0; min-height: 100svh; overflow: hidden; background: #202320; color: #fff; }
 .auth-visual-image { object-fit: cover; object-position: center 42%; }
 .auth-visual-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8,10,9,.25), rgba(8,10,9,.16) 35%, rgba(8,10,9,.83)), linear-gradient(90deg, rgba(8,10,9,.28), transparent 68%); }
@@ -613,7 +675,7 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 .auth-visual-title { max-width: 560px; margin: 0; font-family: var(--font-manrope), sans-serif; font-size: clamp(2.5rem, 5.2vw, 5.2rem); font-weight: 800; letter-spacing: -.075em; line-height: .98; }
 .auth-visual-copy > p:last-child { max-width: 400px; margin: 18px 0 0; color: rgba(255,255,255,.8); font-size: .96rem; line-height: 1.65; }
 .auth-visual-note { margin: 0; color: rgba(255,255,255,.7); font-size: .68rem; letter-spacing: .05em; }
-.auth-main { position: relative; display: flex; min-width: 0; flex-direction: column; }
+.auth-main { position: relative; display: flex; min-width: 0; flex-direction: column; padding-bottom: var(--fitx-inset-consent, 0px); }
 .auth-content { width: min(100%, 548px); margin: auto; padding: 56px clamp(20px, 4.5vw, 56px) 58px; }
 .auth-page-brand { display: flex; justify-content: flex-start; margin-bottom: 30px; }
 .auth-eyebrow { margin: 0 0 9px; color: var(--fitx-primary-text); font-size: .66rem; font-weight: 750; letter-spacing: .15em; }

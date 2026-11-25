@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
@@ -9,6 +10,7 @@ import { CinematicIntro } from "@/components/brand/CinematicIntro";
 import { IntroCompletionReporter } from "@/components/brand/IntroCompletionReporter";
 import { CoachLauncher } from "@/components/layout/CoachLauncher";
 import { CoachPanelHost } from "@/components/coach/CoachPanelHost";
+import { SetupHeader, SetupModeMarker } from "@/components/layout/SetupMode";
 import "@/components/layout/nav-icons/nav-icons.css";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
@@ -16,13 +18,19 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <UserContextProvider>
-      <div className="flex min-h-dvh bg-background">
+      {/* While the privacy banner is open, the room kept after the page's end goes inside this frame, at the foot
+          of the page's column (globals.css, .fitx-holds-end-room and .fitx-end-room): the frame reaches the end of
+          the page, so the sidebar and rail, sticky inside it, stay pinned when the page is scrolled to its end. */}
+      <div className="fitx-holds-end-room flex min-h-dvh bg-background">
         {/* Idle unless the head script marked the film pending (once per account) or Replay is pressed. A fixed
             overlay, first in the page so that once it is gone Tab carries on from the top of the page (Skip to
             content), not from after the last control. */}
         <CinematicIntro />
         <Sidebar />
-        <div className="min-w-0 flex-1">
+        <div className="fitx-end-room min-w-0 flex-1">
+          {/* Help opened by an account still in setup: this header, with the way back to setup, takes the place of
+              the app's menu, account menu and AI Coach button (setup-mode.ts). Hidden otherwise. */}
+          <SetupHeader />
           <WorkspaceHeader />
           {/* Renders nothing unless FITX Admin has a live announcement this person has not dismissed. */}
           <AnnouncementBanner />
@@ -36,6 +44,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <CoachPanelHost />
         <SessionKeeper />
         <IntroCompletionReporter />
+        {/* Reads ?from=, so it has its own boundary: static pages draw it in the browser, the shell stays in their HTML. */}
+        <Suspense fallback={null}><SetupModeMarker /></Suspense>
       </div>
     </UserContextProvider>
   );

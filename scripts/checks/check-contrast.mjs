@@ -251,8 +251,12 @@ export function contrastRatio(a, b) {
 // ---------------------------------------------------------------------------------------------------
 const describe = (layer) => (Array.isArray(layer) ? `${layer[0]} @${Math.round(layer[1] * 100)}%` : layer);
 
-/** Reads the token blocks from a stylesheet and checks every pair. Returns { problems, results }. */
-export function checkTokens(cssText, pairs = PAIRS) {
+/**
+ * The six palettes a stylesheet's token blocks make: light, dark and system-dark, and the inverse band inside each.
+ * Returns { problems, palettes }; a missing token block is a problem, and so are a system-dark block that drifted
+ * from the dark one and a light token with no dark value.
+ */
+export function readPalettes(cssText) {
   const blocks = readBlocks(stripComments(cssText));
   const find = (selector, context = []) => blocks.find((block) => block.selector === selector && block.context.join("|") === context.join("|"));
   const wanted = {
@@ -268,7 +272,7 @@ export function checkTokens(cssText, pairs = PAIRS) {
     if (block) found[name] = declarations(block.body);
     else problems.push(`Missing token block ${context ? `${context.join(" ")} ` : ""}${selector}`);
   }
-  if (problems.length) return { problems, results: [] };
+  if (problems.length) return { problems, palettes: [] };
   const { light, dark, system, inverse } = found;
 
   for (const name of new Set([...Object.keys(dark), ...Object.keys(system)])) {
@@ -286,15 +290,25 @@ export function checkTokens(cssText, pairs = PAIRS) {
     { name: "inverse (dark)", scope: "inverse", tokens: { ...light, ...dark, ...inverse } },
     { name: "inverse (system-dark)", scope: "inverse", tokens: { ...light, ...system, ...inverse } },
   ];
+  return { problems, palettes };
+}
+
+/** A layer (token, literal colour or [layer, alpha]) as [r, g, b, a] in a palette. */
+function paletteColour(palette, layer) {
+  if (Array.isArray(layer)) {
+    const base = paletteColour(palette, layer[0]);
+    return [base[0], base[1], base[2], base[3] * layer[1]];
+  }
+  return parseColor(layer.startsWith("--") ? resolveVars(`var(${layer})`, palette.tokens) : resolveVars(layer, palette.tokens));
+}
+
+/** Reads the token blocks from a stylesheet and checks every pair. Returns { problems, results }. */
+export function checkTokens(cssText, pairs = PAIRS) {
+  const { problems, palettes } = readPalettes(cssText);
+  if (!palettes.length) return { problems, results: [] };
   const results = [];
   for (const palette of palettes) {
-    const colour = (layer) => {
-      if (Array.isArray(layer)) {
-        const base = colour(layer[0]);
-        return [base[0], base[1], base[2], base[3] * layer[1]];
-      }
-      return parseColor(layer.startsWith("--") ? resolveVars(`var(${layer})`, palette.tokens) : layer);
-    };
+    const colour = (layer) => paletteColour(palette, layer);
     for (const pair of pairs) {
       if (pair.scopes !== "both" && pair.scopes !== palette.scope) continue;
       const label = `${describe(pair.fg)} on ${pair.bg.map(describe).join(" + ")}`;
@@ -313,16 +327,193 @@ export function checkTokens(cssText, pairs = PAIRS) {
   return { problems, results };
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Button states
+// ---------------------------------------------------------------------------------------------------
+/**
+ * The shared buttons (.fitx-button and its variants). Each is checked at rest, hovered, reached with the keyboard
+ * (:focus-visible) and both: its label must keep 4.5:1 on the background the stylesheet's own rules give it in that
+ * state, on every neutral surface it can sit on (a see-through background shows the surface under it). This catches
+ * a variant that loses its own background to a more specific rule, as the quiet button did on hover: the main red
+ * fill under its grey label, 1.14:1.
+ */
+export const BUTTONS = [
+  { name: "main", classes: ["fitx-button"] },
+  { name: "secondary", classes: ["fitx-button", "fitx-button-secondary"] },
+  { name: "quiet", classes: ["fitx-button", "fitx-button-quiet"] },
+  { name: "danger", classes: ["fitx-button", "fitx-button-danger"] },
+];
+export const BUTTON_STATES = [[], ["hover"], ["focus-visible"], ["hover", "focus-visible"]];
+const BUTTON_SURFACES = ["--fitx-bg", "--fitx-surface", "--fitx-card-bg", "--fitx-surface-variant", "--fitx-elevated"];
+const BUTTON_PROPERTIES = { color: "color", background: "background", "background-color": "background", "border-color": "border-color" };
+
+/** Splits text at `separator` where it is not inside brackets, parentheses or quotes. */
+function splitTopLevel(text, separator = ",") {
+  const parts = [];
+  let depth = 0;
+  let quote = null;
+  let current = "";
+  for (const char of text) {
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    if (char === "(" || char === "[") depth += 1;
+    if (char === ")" || char === "]") depth -= 1;
+    if (char === separator && depth === 0) {
+      if (current.trim()) parts.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function closingParen(text, open) {
+  let depth = 0;
+  for (let index = open; index < text.length; index += 1) {
+    if (text[index] === "(") depth += 1;
+    if (text[index] === ")" && --depth === 0) return index;
+  }
+  return -1;
+}
+
+/**
+ * One compound selector made of classes, [class*="…"], plain pseudo-classes (:hover, :focus-visible, :disabled…) and
+ * :where()/:is()/:not() of such selectors, as a list of parts. Anything else (a combinator, a tag, a pseudo-element,
+ * :root) gives null: those rules never style a button's own colours here.
+ */
+export function parseCompound(selector) {
+  const text = selector.trim();
+  const parts = [];
+  let index = 0;
+  while (index < text.length) {
+    const rest = text.slice(index);
+    let match;
+    if ((match = rest.match(/^\.(-?[_a-zA-Z][\w-]*)/))) {
+      parts.push({ type: "class", name: match[1] });
+      index += match[0].length;
+    } else if ((match = rest.match(/^\[class\*=(["'])([^"']*)\1\]/))) {
+      parts.push({ type: "class-contains", value: match[2] });
+      index += match[0].length;
+    } else if ((match = rest.match(/^:(where|is|not)\(/))) {
+      const open = index + match[0].length - 1;
+      const close = closingParen(text, open);
+      if (close < 0) return null;
+      const list = splitTopLevel(text.slice(open + 1, close)).map(parseCompound);
+      if (!list.length || list.some((item) => item === null)) return null;
+      parts.push({ type: match[1], list });
+      index = close + 1;
+    } else if ((match = rest.match(/^:([a-z-]+)(?![\w(-])/)) && match[1] !== "root") {
+      parts.push({ type: "state", name: match[1] });
+      index += match[0].length;
+    } else {
+      return null;
+    }
+  }
+  return parts.length ? parts : null;
+}
+
+function selectorMatches(parts, element) {
+  return parts.every((part) => {
+    if (part.type === "class") return element.classes.includes(part.name);
+    if (part.type === "class-contains") return element.classes.join(" ").includes(part.value);
+    if (part.type === "state") return element.states.includes(part.name);
+    if (part.type === "not") return !part.list.some((item) => selectorMatches(item, element));
+    return part.list.some((item) => selectorMatches(item, element));
+  });
+}
+
+/** Specificity in class-sized units (all this reader parses): :where() adds nothing, :is()/:not() their weightiest. */
+function selectorWeight(parts) {
+  return parts.reduce((total, part) => {
+    if (part.type === "where") return total;
+    if (part.type === "is" || part.type === "not") return total + Math.max(...part.list.map(selectorWeight));
+    return total + 1;
+  }, 0);
+}
+
+/**
+ * The colour, background and border colour that the stylesheet's top-level rules give an element with these classes
+ * in these states, by the cascade (importance, then specificity, then source order): { color, background,
+ * "border-color" }, each { value, selector }. Rules inside at-rules are left out.
+ */
+export function resolveButton(cssText, classes, states = []) {
+  const element = { classes, states };
+  const winners = {};
+  const blocks = readBlocks(stripComments(cssText)).filter((block) => block.context.length === 0 && !block.selector.startsWith("@"));
+  blocks.forEach((block, order) => {
+    for (const selector of splitTopLevel(block.selector)) {
+      const parts = parseCompound(selector);
+      if (!parts || !selectorMatches(parts, element)) continue;
+      const weight = selectorWeight(parts);
+      for (const declaration of splitTopLevel(block.body, ";")) {
+        const match = declaration.match(/^([\w-]+)\s*:\s*([\s\S]+?)\s*(!important)?$/);
+        const property = match && BUTTON_PROPERTIES[match[1].toLowerCase()];
+        if (!property) continue;
+        const rank = [match[3] ? 1 : 0, weight, order];
+        const current = winners[property];
+        const wins = !current || rank[0] > current.rank[0] || (rank[0] === current.rank[0] && (rank[1] > current.rank[1] || (rank[1] === current.rank[1] && rank[2] >= current.rank[2])));
+        if (wins) winners[property] = { value: match[2], selector, rank };
+      }
+    }
+  });
+  return Object.fromEntries(Object.entries(winners).map(([property, { value, selector }]) => [property, { value, selector }]));
+}
+
+/** Every button's label in every state against its background on each neutral surface, in every palette. */
+export function checkButtonStates(cssText, buttons = BUTTONS, states = BUTTON_STATES) {
+  const { problems, palettes } = readPalettes(cssText);
+  const results = [];
+  if (!palettes.length) return { problems, results };
+  for (const button of buttons) {
+    for (const state of states) {
+      const name = `.${button.classes.join(".")}${state.map((pseudo) => `:${pseudo}`).join("")}`;
+      const resolved = resolveButton(cssText, button.classes, state);
+      if (!resolved.color || !resolved.background) {
+        problems.push(`${name}: no rule gives it a ${resolved.color ? "background" : "text colour"}`);
+        continue;
+      }
+      for (const palette of palettes) {
+        for (const surface of BUTTON_SURFACES) {
+          try {
+            const page = paletteColour(palette, "--fitx-bg");
+            const under = composite(paletteColour(palette, surface), page[3] < 1 ? composite(page, NAMED.white) : page);
+            const background = composite(paletteColour(palette, resolved.background.value), under);
+            const ratio = contrastRatio(composite(paletteColour(palette, resolved.color.value), background), background);
+            results.push({
+              palette: palette.name, button: button.name, state: state.join("+") || "rest", surface,
+              color: resolved.color.value, background: resolved.background.value, ratio, minimum: MINIMUM.text, pass: ratio >= MINIMUM.text,
+            });
+          } catch (error) {
+            problems.push(`${palette.name}: ${name} on ${surface}: ${error.message}`);
+          }
+        }
+      }
+    }
+  }
+  return { problems, results };
+}
+
 function main(args) {
   const option = (name, fallback) => {
     const index = args.indexOf(name);
     return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
   };
   const cssPath = resolve(option("--css", "src/app/globals.css"));
-  const { problems, results } = checkTokens(readFileSync(cssPath, "utf8"));
+  const css = readFileSync(cssPath, "utf8");
+  const { problems, results } = checkTokens(css);
   const failures = results.filter((result) => !result.pass);
+  const buttons = checkButtonStates(css);
+  const buttonFailures = buttons.results.filter((result) => !result.pass);
+  // The palettes' own problems (drift, a missing dark value) are reported once, by the token check.
+  const buttonProblems = buttons.problems.filter((problem) => !problems.includes(problem));
   if (args.includes("--json")) {
-    process.stdout.write(`${JSON.stringify({ css: cssPath, problems, failures, results }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ css: cssPath, problems, failures, results, buttons: { problems: buttonProblems, failures: buttonFailures, results: buttons.results } }, null, 2)}\n`);
   } else {
     let lastPalette = "";
     for (const row of args.includes("--all") ? results : failures) {
@@ -334,11 +525,15 @@ function main(args) {
       const need = row.kind === "info" ? "" : ` (needs ${row.minimum}:1 ${row.kind})`;
       console.log(`  ${verdict.padEnd(4)}  ${row.ratio.toFixed(2).padStart(5)}:1${need.padEnd(20)}  ${row.pair}  — ${row.where}`);
     }
-    for (const problem of problems) console.log(`FAIL  ${problem}`);
+    for (const row of args.includes("--all") ? buttons.results : buttonFailures) {
+      console.log(`  ${(row.pass ? "pass" : "FAIL").padEnd(4)}  ${row.ratio.toFixed(2).padStart(5)}:1 (needs ${row.minimum}:1 text)  ${row.palette}: ${row.button} button, ${row.state}, on ${row.surface}  — ${row.color} on ${row.background}`);
+    }
+    for (const problem of [...problems, ...buttonProblems]) console.log(`FAIL  ${problem}`);
     const checked = results.filter((result) => result.kind !== "info").length;
     console.log(`\n${checked} contrast checks across ${new Set(results.map((result) => result.palette)).size} palettes: ${failures.length} failing, ${problems.length} token problems.`);
+    console.log(`${buttons.results.length} button label checks (${BUTTONS.length} buttons at rest, hovered and focused): ${buttonFailures.length} failing, ${buttonProblems.length} problems.`);
   }
-  if (problems.length || failures.length) process.exitCode = 1;
+  if (problems.length || failures.length || buttonProblems.length || buttonFailures.length) process.exitCode = 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main(process.argv.slice(2));

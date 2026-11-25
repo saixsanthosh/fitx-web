@@ -24,7 +24,7 @@ export function PublicMobileMenu() {
       <dialog ref={dialog} aria-label="Menu" className="fitx-sheet fitx-sheet--top"
         onClose={() => { setOpen(false); opener.current?.focus(); }}
         onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
-        <div className="fitx-sheet__panel">
+        <div className="fitx-sheet__panel fitx-scroll-cue">
           <div className="flex items-center justify-between gap-3 pb-2 pl-2">
             <Link href="/" onClick={close} aria-label="FITX home" className="flex min-h-11 items-center"><Logo size={30} /></Link>
             <button type="button" onClick={close} aria-label="Close menu" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text"><X size={20} aria-hidden="true" /></button>

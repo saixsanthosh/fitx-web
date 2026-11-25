@@ -8,3 +8,15 @@
 :global(:root[data-fitx-auth="1"]) .signedIn { display: inline-flex; align-items: center; }
 :global(:root[data-fitx-auth="1"]) .signedInStack { display: grid; }
 @media (min-width: 640px) { .signedOut { gap: .5rem; } }
+
+/*
+ * The narrowest phones (a folding phone's cover screen is 280 px wide): the row needed 272.9 px (the 70 px logo, a
+ * 12 px gap, the 142.5 px main button, 4 px, the 44 px menu button) of the 248 px inside the margins, so the menu
+ * button stuck out 9 px and the page scrolled sideways. Below 320 px the logo is the mark alone (the link is still
+ * "FITX home") and the main button's sides are 12 px, not 18: 222.5 px with "Create account", with room left for
+ * "Open dashboard". .fitx-button's padding is unlayered, so the rule names that class too to outweigh it.
+ */
+@media (max-width: 319.98px) {
+  .brand :global(.fitx-wordmark) { display: none; }
+  .cta:global(.fitx-button) { padding-inline: 12px; }
+}

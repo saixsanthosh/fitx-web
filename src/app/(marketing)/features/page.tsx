@@ -31,8 +31,10 @@ export default function FeaturesPage() {
         ))}
       </ul>
       <div className="mt-10 flex flex-wrap gap-3">
-        <Link href="/signup" className="fitx-button min-h-11 px-4 fitx-when-signed-out">Create account</Link>
-        <Link href="/signin" className="fitx-button fitx-button-secondary min-h-11 px-4 fitx-when-signed-out">Sign in</Link>
+        {/* Like every sign-up and sign-in link on the public pages, not prefetched: that would load the sign-in
+            pages' styles here for nothing on most visits (bug 95). */}
+        <Link href="/signup" prefetch={false} className="fitx-button min-h-11 px-4 fitx-when-signed-out">Create account</Link>
+        <Link href="/signin" prefetch={false} className="fitx-button fitx-button-secondary min-h-11 px-4 fitx-when-signed-out">Sign in</Link>
         <Link href="/dashboard" className="fitx-button min-h-11 px-4 fitx-when-signed-in">Open dashboard</Link>
       </div>
     </main>
