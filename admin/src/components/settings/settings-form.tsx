@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId, useRef } from "react";
+import { useActionState, useId, useRef, useState } from "react";
 import { saveSettings } from "@/app/(control)/settings/actions";
 import { Panel, consoleStyles as ui } from "@/components/console/ui";
 import { keepTyped } from "@/components/content/keep-typed";
@@ -32,6 +32,9 @@ export function SettingsForm({ defaults, manage }: { defaults: SettingsDefaults;
   const [state, action, pending] = useActionState(saveSettings, IDLE);
   const formRef = useRef<HTMLFormElement>(null);
   const resultId = useId();
+  const maintenanceNote = useId();
+  // The notice's fields are really off while its switch is off (a save then clears the notice), not just dimmed.
+  const [maintenanceOn, setMaintenanceOn] = useState(defaults.maintenance.on);
   const aria = (name: string) => fieldAria(state, name, resultId);
   return (
     <form ref={formRef} action={action} onSubmit={keepTyped(action)} className={ui.stack}>
@@ -58,16 +61,19 @@ export function SettingsForm({ defaults, manage }: { defaults: SettingsDefaults;
           <div className={styles.maintenance}>
             <label className={styles.toggle}>
               <span><strong>Show to signed-in members</strong><small>A banner at the top of every page</small></span>
-              <span className={styles.end}><input type="checkbox" name="maintenance_on" defaultChecked={defaults.maintenance.on} /><span className={styles.track} aria-hidden="true" /></span>
+              <span className={styles.end}><input type="checkbox" name="maintenance_on" defaultChecked={defaults.maintenance.on} aria-describedby={maintenanceOn ? undefined : maintenanceNote} onChange={(event) => setMaintenanceOn(event.target.checked)} /><span className={styles.track} aria-hidden="true" /></span>
             </label>
-            <div className={`${styles.maintenanceFields} stack-form`}>
+            {!maintenanceOn && <p className="field-note" id={maintenanceNote}>Switch it on to write the notice. While it is off, members see no banner and nothing here is saved.</p>}
+            {/* Keyed by the save, so after a save the fields show what is stored (a save with the switch off clears them). */}
+            <fieldset key={defaults.updatedAt ?? "unsaved"} className={`${styles.maintenanceFields} stack-form`} disabled={!maintenanceOn}>
+              <legend className="sr-only">The notice</legend>
               <label>Title<input name="maintenance_title" maxLength={MAINTENANCE_LIMITS.title} defaultValue={defaults.maintenance.title} placeholder="Planned upgrade tonight" {...aria("maintenance_title")} /></label>
               <label>Message<textarea name="maintenance_body" maxLength={MAINTENANCE_LIMITS.body} rows={3} defaultValue={defaults.maintenance.body} {...aria("maintenance_body")} /></label>
               <div className="form-row">
                 <label>From (IST)<input type="datetime-local" name="maintenance_starts" defaultValue={defaults.maintenance.starts} {...aria("maintenance_starts")} /></label>
                 <label>Until (IST)<input type="datetime-local" name="maintenance_ends" defaultValue={defaults.maintenance.ends} {...aria("maintenance_ends")} /></label>
               </div>
-            </div>
+            </fieldset>
           </div>
         </Panel>
 
