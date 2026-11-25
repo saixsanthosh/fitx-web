@@ -71,9 +71,10 @@
   box-shadow: none;
 }
 
+/* Zoom in and out: 44 × 44 px touch targets, like the rest of FITX (MapLibre's own are 29 px). */
 .frame :global(.maplibregl-ctrl-group button) {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
 }
 
 .frame :global(.maplibregl-ctrl-group button + button) {
