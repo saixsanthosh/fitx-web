@@ -38,11 +38,11 @@ test("with nothing logged there is nothing to take off; v1 and non-numbers keep 
 test("a total that older corrections took below zero reads 0 of 20, never -35 of 20 with 55 to go, and says why", () => {
   const goal = parseGoalRow({ id: "g", title: "Swim 20 lengths", metric: "manual", period: "long_term", direction: "increase", target_value: 20, unit: "lengths", current_value: -35, starts_on: "2026-11-01", status: "active", created_at: "2026-11-01T00:00:00Z" });
   assert.equal(goal.currentValue, 0);
-  assert.equal(goal.belowZero, true);
+  assert.equal(goal.negativeTotal, -35, "the real sum is kept for Progress history to count from");
   assert.equal(progressSummary(goal), "0 of 20 lengths");
   assert.equal(remainingLabel(goal, evaluateView(goal)), "20 lengths to go");
   const fine = parseGoalRow({ id: "h", title: "Read", metric: "manual", period: "long_term", target_value: 12, unit: "books", current_value: 3 });
-  assert.deepEqual([fine.currentValue, fine.belowZero], [3, undefined]);
+  assert.deepEqual([fine.currentValue, fine.negativeTotal], [3, undefined]);
   assert.equal(parseGoalRow({ id: "w", title: "Weight", metric: "body_weight_kg", period: "long_term", target_value: 72, current_value: null }).currentValue, null, "unknown stays unknown");
 });
 

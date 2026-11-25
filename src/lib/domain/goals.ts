@@ -115,8 +115,12 @@ export type GoalView = {
    * read as 0); null when not checked.
    */
   missingEntries: number | null;
-  /** True when logged corrections add up to less than zero (made before the app refused that): shown as 0. */
-  belowZero?: boolean;
+  /**
+   * The total fitx_goal_progress reports when logged corrections add up to less than zero (made before the app
+   * refused that), while the goal shows 0. Progress history counts from it, so deleting minus entries is seen to
+   * bring the total back up from there, not from 0.
+   */
+  negativeTotal?: number;
 };
 
 const num = (value: unknown): number | null => {
@@ -167,7 +171,7 @@ export function parseGoalRow(raw: Record<string, unknown>): GoalView {
     linkedTodos: num(raw.linked_todos) ?? 0,
     linkedTodosDone: num(raw.linked_todos_done) ?? 0,
     missingEntries: null,
-    ...(measured !== null && measured < 0 ? { belowZero: true } : {}),
+    ...(measured !== null && measured < 0 ? { negativeTotal: measured } : {}),
   };
 }
 
@@ -650,4 +654,30 @@ export function entryCounts(goal: Pick<GoalView, "period" | "periodStart" | "per
 export function entryRemovalProblem(goal: Pick<GoalView, "currentValue" | "period" | "periodStart" | "periodEnd">, entry: { amount: number; loggedAt: string }): string | null {
   if (!(entry.amount > 0) || !entryCounts(goal, entry.loggedAt)) return null;
   return tidy(Math.max(0, goal.currentValue ?? 0) - entry.amount) < 0 ? "Deleting this would take the total below zero. Delete the minus entries first." : null;
+}
+
+/**
+ * The goal as deleting `entry` leaves it: the entry no longer counts in its total (an entry of an earlier day or
+ * week never did). A total that older corrections took below zero is counted on from its real value, and still
+ * shows as 0 while it stays below zero.
+ */
+export function goalWithoutEntry(goal: GoalView, entry: { amount: number; loggedAt: string }): GoalView {
+  if (!entryCounts(goal, entry.loggedAt)) return goal;
+  const total = tidy((goal.negativeTotal ?? goal.currentValue ?? 0) - entry.amount);
+  const next: GoalView = { ...goal, currentValue: Math.max(0, total) };
+  if (total < 0) next.negativeTotal = total;
+  else delete next.negativeTotal;
+  return next;
+}
+
+/**
+ * Progress history after the entry `id` is deleted: the entries left, and where keyboard focus goes (D5): the next
+ * entry's Delete button, else the one before it, else "empty" (the empty message). An entry that isn't listed any
+ * more leaves the list as it is and focus where it is (null).
+ */
+export function afterEntryRemoved<T extends { id: string }>(list: readonly T[], id: string): { rest: T[]; focus: string | null } {
+  const index = list.findIndex((item) => item.id === id);
+  if (index < 0) return { rest: [...list], focus: null };
+  const rest = list.filter((item) => item.id !== id);
+  return { rest, focus: (rest[index] ?? rest[index - 1])?.id ?? "empty" };
 }

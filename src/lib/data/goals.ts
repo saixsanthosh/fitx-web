@@ -7,7 +7,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays } from "@/lib/domain/day-keys";
-import { clientGoalValue, correctionProblem, entryRemovalProblem, goalWindow, isClientMetric, parseGoalRow, type GoalActivityRow, type GoalInput, type GoalSessionRow, type GoalStatus, type GoalView } from "@/lib/domain/goals";
+import { clientGoalValue, correctionProblem, entryRemovalProblem, goalWindow, goalWithoutEntry, isClientMetric, parseGoalRow, type GoalActivityRow, type GoalInput, type GoalSessionRow, type GoalStatus, type GoalView } from "@/lib/domain/goals";
 import { macroValue, type MealValueRow } from "@/lib/domain/meal-totals";
 import { loadActivitiesBetween } from "./activities";
 import { browserTimeZone } from "./today";
@@ -175,6 +175,47 @@ export async function deleteGoalEntry(db: Db, userId: string, goal: GoalView, en
     const updated = await db.from("goals").update({ current_value: total, updated_at: new Date().toISOString() }).eq("id", goal.id).eq("user_id", userId);
     if (updated.error) throw new DataError("The entry was deleted but the total did not update. Refresh to see it.", updated.error);
   }
+}
+
+/** What a press of Delete in Progress history did. */
+export type EntryDeletion =
+  /** Nothing: another deletion is still being saved, or this entry is deleted already. */
+  | { status: "ignored" }
+  /** Refused before anything was written: the total still needs the entry. */
+  | { status: "refused"; message: string }
+  /** Deleted; `goal` has the total it leaves. */
+  | { status: "deleted"; goal: GoalView };
+
+/**
+ * Progress history's deletions for one goal, one at a time. A Delete pressed while another deletion is being
+ * saved (a double click, or a second Delete) is ignored, and so is one for an entry already deleted (its button
+ * can be pressed again before the list redraws). Each check and each write uses the total the deletions so far
+ * left, not the total on screen when the button was pressed, so quick deletions can neither take one entry off
+ * twice nor take the total below zero between them. A failed deletion changes nothing and can be tried again.
+ */
+export function goalEntryDeleter(goal: GoalView, schema: GoalsSchema, session: () => Promise<{ db: Db; userId: string }>) {
+  let latest = goal;
+  let saving = false;
+  const deleted = new Set<string>();
+  return {
+    /** True while a deletion is being saved (the Delete buttons say aria-disabled meanwhile). */
+    get saving() { return saving; },
+    async remove(entry: GoalEntry): Promise<EntryDeletion> {
+      if (saving || deleted.has(entry.id)) return { status: "ignored" };
+      const refused = schema === "v2" ? entryRemovalProblem(latest, entry) : null;
+      if (refused) return { status: "refused", message: refused };
+      saving = true;
+      try {
+        const { db, userId } = await session();
+        await deleteGoalEntry(db, userId, latest, entry, schema);
+        deleted.add(entry.id);
+        latest = goalWithoutEntry(latest, entry);
+        return { status: "deleted", goal: latest };
+      } finally {
+        saving = false;
+      }
+    },
+  };
 }
 
 export type GoalOption = { id: string; title: string; countsTodos: boolean };

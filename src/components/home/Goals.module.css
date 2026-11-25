@@ -50,7 +50,11 @@
 .history strong { color: var(--fitx-text); font-size: .95rem; font-variant-numeric: tabular-nums; }
 .history span { color: var(--fitx-text-secondary); font-size: .76rem; overflow-wrap: anywhere; }
 .iconButton { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: var(--fitx-text-secondary); }
-.iconButton:hover { background: var(--fitx-hover); color: var(--fitx-text); }
+.iconButton:hover:not([aria-disabled="true"]) { background: var(--fitx-hover); color: var(--fitx-text); }
+/* While an entry is being deleted the Delete buttons wait: aria-disabled, so keyboard focus stays on them (D5). */
+.iconButton[aria-disabled="true"] { opacity: .55; cursor: progress; }
+/* A sheet's button while its save runs: dimmed like a disabled button, but focusable (aria-disabled; D5). */
+.busyButton { opacity: .58; cursor: progress; }
 .logForm { display: grid; gap: 8px; }
 .logForm label { color: var(--fitx-text-secondary); font-size: .78rem; font-weight: 650; }
 .logForm em { color: var(--fitx-text-disabled); font-style: normal; font-weight: 500; }
