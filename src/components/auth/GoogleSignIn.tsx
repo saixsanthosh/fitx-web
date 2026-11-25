@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { configuredGoogleClientId, createNonce, idTokenProblem, loadGoogleIdentity, type GoogleId } from "@/lib/auth/google-identity";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { isSuspendedError, SUSPENDED_MESSAGE } from "@/lib/platform/account-status";
@@ -126,7 +126,7 @@ export function GoogleSignIn({ context, next, disabled, redirectPending, onRedir
           else setAttempt((n) => n + 1); // A fresh nonce for the next try.
           return;
         }
-        window.location.assign(await finishPasswordSignIn(callbacks.current.next()));
+        leaveSignInPage(await finishPasswordSignIn(callbacks.current.next()));
       } catch (problem) {
         callbacks.current.onError(isTimeLimit(problem) ? TIMED_OUT.google : "We couldn’t connect to FITX. Check your connection and try again.");
         setBusy(false);

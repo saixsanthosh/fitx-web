@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { forgetAccountInBrowser } from "@/lib/account/device-cleanup";
+import { signedOutAddress } from "@/lib/auth/address-messages";
 import { AUTH_HINT_COOKIE } from "@/lib/auth/cookies";
 import { signOutWithDeviceActivity } from "@/lib/auth/device-sign-out";
 import { createClient } from "@/lib/supabase/client";
@@ -22,6 +23,8 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
   const everywhere = scope === "global";
 
   async function logout() {
+    // Busy: the button stays focusable (aria-disabled), so a failed "Sign out everywhere" keeps focus beside its message.
+    if (busy) return;
     setError("");
     if (everywhere && !window.confirm("Sign out of FITX on every device, including this one?")) return;
     const supabase = createClient();
@@ -42,7 +45,8 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
     }
     forgetAccountInBrowser();
     document.cookie = `${AUTH_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
-    window.location.replace("/signin?signed_out=1");
+    // The sign-in page says which: "signed out on this device", or "signed out everywhere" (bug 42).
+    window.location.replace(signedOutAddress(scope));
   }
 
   const text = label ?? (everywhere ? "Sign out everywhere" : "Log out");
@@ -50,9 +54,9 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
     <span className="inline-flex flex-col items-start gap-1">
       <button
         type="button"
-        disabled={busy}
+        aria-disabled={busy || undefined}
         onClick={() => void logout()}
-        className={`inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text disabled:opacity-50 ${className}`}
+        className={`inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text aria-disabled:cursor-progress aria-disabled:opacity-50 ${className}`}
       >
         <LogOut size={16} aria-hidden="true" />{busy ? "Signing out…" : text}
       </button>

@@ -16,9 +16,11 @@ test("sign-in pages draw their own screen; onboarding keeps the group's frame", 
 
 test("the names other flows sign in with stay the same", () => {
   const signIn = source("src/app/(auth)/signin/SignInForm.tsx");
-  for (const name of ["Other sign-in options", ">Email address", ">Password", "Sign in with email", "<GoogleSignIn", "You’re signed out on this device."]) {
+  for (const name of ["Other sign-in options", ">Email address", ">Password", "Sign in with email", "<GoogleSignIn"]) {
     assert.ok(signIn.includes(name), `sign-in keeps "${name}"`);
   }
+  // Log out's notice (flow 08 waits for it) now lives with the address's other messages.
+  assert.ok(source("src/lib/auth/address-messages.ts").includes('"You’re signed out on this device."'), "Log out's notice stays the same");
   const signUp = source("src/app/(auth)/signup/SignUpForm.tsx");
   for (const name of ["Other sign-up options", ">Your name", ">Email address", ">Password", ">Confirm password", "Create account with email"]) {
     assert.ok(signUp.includes(name), `sign-up keeps "${name}"`);

@@ -149,7 +149,8 @@ test("a late answer is not lost: emails sent late count for this browser's limit
   assert.match(source("src/app/(auth)/forgot-password/page.tsx"), /\(\{ error: late \}\) => \{\s*if \(late\) return;\s*browserEmailCooldown\(\)\.record\(address\);\s*setSent\(true\);\s*\}/);
   assert.match(source("src/app/(auth)/reset-password/page.tsx"), /\(\{ error: late \}\) => \{\s*if \(late\) return;\s*void stampSessionCookies\(\);\s*setSaved\(true\);\s*\}/);
   const finish = source("src/lib/auth/finish-sign-in.ts");
-  assert.match(finish, /export function finishLateSignIn\(next: string \| null\): void \{\s*void finishPasswordSignIn\(next\)\.then\(\(destination\) => window\.location\.assign\(destination\)\);\s*\}/);
+  // It leaves the sign-in page as every sign-in does, replacing it in the tab's history (bug 40, back-after-sign-in.test.ts).
+  assert.match(finish, /export function finishLateSignIn\(next: string \| null\): void \{\s*void finishPasswordSignIn\(next\)\.then\(leaveSignInPage\);\s*\}/);
 });
 
 test("the buttons work again after a time-out: the busy state is cleared on every path", () => {

@@ -13,6 +13,7 @@ import {
   sessionCookieOptions,
 } from "@/lib/auth/cookies";
 import { openBeforeOnboarding } from "@/lib/auth/before-onboarding";
+import { SIGNED_OUT_PAGES } from "@/lib/auth/restored-page";
 import { safeNext } from "@/lib/auth/safe-next";
 import { isSuspendedError } from "@/lib/platform/account-status";
 import { platformGate } from "@/lib/platform/gate";
@@ -25,7 +26,8 @@ const PRIVATE_ROOTS = [
   "/exercises", "/home-workout", "/form-coach", "/onboarding", "/achievements", "/ai-coach", "/subscription", "/tasks", "/social", "/admin",
   "/unavailable", "/explore",
 ];
-const AUTH_ENTRY = new Set(["/signin", "/signup", "/forgot-password"]);
+/** The sign-in pages, which send a signed-in member on; they ask again when shown from history (restored-page.ts). */
+const AUTH_ENTRY = SIGNED_OUT_PAGES;
 /** Parameters Supabase Auth appends when it sends a browser back after sign-in or an e-mail link. */
 const AUTH_PARAMS = ["code", "error", "error_code", "error_description"] as const;
 const SESSION_CHECK_TIMEOUT_MS = 3000;

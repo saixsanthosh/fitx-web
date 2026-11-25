@@ -29,7 +29,15 @@ export async function finishPasswordSignIn(next: string | null): Promise<string>
   return safeNext(next);
 }
 
+/**
+ * Leaves a sign-in page for the signed-in app. The sign-in page is replaced in the tab's history, so Back goes to the
+ * page before it, never to an empty sign-in form shown from the browser's cache while still signed in (bug 40).
+ */
+export function leaveSignInPage(destination: string): void {
+  window.location.replace(destination);
+}
+
 /** A sign-in that went through after its form stopped waiting (withTimeLimit's `late`): finish it and go on. */
 export function finishLateSignIn(next: string | null): void {
-  void finishPasswordSignIn(next).then((destination) => window.location.assign(destination));
+  void finishPasswordSignIn(next).then(leaveSignInPage);
 }

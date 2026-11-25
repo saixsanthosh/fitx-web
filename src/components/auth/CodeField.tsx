@@ -10,7 +10,8 @@ type Props = {
   /** Called once all six digits are in, typed or pasted. */
   onComplete?: (code: string) => void;
   invalid?: boolean;
-  disabled?: boolean;
+  /** While signing in: the code can't change, and the field keeps focus (a disabled one drops it to the page). */
+  readOnly?: boolean;
   describedBy?: string;
 };
 
@@ -19,7 +20,7 @@ type Props = {
  * password managers all work) drawn as six boxes. Pasting "123 456" or a whole sentence keeps the digits.
  */
 export const CodeField = forwardRef<HTMLInputElement, Props>(function CodeField(
-  { value, onChange, onComplete, invalid = false, disabled = false, describedBy },
+  { value, onChange, onComplete, invalid = false, readOnly = false, describedBy },
   ref,
 ) {
   const id = useId();
@@ -45,7 +46,7 @@ export const CodeField = forwardRef<HTMLInputElement, Props>(function CodeField(
           pattern="[0-9]*"
           spellCheck={false}
           required
-          disabled={disabled}
+          readOnly={readOnly}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
           value={value}

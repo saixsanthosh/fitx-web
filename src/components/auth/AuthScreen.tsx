@@ -1,13 +1,18 @@
+"use client";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AuthStage } from "./AuthStage";
+import { useAskServerWhenRestored } from "./useAskServerWhenRestored";
 import s from "./auth.module.css";
 
 /**
  * The one-screen frame of the sign-in, sign-up and password pages: the moving stage and the form panel.
- * `footer` sits at the bottom of the panel, above the legal line.
+ * `footer` sits at the bottom of the panel, above the legal line. A sign-in page shown again from the tab's history
+ * while the member may be signed in asks the server again (useAskServerWhenRestored, bug 40).
  */
 export function AuthScreen({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
+  useAskServerWhenRestored();
   return (
     <main className={s.screen}>
       <AuthStage />

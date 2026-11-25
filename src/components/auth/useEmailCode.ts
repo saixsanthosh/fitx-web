@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RESEND_SECONDS, isCompleteCode, sendCodeProblem, verifyCodeProblem } from "@/lib/auth/email-code";
-import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { authCallbackUrl } from "@/lib/site-url";
@@ -105,10 +105,12 @@ export function useEmailCode(next: () => string | null) {
     }
   }
 
-  async function resend() {
-    if (resendIn > 0) return;
+  /** Sends a new code to the same address; true once the code step is showing for it (so its field can take focus). */
+  async function resend(): Promise<boolean> {
+    if (resendIn > 0) return false;
     const problem = await send(email, { again: true });
     if (problem) setError(problem);
+    return problem === null;
   }
 
   async function verify(value: string) {
@@ -137,7 +139,7 @@ export function useEmailCode(next: () => string | null) {
         return;
       }
       setSigningIn(true);
-      window.location.assign(await finishPasswordSignIn(next()));
+      leaveSignInPage(await finishPasswordSignIn(next()));
     } catch (problem) {
       setError(isTimeLimit(problem) ? TIMED_OUT.verifyCode : OFFLINE);
       setVerifying(false);

@@ -32,9 +32,13 @@ export async function startOAuth(provider: OAuthProvider, next: string | null): 
   }
 }
 
+/**
+ * Google's redirect button. While another sign-in is in flight it is aria-disabled and does nothing: a disabled button
+ * would drop keyboard focus to the page, and focus must still be on it when a failed redirect says why (bug 80).
+ */
 export function GoogleButton({ pending, disabled, onClick }: { pending: boolean; disabled: boolean; onClick: () => void }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className={s.google}>
+    <button type="button" aria-disabled={disabled || undefined} onClick={() => !disabled && onClick()} className={s.google}>
       <GoogleIcon />
       {pending ? "Connecting…" : "Continue with Google"}
     </button>
