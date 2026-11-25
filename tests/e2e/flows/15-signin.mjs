@@ -5,8 +5,9 @@
 // Google button is the redirect flow and nothing is fetched from Google. A new address asks for a code, a wrong code is refused, the right code (pasted with a space)
 // signs in and onboarding opens; an existing account signs in by code and lands on the page it asked for, and
 // asking again within a minute keeps the code already sent. The stand-in keeps codes in an outbox (auth.mjs).
-// An address typed into the server-rendered page before its scripts run is kept once React takes over, and the
-// code step works with it (hotfix 2d).
+// An address typed into the server-rendered page before its scripts run is kept once React takes over, so is the
+// "Other sign-in options" panel opened by then (React shows the panel's own button), and the code step works with
+// the address (hotfix 2d).
 import { seeText } from "./common.mjs";
 
 /** Records, in every page of the flow, the stage's data-scene values in order and each worker the page starts. */
@@ -146,7 +147,7 @@ export const flow = {
       await page.emulateMedia({ reducedMotion: null });
     });
 
-    await t.step("an address typed before the page's scripts run is kept, and the code step works with it", async () => {
+    await t.step("an address typed and the options opened before the page's scripts run are kept, and the code step works with it", async () => {
       const early = standin.newCredentials("Early Typist", "early").email;
       // The page's own scripts wait until the address is typed: until then the server-rendered page is all there is.
       let release = () => {};
@@ -166,24 +167,40 @@ export const flow = {
         // Focus, not a click: before hydration the cookie banner may still sit over the form on a phone.
         await field.focus();
         await page.keyboard.type(early, { delay: 10 });
+        // Then "Other sign-in options" opened, by keyboard for the same reason: the summary takes Enter like a button.
+        // Its toggle event fires before React listens, so only useKeepOpenState can tell React the panel is open.
+        const summary = page.locator("form details > summary");
+        await summary.press("Enter");
         const before = await page.evaluate(() => ({
           hydrated: Boolean(document.querySelector("form[data-hydrated]")),
           value: document.querySelector("form input[type=email]")?.value ?? null,
+          open: document.querySelector("form details")?.open ?? null,
         }));
         t.note("before hydration", { held: held.length, ...before });
         t.expect(held.length > 0 && !before.hydrated, `the page's scripts were held while typing (${held.length} held, hydrated ${before.hydrated})`, before);
         t.expect(before.value === early, `the server-rendered field took the address (${before.value})`, before);
+        t.expect(before.open === true, `the server-rendered panel opened (open ${before.open})`, before);
         release();
         await page.waitForSelector("form[data-hydrated]", { timeout: 30000 });
         // The renders right after hydration (reduced motion, location, data-hydrated) used to empty the field.
         await page.waitForTimeout(750);
         const kept = await field.inputValue();
         t.expect(kept === early, `the address typed before hydration is still in the field (holds "${kept}")`);
-        await t.checkpoint("typed before hydration, kept", { fullPage: false, settle: false });
+        // The panel stays open in the DOM whatever React thinks, and one submit button shows either way. Which one tells:
+        // React draws "Sign in with email" only while its state says open, "Email me a code" only while it says shut.
+        const panel = await page.evaluate(() => ({
+          open: document.querySelector("form details")?.open ?? null,
+          submits: [...document.querySelectorAll("form button[type=submit]")].map((button) => button.textContent.trim()),
+        }));
+        t.note("after hydration", panel);
+        t.expect(panel.open === true && panel.submits.length === 1 && panel.submits[0] === "Sign in with email", `the panel opened before hydration stays open and React knows it: its own button is the one submit button (open ${panel.open}, ${JSON.stringify(panel.submits)})`, panel);
+        await t.checkpoint("typed and opened before hydration, kept", { fullPage: false, settle: false });
       } finally {
         release();
         await page.unroute(scripts, hold);
       }
+      // Shut the panel again as it was opened; React follows, and the code button is back.
+      await page.locator("form details > summary").press("Enter");
       await page.getByRole("button", { name: "Email me a code" }).click();
       await seeText(t, "Check your email");
       await seeText(t, early);
