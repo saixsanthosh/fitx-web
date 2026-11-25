@@ -11,6 +11,7 @@ import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
 import { useEmailCode } from "@/components/auth/useEmailCode";
+import { useFocusWhen } from "@/components/auth/useFocusWhen";
 import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
@@ -47,6 +48,7 @@ export default function SignUpForm() {
   const passwordInput = useRef<HTMLInputElement>(null);
   const confirmInput = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
+  const sentHeading = useRef<HTMLHeadingElement>(null);
   const baseId = useId();
   const ids = fieldIds(baseId);
   // Whatever was typed (or opened) before the page's scripts ran stays: the render right after hydration would wipe it.
@@ -144,14 +146,16 @@ export default function SignUpForm() {
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.15 } }
     : { initial: { opacity: 0, x: 24 }, animate: { opacity: 1, x: 0 }, exit: { opacity: 0, x: -24 }, transition: { duration: DURATION.base, ease: EASE.out } };
   const view = sent ? "sent" : codeFlow.step;
+  // The button pressed is gone once the confirmation email is on its way: focus goes to what the page now says.
+  useFocusWhen(sentHeading, view === "sent");
 
   return (
     <AuthScreen footer={view === "email" && <p className={s.account}>Already use FITX? <Link href="/signin">Sign in</Link></p>}>
       <AnimatePresence mode="popLayout" initial={false}>
         {view === "sent" ? (
           <m.div key="sent" className={s.body} {...slide}>
-            <h1 className={s.title}>Check your email</h1>
-            <p className={s.lead}>Open the link we sent to <strong>{email.trim()}</strong> to finish.</p>
+            <h1 ref={sentHeading} tabIndex={-1} className={s.title} aria-describedby={`${baseId}-sent`}>Check your email</h1>
+            <p id={`${baseId}-sent`} className={s.lead}>Open the link we sent to <strong>{email.trim()}</strong> to finish.</p>
             <Link href="/signin" className={s.link}>Back to sign in</Link>
           </m.div>
         ) : view === "code" ? (
@@ -183,7 +187,7 @@ export default function SignUpForm() {
               </div>
               {!open && (
                 <>
-                  <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                  <button type="submit" aria-disabled={loading || undefined} className={`fitx-button ${s.primary}`}>
                     {codeFlow.sending ? "Sending code…" : "Email me a code"}
                   </button>
                   {error && <p role="alert" className={s.error}>{error}</p>}
@@ -232,14 +236,14 @@ export default function SignUpForm() {
                   </div>
                   {open && (
                     <>
-                      <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                      <button type="submit" aria-disabled={loading || undefined} className={`fitx-button ${s.primary}`}>
                         {pending === "password" ? "Creating account…" : "Create account with email"}
                       </button>
                       {error && <p role="alert" className={s.error}>{error}</p>}
                     </>
                   )}
                   {appleEnabled && (
-                    <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className={s.option}>
+                    <button type="button" aria-disabled={loading || undefined} onClick={() => void signInWith("apple")} className={s.option}>
                       <Apple size={17} aria-hidden="true" />Continue with Apple
                     </button>
                   )}

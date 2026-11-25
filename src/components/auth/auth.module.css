@@ -179,6 +179,9 @@
   line-height: 1.05;
 }
 
+/* A heading that takes focus when the page says what happened next (useFocusWhen) is not a control: no ring. */
+.title[tabindex="-1"]:focus { outline: none; }
+
 .lead { margin: -4px 0 2px; color: var(--fitx-text-secondary); font-size: 0.86rem; line-height: 1.45; overflow-wrap: anywhere; }
 .lead strong { color: var(--fitx-text); font-weight: 650; }
 
@@ -200,7 +203,10 @@
 }
 .google:hover { background: var(--fitx-strong-hover); }
 .google:active { transform: translateY(1px); }
-.google:disabled { cursor: wait; opacity: 0.68; }
+.google:disabled,
+.google[aria-disabled="true"] { cursor: wait; opacity: 0.68; }
+.google[aria-disabled="true"]:hover { background: var(--fitx-strong-bg); }
+.google[aria-disabled="true"]:active { transform: none; }
 .google:focus-visible { outline: 3px solid var(--fitx-primary); outline-offset: 3px; }
 
 /* Google's own button (Google Identity Services) sits in this slot; it draws a 40 px button in an iframe. */
@@ -252,6 +258,11 @@
 .reveal:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: -4px; }
 
 .primary { width: 100%; min-height: 50px; border-radius: 10px; }
+/* Busy buttons are aria-disabled, not disabled: a disabled button drops keyboard focus to the page (bug 80). They look
+   like .fitx-button:disabled and their handlers return early while busy. */
+.primary[aria-disabled="true"] { cursor: progress; opacity: 0.58; }
+.primary[aria-disabled="true"]:hover { background: var(--fitx-primary); }
+.primary[aria-disabled="true"]:active { transform: none; }
 
 .details { border-top: 1px solid var(--fitx-divider); border-bottom: 1px solid var(--fitx-divider); }
 .details > summary {
@@ -287,6 +298,8 @@
   font-weight: 600;
 }
 .option:hover { border-color: var(--fitx-primary); }
+.option[aria-disabled="true"] { cursor: progress; opacity: 0.58; }
+.option[aria-disabled="true"]:hover { border-color: var(--fitx-border); }
 
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
@@ -301,7 +314,8 @@
   text-underline-offset: 3px;
 }
 .link:hover { text-decoration: underline; }
-.link:disabled { color: var(--fitx-text-disabled); cursor: default; text-decoration: none; }
+.link:disabled,
+.link[aria-disabled="true"] { color: var(--fitx-text-disabled); cursor: default; text-decoration: none; }
 .link:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; border-radius: 4px; }
 .quietLink { color: var(--fitx-text-secondary); }
 

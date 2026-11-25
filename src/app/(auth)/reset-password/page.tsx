@@ -5,6 +5,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import { LockKeyhole } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { useEarlySubmit } from "@/components/auth/early-submit";
+import { useFocusWhen } from "@/components/auth/useFocusWhen";
 import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
@@ -24,6 +25,7 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const confirmInput = useRef<HTMLInputElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const baseId = useId();
   const ids = fieldIds(baseId);
   // Passwords typed before the page's scripts ran stay (src/components/auth/useKeepTypedValue.ts).
@@ -33,6 +35,8 @@ export default function ResetPasswordPage() {
   // A press of Enter or of the button before the page is ready is held, then sent once it is (early-submit.ts).
   const formRef = useRef<HTMLFormElement>(null);
   const replayEarlySubmit = useEarlySubmit(formRef);
+  // The button pressed is gone once the password is saved: focus goes to "Password updated", then Open FITX.
+  useFocusWhen(heading, saved);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,7 +83,7 @@ export default function ResetPasswordPage() {
   return (
     <AuthScreen>
       <div className={s.body}>
-        <h1 className={s.title}>{saved ? "Password updated" : "New password"}</h1>
+        <h1 ref={heading} tabIndex={-1} className={s.title}>{saved ? "Password updated" : "New password"}</h1>
         {saved ? (
           <Link href="/dashboard" className={`fitx-button ${s.primary}`}>Open FITX</Link>
         ) : (
@@ -100,7 +104,7 @@ export default function ResetPasswordPage() {
               </span>
               <FieldProblemText problem={fieldProblem} field="confirm" ids={ids} />
             </div>
-            <button type="submit" className={`fitx-button ${s.primary}`} disabled={loading}>{loading ? "Saving…" : "Update password"}</button>
+            <button type="submit" className={`fitx-button ${s.primary}`} aria-disabled={loading || undefined}>{loading ? "Saving…" : "Update password"}</button>
             {error && <p role="alert" className={s.error}>{error}</p>}
             <Link href="/forgot-password" className={s.link}>Need a new link?</Link>
           </form>

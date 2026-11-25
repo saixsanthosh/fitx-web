@@ -23,6 +23,8 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
   const everywhere = scope === "global";
 
   async function logout() {
+    // Busy: the button stays focusable (aria-disabled), so a failed "Sign out everywhere" keeps focus beside its message.
+    if (busy) return;
     setError("");
     if (everywhere && !window.confirm("Sign out of FITX on every device, including this one?")) return;
     const supabase = createClient();
@@ -52,9 +54,9 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
     <span className="inline-flex flex-col items-start gap-1">
       <button
         type="button"
-        disabled={busy}
+        aria-disabled={busy || undefined}
         onClick={() => void logout()}
-        className={`inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text disabled:opacity-50 ${className}`}
+        className={`inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text aria-disabled:cursor-progress aria-disabled:opacity-50 ${className}`}
       >
         <LogOut size={16} aria-hidden="true" />{busy ? "Signing out…" : text}
       </button>

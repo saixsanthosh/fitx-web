@@ -182,7 +182,7 @@ export default function SignInForm() {
               </div>
               {!open && (
                 <>
-                  <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                  <button type="submit" aria-disabled={loading || undefined} className={`fitx-button ${s.primary}`}>
                     {codeFlow.sending ? "Sending code…" : "Email me a code"}
                   </button>
                   {error && <p role="alert" className={s.error}>{error}</p>}
@@ -220,7 +220,7 @@ export default function SignInForm() {
                   </div>
                   {open && (
                     <>
-                      <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                      <button type="submit" aria-disabled={loading || undefined} className={`fitx-button ${s.primary}`}>
                         {pending === "password" ? "Signing in…" : "Sign in with email"}
                       </button>
                       {error && <p role="alert" className={s.error}>{error}</p>}
@@ -229,7 +229,7 @@ export default function SignInForm() {
                   <div className={s.row}>
                     <Link href="/forgot-password" className={s.link}>Forgot password?</Link>
                     {appleEnabled && (
-                      <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className={s.link}>
+                      <button type="button" aria-disabled={loading || undefined} onClick={() => void signInWith("apple")} className={s.link}>
                         <Apple size={15} aria-hidden="true" />Continue with Apple
                       </button>
                     )}
