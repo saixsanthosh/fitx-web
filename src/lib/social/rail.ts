@@ -65,6 +65,29 @@ export function createChoices(videosOn: boolean, options: readonly CreateOption[
   return options.filter((option) => option.ready && (!option.needsVideo || videosOn));
 }
 
+/**
+ * Each rail label's width in Chrome at the rail's type (Inter, 14 px, weight 600), as measured in the 25 November 2026
+ * bug hunt (verify/explore-navigation-layout); "Videos", off on the hunt copy, is estimated from its letters.
+ */
+export const RAIL_LABEL_PX: Readonly<Record<string, number>> = {
+  Feed: 33, Discover: 60, Videos: 46, Community: 78, Messages: 69, Notifications: 87, Profile: 44,
+};
+
+/** Around the labels: each link's padding (20), icon (19) and gap (10); the frame (border 2, padding 10), its gap (6) and New post (122). */
+const RAIL_LINK_PX = 20 + 19 + 10;
+const RAIL_FRAME_PX = 2 + 10 + 6 + 122;
+const RAIL_LINK_GAP_PX = 2;
+
+/**
+ * The width (px) the Explore rail needs to show every label in full, each tab as wide as its own label (bug 74: equal
+ * shares cut "Notifications" while "Feed" had room to spare). Explore.module.css shows labels only from a little more
+ * than this (its container queries, per tab count); below it the rail is icons only, as on phones, never cut labels.
+ */
+export function railLabelsWidth(labels: readonly string[]): number {
+  const text = labels.reduce((sum, label) => sum + (RAIL_LABEL_PX[label] ?? Number.NaN), 0);
+  return RAIL_FRAME_PX + labels.length * RAIL_LINK_PX + Math.max(0, labels.length - 1) * RAIL_LINK_GAP_PX + text;
+}
+
 /** Which rail entry a path belongs to (the longest matching href), or null for Notifications, a profile or settings. */
 export function railKeyFor(pathname: string, rail: readonly RailEntry[] = EXPLORE_RAIL): RailKey | null {
   let best: RailEntry | null = null;
