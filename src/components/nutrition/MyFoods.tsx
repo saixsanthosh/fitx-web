@@ -10,6 +10,7 @@ import styles from "./FoodUi.module.css";
 
 interface MyFoodsProps {
   rows: CustomFoodRow[];
+  /** The foods are being read. Until the first answer the list says so; a reload after a save keeps the rows shown. */
   loading: boolean;
   busy: boolean;
   /** A signed link to the food's photo, when it has one. */
@@ -32,10 +33,11 @@ export function MyFoods({ rows, loading, busy, photoFor, onUse, onAdd, onEdit, o
           <h2 className="font-medium">My foods</h2>
           <p className={styles.muted}>Shown first when you search. Only you can see them, except their names, which the AI coach sends out only with “Use my FITX data” on.</p>
         </div>
-        <button type="button" onClick={onAdd} className="fitx-button"><Plus size={15}/>Add a food</button>
+        <button type="button" data-food-add onClick={onAdd} className="fitx-button"><Plus size={15}/>Add a food</button>
       </div>
       {rows.length > 6 && <input className="fitx-field mb-3" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Find one of your foods" aria-label="Find one of your foods"/>}
-      {loading ? <p className={styles.muted}>Loading your foods…</p> : rows.length === 0 ? (
+      {/* Only before the first answer: a reload keeps the rows, so the pencil or button pressed keeps the focus. */}
+      {loading && rows.length === 0 ? <p className={styles.muted}>Loading your foods…</p> : rows.length === 0 ? (
         <div className={styles.callout}>
           <p>You haven&apos;t saved any foods yet. Add a home recipe or a packaged food from its label, or scan a barcode that FITX can&apos;t find.</p>
         </div>
@@ -56,9 +58,10 @@ export function MyFoods({ rows, loading, busy, photoFor, onUse, onAdd, onEdit, o
                     {row.barcode && <span className={styles.tag}>Barcode {row.barcode}</span>}
                   </p>
                 </div>
-                <button type="button" onClick={() => onUse(row)} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs">Use</button>
-                <button type="button" onClick={() => onEdit(row)} disabled={busy} aria-label={`Edit ${row.name}`} className={styles.iconButton}><Pencil size={15}/></button>
-                <button type="button" onClick={() => onRemove(row)} disabled={busy} aria-label={`Delete ${row.name}`} title="Delete (past logs keep their values)" className={styles.iconButton}>
+                <button type="button" data-food-use={row.id} onClick={() => onUse(row)} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs">Use</button>
+                {/* Unavailable while something saves, not disabled, so the button pressed keeps the focus. */}
+                <button type="button" onClick={() => { if (!busy) onEdit(row); }} aria-disabled={busy || undefined} aria-label={`Edit ${row.name}`} className={`${styles.iconButton} ${styles.actionBusy}`}><Pencil size={15}/></button>
+                <button type="button" onClick={() => { if (!busy) onRemove(row); }} aria-disabled={busy || undefined} aria-label={`Delete ${row.name}`} title="Delete (past logs keep their values)" className={`${styles.iconButton} ${styles.actionBusy}`}>
                   <Trash2 size={15}/>
                 </button>
               </div>

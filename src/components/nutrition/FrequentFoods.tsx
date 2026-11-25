@@ -17,7 +17,8 @@ export function FrequentFoods({ items, meal, busy, onAdd, onChoose }: { items: r
             <span>{item.name}</span>
             <small>{item.amountText} · {Math.round(Number(item.entry.calories))} kcal · logged {item.count} times</small>
           </button>
-          <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" disabled={busy} onClick={() => onAdd(item)} aria-label={`Add usual amount of ${item.name} to ${meal}`}><Plus size={14}/>Add</button>
+          {/* Unavailable while a food is being added, not disabled, so the button pressed keeps the focus. */}
+          <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-3 text-xs ${styles.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) onAdd(item); }} aria-label={`Add usual amount of ${item.name} to ${meal}`}><Plus size={14}/>Add</button>
         </div>
       ))}
     </section>

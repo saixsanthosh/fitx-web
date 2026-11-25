@@ -21,6 +21,15 @@ export function mealForTime(date: Date): (typeof DEFAULT_MEALS)[number] {
   return "Dinner";
 }
 
+/**
+ * The meal Log food opens on: the one asked for (a meal's + in the diary), else one the member just added with "Add a
+ * meal" (for that next log only), else the one that suits the time of day when the sheet opens. A choice lasts for
+ * that one sheet: closing it or logging a food puts the next Log food back on the time of day.
+ */
+export function mealForOpen(asked: string | null | undefined, pending: string | null | undefined, now: Date): string {
+  return asked || pending || mealForTime(now);
+}
+
 /** A typed section name trimmed and squeezed, or the reason it cannot be used. */
 export function checkSectionName(input: string): { ok: true; name: string } | { ok: false; reason: string } {
   const name = input.replace(/\s+/g, " ").trim();

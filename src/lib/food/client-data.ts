@@ -12,6 +12,8 @@ import { parseExtraNutrients } from "@/lib/food/custom-nutrients";
 import { FOOD_PHOTO_BUCKET } from "@/lib/food/food-photos";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
 import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
+import { catalogueCopies } from "@/lib/food/catalogue-copies";
+import { catalogueRef, customServingPortion, withSourceFood } from "@/lib/food/saved-foods";
 
 export const CUSTOM_SOURCE = "FITX custom food";
 export const MEAL_SLOTS = DEFAULT_MEALS;
@@ -86,7 +88,8 @@ export interface MealSnapshot {
   kind?: string;
   /** The food's diet label when it was logged, so the diet filter also applies to Recent. */
   diet_type?: DietType;
-  portion?: { count?: number; label?: string; unit?: FoodPortion["unit"]; grams_each?: number; estimate?: boolean; converted_from?: { label: string; grams: number } };
+  /** own_size: the member's own cup or spoon (FoodPortion.ownSize), never a US measure to work others out from. */
+  portion?: { count?: number; label?: string; unit?: FoodPortion["unit"]; grams_each?: number; estimate?: boolean; converted_from?: { label: string; grams: number }; own_size?: boolean };
 }
 
 export const MEAL_COLUMNS = "id,date,meal,food_name,brand,barcode,servings,calories,protein,carbs,fat,quantity_grams,source,provider_id,serving_size,nutrition_snapshot";
@@ -161,7 +164,7 @@ export function foodFromEntry(entry: MealEntry): FoodResult | null {
   const valueBasis = entryBasis(entry);
   const portion = snapshot?.portion;
   const portions: FoodPortion[] = portion?.label && portion.unit && Number(portion.grams_each) > 0
-    ? [{ label: portion.label, unit: portion.unit, grams: Number(portion.grams_each), estimate: portion.estimate !== false, countDefault: portion.unit === "piece" || portion.unit === "serving" }]
+    ? [{ label: portion.label, unit: portion.unit, grams: Number(portion.grams_each), estimate: portion.estimate !== false, countDefault: portion.unit === "piece" || portion.unit === "serving", ...(portion.own_size === true ? { ownSize: true } : {}) }]
     : [];
   const stored = snapshot?.per_100g;
   const optional = (value: number | null | undefined) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : round1(Number(value)));
@@ -301,13 +304,42 @@ const DIET_TYPES = new Set(["vegan", "veg", "egg", "non_veg"]);
  * Recent foods with your own foods as they are saved now: an edit applies at once, and a deleted food drops out,
  * so Recent never re-logs values you have corrected. Other foods keep what was logged.
  */
-export function withCurrentCustomFoods(recent: readonly FoodResult[], rows: readonly CustomFoodRow[], photoFor: (row: CustomFoodRow) => string | null = () => null): FoodResult[] {
+export function withCurrentCustomFoods(
+  recent: readonly FoodResult[],
+  rows: readonly CustomFoodRow[],
+  photoFor: (row: CustomFoodRow) => string | null = () => null,
+  savedFrom: SavedFrom = new Map(),
+): FoodResult[] {
   const byId = new Map(rows.map((row) => [row.id, row]));
   return recent.flatMap((food) => {
     if (food.kind !== "custom") return [food];
     const row = byId.get(food.id);
-    return row ? [customFoodResult(row, photoFor(row))] : [];
+    return row ? [customFoodResult(row, photoFor(row), sourceOf(row, savedFrom))] : [];
   });
+}
+
+/** The catalogue foods your own foods were copied from, by catalogue id (their source_ref). */
+export type SavedFrom = ReadonlyMap<string, Pick<FoodResult, "portions" | "dietType">>;
+
+/** The catalogue food a saved food was copied from, when this page has it. */
+export function sourceOf(row: Pick<CustomFoodRow, "source_ref">, savedFrom: SavedFrom): Pick<FoodResult, "portions" | "dietType"> | null {
+  const ref = catalogueRef(row.source_ref);
+  return ref ? savedFrom.get(ref) ?? null : null;
+}
+
+/**
+ * The catalogue foods (with their measures and diet labels) that the member's saved foods were copied from, read under
+ * row-level security. Empty when there are none, or when the catalogue can't answer (not seeded, or a read failed):
+ * the saved foods then keep only their own serving.
+ */
+export async function loadSavedFrom(supabase: SupabaseClient, rows: readonly Pick<CustomFoodRow, "source_ref">[]): Promise<SavedFrom> {
+  const ids = [...new Set(rows.map((row) => catalogueRef(row.source_ref)).filter((ref): ref is string => Boolean(ref) && /^\d+$/.test(ref as string)))];
+  if (!ids.length) return new Map();
+  try {
+    return (await catalogueCopies(supabase, ids)) ?? new Map();
+  } catch {
+    return new Map();
+  }
 }
 
 /** A custom food as stored (values per 100 g), with the v2 fields when the migration is applied. */
@@ -318,9 +350,10 @@ export interface CustomFoodRow {
   serving_size: string | null;
   serving_grams: number | null;
   calories_per_100g: number;
-  protein_per_100g: number;
-  carbs_per_100g: number;
-  fat_per_100g: number;
+  /** null: not known (left blank, or not on the label), never 0. Allowed from migration 20261126100000. */
+  protein_per_100g: number | null;
+  carbs_per_100g: number | null;
+  fat_per_100g: number | null;
   barcode?: string | null;
   origin?: CustomFoodOrigin | null;
   value_basis?: ValueBasis | null;
@@ -336,9 +369,21 @@ export interface CustomFoodRow {
 const CUSTOM_V1 = "id,name,brand,serving_size,serving_grams,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g";
 const CUSTOM_V2 = `${CUSTOM_V1},barcode,origin,value_basis,image_path,image_url,image_attribution,source_ref,archived_at`;
 
-export async function loadCustomFoods(supabase: SupabaseClient, userId: string, v2: boolean): Promise<{ rows: CustomFoodRow[]; error: boolean }> {
-  const query = supabase.from("custom_foods").select(v2 ? CUSTOM_V2 : CUSTOM_V1).eq("user_id", userId).order("name").limit(300);
-  const { data, error } = v2 ? await query.is("archived_at", null) : await query;
+/**
+ * The member's own foods. `v2` says whether the Nutrition v2 columns exist; left out, the v2 read is tried first and,
+ * only if those columns are missing, the older one, so the read needn't wait for detectCapabilities.
+ */
+export async function loadCustomFoods(supabase: SupabaseClient, userId: string, v2?: boolean): Promise<{ rows: CustomFoodRow[]; error: boolean }> {
+  const read = async (newer: boolean) => {
+    const query = supabase.from("custom_foods").select(newer ? CUSTOM_V2 : CUSTOM_V1).eq("user_id", userId).order("name").limit(300);
+    return newer ? await query.is("archived_at", null) : await query;
+  };
+  if (v2 !== false) {
+    const { data, error } = await read(true);
+    if (!error) return { rows: (data ?? []) as unknown as CustomFoodRow[], error: false };
+    if (v2 === true || !isMissingSchema(error)) return { rows: [], error: true };
+  }
+  const { data, error } = await read(false);
   return { rows: (data ?? []) as unknown as CustomFoodRow[], error: Boolean(error) };
 }
 
@@ -349,9 +394,10 @@ export interface CustomFoodInput {
   servingLabel: string;
   servingGrams: number;
   calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
+  /** null: left blank, so not known. It is saved as NULL and shown as unknown, never as 0 g. */
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
   barcode: string | null;
   /** user_entered or label for typed values; an edit that leaves the values alone keeps the food's own basis. */
   valueBasis: ValueBasis;
@@ -380,7 +426,7 @@ export function savedFoodSource(
 }
 
 export function customFoodRowValues(input: CustomFoodInput, v2: boolean) {
-  const per100 = (value: number) => Math.round((value * 100 / input.servingGrams) * 100) / 100;
+  const per100 = <T extends number | null>(value: T): T => (value === null ? value : Math.round((value * 100 / input.servingGrams) * 100) / 100) as T;
   const base = {
     name: input.name.trim(),
     brand: input.brand.trim() || null,
@@ -436,14 +482,15 @@ async function removePhotoFile(supabase: SupabaseClient, userId: string, path: s
   if (path && path.startsWith(`${userId}/foods/`)) await supabase.storage.from(FOOD_PHOTO_BUCKET).remove([path]);
 }
 
-/** A custom food as a search result; `photoUrl` is a signed link to the user's own photo of it. */
-export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = null): FoodResult {
-  const serving = Number(row.serving_grams) > 0 ? Number(row.serving_grams) : 100;
-  const label = row.serving_size && !/^\d+(\.\d+)?\s*g$/i.test(row.serving_size) ? `1 serving (${row.serving_size}, ${round1(serving)} g)` : `1 serving (${round1(serving)} g)`;
+/**
+ * A custom food as a search result; `photoUrl` is a signed link to the user's own photo of it, and `source` the
+ * catalogue food it was copied from (its measures and diet label apply while the values are still that food's).
+ */
+export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = null, source: Pick<FoodResult, "portions" | "dietType"> | null = null): FoodResult {
   const origin = row.origin ?? "user";
   const valueBasis = customValueBasis(origin, row.value_basis);
   const extra = parseExtraNutrients(row.extra);
-  return {
+  return withSourceFood({
     id: row.id,
     kind: "custom",
     name: row.name,
@@ -452,10 +499,8 @@ export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = n
     imageCredit: photoUrl ? "Your photo" : row.image_url ? row.image_attribution ?? null : null,
     sourceUrl: null,
     calories: Number(row.calories_per_100g),
-    protein: Number(row.protein_per_100g),
-    carbs: Number(row.carbs_per_100g),
-    fat: Number(row.fat_per_100g),
-    missing: [],
+    // A value the member left blank is unknown: listed in `missing` (0 here only so sums work) and logged as NULL.
+    ...customMacros(row),
     fiber: extra.fiber,
     sugar: extra.sugar,
     saturatedFat: extra.saturatedFat,
@@ -466,12 +511,13 @@ export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = n
     basis: origin === "ai_coach" ? `${basisInfo("ai_suggested").label} · saved` : `Your food · ${basisInfo(valueBasis).label}`,
     state: null,
     dietType: null,
-    portions: [{ label, unit: "serving", grams: serving, countDefault: true, estimate: false }],
+    // The saved serving counts as the measure it names ("1 item", "1 cup").
+    portions: [customServingPortion(row.serving_size, row.serving_grams)],
     barcode: row.barcode ?? null,
     origin,
     recentCount: 0,
     suggestion: false,
-  };
+  }, source);
 }
 
 /** Saved meals ("meal") and daily routines ("day"). */
@@ -658,8 +704,25 @@ export function targetProblem(targets: ManualTargets): { error: string | null; w
   return { error: null, warning };
 }
 
-/** A typed custom food's energy against 4/4/9 kcal per gram; a warning when they disagree a lot. */
-export function customFoodWarning(calories: number, protein: number, carbs: number, fat: number): string | null {
+/**
+ * Protein, carbs and fat of a custom_foods row (per 100 g) as a result has them: a NULL column is unknown, so it is
+ * listed in `missing` and its number is 0 only so sums work.
+ */
+export function customMacros(row: Pick<CustomFoodRow, "protein_per_100g" | "carbs_per_100g" | "fat_per_100g">): Pick<FoodResult, "protein" | "carbs" | "fat"> & { missing: MacroKey[] } {
+  const value = (raw: number | null | undefined) => (raw === null || raw === undefined || String(raw).trim() === "" || !Number.isFinite(Number(raw)) ? null : Number(raw));
+  const protein = value(row.protein_per_100g);
+  const carbs = value(row.carbs_per_100g);
+  const fat = value(row.fat_per_100g);
+  const missing = MACRO_KEYS.filter((key) => ({ protein, carbs, fat })[key] === null);
+  return { protein: protein ?? 0, carbs: carbs ?? 0, fat: fat ?? 0, missing };
+}
+
+/**
+ * A typed custom food's energy against 4/4/9 kcal per gram; a warning when they disagree a lot. Nothing to compare
+ * while protein, carbs or fat is unknown.
+ */
+export function customFoodWarning(calories: number, protein: number | null, carbs: number | null, fat: number | null): string | null {
+  if (protein === null || carbs === null || fat === null || ![calories, protein, carbs, fat].every(Number.isFinite)) return null;
   const fromMacros = protein * 4 + carbs * 4 + fat * 9;
   if (fromMacros < 20 && calories < 20) return null;
   const gap = Math.abs(fromMacros - calories);

@@ -3,12 +3,22 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeading } from "@/components/app/PageHeading";
 import { BasisBadge, PortionEstimateBadge } from "@/components/nutrition/FoodBadges";
-import { PORTION_ESTIMATE, VALUE_BASIS } from "@/lib/food/value-basis";
+import { FITX_RECIPE_SOURCE, PORTION_ESTIMATE, RECIPE_ESTIMATE, VALUE_BASIS } from "@/lib/food/value-basis";
 import type { ValueBasis } from "@/lib/food/types";
 
 export const metadata: Metadata = { title: "Food data sources" };
 
-const BADGES: ValueBasis[] = ["lab_analysed", "compiled", "recipe_calculated", "label", "user_entered", "ai_suggested"];
+/** The key, in the order members meet the badges: FITX's own recipe estimates come after USDA's typical recipes. */
+const BADGES: Array<{ basis: ValueBasis; source?: string; detail: string }> = [
+  { basis: "lab_analysed", detail: VALUE_BASIS.lab_analysed.detail },
+  { basis: "compiled", detail: VALUE_BASIS.compiled.detail },
+  { basis: "recipe_calculated", detail: VALUE_BASIS.recipe_calculated.detail },
+  { basis: "estimated", source: FITX_RECIPE_SOURCE, detail: RECIPE_ESTIMATE.detail },
+  { basis: "label", detail: VALUE_BASIS.label.detail },
+  { basis: "user_entered", detail: VALUE_BASIS.user_entered.detail },
+  { basis: "ai_suggested", detail: VALUE_BASIS.ai_suggested.detail },
+  { basis: "estimated", detail: VALUE_BASIS.estimated.detail },
+];
 
 /** Where FITX's food values come from, how they are labelled, and the credits their licences ask for. */
 export default function NutritionSourcesPage() {
@@ -21,10 +31,10 @@ export default function NutritionSourcesPage() {
         <h2 id="sources-badges" className="text-base font-semibold text-fitx-text">What the labels mean</h2>
         <p className="text-sm text-fitx-text-secondary">Every food and every logged entry says how its values were obtained, so an estimate is never shown as a measurement.</p>
         <ul className="space-y-3">
-          {BADGES.map((basis) => (
-            <li key={basis} className="grid gap-1 sm:grid-cols-[11rem_1fr] sm:items-start">
-              <span><BasisBadge basis={basis}/></span>
-              <span className="text-sm text-fitx-text-secondary">{VALUE_BASIS[basis].detail}</span>
+          {BADGES.map(({ basis, source, detail }) => (
+            <li key={`${basis}-${source ?? ""}`} className="grid gap-1 sm:grid-cols-[11rem_1fr] sm:items-start">
+              <span><BasisBadge basis={basis} source={source}/></span>
+              <span className="text-sm text-fitx-text-secondary">{detail}</span>
             </li>
           ))}
           <li className="grid gap-1 sm:grid-cols-[11rem_1fr] sm:items-start">

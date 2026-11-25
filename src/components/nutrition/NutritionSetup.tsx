@@ -80,6 +80,8 @@ function SetupSteps({ mode, initial, busy, error, onSave, onLater, onClose }: {
 
   function next(event: FormEvent) {
     event.preventDefault();
+    // Saving: a second press does nothing, and the button keeps the focus (it is never disabled under it).
+    if (busy) return;
     const stepProblem = setupProblem(current.id, answers);
     if (stepProblem) { setProblem(stepProblem); return; }
     if (!last) { setStep(step + 1); return; }
@@ -203,7 +205,7 @@ function SetupSteps({ mode, initial, busy, error, onSave, onLater, onClose }: {
           : mode === "first"
             ? <button type="button" className={styles.back} onClick={onLater}>Later</button>
             : <button type="button" className={styles.back} onClick={onClose}>Cancel</button>}
-        <button type="submit" className="fitx-button" disabled={busy}>{last ? (busy ? "Saving…" : "Save") : "Next"}</button>
+        <button type="submit" className="fitx-button" aria-disabled={busy || undefined}>{last ? (busy ? "Saving…" : "Save") : "Next"}</button>
       </div>
     </form>
   );

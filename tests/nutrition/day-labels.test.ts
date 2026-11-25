@@ -30,7 +30,7 @@ test("the page names the day only once it has hydrated", () => {
   assert.match(page, /summaryLabel=\{dayLabels\.summary\} heading=\{dayLabels\.heading\}/);
   // The day's meals are what the page opens on, so their title comes from the labels too.
   assert.match(page, /useState<Tab>\("meals"\)/);
-  assert.match(page, /<MealLog entries=\{entries\} title=\{dayLabels\.diary\}/);
+  assert.match(page, /<MealLog entries=\{dayEntries\} title=\{dayLabels\.diary\}/);
   // Elsewhere the chosen day is formatted only in event handlers and in tabs that open after a tap, never in what
   // the server renders.
   const renderUses = page.split("\n").filter((line) => /readableDate\(date\b/.test(line)).map((line) => line.trim().slice(0, 32));

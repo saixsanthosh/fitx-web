@@ -74,7 +74,8 @@ test("custom foods are stored per 100 g from per-serving values, with v2 fields 
 
 test("a custom food row becomes a result with its saved serving", () => {
   const food = customFoodResult({ id: "c1", name: "Poha", brand: null, serving_size: "1 bowl", serving_grams: 200, calories_per_100g: 130, protein_per_100g: 2.5, carbs_per_100g: 24, fat_per_100g: 3, origin: "user", value_basis: "user_entered" });
-  assert.deepEqual(food.portions, [{ label: "1 serving (1 bowl, 200 g)", unit: "serving", grams: 200, countDefault: true, estimate: false }]);
+  // The saved serving counts as the measure it names, so "1 bowl poha" is the member's own 200 g bowl (bug 5).
+  assert.deepEqual(food.portions, [{ label: "1 bowl", unit: "bowl", grams: 200, countDefault: true, estimate: false }]);
   assert.equal(food.basis, "Your food · Your entry");
 });
 
@@ -114,7 +115,7 @@ test("Recent shows your own foods as saved now: edits apply and deleted foods dr
   const idli = { ...customFoodResult({ ...shake, id: "2708346", name: "Idli" }), kind: "catalog" as const, source: "USDA FoodData Central" };
   const shown = withCurrentCustomFoods([recentShake, recentGone, idli], [shake], (row) => `https://signed.example/${row.id}`);
   assert.deepEqual(shown.map((food) => [food.name, food.calories]), [["Protein shake", 40], ["Idli", 40]], "the shake at 40 kcal, not the 400 logged before the fix");
-  assert.equal(shown[0].portions[0].label, "1 serving (1 glass, 300 g)");
+  assert.equal(shown[0].portions[0].label, "1 glass");
   assert.equal(shown[0].image, "https://signed.example/c1");
   assert.equal(shown[1], idli, "catalogue foods pass through unchanged");
 });

@@ -4,11 +4,12 @@
  * Pure functions, so the tests can run them.
  */
 import { clearMatch, inferFoodState, matchFoods, singular } from "@/lib/domain/food-query";
-import type { FoodPortion } from "@/lib/domain/food-query";
+import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { dietTypeOf, stapleDietType, strongerDiet } from "@/lib/food/diet";
 import { recipeValues, type RecipeDef } from "@/lib/food/recipe";
+import { answersAmount, customServingPortion } from "@/lib/food/saved-foods";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
-import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
+import { basisForDataType, basisInfo, customValueBasis, FITX_RECIPE_SOURCE } from "@/lib/food/value-basis";
 
 export const USDA_SOURCE = "USDA FoodData Central";
 export const CUSTOM_SOURCE = "FITX custom food";
@@ -53,7 +54,7 @@ interface StapleJson {
 }
 type FoundationJson = Array<{ id: string; name: string; calories: number; protein: number; carbs: number; fat: number }>;
 
-export const RECIPE_SOURCE = "FITX recipe estimate";
+export const RECIPE_SOURCE = FITX_RECIPE_SOURCE;
 
 /** Aliases and keywords an overlay adds to a food, from fitx-staples.json `names`. */
 export function overlayFor(names: StapleJson["names"], id: string): { aliases: string[]; keywords: string[] } {
@@ -84,7 +85,8 @@ function recipeFood(recipe: RecipeDef): RankableFood {
     source: RECIPE_SOURCE,
     dataType: null,
     valueBasis: "estimated",
-    basis: "FITX recipe estimate · calculated from USDA ingredients",
+    // The badge already says "FITX recipe estimate"; this line says how.
+    basis: "Calculated by FITX from USDA values for its ingredients",
     state: recipe.state,
     dietType: recipe.diet,
     portions: [values.portion],
@@ -210,10 +212,12 @@ export function searchRowToFood(row: Row): RankableFood {
 
 /** A custom_foods row (values per 100 g, a saved serving) as a result. */
 export function customRowToFood(row: Row, recentCount = 0): RankableFood {
-  const serving = (num(row.serving_grams) ?? 0) > 0 ? (num(row.serving_grams) as number) : 100;
   const origin = row.origin === "barcode" || row.origin === "ai_coach" || row.origin === "user" ? (row.origin as CustomFoodOrigin) : "user";
   const valueBasis = customValueBasis(origin, text(row.value_basis));
   const image = text(row.image_url);
+  // Protein, carbs or fat the member left blank is NULL (migration 20261126100000): unknown, listed in `missing`.
+  const macros = { protein: num(row.protein_per_100g), carbs: num(row.carbs_per_100g), fat: num(row.fat_per_100g) };
+  const missing = (["protein", "carbs", "fat"] as const).filter((key) => macros[key] === null);
   return {
     id: String(row.id),
     kind: "custom",
@@ -223,9 +227,10 @@ export function customRowToFood(row: Row, recentCount = 0): RankableFood {
     imageCredit: image ? text(row.image_attribution) : null,
     sourceUrl: null,
     calories: num(row.calories_per_100g) ?? 0,
-    protein: num(row.protein_per_100g) ?? 0,
-    carbs: num(row.carbs_per_100g) ?? 0,
-    fat: num(row.fat_per_100g) ?? 0,
+    protein: macros.protein ?? 0,
+    carbs: macros.carbs ?? 0,
+    fat: macros.fat ?? 0,
+    missing,
     fiber: null,
     sugar: null,
     sodiumMg: null,
@@ -235,7 +240,9 @@ export function customRowToFood(row: Row, recentCount = 0): RankableFood {
     basis: origin === "ai_coach" ? `${basisInfo("ai_suggested").label} · saved` : `Your food · ${basisInfo(valueBasis).label}`,
     state: null,
     dietType: null,
-    portions: [{ label: `1 serving (${text(row.serving_size) && !/^\d+(\.\d+)?\s*g$/i.test(String(row.serving_size)) ? `${row.serving_size}, ` : ""}${Math.round(serving * 10) / 10} g)`, unit: "serving", grams: serving, countDefault: true, estimate: false }],
+    // The saved serving counts as the measure it names ("1 item", "1 cup"); the search adds the measures of the
+    // catalogue food it was copied from (search-route, withSourceFood).
+    portions: [customServingPortion(text(row.serving_size), num(row.serving_grams))],
     barcode: text(row.barcode),
     origin,
     recentCount,
@@ -250,18 +257,27 @@ export function customRowToFood(row: Row, recentCount = 0): RankableFood {
  * logged foods get a small lift) and picks the food to select without asking: your own food named exactly what
  * was typed, or else the one catalogue food whose name or alias is exactly that, but only when none of your own
  * foods also matches by name (a brand that merely shares a word, such as Milky Mist for "2 milk", does not count).
+ * Your own food never silently beats a catalogue food that can weigh the amount typed when it can't: with "1 cup dal",
+ * a Dal of yours with no cup weight gives way to the catalogue's Dal, and `passedOver` names yours so the app can say so.
  * Suggestions (close spellings) are listed only when nothing matched, and never picked.
  */
-export function rankAndPick(catalog: readonly RankableFood[], custom: readonly RankableFood[], words: readonly string[]) {
+export function rankAndPick(catalog: readonly RankableFood[], custom: readonly RankableFood[], words: readonly string[], typed?: Pick<ParsedFoodQuery, "amount" | "unit" | "size">) {
   const boost = (food: RankableFood) => (food.kind === "custom" ? 1 : 0) + Math.min(2, food.recentCount);
   const matchable = catalog.filter((food) => !food.suggestion);
   const customMatches = matchFoods(custom, words, { boost });
   const customByName = matchFoods(custom.map((food) => ({ ...food, keywords: [] })), words);
   const catalogMatches = matchFoods(matchable, words, { boost });
-  const pick = clearMatch(customMatches) ?? (customByName.length ? null : clearMatch(catalogMatches));
+  const own = clearMatch(customMatches);
+  const fromCatalog = clearMatch(catalogMatches);
+  let pick: RankableFood | null = own ?? (customByName.length ? null : fromCatalog);
+  let passedOver: RankableFood | null = null;
+  if (own && typed && fromCatalog && !answersAmount(own, typed) && answersAmount(fromCatalog, typed)) {
+    pick = fromCatalog;
+    passedOver = own;
+  }
   const ranked = matchFoods([...custom, ...matchable], words, { boost }).map((match) => match.food);
   const suggestions = ranked.length ? [] : catalog.filter((food) => food.suggestion);
-  return { foods: [...ranked, ...suggestions], pick };
+  return { foods: [...ranked, ...suggestions], pick, passedOver };
 }
 
 /** What the browser gets: the result without the ranking-only fields. */

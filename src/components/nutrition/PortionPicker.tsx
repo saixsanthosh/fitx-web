@@ -2,11 +2,12 @@
 
 import { Minus, Plus } from "lucide-react";
 import { Segmented } from "@/components/ui/Segmented";
-import { formatAmount, stepAmount, stepKindOf } from "@/lib/domain/food-query";
+import { formatAmount, stepAmount, stepKindOf, volumeNote } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodUnit } from "@/lib/domain/food-query";
 import type { FoodMacros, MacroKey } from "@/lib/domain/nutrition";
 import { amountMode, countMode, pieceSizeLabel } from "@/lib/food/pieces";
 import type { FoodResult } from "@/lib/food/types";
+import { FITX_RECIPE_SOURCE } from "@/lib/food/value-basis";
 import { PortionEstimateBadge } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
 
@@ -32,16 +33,20 @@ interface PortionPickerProps {
   /** Opens the dialog where the member sets the size of their katori and bowl. */
   onMeasures?: () => void;
   idPrefix?: string;
+  /** Why the amount can't be logged (shown once Add to log was pressed, while it is still wrong), next to the amount. */
+  amountProblem?: string | null;
 }
 
 const MACRO_TILES: Array<[MacroKey, string]> = [["protein", "protein"], ["carbs", "carbs"], ["fat", "fat"]];
 
 /** Amount (typed, or stepped up and down) and unit with the live grams and nutrition, and an honest note when the grams are an estimate. */
-export function PortionPicker({ food, amount, unitKey, options, chosen, grams, macros, prompt, onAmount, onUnit, onMeasures, idPrefix = "portion" }: PortionPickerProps) {
+export function PortionPicker({ food, amount, unitKey, options, chosen, grams, macros, prompt, onAmount, onUnit, onMeasures, idPrefix = "portion", amountProblem = null }: PortionPickerProps) {
   const noteId = `${idPrefix}-note`;
+  const problemId = `${idPrefix}-amount-problem`;
   const kind = stepKindOf(chosen?.unit ?? null);
   const step = (direction: 1 | -1) => onAmount(formatAmount(stepAmount(Number(amount), direction, kind)));
-  const hasVolume = options.some((portion) => portion.unit === "ml" || portion.vessel);
+  // No ml or katori offered: why (the source has no volume measure, or the cup offered is the member's own size).
+  const noVolume = volumeNote(options);
   const hasVessel = options.some((portion) => portion.vessel);
   // Pieces only where the food's own data weighs one (USDA, the label, your saved serving); otherwise grams, and why.
   const counting = countMode(food, options);
@@ -78,7 +83,8 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
           <label htmlFor={`${idPrefix}-amount`}>Amount</label>
           <div className={styles.stepper}>
             <button type="button" onClick={() => step(-1)} aria-label="Decrease amount" className={styles.stepButton}><Minus size={16}/></button>
-            <input id={`${idPrefix}-amount`} className="fitx-field" inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => onAmount(event.target.value)} aria-describedby={noteId}/>
+            <input id={`${idPrefix}-amount`} className="fitx-field" inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => onAmount(event.target.value)}
+              aria-invalid={amountProblem ? true : undefined} aria-describedby={amountProblem ? `${problemId} ${noteId}` : noteId}/>
             <button type="button" onClick={() => step(1)} aria-label="Increase amount" className={styles.stepButton}><Plus size={16}/></button>
           </div>
         </div>
@@ -87,6 +93,7 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
           {options.map((portion, index) => <option key={`${portion.label}-${index}`} value={`portion:${index}`}>{portion.label} · {formatAmount(portion.grams)} g</option>)}
         </select></label>
       </div>
+      {amountProblem && <p id={problemId} role="alert" className={styles.warning}>{amountProblem}</p>}
       <p id={noteId} className={styles.portionNote}>
         {grams > 0 ? <>
           <span>= <strong>{formatAmount(grams)} g</strong></span>
@@ -100,10 +107,12 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
           ? `A ${chosen.unit} is taken as ${formatAmount(chosen.vessel.ml)} ml (${chosen.vessel.custom ? "the size you set" : "FITX's working size, not a standard"}), weighed with this food's USDA ${chosen.derivedFrom?.label ?? "measure"} = ${formatAmount(chosen.derivedFrom?.grams ?? 0)} g.`
           : chosen.derivedFrom
             ? `Worked out from USDA's ${chosen.derivedFrom.label} = ${formatAmount(chosen.derivedFrom.grams)} g (US measures).`
-            : `USDA average for ${chosen.label}: ${formatAmount(chosen.grams)} g.`} Real pieces and cups vary; weigh it for an exact log.
+            : food.source === FITX_RECIPE_SOURCE
+              ? `One serving is FITX's whole recipe: ${formatAmount(chosen.grams)} g of ingredients.`
+              : `USDA average for ${chosen.label}: ${formatAmount(chosen.grams)} g.`} Real pieces and cups vary; weigh it for an exact log.
       </p>}
-      {!hasVolume && <p className={styles.portionSource}>No ml, cup or katori: the source has no volume measure for this food.</p>}
-      {hasVessel && onMeasures && <button type="button" className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}
+      {noVolume && <p className={styles.portionSource}>{noVolume}</p>}
+      {hasVessel && onMeasures && <button type="button" id={`${idPrefix}-measures`} className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}
       {prompt && <div className={styles.prompt} role="status">
         <p>{prompt.message}</p>
         {prompt.actions.length > 0 && <div className={styles.promptActions}>

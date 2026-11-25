@@ -85,6 +85,11 @@ export interface FoodSearchResponse {
   sources: SourceStatus[];
   /** The one food that clearly matches what was typed, so the page can select it and fill in the amount. */
   pick: { source: string; id: string } | null;
+  /**
+   * Your own food of the name typed, passed over for `pick` because it can't weigh the amount typed (no piece or cup
+   * weight) and the catalogue's food can. The page says so next to the food selected.
+   */
+  passedOver?: { source: string; id: string } | null;
   /** catalog: FITX's food catalogue in the database (with the built-in list for foods it lacks). fallback: the built-in list only, while the catalogue is not set up or not answering. */
   mode: "catalog" | "fallback" | "packaged" | "barcode" | "browse";
   /** For barcode lookups: why nothing usable came back. */

@@ -1,13 +1,16 @@
 import type { FoodState } from "@/lib/domain/food-query";
 import type { DietType, ValueBasis } from "@/lib/food/types";
-import { basisInfo, DIET_LABEL, PORTION_ESTIMATE } from "@/lib/food/value-basis";
+import { basisBadge, DIET_LABEL, PORTION_ESTIMATE } from "@/lib/food/value-basis";
 import styles from "./FoodUi.module.css";
 
-/** How the values were obtained: measured or declared values look different from estimates. */
-export function BasisBadge({ basis, label }: { basis: ValueBasis; label?: string }) {
-  const info = basisInfo(basis);
-  const className = basis === "user_entered" ? styles.badgeYours : info.estimate ? styles.badgeEstimate : styles.badgeMeasured;
-  return <span className={className} title={info.detail}>{label ?? info.label}{info.estimate ? " · estimate" : ""}</span>;
+/**
+ * How the values were obtained: measured or declared values look different from estimates. `source` lets FITX's own
+ * recipe estimates say so ("FITX recipe estimate").
+ */
+export function BasisBadge({ basis, label, source }: { basis: ValueBasis; label?: string; source?: string | null }) {
+  const badge = basisBadge(basis, source, label);
+  const className = basis === "user_entered" ? styles.badgeYours : badge.estimate ? styles.badgeEstimate : styles.badgeMeasured;
+  return <span className={className} title={badge.detail}>{badge.text}</span>;
 }
 
 /** The amount came from an average piece, cup or spoon weight. */
