@@ -56,7 +56,7 @@ export default async function AnnouncementPage({ params, searchParams }: { param
     <div className="page-stack narrow-stack">
       {back}
       <div className="page-heading-row">
-        <div><p className="eyebrow">Announcement</p><h1 className="break-anywhere">{row.title}</h1><p className="page-lede"><span className={`status-pill ${status.tone}`}><i />{status.text}</span>{row.publishedAt ? ` First published ${formatIstDateTime(row.publishedAt)}.` : ""}{row.dismissals !== null ? ` Dismissed by ${row.dismissals.toLocaleString("en-IN")} accounts.` : ""}</p></div>
+        <div><p className="eyebrow">Announcement</p><h1 className="break-anywhere">{row.title}</h1><p className="page-lede"><span className={`status-pill ${status.tone}`}><i />{status.text}</span>{row.createdBy ? ` Created by ${row.createdBy}.` : ""}{row.publishedAt ? ` First published ${formatIstDateTime(row.publishedAt)}.` : ""}{row.dismissals !== null ? ` Dismissed by ${row.dismissals.toLocaleString("en-IN")} ${row.dismissals === 1 ? "account" : "accounts"}.` : ""}</p></div>
       </div>
       {message && <p className={`inline-notice ${message.tone === "success" ? "notice-success" : "notice-error"}`} role="status">{message.text}</p>}
 
