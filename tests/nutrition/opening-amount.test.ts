@@ -36,7 +36,7 @@ const biscuits: CustomFoodRow = { id: "c-biscuits", ...typed, origin: "user", va
 
 test("a food of your own with a serving that is only a weight opens at 1 × that serving, not 100 g", () => {
   assert.equal(typed.serving_size, "45 g", "a blank serving is saved as its weight");
-  for (const [where, food] of [["My foods, Recent, the Log it toast", customFoodResult(biscuits)], ["search results and your own barcode", customRowToFood(biscuits)]] as const) {
+  for (const [where, food] of [["My foods, Recent, the Log it toast", customFoodResult(biscuits)], ["search results and your own barcode", customRowToFood({ ...biscuits })]] as const) {
     const opened = opening(food);
     assert.equal(opened.index, 0, where);
     assert.equal(opened.label, "1 serving (45 g)", where);

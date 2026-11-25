@@ -35,7 +35,7 @@ test("a cup or spoon the member saved is their own size: it counts as itself, an
   assert.equal(customServingPortion("1 tbsp", 14).ownSize, true);
   assert.equal(customServingPortion("1 item", 38).ownSize, undefined, "a piece is a piece");
   assert.equal(customServingPortion("1 bowl", 180).ownSize, undefined, "a bowl is already the member's own bowl");
-  for (const chai of [customFoodResult(chaiRow), customRowToFood(chaiRow)]) {
+  for (const chai of [customFoodResult(chaiRow), customRowToFood({ ...chaiRow })]) {
     assert.equal(grams(chai, "2 cups masala chai"), 300, "2 × the member's 150 g cup");
     assert.deepEqual(extraPortions(chai.portions, chai.name), [], "no ml, spoons, katori or bowl from a teacup");
     for (const typed of ["200 ml masala chai", "1 tbsp masala chai", "1 katori masala chai"]) {
