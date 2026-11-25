@@ -78,13 +78,19 @@ export function validateSupportRequest(input: unknown): { ok: true; value: Suppo
   return { ok: true, value: { category, subject, body, pagePath: safePagePath(record.pagePath) } };
 }
 
+/** Why a reply can't be sent as typed (only spaces, nothing, or too long), in the server's own words; null when it can. */
+export function replyTextProblem(value: unknown): string | null {
+  const body = text(value);
+  return !body || characterCount(body) > SUPPORT_LIMITS.replyMax ? `Write 1 to ${SUPPORT_LIMITS.replyMax.toLocaleString("en-IN")} characters.` : null;
+}
+
 export function validateSupportReply(input: unknown): { ok: true; value: { requestId: string; body: string } } | { ok: false; error: string } {
   const record = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const requestId = typeof record.requestId === "string" && UUID.test(record.requestId) ? record.requestId.toLowerCase() : null;
-  const body = text(record.body);
   if (!requestId) return { ok: false, error: "That conversation could not be found." };
-  if (!body || characterCount(body) > SUPPORT_LIMITS.replyMax) return { ok: false, error: `Write 1 to ${SUPPORT_LIMITS.replyMax.toLocaleString("en-IN")} characters.` };
-  return { ok: true, value: { requestId, body } };
+  const problem = replyTextProblem(record.body);
+  if (problem) return { ok: false, error: problem };
+  return { ok: true, value: { requestId, body: text(record.body) } };
 }
 
 /** One message in a Help thread, as the Help page shows it. */
