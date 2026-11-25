@@ -29,6 +29,7 @@ import {
   SEX_OPTIONS,
   SPLIT_OPTIONS,
   WATER_RANGE_ML,
+  BIRTH_DATE_ONCE_NOTE,
   BIRTH_DATE_SAVED_ERROR,
   birthDateEdit,
   isBirthDateLocked,
@@ -236,9 +237,9 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
               <SavedBirthDate value={profile.date_of_birth} />
             ) : v3 ? (
               <div>
-                <BirthDateField value={draft.birthDate} onChange={(value) => set("birthDate", value)} error={errors.birthDate} required={false} />
+                {/* The one-time note is the field's own, so screen readers hear it with the field (bug 25). */}
+                <BirthDateField value={draft.birthDate} onChange={(value) => set("birthDate", value)} error={errors.birthDate} required={false} note={BIRTH_DATE_ONCE_NOTE} />
                 {profile?.age != null && <p className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">Age on file: {profile.age} years. Add your date of birth to keep it up to date.</p>}
-                <p className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">You can add it once. To change it later, ask FITX support.</p>
               </div>
             ) : (
               <div className="max-w-xs">
