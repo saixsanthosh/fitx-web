@@ -45,7 +45,7 @@ export function BottomNav() {
 
   return (
     <>
-      <nav ref={bar} aria-label="Main navigation" data-coach-avoid="" className="fitx-glass fitx-safe-inline fixed inset-x-0 bottom-0 z-40 border-t border-fitx-divider bg-fitx-nav pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5 [--fitx-pad-inline:.25rem] md:hidden">
+      <nav ref={bar} aria-label="Main navigation" data-coach-avoid="" className="fitx-app-only fitx-glass fitx-safe-inline fixed inset-x-0 bottom-0 z-40 border-t border-fitx-divider bg-fitx-nav pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5 [--fitx-pad-inline:.25rem] md:hidden">
         <div className="relative mx-auto grid max-w-[520px] grid-cols-5">
           {/* The current tab's marker: a short ember line on the bar's top edge that glides between tabs. */}
           <span aria-hidden="true" className="pointer-events-none absolute -top-1.5 left-0 flex h-[2px] justify-center transition-[transform,opacity] duration-300 ease-[cubic-bezier(.22,1,.36,1)]"

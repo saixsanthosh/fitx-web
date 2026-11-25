@@ -30,7 +30,7 @@ export function WorkspaceHeader() {
       <ShellEffects account />
       <header
         data-scrolled={scrolled || undefined}
-        className={`${scrolled ? "fitx-glass " : ""}fitx-safe-inline sticky top-0 z-30 flex h-[60px] items-center justify-between gap-3 border-b border-transparent transition-[background-color,border-color] duration-200 [--fitx-pad-inline:1rem] data-[scrolled]:border-fitx-divider data-[scrolled]:bg-fitx-nav sm:[--fitx-pad-inline:1.5rem] md:h-16 lg:hidden`}
+        className={`${scrolled ? "fitx-glass " : ""}fitx-app-only fitx-safe-inline sticky top-0 z-30 flex h-[60px] items-center justify-between gap-3 border-b border-transparent transition-[background-color,border-color] duration-200 [--fitx-pad-inline:1rem] data-[scrolled]:border-fitx-divider data-[scrolled]:bg-fitx-nav sm:[--fitx-pad-inline:1.5rem] md:h-16 lg:hidden`}
       >
         {/* On tablets and desktops the sidebar holds the first skip link. */}
         <div className="md:hidden"><SkipLink /></div>

@@ -616,6 +616,14 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 :root:not([data-fitx-auth="1"]) .fitx-when-signed-in { display: none !important; }
 :root[data-fitx-auth="1"] .fitx-when-signed-out { display: none !important; }
 
+/* Setup mode (components/layout/setup-mode.ts): Help opened by an account still in setup. A hidden marker in the
+   page turns the app's menu, account menu and AI Coach button off (.fitx-app-only) and the setup header, with
+   "Back to setup", on (.fitx-setup-only). Read from the page itself, so the server's HTML is right from the first
+   paint; a browser without :has() keeps the app's menu, as before. */
+.fitx-setup-only { display: none; }
+:root:has([data-fitx-setup]) .fitx-setup-only { display: block; }
+:root:has([data-fitx-setup]) .fitx-app-only { display: none !important; }
+
 /* Not-found and global error screens. */
 .fitx-status { display: flex; min-height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 28px; background: var(--fitx-bg); color: var(--fitx-text); padding: 48px var(--fitx-gutter); }
 .fitx-status__brand { display: inline-flex; min-height: 44px; align-items: center; }

@@ -42,7 +42,7 @@ export function Sidebar() {
 
   return (
     // The notch inset (phones in landscape get the rail) is added to the width, never taken out of it.
-    <aside data-coach-edge="" className="fitx-safe-left sticky top-0 hidden h-dvh w-[calc(88px+env(safe-area-inset-left))] shrink-0 flex-col border-r border-fitx-divider bg-fitx-bg md:flex lg:w-[calc(248px+env(safe-area-inset-left))]">
+    <aside data-coach-edge="" className="fitx-app-only fitx-safe-left sticky top-0 hidden h-dvh w-[calc(88px+env(safe-area-inset-left))] shrink-0 flex-col border-r border-fitx-divider bg-fitx-bg md:flex lg:w-[calc(248px+env(safe-area-inset-left))]">
       <SkipLink />
       <Link href="/dashboard" aria-label="FITX home" className="flex h-[72px] shrink-0 items-center justify-center lg:justify-start lg:px-6">
         <Logo size={30} markOnly className="lg:hidden" />

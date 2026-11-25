@@ -318,7 +318,7 @@ export function CoachLauncher() {
   return (
     <div
       ref={root}
-      className={cn(styles.launcher, place.side === "left" && styles.left, settled && !dragging && styles.settling, dragging && styles.dragging)}
+      className={cn("fitx-app-only", styles.launcher, place.side === "left" && styles.left, settled && !dragging && styles.settling, dragging && styles.dragging)}
       style={{ transform: `translate3d(${place.x}px, ${place.y}px, 0)` }}
       data-coach-launcher=""
     >
