@@ -37,7 +37,7 @@ describe("the Workouts page (JSX, read from the source)", () => {
   test("every visit checks the programme's days ahead against the list, before planning more", () => {
     const load = page.slice(page.indexOf("const load = useCallback"), page.indexOf("useEffect(() => { void Promise.resolve().then(load); }, [load]);"));
     assert.ok(load.indexOf("replanProgrammeDays(supabase") > 0 && load.indexOf("replanProgrammeDays(supabase") < load.indexOf("topUpProgrammeDays(supabase"));
-    assert.match(load, /if \(replanned\) setProgrammeNote\(replanned\);/);
+    assert.match(load, /if \(replanned\) setProgrammeNote\(\{ tone: "info", text: replanned \}\);/);
   });
 
   test("saving the programme's list re-plans its days and says what changed on the list's card", () => {
@@ -54,11 +54,11 @@ describe("the Workouts page (JSX, read from the source)", () => {
     assert.match(page, /onReplan: todayGaps\?\.count && today\.kind !== "none" && today\.programme && enrolment\?\.status === "active" \? \(\) => void replanToday\(todayCard\.id\) : null/);
     assert.match(card, /\{gap\.replanning \? "Re-planning…" : "Re-plan this day"\}/);
     assert.match(card, /" Open Details to swap them\."/, "the member's own plan points to Details, where each exercise can be swapped");
-    assert.match(programmeCard, /<p role="status" className=\{note \?/);
+    assert.match(programmeCard, /<p role="status" className=\{note\?\.tone === "info"/);
   });
 
   test("leaving the programme clears the old status line about it (Also seen)", () => {
     const leave = page.slice(page.indexOf("async function leave()"), page.indexOf("async function pause()"));
-    assert.match(leave, /setProgrammeBusy\(true\); setError\(""\); setNotice\(""\); setProgrammeNote\(""\);/);
+    assert.match(leave, /setProgrammeBusy\(true\); setError\(""\); setNotice\(""\); setProgrammeNote\(null\);/);
   });
 });

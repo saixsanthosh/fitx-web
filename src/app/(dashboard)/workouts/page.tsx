@@ -279,8 +279,9 @@ export default function WorkoutsPage() {
   // Why the list could not be saved, inside its sheet (D6); and, on the card, what saving it did to the programme.
   const [equipmentError, setEquipmentError] = useState("");
   const [equipmentNote, setEquipmentNote] = useState<{ context: TrainingContext; text: string } | null>(null);
-  // The programme card's own line: days re-planned for a changed equipment list (bug 17).
-  const [programmeNote, setProgrammeNote] = useState("");
+  // The programme card's own line (D6): days re-planned for a changed equipment list (bug 17), or what a programme
+  // action did or why it did not work, beside the card's buttons rather than at the top of the page.
+  const [programmeNote, setProgrammeNote] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   // The Today card's "Re-plan this day": the day, whether it runs, and how it went.
   const [todayReplan, setTodayReplan] = useState<{ planId: string; busy: boolean; note: string } | null>(null);
   const [swapIndex, setSwapIndex] = useState<number | null>(null);
@@ -429,7 +430,7 @@ export default function WorkoutsPage() {
     });
     if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
     const replanned = replanMessage(checked.outcome, currentEnrolment.context);
-    if (replanned) setProgrammeNote(replanned);
+    if (replanned) setProgrammeNote({ tone: "info", text: replanned });
     const target = targetSessions(currentEnrolment.started_on, currentEnrolment.weekdays, programmeMeta(followed.id)?.lengthDays);
     if (!topUpWindow({ enrolment: currentEnrolment, plans: enrolmentPlans.plans, todayKey, target, dayCount: followed.days.length })) return;
     setPlanningAhead(true);
@@ -834,7 +835,7 @@ export default function WorkoutsPage() {
     const supabase = createClient();
     const programme = followedProgramme(programmes, enrolment);
     if (!supabase || !userId || !enrolment || !programme || programmeLoadFailed) return;
-    setProgrammeBusy(true); setError(""); setNotice("");
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
     const todayKey = localDateKey();
     const scheduled = await topUpProgrammeDays(supabase, {
       userId, enrolment, programme, catalog, owned: ownedFor(enrolment.context), level, recentDays, includeTargets: targetsSupported !== false,
@@ -842,9 +843,9 @@ export default function WorkoutsPage() {
     });
     setProgrammeBusy(false);
     await load();
-    setNotice(scheduled.ran ? programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays)
+    setProgrammeNote({ tone: scheduled.ran && scheduled.error && !scheduled.created ? "error" : "info", text: scheduled.ran ? programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays)
       : scheduled.skipped === "busy" ? "Your next days are being planned in another tab. Check again in a moment."
-      : "Your next 7 days are already planned.");
+      : "Your next 7 days are already planned." });
   }
 
   async function leave() {
@@ -854,10 +855,10 @@ export default function WorkoutsPage() {
     if (!supabase || !userId || !enrolment || planningAhead) return;
     if (!window.confirm(`Stop following ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner. Finished workouts stay in your history.`)) return;
     // The last status line was about this programme (for example days just planned): it goes with it.
-    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote("");
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
     const result = await leaveProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
     setProgrammeBusy(false);
-    if (result.error) return setError("The programme couldn’t be left. Check your connection and try again.");
+    if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be left. Check your connection and try again." });
     await load();
     setNotice(`You no longer follow ${programme ? programmeShortTitle(programme) : "the programme"}. Its upcoming days are removed; finished workouts stay in your history.`);
   }
@@ -867,22 +868,22 @@ export default function WorkoutsPage() {
     const programme = followedProgramme(programmes, enrolment);
     if (!supabase || !userId || !enrolment || activeSession || planningAhead) return;
     if (!window.confirm(`Pause ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner until you resume. Your place in the programme is kept.`)) return;
-    setProgrammeBusy(true); setError(""); setNotice("");
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
     const result = await pauseProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
     setProgrammeBusy(false);
-    if (result.error) return setError("The programme couldn’t be paused. Check your connection and try again.");
+    if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be paused. Check your connection and try again." });
     await load();
-    setNotice("Programme paused. Resume it whenever you’re ready; it picks up at the day you’re on.");
+    setProgrammeNote({ tone: "info", text: "Programme paused. Resume it whenever you’re ready; it picks up at the day you’re on." });
   }
 
   async function resume() {
     const supabase = createClient();
     if (!supabase || !userId || !enrolment) return;
-    setProgrammeBusy(true); setError(""); setNotice("");
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
     const result = await resumeProgramme(supabase, { userId, enrolmentId: enrolment.id });
     setProgrammeBusy(false);
-    if (result.alreadyActive) return setError("You follow another programme now. Leave it to resume this one.");
-    if (result.error) return setError("The programme couldn’t be resumed. Check your connection and try again.");
+    if (result.alreadyActive) return setProgrammeNote({ tone: "error", text: "You follow another programme now. Leave it to resume this one." });
+    if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be resumed. Check your connection and try again." });
     // Loading again plans the next 7 days from today, at the day the member is on.
     await load();
   }
@@ -890,10 +891,10 @@ export default function WorkoutsPage() {
   async function finish() {
     const supabase = createClient();
     if (!supabase || !userId || !enrolment || planningAhead) return;
-    setProgrammeBusy(true); setError("");
+    setProgrammeBusy(true); setError(""); setProgrammeNote(null);
     const result = await finishProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
     setProgrammeBusy(false);
-    if (result.error) return setError("The programme couldn’t be finished. Check your connection and try again.");
+    if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be finished. Check your connection and try again." });
     await load();
     setNotice("Programme finished. Choose your next one below; your workouts stay in your history.");
   }
