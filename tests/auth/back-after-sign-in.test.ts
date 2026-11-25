@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { AUTH_HINT_COOKIE } from "@/lib/auth/cookies";
-import { hasSignedInHint, loadedFromHistory, shouldAskServerAgain, SIGNED_OUT_PAGES } from "@/lib/auth/restored-page";
+import { drawCounter, hasSignedInHint, loadedFromHistory, restoredOnMount, shouldAskServerAgain, SIGNED_OUT_PAGES } from "@/lib/auth/restored-page";
 
 const read = (file: string) => readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
 
@@ -23,6 +23,51 @@ test("the signed-in hint is fitx_auth=1 exactly, wherever it sits among the cook
 test("only a load from the tab's history counts as restored", () => {
   assert.equal(loadedFromHistory("back_forward"), true);
   for (const type of ["navigate", "reload", "prerender", undefined, null, ""]) assert.equal(loadedFromHistory(type), false, String(type));
+});
+
+// Review auth-r2: Back or Forward between pages of one document (/signin, then Terms by a link, then Back) is drawn by
+// Next's router from its own copy, with no request: the document's own load stays "navigate", and no pageshow fires. So
+// is a link to a sign-in page it prefetched while the member was signed out (static pages stay cached for five minutes).
+const SITE = "https://fitx.example";
+test("only the document's first sign-in page, at the document's own address, is the server's answer", () => {
+  const documentAddress = `${SITE}/signin?next=%2Fnutrition`;
+  const at = (address: string, firstDraw: boolean, navigationType = "navigate") => restoredOnMount({ navigationType, documentAddress, firstDraw, address: `${SITE}${address}` });
+  assert.equal(at("/signin?next=%2Fnutrition", true), false, "the server drew it, through the proxy");
+  assert.equal(at("/signin?next=%2Fnutrition#main-content", true), false, "the skip link's #fragment is the same page");
+  assert.equal(at("/signin?next=%2Fnutrition", false), true, "drawn again for Back after Terms: the router's copy");
+  assert.equal(at("/signup", false), true, "a link to another sign-in page, drawn by the router");
+  assert.equal(at("/signin?next=%2Fnutrition", true, "back_forward"), true, "the document came from the history");
+  assert.equal(restoredOnMount({ navigationType: "navigate", documentAddress: `${SITE}/`, firstDraw: true, address: `${SITE}/signin` }), true, "the document began on the home page: a prefetched link");
+  for (const unknown of [undefined, null, "", "http://["]) {
+    assert.equal(restoredOnMount({ navigationType: "navigate", documentAddress: unknown, firstDraw: true, address: `${SITE}/signin` }), false, `unknown ${String(unknown)}: no reason to reload`);
+  }
+  // A reload is a new document, and its first sign-in page is at its own address: it never asks again for itself.
+  assert.equal(restoredOnMount({ navigationType: "reload", documentAddress: `${SITE}/signin`, firstDraw: true, address: `${SITE}/signin` }), false);
+});
+
+test("a document counts its sign-in pages once each, also when React runs a page's effect twice", () => {
+  const firstDraw = drawCounter();
+  const signIn = { current: null as boolean | null };
+  assert.equal(firstDraw(signIn), true);
+  assert.equal(firstDraw(signIn), true, "React's development double run asks again: the same answer");
+  const terms = drawCounter();
+  assert.equal(terms({ current: null }), true, "each document has its own count");
+  const backToSignIn = { current: null as boolean | null };
+  assert.equal(firstDraw(backToSignIn), false, "the next sign-in page drawn in the document");
+  assert.equal(firstDraw({ current: null }), false);
+});
+
+test("the reviewer's case: /signin, then Terms by a link, another tab signs in, then Back", () => {
+  const firstDraw = drawCounter();
+  const documentAddress = `${SITE}/signin`;
+  const shown = (page: { current: boolean | null }) => restoredOnMount({ navigationType: "navigate", documentAddress, firstDraw: firstDraw(page), address: `${SITE}/signin` });
+  // Opened signed out: the server's answer, the form is right.
+  assert.equal(shouldAskServerAgain({ pathname: "/signin", restored: shown({ current: null }), cookie: "" }), false);
+  // Back from Terms draws /signin again while the other tab's sign-in left the hint: it asks the server, which sends the
+  // member on. Still signed out, it shows the form without a reload.
+  const back = shown({ current: null });
+  assert.equal(shouldAskServerAgain({ pathname: "/signin", restored: back, cookie: "fitx_auth=1" }), true);
+  assert.equal(shouldAskServerAgain({ pathname: "/signin", restored: back, cookie: "" }), false);
 });
 
 test("a sign-in page shown from history asks the server again only when the member may be signed in", () => {
@@ -45,13 +90,15 @@ test("the pages that ask again are exactly those the proxy turns a signed-in mem
   assert.match(proxy, /if \(AUTH_ENTRY\.has\(pathname\)\) return redirect\(safeNext\(searchParams\.get\("next"\)\)\);/, "signed in: on to where they were going");
 });
 
-test("the frame of every sign-in page asks again on load and on pageshow, and only ever by reloading", () => {
+test("the frame of every sign-in page asks again on mount and on pageshow, and only ever by reloading", () => {
   const screen = read("src/components/auth/AuthScreen.tsx");
   assert.match(screen, /^"use client";/);
   assert.match(screen, /export function AuthScreen\([^)]*\) \{\s*useAskServerWhenRestored\(\);/);
   const hook = read("src/components/auth/useAskServerWhenRestored.ts");
   assert.match(hook, /shouldAskServerAgain\(\{ pathname: window\.location\.pathname, restored, cookie: document\.cookie \}\)\) window\.location\.reload\(\);/);
-  assert.match(hook, /askIf\(loadedFromHistory\(entry\?\.type\)\);/, "a page from the disk cache runs again: checked on load");
+  assert.match(hook, /askIf\(restoredOnMount\(\{ navigationType: entry\?\.type, firstDraw: firstDraw\(page\), documentAddress: entry\?\.name, address: window\.location\.href \}\)\);/, "checked on mount: a page from the disk cache, or one the router drew");
+  assert.match(hook, /^const firstDraw = drawCounter\(\);$/m, "one count for the document");
+  assert.match(hook, /const page = useRef<boolean \| null>\(null\);/, "each page keeps its own answer");
   assert.match(hook, /addEventListener\("pageshow", onPageShow\)/, "a page from the back-forward cache: checked on pageshow");
   assert.match(hook, /\(event: PageTransitionEvent\) => askIf\(event\.persisted\)/);
   assert.match(hook, /return \(\) => window\.removeEventListener\("pageshow", onPageShow\);/);
