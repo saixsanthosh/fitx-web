@@ -102,7 +102,10 @@ communities, challenges, the moderation record) and every shared helper; the gro
   the service role or in the SQL editor (`update public.profiles set date_of_birth = ... where id = ...`). Messages,
   communities and leaderboards need 18+ (#53 enforces them and raises `social_age_restricted` with the band as hint).
 - **Reports** snapshot the item (`evidence`, at most 8 KB; O4 a: a message report holds that one message) and accept
-  content addressed to the reporter across a block. Evidence is removed 90 days after review (O8 a).
+  content addressed to the reporter across a block. Evidence is removed 90 days after review (O8 a). Only FITX's
+  moderators read it, in Admin with the server key: since 20261125100000 members read their own reports without
+  `evidence` and `evidence_purge_at` (a column grant of the other ten, the columns "Download my data" reads), so a
+  member query that asks for them, or for `*`, is refused.
 - **Videos** (`explore_video`, off unless saved as true): one video of at most 30 s per post (15 s for a story) at
   `<uid>/<id>/0.mp4` with its poster at `<uid>/<id>/0p.webp`. A member's own key never signs another member's
   `.mp4`: `/api/social/video-links` asks `fitx_social_video_link_allowed`, which counts 40 plays a day per member, a

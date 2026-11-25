@@ -179,6 +179,10 @@ test("Explore reports leave out the evidence snapshot, which holds other members
     [...TABLES.get("social_reports")!.columns].filter((column) => !["evidence", "evidence_purge_at"].includes(column)).sort(),
     [...plain].sort(),
   );
+  // And members may read exactly those columns, so the evidence stays FITX's moderators' (20261125100000).
+  const access = ACCESS.get("social_reports");
+  assert.ok(access instanceof Set, "members read only some columns of their reports");
+  assert.deepEqual([...access].sort(), [...plain].sort());
 });
 
 test("each table is exported once, under its own label", () => {

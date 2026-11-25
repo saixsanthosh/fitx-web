@@ -5,7 +5,8 @@
 // would then build a database production does not have. A fix to an applied file is always a new migration.
 // This pins the md5 of each one, taken from `git show <that commit>:<path> | md5 -q` (the file's bytes), and fails when a
 // file is changed, renamed or removed. Add a file here only once production has it applied, from the commit that
-// shipped it.
+// shipped it. 20261125100000_fitx_social_reports_column_privileges.sql (#55, release 2c) is pending: it is not
+// pinned, and LAST_APPLIED stays at #54, until production has it applied.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
