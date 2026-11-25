@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, m } from "framer-motion";
+import { checkSession, signInHref } from "@/components/account/session-state";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { useReducedMotionSafe } from "@/components/motion";
 import { HomeScene } from "@/components/home/HomeScene";
@@ -46,7 +49,7 @@ export function DailyHome({ today }: { today: string }) {
   const reduced = useReducedMotionSafe();
   const hour = useHour();
   // The shared profile normally gives the member's id; if it failed to load, ask the session directly.
-  const [sessionUser, setSessionUser] = useState<string | null>(null);
+  const [session, setSession] = useState<{ user: string | null; ended: boolean }>({ user: null, ended: false });
   const contextFailed = context === null || context.status === "error";
   useEffect(() => {
     if (!contextFailed) return;
@@ -54,14 +57,16 @@ export function DailyHome({ today }: { today: string }) {
     const supabase = createClient();
     if (!supabase) return;
     void (async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      if (live) setSessionUser(auth.user?.id ?? null);
+      const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
+      if (live) setSession({ user: user?.id ?? null, ended: state === "signed_out" });
     })();
     return () => {
       live = false;
     };
   }, [contextFailed]);
-  const userId = context?.data?.userId ?? sessionUser;
+  const userId = context?.data?.userId ?? session.user;
+  // An ended session (signed out elsewhere, or Home shown again after Log out) says so, never loads for ever.
+  const signedOut = context?.status === "signed_out" || session.ended;
   const name = firstName(context?.data?.profile?.name);
   const key = userId ? `${userId}:${today}` : null;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -105,7 +110,7 @@ export function DailyHome({ today }: { today: string }) {
           </h1>
         </header>
 
-        <figure className={styles.quote} aria-label="Today's quote" aria-busy={pending || undefined}>
+        <figure className={styles.quote} aria-label="Today's quote" aria-busy={(pending && !signedOut) || undefined}>
           <AnimatePresence mode="wait">
             {quote ? (
               <m.div key={quote.id} initial={{ opacity: 1 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: reduced ? 0.15 : 0.5 } }}>
@@ -131,6 +136,10 @@ export function DailyHome({ today }: { today: string }) {
                   {quote.author ? <>{quote.author}{quote.source ? <cite>, {quote.source}</cite> : null}</> : "FITX"}
                 </m.figcaption>
               </m.div>
+            ) : signedOut ? (
+              <m.p key="signed-out" role="status" className={styles.caption} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                You’re signed out. <Link href={signInHref("/dashboard")} className={styles.signIn}>Sign in again</Link> to see today’s quote.
+              </m.p>
             ) : pending ? (
               <m.div key="loading" className={styles.loading} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <span /><span />
