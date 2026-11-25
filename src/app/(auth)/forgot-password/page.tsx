@@ -9,7 +9,7 @@ import { useFocusWhen } from "@/components/auth/useFocusWhen";
 import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
-import { sendCodeProblem } from "@/lib/auth/email-code";
+import { resetLinkProblem } from "@/lib/auth/email-code";
 import { emailProblem, fieldIds, fieldInvalid, type FieldProblem } from "@/lib/auth/form-problems";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
@@ -66,9 +66,13 @@ export default function ForgotPasswordPage() {
         },
       );
       if (resetError) {
-        return setError(sendCodeProblem(resetError).retryAfter !== null || resetError.status === 429
-          ? "A link was sent a moment ago. Wait a minute, then try again."
-          : "We couldn’t send a reset link. Please try again.");
+        // What happened and what to do: a refused address is a problem with the field, the rest goes under the button.
+        const refused = resetLinkProblem(resetError);
+        if (refused.field) {
+          setFieldProblem({ field: refused.field, message: refused.message });
+          emailInput.current?.focus({ preventScroll: true });
+        } else setError(refused.message);
+        return;
       }
       browserEmailCooldown().record(address);
       setSent(true);

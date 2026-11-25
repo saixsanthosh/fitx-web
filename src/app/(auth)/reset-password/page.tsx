@@ -9,6 +9,7 @@ import { useFocusWhen } from "@/components/auth/useFocusWhen";
 import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
+import { newPasswordRefusal } from "@/lib/auth/email-code";
 import { fieldIds, fieldInvalid, newPasswordProblem, type FieldProblem } from "@/lib/auth/form-problems";
 import { stampSessionCookies } from "@/lib/auth/session-stamp";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
@@ -65,11 +66,13 @@ export default function ResetPasswordPage() {
         },
       );
       if (updateError) {
-        return setError(/session|jwt|not authenticated/i.test(updateError.message)
-          ? "This reset link has expired. Ask for a new one."
-          : /different from the old|same password/i.test(updateError.message)
-            ? "Choose a password you haven’t used here before."
-            : "We couldn’t update your password. Please try again.");
+        // What happened and what to do: an expired link, a password used before or one too weak (under the field).
+        const refused = newPasswordRefusal(updateError);
+        if (refused.field) {
+          setFieldProblem({ field: refused.field, message: refused.message });
+          passwordInput.current?.focus();
+        } else setError(refused.message);
+        return;
       }
       void stampSessionCookies();
       setSaved(true);

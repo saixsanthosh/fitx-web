@@ -53,6 +53,10 @@ type AuthErrorLike = { code?: string | null; status?: number | null; message?: s
 
 export type SendCodeProblem = { message: string; retryAfter: number | null };
 
+/** Auth refused the address itself ("Unable to validate email address: invalid format"). */
+const isInvalidAddress = (error: AuthErrorLike) =>
+  error?.code === "email_address_invalid" || error?.code === "validation_failed" || /invalid format|email address.*invalid/i.test(error?.message ?? "");
+
 /** What to tell someone whose code request failed, and how long to wait when Supabase said so. */
 export function sendCodeProblem(error: AuthErrorLike): SendCodeProblem {
   if (isSuspendedError(error)) return { message: SUSPENDED_MESSAGE, retryAfter: null };
@@ -65,9 +69,7 @@ export function sendCodeProblem(error: AuthErrorLike): SendCodeProblem {
       retryAfter,
     };
   }
-  if (code === "email_address_invalid" || code === "validation_failed" || /invalid format|email address.*invalid/i.test(message)) {
-    return { message: "Check the email address and try again.", retryAfter: null };
-  }
+  if (isInvalidAddress(error)) return { message: "Check the email address and try again.", retryAfter: null };
   if (code === "otp_disabled" || code === "signup_disabled" || /signups? not allowed/i.test(message)) {
     return { message: "Email codes aren’t available right now. Use Google or your password.", retryAfter: null };
   }
@@ -100,6 +102,16 @@ export function passwordSignInProblem(error: AuthErrorLike): string {
   return "We couldn’t sign you in. Please try again.";
 }
 
+/** What to say when Auth refuses a new password as too weak ("Password should be…"), or null for any other refusal. */
+export function weakPasswordMessage(error: AuthErrorLike): string | null {
+  // Older Auth says only "Password should be at least 6 characters." ("…should be different" is a reused password).
+  if (error?.code !== "weak_password" && !/weak password|password should (be at least|contain|include|have)/i.test(error?.message ?? "")) return null;
+  const reasons: unknown[] = Array.isArray(error?.reasons) ? (error?.reasons as unknown[]) : [];
+  if (reasons.includes("pwned")) return "That password has appeared in a data breach elsewhere. Choose a different one.";
+  if (reasons.includes("characters")) return "Choose a stronger password, with a mix of letters, numbers and symbols.";
+  return "Choose a longer password.";
+}
+
 export type SignUpProblem = {
   message: string;
   /** The field the problem is about (shown under it), or null for the form's own message under its button. */
@@ -123,21 +135,43 @@ export function signUpProblem(error: AuthErrorLike): SignUpProblem {
   if (code === "user_already_exists" || code === "email_exists" || /already (been )?registered|already exists/i.test(message)) {
     return { message: "That email may already have a FITX account.", field: null, existingAccount: true };
   }
-  if (code === "weak_password" || /weak password|password should/i.test(message)) {
-    const reasons: unknown[] = Array.isArray(error?.reasons) ? (error?.reasons as unknown[]) : [];
-    if (reasons.includes("pwned")) return plain("That password has appeared in a data breach elsewhere. Choose a different one.", "password");
-    if (reasons.includes("characters")) return plain("Choose a stronger password, with a mix of letters, numbers and symbols.", "password");
-    return plain("Choose a longer password.", "password");
-  }
+  const weak = weakPasswordMessage(error);
+  if (weak) return plain(weak, "password");
   if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit" || error?.status === 429 || /rate limit|too many/i.test(message)) {
     return plain("Too many sign-up attempts. Wait a few minutes, then try again.");
   }
-  if (code === "email_address_invalid" || code === "validation_failed" || /invalid format|email address.*invalid/i.test(message)) {
-    return plain("Check the email address and try again.", "email");
-  }
+  if (isInvalidAddress(error)) return plain("Check the email address and try again.", "email");
   if (code === "signup_disabled" || /signups? not allowed/i.test(message)) return plain("New accounts can’t be created right now. Please try again later.");
   if (code === "email_provider_disabled" || /email (logins|signups) are disabled|provider is not enabled/i.test(message)) {
     return plain("Email sign-up is turned off for FITX right now. Use Google.");
   }
   return plain("We couldn’t create your account. Please try again.");
+}
+
+/**
+ * What to tell someone whose reset link could not be sent (the same mistake as bug 43's: not one message for every
+ * refusal). A link sent moments ago still works; a refused address is a problem with the email field.
+ */
+export function resetLinkProblem(error: AuthErrorLike): { message: string; field: "email" | null } {
+  if (sendCodeProblem(error).retryAfter !== null || error?.status === 429) return { message: "A link was sent a moment ago. Wait a minute, then try again.", field: null };
+  if (isInvalidAddress(error)) return { message: "Check the email address and try again.", field: "email" };
+  return { message: "We couldn’t send a reset link. Please try again.", field: null };
+}
+
+/** What to tell someone whose new password was refused: an expired link, a password used before, one too weak. */
+export function newPasswordRefusal(error: AuthErrorLike): { message: string; field: "password" | null } {
+  const code = error?.code ?? "";
+  const message = error?.message ?? "";
+  if (code === "session_not_found" || code === "session_expired" || /session|jwt|not authenticated/i.test(message)) {
+    return { message: "This reset link has expired. Ask for a new one.", field: null };
+  }
+  if (code === "same_password" || /different from the old|same password/i.test(message)) {
+    return { message: "Choose a password you haven’t used here before.", field: "password" };
+  }
+  const weak = weakPasswordMessage(error);
+  if (weak) return { message: weak, field: "password" };
+  if (error?.status === 429 || code === "over_request_rate_limit" || /rate limit|too many/i.test(message)) {
+    return { message: "Too many tries. Wait a few minutes, then try again.", field: null };
+  }
+  return { message: "We couldn’t update your password. Please try again.", field: null };
 }
