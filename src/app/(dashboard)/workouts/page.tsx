@@ -44,7 +44,7 @@ import { generateDay, generateFocusDay } from "@/lib/training/generator";
 import { loadWorkoutSetup, modeForLocation, resolveDemoModel, type WorkoutSetup } from "@/lib/training/setup";
 import { initialMode, modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
 import { contextForLocation, planSummary } from "@/lib/training/plan-summary";
-import type { Programme } from "@/lib/training/programmes";
+import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
 import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
@@ -619,9 +619,11 @@ export default function WorkoutsPage() {
    */
   function autoSplit(target: TrainingContext) {
     const followed = followedProgramme(programmes, enrolment);
+    // The Profile's training split at the gym (a home track at home), for when no programme is followed for this place.
+    const splitId = splitProgrammeId(preferences.workout_split, target, ownedFor(target).has("dumbbell"));
     return builderSplit({
       target, followed: followed && enrolment ? { programme: followed, nextDayIndex: enrolment.next_day_index } : null,
-      split: preferences.workout_split, programmes, hasDumbbells: ownedFor(target).has("dumbbell"),
+      split: preferences.workout_split, splitId, programmes,
     });
   }
   function autoProgramme(target: TrainingContext): Programme | undefined {

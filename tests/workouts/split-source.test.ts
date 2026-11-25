@@ -5,9 +5,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PROGRAMMES, programmeById } from "@/data/programmes";
 import { builderSplit } from "@/app/(dashboard)/workouts/_lib/split-source";
+import { splitProgrammeId } from "@/lib/training/programmes";
 
 const ppl = programmeById("ppl-3")!;
-const run = (overrides: Partial<Parameters<typeof builderSplit>[0]>) => builderSplit({ target: "gym", followed: null, split: "full_body", programmes: PROGRAMMES, hasDumbbells: true, ...overrides });
+type Input = Parameters<typeof builderSplit>[0];
+/** The page's call: the Profile split's programme (or the home track) worked out as the page does. */
+const run = (overrides: Partial<Omit<Input, "splitId">> & { hasDumbbells?: boolean } = {}) => {
+  const { hasDumbbells = true, ...rest } = overrides;
+  const input = { target: "gym" as const, followed: null, split: "full_body" as string | null, programmes: PROGRAMMES, ...rest };
+  return builderSplit({ ...input, splitId: splitProgrammeId(input.split, input.target, hasDumbbells) });
+};
 
 describe("where Your split takes its days from", () => {
   test("the programme the member follows, at the day they are on, and the builder says so", () => {
@@ -48,4 +55,6 @@ test("the builder uses it for its days, its first day and its line under the tit
   assert.match(page, /followed: followed && enrolment \? \{ programme: followed, nextDayIndex: enrolment\.next_day_index \} : null/);
   assert.match(page, /\{builderSplitSource && <p className="mt-1 text-sm text-fitx-text-secondary">\{builderSplitSource\.label\}<\/p>\}/);
   assert.match(page, /const startDay = nextMode === "auto" \? autoSplit\(target\)\?\.startDay \?\? 0 : 0;/);
+  // The privacy page says auto workouts use the split saved in Profile (tests/ai/context.test.ts reads this call).
+  assert.match(page, /splitProgrammeId\(preferences\.workout_split, target, ownedFor\(target\)\.has\("dumbbell"\)\)/);
 });
