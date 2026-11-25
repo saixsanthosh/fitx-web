@@ -17,7 +17,8 @@ import { createClient } from "@/lib/supabase/client";
  */
 
 type DeleteStep = "checking" | "unavailable" | "reauth" | "switched" | "confirm" | "deleting" | "deleted" | "error";
-type StatusResult = { kind: "ok"; status: DeletionStatus } | { kind: "outage" } | { kind: "error" };
+/** `signedOut`: the session here has ended (signed out everywhere, or this page shown again by Back after Log out). */
+type StatusResult = { kind: "ok"; status: DeletionStatus; signedOut: boolean } | { kind: "outage" } | { kind: "error" };
 type StartedFor = { id: string | null; email: string | null };
 
 const OUTAGE = "FITX can’t reach its sign-in service right now, so nothing was deleted. Try again in a moment.";
@@ -27,7 +28,7 @@ async function fetchDeletionStatus(): Promise<StatusResult> {
   try {
     const response = await fetch("/api/account", { headers: { accept: "application/json" }, cache: "no-store" });
     if (response.status === 401) {
-      return { kind: "ok", status: { available: true, recentSignIn: false, signedInAt: null, windowMinutes: RECENT_SIGN_IN_MINUTES, userId: null, email: null } };
+      return { kind: "ok", signedOut: true, status: { available: true, recentSignIn: false, signedInAt: null, windowMinutes: RECENT_SIGN_IN_MINUTES, userId: null, email: null } };
     }
     if (response.status === 503) {
       const { error } = ((await response.json().catch(() => ({}))) ?? {}) as { error?: string };
@@ -35,7 +36,7 @@ async function fetchDeletionStatus(): Promise<StatusResult> {
     }
     if (!response.ok) return { kind: "error" };
     const { deletion } = (await response.json()) as { deletion: DeletionStatus };
-    return { kind: "ok", status: deletion };
+    return { kind: "ok", status: deletion, signedOut: false };
   } catch {
     return { kind: "error" };
   }
@@ -107,6 +108,8 @@ export function DeleteAccount({
   const [error, setError] = useState("");
   // Signing out for "Sign in again": uploading this device's recordings can take a few seconds.
   const [leaving, setLeaving] = useState(false);
+  // The session here has ended: "Sign in again" says so instead of asking for a more recent sign-in.
+  const [signedOut, setSignedOut] = useState(false);
   const support = BRAND.supportEmail;
 
   // The Settings row checks up front, so it can say when deletion isn't switched on. The link only checks when opened.
@@ -145,6 +148,7 @@ export function DeleteAccount({
     const latest = result.status;
     setStatus(latest);
     setStatusError(false);
+    setSignedOut(result.signedOut);
     const started = readStarted();
     if (started && latest.userId) {
       writeStarted(null);
@@ -211,7 +215,10 @@ export function DeleteAccount({
       if (latest) setError("You’re now signed in to a different account, so nothing was deleted. Check the account named above before you continue.");
       return;
     }
-    if (code === "reauth_required" || code === "signed_out") return setStep("reauth");
+    if (code === "reauth_required" || code === "signed_out") {
+      setSignedOut(code === "signed_out");
+      return setStep("reauth");
+    }
     if (code === "not_configured") return setStep("unavailable");
     setStep("confirm");
     setError(code === "auth_unavailable"
@@ -249,12 +256,14 @@ export function DeleteAccount({
 
             {step === "unavailable" && <p className="mt-2 text-sm leading-6 text-fitx-text-secondary">Deleting from the app isn’t switched on yet.{supportLink}</p>}
 
-            {step === "reauth" && (
+            {step === "reauth" && (signedOut ? (
+              <p className="mt-2 text-sm leading-6 text-fitx-text-secondary">You’re signed out. Sign in again and you’ll come back here to finish.</p>
+            ) : (
               <p className="mt-2 text-sm leading-6 text-fitx-text-secondary">
                 {email ? <>You’re signed in as <strong className="break-all text-fitx-text">{email}</strong>. </> : null}
                 For your security, deleting needs a sign-in from the last {RECENT_SIGN_IN_MINUTES} minutes. Sign in again{email ? " with this same account" : ""} and you’ll come back here to finish.
               </p>
-            )}
+            ))}
 
             {step === "switched" && (
               <p role="alert" className="mt-2 text-sm leading-6 text-fitx-text-secondary">

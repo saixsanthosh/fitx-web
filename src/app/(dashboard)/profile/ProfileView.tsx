@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
 import { Camera, Download, Pencil, RotateCcw, Settings, Trash2, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { checkSession } from "@/components/account/session-state";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { CountUp } from "@/components/motion";
 import { PHOTO_HEADER_BYTES, PHOTO_NOT_AN_IMAGE, checkPhotoFile, isOwnPhoto, replacePhoto } from "@/components/profile/photo-file";
@@ -77,9 +79,10 @@ function useProfileData() {
   const loadLocal = useCallback(async () => {
     const supabase = createClient();
     if (!supabase) return setLocal({ status: "unavailable", data: null, avatarUrl: null });
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return setLocal({ status: "signed_out", data: null, avatarUrl: null });
-    const result = await loadUserContext(supabase, { id: auth.user.id, email: auth.user.email ?? null });
+    // An ended session is "signed out"; a check that failed (offline) is an error with Try again.
+    const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
+    if (!user) return setLocal({ status: state === "signed_out" ? "signed_out" : "error", data: null, avatarUrl: null });
+    const result = await loadUserContext(supabase, { id: user.id, email: user.email ?? null });
     if (result.error) return setLocal({ status: "error", data: null, avatarUrl: null });
     const avatar = result.data.profile?.avatar ?? null;
     let avatarUrl: string | null = null;
@@ -100,6 +103,16 @@ export function ProfileView() {
   const [editing, setEditing] = useState<SectionId | null>(null);
   const [notices, setNotices] = useState<Partial<Record<SectionId, SectionNotice>>>({});
   const [retrying, setRetrying] = useState(false);
+
+  // Back or Forward can bring Profile back from the browser's back/forward cache as it was when it was left, after
+  // a Log out say: check the session and load again, so an ended session never shows the profile as signed in.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) void reload();
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [reload]);
 
   async function retry() {
     setRetrying(true);
