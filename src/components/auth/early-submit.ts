@@ -15,15 +15,32 @@ import type { RefObject } from "react";
  * so the held press goes through the same onSubmit as any other, with its checks, time limits and messages. By then
  * useKeepTypedValue has copied what was typed into state, and useKeepOpenState the open options panel, so the
  * submission is the one the member made: a code, a password sign-in, a sign-up or a reset.
+ *
+ * React's script holds every press, and React hands them all to the action in one go (a double tap, or Enter held down
+ * so it repeats, is several). Each press sent again would reach onSubmit before React draws the first one's "busy", so
+ * its `if (loading) return` would let every one through: two password sign-ins, two sign-ups, two reset emails. The
+ * presses held for a form are therefore sent as one: the member meant one sign-in, and every held press would be sent
+ * with the same state anyway (what the fields hold once the page is ready).
  */
 
-/** Presses `form`'s submit again once the current task is over (a microtask: after React's replay has returned). */
+/** Forms with a press already waiting to be sent: further presses held with it join it (see above). */
+const waiting = new WeakSet<object>();
+
+/**
+ * Presses `form`'s submit again once the current task is over (a microtask: after React's replay has returned), once
+ * for all the presses React replays together.
+ */
 export function resubmitWhenReady(
   form: Pick<HTMLFormElement, "requestSubmit"> | null,
   later: (run: () => void) => void = queueMicrotask,
 ): void {
-  if (!form) return;
-  later(() => form.requestSubmit());
+  if (!form || waiting.has(form)) return;
+  waiting.add(form);
+  later(() => {
+    // From here a new press is a new submission (React draws "busy" before another one can be held and replayed).
+    waiting.delete(form);
+    form.requestSubmit();
+  });
 }
 
 /**
