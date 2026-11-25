@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dumbbell, Footprints, History, Loader2, MessageCircle, MessageSquarePlus, Settings2, Target, UserRound, Utensils, X } from "lucide-react";
 import { useHydrated } from "@/components/ui/use-hydrated";
-import { capabilityStarters } from "@/lib/ai/capabilities";
+import { capabilityStarters, generalPrompts } from "@/lib/ai/capabilities";
 import type { QuickPrompt } from "@/lib/ai/quick-prompts";
 import type { CoachState, CoachStatus } from "@/lib/ai/status";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ import { CoachRequestError, applyAction, deleteThread, fetchStatus, fetchThread,
 import { CoachSettings } from "./CoachSettings";
 import { CoachUnavailable } from "./CoachUnavailable";
 import { Composer, type ComposerMode } from "./Composer";
+import { modeFor } from "./composer-rules";
 import { ReadAloudToggle, VoiceButton, useReadAloud } from "./CoachVoice";
 import { ConsentPanel } from "./ConsentPanel";
 import { ConsentRenewal } from "./ConsentRenewal";
@@ -76,6 +77,16 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   }, [inPanel]);
   useEffect(scrollToEnd, [messages, pending, scrollToEnd]);
 
+  // The composer's height, so what scrolls into view at the end of the conversation (a reply, an error) is never
+  // left behind it (Coach.module.css .end). It changes with the mode (the meal plan's budget field) and the text.
+  const measureDock = useCallback((dock: HTMLDivElement | null) => {
+    const chat = dock?.parentElement;
+    if (!dock || !chat || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => chat.style.setProperty("--coach-dock-height", `${Math.ceil(dock.getBoundingClientRect().height)}px`));
+    observer.observe(dock);
+    return () => observer.disconnect();
+  }, []);
+
   // A prompt from another page fills the box once per key; the member still presses Send.
   const promptKey = openWith?.key;
   const promptText = openWith?.text;
@@ -101,6 +112,26 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       });
     }
   }, []);
+
+  /**
+   * The 30 days after FITX's eating-disorder note (status.careMode): no meal plans or swaps and no food prompts. The
+   * server says whether they started (a swap note can start them too); the suggestions written from the member's
+   * data leave out food from then on (quick-prompts.ts).
+   */
+  const refreshCareMode = useCallback(() => {
+    void fetchStatus()
+      .then((fresh) => {
+        setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts, careMode: fresh.careMode }));
+        if (fresh.careMode) setMode((old) => (old === "meal_plan" ? "chat" : old));
+      })
+      .catch(() => {});
+  }, []);
+
+  function startCarePeriod() {
+    setStatus((old) => ({ ...old, careMode: true }));
+    setMode((old) => (old === "meal_plan" ? "chat" : old));
+    refreshCareMode();
+  }
 
   function updateQuota(quota: CoachQuota | null) {
     if (quota) setQuotas((old) => [...old.filter((item) => item.kind !== quota.kind), quota]);
@@ -164,6 +195,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       else if (event.type === "message") {
         setMessages((old) => [...old, event.message]);
         recordActions(event.actions);
+        // FITX's eating-disorder note starts the 30 days without meal plans: the page stops offering them at once.
+        if (event.message.role === "safety" && event.message.data?.safety === "eating_disorder") startCarePeriod();
         // Read aloud (when the member turned it on): chat replies and safety notes; plans are cards to read.
         if (event.message.role !== "user" && event.message.task === "chat") speakReply(event.message.content);
         // A plan is long: show its start, not its end, once it is on the page.
@@ -265,15 +298,17 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
           return null;
         } catch (error) {
           if (error instanceof CoachRequestError) {
+            // A swap note can bring FITX's eating-disorder note (coach.ts requestSwap), which starts the 30 days.
+            if (error.code === "refused") refreshCareMode();
             const when = formatResetTime(error.retryAt);
             return error.code === "at_capacity" ? `${error.message}${when ? ` Try again after ${when}.` : ""}` : error.message;
           }
           return "Couldn't find a swap. Please try again.";
         }
       },
-      canSwap: plansAllowed,
+      canSwap: plansAllowed && !status.careMode,
     }),
-    [actionStates, swaps, plansAllowed, recordActions],
+    [actionStates, swaps, plansAllowed, status.careMode, recordActions, refreshCareMode],
   );
 
   const settings = (
@@ -351,10 +386,10 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   // Prompts written from the member's own data when they share it; general ones otherwise.
   const prompts: StarterPrompt[] = plansAllowed && status.quickPrompts.length
     ? status.quickPrompts
-    : (status.minor ? MINOR_PROMPTS : GENERAL_PROMPTS).map(([source, context, text], index) => ({ id: `general-${index}`, source, context, text, mode: "chat" as const }));
+    : generalPrompts({ minor: status.minor, careMode: status.careMode }).map(({ source, context, text }, index) => ({ id: `general-${index}`, source, context, text, mode: "chat" as const }));
 
   function choosePrompt(prompt: StarterPrompt) {
-    setMode(prompt.mode !== "chat" && plansAllowed ? prompt.mode : "chat");
+    setMode(modeFor(prompt.mode, { plansAllowed, mealPlansPaused: status.careMode }));
     setDraft(prompt.text);
     setFocusKey((key) => key + 1);
   }
@@ -426,7 +461,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
                 )}
               </div>
               <ul className={styles.skills} aria-label="What the coach can do">
-                {capabilityStarters({ sharesData: plansAllowed }).map((starter) => (
+                {capabilityStarters({ sharesData: plansAllowed, careMode: status.careMode }).map((starter) => (
                   <li key={starter.id}>
                     <button type="button" onClick={() => choosePrompt({ id: `skill-${starter.id}`, source: "general", context: starter.label, text: starter.text, mode: starter.mode })} className={styles.skill}>
                       {starter.label}
@@ -477,10 +512,10 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
             </div>
           )}
           {/* Clears the sticky composer when scrolled to. */}
-          <div ref={end} className="scroll-mb-48" />
+          <div ref={end} className={styles.end} />
         </section>
 
-        <div className={styles.composerDock}>
+        <div ref={measureDock} className={styles.composerDock}>
           <Composer
             draft={draft}
             onDraft={setDraft}
@@ -489,6 +524,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
             budget={budget}
             onBudget={setBudget}
             plansAllowed={plansAllowed}
+            mealPlansPaused={status.careMode}
             plansNote={status.minor ? "Plans aren't available for under-18 accounts." : status.ageMissing ? "Plans need your age in Profile and “Use my FITX data”." : !shareData ? "Plans need “Use my FITX data”, in Coach settings." : null}
             busy={busy}
             onSend={() => void send()}
@@ -516,19 +552,6 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
 }
 
 type StarterPrompt = Omit<QuickPrompt, "source"> & { source: QuickPrompt["source"] | "general" };
-
-type GeneralPrompt = [StarterPrompt["source"], string, string];
-const GENERAL_PROMPTS: GeneralPrompt[] = [
-  ["food", "Protein", "How much protein do I need a day?"],
-  ["food", "Budget", "How do I eat well on a tight budget?"],
-  ["training", "Training", "What's a good beginner training split?"],
-  ["training", "Warm-up", "How do I warm up before lifting?"],
-];
-const MINOR_PROMPTS: GeneralPrompt[] = [
-  ["food", "Food", "What should I eat before sports practice?"],
-  ["training", "Strength", "How can I get stronger safely?"],
-  ["general", "Recovery", "How much sleep do I need?"],
-];
 const PROMPT_ICONS: Record<StarterPrompt["source"], typeof Utensils> = {
   food: Utensils, training: Dumbbell, activity: Footprints, goal: Target, setup: UserRound, general: MessageCircle,
 };

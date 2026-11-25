@@ -47,6 +47,11 @@ export type CoachStatus = {
   quickPrompts: QuickPrompt[];
   /** Set only for a sharing adult whose consent predates the current screen and would gain something by agreeing. */
   renewal: ConsentRenewal | null;
+  /**
+   * FITX showed its eating-disorder note in the last 30 days (CARE_DAYS): the coach makes no meal plans or swaps and
+   * gives no calorie targets then (coach.ts planBlock), so the page doesn't offer them either. true when it can't be read.
+   */
+  careMode: boolean;
 };
 
 /** Each provider's data use, from its own terms as checked on 2026-11-16. The owner should re-check them. */
@@ -151,6 +156,7 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     threads: [],
     quickPrompts: [],
     renewal: null,
+    careMode: false,
   };
   if (!config.enabled) return { ...base, state: "paused", ...(await storedCoachData(db, userId, now)) };
   if (!hasAnyProvider(config)) return { ...base, state: "not_configured", ...(await storedCoachData(db, userId, now)) };
@@ -169,13 +175,17 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     // Services added after this consent was given get none of the member's data (registry.ts), and Coach settings says so.
     const forConsent = { providers: providerNotices(config, consent.version), memberDataAvailable: canSendMemberData(config, consent.version) };
     const sharing = consent.shareData && facts.adult && forConsent.memberDataAvailable;
-    const [quotas, threads, quickPrompts] = await Promise.all([
+    // The care period is account-wide: it holds with "Questions only" and for under-18 accounts too. When it can't be
+    // read (null), the page offers neither meal plans nor personal prompts, as the coach's own check fails closed too.
+    const careRead = store.hasRecentSafetyNote(db, userId, "eating_disorder", CARE_DAYS).catch(() => null);
+    const [quotas, threads, quickPrompts, care] = await Promise.all([
       store.quotaStatus(db),
       store.listThreads(db, userId),
-      sharing ? personalPrompts(db, userId, sources, now) : Promise.resolve([]),
+      sharing ? careRead.then((known) => (known === null ? [] : personalPrompts(db, userId, sources, now, known))) : Promise.resolve([]),
+      careRead,
     ]);
     const renewal = consentRenewal(config, consent, facts.adult);
-    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts, ...forConsent, renewal };
+    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts, ...forConsent, renewal, careMode: care !== false };
   } catch (error) {
     if (error instanceof store.CoachStoreError && error.code === "not_available") return { ...base, state: "not_available", ...age };
     throw error;
@@ -184,13 +194,12 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
 
 /**
  * The quick prompts for a member who shares their data. The targets use the latest weigh-in, as Home and
- * Nutrition do. For 30 days after FITX's eating-disorder note they leave out food, calories and weight, as the
- * coach does (runCoachTurn). Any failure, that check's included, just means no personal prompts: the page then
+ * Nutrition do. For 30 days after FITX's eating-disorder note (careMode, read by coachStatus) they leave out food,
+ * calories and weight, as the coach does (runCoachTurn). Any failure just means no personal prompts: the page then
  * offers general ones.
  */
-async function personalPrompts(db: store.Db, userId: string, sources: ContextSources, now: Date): Promise<QuickPrompt[]> {
+async function personalPrompts(db: store.Db, userId: string, sources: ContextSources, now: Date, careMode: boolean): Promise<QuickPrompt[]> {
   try {
-    const careMode = await store.hasRecentSafetyNote(db, userId, "eating_disorder", CARE_DAYS);
     const { data } = await db.from("body_metrics").select("date, weight").eq("user_id", userId).not("weight", "is", null)
       .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1);
     const weighIns = Array.isArray(data) ? (data as ContextSources["weighIns"]) : [];

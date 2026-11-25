@@ -3,8 +3,9 @@
 import { useEffect, useId, useRef, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowUp, Dumbbell, MessageCircle, Square, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { composerModes, type ComposerMode } from "./composer-rules";
 
-export type ComposerMode = "chat" | "meal_plan" | "workout_plan";
+export type { ComposerMode };
 const MAX = 2000;
 
 const MODES: Array<{ id: ComposerMode; label: string; short: string; icon: typeof MessageCircle }> = [
@@ -28,6 +29,7 @@ export function Composer({
   onBudget,
   plansAllowed,
   plansNote,
+  mealPlansPaused = false,
   busy,
   onSend,
   onStop,
@@ -43,6 +45,8 @@ export function Composer({
   onBudget: (value: string) => void;
   plansAllowed: boolean;
   plansNote: string | null;
+  /** The 30 days after FITX's eating-disorder note: "Plan my meals" is not offered (composerModes). */
+  mealPlansPaused?: boolean;
   busy: boolean;
   onSend: () => void;
   onStop: () => void;
@@ -57,6 +61,7 @@ export function Composer({
   const hintId = useId();
   const counterId = useId();
   const canSend = !busy && (mode !== "chat" || draft.trim().length > 0) && draft.length <= MAX;
+  const offered = composerModes({ plansAllowed, mealPlansPaused });
 
   useEffect(() => {
     const element = area.current;
@@ -87,8 +92,8 @@ export function Composer({
   return (
     <form onSubmit={submit} className="rounded-2xl border border-fitx-border bg-fitx-card p-2 shadow-lg" aria-label="Message the coach">
       <div role="radiogroup" aria-label="What do you want?" className="flex gap-1 overflow-x-auto px-1 pb-2 pt-1 [scrollbar-width:none]">
-        {MODES.map(({ id, label, short, icon: Icon }) => {
-          const disabled = id !== "chat" && !plansAllowed;
+        {MODES.filter(({ id }) => offered[id] !== "hidden").map(({ id, label, short, icon: Icon }) => {
+          const disabled = offered[id] !== "on";
           return (
             <button
               key={id}
