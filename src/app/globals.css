@@ -487,12 +487,19 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
   font-weight: 680;
   transition: background-color .18s ease, border-color .18s ease, transform .18s ease;
 }
-.fitx-button:hover { background: var(--fitx-primary-bright); }
+/* The main fill brightens on hover: only on the main button. A variant (any fitx-button-* class) keeps its own
+   surface and text and has its own hover rule below; the quiet one once took this red fill under its grey label
+   (1.14:1). :where() keeps the rule at its old weight (0,2,0). scripts/checks/check-contrast.mjs checks every
+   variant's label at rest, on hover and on keyboard focus. */
+.fitx-button:hover:where(:not([class*="fitx-button-"])) { background: var(--fitx-primary-bright); }
 .fitx-button:active { transform: translateY(1px); }
 .fitx-button:disabled { opacity: .58; }
 .fitx-button-secondary { border-color: var(--fitx-border); background: var(--fitx-surface-variant); color: var(--fitx-text); }
 .fitx-button-secondary:hover { border-color: color-mix(in srgb, var(--fitx-primary) 48%, var(--fitx-border)); background: var(--fitx-surface-variant); }
 .fitx-button-quiet { border-color: var(--fitx-border); background: transparent; color: var(--fitx-text-secondary); }
+/* Hovered, or reached with the keyboard: the label turns to body text on the hover tint and the edge picks up the
+   brand colour, as the secondary button's does, so it still reads as the second choice beside a main button. */
+.fitx-button-quiet:hover, .fitx-button-quiet:focus-visible { border-color: color-mix(in srgb, var(--fitx-primary) 48%, var(--fitx-border)); background: var(--fitx-hover); color: var(--fitx-text); }
 .fitx-button-danger { border-color: var(--fitx-danger-border); background: var(--fitx-danger-bg); color: var(--fitx-danger); }
 .fitx-button-danger:hover { border-color: var(--fitx-danger); background: var(--fitx-danger-bg); }
 .fitx-progress-track { overflow: hidden; border-radius: 999px; background: var(--fitx-track); }

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { checkTokens, contrastRatio, parseColor } from "./check-contrast.mjs";
+import { checkButtonStates, checkTokens, contrastRatio, parseColor, parseCompound, resolveButton } from "./check-contrast.mjs";
 import { findRawColors } from "./check-raw-colors.mjs";
 
 const globals = readFileSync("src/app/globals.css", "utf8");
@@ -110,4 +110,48 @@ test("files converted to tokens in this stream contain no raw colours", () => {
   const files = owned.flatMap(filesIn);
   const findings = files.flatMap((file) => findRawColors(readFileSync(file, "utf8"), { file }));
   assert.deepEqual(findings.map((finding) => `${finding.file}:${finding.line} ${finding.value}`), []);
+});
+
+test("every shared button keeps a 4.5:1 label at rest, hovered and focused, in every palette and on every surface", () => {
+  const report = checkButtonStates(globals);
+  assert.deepEqual(report.problems, []);
+  assert.deepEqual(failing(report).map((row) => `${row.palette}: ${row.button} ${row.state} on ${row.surface} ${row.ratio.toFixed(2)}`), []);
+  // 4 buttons × 4 states × 6 palettes × 5 surfaces.
+  assert.equal(report.results.length, 480);
+});
+
+test("the hovered quiet button taking the main red fill is caught (the 1.14:1 bug, bug 10)", () => {
+  // The stylesheet as it was: the main button's hover rule matched every variant, and the quiet one had no hover rule.
+  const broken = globals
+    .replace('.fitx-button:hover:where(:not([class*="fitx-button-"])) {', ".fitx-button:hover {")
+    .replace(/\.fitx-button-quiet:hover, \.fitx-button-quiet:focus-visible \{[^}]*\}/, "");
+  assert.notEqual(broken, globals);
+  const failures = failing(checkButtonStates(broken));
+  assert.ok(failures.length > 0);
+  assert.ok(failures.every((row) => row.button === "quiet" && row.state.includes("hover")), "only the hovered quiet button fails");
+  const ratio = (palette) => failures.find((row) => row.palette === palette && row.surface === "--fitx-bg").ratio.toFixed(2);
+  // What the hunt measured in the browser: grey on red, 1.14:1 in light and 1.27:1 in dark.
+  assert.equal(ratio("light"), "1.14");
+  assert.equal(ratio("dark"), "1.27");
+});
+
+test("the cascade reader: specificity, :where(), :not() and source order", () => {
+  const css = [
+    ".b { color: var(--fitx-text); background: transparent; }",
+    ".b:hover:where(:not([class*=\"b-\"])) { background: var(--fitx-primary); }",
+    ".b-x { color: var(--fitx-text-secondary); }",
+    ".b:hover { color: var(--fitx-danger); }",
+    ".b-x:hover { color: var(--fitx-success); }",
+    "@media (min-width: 1px) { .b { color: var(--fitx-info); } }",
+    ".card .b { color: var(--fitx-gold); }",
+  ].join("\n");
+  assert.equal(resolveButton(css, ["b"]).color.value, "var(--fitx-text)", "rules in at-rules and descendant selectors are left out");
+  assert.equal(resolveButton(css, ["b"], ["hover"]).background.value, "var(--fitx-primary)");
+  assert.equal(resolveButton(css, ["b", "b-x"], ["hover"]).background.value, "transparent", "the :not() keeps a variant out");
+  assert.equal(resolveButton(css, ["b", "b-x"]).color.value, "var(--fitx-text-secondary)", "same weight: the later rule wins");
+  assert.equal(resolveButton(css, ["b", "b-x"], ["hover"]).color.value, "var(--fitx-success)");
+  assert.equal(parseCompound(".a .b"), null);
+  assert.equal(parseCompound(".a::before"), null);
+  assert.equal(parseCompound(":root"), null);
+  assert.deepEqual(parseCompound(".a:focus-visible").map((part) => part.type), ["class", "state"]);
 });
