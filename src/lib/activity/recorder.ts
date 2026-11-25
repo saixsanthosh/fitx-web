@@ -180,6 +180,17 @@ export class ActivityRecorder {
     for (const listener of this.listeners) listener();
   }
 
+  /**
+   * The signal now: from the latest position only while positions are arriving. Once FITX has called the
+   * signal lost (no position for a while), or location stopped, failed or was never available, there is no
+   * signal, however precise the last position was: the screen never says "GPS good" beside "GPS signal lost".
+   */
+  private currentSignal(): SignalQuality {
+    if (!this.lastFix || this.watchId === null) return "none";
+    if (this.issue && this.issue !== "coarse") return "none";
+    return this.coarseStreak >= COARSE_STREAK ? "coarse" : signalFor(this.lastFix.acc);
+  }
+
   private buildSnapshot(): RecorderSnapshot {
     const now = this.deps.now();
     const stats = this.engine ? this.engine.snapshot(now) : null;
@@ -190,7 +201,7 @@ export class ActivityRecorder {
       permission: this.permission,
       wakeLock: this.wakeLockState,
       durable: this.deps.store.durable,
-      signal: this.coarseStreak >= COARSE_STREAK ? "coarse" : signalFor(this.lastFix?.acc ?? null),
+      signal: this.currentSignal(),
       accuracyM: this.lastFix?.acc ?? null,
       lastFix: this.lastFix,
       stats,

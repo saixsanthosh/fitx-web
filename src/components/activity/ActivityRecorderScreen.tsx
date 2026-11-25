@@ -23,7 +23,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
 import { FinishedResult } from "./FinishedResult";
-import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, SCREEN_ON_NOTE, SIGNAL_TEXT, WAKE_LOCK_TEXT } from "./messages";
+import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, SCREEN_ON_NOTE, signalChip, WAKE_LOCK_TEXT, type SignalChip } from "./messages";
 import { SPORT_PLURAL, sportHref } from "./sports";
 import { AUDIO_CUES_KEY, AUTO_PAUSE_KEY, SettingSwitch, SportPicker, UnlockButton, useCueVoice, useDeviceSwitch } from "./RecordingExtras";
 import { useActivityV2 } from "./useActivityV2";
@@ -59,21 +59,20 @@ function useRecorderSnapshot(recorder: ActivityRecorder | null): RecorderSnapsho
   return useSyncExternalStore(subscribe, getSnapshot, () => null);
 }
 
-const SIGNAL_BARS: Record<RecorderSnapshot["signal"], number> = { none: 0, coarse: 1, weak: 1, fair: 2, good: 3 };
+const CHIP_TONE: Record<SignalChip["tone"], string> = { good: "bg-fitx-success", fair: "bg-fitx-warning", weak: "bg-fitx-warning", bad: "bg-fitx-danger", off: "bg-fitx-text-disabled" };
 
-/** GPS state in words, bars and accuracy (never colour alone). */
+/** GPS state in words, bars and accuracy (never colour alone), agreeing with the location banner (signalChip). */
 function SignalPill({ snapshot, className }: { snapshot: RecorderSnapshot; className?: string }) {
-  const tone = snapshot.signal === "good" ? "bg-fitx-success" : snapshot.signal === "coarse" ? "bg-fitx-danger" : snapshot.signal === "none" ? "bg-fitx-text-disabled" : "bg-fitx-warning";
-  const bars = SIGNAL_BARS[snapshot.signal];
+  const chip = signalChip(snapshot);
   return (
     <span className={cn("inline-flex min-h-9 items-center gap-2 rounded-full border border-fitx-border bg-fitx-elevated/95 px-3 text-xs font-medium text-fitx-text shadow-sm", className)}>
       <span className="flex h-3.5 items-end gap-[2px]" aria-hidden="true">
         {[1, 2, 3].map((bar) => (
-          <span key={bar} className={cn("w-[3px] rounded-full", bar <= bars ? tone : "bg-fitx-border", bar === 1 ? "h-1.5" : bar === 2 ? "h-2.5" : "h-3.5", snapshot.signal === "none" && "motion-safe:animate-pulse")} />
+          <span key={bar} className={cn("w-[3px] rounded-full", bar <= chip.bars ? CHIP_TONE[chip.tone] : "bg-fitx-border", bar === 1 ? "h-1.5" : bar === 2 ? "h-2.5" : "h-3.5", chip.searching && "motion-safe:animate-pulse")} />
         ))}
       </span>
-      {SIGNAL_TEXT[snapshot.signal]}
-      {snapshot.accuracyM !== null && snapshot.signal !== "none" && <span className="tabular-nums text-fitx-text-secondary">± {Math.round(snapshot.accuracyM)} m</span>}
+      {chip.text}
+      {chip.accuracyM !== null && <> <span className="tabular-nums text-fitx-text-secondary">± {Math.round(chip.accuracyM)} m</span></>}
     </span>
   );
 }
