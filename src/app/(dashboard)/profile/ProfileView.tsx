@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { Camera, Download, Pencil, RotateCcw, Settings, Trash2, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { checkSession } from "@/components/account/session-state";
+import { checkSession, confirmSignedOut, type SessionState } from "@/components/account/session-state";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { CountUp } from "@/components/motion";
 import { PHOTO_HEADER_BYTES, PHOTO_NOT_AN_IMAGE, checkPhotoFile, isOwnPhoto, replacePhoto } from "@/components/profile/photo-file";
@@ -75,6 +75,28 @@ export function profileTargets(data: UserContextData): NutritionTargets | null {
  */
 function useProfileData() {
   const shared = useOptionalUserContext();
+  // The shared context also says "signed_out" when its own check failed (offline, say): Profile says "Sign in" only
+  // once its own check agrees, and a failed check is a load failure with Try again (session-state.ts confirmSignedOut).
+  const sharedSignedOut = shared?.status === "signed_out";
+  const [attempt, setAttempt] = useState(0);
+  const [own, setOwn] = useState<{ attempt: number; state: SessionState } | null>(null);
+  useEffect(() => {
+    if (!sharedSignedOut) return;
+    let live = true;
+    const supabase = createClient();
+    const check: Promise<{ state: SessionState }> = supabase ? checkSession<User>(() => supabase.auth.getUser()) : Promise.resolve({ state: "unknown" });
+    void check.then(({ state }) => {
+      if (live) setOwn({ attempt, state });
+    });
+    return () => {
+      live = false;
+    };
+  }, [sharedSignedOut, attempt]);
+  const refreshShared = shared?.refresh;
+  const reloadShared = useCallback(async () => {
+    setAttempt((count) => count + 1);
+    await refreshShared?.();
+  }, [refreshShared]);
   const [local, setLocal] = useState<{ status: Status; data: UserContextData | null; avatarUrl: string | null }>({ status: "loading", data: null, avatarUrl: null });
   const loadLocal = useCallback(async () => {
     const supabase = createClient();
@@ -94,7 +116,10 @@ function useProfileData() {
     if (shared) return;
     void Promise.resolve().then(loadLocal);
   }, [shared, loadLocal]);
-  if (shared) return { status: shared.status, data: shared.data, avatarUrl: shared.avatarUrl, reload: shared.refresh };
+  if (shared) {
+    const status = confirmSignedOut(shared.status, own && own.attempt === attempt ? own.state : null);
+    return { status, data: shared.data, avatarUrl: shared.avatarUrl, reload: reloadShared };
+  }
   return { ...local, reload: loadLocal };
 }
 

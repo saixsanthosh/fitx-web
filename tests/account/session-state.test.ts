@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { AuthApiError, AuthClient, AuthRetryableFetchError, AuthSessionMissingError, AuthUnknownError } from "@supabase/supabase-js";
-import { checkSession, sessionState, signInHref } from "@/components/account/session-state";
+import { checkSession, checkSessionKeepingMember, confirmSignedOut, sessionState, signInHref } from "@/components/account/session-state";
 
 const USER = { id: "11111111-1111-4111-8111-111111111111", email: "member@example.test" };
 
@@ -87,6 +87,57 @@ describe("checkSession with supabase-js's own answers", () => {
   });
 });
 
+describe("checkSessionKeepingMember (Home, review home-1)", () => {
+  const offline = async () => { throw new TypeError("Failed to fetch"); };
+
+  test("signed in, and signed out everywhere: the server's answer, nothing read locally", async () => {
+    const { auth } = client(json(200, { ...USER, aud: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-11-01T00:00:00Z" }));
+    assert.deepEqual(await checkSessionKeepingMember(auth), { state: "signed_in", userId: USER.id });
+    const ended = client(json(403, { code: 403, error_code: "session_not_found", msg: "Session from session_id claim in JWT does not exist" }));
+    assert.deepEqual(await checkSessionKeepingMember(ended.auth), { state: "signed_out", userId: null });
+    const none = client(json(200, USER), { signedIn: false });
+    assert.deepEqual(await checkSessionKeepingMember(none.auth), { state: "signed_out", userId: null }, "Back after Log out");
+  });
+
+  test("offline or a 503: still unknown, with the member this browser's session names, read without the network", async (t) => {
+    t.mock.method(console, "error", () => undefined);
+    assert.deepEqual(await checkSessionKeepingMember(client(offline).auth), { state: "unknown", userId: USER.id });
+    assert.deepEqual(await checkSessionKeepingMember(client(json(503, { msg: "upstream unavailable" })).auth), { state: "unknown", userId: USER.id });
+  });
+
+  test("offline with an expired access token: the session can't be renewed, so no member", async () => {
+    // What supabase-js answers then, after its refresh back-off (about 25 s, so not run for real here).
+    const failed = () => new AuthRetryableFetchError("Failed to fetch", 0);
+    const expired = {
+      getUser: async () => ({ data: { user: null }, error: failed() }),
+      getSession: async () => ({ data: { session: null }, error: failed() }),
+    };
+    assert.deepEqual(await checkSessionKeepingMember(expired), { state: "unknown", userId: null });
+  });
+
+  test("no Supabase client, or a session read that throws, is a check that couldn't be made", async () => {
+    assert.deepEqual(await checkSessionKeepingMember(null), { state: "unknown", userId: null });
+    const broken = {
+      getUser: async () => ({ data: { user: null }, error: new AuthRetryableFetchError("Failed to fetch", 0) }),
+      getSession: async () => { throw new Error("storage blocked"); },
+    };
+    assert.deepEqual(await checkSessionKeepingMember(broken), { state: "unknown", userId: null });
+  });
+});
+
+describe("confirmSignedOut (the shared context also says signed_out when its check failed)", () => {
+  test("any other status passes through", () => {
+    for (const status of ["loading", "ready", "unavailable", "error"] as const) assert.equal(confirmSignedOut(status, null), status);
+  });
+
+  test("signed out only once the page's own check agrees; until then loading; a failed check is an error to retry", () => {
+    assert.equal(confirmSignedOut("signed_out", null), "loading");
+    assert.equal(confirmSignedOut("signed_out", "signed_out"), "signed_out");
+    assert.equal(confirmSignedOut("signed_out", "unknown"), "error", "offline: never \"Sign in to see your profile.\"");
+    assert.equal(confirmSignedOut("signed_out", "signed_in"), "error", "the context is out of date: Try again reloads it");
+  });
+});
+
 describe("Settings and Profile use it", () => {
   const read = (file: string) => readFileSync(new URL(`../../src/${file}`, import.meta.url), "utf8");
 
@@ -111,6 +162,10 @@ describe("Settings and Profile use it", () => {
     const profile = read("app/(dashboard)/profile/ProfileView.tsx");
     assert.match(profile, /status: state === "signed_out" \? "signed_out" : "error"/);
     assert.match(profile, /if \(event\.persisted\) void reload\(\);/);
+    // With the shared context: its "signed_out" is checked before Profile says "Sign in to see your profile." (home-1).
+    assert.match(profile, /const sharedSignedOut = shared\?\.status === "signed_out";/);
+    assert.match(profile, /const status = confirmSignedOut\(shared\.status, own && own\.attempt === attempt \? own\.state : null\);/);
+    assert.match(profile, /setAttempt\(\(count\) => count \+ 1\);\s*await refreshShared\?\.\(\);/, "Try again checks the session again too");
   });
 
   test("Delete my account says the member is signed out rather than asking for a recent sign-in", () => {

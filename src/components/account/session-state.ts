@@ -55,3 +55,40 @@ export async function checkSession<U>(getUser: () => PromiseLike<{ data: { user:
     return { state: sessionState({ data: { user: null }, error }), user: null };
   }
 }
+
+/** The two supabase.auth calls checkSessionKeepingMember makes. */
+export type SessionAuth = {
+  getUser(): PromiseLike<{ data: { user: { id: string } | null }; error: unknown }>;
+  getSession(): PromiseLike<{ data: { session: { user?: { id?: unknown } | null } | null } }>;
+};
+
+/**
+ * checkSession, plus, when the check itself failed ("unknown"), the member this browser's own session names. That is
+ * read locally (getSession() needs no network while the access token is valid), so a page can still show what this
+ * device keeps for that member, such as Home's quote of the day (bug 70). It is never proof of a session: only a
+ * "signed_in" answer is. `auth` is null where Supabase isn't set up, which is a check that couldn't be made.
+ */
+export async function checkSessionKeepingMember(auth: SessionAuth | null): Promise<{ state: SessionState; userId: string | null }> {
+  if (!auth) return { state: "unknown", userId: null };
+  const { state, user } = await checkSession(() => auth.getUser());
+  if (state !== "unknown") return { state, userId: user?.id ?? null };
+  try {
+    const { data } = await auth.getSession();
+    const id = data.session?.user?.id;
+    return { state, userId: typeof id === "string" && id ? id : null };
+  } catch {
+    return { state, userId: null };
+  }
+}
+
+/**
+ * A page's status from the shared user context's (UserContextProvider), which also reports "signed_out" when its own
+ * check failed (offline, a timeout, a 5xx). The page says "signed out" only once its own check (`own`) agrees: until
+ * that answer comes it is loading, and a check that failed, or that found the member signed in after all, is a load
+ * failure the member can retry, never a sign-out.
+ */
+export function confirmSignedOut<S extends string>(shared: S, own: SessionState | null): S | "loading" | "error" {
+  if (shared !== "signed_out") return shared;
+  if (own === null) return "loading";
+  return own === "signed_out" ? shared : "error";
+}

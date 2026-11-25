@@ -2,15 +2,16 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import type { User } from "@supabase/supabase-js";
+import type { AuthChangeEvent } from "@supabase/supabase-js";
 import { AnimatePresence, m } from "framer-motion";
-import { checkSession, signInHref } from "@/components/account/session-state";
+import { checkSessionKeepingMember, signInHref } from "@/components/account/session-state";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { useReducedMotionSafe } from "@/components/motion";
 import { HomeScene } from "@/components/home/HomeScene";
 import type { Quote, QuoteTheme } from "@/data/quotes";
 import { getDailyQuote } from "@/lib/home/daily-quote";
 import { greeting, longDate } from "@/lib/home/greeting";
+import { homeMember, needsOwnCheck, quoteArea, type OwnCheck } from "@/lib/home/quote-area";
 import { sceneFor } from "@/lib/home/scenes";
 import { firstName } from "@/lib/onboarding/form";
 import { createClient } from "@/lib/supabase/client";
@@ -48,25 +49,29 @@ export function DailyHome({ today }: { today: string }) {
   const context = useOptionalUserContext();
   const reduced = useReducedMotionSafe();
   const hour = useHour();
-  // The shared profile normally gives the member's id; if it failed to load, ask the session directly.
-  const [session, setSession] = useState<{ user: string | null; ended: boolean }>({ user: null, ended: false });
-  const contextFailed = context === null || context.status === "error";
+  // The shared profile normally gives the member's id. When it gives none (it failed, or says "signed out", which it
+  // also says when its own check failed offline), Home asks the session itself (src/lib/home/quote-area.ts).
+  const shared = context ? { status: context.status, userId: context.data?.userId ?? null } : null;
+  const checkNeeded = needsOwnCheck(shared);
+  const [own, setOwn] = useState<OwnCheck | null>(null);
   useEffect(() => {
-    if (!contextFailed) return;
+    if (!checkNeeded) return;
     let live = true;
     const supabase = createClient();
-    if (!supabase) return;
-    void (async () => {
-      const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
-      if (live) setSession({ user: user?.id ?? null, ended: state === "signed_out" });
-    })();
+    void checkSessionKeepingMember(supabase?.auth ?? null).then((result) => {
+      if (live) setOwn(result);
+    });
+    // Signed out in this browser meanwhile (another tab, or another check that found the session gone): say so.
+    const subscription = supabase?.auth.onAuthStateChange((event: AuthChangeEvent) => {
+      if (event === "SIGNED_OUT" && live) setOwn({ state: "signed_out", userId: null });
+    }).data.subscription;
     return () => {
       live = false;
+      subscription?.unsubscribe();
     };
-  }, [contextFailed]);
-  const userId = context?.data?.userId ?? session.user;
-  // An ended session (signed out elsewhere, or Home shown again after Log out) says so, never loads for ever.
-  const signedOut = context?.status === "signed_out" || session.ended;
+  }, [checkNeeded]);
+  const member = homeMember(shared, own);
+  const userId = member.kind === "member" ? member.userId : null;
   const name = firstName(context?.data?.profile?.name);
   const key = userId ? `${userId}:${today}` : null;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -83,7 +88,9 @@ export function DailyHome({ today }: { today: string }) {
   }, [key, userId, today]);
 
   const quote = loaded && loaded.key === key ? loaded.quote : null;
-  const pending = !loaded || loaded.key !== key;
+  // An ended session says so and offers sign-in; a check that failed never claims one (it shows this device's quote
+  // for the member, or says the quote couldn't be loaded); nothing loads for ever.
+  const area = quoteArea(member, !loaded || loaded.key !== key ? "loading" : quote ? "shown" : "missing");
   const scene = quote ? sceneFor(quote.scene) : null;
   const hello = hour === null ? null : greeting(hour, context?.status === "ready" ? name : null);
   const ease = [0.16, 1, 0.3, 1] as const;
@@ -110,9 +117,9 @@ export function DailyHome({ today }: { today: string }) {
           </h1>
         </header>
 
-        <figure className={styles.quote} aria-label="Today's quote" aria-busy={(pending && !signedOut) || undefined}>
+        <figure className={styles.quote} aria-label="Today's quote" aria-busy={area === "loading" || undefined}>
           <AnimatePresence mode="wait">
-            {quote ? (
+            {area === "quote" && quote ? (
               <m.div key={quote.id} initial={{ opacity: 1 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: reduced ? 0.15 : 0.5 } }}>
                 <m.p className={styles.theme} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reduced ? 0.2 : 0.8, delay: reduced ? 0 : 0.3 }}>
                   <span aria-hidden="true" className={styles.rule} />{THEME_LABEL[quote.theme]}
@@ -136,11 +143,11 @@ export function DailyHome({ today }: { today: string }) {
                   {quote.author ? <>{quote.author}{quote.source ? <cite>, {quote.source}</cite> : null}</> : "FITX"}
                 </m.figcaption>
               </m.div>
-            ) : signedOut ? (
+            ) : area === "signed_out" ? (
               <m.p key="signed-out" role="status" className={styles.caption} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 You’re signed out. <Link href={signInHref("/dashboard")} className={styles.signIn}>Sign in again</Link> to see today’s quote.
               </m.p>
-            ) : pending ? (
+            ) : area === "loading" ? (
               <m.div key="loading" className={styles.loading} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <span /><span />
               </m.div>
