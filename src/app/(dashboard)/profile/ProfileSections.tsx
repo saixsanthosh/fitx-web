@@ -450,7 +450,7 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
           <Detail label="Workout setup">{answersKnown ? optionLabel(LOCATION_OPTIONS, prefs.workout_location) : <NotSet />}</Detail>
           <Detail label="Weekly availability">{answersKnown ? <>{prefs.workouts_per_week} {prefs.workouts_per_week === 1 ? "day" : "days"} a week</> : <NotSet />}</Detail>
           <Detail label="Session length">{sessionText(data) ?? <NotSet />}</Detail>
-          <Detail label="Home equipment" wide><ChipList items={equipmentChips(lists.home.keys)} empty="No equipment" known={homeEquipmentKnown(lists)} /></Detail>
+          <Detail label="Home equipment" wide><ChipList items={equipmentChips(lists.home.keys)} empty="No equipment" known={homeEquipmentKnown(data)} /></Detail>
           <Detail label="Gym equipment" wide>
             {lists.gym.saved ? <ChipList items={equipmentChips(lists.gym.keys)} empty="No equipment" /> : <span className="font-normal text-fitx-text-secondary">A full gym, until you change it</span>}
             {unknown.length > 0 && <span className="mt-2 block text-xs font-normal leading-5 text-fitx-text-secondary">Not used for workouts: {unknown.join(", ")}</span>}

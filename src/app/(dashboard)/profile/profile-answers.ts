@@ -60,9 +60,16 @@ export function mealsText(data: FoodData): string | null {
   return data.preferences.meals_per_day === 5 ? "5+" : String(data.preferences.meals_per_day);
 }
 
-/** Home equipment is the member's own once the Home list is saved, or when their first answer named some. */
-export function homeEquipmentKnown(lists: UserContextData["equipmentLists"]): boolean {
-  return lists.home.saved || lists.home.keys.length > 0;
+/**
+ * Home equipment is the member's own once the Home list is saved, or when their first answer named some. An empty
+ * list is an answer too for a member whose training answers are known and who trains away from a gym (home, both or
+ * outdoors): the first onboarding asked "What equipment can you use?" and stored "bodyweight" for none, which leaves
+ * no saved list and no keys (review home-4), while the Workouts setup saves a Home list for home and both. For a gym
+ * member nothing ever asked about home equipment, so an empty list stays "Not set".
+ */
+export function homeEquipmentKnown(data: TrainingData): boolean {
+  const home = data.equipmentLists.home;
+  return home.saved || home.keys.length > 0 || (trainingAnswersKnown(data) && data.preferences.workout_location !== "gym");
 }
 
 export type ListAnswer = { kind: "items"; items: string[] } | { kind: "none" } | { kind: "not_set" };

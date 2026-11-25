@@ -54,7 +54,7 @@ describe("a brand-new member", () => {
     assert.equal(foodAnswersKnown(fresh), false);
     assert.deepEqual(listAnswer([], foodAnswersKnown(fresh)), { kind: "not_set" }, "allergies and foods avoided");
     assert.deepEqual(listAnswer([], false), { kind: "not_set" }, "injuries before the Workouts setup");
-    assert.equal(homeEquipmentKnown(fresh.equipmentLists), false, "the bodyweight default names no home equipment");
+    assert.equal(homeEquipmentKnown(fresh), false, "the bodyweight default names no home equipment");
   });
 
   test("the goal and daily activity from setup are shown", () => {
@@ -73,11 +73,16 @@ describe("once the member has answered", () => {
   test("a saved equipment list counts as the Workouts setup (before its migration) and as known home equipment", () => {
     const listed = member(DAY_ONE_ROW, { equipmentLists: { available: true, home: { keys: [], saved: true }, gym: { keys: [], saved: false } } });
     assert.equal(profileHeadline(listed), "Weight loss · Beginner");
-    assert.equal(homeEquipmentKnown(listed.equipmentLists), true, "a saved empty list means no equipment");
+    assert.equal(homeEquipmentKnown(listed), true, "a saved empty list means no equipment");
   });
 
   test("the first onboarding's equipment answer counts as known home equipment", () => {
-    assert.equal(homeEquipmentKnown({ available: false, home: { keys: ["dumbbell"], saved: false }, gym: { keys: [], saved: false } }), true);
+    assert.equal(homeEquipmentKnown(member(DAY_ONE_ROW, { equipmentLists: { available: false, home: { keys: ["dumbbell"], saved: false }, gym: { keys: [], saved: false } } })), true);
+  });
+
+  test("after the Workouts setup, a gym member was never asked about home equipment: still Not set", () => {
+    const gym = member({ ...DAY_ONE_ROW, workout_setup_at: "2026-11-25T19:30:00Z" });
+    assert.equal(homeEquipmentKnown(gym), false);
   });
 
   test("after the Nutrition setup (or with a diet saved): meals a day and None for empty lists", () => {
@@ -132,6 +137,38 @@ describe("the shared context reads when the Nutrition setup was answered", () =>
   });
 });
 
+describe("a member who finished the first onboarding, before equipment lists existed (review home-4)", () => {
+  // That onboarding asked "What equipment can you use?" with a Bodyweight choice and stored ["bodyweight"] for no
+  // equipment; migration 20261123100020 counted everyone who had finished onboarding as set up. No list was saved.
+  let fake: FakeQueryClient;
+  const client = () => fake as unknown as SupabaseClient;
+  beforeEach(() => {
+    fake = new FakeQueryClient();
+    fake.tables = {
+      profiles: [{ id: USER.id, name: "Meera", onboarded: true }],
+      user_preferences: [{ user_id: USER.id, ...DAY_ONE_ROW, workout_location: "home", equipment: ["bodyweight"], workout_setup_at: "2026-11-23T10:00:00Z" }],
+      body_metrics: [],
+      user_equipment_profiles: [],
+    };
+  });
+
+  test("their Bodyweight answer reads No equipment, not Not set", async () => {
+    const { data, error } = await loadUserContext(client(), USER);
+    assert.equal(error, null);
+    assert.deepEqual(data!.equipmentLists.home, { keys: [], saved: false }, "no saved list, and bodyweight names no equipment");
+    assert.equal(homeEquipmentKnown(data!), true);
+    assert.deepEqual(listAnswer(data!.equipmentLists.home.keys, homeEquipmentKnown(data!)), { kind: "none" }, "ChipList's No equipment");
+  });
+
+  test("the same when they train at both or outdoors; at a gym nothing asked about home equipment", async () => {
+    for (const [place, known] of [["both", true], ["outdoor", true], ["gym", false]] as const) {
+      fake.tables.user_preferences[0].workout_location = place;
+      const { data } = await loadUserContext(client(), USER);
+      assert.equal(homeEquipmentKnown(data!), known, place);
+    }
+  });
+});
+
 describe("Profile uses the rules", () => {
   const read = (file: string) => readFileSync(new URL(`../../src/app/(dashboard)/profile/${file}`, import.meta.url), "utf8");
   const sections = read("ProfileSections.tsx");
@@ -143,6 +180,6 @@ describe("Profile uses the rules", () => {
     assert.match(sections, /<ChipList items=\{labelsFor\(ALLERGY_OPTIONS, prefs\.allergies\)\} known=\{foodKnown\} \/>/);
     assert.match(sections, /<ChipList items=\{prefs\.food_dislikes\} known=\{foodKnown\} \/>/);
     assert.match(sections, /<ChipList items=\{labelsFor\(LIMITATION_OPTIONS, prefs\.limitations\)\} known=\{trainingAnswersKnown\(data\)\} \/>/);
-    assert.match(sections, /empty="No equipment" known=\{homeEquipmentKnown\(lists\)\} \/>/);
+    assert.match(sections, /empty="No equipment" known=\{homeEquipmentKnown\(data\)\} \/>/);
   });
 });
