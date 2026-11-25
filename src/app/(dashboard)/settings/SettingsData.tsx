@@ -34,6 +34,8 @@ function DownloadData() {
   const [state, setState] = useState<{ kind: "idle" | "working" | "done" | "error" | "signed_out"; text: string }>({ kind: "idle", text: "" });
 
   async function download() {
+    // aria-disabled, not disabled, while working: a disabled button drops keyboard focus to the page (D5).
+    if (state.kind === "working") return;
     const supabase = createClient();
     if (!supabase) return setState({ kind: "error", text: "Downloading isn't available right now because FITX can't reach its database." });
     setState({ kind: "working", text: "Collecting your data…" });
@@ -75,7 +77,7 @@ function DownloadData() {
           </p>
         )}
       </div>
-      <button type="button" onClick={() => void download()} disabled={state.kind === "working"} className="fitx-button fitx-button-secondary min-h-11 shrink-0 px-4 text-sm">
+      <button type="button" onClick={() => void download()} aria-disabled={state.kind === "working" || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 px-4 text-sm aria-disabled:opacity-60">
         <Download size={16} aria-hidden="true" />{state.kind === "working" ? "Preparing…" : "Download"}
       </button>
     </div>

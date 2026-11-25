@@ -102,7 +102,12 @@ describe("Settings and Profile use it", () => {
   });
 
   test("Download my data and Profile tell an ended session from a failed check", () => {
-    assert.match(read("app/(dashboard)/settings/SettingsData.tsx"), /if \(session === "signed_out"\) return setState\(\{ kind: "signed_out"/);
+    const download = read("app/(dashboard)/settings/SettingsData.tsx");
+    assert.match(download, /if \(session === "signed_out"\) return setState\(\{ kind: "signed_out"/);
+    // D5: the button stays focusable while it works, and a second press then does nothing.
+    assert.match(download, /if \(state\.kind === "working"\) return;/);
+    assert.match(download, /aria-disabled=\{state\.kind === "working" \|\| undefined\}/);
+    assert.doesNotMatch(download, /disabled=\{state\.kind === "working"\}/);
     const profile = read("app/(dashboard)/profile/ProfileView.tsx");
     assert.match(profile, /status: state === "signed_out" \? "signed_out" : "error"/);
     assert.match(profile, /if \(event\.persisted\) void reload\(\);/);
