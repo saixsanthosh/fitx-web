@@ -63,7 +63,7 @@ export function AccountMenu({ summary }: { summary: AccountSummary | null }) {
         aria-controls={panelId}
         aria-label={summary?.name ? `Account: ${summary.name}` : "Account"}
         onClick={() => setOpen((value) => !value)}
-        className="flex min-h-11 items-center gap-2 rounded-full pl-1 pr-1 transition-colors hover:bg-fitx-hover md:pr-2.5"
+        className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full pl-1 pr-1 transition-colors hover:bg-fitx-hover md:pr-2.5"
       >
         <AccountAvatar summary={summary} size={34} />
         <span className="hidden max-w-32 truncate text-sm text-fitx-text-secondary md:block">{summary?.name}</span>

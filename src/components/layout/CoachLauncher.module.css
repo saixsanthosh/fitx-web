@@ -62,32 +62,48 @@
 .icon { position: relative; color: var(--fitx-primary); }
 
 /*
- * "Hide AI Coach button": a small badge on the corner facing the middle of the screen. Its 44 px touch area
- * reaches outwards, away from the disc, so a press on the button itself never lands on it.
+ * "Hide AI Coach button": a small 22 px badge on the corner facing the middle of the screen. The button itself is
+ * the full 44 x 44 px touch target, see-through, with the badge drawn in its corner next to the disc, so its area
+ * reaches outwards, away from the disc, and a press on the coach button never lands on it. (It was a 22 px button
+ * whose 44 px touch area was a ::before, which the accessibility tree and measuring tools report as 22 x 22.)
  */
 .hide {
   position: absolute;
-  top: -13px;
-  left: -13px;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
+  top: -35px;
+  left: -35px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: var(--fitx-surface);
+  background: transparent;
   color: var(--fitx-text-secondary);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--fitx-scrim) 22%, transparent), inset 0 0 0 1px var(--fitx-border);
   cursor: pointer;
   opacity: 0;
   transform: scale(.8);
+  transform-origin: calc(100% - 11px) calc(100% - 11px);
   transition: opacity 160ms ease, transform 160ms cubic-bezier(.22, 1, .36, 1), color 160ms ease;
 }
-.hide::before { content: ""; position: absolute; left: -23px; top: -23px; width: 44px; height: 44px; }
-.left .hide { left: auto; right: -13px; }
-.left .hide::before { left: auto; right: -23px; }
+/* The badge, and the cross on it. */
+.hide::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--fitx-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--fitx-scrim) 22%, transparent), inset 0 0 0 1px var(--fitx-border);
+}
+.hide > svg { position: absolute; right: 5px; bottom: 5px; }
+.left .hide { left: auto; right: -35px; transform-origin: 11px calc(100% - 11px); }
+.left .hide::before { right: auto; left: 0; }
+.left .hide > svg { right: auto; left: 5px; }
 .hide:hover { color: var(--fitx-text); }
+/* The keyboard ring goes round the badge, not the see-through square. */
+.hide:focus-visible { outline: none; }
+.hide:focus-visible::before { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .launcher:is(:hover, :focus-within) .hide { opacity: 1; transform: none; }
 .dragging .hide { opacity: 0 !important; }
 /* Touch screens have no hover: the badge stays in view, quieter. */
