@@ -1,10 +1,41 @@
 // Flow 15: the one-screen sign-in pages and signing in with an e-mail code. Each page fits the viewport
-// without scrolling (phone 390 x 844 and desktop); the stage shows a still frame of the 3D scene first and settles
-// (live or still), has a pause control and stays still with reduced motion; without NEXT_PUBLIC_GOOGLE_CLIENT_ID the
+// without scrolling (phone 390 x 844 and desktop); the stage is a still frame of the 3D scene, and only an address
+// with ?scene=live loads three.js, the scene's worker and a canvas (hotfix 2d), where it settles live or still; it
+// has a pause control and stays still with reduced motion; without NEXT_PUBLIC_GOOGLE_CLIENT_ID the
 // Google button is the redirect flow and nothing is fetched from Google. A new address asks for a code, a wrong code is refused, the right code (pasted with a space)
 // signs in and onboarding opens; an existing account signs in by code and lands on the page it asked for, and
 // asking again within a minute keeps the code already sent. The stand-in keeps codes in an outbox (auth.mjs).
 import { seeText } from "./common.mjs";
+
+/** Records, in every page of the flow, the stage's data-scene values in order and each worker the page starts. */
+function watchStage() {
+  const scenes = [];
+  const workers = [];
+  Object.defineProperty(window, "__e2eScenes", { value: scenes });
+  Object.defineProperty(window, "__e2eWorkers", { value: workers });
+  new MutationObserver(() => {
+    const value = document.querySelector("section[aria-label=FITX]")?.getAttribute("data-scene");
+    if (value && scenes[scenes.length - 1] !== value) scenes.push(value);
+  }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-scene"] });
+  const Original = window.Worker;
+  if (Original) {
+    window.Worker = new Proxy(Original, {
+      construct(target, args) {
+        workers.push(String(args[0]).slice(0, 200));
+        return Reflect.construct(target, args);
+      },
+    });
+  }
+}
+
+/** What the stage did on this page: its data-scene now and before, canvases, whether three.js ran, workers started. */
+const stageState = (page) => page.evaluate(() => ({
+  scene: document.querySelector("section[aria-label=FITX]")?.getAttribute("data-scene") ?? null,
+  scenes: [...(window.__e2eScenes ?? [])],
+  canvases: document.querySelectorAll("section[aria-label=FITX] canvas").length,
+  three: typeof window.__THREE__ === "string" ? window.__THREE__ : null,
+  workers: [...(window.__e2eWorkers ?? [])],
+}));
 
 async function sentCode(standin, email) {
   const response = await fetch(`${standin.url}/auth/v1/__e2e/outbox?email=${encodeURIComponent(email)}`, {
@@ -27,6 +58,7 @@ export const flow = {
   schemes: (schemes) => schemes,
   async run(t, { standin }) {
     const page = await t.open();
+    await t.context.addInitScript(watchStage);
 
     await t.step("sign-in, sign-up and password pages fit one screen", async () => {
       for (const route of ["/signin", "/signup", "/forgot-password"]) {
@@ -46,22 +78,42 @@ export const flow = {
       await t.checkpoint("signin other options open", { fullPage: false });
     });
 
-    await t.step("the stage: a still frame of the scene first, the live scene where the device carries it", async () => {
-      await t.goto("/signin", { label: "stage scene" });
+    await t.step("the stage: the still frame is the page; three.js, its worker and a canvas never load without ?scene=live", async () => {
+      for (const route of ["/signin", "/signup", "/forgot-password", "/reset-password"]) {
+        await t.goto(route, { label: `stage ${route}` });
+        const stage = page.locator("section[aria-label=FITX]");
+        const still = await stage.evaluate((element) => getComputedStyle(element.querySelector("div")).backgroundImage);
+        t.expect(/\/media\/login\/still-(light|dark)-(wide|tall)\.webp/.test(still), `${route}: the still frame is the picture (${still})`);
+        await page.waitForFunction(() => document.querySelector("section[aria-label=FITX]")?.getAttribute("data-scene") === "still", null, { timeout: 15000 }).catch(() => undefined);
+        // Past the moment the live scene used to start (an idle callback, 1.5 s at the latest), and then some.
+        await page.waitForTimeout(2500);
+        const seen = await stageState(page);
+        t.note(`${route} stage`, seen);
+        t.expect(seen.scene === "still" && seen.scenes.every((value) => value === "idle" || value === "still"), `${route}: the stage settles on the still frame and never starts the scene (${seen.scenes.join(" → ")})`, seen);
+        t.expect(seen.canvases === 0, `${route}: no canvas on the stage (${seen.canvases})`, seen);
+        t.expect(seen.three === null, `${route}: three.js never ran (window.__THREE__ = ${seen.three})`, seen);
+        t.expect(seen.workers.length === 0, `${route}: no worker started (${seen.workers.join(", ")})`, seen);
+        if (route === "/signin") await t.checkpoint("signin still stage", { fullPage: false, settle: false });
+      }
+      t.expect(!(await page.getByRole("button", { name: "Tilt to look around" }).count()), "no tilt button where the browser shares motion without asking (or on a laptop)");
+    });
+
+    await t.step("with ?scene=live the live scene loads, and settles live or still", async () => {
+      await t.goto("/signin?scene=live", { label: "stage scene=live" });
       const stage = page.locator("section[aria-label=FITX]");
       const still = await stage.evaluate((element) => getComputedStyle(element.querySelector("div")).backgroundImage);
       t.expect(/\/media\/login\/still-(light|dark)-(wide|tall)\.webp/.test(still), `the still frame is the first picture (${still})`);
       // The live scene needs WebGL2 on a capable GPU; headless runs may or may not have one. Either outcome is valid,
       // but it must settle: live (a canvas showing) or still (no canvas), never stuck loading.
-      await page.waitForFunction(() => ["live", "still"].includes(document.querySelector("section[aria-label=FITX]")?.getAttribute("data-scene") ?? ""), null, { timeout: 30000 }).catch(() => undefined);
-      const scene = await stage.getAttribute("data-scene");
-      const canvases = await stage.locator("canvas").count();
-      t.note("sign-in scene", { scene, canvases });
-      t.expect(scene === "live" ? canvases === 1 : scene === "still", `the scene settles (data-scene=${scene}, canvases=${canvases})`);
-      t.expect(!(await page.getByRole("button", { name: "Tilt to look around" }).count()), "no tilt button where the browser shares motion without asking (or on a laptop)");
+      await page.waitForFunction(() => ["live", "still"].includes(document.querySelector("section[aria-label=FITX]")?.getAttribute("data-scene") ?? "") && (window.__e2eScenes ?? []).includes("loading"), null, { timeout: 30000 }).catch(() => undefined);
+      const seen = await stageState(page);
+      t.note("sign-in scene with ?scene=live", seen);
+      t.expect(seen.scenes.includes("loading"), `asked for, the scene starts loading (${seen.scenes.join(" → ")})`, seen);
+      t.expect(seen.three !== null, "asked for, three.js runs", seen);
+      t.expect(seen.scene === "live" ? seen.canvases === 1 : seen.scene === "still", `the scene settles (data-scene=${seen.scene}, canvases=${seen.canvases})`, seen);
       const extra = await verticalScroll(page);
       t.expect(extra <= 1, `the page still fits one screen with the scene (scrolls ${extra}px)`);
-      await t.checkpoint("signin scene", { fullPage: false, settle: false });
+      await t.checkpoint("signin scene live", { fullPage: false, settle: false });
     });
 
     await t.step("without a Google client id, Google sign-in is the redirect button and nothing loads from Google", async () => {

@@ -7,7 +7,7 @@ import { Pause, Play, Smartphone } from "lucide-react";
 import { EASE, useReducedMotionSafe, usePageVisible } from "@/components/motion";
 import { Logo } from "@/components/ui/Logo";
 import type { LoginScene } from "./scene/login-scene";
-import { follow, idleDrift, pointerLook, sceneVerdict, tiltLook, type Look } from "./scene/scene-math";
+import { liveSceneRequested, pointerLook, sceneVerdict, STILL_DRIFT_SECONDS, stillDriftKeyframes, stillShift, tiltLook, type Look } from "./scene/scene-math";
 import s from "./auth.module.css";
 
 const WORDS = ["Lift", "Train", "Fuel", "Recover"] as const;
@@ -19,10 +19,14 @@ type TiltAccess = "none" | "ask" | "on" | "denied";
 
 const never = () => () => {};
 
-/** Whether this device may run the live scene (read once on the client; "server" before hydration). */
+/**
+ * Whether this page may run the live scene (read on the client; "server" before hydration). Only an address with
+ * ?scene=live asks for it; every other visit keeps the still frame and never loads three.js or the scene's worker.
+ */
 function readVerdict() {
   const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean } };
   return sceneVerdict({
+    enabled: liveSceneRequested(window.location.search),
     reducedMotion: false,
     saveData: nav.connection?.saveData === true,
     cores: nav.hardwareConcurrency,
@@ -62,11 +66,15 @@ const orientationApi = () => (typeof window !== "undefined" && "DeviceOrientatio
 const isAppleMobile = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 /**
- * The sign-in pages' stage: a live 3D scene from the FITX film (Dre's deadlift set in the film's gym) that turns
- * with the phone's tilt or follows the pointer, over a still frame of the same scene. The still is the first paint,
- * and it stays with reduced motion, Save-Data, low-end devices, or whenever WebGL, the worker or the frame rate
- * fail; the still then drifts gently with the same tilt and pointer (except with reduced motion, when nothing moves).
- * iOS asks before it shares motion: the "Tilt to look around" button asks, on a tap.
+ * The sign-in pages' stage: a still frame from the FITX film's world (Dre's deadlift in the film's gym) that drifts
+ * gently with the phone's tilt or the pointer (except with reduced motion, when nothing moves). The drift is run by
+ * the compositor, so it costs the main thread nothing per frame.
+ *
+ * The live 3D scene of the same moment (scene/login-scene.ts) only starts when the address asks for it with
+ * ?scene=live: on Edge with its JIT off, and on slow GPUs, it held the main thread for seconds, so typing in the form
+ * froze. With it, the still is the first paint and stays with reduced motion, Save-Data, low-end devices, or whenever
+ * WebGL, the worker or the frame rate fail. iOS asks before it shares motion: the "Tilt to look around" button asks,
+ * on a tap.
  */
 export function AuthStage() {
   const reduced = useReducedMotionSafe();
@@ -77,6 +85,10 @@ export function AuthStage() {
   const scene = useRef<LoginScene | null>(null);
   const look = useRef<Look | null>(null);
   const started = useRef(false);
+  /** The still frame's idle drift (a Web Animation), whether it is moving, and the look it was last moved to. */
+  const drift = useRef<Animation | null>(null);
+  const drifting = useRef(false);
+  const shift = useRef("");
   const inView = useInView(root);
   const theme = useSyncExternalStore(subscribeTheme, readTheme, () => "dark" as Theme);
   const [paused, setPaused] = useState(false);
@@ -89,7 +101,8 @@ export function AuthStage() {
   const [word, setWord] = useState(0);
   const running = !reduced && !paused && visible && inView;
 
-  // Start the live scene once the page is idle (the form is usable first), when the device can carry it.
+  // Start the live scene once the page is idle (the form is usable first), only when the address asked for it and the
+  // device can carry it. This dynamic import is the only way three.js and the athlete's worker reach the auth pages.
   useEffect(() => {
     if (reduced || verdict !== "live" || started.current) return;
     started.current = true;
@@ -142,11 +155,23 @@ export function AuthStage() {
     return () => observer.disconnect();
   }, []);
 
+  // While the still frame drifts, it follows the look: one `translate` write when the look moves a step, eased by the
+  // stylesheet's transition (which the compositor runs).
+  const moveStill = useCallback(() => {
+    const element = still.current;
+    if (!element || !drifting.current) return;
+    const next = stillShift(look.current);
+    if (next === shift.current) return;
+    shift.current = next;
+    element.style.translate = next;
+  }, []);
+
   // Where the viewer looks from: the pointer anywhere on the page (laptops) or the phone's tilt.
   const setLook = useCallback((next: Look | null) => {
     look.current = next;
     scene.current?.setLook(next);
-  }, []);
+    moveStill();
+  }, [moveStill]);
 
   useEffect(() => {
     if (reduced) return;
@@ -193,30 +218,34 @@ export function AuthStage() {
     }
   };
 
-  // The still frame's own drift (when the live scene is not drawing): transform only, eased per frame.
+  // The still frame's own drift (whenever the live scene is not drawing): a slow figure of eight as a Web Animation of
+  // `transform`, plus the look as `translate` (moveStill). The compositor runs both: no script runs per frame.
   useEffect(() => {
-    if (!running || motion !== "still" || !still.current) return;
     const element = still.current;
-    const eased = { x: 0, y: 0 };
-    let frame = 0;
-    let last = 0;
-    let clock = 0;
-    const tick = (now: number) => {
-      const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
-      last = now;
-      clock += dt;
-      const goal = look.current ?? idleDrift(clock);
-      eased.x = follow(eased.x, goal.x, dt, 0.35);
-      eased.y = follow(eased.y, goal.y, dt, 0.35);
-      element.style.transform = `translate3d(${(-eased.x * 1.6).toFixed(3)}%, ${(eased.y * 1.2).toFixed(3)}%, 0) scale(1.06)`;
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
+    if (motion !== "still" || !element) return;
+    drift.current = typeof element.animate === "function"
+      ? element.animate(stillDriftKeyframes(), { duration: STILL_DRIFT_SECONDS * 1000, iterations: Infinity })
+      : null;
     return () => {
-      cancelAnimationFrame(frame);
-      element.style.transform = "";
+      drift.current?.cancel();
+      drift.current = null;
+      drifting.current = false;
+      shift.current = "";
+      element.style.translate = "";
     };
-  }, [running, motion]);
+  }, [motion]);
+
+  // Paused, hidden or off screen: the drift holds where it is, and the look is not followed until it runs again.
+  useEffect(() => {
+    if (motion !== "still") return;
+    drifting.current = running;
+    if (running) {
+      drift.current?.play();
+      moveStill();
+    } else {
+      drift.current?.pause();
+    }
+  }, [motion, running, moveStill]);
 
   useEffect(() => {
     if (!running) return;

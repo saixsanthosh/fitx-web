@@ -1,12 +1,19 @@
 // The sign-in scene's pure parts (src/components/auth/scene/scene-math.ts) and the stage's promises: a still frame of
-// the same scene for every theme and framing, the tilt permission behind a button, nothing moving with reduced motion.
+// the same scene for every theme and framing, the tilt permission behind a button, nothing moving with reduced motion,
+// and (hotfix 2d) the live scene only when the address asks for it with ?scene=live: without it no page of the auth
+// group can load three.js or the athlete's worker.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
-  follow, idleDrift, LIFT_TIMES, STILL_SECONDS, liftTimeAt, LOOP_SECONDS, lookWeightAt, medianFrame, pointerLook, sceneVerdict, SLOW_FRAME, tiltLook, TILT_RANGE_DEGREES,
+  follow, idleDrift, LIFT_TIMES, liveSceneRequested, STILL_DRIFT_SECONDS, STILL_SECONDS, STILL_SWING, liftTimeAt, LOOP_SECONDS, lookWeightAt, medianFrame, pointerLook,
+  sceneVerdict, SLOW_FRAME, stillDriftKeyframes, stillShift, tiltLook, TILT_RANGE_DEGREES,
 } from "@/components/auth/scene/scene-math";
+import { JOBS } from "../../scripts/brand/films/lib/plan.mjs";
 
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const source = (file: string) => readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
 
 test("the set opens with the chalk clap, then loops without a jump and never lets go of the bar", () => {
@@ -83,7 +90,7 @@ test("the camera follows smoothly at any frame rate", () => {
 });
 
 test("only capable devices start the live scene; everything else keeps the still frame", () => {
-  const capable = { reducedMotion: false, cores: 8, memory: 8, workers: true };
+  const capable = { enabled: true, reducedMotion: false, cores: 8, memory: 8, workers: true };
   assert.equal(sceneVerdict(capable), "live");
   assert.equal(sceneVerdict({ ...capable, reducedMotion: true }), "reduced-motion");
   assert.equal(sceneVerdict({ ...capable, saveData: true }), "save-data");
@@ -91,7 +98,7 @@ test("only capable devices start the live scene; everything else keeps the still
   assert.equal(sceneVerdict({ ...capable, memory: 2 }), "low-end");
   assert.equal(sceneVerdict({ ...capable, cores: 2 }), "low-end");
   assert.equal(sceneVerdict({ ...capable, cores: 2, appleMobile: true }), "live", "iOS always reports 2 cores");
-  assert.equal(sceneVerdict({ reducedMotion: false, workers: true }), "live", "unknown hardware gets a chance; the frame-rate guard decides");
+  assert.equal(sceneVerdict({ enabled: true, reducedMotion: false, workers: true }), "live", "unknown hardware gets a chance; the frame-rate guard decides");
   assert.equal(medianFrame([0.02, 0.05, 0.01]), 0.02);
   assert.equal(medianFrame([]), 0);
   assert.ok(SLOW_FRAME.downgrade < SLOW_FRAME.stop);
@@ -112,7 +119,163 @@ test("the stage: a still frame of the same scene per theme and framing, the tilt
   assert.match(stage, /import\("\.\/scene\/login-scene"\)/, "three.js loads after the page, never in the first bundle");
   assert.match(stage, /aria-label=\{paused \? "Play animation" : "Pause animation"\}/);
   const css = source("src/components/auth/auth.module.css");
-  assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\.still \{ transform: none !important; \}/);
+  assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\.still \{ transform: none !important; translate: none !important; scale: none !important; transition: none; \}/);
   const scene = source("src/components/auth/scene/login-scene.ts");
   assert.match(scene, /if \(DEV\) \{[\s\S]*__fitxLoginScene/, "the still-frame hook exists only in development");
+});
+
+// ------------------------------------------------------------------------------- hotfix 2d: the still frame by default
+
+test("the live scene is off unless the address asks for it with ?scene=live", () => {
+  const capable = { enabled: true, reducedMotion: false, cores: 8, memory: 8, workers: true };
+  assert.equal(sceneVerdict({ ...capable, enabled: false }), "disabled", "a capable device keeps the still frame when nobody asked");
+  assert.equal(sceneVerdict({ ...capable, enabled: false, reducedMotion: true }), "disabled", "not being asked for comes first");
+  assert.equal(sceneVerdict({ ...capable, enabled: false, saveData: true, workers: false, memory: 1 }), "disabled");
+  assert.equal(sceneVerdict(capable), "live", "asked for, a capable device may start it");
+  assert.equal(liveSceneRequested("?scene=live"), true);
+  assert.equal(liveSceneRequested("?next=%2Fprogress&scene=live"), true, "alongside other parameters");
+  for (const search of ["", "?", "?scene=", "?scene=still", "?scene=Live", "?scenery=live", "?next=%2Fscene%3Dlive"]) {
+    assert.equal(liveSceneRequested(search), false, search || "(no query)");
+  }
+  const stage = source("src/components/auth/AuthStage.tsx");
+  assert.match(stage, /enabled: liveSceneRequested\(window\.location\.search\),/, "the stage reads the address it was opened with");
+});
+
+test("the stage imports the scene module only after the verdict says live", () => {
+  const stage = source("src/components/auth/AuthStage.tsx");
+  const runtime = [...stage.matchAll(/^import\s+(?!type\b)[^;]*?from\s+["']\.\/scene\/login-scene["']/gm)];
+  assert.equal(runtime.length, 0, "no static import of the scene module (its type is imported as a type only)");
+  assert.match(stage, /^import type \{ LoginScene \} from "\.\/scene\/login-scene";$/m);
+  const imports = [...stage.matchAll(/import\("\.\/scene\/login-scene"\)/g)];
+  assert.equal(imports.length, 1, "one dynamic import");
+  const guard = stage.indexOf('if (reduced || verdict !== "live" || started.current) return;');
+  const load = imports[0].index ?? -1;
+  assert.ok(guard > 0 && guard < load, "the guard comes first");
+  const effect = stage.lastIndexOf("useEffect(", load);
+  assert.ok(effect >= 0 && effect < guard, "inside the same effect as the guard");
+  assert.doesNotMatch(stage.slice(guard, load), /useEffect\(|=>\s*\{\s*import/, "nothing between the guard and the import starts it another way");
+});
+
+// A static import graph of the auth pages: every module the pages, their layouts and error boundaries pull in with
+// `import ... from` (bundled into the pages' own chunks), and the dynamic `import()`s those modules hold.
+const SRC = path.join(ROOT, "src");
+const CODE = /\.(tsx?|mjs|js)$/;
+
+function resolveModule(from: string, specifier: string): string | null {
+  let base: string;
+  if (specifier.startsWith("@/")) base = path.join(SRC, specifier.slice(2));
+  else if (specifier.startsWith(".")) base = path.resolve(path.dirname(from), specifier);
+  else return null;
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}.mjs`, `${base}.js`, path.join(base, "index.ts"), path.join(base, "index.tsx")]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+const packageName = (specifier: string) => specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/");
+
+function importsOf(file: string) {
+  const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+  const found: { specifier: string; dynamic: boolean }[] = [];
+  for (const match of code.matchAll(/\bimport\s+(type\s+)?([\w$*{}\s,]*?)\s*from\s*["']([^"']+)["']/g)) {
+    if (match[1]) continue;
+    const named = /^\{([\s\S]*)\}$/.exec(match[2].trim());
+    if (named && named[1].split(",").map((part) => part.trim()).filter(Boolean).every((part) => part.startsWith("type "))) continue;
+    found.push({ specifier: match[3], dynamic: false });
+  }
+  for (const match of code.matchAll(/\bimport\s+["']([^"']+)["']/g)) found.push({ specifier: match[1], dynamic: false });
+  for (const match of code.matchAll(/\bexport\s+(type\s+)?(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*["']([^"']+)["']/g)) {
+    if (!match[1]) found.push({ specifier: match[2], dynamic: false });
+  }
+  for (const match of code.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)) found.push({ specifier: match[1], dynamic: true });
+  return found;
+}
+
+function staticGraph(entries: string[]) {
+  const modules = new Set<string>();
+  const packages = new Set<string>();
+  const dynamic: { from: string; specifier: string }[] = [];
+  const queue = [...entries];
+  while (queue.length) {
+    const file = queue.pop()!;
+    if (modules.has(file)) continue;
+    modules.add(file);
+    if (!CODE.test(file)) continue;
+    for (const { specifier, dynamic: lazy } of importsOf(file)) {
+      if (lazy) {
+        dynamic.push({ from: file, specifier });
+        continue;
+      }
+      const target = resolveModule(file, specifier);
+      if (target) queue.push(target);
+      else if (!specifier.startsWith(".") && !specifier.startsWith("@/")) packages.add(packageName(specifier));
+    }
+  }
+  return { modules, packages, dynamic };
+}
+
+test("no auth page can reach three.js or the athlete's worker except through the stage's guarded import", () => {
+  const app = path.join(SRC, "app");
+  const entries = [
+    "layout.tsx", "error.tsx", "global-error.tsx", "not-found.tsx",
+    "(auth)/layout.tsx", "(auth)/error.tsx",
+    "(auth)/signin/page.tsx", "(auth)/signup/page.tsx", "(auth)/forgot-password/page.tsx", "(auth)/reset-password/page.tsx",
+  ].map((file) => path.join(app, file));
+  for (const entry of entries) assert.ok(existsSync(entry), entry);
+  const graph = staticGraph(entries);
+  const stagePath = path.join(SRC, "components/auth/AuthStage.tsx");
+  const scenePath = path.join(SRC, "components/auth/scene/login-scene.ts");
+  const workerClient = path.join(SRC, "components/brand/intro/character/client.ts");
+  assert.ok(graph.modules.has(stagePath), "the walk reaches the stage (so it is really walking the pages)");
+  assert.ok(graph.modules.has(path.join(SRC, "components/auth/scene/scene-math.ts")));
+  assert.ok(graph.packages.has("framer-motion") && graph.packages.has("react"), "packages are seen");
+  assert.ok(!graph.packages.has("three"), "three.js is not in the auth pages' own chunks");
+  assert.ok(!graph.modules.has(scenePath), "the scene module is not in them either");
+  assert.ok(!graph.modules.has(workerClient), "nor the athlete's worker client");
+  // Every dynamic import those modules hold, and what it would bring: only the stage's import of the scene loads three.js.
+  const lazyThree = graph.dynamic.filter(({ from, specifier }) => {
+    const target = resolveModule(from, specifier);
+    if (!target) return packageName(specifier) === "three";
+    const closure = staticGraph([target]);
+    return closure.packages.has("three") || closure.modules.has(workerClient);
+  }).map(({ from, specifier }) => `${path.relative(ROOT, from)} → ${specifier}`);
+  assert.deepEqual(lazyThree, ["src/components/auth/AuthStage.tsx → ./scene/login-scene"]);
+  // And that import, followed, really is where three.js and the worker come from (the walk would see them).
+  const scene = staticGraph([scenePath]);
+  assert.ok(scene.packages.has("three") && scene.modules.has(workerClient), "the walk finds three.js behind the scene module");
+});
+
+test("the still frame drifts on the compositor: one loop of the idle drift as keyframes, the look in steps", () => {
+  const frames = stillDriftKeyframes();
+  assert.equal(frames.length, 25);
+  assert.equal(frames[0].offset, 0);
+  assert.equal(frames.at(-1)?.offset, 1);
+  assert.equal(frames[0].transform, frames.at(-1)?.transform, "the loop has no seam");
+  for (const [index, frame] of frames.entries()) {
+    const match = /^translate3d\((-?\d+\.\d{3})%, (-?\d+\.\d{3})%, 0\)$/.exec(frame.transform);
+    assert.ok(match, frame.transform);
+    const drift = idleDrift((index / 24) * STILL_DRIFT_SECONDS);
+    assert.ok(Math.abs(Number(match[1]) + drift.x * STILL_SWING.x) < 0.001 && Math.abs(Number(match[2]) - drift.y * STILL_SWING.y) < 0.001, frame.transform);
+  }
+  assert.ok(Math.abs(STILL_DRIFT_SECONDS - (2 * Math.PI) / 0.21) < 1e-9);
+  assert.equal(stillShift(null), "0% 0%");
+  assert.equal(stillShift({ x: 1, y: 1 }), "-1.6% 1.2%");
+  assert.equal(stillShift({ x: -1, y: -1 }), "1.6% -1.2%");
+  assert.equal(stillShift({ x: 0.5, y: -0.5 }), "-0.8% -0.6%");
+  assert.equal(stillShift({ x: 0.02, y: -0.03 }), "0% 0%", "a phone's sensor noise moves nothing");
+  assert.equal(stillShift({ x: 7, y: -7 }), "-1.6% -1.2%", "clamped");
+  const stage = source("src/components/auth/AuthStage.tsx");
+  assert.doesNotMatch(stage, /requestAnimationFrame/, "no script runs per frame for the still frame");
+  assert.match(stage, /element\.animate\(stillDriftKeyframes\(\), \{ duration: STILL_DRIFT_SECONDS \* 1000, iterations: Infinity \}\)/);
+  assert.match(stage, /element\.style\.translate = next;/);
+  const css = source("src/components/auth/auth.module.css");
+  assert.match(css, /\.still \{[^}]*transition: scale 0\.9s [^;]*, translate 0\.9s [^;]*;/, "the look and the zoom ease on the compositor");
+  assert.match(css, /\.stage\[data-scene="still"\] \.still \{ scale: 1\.06; will-change: transform; \}/);
+});
+
+test("the films' still render opens the live scene on purpose", () => {
+  const page = JOBS["login-stills"].page;
+  assert.equal(page, "/signin?scene=live");
+  assert.equal(liveSceneRequested(new URL(page, "http://fitx-lab.localhost").search), true);
+  assert.match(source("scripts/brand/films/render.mjs"), /\$\{def\.page\}/, "render.mjs opens the plan's page");
 });

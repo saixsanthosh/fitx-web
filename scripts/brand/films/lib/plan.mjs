@@ -22,8 +22,8 @@ export const THEMES = Object.freeze(["dark", "light"]);
  * - intro, welcome: the films at 60 fps, every composition, both themes (one composition and theme per run).
  * - landing-reel: the landing hero reel, cut from the intro (film time 1.3 to 10.6 s) at 30 fps in the two shapes the
  *   landing serves (`src/components/landing/film.ts`), plus its posters and the team still (`public/media/landing-film/`).
- * - login-stills: the sign-in scene's still frames (`public/media/login/`), from `/signin` and the scene's own
- *   development hook, at the sizes the shipped files have.
+ * - login-stills: the sign-in scene's still frames (`public/media/login/`), from `/signin?scene=live` (the live scene
+ *   only starts when the address asks for it) and the scene's own development hook, at the sizes the shipped files have.
  */
 export const JOBS = Object.freeze({
   intro: { kind: "film", film: "intro", fps: FPS },
@@ -52,7 +52,8 @@ export const JOBS = Object.freeze({
   },
   "login-stills": {
     kind: "stills",
-    page: "/signin",
+    // The sign-in page only starts its live scene when asked (src/components/auth/AuthStage.tsx, readVerdict).
+    page: "/signin?scene=live",
     // The scene's moment (STILL_SECONDS in src/components/auth/scene/scene-math.ts) and the shipped sizes.
     seconds: 5,
     // cwebp quality that gives the shipped files' sizes (44 to 75 KB; measured on this job's own PNGs).

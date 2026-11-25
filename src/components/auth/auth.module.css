@@ -59,6 +59,8 @@
   background-image: var(--still-wide-dark);
   background-position: 50% 50%;
   background-size: cover;
+  /* The drift's zoom and the look ease in; both transitions run on the compositor. */
+  transition: scale 0.9s cubic-bezier(0.22, 1, 0.36, 1), translate 0.9s cubic-bezier(0.22, 1, 0.36, 1);
   --still-wide-dark: url("/media/login/still-dark-wide.webp");
   --still-wide-light: url("/media/login/still-light-wide.webp");
   --still-tall-dark: url("/media/login/still-dark-tall.webp");
@@ -71,8 +73,9 @@
 
 .scene { position: absolute; inset: 0; z-index: -1; }
 .stage[data-scene="still"] .scene { display: none; }
-/* Without the live scene the still drifts with the tilt and pointer (AuthStage sets the transform). */
-.stage[data-scene="still"] .still { will-change: transform; }
+/* Without the live scene the still drifts: a slow figure of eight (a Web Animation of transform) and the tilt or pointer
+   (AuthStage sets translate), slightly zoomed so its edges never show. */
+.stage[data-scene="still"] .still { scale: 1.06; will-change: transform; }
 
 /* Keeps the logo, the headline and the controls readable over the brightest part of either look. */
 .scrim {
@@ -395,7 +398,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .stage { transition: none; }
-  .still { transform: none !important; }
+  .still { transform: none !important; translate: none !important; scale: none !important; transition: none; }
   .codeBox[data-focused="true"] .caret { animation: none; }
   .details > summary > svg { transition: none; }
 }

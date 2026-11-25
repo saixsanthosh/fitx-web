@@ -103,7 +103,8 @@ How a frame is made:
   S6 (2026-11-24, rev `3b29b285`) re-cut the shipped reels, posters and team stills from the refined intro: the same
   sizes, 279 frames, CRF and keyint, now tagged BT.709 tv.
 - `login-stills`: the sign-in scene's stills (`public/media/login/still-<theme>-{wide,tall}.webp`, 1600×800 and
-  1000×1100). It opens `/signin` in the lab's `next dev`, pins the scene's host to the still's exact size, calls the
+  1000×1100). It opens `/signin?scene=live` in the lab's `next dev` (without `?scene=live` the page keeps its still
+  frame and never starts the scene), pins the scene's host to the still's exact size, calls the
   scene's development hook `window.__fitxLoginScene.freeze(5)` (`STILL_SECONDS`) and reads the canvas in the same task,
   then `cwebp`. (Cut first if time runs short: BRIEF-2 7.2 item 1.)
 

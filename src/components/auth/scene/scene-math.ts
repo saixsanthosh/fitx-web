@@ -121,7 +121,48 @@ export function idleDrift(seconds: number): Look {
   return { x: 0.32 * Math.sin(seconds * 0.21), y: 0.16 * Math.sin(seconds * 0.42 + 0.6) };
 }
 
+/** How far the still frame moves at the edge of the look range, in percent of its own size (x, then y). */
+export const STILL_SWING = { x: 1.6, y: 1.2 } as const;
+
+/** One loop of the still frame's idle drift, in seconds: the figure of eight's slower side repeats every 2π / 0.21. */
+export const STILL_DRIFT_SECONDS = (2 * Math.PI) / 0.21;
+
+/**
+ * The still frame's idle drift as Web Animations keyframes (one loop of idleDrift, `steps` straight pieces), so the
+ * compositor runs it and no script runs per frame. The last keyframe is the first, so the loop has no seam.
+ */
+export function stillDriftKeyframes(steps = 24): { offset: number; transform: string }[] {
+  const count = Math.max(4, Math.round(steps));
+  return Array.from({ length: count + 1 }, (_, index) => {
+    const drift = idleDrift((index / count) * STILL_DRIFT_SECONDS);
+    const x = (-drift.x * STILL_SWING.x).toFixed(3);
+    const y = (drift.y * STILL_SWING.y).toFixed(3);
+    return { offset: index / count, transform: `translate3d(${x}%, ${y}%, 0)` };
+  });
+}
+
+/**
+ * Where the still frame sits for a look (a CSS `translate`, eased by a transition the compositor runs), in steps of
+ * 0.1% so a phone's sensor noise or a small pointer move writes nothing. No look puts it back in the middle.
+ */
+export function stillShift(look: Look | null): string {
+  if (!look) return "0% 0%";
+  // `+ 0` turns a negative zero into zero.
+  const tenths = (percent: number) => Math.round(percent * 10) / 10 + 0;
+  return `${tenths(-clamp(look.x, -1, 1) * STILL_SWING.x)}% ${tenths(clamp(look.y, -1, 1) * STILL_SWING.y)}%`;
+}
+
+/** The address's query asks for the live scene: `?scene=live` (the films' still render and anyone checking the scene). */
+export function liveSceneRequested(search: string): boolean {
+  return new URLSearchParams(search).get("scene") === "live";
+}
+
 export type SceneDevice = {
+  /**
+   * The live scene was asked for (liveSceneRequested). It is off by default: on Edge with its JIT off and on slow GPUs
+   * it held the main thread for seconds, so typing in the form froze. Without it the still frame is the whole stage.
+   */
+  enabled: boolean;
   reducedMotion: boolean;
   saveData?: boolean;
   /** navigator.hardwareConcurrency (iOS reports 2 whatever the chip). */
@@ -133,11 +174,15 @@ export type SceneDevice = {
   workers: boolean;
 };
 
+export type SceneVerdict = "live" | "disabled" | "reduced-motion" | "save-data" | "low-end" | "no-workers";
+
 /**
- * Whether the live scene may start, or why the still frame stays. The renderer's own checks (WebGL2, float
- * targets, software rasterisers, the GPU class) follow in detectQuality, and a sustained low frame rate stops it.
+ * Whether the live scene may start, or why the still frame stays: first of all, whether it was asked for at all
+ * ("disabled" unless `enabled`). The renderer's own checks (WebGL2, float targets, software rasterisers, the GPU
+ * class) follow in detectQuality, and a sustained low frame rate stops it.
  */
-export function sceneVerdict(device: SceneDevice): "live" | "reduced-motion" | "save-data" | "low-end" | "no-workers" {
+export function sceneVerdict(device: SceneDevice): SceneVerdict {
+  if (!device.enabled) return "disabled";
   if (device.reducedMotion) return "reduced-motion";
   if (device.saveData) return "save-data";
   if (!device.workers) return "no-workers";
