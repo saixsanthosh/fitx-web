@@ -9,6 +9,7 @@ import { useReducedMotionSafe } from "@/components/motion/useReducedMotionSafe";
 import { Sheet } from "@/components/ui/Sheet";
 import { SOCIAL_BUCKET, fullDate, plural, relativeTime, socialApi, toSocialError, topicLabel, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
+import { postOptionsId } from "@/lib/social/focus";
 import { forgetPhotoUrls } from "@/lib/social/media-urls";
 import { POST_VIDEO, SHARE_TARGETS } from "@/lib/social/slots";
 import { createClient } from "@/lib/supabase/client";
@@ -30,7 +31,7 @@ type Props = {
   /** On the post's own page the caption is shown in full and the comment link is left out. */
   detail?: boolean;
   onChange?: (post: SocialPost) => void;
-  /** The post was deleted, or its author blocked: take it off the list. */
+  /** The post was deleted, or its author blocked: take it off the list (and move focus on, see FeedView). */
   onRemove?: (id: string) => void;
 };
 
@@ -133,8 +134,8 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
       const storage = createClient()?.storage;
       if (storage && paths.length) await storage.from(SOCIAL_BUCKET).remove(paths);
       forgetPhotoUrls(paths);
-      toast.success("Post deleted");
       setConfirm(null);
+      toast.success("Post deleted");
       onRemove?.(state.id);
     } catch (error) {
       confirmNotice.show("error", toSocialError(error).message);
@@ -149,8 +150,8 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
     confirmNotice.clear();
     try {
       await socialApi.setBlock(db, author.id, true);
-      toast.success(`@${author.username} is blocked`);
       setConfirm(null);
+      toast.success(`@${author.username} is blocked`);
       onRemove?.(state.id);
     } catch (error) {
       confirmNotice.show("error", toSocialError(error).message);
@@ -169,7 +170,7 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
             <span className={styles.whoMeta}>@{author.username}{state.location ? ` · ${state.location}` : ""}</span>
           </span>
         </Link>
-        <button type="button" className={styles.iconButton} aria-label="Post options" aria-haspopup="dialog" onClick={() => setMenu(true)}>
+        <button type="button" id={postOptionsId(state.id)} className={styles.iconButton} aria-label="Post options" aria-haspopup="dialog" onClick={() => setMenu(true)}>
           <MoreHorizontal size={20} aria-hidden="true" />
         </button>
       </header>

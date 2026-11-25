@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { focusAfterRemoval } from "@/lib/social/focus";
+import { focusAfterRemoval, postOptionsId } from "@/lib/social/focus";
 
 const source = (file: string) => readFileSync(path.resolve(process.cwd(), file), "utf8");
 
@@ -54,6 +54,19 @@ test("Unsend, Delete comment, the profile's Unblock and answered requests move f
   const challenge = source("src/components/social/challenges/ChallengeView.tsx");
   assert.match(challenge, /"You joined the challenge", "challenge-leave"\)/);
   assert.match(challenge, /"You left the challenge", "challenge-join"\)/);
+});
+
+test("a post that leaves the feed or a community hands focus to the next card's options, not the page body", () => {
+  assert.equal(postOptionsId("p1"), "post-options-p1");
+  assert.equal(focusAfterRemoval(["p1", "p2", "p3"].map(postOptionsId), [postOptionsId("p2")]), "post-options-p3");
+  assert.match(source("src/components/social/PostCard.tsx"), /<button type="button" id=\{postOptionsId\(state\.id\)\} className=\{styles\.iconButton\} aria-label="Post options"/);
+  const feed = source("src/components/social/FeedView.tsx");
+  assert.match(feed, /focusAfter\(focusAfterRemoval\(order, \[postOptionsId\(id\)\]\), \(\) => document\.getElementById\("feed-empty"\)\);/);
+  assert.match(feed, /onRemove=\{removePost\}/);
+  assert.match(feed, /<h2 id="feed-empty" tabIndex=\{-1\}/);
+  const community = source("src/components/social/community/CommunityView.tsx");
+  assert.match(community, /onRemove=\{removePost\}/);
+  assert.match(community, /await communitiesApi\.moderatorRemove\(db, removing\.id, reason\);\s*removePost\(removing\.id\);/, "a moderator's Remove too");
 });
 
 test("the focus mover runs after the commit (so a closing sheet's own focus return comes first) and sets no state in its effect", () => {

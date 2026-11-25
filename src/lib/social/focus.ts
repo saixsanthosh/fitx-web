@@ -12,3 +12,8 @@ export function focusAfterRemoval(order: readonly string[], removed: readonly st
   for (let index = Math.min(...at) - 1; index >= 0; index -= 1) if (!gone.has(order[index])) return order[index];
   return null;
 }
+
+/** The id of a post card's "Post options" button, so a list can hand focus to the next card when one goes. */
+export function postOptionsId(postId: string): string {
+  return `post-options-${postId}`;
+}

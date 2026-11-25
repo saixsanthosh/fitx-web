@@ -10,7 +10,7 @@ import { nextCursor, toSocialError, type Cursor, type SocialPost } from "@/lib/s
 import { GROUP_LIMITS } from "@/lib/social/group-limits";
 import { formatValue, timeLeftText, type ChallengeMetric } from "@/lib/social/challenges";
 import { communitiesApi, joinLabel, memberCountText, REMOVE_REASONS, type CommunityPage } from "@/lib/social/communities";
-import { focusAfterRemoval } from "@/lib/social/focus";
+import { focusAfterRemoval, postOptionsId } from "@/lib/social/focus";
 import { AgeNotice } from "../AgeNotice";
 import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
@@ -183,6 +183,14 @@ function PostsSection({ page }: { page: CommunityPage }) {
   const [reason, setReason] = useState(REMOVE_REASONS[0].value);
   const [busy, setBusy] = useState(false);
   const removeNotice = useNotice();
+  const focusAfter = useFocusAfterRender();
+  // A post that leaves the list (deleted, its author blocked, or removed here) takes the focused button with it: focus
+  // the next post's options, or the one before, or the empty list's heading (bug 82's rule).
+  const removePost = (id: string) => {
+    const order = posts.items.map((item) => postOptionsId(item.id));
+    posts.remove(id);
+    focusAfter(focusAfterRemoval(order, [postOptionsId(id)]), () => document.getElementById("community-posts-empty") ?? document.getElementById("community-about"));
+  };
 
   async function remove() {
     if (!removing || busy) return;
@@ -190,7 +198,7 @@ function PostsSection({ page }: { page: CommunityPage }) {
     removeNotice.clear();
     try {
       await communitiesApi.moderatorRemove(db, removing.id, reason);
-      posts.remove(removing.id);
+      removePost(removing.id);
       setRemoving(null);
       toast.success("Post removed from the community");
     } catch (failure) {
@@ -219,13 +227,13 @@ function PostsSection({ page }: { page: CommunityPage }) {
       {posts.status === "ready" && !posts.items.length && (
         <div className={exploreStyles.empty}>
           <span className={exploreStyles.emptyMark}><UsersRound size={26} aria-hidden="true" /></span>
-          <h3 className={exploreStyles.emptyTitle}>No posts yet</h3>
+          <h3 id="community-posts-empty" tabIndex={-1} className={exploreStyles.emptyTitle}>No posts yet</h3>
           <p className={exploreStyles.emptyText}>{page.can_post ? "Start the first discussion." : "Join to start the first discussion."}</p>
         </div>
       )}
       {posts.items.map((post, index) => (
         <Reveal key={post.id} y={14} amount={0.08}>
-          <PostCard db={db} post={post} priority={index < 2} onChange={posts.replace} onRemove={posts.remove} />
+          <PostCard db={db} post={post} priority={index < 2} onChange={posts.replace} onRemove={removePost} />
           {page.is_moderator && post.author.id !== userId && (
             <div className={styles.modBar}>
               <button type="button" className={styles.modButton} onClick={() => setRemoving(post)}>Remove from community</button>
