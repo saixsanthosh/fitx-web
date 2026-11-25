@@ -66,12 +66,12 @@ import {
   type WorkoutSplit,
   unavailableProfileGoals,
 } from "@/lib/domain/profile-options";
-import { changedFields, loadBirthDate, logWeighIn, markWorkoutSetupAnswered, savePreferences, trainingAnswerPatch, trainingAnswersKnown, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { changedFields, loadBirthDate, logWeighIn, markNutritionSetupAnswered, markWorkoutSetupAnswered, savePreferences, trainingAnswerPatch, trainingAnswersKnown, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
 import { equipmentLabel } from "@/lib/training/equipment";
 import { ChipList, Detail, DetailList, EditActions, NotSet, SectionCard, type SectionNotice } from "./ProfileParts";
-import { foodAnswersKnown, goalAnswers, homeEquipmentKnown, mealsText, sessionText } from "./profile-answers";
+import { foodAnswersKnown, foodSaveMarksSetup, foodSaveProblem, goalAnswers, homeEquipmentKnown, mealsText, sessionText } from "./profile-answers";
 
 export type SectionId = "body" | "goal" | "training" | "food" | "limits";
 
@@ -590,10 +590,21 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
       onClose();
       return void onSaved(NO_CHANGES);
     }
+    // Saving here answers the Nutrition setup, which needs the diet first (profile-answers.ts foodSaveProblem).
+    const dietProblem = foodSaveProblem(data, draft.diet);
+    if (dietProblem) {
+      setErrors({ diet: dietProblem });
+      focusFirstInvalid(formRef.current);
+      return setError("Check the highlighted answers.");
+    }
     setSaving(true);
     setError("");
     const saved = await savePreferences(supabase, data.userId, patch, { v2, v3 });
     if (saved.error) return failed(setSaving, setError);
+    if (foodSaveMarksSetup(data)) {
+      const marked = await markNutritionSetupAnswered(supabase, data.userId);
+      if (marked.error) return failed(setSaving, setError);
+    }
     // The diet type is also kept in the original column, so only the other new answers can be pending.
     const pending = saved.skipped.filter((column) => column !== "diet_type");
     const focusChanged = "nutrition_focus" in patch && !pending.includes("nutrition_focus");
@@ -627,7 +638,7 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
       ) : (
         <form ref={formRef} noValidate onSubmit={(event) => void save(event)}>
           <div className="space-y-7">
-            <ChoiceGroup legend="Diet" options={dietOptions} value={draft.diet} onChange={(value) => set("diet", value)} onClear={() => set("diet", null)} clearLabel="Clear your diet" />
+            <ChoiceGroup legend="Diet" hint={foodKnown ? undefined : "Needed to save your food answers."} options={dietOptions} value={draft.diet} onChange={(value) => set("diet", value)} onClear={() => set("diet", null)} clearLabel="Clear your diet" error={errors.diet} />
             <ChipGroup legend="Food allergies or intolerances" options={ALLERGY_OPTIONS} values={draft.allergies} onChange={(values) => set("allergies", values)} />
             <TagInput legend="Other allergies" values={draft.customAllergies} onChange={(values) => set("customAllergies", values)} draft={draft.allergyDraft} onDraftChange={(value) => set("allergyDraft", value)} addLabel="Add allergy" placeholder="For example kiwi" />
             {v2 && <TagInput legend="Foods avoided" values={draft.dislikes} onChange={(values) => set("dislikes", values)} draft={draft.dislikeDraft} onDraftChange={(value) => set("dislikeDraft", value)} addLabel="Add food" placeholder="For example bitter gourd" max={MAX_FOOD_DISLIKES} />}

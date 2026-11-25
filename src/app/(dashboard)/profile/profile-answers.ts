@@ -9,9 +9,9 @@
  *
  * No React here, so node tests cover it (tests/profile/day-one-answers.test.ts).
  */
-import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, ACTIVITY_OPTIONS, SPLIT_OPTIONS, optionLabel } from "@/lib/domain/profile-options";
+import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, ACTIVITY_OPTIONS, SPLIT_OPTIONS, optionLabel, type DietType } from "@/lib/domain/profile-options";
 import { trainingAnswersKnown, type UserContextData } from "@/lib/domain/user-context";
-import { setupDone } from "@/lib/food/setup";
+import { initialSetupAnswers, setupDone, setupProblem } from "@/lib/food/setup";
 
 type TrainingData = Pick<UserContextData, "workoutSetupAt" | "equipmentLists" | "preferences">;
 type FoodData = Pick<UserContextData, "nutritionSetupAt" | "preferences" | "legacy">;
@@ -19,6 +19,21 @@ type FoodData = Pick<UserContextData, "nutritionSetupAt" | "preferences" | "lega
 /** The Nutrition setup's answers are the member's own: the same rule Nutrition uses to stop asking (setupDone). */
 export function foodAnswersKnown(data: FoodData): boolean {
   return setupDone({ nutrition_setup_at: data.nutritionSetupAt, diet_type: data.preferences.diet_type, dietary_preferences: data.legacy.dietaryPreferences });
+}
+
+/**
+ * A Profile > Food save answers the Nutrition setup's questions, as a Profile > Training save answers the Workouts
+ * setup's (review home-3), so every answer it saves shows afterwards and Nutrition doesn't ask again. Before the setup
+ * is done it therefore needs the diet, the one answer the setup requires: the setup's own message, or null.
+ */
+export function foodSaveProblem(data: FoodData, diet: DietType | null): string | null {
+  if (foodAnswersKnown(data)) return null;
+  return setupProblem("diet", { ...initialSetupAnswers(null), diet });
+}
+
+/** Whether a Profile > Food save also records the setup as answered (nutrition_setup_at), as the setup does. */
+export function foodSaveMarksSetup(data: Pick<UserContextData, "nutritionSetupAt">): boolean {
+  return !data.nutritionSetupAt;
 }
 
 /** The goal and daily activity from setup; null (Not set) while no preferences row exists, when both are defaults. */

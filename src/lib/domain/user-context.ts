@@ -455,6 +455,17 @@ export async function markWorkoutSetupAnswered(supabase: SupabaseClient, userId:
   return { error: result.error as WriteError, stored: !result.error };
 }
 
+/**
+ * Records that the member answered the Nutrition setup's questions (user_preferences.nutrition_setup_at), as the
+ * setup itself does: a Profile > Food save answers them too. Before migration 20261123100040 the column is missing and
+ * nothing is stored; the stored diet then marks the setup as done (lib/food/setup.ts setupDone).
+ */
+export async function markNutritionSetupAnswered(supabase: SupabaseClient, userId: string, now = new Date()): Promise<{ error: WriteError; stored: boolean }> {
+  const result = await supabase.from("user_preferences").update({ nutrition_setup_at: now.toISOString() }).eq("user_id", userId);
+  if (result.error && isMissingColumnError(result.error, PREFERENCE_COLUMNS_V5)) return { error: null, stored: false };
+  return { error: result.error as WriteError, stored: !result.error };
+}
+
 /** Keeps profiles.weight equal to the latest weigh-in, so every screen calculates from the same weight. */
 export async function syncProfileWeight(supabase: SupabaseClient, userId: string, weightKg: number): Promise<{ error: WriteError }> {
   const result = await supabase.from("profiles").update({ weight: weightKg, updated_at: new Date().toISOString() }).eq("id", userId);
