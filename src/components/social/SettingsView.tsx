@@ -17,6 +17,7 @@ import { ProfileForm } from "./ProfileForm";
 import { SocialPhoto } from "./SocialPhoto";
 import { SwitchRow } from "./Switch";
 import { useAsync } from "./useAsync";
+import { useNotice } from "./useNotice";
 import styles from "./Explore.module.css";
 
 const ready = (key: string) => EXPLORE_RAIL.some((entry) => entry.key === key && entry.ready);
@@ -285,26 +286,30 @@ function YourContent() {
   }), [db]);
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
+  const confirmNotice = useNotice();
   const data = content.data;
   const total = data ? data.counts.posts + data.counts.stories + data.counts.comments : 0;
 
   async function confirm() {
-    if (!pending) return;
+    if (!pending || busy) return;
     setBusy(true);
+    confirmNotice.clear();
     try {
       const paths = pending.kind === "post" ? await socialApi.deletePost(db, pending.id)
         : pending.kind === "story" ? await socialApi.deleteStory(db, pending.id)
           : await socialApi.deleteAllContent(db);
       await removeFiles(paths);
-      toast.success(pending.kind === "all" ? "Your Explore content is deleted" : pending.kind === "story" ? "Story deleted" : "Post deleted");
       setPending(null);
+      toast.success(pending.kind === "all" ? "Your Explore content is deleted" : pending.kind === "story" ? "Story deleted" : "Post deleted");
       await content.reload();
     } catch (error) {
-      toast.error(toSocialError(error).message);
+      // Said inside the open confirmation: a toast would be under it (D6).
+      confirmNotice.show("error", toSocialError(error).message);
     } finally {
       setBusy(false);
     }
   }
+  const closeConfirm = () => { setPending(null); confirmNotice.clear(); };
 
   if (content.status === "ready" && !data) return null;
   return (
@@ -373,16 +378,17 @@ function YourContent() {
       )}
       <Sheet
         open={pending !== null}
-        onClose={() => setPending(null)}
+        onClose={closeConfirm}
         side="center"
         title={pending?.kind === "all" ? "Delete all your Explore content?" : pending?.kind === "story" ? "Delete this story?" : "Delete this post?"}
         description={pending?.kind === "all"
           ? "Every post, video, story and comment you made in Explore is deleted, with their likes and comments. This cannot be undone."
           : "Its files, likes and comments are deleted too. This cannot be undone."}
+        notice={confirmNotice.notice}
         footer={
           <div className="flex gap-2">
-            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={() => setPending(null)}>Cancel</button>
-            <button type="button" className="fitx-button fitx-button-danger flex-1" disabled={busy} onClick={() => void confirm()}>
+            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={closeConfirm}>Cancel</button>
+            <button type="button" className="fitx-button fitx-button-danger flex-1 aria-disabled:opacity-60" aria-disabled={busy || undefined} onClick={() => void confirm()}>
               {pending?.kind === "all" ? "Delete everything" : "Delete"}
             </button>
           </div>

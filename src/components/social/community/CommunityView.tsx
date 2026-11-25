@@ -15,6 +15,7 @@ import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
 import { PostCard } from "../PostCard";
 import { SocialPhoto } from "../SocialPhoto";
+import { useNotice } from "../useNotice";
 import { usePaged, useSentinel } from "../usePaged";
 import { GroupComposer } from "./GroupComposer";
 import styles from "./Community.module.css";
@@ -178,21 +179,25 @@ function PostsSection({ page }: { page: CommunityPage }) {
   const [removing, setRemoving] = useState<SocialPost | null>(null);
   const [reason, setReason] = useState(REMOVE_REASONS[0].value);
   const [busy, setBusy] = useState(false);
+  const removeNotice = useNotice();
 
   async function remove() {
-    if (!removing) return;
+    if (!removing || busy) return;
     setBusy(true);
+    removeNotice.clear();
     try {
       await communitiesApi.moderatorRemove(db, removing.id, reason);
       posts.remove(removing.id);
-      toast.success("Post removed from the community");
       setRemoving(null);
+      toast.success("Post removed from the community");
     } catch (failure) {
-      toast.error(toSocialError(failure).message);
+      // Said inside the open sheet: a toast would be under it (D6).
+      removeNotice.show("error", toSocialError(failure).message);
     } finally {
       setBusy(false);
     }
   }
+  const closeRemove = () => { setRemoving(null); removeNotice.clear(); };
 
   return (
     <section className="flex flex-col gap-5" aria-labelledby="community-posts-title">
@@ -229,13 +234,14 @@ function PostsSection({ page }: { page: CommunityPage }) {
 
       <Sheet
         open={removing !== null}
-        onClose={() => setRemoving(null)}
+        onClose={closeRemove}
         title="Remove this post?"
         description={`Only its author will still see it. They are told the moderators of ${community.name} removed it, not who.`}
+        notice={removeNotice.notice}
         footer={
           <div className="flex gap-2">
-            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={() => setRemoving(null)}>Cancel</button>
-            <button type="button" className="fitx-button fitx-button-danger flex-1" disabled={busy} onClick={() => void remove()}>Remove</button>
+            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={closeRemove}>Cancel</button>
+            <button type="button" className="fitx-button fitx-button-danger flex-1 aria-disabled:opacity-60" aria-disabled={busy || undefined} onClick={() => void remove()}>Remove</button>
           </div>
         }
       >

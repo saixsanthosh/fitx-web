@@ -15,7 +15,7 @@ import styles from "./Messages.module.css";
  * focus or holds a draft it tells the viewer (`onActiveChange`), which holds the story still; the viewer keys it by
  * story, so a draft is never sent to another story's owner.
  */
-export function StoryReply({ storyId, ownerId, onSent, onActiveChange }: StoryReplyProps) {
+export function StoryReply({ storyId, ownerId, ownerName, onSent, onFailed, onActiveChange }: StoryReplyProps) {
   const { db, userId, me } = useReadyExplore();
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,10 +40,13 @@ export function StoryReply({ storyId, ownerId, onSent, onActiveChange }: StoryRe
     try {
       await messagesApi.send(db, ownerId, text, { storyId });
       setBody("");
-      // The viewer says "Reply sent" (one toast) and moves focus back to the story.
+      // The viewer says "Reply sent" (once, inside itself) and moves focus back to the story.
       onSent();
     } catch (failure) {
-      toast.error(messageErrorText(failure));
+      // The draft stays in the box; the viewer says why beside it (a toast would be under the viewer, bug 18).
+      const reason = messageErrorText(failure, { username: ownerName });
+      if (onFailed) onFailed(reason);
+      else toast.error(reason);
     } finally {
       setBusy(false);
     }
@@ -61,7 +64,7 @@ export function StoryReply({ storyId, ownerId, onSent, onActiveChange }: StoryRe
         value={body}
         onChange={(event) => setBody(event.target.value)}
       />
-      <button type="submit" className={styles.send} aria-label="Send" disabled={!text || busy}>
+      <button type="submit" className={styles.send} aria-label="Send" disabled={!text} aria-disabled={busy || undefined}>
         <SendHorizontal size={18} aria-hidden="true" />
       </button>
     </form>

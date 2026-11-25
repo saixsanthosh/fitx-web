@@ -16,6 +16,14 @@
 .content { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 20px; }
 .footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--fitx-divider); padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
 .content:last-child { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+/* Sheet's `notice`: what the member just did here, between the content and the actions (never under the sheet). */
+.notices { padding: 0 20px; }
+.notices:last-child { padding-bottom: env(safe-area-inset-bottom); }
+.notice { margin: 0 0 12px; border: 1px solid var(--fitx-border); border-radius: 10px; padding: 10px 12px; font-size: .875rem; line-height: 1.5; }
+.noticeOk { border-color: var(--fitx-success-border); background: var(--fitx-success-bg); color: var(--fitx-success); }
+.noticeInfo { background: var(--fitx-surface); color: var(--fitx-text); }
+.noticeError { border-color: var(--fitx-danger-border); background: var(--fitx-danger-bg); color: var(--fitx-danger); }
+.noticeIdle { margin: 0; }
 
 @media (prefers-reduced-motion: no-preference) {
   .sheet[open] { animation: fitx-ui-sheet-up .32s cubic-bezier(.22, 1, .36, 1); }
@@ -26,6 +34,7 @@
   .grip { display: none; }
   .header { padding: 18px 14px 12px 24px; }
   .content { padding: 4px 24px 24px; }
+  .notices { padding: 0 24px; }
   .footer { padding: 14px 24px; }
   .auto {
     width: min(460px, calc(100vw - 24px)); max-width: none; height: calc(100dvh - 24px); max-height: none;

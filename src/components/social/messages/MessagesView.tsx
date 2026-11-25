@@ -15,6 +15,7 @@ import { unreadLabel, useInboxRefresh, useUnreadCounts } from "@/lib/social/real
 import { AgeNotice } from "../AgeNotice";
 import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
+import { useNotice } from "../useNotice";
 import { NewMessageSheet } from "./NewMessageSheet";
 import { SendTo } from "./SendTo";
 import styles from "./Messages.module.css";
@@ -231,23 +232,29 @@ function PolicySheet({ open, value, onClose, onSave }: { open: boolean; value: D
     setChoice(value);
   }
   const [busy, setBusy] = useState(false);
+  const { notice, show, clear } = useNotice();
+  const close = () => { clear(); onClose(); };
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={close}
       title="Who can message you"
       description="New conversations only. Blocking someone always stops their messages."
+      notice={notice}
       footer={
         <div className="flex gap-2">
-          <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={onClose}>Cancel</button>
-          <button type="button" className="fitx-button flex-1" disabled={busy || choice === value} onClick={async () => {
+          <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={close}>Cancel</button>
+          <button type="button" className="fitx-button flex-1 aria-disabled:opacity-60" disabled={choice === value} aria-disabled={busy || undefined} onClick={async () => {
+            if (busy) return;
             setBusy(true);
+            clear();
             try {
               await onSave(choice);
+              close();
               toast.success("Message settings saved");
-              onClose();
             } catch (failure) {
-              toast.error(messageErrorText(failure));
+              // Said inside the sheet: a toast would be under it (D6).
+              show("error", messageErrorText(failure));
             } finally {
               setBusy(false);
             }

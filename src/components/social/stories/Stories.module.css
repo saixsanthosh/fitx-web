@@ -95,6 +95,13 @@
   margin: 0 16px 6px; color: var(--fitx-on-stage); font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap;
   text-shadow: 0 1px 8px color-mix(in srgb, var(--fitx-scrim) 70%, transparent);
 }
+/* What the member just did (Reply sent, a refused reply, a failed like), inside the viewer, just above the reply box. */
+.notices { display: flex; flex-direction: column; }
+.notice {
+  margin: 0 12px 8px; border-radius: 12px; background: color-mix(in srgb, var(--fitx-scrim) 72%, transparent); padding: 9px 12px;
+  color: var(--fitx-on-stage); font-size: 13px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere;
+}
+.noticeError { box-shadow: inset 3px 0 0 var(--fitx-danger); }
 .foot { display: flex; align-items: center; gap: 8px; padding: 6px 8px calc(10px + env(safe-area-inset-bottom)); }
 .footGap { flex: 1; min-width: 0; }
 .pill {

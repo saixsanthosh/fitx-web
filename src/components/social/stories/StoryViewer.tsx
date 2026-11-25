@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Sheet } from "@/components/ui/Sheet";
 import { SOCIAL_BUCKET, relativeTime, socialApi, toSocialError, type SocialAuthor, type SocialStory } from "@/lib/social";
 import { forgetPhotoUrls } from "@/lib/social/media-urls";
+import { carryOver, noticeMs } from "@/lib/social/notice";
 import { STORY_REPLY } from "@/lib/social/slots";
 import { firstUnseen, isTextEntry, seenByLabel, stepStory, storyPlayMs, timeLeft, viewerOrder, type StoryCursor } from "@/lib/social/stories";
 import { videoLink } from "@/lib/social/video/links";
@@ -15,6 +16,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
 import { ReportSheet } from "../ReportSheet";
+import { useNotice } from "../useNotice";
 import { usePhotoUrl } from "../usePhotoUrl";
 import exploreStyles from "../Explore.module.css";
 import { currentTray, takeOpenedInApp, trayChanged, traySeen } from "./trayStore";
@@ -26,7 +28,10 @@ type Account = { author: SocialAuthor; stories: SocialStory[] | null };
  * The story viewer (`dialog "Story by <username>"`, wave-2 brief 3.9): one account's live stories, then the next
  * accounts in the tray. Photos show for 5 s and videos for their length; tap or press the right side (or →) for the
  * next, the left side (or ←) for the previous, hold to pause. The owner sees "Seen by <n>", who viewed, time left and
- * Delete; others can like, report and (when social-groups ships it) reply.
+ * Delete; others can like, report and (when social-groups ships it) reply. The viewer is a modal dialog, so what the
+ * member just did ("Reply sent", a refused reply, a failed like, "Story deleted", "Report sent") is said inside it, above
+ * the reply box: a toast would be drawn under the dialog, unseen and unheard (D6, bug 18). A message it closes on
+ * before it could be read is said again by the page, as a toast, once the viewer has gone.
  */
 export function StoryViewer({ username }: { username: string }) {
   const { db, userId } = useReadyExplore();
@@ -45,6 +50,25 @@ export function StoryViewer({ username }: { username: string }) {
   /** The story whose reply box has focus or a draft: that story holds still until the reply is sent or left. */
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const viewed = useRef(new Set<string>());
+  const { notice, show, clear, latest } = useNotice();
+  const deleteNotice = useNotice();
+  const [deleting, setDeleting] = useState(false);
+
+  // Each message stays a few seconds (errors a little longer), then the story is clear again.
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(clear, noticeMs(notice));
+    return () => window.clearTimeout(timer);
+  }, [notice, clear]);
+  // Closing on a message that had no time to be read: the page says it once the viewer has gone. A passive cleanup
+  // runs after the layout cleanup that closes the dialog, so the toast is neither under the dialog nor inert.
+  useEffect(() => () => {
+    const pending = carryOver(latest.current, Date.now());
+    if (!pending) return;
+    if (pending.tone === "error") toast.error(pending.text);
+    else if (pending.tone === "success") toast.success(pending.text);
+    else toast.message(pending.text);
+  }, [latest]);
 
   const close = useCallback(() => {
     if (fromApp) router.back();
@@ -139,9 +163,9 @@ export function StoryViewer({ username }: { username: string }) {
     if (!story || story.mine || story.seen || viewed.current.has(story.id)) return;
     viewed.current.add(story.id);
     socialApi.viewStory(db, story.id).catch((error) => {
-      if (toSocialError(error).key === "social_story_expired") toast.message("That story has ended.");
+      if (toSocialError(error).key === "social_story_expired") show("info", "That story has ended.");
     });
-  }, [db, story]);
+  }, [db, show, story]);
 
   const replying = story !== null && replyingTo === story.id;
   const stopped = paused || holding || sheet !== null || !ready || replying;
@@ -158,29 +182,36 @@ export function StoryViewer({ username }: { username: string }) {
       const result = await socialApi.setStoryLike(db, story.id, !before.liked);
       replaceStory({ ...before, liked: result.liked });
     } catch (error) {
+      // The heart goes back, and the viewer says why (it used to turn off without a word).
       replaceStory(before);
-      toast.error(toSocialError(error).message);
+      show("error", toSocialError(error).message);
     }
   }
 
   async function remove() {
-    if (!story || !at) return;
+    if (!story || !at || deleting) return;
+    setDeleting(true);
+    deleteNotice.clear();
     try {
       const paths = await socialApi.deleteStory(db, story.id);
       const storage = createClient()?.storage;
       if (storage && paths.length) await storage.from(SOCIAL_BUCKET).remove(paths);
       forgetPhotoUrls(paths);
       trayChanged(db);
-      toast.success("Story deleted");
       setSheet(null);
+      show("success", "Story deleted");
       const left = (account?.stories ?? []).filter((item) => item.id !== story.id);
       setAccounts((list) => list.map((item, index) => (index === at.user ? { ...item, stories: left } : item)));
       if (!left.length) close();
       else setAt({ user: at.user, story: Math.min(at.story, left.length - 1) });
     } catch (error) {
-      toast.error(toSocialError(error).message);
+      // Said inside the open "Delete this story?" sheet.
+      deleteNotice.show("error", toSocialError(error).message);
+    } finally {
+      setDeleting(false);
     }
   }
+  const closeSheet = () => { setSheet(null); deleteNotice.clear(); };
 
   const name = account?.author.username ?? username;
   return (
@@ -259,6 +290,12 @@ export function StoryViewer({ username }: { username: string }) {
 
           {story?.caption && <p className={styles.caption}>{story.caption}</p>}
 
+          {/* What the member just did, inside the viewer (D6): confirmations politely, each failure as a new alert. */}
+          <div className={styles.notices}>
+            <p role="status" className={notice && notice.tone !== "error" ? styles.notice : "sr-only"}>{notice && notice.tone !== "error" ? notice.text : null}</p>
+            {notice?.tone === "error" && <p key={notice.id} role="alert" className={`${styles.notice} ${styles.noticeError}`}>{notice.text}</p>}
+          </div>
+
           {story && (
             <div className={styles.foot}>
               {story.mine ? (
@@ -276,10 +313,11 @@ export function StoryViewer({ username }: { username: string }) {
                   <span className={styles.footGap}>
                     {/* Keyed by story: a draft never carries over to another story or another account's owner. */}
                     {Reply && account && (
-                      <Reply key={story.id} storyId={story.id} ownerId={account.author.id}
+                      <Reply key={story.id} storyId={story.id} ownerId={account.author.id} ownerName={account.author.username}
                         onActiveChange={(active) => setReplyingTo((current) => (active ? story.id : current === story.id ? null : current))}
+                        onFailed={(text) => show("error", text)}
                         onSent={() => {
-                          toast.success("Reply sent");
+                          show("success", "Reply sent");
                           // Back to the viewer: the story plays on and the arrow keys move it again.
                           setReplyingTo(null);
                           dialog.current?.focus();
@@ -311,20 +349,22 @@ export function StoryViewer({ username }: { username: string }) {
       )}
       <Sheet
         open={sheet === "delete"}
-        onClose={() => setSheet(null)}
+        onClose={closeSheet}
         side="center"
         title="Delete this story?"
         description="It is removed for everyone now. This cannot be undone."
+        notice={deleteNotice.notice}
         footer={
           <div className="flex gap-2">
-            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={() => setSheet(null)}>Cancel</button>
-            <button type="button" className="fitx-button fitx-button-danger flex-1" onClick={() => void remove()}>Delete</button>
+            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={closeSheet}>Cancel</button>
+            <button type="button" className="fitx-button fitx-button-danger flex-1 aria-disabled:opacity-60" aria-disabled={deleting || undefined} onClick={() => void remove()}>Delete</button>
           </div>
         }
       >
         <span />
       </Sheet>
-      <ReportSheet db={db} target={sheet === "report" && story ? { type: "story", id: story.id } : null} onClose={() => setSheet(null)} />
+      {/* The thanks is said by the viewer: the report sheet closes, the viewer stays open over the page. */}
+      <ReportSheet db={db} target={sheet === "report" && story ? { type: "story", id: story.id } : null} onClose={() => setSheet(null)} onSent={(text) => show("success", text)} />
     </dialog>
   );
 }
