@@ -13,7 +13,7 @@ import { useEmailCode } from "@/components/auth/useEmailCode";
 import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
-import { addressError, addressNotice } from "@/lib/auth/address-messages";
+import { addressError, addressNotice, withoutAddressMessages } from "@/lib/auth/address-messages";
 import { isEmailAddress, passwordSignInProblem } from "@/lib/auth/email-code";
 import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
@@ -42,6 +42,7 @@ export default function SignInForm() {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState("");
+  const [addressDismissed, setAddressDismissed] = useState(false);
   const emailInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
@@ -57,13 +58,26 @@ export default function SignInForm() {
   const reduced = useReducedMotionSafe();
   const codeFlow = useEmailCode(requestedNext);
   const locationError = useSyncExternalStore(subscribeLocation, getLocationError, () => "");
-  const notice = useSyncExternalStore(subscribeLocation, getLocationNotice, () => "");
-  const visibleError = error || locationError;
+  const locationNotice = useSyncExternalStore(subscribeLocation, getLocationNotice, () => "");
+  // What the address said happened shows until the member acts on the page (dismissAddressMessages).
+  const notice = addressDismissed ? "" : locationNotice;
+  const visibleError = error || (addressDismissed ? "" : locationError);
   const loading = pending !== null || codeFlow.sending;
+
+  /**
+   * The member is acting on the page, so what the address said happened (an expired link, a sign-out) is the past: it
+   * stops showing and leaves the address too, keeping ?next=, so neither the email step nor a reload shows it again.
+   */
+  function dismissAddressMessages() {
+    setAddressDismissed(true);
+    const search = withoutAddressMessages(window.location.search);
+    if (search !== window.location.search) window.history.replaceState(null, "", `${window.location.pathname}${search}${window.location.hash}`);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) return;
+    dismissAddressMessages();
     setError("");
     const address = email.trim();
     if (!isEmailAddress(address)) {
@@ -103,6 +117,7 @@ export default function SignInForm() {
 
   async function signInWith(provider: OAuthProvider) {
     if (loading) return;
+    dismissAddressMessages();
     setError("");
     setPending(provider);
     const problem = await startOAuth(provider, requestedNext());
@@ -133,7 +148,10 @@ export default function SignInForm() {
               redirectPending={pending === "google"}
               onRedirect={() => void signInWith("google")}
               onError={setError}
-              onBusy={(busy) => setPending(busy ? "google" : null)}
+              onBusy={(busy) => {
+                if (busy) dismissAddressMessages();
+                setPending(busy ? "google" : null);
+              }}
             />
             {notice && !visibleError && <p role="status" className={s.notice}>{notice}</p>}
             {!isSupabaseConfigured && <p role="status" className={s.config}>Supabase environment values are missing here.</p>}

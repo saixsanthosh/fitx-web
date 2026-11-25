@@ -3,7 +3,9 @@ import { SUSPENDED_MESSAGE } from "@/lib/platform/account-status";
 /**
  * Messages the sign-in page reads from its own address: ?error= when a sign-in comes back without one (Google, an email
  * link, a suspended account), ?signed_out= after Log out or Sign out everywhere, and ?setup= when this environment has
- * no Supabase. Each says what already happened. Pure, so node:test covers it; SignInForm shows them.
+ * no Supabase. Each says what already happened, so once the member acts on the page (sends a code, signs in, starts
+ * Google) the page stops showing them and takes ?error= and ?signed_out= out of its address (bug 44): a new code, Change
+ * email or a reload never brings an old "link has expired" back. Pure, so node:test covers it; SignInForm shows them.
  */
 
 /** ?error= values, set by /auth/callback and the proxy. Anything else in the address is ignored. */
@@ -34,6 +36,15 @@ export function addressError(search: string): string {
   const code = query.get("error");
   if (code !== null && Object.hasOwn(ADDRESS_ERRORS, code)) return ADDRESS_ERRORS[code];
   return query.has("setup") ? SETUP_MISSING : "";
+}
+
+/** The query without its one-time messages (?error=, ?signed_out=), keeping everything else: ?next= above all. */
+export function withoutAddressMessages(search: string): string {
+  const query = new URLSearchParams(search);
+  query.delete("error");
+  query.delete("signed_out");
+  const rest = query.toString();
+  return rest ? `?${rest}` : "";
 }
 
 /** The signed-out notice the address carries, or "". */
