@@ -865,7 +865,7 @@ describe("privacy wording elsewhere", () => {
     const preferences = { ...(base.preferences as Record<string, unknown>), limitations: ["lower_back", "knee"], cuisines: ["south_indian"], food_dislikes: ["Bitter gourd"], food_rules: ["low_carb"], food_source: "both", nutrition_focus: "balanced" };
     const context = buildCoachContext({ ...base, preferences } as never, NOW);
     const text = sharedSummaryLines(context).join("\n");
-    assert.match(text, /^Injuries or limitations: lower back, knee$/m);
+    assert.match(text, /^Injuries or limitations: Lower back, Knees$/m, "Profile's labels (bug 71)");
     // Each field the summary sends and the words that name it on the consent screen. A new field fails here
     // until the list names it (null: not about the member).
     const named: Record<string, RegExp | null> = {

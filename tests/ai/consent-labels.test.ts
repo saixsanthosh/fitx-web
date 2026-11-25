@@ -40,6 +40,14 @@ describe("the consent screen names the training setup as Profile does", () => {
     assert.equal(trainingSetupWords({ location: "gym", equipment: ["dumbbell", "dumbbells"] }), "Gym, Dumbbells; level, days a week, session length and split", "one name once");
   });
 
+  test("injuries and limitations picked from Profile's list keep Profile's words; the member's own notes stay as typed", async () => {
+    const { limitationWords } = await import("@/lib/ai/status");
+    assert.equal(limitationWords("lower back, knee, wrist"), "Lower back, Knees, Wrists or elbows");
+    assert.equal(limitationWords("knee, Old ACL surgery, left side"), "Knees, Old ACL surgery, left side");
+    const context = buildCoachContext(sources({ limitations: ["shoulder", "Tennis elbow"] }) as never, NOW);
+    assert.ok(sharedSummaryLines(context).includes("Injuries or limitations: Shoulders, Tennis elbow"));
+  });
+
   test("before the Workouts setup is done, no default place or equipment is shown as the member's answer", () => {
     const context = buildCoachContext(sources({ workout_location: "gym", equipment: [] }) as never, NOW);
     assert.equal((context.summary.training_setup as Record<string, unknown>).location, undefined, "the summary leaves them out");

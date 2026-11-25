@@ -1,5 +1,5 @@
 import "server-only";
-import { GOAL_OPTIONS, LOCATION_OPTIONS, optionLabel } from "@/lib/domain/profile-options";
+import { GOAL_OPTIONS, LIMITATION_OPTIONS, LOCATION_OPTIONS, optionLabel } from "@/lib/domain/profile-options";
 import { equipmentKeyFor, equipmentLabel } from "@/lib/training/equipment";
 import { hasAnyProvider, type AiConfig } from "./config";
 import { buildCoachContext, loadContextSources, type CoachContext, type ContextSources } from "./context";
@@ -122,6 +122,15 @@ export function trainingSetupWords(setup: { location?: unknown; equipment?: unkn
 }
 
 /**
+ * Injuries or limitations as the consent screen names them: Profile's labels for the ones picked from its list ("Lower
+ * back", "Knees", not the stored "lower_back" the summary spells "lower back"), the member's own notes as typed.
+ */
+export function limitationWords(sent: string): string {
+  const labels = new Map(LIMITATION_OPTIONS.map((option) => [option.value.replace(/_/g, " "), option.label]));
+  return sent.split(", ").map((item) => labels.get(item) ?? item).join(", ");
+}
+
+/**
  * "What the coach reads" on the consent screen: every part of the summary that "Use my FITX data"
  * sends (buildCoachContext), with the member's own values where they are short, in the words Profile
  * uses for them. Empty for under-18 accounts, whose data is never sent.
@@ -135,7 +144,7 @@ export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
   return [
     `Age, sex, height, weight trend and target weight${facts.age ? "" : " (age not set yet)"}`,
     `Goal (${goal}), activity level, experience and training setup (${trainingSetupWords(setup)})`,
-    `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitations : "none added yet"}`,
+    `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitationWords(limitations) : "none added yet"}`,
     `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, ${facts.foodHabitsShared ? "where your meals come from, your nutrition goal, " : ""}cuisines and foods you avoid`,
     "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",
     "The last 4 weeks of workouts, your personal records and active goals, and how many workouts and other planner items you have in the next 7 days",
