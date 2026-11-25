@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Sheet } from "@/components/ui/Sheet";
 import { fullDate, relativeTime, SOCIAL_LIMITS, socialApi, toSocialError, type SocialComment, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
+import { commentGate } from "@/lib/social/comment-gate";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
 import { PostCard } from "./PostCard";
@@ -52,6 +53,7 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
   const [report, setReport] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const comments = list.data ?? [];
+  const gate = commentGate(post);
 
   const replace = (updated: SocialComment) => list.setData(comments.map((comment) => comment.id === updated.id
     ? { ...updated, replies: comment.replies }
@@ -106,7 +108,7 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
       <h2 id="comments-title" className={styles.panelTitle}>Comments</h2>
       {list.status === "loading" && <p className={styles.note}>Loading comments</p>}
       {list.status === "error" && <p className={styles.alert} role="alert">{list.error}</p>}
-      {list.status === "ready" && !comments.length && <p className={styles.note}>{post.can_comment ? "No comments yet." : "Comments are off."}</p>}
+      {list.status === "ready" && !comments.length && post.can_comment && <p className={styles.note}>No comments yet.</p>}
       <ul className={styles.comments}>
         {comments.map((comment) => (
           <li key={comment.id}>
@@ -122,6 +124,8 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
         ))}
       </ul>
 
+      {/* Where the box would be: why there is none (followers only, or off), which also explains the missing Reply. */}
+      {gate && !editing && <p className={`${styles.note} mt-4`}>{gate}</p>}
       {(post.can_comment || editing) && (
         <form className="mt-5 flex flex-col gap-2" onSubmit={(event) => void send(event)}>
           {(replyTo || editing) && (
