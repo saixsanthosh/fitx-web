@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Lock, Search, UsersRound } from "lucide-react";
+import { ArrowRight, Lock, Search, Trophy, UsersRound } from "lucide-react";
 import { Reveal } from "@/components/motion/Reveal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { toSocialError } from "@/lib/social";
-import { challengesApi, type Challenge } from "@/lib/social/challenges";
+import { challengesApi, communityChallengesNote, type Challenge } from "@/lib/social/challenges";
 import { communitiesApi, memberCountText, type Community } from "@/lib/social/communities";
 import { AgeNotice } from "../AgeNotice";
 import { useReadyExplore } from "../ExploreContext";
@@ -22,11 +22,11 @@ export function CommunityDirectory() {
   const [query, setQuery] = useState("");
   const [list, setList] = useState<Community[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [challenges, setChallenges] = useState<Challenge[] | null>(null);
+  const [challenges, setChallenges] = useState<Challenge[] | "failed" | null>(null);
 
   useEffect(() => {
     let live = true;
-    challengesApi.list(db, "open").then((items) => { if (live) setChallenges(items); }).catch(() => { if (live) setChallenges([]); });
+    challengesApi.list(db, "open").then((items) => { if (live) setChallenges(items); }).catch(() => { if (live) setChallenges("failed"); });
     return () => { live = false; };
   }, [db]);
 
@@ -41,26 +41,37 @@ export function CommunityDirectory() {
     return () => { live = false; window.clearTimeout(timer); };
   }, [adult, db, query]);
 
-  const shown = challenges?.slice(0, 3) ?? [];
+  const shown = Array.isArray(challenges) ? challenges.slice(0, 3) : [];
+  const note = communityChallengesNote(challenges);
   return (
     <div className={styles.page}>
       <PageHeader title="Community" />
 
-      {challenges === null ? (
-        <div className={exploreStyles.skeleton} style={{ height: 150 }} aria-hidden="true" />
-      ) : shown.length > 0 && (
-        <section className={styles.section} aria-labelledby="community-challenges">
-          <div className={exploreStyles.sectionHead}>
-            <h2 id="community-challenges" className={styles.sectionTitle}>Challenges</h2>
-            <Link href="/explore/challenges" className={`${exploreStyles.linkQuiet} inline-flex items-center gap-1`}>All challenges<ArrowRight size={15} aria-hidden="true" /></Link>
-          </div>
+      {/* Always here, so Challenges (and the finished ones, with their results) can be reached with none open. */}
+      <section className={styles.section} aria-labelledby="community-challenges">
+        <div className={exploreStyles.sectionHead}>
+          <h2 id="community-challenges" className={styles.sectionTitle}>Challenges</h2>
+          <Link href="/explore/challenges" className={`${exploreStyles.linkQuiet} inline-flex items-center gap-1`}>All challenges<ArrowRight size={15} aria-hidden="true" /></Link>
+        </div>
+        {challenges === null ? (
+          <div className={exploreStyles.skeleton} style={{ height: 150 }} aria-busy="true" aria-label="Loading challenges" />
+        ) : shown.length > 0 ? (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {shown.map((challenge, index) => (
               <Reveal key={challenge.id} y={12} delay={index * 0.05}><ChallengeCard challenge={challenge} /></Reveal>
             ))}
           </div>
-        </section>
-      )}
+        ) : note && (
+          <div className={styles.challengesNote}>
+            <p className={exploreStyles.note}>{note.text}</p>
+            {note.finishedLink && (
+              <Link href="/explore/challenges?box=closed" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet} self-start`}>
+                <Trophy size={16} aria-hidden="true" />Finished challenges and results
+              </Link>
+            )}
+          </div>
+        )}
+      </section>
 
       <section className={styles.section} aria-labelledby="community-list">
         <h2 id="community-list" className={styles.sectionTitle}>Communities</h2>

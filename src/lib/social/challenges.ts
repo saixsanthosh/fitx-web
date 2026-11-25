@@ -151,6 +151,18 @@ export function countingNote(challenge: Pick<Challenge, "kind">): string {
   return `Counted from your own workouts and activities from when you join, ${window}, India time (${CHALLENGE_TIME_ZONE}). Results are final ${GROUP_LIMITS.closeGraceHours} hours after the end.`;
 }
 
+/**
+ * Community's Challenges section is always there, with its "All challenges" link, so finished challenges and their
+ * results stay one step away even when none is open (bug 60). Under the heading: the open ones (up to three), or this
+ * line. Null while loading or while there are open ones to show; a failed load never reads as "none open".
+ */
+export function communityChallengesNote(open: readonly Challenge[] | "failed" | null): { text: string; finishedLink: boolean } | null {
+  if (open === null) return null;
+  if (open === "failed") return { text: "Challenges did not load. Open All challenges to try again.", finishedLink: false };
+  if (open.length) return null;
+  return { text: "No challenge is open right now. FITX opens weekly and monthly ones here.", finishedLink: true };
+}
+
 /** "No one has joined yet", "1 taking part", "1,204 taking part". */
 export function participantsText(count: number): string {
   if (!count) return "No one has joined yet";
