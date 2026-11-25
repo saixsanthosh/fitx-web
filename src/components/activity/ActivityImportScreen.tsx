@@ -9,7 +9,7 @@ import { formatActivityDate, formatDistance, formatDuration, formatDurationWords
 import { readActivityFile } from "@/lib/activity/import/detect";
 import { importClientId } from "@/lib/activity/import/fingerprint";
 import { checkImport, knownKey, lookupWindow, mergeKnown, OVERLAP_TOLERANCE_MS, refillsSaved, saveFailure, shouldCountPoints, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity, type RecordShape } from "@/lib/activity/import/plan";
-import { buildImportRecord, FORMAT_LABEL, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
+import { buildImportRecord, checkStartTime, FORMAT_LABEL, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
 import { IMPORT_LIMITS, ImportError, type ParsedImport } from "@/lib/activity/import/types";
 import { timeRange } from "@/lib/activity/import/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
@@ -360,6 +360,8 @@ export function ActivityImportScreen() {
       try {
         if (file.size > IMPORT_LIMITS.maxFileBytes) throw new ImportError("too-large", "This file is too large to import (the limit is 30 MB).");
         const parsed = await readActivityFile(new Uint8Array(await file.arrayBuffer()));
+        // Refused before anything else is asked (the sport): a start after now can't be placed in your weeks.
+        checkStartTime(parsed, Date.now());
         const clientId = await importClientId(timeRange(parsed.segments).first);
         if (parsed.sport.kind === "unsupported") {
           next = { ...entry, phase: "unsupported", parsed, clientId };

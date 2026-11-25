@@ -372,13 +372,15 @@ export type CalendarDay = {
 export function calendarDays(period: Period, index: ReadonlyMap<string, DayFacts>, foodDays: ReadonlyMap<string, MealTotals>, calorieTarget: number | null): Array<CalendarDay | null> {
   if (period.kind === "year") return [];
   const days = daysOf(period.from, period.to).map((key): CalendarDay => {
-    const facts = index.get(key);
+    const future = key > period.today;
+    // A day still ahead is never drawn as trained, whatever a wrong device clock dated on it.
+    const facts = future ? undefined : index.get(key);
     const food = foodDays.get(key);
     const eaten = food ? knownTotal(food.calories) : null;
     return {
       key,
       day: Number(key.slice(8)),
-      future: key > period.today,
+      future,
       today: key === period.today,
       active: isActive(facts),
       workouts: facts?.workouts ?? 0,

@@ -4,12 +4,13 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Check, ChevronLeft, CloudOff, Download, Pencil, RefreshCw, Share2, Trash2, X } from "lucide-react";
+import { CalendarClock, Check, ChevronLeft, CloudOff, Download, Pencil, RefreshCw, Share2, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { kcalMethodFor } from "@/lib/activity/calories";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { cardDataFor, detailFromEngine, engineOptionsFor, lateKcal, type ActivityDetail } from "@/lib/activity/detail";
 import { cleanTitle, formatActivityDate, localDateKey } from "@/lib/activity/format";
+import { startsInFuture } from "@/lib/activity/future";
 import { toGpx } from "@/lib/activity/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
 import { decodeRoute } from "@/lib/activity/polyline";
@@ -38,7 +39,8 @@ const ActivityMap = dynamic(() => import("./ActivityMap"), {
 
 type LoadState =
   | { status: "loading" }
-  | { status: "ready"; view: ActivityView; uploadNote: string | null; rejected: boolean; localRecord: ActivityRecord | null }
+  /** `loadedAt`: the clock when it loaded, to tell an activity dated after now. */
+  | { status: "ready"; view: ActivityView; uploadNote: string | null; rejected: boolean; localRecord: ActivityRecord | null; loadedAt: number }
   | { status: "missing" }
   | { status: "unavailable" }
   | { status: "error"; offline: boolean };
@@ -70,7 +72,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
         const stored = await store.getRecording(localClientId);
         if (!active) return;
         if (!stored || stored.userId !== userId || !stored.record) setState({ status: "missing" });
-        else setState({ status: "ready", view: viewFromRecord(stored.record), uploadNote: stored.lastUploadError ?? null, rejected: Boolean(stored.uploadRejected), localRecord: stored.record });
+        else setState({ status: "ready", view: viewFromRecord(stored.record), uploadNote: stored.lastUploadError ?? null, rejected: Boolean(stored.uploadRejected), localRecord: stored.record, loadedAt: Date.now() });
         return;
       }
       const supabase = createClient();
@@ -80,7 +82,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       if (result.status === "unavailable") setState({ status: "unavailable" });
       else if (result.status !== "ok") setState({ status: "error", offline: result.status === "error" && result.offline });
       else if (!result.data) setState({ status: "missing" });
-      else setState({ status: "ready", view: result.data, uploadNote: null, rejected: false, localRecord: null });
+      else setState({ status: "ready", view: result.data, uploadNote: null, rejected: false, localRecord: null, loadedAt: Date.now() });
     })();
     return () => {
       active = false;
@@ -166,6 +168,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
 
   const detailed = Boolean(detail);
   const pruned = !view.local && view.chunkCount > 0 && !detailed;
+  const datedAhead = state.status === "ready" && startsInFuture(view.startedAt, state.loadedAt);
 
   async function rename(event: FormEvent) {
     event.preventDefault();
@@ -272,6 +275,9 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       </header>
 
       {message && <p role="alert" className="fitx-alert fitx-alert-danger">{message}</p>}
+      {datedAhead && (
+        <p className="fitx-alert flex gap-2"><CalendarClock size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">This activity is dated in the future,</span> so your weekly, monthly and yearly totals leave it out until then. If the date is wrong, the device that recorded it had the wrong date or time. FITX can’t move it, but you can delete it below.</span></p>
+      )}
       {view.local && (
         <section className="fitx-alert flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" aria-label="Saved on this device">
           <p className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">Saved on this device only.</span>{" "}

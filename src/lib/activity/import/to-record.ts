@@ -1,5 +1,6 @@
 import { ActivityEngine } from "../engine";
-import { cleanTitle, defaultTitle } from "../format";
+import { cleanTitle, defaultTitle, formatActivityDate } from "../format";
+import { startsInFuture } from "../future";
 import { buildActivityRecord, type ActivityRecord } from "../record";
 import { logFromFixes } from "../replay";
 import { DEVICE_KCAL_PREFIX } from "../source";
@@ -82,10 +83,22 @@ export function deviceKcalMethod(parsed: ParsedImport): string {
   return `${DEVICE_KCAL_PREFIX}${who}, from the imported ${FORMAT_LABEL[parsed.format]} file.`.slice(0, 300);
 }
 
+/**
+ * Refuses a file whose activity starts after `now` (beyond a few minutes of clock difference): it hasn't
+ * happened yet, so the device that recorded it had the wrong date or time, and FITX can't place it in the
+ * member's weeks. Checked as soon as a file is read, and again by every build.
+ */
+export function checkStartTime(parsed: Pick<ParsedImport, "startedAt">, now: number): void {
+  if (startsInFuture(parsed.startedAt, now)) {
+    throw new ImportError("future-start", `This activity starts in the future: ${formatActivityDate(parsed.startedAt)}. The watch or app that recorded it may have had the wrong date or time.`);
+  }
+}
+
 export function buildImportRecord(
   parsed: ParsedImport,
   options: { sport: Sport; clientId: string; weightKg: unknown; importedAt: number; title?: string | null },
 ): ImportBuild {
+  checkStartTime(parsed, options.importedAt);
   const fixes = importFixes(parsed);
   const log = logFromFixes(options.sport, parsed.startedAt, importTimeline(parsed), fixes);
   const engine = ActivityEngine.replay(log, IMPORT_ENGINE);

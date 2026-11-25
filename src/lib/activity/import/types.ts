@@ -72,7 +72,9 @@ export type ImportErrorCode =
   | "no-times"
   | "too-long"
   | "too-far"
-  | "unsupported-sport";
+  | "unsupported-sport"
+  /** The activity starts after now: the recording device's clock was wrong. */
+  | "future-start";
 
 /** Limits that keep a file's work bounded on a phone. */
 export const IMPORT_LIMITS = {

@@ -1,6 +1,7 @@
 import type { ActivitySummary, PeriodTotals } from "./repository";
 import { totalsOf } from "./repository";
 import { usesPace } from "./config";
+import { startedBy } from "./future";
 import { SPORTS, type Sport } from "./types";
 import { startOfWeek } from "./weeks";
 
@@ -8,7 +9,8 @@ import { startOfWeek } from "./weeks";
  * Activity statistics from the saved activities themselves (and ones still only on this device):
  * totals for this week, last week, this month and this year, and personal bests per sport. Nothing
  * is estimated or filled in: an activity counts in the period it started in (the viewer's calendar,
- * weeks from Monday), and a best is always one real activity, linked to it.
+ * weeks from Monday), and a best is always one real activity, linked to it. An activity dated after
+ * now (a device clock set wrong) counts in no period until its time comes (future.ts).
  */
 
 export type PeriodKey = "week" | "lastWeek" | "month" | "year";
@@ -38,9 +40,11 @@ export function totalsIn(rows: readonly ActivitySummary[], period: Period): Peri
   return totalsOf(rows.filter((row) => row.startedAt >= period.start && row.startedAt < period.end));
 }
 
+/** This week, last week, this month and this year, from the activities that have started by `now`. */
 export function periodTotals(rows: readonly ActivitySummary[], now: number): Record<PeriodKey, PeriodTotals> {
   const bounds = periods(now);
-  return { week: totalsIn(rows, bounds.week), lastWeek: totalsIn(rows, bounds.lastWeek), month: totalsIn(rows, bounds.month), year: totalsIn(rows, bounds.year) };
+  const counted = startedBy(rows, now);
+  return { week: totalsIn(counted, bounds.week), lastWeek: totalsIn(counted, bounds.lastWeek), month: totalsIn(counted, bounds.month), year: totalsIn(counted, bounds.year) };
 }
 
 /** This week against last week: distance and activity count. */
