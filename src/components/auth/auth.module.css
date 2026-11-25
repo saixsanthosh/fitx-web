@@ -305,6 +305,11 @@
 .link:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; border-radius: 4px; }
 .quietLink { color: var(--fitx-text-secondary); }
 
+/* A problem with one field sits right under it, and the field is outlined in the danger colour (bug 45). */
+.fieldError { margin: 0; color: var(--fitx-danger); font-size: 0.78rem; font-weight: 600; line-height: 1.45; }
+.inputWrap :global(.fitx-field)[aria-invalid="true"] { border-color: var(--fitx-danger); }
+.inputWrap :global(.fitx-field)[aria-invalid="true"]:focus { border-color: var(--fitx-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--fitx-danger) 20%, transparent); }
+
 .error {
   margin: 0;
   border: 1px solid var(--fitx-danger-border);

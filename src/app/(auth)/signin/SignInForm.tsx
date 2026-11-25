@@ -7,6 +7,7 @@ import { Apple, Eye, EyeOff, LockKeyhole, Mail, Plus } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { useEarlySubmit } from "@/components/auth/early-submit";
 import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
+import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
 import { useEmailCode } from "@/components/auth/useEmailCode";
@@ -14,8 +15,9 @@ import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/a
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { addressError, addressNotice, withoutAddressMessages } from "@/lib/auth/address-messages";
-import { isEmailAddress, passwordSignInProblem } from "@/lib/auth/email-code";
+import { passwordSignInProblem } from "@/lib/auth/email-code";
 import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
+import { fieldIds, fieldInvalid, signInFormProblem, type AuthField, type FieldProblem } from "@/lib/auth/form-problems";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -41,12 +43,18 @@ export default function SignInForm() {
   const [visible, setVisible] = useState(false);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
+  /** A problem with one field, under that field (bug 45). */
+  const [fieldProblem, setFieldProblem] = useState<FieldProblem | null>(null);
+  /** Why the last code or password sign-in failed, under the button that is showing. */
   const [error, setError] = useState("");
+  /** Why Google (or Apple) sign-in failed, under the Google button. */
+  const [providerError, setProviderError] = useState("");
   const [addressDismissed, setAddressDismissed] = useState(false);
   const emailInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
-  const passwordId = useId();
+  const baseId = useId();
+  const ids = fieldIds(baseId);
   // Whatever was typed (or opened) before the page's scripts ran stays: the render right after hydration would wipe it.
   useKeepTypedValue(emailInput, email, setEmail);
   useKeepTypedValue(passwordInput, password, setPassword);
@@ -61,7 +69,7 @@ export default function SignInForm() {
   const locationNotice = useSyncExternalStore(subscribeLocation, getLocationNotice, () => "");
   // What the address said happened shows until the member acts on the page (dismissAddressMessages).
   const notice = addressDismissed ? "" : locationNotice;
-  const visibleError = error || (addressDismissed ? "" : locationError);
+  const pageError = providerError || (addressDismissed ? "" : locationError);
   const loading = pending !== null || codeFlow.sending;
 
   /**
@@ -74,23 +82,28 @@ export default function SignInForm() {
     if (search !== window.location.search) window.history.replaceState(null, "", `${window.location.pathname}${search}${window.location.hash}`);
   }
 
+  /** Shows a problem under its field, and takes the member there to fix it. */
+  function showProblem(found: FieldProblem) {
+    setFieldProblem(found);
+    const field: Partial<Record<AuthField, HTMLInputElement | null>> = { email: emailInput.current, password: passwordInput.current };
+    field[found.field]?.focus({ preventScroll: found.field === "email" });
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) return;
     dismissAddressMessages();
+    setFieldProblem(null);
     setError("");
+    setProviderError("");
+    const found = signInFormProblem({ email, password, withPassword: open });
+    if (found) return showProblem(found);
     const address = email.trim();
-    if (!isEmailAddress(address)) {
-      setError("Enter your email address.");
-      emailInput.current?.focus({ preventScroll: true });
-      return;
-    }
     if (!open) {
-      const problem = await codeFlow.send(address);
-      if (problem) setError(problem);
+      const failure = await codeFlow.send(address);
+      if (failure) setError(failure);
       return;
     }
-    if (!password) return setError("Enter your password, or close this and use a code.");
     const supabase = createClient();
     if (!supabase) return setError("Account access is temporarily unavailable. Please try again later.");
     setPending("password");
@@ -119,10 +132,11 @@ export default function SignInForm() {
     if (loading) return;
     dismissAddressMessages();
     setError("");
+    setProviderError("");
     setPending(provider);
-    const problem = await startOAuth(provider, requestedNext());
-    if (problem) {
-      setError(problem);
+    const failure = await startOAuth(provider, requestedNext());
+    if (failure) {
+      setProviderError(failure);
       setPending(null);
     }
   }
@@ -147,46 +161,70 @@ export default function SignInForm() {
               disabled={loading}
               redirectPending={pending === "google"}
               onRedirect={() => void signInWith("google")}
-              onError={setError}
+              onError={setProviderError}
               onBusy={(busy) => {
                 if (busy) dismissAddressMessages();
                 setPending(busy ? "google" : null);
               }}
             />
-            {notice && !visibleError && <p role="status" className={s.notice}>{notice}</p>}
+            {/* What happened before (an expired link, a sign-out) and Google's own failures, next to Google's button. */}
+            {pageError ? <p role="alert" className={s.error}>{pageError}</p> : notice && <p role="status" className={s.notice}>{notice}</p>}
             {!isSupabaseConfigured && <p role="status" className={s.config}>Supabase environment values are missing here.</p>}
             <div className={s.divider}>or</div>
             <form ref={formRef} action={replayEarlySubmit} onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
-              <label className={s.field}>Email address
+              <div className={s.field}>
+                <label htmlFor={ids.input("email")}>Email address</label>
                 <span className={s.inputWrap}>
                   <Mail size={16} aria-hidden="true" />
-                  <input ref={emailInput} className="fitx-field" type="email" autoComplete="email" inputMode="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+                  <input ref={emailInput} id={ids.input("email")} className="fitx-field" type="email" autoComplete="email" inputMode="email" required value={email} onChange={(event) => setEmail(event.target.value)} {...fieldInvalid(fieldProblem, "email", ids)} />
                 </span>
-              </label>
+                <FieldProblemText problem={fieldProblem} field="email" ids={ids} />
+              </div>
               {!open && (
-                <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
-                  {codeFlow.sending ? "Sending code…" : "Email me a code"}
-                </button>
+                <>
+                  <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                    {codeFlow.sending ? "Sending code…" : "Email me a code"}
+                  </button>
+                  {error && <p role="alert" className={s.error}>{error}</p>}
+                </>
               )}
-              <details ref={options} className={s.details} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+              <details
+                ref={options}
+                className={s.details}
+                open={open}
+                onToggle={(event) => {
+                  const nowOpen = event.currentTarget.open;
+                  setOpen(nowOpen);
+                  // A failure belongs to the button that showed it, and the password's problem to its field: both go
+                  // when the panel that holds them is opened or shut.
+                  if (nowOpen !== open) {
+                    setError("");
+                    if (fieldProblem?.field === "password") setFieldProblem(null);
+                  }
+                }}
+              >
                 <summary>Other sign-in options<Plus size={17} aria-hidden="true" /></summary>
                 <div className={s.detailsBody}>
                   {/* The label holds only the field: wrapped around the Show password button too, it named the box
                       "Password Show password". The button sits beside the field, named for itself. */}
                   <div className={s.field}>
-                    <label htmlFor={passwordId}>Password</label>
+                    <label htmlFor={ids.input("password")}>Password</label>
                     <span className={s.inputWrap}>
                       <LockKeyhole size={16} aria-hidden="true" />
-                      <input ref={passwordInput} id={passwordId} className="fitx-field" type={visible ? "text" : "password"} autoComplete="current-password" required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
-                      <button type="button" className={s.reveal} aria-label={visible ? "Hide password" : "Show password"} aria-controls={passwordId} onClick={() => setVisible((show) => !show)}>
+                      <input ref={passwordInput} id={ids.input("password")} className="fitx-field" type={visible ? "text" : "password"} autoComplete="current-password" required={open} value={password} onChange={(event) => setPassword(event.target.value)} {...fieldInvalid(fieldProblem, "password", ids)} />
+                      <button type="button" className={s.reveal} aria-label={visible ? "Hide password" : "Show password"} aria-controls={ids.input("password")} onClick={() => setVisible((show) => !show)}>
                         {visible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
                       </button>
                     </span>
+                    <FieldProblemText problem={fieldProblem} field="password" ids={ids} />
                   </div>
                   {open && (
-                    <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
-                      {pending === "password" ? "Signing in…" : "Sign in with email"}
-                    </button>
+                    <>
+                      <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                        {pending === "password" ? "Signing in…" : "Sign in with email"}
+                      </button>
+                      {error && <p role="alert" className={s.error}>{error}</p>}
+                    </>
                   )}
                   <div className={s.row}>
                     <Link href="/forgot-password" className={s.link}>Forgot password?</Link>
@@ -198,7 +236,6 @@ export default function SignInForm() {
                   </div>
                 </div>
               </details>
-              {visibleError && <p role="alert" className={s.error}>{visibleError}</p>}
             </form>
           </m.div>
         )}

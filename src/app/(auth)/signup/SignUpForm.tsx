@@ -1,20 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { Apple, LockKeyhole, Mail, Plus, UserRound } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { useEarlySubmit } from "@/components/auth/early-submit";
 import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
+import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
 import { useEmailCode } from "@/components/auth/useEmailCode";
 import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
-import { isEmailAddress } from "@/lib/auth/email-code";
 import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
+import { fieldIds, fieldInvalid, signUpFormProblem, type AuthField, type FieldProblem } from "@/lib/auth/form-problems";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { authCallbackUrl } from "@/lib/site-url";
@@ -35,12 +36,19 @@ export default function SignUpForm() {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [sent, setSent] = useState(false);
+  /** A problem with one field, under that field (bug 45). */
+  const [fieldProblem, setFieldProblem] = useState<FieldProblem | null>(null);
+  /** Why the last code or sign-up failed, under the button that is showing. */
   const [error, setError] = useState("");
+  /** Why Google (or Apple) sign-up failed, under the Google button. */
+  const [providerError, setProviderError] = useState("");
   const emailInput = useRef<HTMLInputElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
   const confirmInput = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
+  const baseId = useId();
+  const ids = fieldIds(baseId);
   // Whatever was typed (or opened) before the page's scripts ran stays: the render right after hydration would wipe it.
   useKeepTypedValue(emailInput, email, setEmail);
   useKeepTypedValue(nameInput, name, setName);
@@ -55,24 +63,32 @@ export default function SignUpForm() {
   const codeFlow = useEmailCode(noNext);
   const loading = pending !== null || codeFlow.sending;
 
+  /** Shows a problem under its field, and takes the member there to fix it (bug 80: not left on the button). */
+  function showProblem(found: FieldProblem) {
+    setFieldProblem(found);
+    const field: Record<AuthField, HTMLInputElement | null> = {
+      email: emailInput.current,
+      name: nameInput.current,
+      password: passwordInput.current,
+      confirm: confirmInput.current,
+    };
+    field[found.field]?.focus({ preventScroll: found.field === "email" });
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) return;
+    setFieldProblem(null);
     setError("");
+    setProviderError("");
+    const found = signUpFormProblem({ email, name, password, confirm, withPassword: open });
+    if (found) return showProblem(found);
     const address = email.trim();
-    if (!isEmailAddress(address)) {
-      setError("Enter your email address.");
-      emailInput.current?.focus({ preventScroll: true });
-      return;
-    }
     if (!open) {
-      const problem = await codeFlow.send(address);
-      if (problem) setError(problem);
+      const failure = await codeFlow.send(address);
+      if (failure) setError(failure);
       return;
     }
-    if (!name.trim()) return setError("Enter your name.");
-    if (password.length < 8) return setError("Use at least 8 characters for your password.");
-    if (password !== confirm) return setError("Your passwords do not match.");
     const supabase = createClient();
     if (!supabase) return setError("Account access is temporarily unavailable. Please try again later.");
     const wait = browserEmailCooldown().wait(address);
@@ -115,10 +131,11 @@ export default function SignUpForm() {
   async function signInWith(provider: OAuthProvider) {
     if (loading) return;
     setError("");
+    setProviderError("");
     setPending(provider);
-    const problem = await startOAuth(provider, null);
-    if (problem) {
-      setError(problem);
+    const failure = await startOAuth(provider, null);
+    if (failure) {
+      setProviderError(failure);
       setPending(null);
     }
   }
@@ -150,47 +167,76 @@ export default function SignUpForm() {
               disabled={loading}
               redirectPending={pending === "google"}
               onRedirect={() => void signInWith("google")}
-              onError={setError}
+              onError={setProviderError}
               onBusy={(busy) => setPending(busy ? "google" : null)}
             />
+            {providerError && <p role="alert" className={s.error}>{providerError}</p>}
             <div className={s.divider}>or</div>
             <form ref={formRef} action={replayEarlySubmit} onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
-              <label className={s.field}>Email address
+              <div className={s.field}>
+                <label htmlFor={ids.input("email")}>Email address</label>
                 <span className={s.inputWrap}>
                   <Mail size={16} aria-hidden="true" />
-                  <input ref={emailInput} className="fitx-field" type="email" autoComplete="email" inputMode="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+                  <input ref={emailInput} id={ids.input("email")} className="fitx-field" type="email" autoComplete="email" inputMode="email" required value={email} onChange={(event) => setEmail(event.target.value)} {...fieldInvalid(fieldProblem, "email", ids)} />
                 </span>
-              </label>
+                <FieldProblemText problem={fieldProblem} field="email" ids={ids} />
+              </div>
               {!open && (
-                <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
-                  {codeFlow.sending ? "Sending code…" : "Email me a code"}
-                </button>
+                <>
+                  <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                    {codeFlow.sending ? "Sending code…" : "Email me a code"}
+                  </button>
+                  {error && <p role="alert" className={s.error}>{error}</p>}
+                </>
               )}
-              <details ref={options} className={s.details} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+              <details
+                ref={options}
+                className={s.details}
+                open={open}
+                onToggle={(event) => {
+                  const nowOpen = event.currentTarget.open;
+                  setOpen(nowOpen);
+                  // A failure belongs to the button that showed it, and the panel's fields' problems to them: they go
+                  // when the panel that holds them is opened or shut.
+                  if (nowOpen !== open) {
+                    setError("");
+                    if (fieldProblem && fieldProblem.field !== "email") setFieldProblem(null);
+                  }
+                }}
+              >
                 <summary>Other sign-up options<Plus size={17} aria-hidden="true" /></summary>
                 <div className={s.detailsBody}>
-                  <label className={s.field}>Your name
+                  <div className={s.field}>
+                    <label htmlFor={ids.input("name")}>Your name</label>
                     <span className={s.inputWrap}>
                       <UserRound size={16} aria-hidden="true" />
-                      <input ref={nameInput} className="fitx-field" autoComplete="name" required={open} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
+                      <input ref={nameInput} id={ids.input("name")} className="fitx-field" autoComplete="name" required={open} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} {...fieldInvalid(fieldProblem, "name", ids)} />
                     </span>
-                  </label>
-                  <label className={s.field}>Password
+                    <FieldProblemText problem={fieldProblem} field="name" ids={ids} />
+                  </div>
+                  <div className={s.field}>
+                    <label htmlFor={ids.input("password")}>Password</label>
                     <span className={s.inputWrap}>
                       <LockKeyhole size={16} aria-hidden="true" />
-                      <input ref={passwordInput} className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
+                      <input ref={passwordInput} id={ids.input("password")} className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={password} onChange={(event) => setPassword(event.target.value)} {...fieldInvalid(fieldProblem, "password", ids)} />
                     </span>
-                  </label>
-                  <label className={s.field}>Confirm password
+                    <FieldProblemText problem={fieldProblem} field="password" ids={ids} />
+                  </div>
+                  <div className={s.field}>
+                    <label htmlFor={ids.input("confirm")}>Confirm password</label>
                     <span className={s.inputWrap}>
                       <LockKeyhole size={16} aria-hidden="true" />
-                      <input ref={confirmInput} className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                      <input ref={confirmInput} id={ids.input("confirm")} className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={confirm} onChange={(event) => setConfirm(event.target.value)} {...fieldInvalid(fieldProblem, "confirm", ids)} />
                     </span>
-                  </label>
+                    <FieldProblemText problem={fieldProblem} field="confirm" ids={ids} />
+                  </div>
                   {open && (
-                    <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
-                      {pending === "password" ? "Creating account…" : "Create account with email"}
-                    </button>
+                    <>
+                      <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
+                        {pending === "password" ? "Creating account…" : "Create account with email"}
+                      </button>
+                      {error && <p role="alert" className={s.error}>{error}</p>}
+                    </>
                   )}
                   {appleEnabled && (
                     <button type="button" disabled={loading} onClick={() => void signInWith("apple")} className={s.option}>
@@ -199,7 +245,6 @@ export default function SignUpForm() {
                   )}
                 </div>
               </details>
-              {error && <p role="alert" className={s.error}>{error}</p>}
             </form>
           </m.div>
         )}

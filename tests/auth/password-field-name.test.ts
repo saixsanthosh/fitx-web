@@ -32,12 +32,11 @@ test("no label on the sign-in pages wraps a button, so every field is named by i
 
 test("the sign-in password box is labelled \"Password\" and the reveal button names itself beside it", () => {
   const text = source("src/app/(auth)/signin/SignInForm.tsx");
-  assert.match(text, /<label htmlFor=\{passwordId\}>Password<\/label>/, "the label is the word Password, for the box");
-  const input = /<input ref=\{passwordInput\}[^>]*>/.exec(text)?.[0] ?? "";
-  assert.match(input, /\bid=\{passwordId\}/, "the box carries the id the label points at");
+  assert.match(text, /<label htmlFor=\{ids\.input\("password"\)\}>Password<\/label>/, "the label is the word Password, for the box");
+  const input = /<input ref=\{passwordInput\}[^\n]*\/>/.exec(text)?.[0] ?? "";
+  assert.match(input, /\bid=\{ids\.input\("password"\)\}/, "the box carries the id the label points at");
   assert.match(input, /autoComplete="current-password"/);
-  const reveal = /<button type="button" className=\{s\.reveal\}[^>]*>/.exec(text)?.[0] ?? "";
+  const reveal = /<button type="button" className=\{s\.reveal\}[^\n]*>/.exec(text)?.[0] ?? "";
   assert.match(reveal, /aria-label=\{visible \? "Hide password" : "Show password"\}/, "the button has its own name");
-  assert.match(reveal, /aria-controls=\{passwordId\}/, "and says which box it shows");
-  assert.match(text, /const passwordId = useId\(\);/);
+  assert.match(reveal, /aria-controls=\{ids\.input\("password"\)\}/, "and says which box it shows");
 });

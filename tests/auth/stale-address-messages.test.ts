@@ -37,7 +37,7 @@ test("every way of acting on the sign-in page dismisses the address's messages f
   assert.match(form, /onBusy=\{\(busy\) => \{\s*if \(busy\) dismissAddressMessages\(\);/, "Google's own button");
   // Dismissed for the page's life: the email step that comes back after Change email can't show it again.
   assert.match(form, /const notice = addressDismissed \? "" : locationNotice;/);
-  assert.match(form, /const visibleError = error \|\| \(addressDismissed \? "" : locationError\);/);
+  assert.match(form, /const pageError = providerError \|\| \(addressDismissed \? "" : locationError\);/);
   // And out of the address, with the page's own path and hash, so a reload is clean too.
   assert.match(form, /setAddressDismissed\(true\);\s*const search = withoutAddressMessages\(window\.location\.search\);\s*if \(search !== window\.location\.search\) window\.history\.replaceState\(null, "", `\$\{window\.location\.pathname\}\$\{search\}\$\{window\.location\.hash\}`\);/);
 });
