@@ -588,7 +588,8 @@ export default function ActiveWorkoutPage() {
   }
 
   async function finishWorkout() {
-    const supabase = createClient(); if (!supabase || !session || saving || clock?.paused) return;
+    // Not disabled while saving (Chrome would drop focus): a press meanwhile is ignored here.
+    const supabase = createClient(); if (!supabase || !session || saving || clockSaving || clock?.paused) return;
     const validSets = completedSets.filter((set) => Number(set.reps) > 0 || Number(set.duration_seconds) > 0);
     if (!validSets.length) { setProblem({ at: "finish", message: "Complete at least one set before finishing your workout." }); return; }
     setSaving(true); setProblem(null);
@@ -656,7 +657,7 @@ export default function ActiveWorkoutPage() {
   }
 
   async function abandonWorkout() {
-    if (!session || !window.confirm("Abandon this workout? The sets you completed stay in your workout history, but it won’t count as a completed workout.")) return;
+    if (!session || saving || clockSaving || !window.confirm("Abandon this workout? The sets you completed stay in your workout history, but it won’t count as a completed workout.")) return;
     const supabase = createClient(); if (!supabase || saving) return;
     setSaving(true); setProblem(null);
     const result = await supabase.from("workout_sessions").update({ status: "abandoned", duration_seconds: elapsedSeconds }).eq("id", session.id).eq("user_id", session.user_id).eq("status", "in_progress").select("id").maybeSingle();
@@ -841,7 +842,7 @@ export default function ActiveWorkoutPage() {
     <section className="fitx-panel grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <p className="flex items-center gap-2 text-sm text-fitx-text-secondary sm:row-start-1"><Trophy size={16} aria-hidden="true" className="shrink-0 text-fitx-primary" /><span>{tally}</span></p>
       {problem?.at === "finish" && <p role="alert" className={`sm:col-span-2 sm:row-start-2 ${PROBLEM_CLASS}`}>{problem.message}</p>}
-      <div className="flex flex-col-reverse gap-2 sm:col-start-2 sm:row-start-1 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} disabled={saving || clockSaving} className="fitx-button fitx-button-quiet min-h-11"><X size={14} aria-hidden="true" />Abandon</button><button type="button" disabled={saving || clockSaving || paused} onClick={() => void finishWorkout()} className="fitx-button min-h-12">{saving ? "Saving…" : "Finish workout"}<Check size={15} aria-hidden="true" /></button></div>
+      <div className="flex flex-col-reverse gap-2 sm:col-start-2 sm:row-start-1 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} aria-disabled={saving || clockSaving || undefined} className="fitx-button fitx-button-quiet min-h-11 aria-disabled:opacity-60"><X size={14} aria-hidden="true" />Abandon</button><button type="button" disabled={paused} aria-disabled={saving || clockSaving || undefined} onClick={() => void finishWorkout()} className="fitx-button min-h-12 aria-disabled:opacity-60">{saving ? "Saving…" : "Finish workout"}<Check size={15} aria-hidden="true" /></button></div>
     </section>
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <button type="button" onClick={cues.toggleCues} aria-pressed={cues.cuesOn} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">{cues.cuesOn ? <Volume2 size={14} aria-hidden="true" /> : <VolumeX size={14} aria-hidden="true" />}{cues.cuesOn ? "Rest alert on" : "Rest alert off"}</button>

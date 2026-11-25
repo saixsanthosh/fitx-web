@@ -356,7 +356,7 @@ export default function ExerciseLibraryPage() {
               </button>
               <div className="flex flex-wrap items-center gap-2">
                 {state.have && account.status === "ready" && account.profiles.available && (
-                  <button type="button" onClick={() => void saveHaveList()} disabled={savingList} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm">
+                  <button type="button" onClick={() => { if (!savingList) void saveHaveList(); }} aria-disabled={savingList || undefined} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm aria-disabled:opacity-60">
                     {savingList ? "Saving…" : `Save as my ${contextName} list`}
                   </button>
                 )}

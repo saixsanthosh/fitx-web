@@ -114,7 +114,7 @@ export function SessionRecordScreen({ id }: { id: string }) {
       <PageHeading
         title={session.name}
         description={<>{dateLine(session.started_at, session.completed_at)}{badge && <span className="ml-2 inline-flex rounded-full border border-fitx-border bg-fitx-surface-variant px-2.5 py-0.5 align-middle text-xs font-semibold text-fitx-text">{badge}</span>}</>}
-        actions={<button type="button" onClick={() => void repeat()} disabled={repeating} className="fitx-button min-h-11"><RotateCcw size={15} aria-hidden="true" />{repeating ? "Copying…" : "Repeat this workout"}</button>}
+        actions={<button type="button" onClick={() => { if (!repeating) void repeat(); }} aria-disabled={repeating || undefined} className="fitx-button min-h-11 aria-disabled:opacity-60"><RotateCcw size={15} aria-hidden="true" />{repeating ? "Copying…" : "Repeat this workout"}</button>}
       />
       {repeatError && <p role="alert" className="fitx-alert fitx-alert-danger">{repeatError}</p>}
       <p className="-mt-3 text-xs text-fitx-text-secondary">Repeat saves a copy to your plans, ready to start.{!record.musclesFailed && repeatPreview.leftOut > 0 && ` ${repeatPreview.leftOut === 1 ? "1 exercise is" : `${repeatPreview.leftOut} exercises are`} no longer in the library and will be left out.`}</p>

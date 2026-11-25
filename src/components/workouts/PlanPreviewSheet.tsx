@@ -133,7 +133,7 @@ export function PlanPreview({ loaded, onRetry, catalog, ownedFor, todayKey, prog
         {done && ready.lastSession && <Link href={`/workouts/history/${ready.lastSession.id}`} className="fitx-button fitx-button-secondary min-h-11">View workout record<ArrowRight size={15} aria-hidden="true" /></Link>}
         {activeSession
           ? <Link href={`/workouts/active?session=${activeSession.id}`} className="fitx-button min-h-12 sm:min-w-56">Continue current workout<ArrowRight size={16} aria-hidden="true" /></Link>
-          : !done && <button type="button" onClick={() => void begin()} disabled={starting || pausedDay || !rows.length} className="fitx-button min-h-12 text-base sm:min-w-56">{starting ? "Starting…" : "Begin workout"}<ArrowRight size={17} aria-hidden="true" /></button>}
+          : !done && <button type="button" onClick={() => { if (!starting) void begin(); }} disabled={pausedDay || !rows.length} aria-disabled={starting || undefined} className="fitx-button min-h-12 text-base aria-disabled:opacity-60 sm:min-w-56">{starting ? "Starting…" : "Begin workout"}<ArrowRight size={17} aria-hidden="true" /></button>}
       </div>
     </div>
   );

@@ -232,7 +232,7 @@ export function WorkoutSetupFlow({ setup, userId, legacyWords, variant, onSaved,
           ? <button type="button" onClick={() => go(-1)} className="fitx-button fitx-button-secondary min-h-11 px-4"><ArrowLeft size={16} aria-hidden="true" />Back</button>
           : <span />}
         {last
-          ? <button type="button" onClick={() => void save()} disabled={saving} className="fitx-button min-h-11 px-5">{saving ? "Saving…" : "Save setup"}<Check size={16} aria-hidden="true" /></button>
+          ? <button type="button" onClick={() => { if (!saving) void save(); }} aria-disabled={saving || undefined} className="fitx-button min-h-11 px-5 aria-disabled:opacity-60">{saving ? "Saving…" : "Save setup"}<Check size={16} aria-hidden="true" /></button>
           : <button type="button" onClick={() => go(1)} className="fitx-button min-h-11 px-5">Next<ArrowRight size={16} aria-hidden="true" /></button>}
       </footer>
     </section>

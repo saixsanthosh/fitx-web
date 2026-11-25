@@ -111,7 +111,7 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
       <footer className={styles.foot}>
         {startError && <p role="alert" className="fitx-alert fitx-alert-danger w-full">{startError}</p>}
         {start.note && <p id="today-workout-start-note" className="w-full text-xs text-fitx-text-secondary">{start.note}</p>}
-        <button type="button" onClick={onStart} disabled={starting || (start.kind === "start" && !rows?.length)} aria-describedby={start.note ? "today-workout-start-note" : undefined} className={`fitx-button ${styles.start}`}>
+        <button type="button" onClick={() => { if (!starting) onStart(); }} disabled={start.kind === "start" && !rows?.length} aria-disabled={starting || undefined} aria-describedby={start.note ? "today-workout-start-note" : undefined} className={`fitx-button aria-disabled:opacity-60 ${styles.start}`}>
           {starting ? "Starting…" : start.label}<ArrowRight size={17} aria-hidden="true" />
         </button>
         <button type="button" aria-haspopup="dialog" onClick={onDetails} className={`fitx-button fitx-button-secondary ${styles.details}`}><ListChecks size={16} aria-hidden="true" />Details</button>
