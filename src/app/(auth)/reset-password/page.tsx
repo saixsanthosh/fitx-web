@@ -88,7 +88,8 @@ export default function ResetPasswordPage() {
       <div className={s.body}>
         <h1 ref={heading} tabIndex={-1} className={s.title}>{saved ? "Password updated" : "New password"}</h1>
         {saved ? (
-          <Link href="/dashboard" className={`fitx-button ${s.primary}`}>Open FITX</Link>
+          // replace: Back from the app goes to the page before the reset link, not to this form again (bug 40's mistake).
+          <Link href="/dashboard" replace className={`fitx-button ${s.primary}`}>Open FITX</Link>
         ) : (
           <form ref={formRef} action={replayEarlySubmit} onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
             <div className={s.field}>

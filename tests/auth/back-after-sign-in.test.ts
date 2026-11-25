@@ -75,4 +75,6 @@ test("every sign-in leaves its page with location.replace, so Back never lands o
     assert.match(text, call, file);
     assert.doesNotMatch(text, /location\.assign\(/, `${file}: no sign-in adds a history entry on top of the form`);
   }
+  // The same for the new-password form: once saved, "Open FITX" takes its place in the history.
+  assert.match(read("src/app/(auth)/reset-password/page.tsx"), /<Link href="\/dashboard" replace className=\{`fitx-button \$\{s\.primary\}`\}>Open FITX<\/Link>/);
 });
