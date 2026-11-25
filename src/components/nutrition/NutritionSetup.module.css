@@ -71,6 +71,8 @@
 .tagRow input { min-width: 0; flex: 1 1 auto; }
 
 .actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding-top: .25rem; }
+/* Save while saving: marked unavailable (aria-disabled), not disabled, so it keeps the focus. */
+.actions :global(.fitx-button)[aria-disabled="true"] { opacity: .58; cursor: default; }
 .actions :global(.fitx-button) { min-width: 8rem; }
 .back { display: inline-flex; min-height: 2.75rem; align-items: center; gap: .3rem; border-radius: 999px; padding: 0 .9rem; color: var(--fitx-text-secondary); font-size: .88rem; font-weight: 650; }
 .back:hover { background: var(--fitx-hover); color: var(--fitx-text); }

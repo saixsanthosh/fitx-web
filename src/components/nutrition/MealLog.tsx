@@ -88,7 +88,7 @@ export function MealLog({ entries, title, labels, state, busy, templatesReady, s
                 <div className={diary.mealHead}>
                   <h3 className={diary.mealTitle}>{slot}</h3>
                   <span className={diary.mealKcal}>{rows.length ? `${kcal.toLocaleString()} kcal` : ""}</span>
-                  {templatesReady && rows.length > 0 && <button type="button" className={styles.iconButton} disabled={busy} onClick={() => onSaveMeal(slot)} aria-label={`Save ${slot.toLowerCase()} as a meal`} title="Save this meal"><Bookmark size={15} aria-hidden="true"/></button>}
+                  {templatesReady && rows.length > 0 && <button type="button" className={`${styles.iconButton} ${styles.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) onSaveMeal(slot); }} aria-label={`Save ${slot.toLowerCase()} as a meal`} title="Save this meal"><Bookmark size={15} aria-hidden="true"/></button>}
                   <button type="button" data-meal-add={slot} className={diary.add} onClick={() => onAddTo(slot)} aria-label={`Add food to ${slot}`}><Plus size={16} aria-hidden="true"/></button>
                 </div>
                 {rows.length + gone.length > 0 && <ul className={diary.rows}>{rows.map((row) => <EntryRow key={row.id} entry={row} onEdit={onEdit} onDelete={onDelete}/>)}{gone.map(undo)}</ul>}

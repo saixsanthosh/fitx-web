@@ -57,3 +57,13 @@ export function addedUndoRegistry() {
 export function undoAddedMessage(deleted: number, label: string): string {
   return deleted > 0 ? `Removed ${label}.` : `${label} was already removed.`;
 }
+
+/**
+ * Where the focus goes when a list row it was on is deleted: the next row, else the one before, else null (the
+ * list's own control or heading takes it).
+ */
+export function neighbourAfterRemoval(ids: readonly string[], removed: string): string | null {
+  const at = ids.indexOf(removed);
+  if (at < 0) return null;
+  return ids[at + 1] ?? ids[at - 1] ?? null;
+}

@@ -49,8 +49,9 @@ export function Routines({ templates, ready, loading, busy, dateLabel, sections,
                     {sections.map((name) => <option key={name}>{name}</option>)}
                   </select>
                 )}
-                <button type="button" disabled={busy || template.items.length === 0} onClick={() => onApply(template, template.kind === "meal" ? slot : null)} className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs">Add to {dateLabel}</button>
-                <button type="button" disabled={busy} onClick={() => onDelete(template)} aria-label={`Delete ${template.name}`} className={styles.iconButton}><Trash2 size={15}/></button>
+                {/* Unavailable while something saves, not disabled, so the button pressed keeps the focus. */}
+                <button type="button" data-routine-add={template.id} disabled={template.items.length === 0} aria-disabled={busy || undefined} onClick={() => { if (!busy) onApply(template, template.kind === "meal" ? slot : null); }} className={`fitx-button fitx-button-secondary min-h-10 px-3 text-xs ${styles.actionBusy}`}>Add to {dateLabel}</button>
+                <button type="button" aria-disabled={busy || undefined} onClick={() => { if (!busy) onDelete(template); }} aria-label={`Delete ${template.name}`} className={`${styles.iconButton} ${styles.actionBusy}`}><Trash2 size={15}/></button>
               </div>
             );
           })}
@@ -61,7 +62,8 @@ export function Routines({ templates, ready, loading, busy, dateLabel, sections,
   return (
     <section className="fitx-panel space-y-5 p-4 sm:p-5">
       <div>
-        <h2 className="font-medium">Saved meals and routines</h2>
+        {/* Focusable from script only: focus comes here when the routine that had it is deleted. */}
+        <h2 id="routines-title" tabIndex={-1} className="font-medium">Saved meals and routines</h2>
         <p className={styles.muted}>Save a meal or a whole day from the Meals tab, then add it to any day in one tap. Amounts and values are copied as they were logged.</p>
       </div>
       {loading ? <p className={styles.muted}>Loading…</p> : <>

@@ -54,7 +54,7 @@ import {
 } from "@/lib/food/client-data";
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
-import { addedUndoRegistry, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
+import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
 import { amountProblem, barcodeMissFor, barcodeMissText, listedFoods, noSearchReason, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
@@ -126,6 +126,8 @@ export default function NutritionPage() {
   /** A log or water entry being saved, so a second tap before the button disables can't add it twice. */
   const loggingFood = useRef(false);
   const loggingWater = useRef(false);
+  /** Each search's number: only the newest one's answer is shown. */
+  const searchSeq = useRef(0);
   const [selected, setSelected] = useState<FoodResult | null>(null);
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
@@ -460,6 +462,7 @@ export default function NutritionPage() {
 
   async function findBarcode(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
     await lookupBarcode(barcode);
   }
 
@@ -496,6 +499,8 @@ export default function NutritionPage() {
   }, [browseFoods]);
 
   async function runFoodSearch(value: string, packaged = false) {
+    // A newer search replaces this one: a replaced search's answer is dropped, so the buttons never need disabling.
+    const seq = ++searchSeq.current;
     setQuery(value);
     const typed = parseFoodQuery(value);
     if (typed.text.length < 2) {
@@ -511,6 +516,7 @@ export default function NutritionPage() {
     try {
       const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`, SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
+      if (seq !== searchSeq.current) return;
       if (!response.ok) throw new Error(data.error || "Food search failed.");
       const found = (data.foods || []).map(withPhoto);
       setResults(found);
@@ -538,8 +544,8 @@ export default function NutritionPage() {
         setAmountPrompt(null);
         setPickHint(outcome.hint);
       }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
-    finally { setSearchingFoods(false); }
+    } catch (cause) { if (seq === searchSeq.current) setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
+    finally { if (seq === searchSeq.current) setSearchingFoods(false); }
   }
 
   async function searchFoods(event: FormEvent) {
@@ -876,8 +882,12 @@ export default function NutritionPage() {
     setBusy(true);
     const result = await removeCustomFood(supabase, userId, row);
     setBusy(false);
-    if (result.error) setError("That food could not be deleted. Please try again.");
-    else { setNotice(`Deleted “${row.name}”.`); await load(); }
+    if (result.error) { setError("That food could not be deleted. Please try again."); return; }
+    setNotice(`Deleted “${row.name}”.`);
+    // Its row is gone: the next food's Use (or the one before), else Add a food.
+    const next = neighbourAfterRemoval(customRows.map((item) => item.id), row.id);
+    pendingFocus.current = [...(next ? [`[data-food-use="${next}"]`] : []), "[data-food-add]"];
+    await load();
   }
 
   /** Adds a named meal section to the lists. It is stored with the first entry logged in it (the meal's name is the entry's meal text). */
@@ -935,7 +945,12 @@ export default function NutritionPage() {
     setBusy(true);
     const result = await deleteTemplate(supabase, userId, template.id);
     setBusy(false);
-    if (result.error) setError("That could not be deleted. Please try again."); else await load();
+    if (result.error) { setError("That could not be deleted. Please try again."); return; }
+    setNotice(`Deleted “${template.name}”.`);
+    // Its row is gone: the next one's Add (or the one before), else the section's heading.
+    const next = neighbourAfterRemoval(templates.map((item) => item.id), template.id);
+    pendingFocus.current = [...(next ? [`[data-routine-add="${next}"]`] : []), "#routines-title"];
+    await load();
   }
 
   /** Copies the meals of the day before the day viewed (yesterday, when that is today), naming that day in what it says. */
@@ -1143,7 +1158,7 @@ export default function NutritionPage() {
               </div>
               {detailFor(selected)}
               <div className={styles.addActions}>
-                <button type="button" onClick={() => void logFood(selected)} disabled={busy} className="fitx-button w-full">{busy ? "Saving…" : "Add to log"}</button>
+                <button type="button" onClick={() => { if (!busy) void logFood(selected); }} aria-disabled={busy || undefined} className={`fitx-button w-full ${ui.actionBusy}`}>{busy ? "Saving…" : "Add to log"}</button>
                 {selected.kind !== "custom" && <button type="button" id="log-save-food" onClick={() => saveSelectedAsFood(selected)} className={ui.textButton}>Save to My foods</button>}
               </div>
             </section>
@@ -1154,7 +1169,7 @@ export default function NutritionPage() {
               <form onSubmit={searchFoods} className={styles.search} role="search">
                 <Search size={17} aria-hidden="true" className={styles.searchIcon}/>
                 <input ref={searchInput} className={styles.searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Food and amount, e.g. 3 idli" aria-label="Search foods" enterKeyHint="search"/>
-                <button className={styles.searchGo} disabled={searchingFoods} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
+                <button className={styles.searchGo} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
               </form>
               {!lastSearch && <div className={styles.suggestions} aria-label="Examples">
                 {EXAMPLES.map((term) => <button key={term} type="button" onClick={() => void runFoodSearch(term)} className={styles.suggestion}>{term}</button>)}
@@ -1162,7 +1177,7 @@ export default function NutritionPage() {
               <div className={styles.filters}>
                 <label className={styles.filter}><input type="checkbox" checked={dietFilter.nonVeg} onChange={(event) => changeDietFilter({ nonVeg: event.target.checked })}/>Hide non-veg</label>
                 <label className={styles.filter}><input type="checkbox" checked={dietFilter.egg} onChange={(event) => changeDietFilter({ egg: event.target.checked })}/>Hide egg</label>
-                {lastSearch && searchMode !== "packaged" && <button type="button" className={ui.textButton} disabled={searchingFoods} onClick={() => void runFoodSearch(lastSearch, true)}><PackageSearch size={13} className="mr-1 inline" aria-hidden="true"/>Packaged</button>}
+                {lastSearch && searchMode !== "packaged" && <button type="button" className={ui.textButton} onClick={() => void runFoodSearch(lastSearch, true)}><PackageSearch size={13} className="mr-1 inline" aria-hidden="true"/>Packaged</button>}
               </div>
               {choosing && <section className={styles.choose} aria-labelledby="choose-title">
                 <h3 id="choose-title" className="sr-only">Add to log</h3>
@@ -1184,7 +1199,7 @@ export default function NutritionPage() {
                 <label htmlFor="barcode-number" className={styles.manualLabel}>Or type the number under the bars</label>
                 <div className={styles.manualRow}>
                   <input id="barcode-number" ref={barcodeInput} className="fitx-field" value={barcode} onChange={(event) => setBarcode(event.target.value.replace(/[^\d\s-]/g, ""))} placeholder="e.g. 8901063010031" aria-label="Barcode number" inputMode="numeric" autoComplete="off"/>
-                  <button className="fitx-button shrink-0 px-4" disabled={busy || !barcode.trim()} aria-label="Find barcode">{busy ? "Finding…" : "Find"}</button>
+                  <button className={`fitx-button shrink-0 px-4 ${ui.actionBusy}`} aria-disabled={busy || !barcode.trim() || undefined} aria-label="Find barcode">{busy ? "Finding…" : "Find"}</button>
                 </div>
               </form>
               {barcodeMiss && (() => {
