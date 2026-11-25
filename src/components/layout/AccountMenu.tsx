@@ -8,6 +8,7 @@ import { ChevronDown, ChevronsUpDown, UserRound } from "lucide-react";
 import { LogoutButton } from "@/components/app/LogoutButton";
 import { ACCOUNT_NAV, isActivePath } from "@/config/navigation";
 import { cn } from "@/lib/utils";
+import { menuOpenOn, type MenuOpenOn } from "./account-menu-open";
 import type { AccountSummary } from "./useAccountSummary";
 
 export function AccountAvatar({ summary, size = 36 }: { summary: AccountSummary | null; size?: number }) {
@@ -35,9 +36,14 @@ export function AccountAvatar({ summary, size = 36 }: { summary: AccountSummary 
  */
 export function AccountMenu({ summary, placement = "header" }: { summary: AccountSummary | null; placement?: "header" | "sidebar" }) {
   const pathname = usePathname();
-  // Open on the page it was opened on: a page change (a link in the panel, Back) closes it by itself.
-  const [openOn, setOpenOn] = useState<string | null>(null);
-  const open = openOn === pathname;
+  // Open on the page it was opened on: a page change closes it, however the page changed (a link in the panel, the
+  // browser's Back or Forward, a swipe), and forgets that page there and then, so only the button opens it again
+  // (account-menu-open.ts). Reset while rendering, not in an effect, so the panel never shows on the new page, not
+  // even for one paint.
+  const [openOn, setOpenOn] = useState<MenuOpenOn>(null);
+  const settled = menuOpenOn(openOn, pathname);
+  if (settled !== openOn) setOpenOn(settled);
+  const open = settled !== null;
   const setOpen = (value: boolean) => setOpenOn(value ? pathname : null);
   const panelId = useId();
   const wrapper = useRef<HTMLDivElement>(null);
