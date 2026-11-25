@@ -15,7 +15,7 @@
  * Answers carry the user's own foods and recent logs, so browsers never keep them (`private, no-store`).
  */
 import { NextResponse } from "next/server";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { isAuthRetryableFetchError, type SupabaseClient } from "@supabase/supabase-js";
 import { parseFoodQuery, rankFoods, singular } from "@/lib/domain/food-query";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { customRowToFood, publicFood, rankAndPick, searchRowToFood, stemsFor, type RankableFood } from "@/lib/food/catalog-search";
@@ -44,8 +44,15 @@ const CUSTOM_COLUMNS = "id,name,brand,serving_size,serving_grams,calories_per_10
 const CUSTOM_COLUMNS_V2 = `${CUSTOM_COLUMNS},barcode,origin,value_basis,image_url,image_attribution,source_ref`;
 
 export async function searchFoods(request: Request, supabase: SupabaseClient | null, services: FoodSearchServices): Promise<Response> {
-  const { data: { user } } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
-  if (!user) return NextResponse.json({ error: "Sign in to search food." }, { status: 401, headers: { "Cache-Control": SEARCH_CACHE_CONTROL } });
+  const { data: { user }, error: authError } = supabase ? await supabase.auth.getUser() : { data: { user: null }, error: null };
+  if (!user) {
+    // A sign-in check that couldn't reach the auth service is not "signed out": say so, as the exercise library does.
+    const outage = Boolean(authError) && (isAuthRetryableFetchError(authError) || (typeof authError?.status === "number" && authError.status >= 500));
+    return NextResponse.json(
+      { error: outage ? "Your session couldn't be checked just now, so the search didn't run. Try again in a moment." : "Sign in to search food." },
+      { status: outage ? 503 : 401, headers: { "Cache-Control": SEARCH_CACHE_CONTROL } },
+    );
+  }
 
   const params = new URL(request.url).searchParams;
   const barcode = (params.get("barcode") || "").replace(/\D/g, "").slice(0, 14);
