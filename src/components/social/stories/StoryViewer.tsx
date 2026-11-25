@@ -11,6 +11,7 @@ import { forgetPhotoUrls } from "@/lib/social/media-urls";
 import { carryOver, noticeMs } from "@/lib/social/notice";
 import { STORY_REPLY } from "@/lib/social/slots";
 import { firstUnseen, isTextEntry, seenByLabel, stepStory, storyPlayMs, timeLeft, viewerOrder, type StoryCursor } from "@/lib/social/stories";
+import { exploreTabTitle, storyTitle } from "@/lib/social/titles";
 import { videoLink } from "@/lib/social/video/links";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "../Avatar";
@@ -151,12 +152,8 @@ export function StoryViewer({ username }: { username: string }) {
     setReady(false);
     if (account && account.author.id && (next === null || next.user !== at.user) && dir === 1) traySeen(account.author.id);
     if (!next) { close(); return; }
-    if (next.user !== at.user) {
-      const name = accounts[next.user]?.author.username;
-      if (name) window.history.replaceState(window.history.state, "", `/explore/stories/${encodeURIComponent(name)}`);
-    }
     setAt(next);
-  }, [account, accounts, at, close, counts]);
+  }, [account, at, close, counts]);
 
   // Record the view once, for someone else's story.
   useEffect(() => {
@@ -214,6 +211,16 @@ export function StoryViewer({ username }: { username: string }) {
   const closeSheet = () => { setSheet(null); deleteNotice.clear(); };
 
   const name = account?.author.username ?? username;
+  // Moving on to another account is not a navigation, so the address and the page's title would both keep naming the
+  // account the viewer opened on: they follow the account on screen instead (also when an account with nothing left
+  // is skipped). The next page's own title replaces this one as usual (React updates or replaces that element).
+  const shownName = useRef(username);
+  useEffect(() => {
+    if (shownName.current === name) return;
+    shownName.current = name;
+    window.history.replaceState(window.history.state, "", `/explore/stories/${encodeURIComponent(name)}`);
+    document.title = exploreTabTitle(storyTitle(name));
+  }, [name]);
   return (
     <dialog ref={dialog} className={styles.viewer} aria-label={`Story by ${name}`} tabIndex={-1} onKeyDown={(event) => {
       // The arrows move the caret in the reply box (and any other field), never the story.
