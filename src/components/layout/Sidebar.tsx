@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLayoutEffect, useRef, useState } from "react";
-import { LogoutButton } from "@/components/app/LogoutButton";
 import { Logo } from "@/components/ui/Logo";
-import { ACCOUNT_NAV, NAV_GROUPS, isActivePath, type NavItem } from "@/config/navigation";
+import { NAV_GROUPS, isActivePath, type NavItem } from "@/config/navigation";
 import { cn } from "@/lib/utils";
-import { AccountAvatar } from "./AccountMenu";
+import { AccountMenu } from "./AccountMenu";
 import { NavGlyph } from "./NavGlyph";
 import { SkipLink } from "./SkipLink";
 import { useAccountSummary } from "./useAccountSummary";
@@ -18,6 +17,11 @@ type Marker = { y: number; height: number; ready: boolean } | null;
  * Tablets (768–1023 px) get a compact rail of icons with short labels; desktops (1024 px and up) get the
  * full sidebar, grouped (Home; Train; Track; Connect) with the account at the foot. Phones use the bottom bar
  * instead. On desktops the current page's highlight glides from the old item to the new one.
+ *
+ * Everything shows without scrolling on a 1366 x 768 laptop with the browser's bars (641 px of page) and up
+ * (bug 73): the account is one row at the foot, its menu (Profile, Settings, Help and feedback, Log out) opening
+ * above it, and tablets keep the account in the header beside the rail. On a shorter window the menu scrolls, and
+ * shows it does (.fitx-scroll-cue).
  */
 export function Sidebar() {
   const pathname = usePathname();
@@ -48,7 +52,7 @@ export function Sidebar() {
         <Logo size={30} markOnly className="lg:hidden" />
         <Logo size={32} className="hidden lg:inline-flex" />
       </Link>
-      <nav ref={nav} aria-label="Main navigation" className="relative min-h-0 flex-1 overflow-y-auto px-2 pb-3 lg:px-3">
+      <nav ref={nav} aria-label="Main navigation" className="fitx-scroll-cue relative min-h-0 flex-1 scroll-py-3 overflow-y-auto px-2 pb-3 lg:px-3">
         {/* The desktop highlight: one surface that glides to the current item. */}
         {marker && (
           <span
@@ -75,24 +79,15 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
-      <div className="shrink-0 border-t border-fitx-divider px-2 py-3 lg:px-3">
-        <Link href="/profile" className="mb-1 hidden min-h-14 items-center gap-3 rounded-xl px-3 transition-colors hover:bg-fitx-hover lg:flex">
-          <AccountAvatar summary={summary} size={32} />
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-fitx-text">{summary?.name || "Your account"}</span>
-            {summary?.email && <span className="block truncate text-xs text-fitx-text-secondary">{summary.email}</span>}
-          </span>
-        </Link>
-        <ul aria-label="Account" className="space-y-0.5">
-          {ACCOUNT_NAV.map((item) => <li key={item.href}><SideLink item={item} active={isActivePath(pathname, item.href)} quiet /></li>)}
-        </ul>
-        <div className="hidden px-3 lg:block"><LogoutButton className="w-full" /></div>
+      {/* Desktops: the account's card, which opens its menu above it. Tablets have the same menu in the header. */}
+      <div className="hidden shrink-0 border-t border-fitx-divider px-3 py-2 lg:block">
+        <AccountMenu summary={summary} placement="sidebar" />
       </div>
     </aside>
   );
 }
 
-function SideLink({ item, active, quiet = false }: { item: NavItem; active: boolean; quiet?: boolean }) {
+function SideLink({ item, active }: { item: NavItem; active: boolean }) {
   return (
     <Link
       href={item.href}
@@ -100,17 +95,16 @@ function SideLink({ item, active, quiet = false }: { item: NavItem; active: bool
       className={cn(
         "fitx-nav-link group relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[11px] leading-tight transition-colors duration-150 lg:min-h-11 lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:text-sm",
         active ? "font-semibold text-fitx-text" : "text-fitx-text-secondary hover:text-fitx-text",
-        // The main items' desktop highlight is the gliding surface; the account items keep their own.
-        active && quiet ? "lg:bg-fitx-surface lg:shadow-[inset_0_0_0_1px_var(--fitx-border)]" : !active && "lg:hover:bg-fitx-hover",
+        // The desktop highlight is the gliding surface.
+        !active && "lg:hover:bg-fitx-hover",
       )}
     >
       {/* The rail draws the active state as a pill behind the icon; the full sidebar uses the gliding surface. */}
       <span className={cn(
         "grid h-8 w-12 place-items-center rounded-full transition-[background-color,box-shadow,transform] duration-200 lg:h-auto lg:w-auto lg:bg-transparent lg:shadow-none",
-        active ? "bg-fitx-surface shadow-[inset_0_0_0_1px_var(--fitx-border)]" : "group-hover:bg-fitx-hover lg:group-hover:bg-transparent",
-        active && !quiet ? "text-fitx-primary" : quiet ? "text-fitx-text-secondary group-hover:text-fitx-text" : "",
+        active ? "bg-fitx-surface text-fitx-primary shadow-[inset_0_0_0_1px_var(--fitx-border)]" : "group-hover:bg-fitx-hover lg:group-hover:bg-transparent",
       )}>
-        <NavGlyph icon={item.icon} size={quiet ? 18 : 20} active={active} />
+        <NavGlyph icon={item.icon} size={20} active={active} />
       </span>
       <span className="max-w-full text-center lg:hidden">{item.shortLabel ?? item.label}</span>
       <span className="hidden truncate lg:inline">{item.label}</span>

@@ -13,7 +13,8 @@ const px = (block: string, property: string) => Number(block.match(new RegExp(`(
 
 test("the header's account button is at least 44 x 44 px, the avatar centred in it (was 42 x 44)", () => {
   const menu = source("src/components/layout/AccountMenu.tsx");
-  const trigger = menu.match(/aria-label=\{summary\?\.name \? `Account: \$\{summary\.name\}` : "Account"\}[\s\S]*?className="([^"]+)"/)?.[1] ?? "";
+  // The header's trigger (the sidebar's account card is the other placement).
+  const trigger = menu.match(/: "(flex min-h-11 [^"]+)"\}\s*>/)?.[1] ?? "";
   for (const token of ["flex", "min-h-11", "min-w-11", "items-center", "justify-center"]) assert.ok(trigger.split(/\s+/).includes(token), token);
 });
 

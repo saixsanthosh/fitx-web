@@ -553,6 +553,17 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
 /* Frosted bars; low-power devices get a solid bar instead (see data-fitx-lite below). */
 .fitx-glass { -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2); }
 
+/* A list that scrolls shows that it does: a soft shade at each edge with more items beyond it, and none when
+   everything fits. Two covers in the page colour scroll with the list and hide each shade at its own end (Lea
+   Verou's scrolling shadows; CSS only). Used by the sidebar's menu on short windows (bug 73). */
+.fitx-scroll-cue {
+  background:
+    linear-gradient(var(--fitx-bg) 40%, transparent) top / 100% 28px no-repeat local,
+    linear-gradient(transparent, var(--fitx-bg) 60%) bottom / 100% 28px no-repeat local,
+    linear-gradient(color-mix(in srgb, var(--fitx-text) 14%, transparent), transparent) top / 100% 10px no-repeat scroll,
+    linear-gradient(transparent, color-mix(in srgb, var(--fitx-text) 14%, transparent)) bottom / 100% 10px no-repeat scroll;
+}
+
 /* Unlayered like the rest of this file, so Tailwind utilities cannot override it: hide a skip link by
    wrapping it (e.g. <div className="md:hidden">), never with a class on the link. */
 .fitx-skip-link {
