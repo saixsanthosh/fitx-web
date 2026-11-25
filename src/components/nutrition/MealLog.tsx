@@ -4,6 +4,7 @@ import { MACRO_LABEL, sumKnown } from "@/lib/domain/nutrition";
 import { mealsStatusText, type DayLoad } from "@/lib/domain/nutrition-day";
 import { entryBasis, entryMissing, isEstimateSnapshot, sameMeal, type MealEntry } from "@/lib/food/client-data";
 import { removedText, type RemovedEntry } from "@/lib/food/meal-undo";
+import type { DayActionLabels } from "@/app/(dashboard)/nutrition/day-labels";
 import { BasisBadge, PortionEstimateBadge } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
 import diary from "./MealLog.module.css";
@@ -12,6 +13,8 @@ interface MealLogProps {
   /** This day's entries; empty until the day has loaded. */
   entries: MealEntry[];
   title: string;
+  /** The day buttons in the viewed day's words ("Copy yesterday" on today, "Copy the day before" on other days). */
+  labels: DayActionLabels;
   /** Whether this day's meals are in (another day's are never shown under this day's date). */
   state: DayLoad;
   busy: boolean;
@@ -42,7 +45,7 @@ export function isEstimateEntry(entry: MealEntry): boolean {
  * The day's diary: each meal with its total and a quiet add button, the entries as plain rows. Totals leave out
  * unknown values (they are never counted as 0 g) and say so.
  */
-export function MealLog({ entries, title, state, busy, templatesReady, sections, onEdit, onDelete, removed, onUndoRemove, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
+export function MealLog({ entries, title, labels, state, busy, templatesReady, sections, onEdit, onDelete, removed, onUndoRemove, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
   const unknown = sumKnown(entries).unknown;
   /** Removed foods whose meal is no longer listed (a member's own section whose last food went) show above the meals. */
   const orphans = removed.filter((item) => !sections.some((slot) => sameMeal(item.meal, slot)));
@@ -54,8 +57,9 @@ export function MealLog({ entries, title, state, busy, templatesReady, sections,
         {/* Focusable from script only: focus comes here when the control that had it leaves the day. */}
         <h2 id="meals-title" tabIndex={-1} className={diary.title}>Meals <span>{title}</span></h2>
         <div className={diary.tools}>
-          {entries.length > 0 && <button type="button" className={styles.textButton} disabled={busy} onClick={onCopyYesterday}><Copy size={13} className="mr-1 inline" aria-hidden="true"/>Copy yesterday</button>}
-          {templatesReady && entries.length > 0 && <button type="button" className={styles.textButton} disabled={busy} onClick={onSaveDay}><CalendarDays size={13} className="mr-1 inline" aria-hidden="true"/>Save today as a routine</button>}
+          {/* Unavailable while saving, not disabled, so the button pressed keeps the focus. */}
+          {entries.length > 0 && <button type="button" className={`${styles.textButton} ${styles.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) onCopyYesterday(); }}><Copy size={13} className="mr-1 inline" aria-hidden="true"/>{labels.copy}</button>}
+          {templatesReady && entries.length > 0 && <button type="button" className={`${styles.textButton} ${styles.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) onSaveDay(); }}><CalendarDays size={13} className="mr-1 inline" aria-hidden="true"/>{labels.saveDay}</button>}
           <button type="button" className={styles.textButton} onClick={onAddSection}><Plus size={13} className="mr-1 inline" aria-hidden="true"/>Add a meal</button>
         </div>
       </div>
@@ -70,7 +74,7 @@ export function MealLog({ entries, title, state, busy, templatesReady, sections,
           <p className={diary.emptyTitle}>Nothing logged yet</p>
           <div className={styles.toolbar}>
             <button type="button" className="fitx-button min-h-11 px-4 text-sm" onClick={onLogFood}><Plus size={15} aria-hidden="true"/>Log a food</button>
-            <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm" disabled={busy} onClick={onCopyYesterday}>Copy yesterday&apos;s meals</button>
+            <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-4 text-sm ${styles.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) onCopyYesterday(); }}>{labels.copyEmpty}</button>
           </div>
         </div>
       ) : (

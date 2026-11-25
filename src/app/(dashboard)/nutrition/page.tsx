@@ -56,7 +56,7 @@ import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
-import { nutritionDayLabels } from "./day-labels";
+import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
 
 type Profile = { age: number | null; gender: string | null; height: number | null; weight: number | null };
@@ -338,8 +338,10 @@ export default function NutritionPage() {
 
   function shiftDate(offset: number) {
     setDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + offset));
-    // Undo for a removed food lasts until the member moves on to another day.
+    // Undo for a removed food, and what the last action said, last until the member moves on to another day.
     setRemoved([]);
+    setNotice("");
+    setError("");
   }
 
   /**
@@ -896,20 +898,22 @@ export default function NutritionPage() {
     if (result.error) setError("That could not be deleted. Please try again."); else await load();
   }
 
+  /** Copies the meals of the day before the day viewed (yesterday, when that is today), naming that day in what it says. */
   async function copyYesterday() {
     const supabase = createClient();
     if (!supabase || !userId) return;
-    const yesterday = localDateKey(new Date(date.getFullYear(), date.getMonth(), date.getDate() - 1));
-    setBusy(true); setError("");
-    const { data, error: readError } = await supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", userId).eq("date", yesterday).order("created_at", { ascending: true });
-    if (readError) { setBusy(false); setError("Yesterday's meals could not be read. Please try again."); return; }
+    const previous = new Date(date.getFullYear(), date.getMonth(), date.getDate() - 1);
+    const says = copyDayMessages(previous, isToday);
+    setBusy(true); setError(""); setNotice("");
+    const { data, error: readError } = await supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", userId).eq("date", localDateKey(previous)).order("created_at", { ascending: true });
+    if (readError) { setBusy(false); setError(says.readFailed); return; }
     const rows = (data ?? []) as MealEntry[];
-    if (!rows.length) { setBusy(false); setNotice("Nothing was logged the day before."); return; }
-    if (entries.length && !window.confirm(`This day already has ${entries.length} ${entries.length === 1 ? "entry" : "entries"}. Add the day before's ${rows.length} too?`)) { setBusy(false); return; }
+    if (!rows.length) { setBusy(false); setNotice(says.nothing); return; }
+    if (entries.length && !window.confirm(says.confirm(entries.length, rows.length))) { setBusy(false); return; }
     const result = await insertEntries(supabase, rowsFromItems(userId, dateKey, rows, null));
     setBusy(false);
-    if (result.error) { setError("Yesterday's meals could not be copied. Please try again."); return; }
-    setNotice(`Copied ${rows.length} ${rows.length === 1 ? "food" : "foods"} from the day before.`);
+    if (result.error) { setError(says.copyFailed); return; }
+    setNotice(says.copied(rows.length));
     await load();
   }
 
@@ -985,6 +989,9 @@ export default function NutritionPage() {
   const showBrowse = searchMode === "browse";
   const tabs: Array<[Tab, string]> = [["meals", "Meals"], ["foods", "My foods"], ["routines", "Routines"], ["history", "History"]];
   const dayLabels = nutritionDayLabels(hydrated ? date : null);
+  /** Whether the day viewed is today: its buttons copy "yesterday" and save "today"; other days' copy "the day before". */
+  const isToday = hydrated && dateKey === localDateKey(new Date());
+  const actionLabels = dayActionLabels(isToday);
   const unsourced = lastSearch && searchMode !== "packaged" && !searchingFoods ? unsourcedFor(lastSearch, results) : null;
   /** A typed amount matched more than one food: the Add to log panel asks which one, and keeps the amount. */
   const choosing = !selected && Boolean(pickHint);
@@ -1069,7 +1076,7 @@ export default function NutritionPage() {
       {!logOpen && messages}
 
       <div className={styles.panel}>
-        {tab === "meals" && <MealLog entries={dayEntries} title={dayLabels.diary} state={dayState} busy={busy} templatesReady={capabilities.templates} sections={sections}
+        {tab === "meals" && <MealLog entries={dayEntries} title={dayLabels.diary} labels={actionLabels} state={dayState} busy={busy} templatesReady={capabilities.templates} sections={sections}
           onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} removed={removed.filter((item) => item.date === dateKey)} onUndoRemove={(item) => void undoRemove(item)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
           onAddSection={() => setNamePrompt({ kind: "section", then: "none" })}
           onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
