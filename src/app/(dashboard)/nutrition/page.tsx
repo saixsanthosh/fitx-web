@@ -219,6 +219,9 @@ export default function NutritionPage() {
       setError(message);
       setFailedKey(dateKey);
       setLoading(false);
+      // What a save meant to focus once the day was back: it isn't, so a later load must not move the focus for it.
+      pendingFocus.current = null;
+      focusIfLost.current = null;
     };
     setLoading(true);
     const supabase = createClient();
