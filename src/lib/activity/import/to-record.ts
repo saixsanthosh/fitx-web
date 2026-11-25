@@ -94,6 +94,17 @@ export function checkStartTime(parsed: Pick<ParsedImport, "startedAt">, now: num
   }
 }
 
+/**
+ * Why a file's points drew no route, truthfully: too few points in a row (one per stretch), every point too
+ * imprecise for the sport, or points too far apart to join (jumps, or long silences that moved).
+ */
+export function noRouteReason(parsed: Pick<ParsedImport, "segments">, engine: ActivityEngine): string {
+  if (!parsed.segments.some((segment) => segment.length > 1)) return "This file doesn’t have two GPS points in a row, so there’s no route to import.";
+  const stats = engine.snapshot(engine.endedAt ?? 0);
+  if (stats.fixCount > 0 && stats.rejectedAccuracyCount === stats.fixCount) return "None of this file’s points were precise enough to draw a route.";
+  return "This file’s points are too far apart to draw a route.";
+}
+
 export function buildImportRecord(
   parsed: ParsedImport,
   options: { sport: Sport; clientId: string; weightKg: unknown; importedAt: number; title?: string | null },
@@ -110,9 +121,7 @@ export function buildImportRecord(
   if (built.elapsedSeconds > 48 * 3600) throw new ImportError("too-long", "This activity is longer than 48 hours, the most FITX keeps for one activity.");
   if (built.distanceM > 1_000_000) throw new ImportError("too-far", "This activity is longer than 1,000 km, the most FITX keeps for one activity.");
   if (built.avgSpeedMps !== null && built.avgSpeedMps > 50) throw new ImportError("unsupported-sport", "This activity is faster than any sport FITX records.");
-  if (!engine.acceptedSegments.some((segment) => segment.length > 1)) {
-    throw new ImportError("no-points", "None of this file’s points were precise enough to draw a route.");
-  }
+  if (!engine.acceptedSegments.some((segment) => segment.length > 1)) throw new ImportError("no-points", noRouteReason(parsed, engine));
 
   const kcal = deviceKcal(parsed);
   const pointsDropped = parsed.endedAt < options.importedAt - POINTS_KEPT_DAYS * 86_400_000;

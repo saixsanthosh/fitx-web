@@ -64,6 +64,8 @@ export class ImportError extends Error {
 }
 
 export type ImportErrorCode =
+  /** Nothing in the file (0 bytes, or only spaces and line breaks). */
+  | "empty"
   | "too-large"
   | "unknown-format"
   | "damaged"
