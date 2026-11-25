@@ -29,6 +29,7 @@ import { TodayEmpty, TodayWorkout, type TodayWorkoutPlan } from "@/components/wo
 import { programmeById } from "@/data/programmes";
 import { programmeMeta } from "@/data/programmes/meta";
 import { createClient } from "@/lib/supabase/client";
+import { isUuidString } from "@/lib/security/body";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
 import { columnList, hasValuesIn, isMissingColumnError, isMissingFunctionError, isMissingRelationshipError, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { timedItemDay } from "@/lib/domain/todo";
@@ -307,7 +308,9 @@ export default function WorkoutsPage() {
     const uid = auth.data.user.id;
     const todayKey = localDateKey();
     // The dashboard links to /workouts?plan=<id>; that plan is fetched on its own in case it is not on the first page.
-    const linkedPlanId = new URLSearchParams(window.location.search).get("plan");
+    // A malformed id (a link cut short) names no plan: it is not sent to the database (bug 49's rule).
+    const requestedPlan = new URLSearchParams(window.location.search).get("plan");
+    const linkedPlanId = isUuidString(requestedPlan) ? requestedPlan : null;
     // A GET (one row at most) rather than HEAD: a HEAD error has no body, so a missing column could not be recognised.
     const planCountQuery = (onlyOwnPlans: boolean) => {
       const query = supabase.from("workout_plans").select("id", { count: "exact" }).eq("user_id", uid).in("status", PLAN_LIST_STATUSES);

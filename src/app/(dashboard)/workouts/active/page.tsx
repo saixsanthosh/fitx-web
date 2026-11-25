@@ -36,6 +36,7 @@ import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMN
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { readWithOptional, recordHref, stripStats } from "../history/_lib/session-record";
 import { formatHistorySet, lastTimeForSet, summariseLastTime } from "./_lib/last-time";
+import { SESSION_NOT_FOUND, sessionLinkFrom, type SessionLink } from "./_lib/session-link";
 import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId } from "./_lib/set-entry";
 import {
   adjustRest, describeNextStep, exerciseAfterTick, exerciseProgress, formatKg, formatRest, restRemaining, sessionProgress, setHeadline, setTarget, setsLeftLabel,
@@ -183,7 +184,10 @@ export default function ActiveWorkoutPage() {
     if (box instanceof HTMLInputElement && !box.disabled) { box.focus(); box.select(); }
   }, [focusBox]);
 
-  const load = useCallback(async (requested: string) => {
+  const load = useCallback(async (link: SessionLink) => {
+    // A malformed ?session= is a workout that cannot be found: no request is made for it.
+    if (link.kind === "invalid") { setLoading(false); setError(SESSION_NOT_FOUND); return; }
+    const requested = link.kind === "id" ? link.id : "";
     const supabase = createClient();
     if (!supabase) { setLoading(false); setError("FITX is not connected to Supabase."); return; }
     const { data: auth } = await supabase.auth.getUser();
@@ -205,7 +209,7 @@ export default function ActiveWorkoutPage() {
       supabase.from("workout_sessions").select(columnList(SESSION_COLUMNS, SESSION_PAUSE_COLUMNS, include)).eq("id", id).eq("user_id", uid).maybeSingle());
     if (sessionQuery.result.error) { setLoading(false); setError("This workout session could not be loaded. Check your connection and try again."); return; }
     const sessionRow = sessionQuery.result.data as unknown as Session | null;
-    if (!sessionRow) { setLoading(false); setError("This workout session could not be found."); return; }
+    if (!sessionRow) { setLoading(false); setError(SESSION_NOT_FOUND); return; }
     // A finished or abandoned session is a record now: open it there.
     if (sessionRow.status !== "in_progress") { setRedirecting(true); routerRef.current.replace(recordHref(sessionRow.id)); return; }
     const supportsDurablePause = sessionQuery.includedOptional;
@@ -258,7 +262,7 @@ export default function ActiveWorkoutPage() {
     setLoading(false); setError("");
   }, []);
 
-  useEffect(() => { const id = new URLSearchParams(window.location.search).get("session") || ""; void Promise.resolve().then(() => load(id)); }, [load]);
+  useEffect(() => { const link = sessionLinkFrom(window.location.search); void Promise.resolve().then(() => load(link)); }, [load]);
   useEffect(() => {
     const timer = window.setInterval(() => {
       const current = Date.now();
