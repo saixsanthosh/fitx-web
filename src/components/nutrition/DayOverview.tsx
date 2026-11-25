@@ -1,11 +1,9 @@
 import Link from "next/link";
 import { Droplets, SlidersHorizontal } from "lucide-react";
-import { calorieBalance, goalPercent, goalProgress, MACRO_LABEL, type DayTargets, type KnownTotals } from "@/lib/domain/nutrition";
-import { dayStatusText, type DayLoad } from "@/lib/domain/nutrition-day";
+import type { DayTargets, KnownTotals } from "@/lib/domain/nutrition";
+import { overviewView, type DayLoad, type OverviewLine } from "@/lib/domain/nutrition-day";
 import { SegmentRing } from "./SegmentRing";
 import styles from "./DayOverview.module.css";
-
-const MACROS = [["protein", "Protein"], ["carbs", "Carbs"], ["fat", "Fat"]] as const;
 
 export interface DayOverviewProps {
   /** The section's accessible name ("Nutrition summary for …") and its heading ("Today"). */
@@ -26,143 +24,74 @@ export interface DayOverviewProps {
 /**
  * The top of Nutrition: calories and protein against the day's targets, large, with what is left; carbs and fat
  * small beneath; then water. Nothing unknown is shown as 0: totals leave out entries with no value and say how
- * many, with no target there is no "left", and while the day is loading (or failed to load) there are no figures.
+ * many, with no target there is no "left", and while the day is loading (or failed to load) there are no figures
+ * (overviewView). One structure for every state: the Targets and water buttons are the same elements before and
+ * after the day loads, so one that has the focus keeps it when the figures come in.
  */
-export function DayOverview(props: DayOverviewProps) {
-  const { summaryLabel, heading, state } = props;
-  if (state !== "ready") {
-    const status = dayStatusText(state);
-    return (
-      <section className={styles.overview} aria-label={summaryLabel} aria-busy={state === "loading" || undefined}>
-        <div className={styles.head}>
-          <div className="min-w-0"><h2 className={styles.heading}>{heading}</h2></div>
-          {/* Marked unavailable, not removed or disabled: the targets aren't known yet, and focus is never lost. */}
-          <button type="button" aria-disabled="true" className={styles.targets}><SlidersHorizontal size={14} aria-hidden="true"/>Targets</button>
-        </div>
-        <div className={styles.hero}>
-          <div className={styles.meter} data-tone="energy">
-            <div role="img" aria-label={`Calories: ${status}`} className={styles.ring}>
-              <SegmentRing size="lg" segments={[{ percent: 0, tone: "energy" }]}>
-                <strong className={styles.ringNumber}>–</strong>
-                <span className={styles.ringUnit}>kcal</span>
-              </SegmentRing>
-            </div>
-            <p role="status" className={styles.noTarget}>{status}</p>
-          </div>
-          <div className={styles.meter} data-tone="protein">
-            <div role="img" aria-label={`Protein: ${status}`} className={styles.ring}>
-              <SegmentRing size="lg" segments={[{ percent: 0, tone: "protein" }]}>
-                <strong className={styles.ringNumber}>–</strong>
-                <span className={styles.ringUnit}>protein</span>
-              </SegmentRing>
-            </div>
-          </div>
-        </div>
-        <ul className={styles.macros} aria-label="Carbs and fat">
-          {MACROS.filter(([key]) => key !== "protein").map(([key, label]) => (
-            <li key={key} className={styles.macro} data-macro={key}>
-              <div className={styles.macroTop}>
-                <span className={styles.macroName}><i aria-hidden="true"/>{label}</span>
-                <span className={styles.macroValue}><strong>–</strong></span>
-              </div>
-              <div className={styles.track} aria-hidden="true"/>
-            </li>
-          ))}
-        </ul>
-        <div className={styles.water}>
-          <Droplets size={16} aria-hidden="true" className={styles.waterIcon}/>
-          <div className={styles.waterMain}><p className={styles.waterText}><strong>–</strong> water</p></div>
-          <div className={styles.waterButtons}>
-            {/* Water is added once the day's total is known, so a total read before the tap can't undo it. */}
-            {[250, 500].map((ml) => <button key={ml} type="button" aria-disabled="true" className={styles.waterButton}>+{ml} ml</button>)}
-          </div>
-        </div>
-      </section>
-    );
-  }
-  return <LoadedOverview {...props}/>;
-}
-
-function LoadedOverview({ summaryLabel, heading, totals, target, targetSource, hasOwnTargets, estimateCount, onTargets, water }: DayOverviewProps) {
-  const eaten = Math.round(totals.calories);
-  const goal = target?.calories ?? null;
-  const progress = goal ? goalProgress(totals.calories, goal) : null;
-  const balance = calorieBalance(totals.calories, goal);
-  const ringLabel = `${eaten} calories logged${goal ? ` of ${goal} calorie target` : ""}${balance ? `, ${balance.remaining} ${balance.over ? "over" : "left"}` : ""}`;
-  const protein = Math.round(totals.protein);
-  const proteinGoal = target?.protein ?? null;
-  const proteinProgress = proteinGoal ? goalProgress(totals.protein, proteinGoal) : null;
-  const proteinLeft = proteinGoal ? Math.round(proteinGoal) - protein : null;
-  const proteinLabel = `${protein} grams of protein logged${proteinGoal ? ` of ${proteinGoal} gram target` : ""}${totals.unknown.protein ? `, ${totals.unknown.protein} without protein` : ""}`;
+export function DayOverview({ summaryLabel, heading, state, totals, target, targetSource, hasOwnTargets, estimateCount, onTargets, water }: DayOverviewProps) {
+  const view = overviewView({ state, totals, target, targetSource, hasOwnTargets, estimateCount, water: { ml: water.ml, target: water.target } });
+  const line = (shown: OverviewLine, overTone: boolean) => (shown.kind === "amount"
+    ? <p className={overTone && shown.over ? `${styles.left} ${styles.over}` : styles.left}><strong>{shown.amount}</strong> <span>{shown.text}</span></p>
+    : <p role={view.status ? "status" : undefined} className={styles.noTarget}>{shown.text}</p>);
   return (
-    <section className={styles.overview} aria-label={summaryLabel}>
+    <section className={styles.overview} aria-label={summaryLabel} aria-busy={view.busy || undefined}>
       <div className={styles.head}>
         <div className="min-w-0">
           <h2 className={styles.heading}>{heading}</h2>
-          {target && <p className={styles.source}>{targetSource}</p>}
+          {view.source && <p className={styles.source}>{view.source}</p>}
         </div>
-        <button type="button" onClick={onTargets} className={styles.targets}><SlidersHorizontal size={14} aria-hidden="true"/>{hasOwnTargets ? "Your targets" : "Edit targets"}</button>
+        {/* Marked unavailable while the day loads (its targets aren't known yet), never removed or disabled: focus stays on it. */}
+        <button type="button" aria-disabled={view.targets.acts ? undefined : true} onClick={view.targets.acts ? onTargets : undefined} className={styles.targets}><SlidersHorizontal size={14} aria-hidden="true"/>{view.targets.label}</button>
       </div>
 
       <div className={styles.hero}>
         <div className={styles.meter} data-tone="energy">
-          <div role="img" aria-label={ringLabel} className={styles.ring}>
-            <SegmentRing size="lg" segments={[{ percent: progress?.percent ?? 0, tone: progress?.isOver ? "over" : "energy" }]}>
-              <strong className={styles.ringNumber}>{eaten.toLocaleString("en-GB")}</strong>
-              <span className={styles.ringUnit}>{goal ? `/ ${goal.toLocaleString("en-GB")} kcal` : "kcal eaten"}</span>
+          <div role="img" aria-label={view.energy.label} className={styles.ring}>
+            <SegmentRing size="lg" segments={[{ percent: view.energy.percent, tone: view.energy.over ? "over" : "energy" }]}>
+              <strong className={styles.ringNumber}>{view.energy.number}</strong>
+              <span className={styles.ringUnit}>{view.energy.unit}</span>
             </SegmentRing>
           </div>
-          {balance
-            ? <p className={`${styles.left} ${balance.over ? styles.over : ""}`}><strong>{balance.remaining.toLocaleString("en-GB")}</strong> <span>kcal {balance.over ? "over your target" : "left"}</span></p>
-            : <p className={styles.noTarget}>Set a target to see what&apos;s left.</p>}
+          {line(view.energy.line, true)}
         </div>
         <div className={styles.meter} data-tone="protein">
-          <div role="img" aria-label={proteinLabel} className={styles.ring}>
-            <SegmentRing size="lg" segments={[{ percent: proteinProgress?.percent ?? 0, tone: "protein" }]}>
-              <strong className={styles.ringNumber}>{protein}<small>g</small></strong>
-              <span className={styles.ringUnit}>{proteinGoal ? `/ ${proteinGoal} g protein` : "protein"}</span>
+          <div role="img" aria-label={view.protein.label} className={styles.ring}>
+            <SegmentRing size="lg" segments={[{ percent: view.protein.percent, tone: "protein" }]}>
+              <strong className={styles.ringNumber}>{view.protein.number}{view.protein.grams && <small>g</small>}</strong>
+              <span className={styles.ringUnit}>{view.protein.unit}</span>
             </SegmentRing>
           </div>
-          {proteinLeft !== null
-            ? <p className={styles.left}><strong>{Math.abs(proteinLeft)}</strong> <span>g protein {proteinLeft < 0 ? "over" : "left"}</span></p>
-            : <p className={styles.noTarget}>No protein target yet.</p>}
+          {view.protein.line && line(view.protein.line, false)}
         </div>
       </div>
 
       <ul className={styles.macros} aria-label="Carbs and fat">
-        {MACROS.filter(([key]) => key !== "protein").map(([key, label]) => {
-          const value = Math.round(totals[key]);
-          const macroGoal = target?.[key] ?? null;
-          const macro = macroGoal ? goalProgress(totals[key], macroGoal) : null;
-          return (
-            <li key={key} className={styles.macro} data-macro={key}>
-              <div className={styles.macroTop}>
-                <span className={styles.macroName}><i aria-hidden="true"/>{label}</span>
-                <span className={styles.macroValue}><strong>{value}</strong>{macroGoal ? ` / ${macroGoal} g` : " g"}</span>
-              </div>
-              {macro && macroGoal
-                ? <div className={`${styles.track} ${macro.isOver ? styles.trackOver : ""}`} role="progressbar" aria-label={`${label} against target`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={macro.percent}><span style={{ transform: `scaleX(${macro.percent / 100})` }}/></div>
-                : <div className={styles.track} aria-hidden="true"/>}
-            </li>
-          );
-        })}
+        {view.macros.map((macro) => (
+          <li key={macro.key} className={styles.macro} data-macro={macro.key}>
+            <div className={styles.macroTop}>
+              <span className={styles.macroName}><i aria-hidden="true"/>{macro.name}</span>
+              <span className={styles.macroValue}><strong>{macro.value}</strong>{macro.goal}</span>
+            </div>
+            {macro.progress
+              ? <div className={`${styles.track} ${macro.progress.over ? styles.trackOver : ""}`} role="progressbar" aria-label={macro.progress.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={macro.progress.percent}><span style={{ transform: `scaleX(${macro.progress.percent / 100})` }}/></div>
+              : <div className={styles.track} aria-hidden="true"/>}
+          </li>
+        ))}
       </ul>
-      {(estimateCount > 0 || totals.unknown.protein + totals.unknown.carbs + totals.unknown.fat > 0) && <p className={styles.fine}>
-        {estimateCount > 0 ? `Includes ${estimateCount} ${estimateCount === 1 ? "estimate" : "estimates"}. ` : ""}
-        {MACROS.filter(([key]) => totals.unknown[key] > 0).map(([key]) => `${totals.unknown[key]} without ${MACRO_LABEL[key]}`).join(", ")}
-      </p>}
+      {view.fine && <p className={styles.fine}>{view.fine}</p>}
 
       <div className={styles.water}>
         <Droplets size={16} aria-hidden="true" className={styles.waterIcon}/>
         <div className={styles.waterMain}>
-          <p className={styles.waterText}><strong>{(water.ml / 1000).toFixed(1)} L</strong> water{water.target ? <span> / {(water.target / 1000).toFixed(1)} L</span> : null}</p>
-          {water.target
-            ? <div className={styles.waterTrack} role="progressbar" aria-label="Water against target" aria-valuemin={0} aria-valuemax={100} aria-valuenow={goalPercent(water.ml, water.target)}><span style={{ transform: `scaleX(${goalPercent(water.ml, water.target) / 100})` }}/></div>
-            : <Link href={water.goalHref} className={styles.waterGoal}>Set a water goal</Link>}
+          <p className={styles.waterText}><strong>{view.water.amount}</strong> water{view.water.target ? <span>{view.water.target}</span> : null}</p>
+          {view.water.percent !== null
+            ? <div className={styles.waterTrack} role="progressbar" aria-label="Water against target" aria-valuemin={0} aria-valuemax={100} aria-valuenow={view.water.percent}><span style={{ transform: `scaleX(${view.water.percent / 100})` }}/></div>
+            : view.water.goalLink ? <Link href={water.goalHref} className={styles.waterGoal}>Set a water goal</Link> : null}
         </div>
         <div className={styles.waterButtons}>
-          {/* While a tap is being saved the buttons are marked unavailable (not disabled), so the one pressed keeps the focus. */}
-          {[250, 500].map((ml) => <button key={ml} type="button" aria-disabled={water.busy || undefined} onClick={() => { if (!water.busy) water.onAdd(ml); }} className={styles.waterButton}>+{ml} ml</button>)}
+          {/* Water is added once the day's total is known (a total read before the tap can't undo it), and while a tap is
+              being saved the buttons are marked unavailable, not disabled: the one with the focus keeps it. */}
+          {[250, 500].map((ml) => <button key={ml} type="button" aria-disabled={!view.water.acts || water.busy || undefined} onClick={() => { if (view.water.acts && !water.busy) water.onAdd(ml); }} className={styles.waterButton}>+{ml} ml</button>)}
         </div>
       </div>
     </section>

@@ -3,6 +3,7 @@
  * shows a loading (or failed) state: never "0 kcal eaten", "no target" or another day's figures under this day's date.
  * Pure, so `node --test` can check it.
  */
+import { calorieBalance, goalPercent, goalProgress, MACRO_KEYS, MACRO_LABEL, type DayTargets, type KnownTotals } from "@/lib/domain/nutrition";
 
 export type DayLoad = "loading" | "ready" | "failed";
 
@@ -24,4 +25,115 @@ export function dayStatusText(state: Exclude<DayLoad, "ready">): string {
 /** The meal list's line while the day's meals are not there. */
 export function mealsStatusText(state: Exclude<DayLoad, "ready">): string {
   return state === "loading" ? "Loading meals…" : "This day's meals couldn't be loaded. Reload the page to try again.";
+}
+
+/** The line under a ring: how much is left (or over), or a note (no target yet, or the day's status). */
+export type OverviewLine = { kind: "amount"; amount: string; text: string; over: boolean } | { kind: "note"; text: string };
+
+/** What the day's overview shows, in one shape for every state, so its buttons are the same elements before and after. */
+export interface OverviewView {
+  /** aria-busy: the day is loading. */
+  busy: boolean;
+  /** "Loading this day…" or "This day couldn't be loaded." until the day is in, else null. */
+  status: string | null;
+  /** The targets button: "Targets" doing nothing until the day is in, then "Your targets" or "Edit targets". */
+  targets: { label: string; acts: boolean };
+  /** Where the targets come from, under the heading. */
+  source: string | null;
+  energy: { label: string; percent: number; over: boolean; number: string; unit: string; line: OverviewLine };
+  protein: { label: string; percent: number; number: string; grams: boolean; unit: string; line: OverviewLine | null };
+  macros: Array<{ key: "carbs" | "fat"; name: string; value: string; goal: string; progress: { percent: number; over: boolean; label: string } | null }>;
+  /** The fine print: estimates included, and entries left out for lack of a value. */
+  fine: string | null;
+  /** Water: the amount and target, its progress, the goal link when there is no target, and whether + adds water. */
+  water: { amount: string; target: string | null; percent: number | null; goalLink: boolean; acts: boolean };
+}
+
+export interface OverviewInput {
+  state: DayLoad;
+  totals: KnownTotals;
+  target: DayTargets | null;
+  targetSource: string;
+  hasOwnTargets: boolean;
+  estimateCount: number;
+  water: { ml: number; target: number | null };
+}
+
+const SMALL_MACROS = [["carbs", "Carbs"], ["fat", "Fat"]] as const;
+
+/**
+ * The overview's words and figures. Until the day asked for is in (loading, or failed), every figure is a dash, there
+ * is no "no target", and neither the targets nor the water buttons act: never 0 kcal or another day's figures.
+ */
+export function overviewView(input: OverviewInput): OverviewView {
+  const { state, totals, target, targetSource, hasOwnTargets, estimateCount, water } = input;
+  if (state !== "ready") {
+    const status = dayStatusText(state);
+    return {
+      busy: state === "loading",
+      status,
+      targets: { label: "Targets", acts: false },
+      source: null,
+      energy: { label: `Calories: ${status}`, percent: 0, over: false, number: "–", unit: "kcal", line: { kind: "note", text: status } },
+      protein: { label: `Protein: ${status}`, percent: 0, number: "–", grams: false, unit: "protein", line: null },
+      macros: SMALL_MACROS.map(([key, name]) => ({ key, name, value: "–", goal: "", progress: null })),
+      fine: null,
+      water: { amount: "–", target: null, percent: null, goalLink: false, acts: false },
+    };
+  }
+  const eaten = Math.round(totals.calories);
+  const goal = target?.calories ?? null;
+  const progress = goal ? goalProgress(totals.calories, goal) : null;
+  const balance = calorieBalance(totals.calories, goal);
+  const protein = Math.round(totals.protein);
+  const proteinGoal = target?.protein ?? null;
+  const proteinProgress = proteinGoal ? goalProgress(totals.protein, proteinGoal) : null;
+  const proteinLeft = proteinGoal ? Math.round(proteinGoal) - protein : null;
+  const unknown = MACRO_KEYS.filter((key) => totals.unknown[key] > 0);
+  return {
+    busy: false,
+    status: null,
+    targets: { label: hasOwnTargets ? "Your targets" : "Edit targets", acts: true },
+    source: target ? targetSource : null,
+    energy: {
+      label: `${eaten} calories logged${goal ? ` of ${goal} calorie target` : ""}${balance ? `, ${balance.remaining} ${balance.over ? "over" : "left"}` : ""}`,
+      percent: progress?.percent ?? 0,
+      over: progress?.isOver ?? false,
+      number: eaten.toLocaleString("en-GB"),
+      unit: goal ? `/ ${goal.toLocaleString("en-GB")} kcal` : "kcal eaten",
+      line: balance
+        ? { kind: "amount", amount: balance.remaining.toLocaleString("en-GB"), text: `kcal ${balance.over ? "over your target" : "left"}`, over: balance.over }
+        : { kind: "note", text: "Set a target to see what's left." },
+    },
+    protein: {
+      label: `${protein} grams of protein logged${proteinGoal ? ` of ${proteinGoal} gram target` : ""}${totals.unknown.protein ? `, ${totals.unknown.protein} without protein` : ""}`,
+      percent: proteinProgress?.percent ?? 0,
+      number: String(protein),
+      grams: true,
+      unit: proteinGoal ? `/ ${proteinGoal} g protein` : "protein",
+      line: proteinLeft !== null
+        ? { kind: "amount", amount: String(Math.abs(proteinLeft)), text: `g protein ${proteinLeft < 0 ? "over" : "left"}`, over: false }
+        : { kind: "note", text: "No protein target yet." },
+    },
+    macros: SMALL_MACROS.map(([key, name]) => {
+      const macroGoal = target?.[key] ?? null;
+      const macro = macroGoal ? goalProgress(totals[key], macroGoal) : null;
+      return {
+        key, name,
+        value: String(Math.round(totals[key])),
+        goal: macroGoal ? ` / ${macroGoal} g` : " g",
+        progress: macro ? { percent: macro.percent, over: macro.isOver, label: `${name} against target` } : null,
+      };
+    }),
+    fine: estimateCount > 0 || unknown.length > 0
+      ? `${estimateCount > 0 ? `Includes ${estimateCount} ${estimateCount === 1 ? "estimate" : "estimates"}. ` : ""}${unknown.map((key) => `${totals.unknown[key]} without ${MACRO_LABEL[key]}`).join(", ")}`
+      : null,
+    water: {
+      amount: `${(water.ml / 1000).toFixed(1)} L`,
+      target: water.target ? ` / ${(water.target / 1000).toFixed(1)} L` : null,
+      percent: water.target ? goalPercent(water.ml, water.target) : null,
+      goalLink: !water.target,
+      acts: true,
+    },
+  };
 }
