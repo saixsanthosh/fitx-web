@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
+import { returnFocusTarget } from "./sheet-focus";
 import styles from "./Sheet.module.css";
 
 type SheetProps = {
@@ -16,16 +17,23 @@ type SheetProps = {
   /** Phones always get a bottom sheet. From 768 px: a side panel ("auto", default) or a centred dialog. */
   side?: "auto" | "center";
   className?: string;
+  /**
+   * The control focus returns to when the sheet closes, when that is not simply the element that had focus as it
+   * opened (for example a button that was busy, and so lost focus, while the sheet got ready). Optional.
+   */
+  returnFocus?: RefObject<HTMLElement | null>;
 };
 
 /**
  * A modal sheet on the native <dialog>: focus moves in and stays in, the page behind is inert, Escape
- * and a tap on the backdrop close it, and focus returns to whatever opened it. The content mounts only
- * while open.
+ * and a tap on the backdrop close it, and focus returns to whatever opened it (or to `returnFocus`).
+ * The content mounts only while open.
  */
-export function Sheet({ open, onClose, title, description, children, footer, side = "auto", className = "" }: SheetProps) {
+export function Sheet({ open, onClose, title, description, children, footer, side = "auto", className = "", returnFocus }: SheetProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const named = useRef(returnFocus);
+  useEffect(() => { named.current = returnFocus; });
   const titleId = `${useId()}-sheet-title`;
 
   useLayoutEffect(() => {
@@ -37,7 +45,7 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
     }
     if (!open && dialog.open) {
       dialog.close();
-      if (opener.current?.isConnected) opener.current.focus();
+      returnFocusTarget(named.current?.current, opener.current, document.body)?.focus();
     }
   }, [open]);
 
@@ -46,7 +54,7 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
     const dialog = ref.current;
     return () => {
       if (dialog?.open) dialog.close();
-      if (opener.current?.isConnected) opener.current.focus();
+      returnFocusTarget(named.current?.current, opener.current, document.body)?.focus();
     };
   }, []);
 

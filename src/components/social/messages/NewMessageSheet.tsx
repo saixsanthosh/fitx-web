@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { SendHorizontal, X } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import type { Db, FollowState, SocialAuthor } from "@/lib/social";
@@ -21,6 +21,8 @@ type Props = {
   initial?: SocialAuthor | null;
   /** Whether the member follows `initial` (from its profile), so a refusal can say what they can do; null if not known. */
   following?: FollowState | null;
+  /** The button that opened the sheet, for focus to return to on close (Sheet's `returnFocus`). */
+  returnFocus?: RefObject<HTMLElement | null>;
 };
 
 /**
@@ -28,7 +30,7 @@ type Props = {
  * Requests, is the other member's setting, which the sheet cannot see: it says so before sending and, when the message
  * is not taken, says what the member can do (without the other member's age or settings).
  */
-export function NewMessageSheet({ db, userId, open, onClose, initial = null, following = null }: Props) {
+export function NewMessageSheet({ db, userId, open, onClose, initial = null, following = null, returnFocus }: Props) {
   const router = useRouter();
   const [to, setTo] = useState<SocialAuthor | null>(initial);
   const [shownInitial, setShownInitial] = useState(initial);
@@ -60,7 +62,7 @@ export function NewMessageSheet({ db, userId, open, onClose, initial = null, fol
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="New message">
+    <Sheet open={open} onClose={onClose} title="New message" returnFocus={returnFocus}>
       <div className="flex flex-col gap-4">
         {to ? (
           <div className={styles.person}>

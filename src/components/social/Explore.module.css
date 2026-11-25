@@ -136,6 +136,8 @@
 }
 .smallButton:hover { background: var(--fitx-primary-bright); }
 .smallButton:disabled { opacity: .55; }
+/* Busy: aria-disabled keeps the button focusable (a disabled one drops keyboard focus to the page); drawn as waiting. */
+.smallButton[aria-disabled="true"] { opacity: .55; cursor: progress; }
 .smallButton:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .smallButtonQuiet { border-color: var(--fitx-border); background: var(--fitx-surface-variant); color: var(--fitx-text); }
 .smallButtonQuiet:hover { border-color: var(--fitx-text-disabled); background: var(--fitx-surface-variant); }
