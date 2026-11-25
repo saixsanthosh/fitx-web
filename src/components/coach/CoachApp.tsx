@@ -128,7 +128,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       failure.code === "quota"
         ? `${failure.message}${when ? ` The next one is back at ${when}.` : ""}`
         : failure.code === "at_capacity"
-          ? `${failure.message} Nothing was used from your limit.${when ? ` Try again after ${when}.` : " Try again in a few minutes."}`
+          ? `${failure.message} Nothing was used from your limit.${when ? ` Try again after ${when}.` : " Please try again."}`
           : failure.message;
     setProblem({ message, retryAt: failure.retryAt });
   }

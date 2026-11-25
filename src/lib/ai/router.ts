@@ -13,6 +13,7 @@ import type { AiRequest, AiTextResult, AiUsage, AttemptLog, ProviderId, Unavaila
  * For each task it tries the configured free models in order (registry.ts) and moves on after a
  * 429, a 5xx, a timeout, a refusal, or an answer that is not valid JSON for a structured task. When
  * nothing answers it throws AiUnavailableError, and the page says so; it never makes up a reply.
+ * What a failure means for later requests (other tasks, other members) is cooldown.ts's failureReach.
  */
 
 export class AiUnavailableError extends Error {
@@ -94,16 +95,20 @@ export function createAiRouter(deps: RouterDeps) {
     deadlineMs: number,
     attempt: (adapter: ProviderAdapter, candidate: Candidate, attemptSignal: AbortSignal, budgetMs: number) => Promise<T>,
   ): Promise<{ result: T; candidate: Candidate; attempts: AttemptLog[] }> {
-    const candidates = plan(request.task, request.personalData, request.consentVersion);
+    const task = request.task;
+    const candidates = tryOrder(plan(task, request.personalData, request.consentVersion), (candidate) => cooldowns.deprioritised(candidate.provider, candidate.model, task, now()));
     const attempts: AttemptLog[] = [];
     const deadline = now() + deadlineMs;
     let refusals = 0;
+    let unusable = 0;
+    let skipped = 0;
     let tried = 0;
 
     for (const candidate of candidates) {
       if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-      if (cooldowns.blockedUntil(candidate.provider, candidate.model, now())) {
+      if (cooldowns.blockedUntil(candidate.provider, candidate.model, now(), task)) {
         attempts.push({ ...candidate, outcome: "skipped", ms: 0 });
+        skipped += 1;
         continue;
       }
       const budget = deadline - now();
@@ -112,27 +117,31 @@ export function createAiRouter(deps: RouterDeps) {
       tried += 1;
       try {
         const result = await attempt(adapters[candidate.provider]!, candidate, combine(signal, budget), budget);
-        cooldowns.success(candidate.provider, candidate.model);
+        cooldowns.success(candidate.provider, candidate.model, task);
         attempts.push({ ...candidate, outcome: "ok", ms: now() - started });
-        log({ task: request.task, attempts, ok: true });
+        log({ task, attempts, ok: true });
         return { result, candidate, attempts };
       } catch (error) {
         if (signal?.aborted) throw signal.reason ?? error;
         const failure = toProviderError(error);
         attempts.push({ ...candidate, outcome: failure.kind, ms: now() - started, ...(failure.status ? { status: failure.status } : {}) });
         if (failure.kind === "refused") refusals += 1;
+        if (failure.kind === "invalid_response" || failure.kind === "bad_request") unusable += 1;
         cooldowns.failure(candidate.provider, candidate.model, {
           now: now(),
+          task,
+          kind: failure.kind,
           retryAfterMs: failure.retryAfterMs,
           providerWide: failure.providerWide,
-          rateLimited: failure.kind === "rate_limited",
         });
       }
     }
 
-    log({ task: request.task, attempts, ok: false });
+    log({ task, attempts, ok: false });
     if (tried > 0 && refusals === tried) throw new AiUnavailableError("refused", attempts);
-    const waits = candidates.map((candidate) => cooldowns.blockedUntil(candidate.provider, candidate.model, now())).filter((until) => until > 0);
+    // Every model answered, but nothing it sent passed FITX's checks: not "busy", and trying again needs no wait.
+    if (tried > 0 && !skipped && unusable === tried) throw new AiUnavailableError("unusable", attempts);
+    const waits = candidates.map((candidate) => cooldowns.blockedUntil(candidate.provider, candidate.model, now(), task)).filter((until) => until > 0);
     throw new AiUnavailableError("at_capacity", attempts, waits.length ? Math.min(...waits) : now() + DEFAULT_RETRY_MS);
   }
 
@@ -193,6 +202,15 @@ export function createAiRouter(deps: RouterDeps) {
 }
 
 export type AiRouter = ReturnType<typeof createAiRouter>;
+
+/**
+ * The order to try models in: the registry's order, except that a model whose last answer for this task failed
+ * FITX's checks goes after the others (it is still tried, so it never blocks the task when it is the only one).
+ */
+export function tryOrder<T>(candidates: readonly T[], retryLater: (candidate: T) => boolean): T[] {
+  const later = candidates.filter(retryLater);
+  return later.length ? [...candidates.filter((candidate) => !later.includes(candidate)), ...later] : [...candidates];
+}
 
 /** Reads a JSON object from a model reply, tolerating ```json fences or a sentence around it. */
 export function parseJsonText(text: string): unknown {

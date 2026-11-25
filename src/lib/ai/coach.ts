@@ -758,6 +758,8 @@ export function toCoachError(error: unknown): CoachError {
       );
     }
     if (error.reason === "refused") return new CoachError("refused", "The AI services declined to answer that. Try asking in a different way.");
+    // Nothing to wait for: the next try goes to another model first (cooldown.ts), or to the same one again.
+    if (error.reason === "unusable") return new CoachError("at_capacity", "The free AI services FITX uses answered, but their answers didn't pass FITX's checks.");
     return new CoachError("at_capacity", "The free AI services FITX uses are busy or not answering right now.", retryAt);
   }
   if (error instanceof store.CoachStoreError) {
