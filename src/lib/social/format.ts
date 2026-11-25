@@ -28,7 +28,18 @@ export function compactCount(value: number): string {
 }
 
 export function plural(count: number, one: string, many: string = `${one}s`): string {
-  return `${compactCount(count)} ${count === 1 ? one : many}`;
+  return countParts(count, one, many).name;
+}
+
+/**
+ * A count as it is shown and as it is spoken, from one place, so a screen reader and speech control hear exactly what
+ * is on screen: `value` and `unit` are drawn ("12.4k", "followers") and `name` is the control's name ("12.4k followers").
+ * One is singular: "1 follower".
+ */
+export function countParts(count: number, one: string, many: string = `${one}s`): { value: string; unit: string; name: string } {
+  const value = compactCount(count);
+  const unit = count === 1 ? one : many;
+  return { value, unit, name: `${value} ${unit}` };
 }
 
 /** What a suspended member reads: until when (in their own time zone), or until FITX lifts it. */

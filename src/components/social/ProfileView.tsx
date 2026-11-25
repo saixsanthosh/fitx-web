@@ -6,7 +6,7 @@ import { Camera, Flag, ImagePlus, Lock, MoreHorizontal, Settings2, ShieldOff, Us
 import { toast } from "sonner";
 import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
-import { compactCount, nextCursor, socialApi, toSocialError, type Cursor, type FollowListEntry, type ProfilePage, type SocialPost } from "@/lib/social";
+import { countParts, nextCursor, socialApi, toSocialError, type Cursor, type FollowListEntry, type ProfilePage, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
@@ -38,6 +38,9 @@ export function ProfileView({ username }: { username: string }) {
 
 function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () => Promise<void> }) {
   const { profile, counts, relation } = page;
+  const postCount = countParts(counts.posts, "post");
+  const followerCount = countParts(counts.followers, "follower");
+  const followingCount = countParts(counts.following, "following", "following");
   const ProfileActions = PROFILE_ACTIONS;
   const [menu, setMenu] = useState(false);
   const [confirm, setConfirm] = useState<"block" | "remove" | null>(null);
@@ -73,12 +76,13 @@ function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () =
               {relation.follows_you && !relation.is_self && <span className={`${styles.restrictedTag} ml-2`}>Follows you</span>}
             </p>
             <div className={styles.counts}>
-              <span className={styles.countButton}><span className={styles.countValue}>{compactCount(counts.posts)}</span><span className={styles.countLabel}>{counts.posts === 1 ? "post" : "posts"}</span></span>
-              <button type="button" className={styles.countButton} disabled={!page.can_see_posts} onClick={() => setList("followers")} aria-label={`${counts.followers} followers`}>
-                <span className={styles.countValue}>{compactCount(counts.followers)}</span><span className={styles.countLabel}>{counts.followers === 1 ? "follower" : "followers"}</span>
+              {/* Each count's name is built from the same parts it draws ("1 follower"), never a separate string. */}
+              <span className={styles.countButton}><span className={styles.countValue}>{postCount.value}</span><span className={styles.countLabel}>{postCount.unit}</span></span>
+              <button type="button" className={styles.countButton} disabled={!page.can_see_posts} onClick={() => setList("followers")} aria-label={followerCount.name}>
+                <span className={styles.countValue}>{followerCount.value}</span><span className={styles.countLabel}>{followerCount.unit}</span>
               </button>
-              <button type="button" className={styles.countButton} disabled={!page.can_see_posts} onClick={() => setList("following")} aria-label={`${counts.following} following`}>
-                <span className={styles.countValue}>{compactCount(counts.following)}</span><span className={styles.countLabel}>following</span>
+              <button type="button" className={styles.countButton} disabled={!page.can_see_posts} onClick={() => setList("following")} aria-label={followingCount.name}>
+                <span className={styles.countValue}>{followingCount.value}</span><span className={styles.countLabel}>{followingCount.unit}</span>
               </button>
             </div>
           </div>
