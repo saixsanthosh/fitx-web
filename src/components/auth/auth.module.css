@@ -418,6 +418,12 @@
   .panelInner { justify-content: center; padding: 48px clamp(24px, 4vw, 56px) 28px; }
   .body { gap: 14px; }
   .footer { margin-top: 28px; }
+  /* While the privacy banner is open (the shell sets --fitx-inset-consent on <html> to its height; 0 otherwise), the
+     one-window screen gives back the room the page made for it, so it doesn't scroll a strip of page colour, and its own
+     scrolling panel keeps a focused control and its last line clear of the banner (bug 79, the shell's request). */
+  .screen { margin-bottom: calc(-1 * var(--fitx-inset-consent, 0px)); }
+  .panel { scroll-padding-bottom: calc(var(--fitx-inset-consent, 0px) + 12px); }
+  .panelInner { padding-bottom: calc(28px + var(--fitx-inset-consent, 0px)); }
 }
 
 @media (min-width: 960px) and (prefers-color-scheme: light) {
