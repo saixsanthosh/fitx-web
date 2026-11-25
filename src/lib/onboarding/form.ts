@@ -11,13 +11,13 @@
 
 import {
   AGE_RANGE,
-  HEIGHT_RANGE_CM,
   NAME_MAX_LENGTH,
-  WEIGHT_RANGE_KG,
   ageFromBirthDate,
   goalsAwaitingMigration,
+  heightError,
   inRange,
   normalizeBirthDate,
+  weightError,
   ONBOARDING_GOALS,
   type ActivityLevel,
   type Goal,
@@ -25,6 +25,7 @@ import {
   type Sex,
   type WeightUnit,
 } from "@/lib/domain/profile-options";
+import type { MeasureText } from "@/lib/onboarding/measure-field";
 
 export const ONBOARDING_PAGES = [
   { id: "you", label: "You", title: "About you" },
@@ -47,6 +48,18 @@ export type OnboardingForm = {
   goal: Goal;
   activity: ActivityLevel;
 };
+
+/** The step 2 answers typed into a height or weight dial (MeasureDial). */
+export type MeasureKey = "heightCm" | "weightKg" | "targetWeightKg";
+
+/**
+ * What each of those dials shows in place of its value: the text while it is typed, then text kept because it is not
+ * a number (null: the value's own text shows). Setup holds it beside the answers, not in the dial, because Back
+ * unmounts step 2's dials: a new dial must show the text that gave a NaN answer, never an empty box that Continue
+ * refuses (bug 8).
+ */
+export type MeasureDrafts = Record<MeasureKey, MeasureText | null>;
+export const NO_DRAFTS: MeasureDrafts = { heightCm: null, weightKg: null, targetWeightKg: null };
 
 /** What the form starts from: the parts of UserContextData it reads. */
 export type OnboardingSource = {
@@ -105,14 +118,39 @@ export function validatePage(page: OnboardingPage, form: OnboardingForm, schema:
     if (!form.gender) errors.gender = "Choose one. It shapes your calorie estimate and the AI coach’s advice.";
   }
   if (page === "body") {
-    if (form.heightCm === null) errors.heightCm = "Add your height.";
-    else if (!inRange(form.heightCm, HEIGHT_RANGE_CM)) errors.heightCm = "Enter a height between 90 and 250 cm (2 ft 11 in to 8 ft 2 in).";
-    if (form.weightKg === null) errors.weightKg = "Add your current weight.";
-    else if (!inRange(form.weightKg, WEIGHT_RANGE_KG)) errors.weightKg = "Enter a weight between 30 and 500 kg (66 to 1,102 lb).";
-    if (form.targetWeightKg !== null && !inRange(form.targetWeightKg, WEIGHT_RANGE_KG)) errors.targetWeightKg = "Enter a target between 30 and 500 kg, or leave it empty.";
+    // Checked in the unit shown, so a message names limits that are accepted as typed (2 ft 11 in is under 90 cm).
+    const height = form.heightCm === null ? "Add your height." : heightError(form.heightCm, form.heightUnit);
+    if (height) errors.heightCm = height;
+    const weight = form.weightKg === null ? "Add your current weight." : weightError(form.weightKg, form.weightUnit);
+    if (weight) errors.weightKg = weight;
+    const target = weightError(form.targetWeightKg, form.weightUnit, { target: true });
+    if (target) errors.targetWeightKg = target;
   }
   if (page === "goal" && unavailableGoals(schema).includes(form.goal)) errors.goal = "This goal arrives with the next FITX update. Choose another for now.";
   return errors;
+}
+
+/** The step 2 answers measured in each unit. */
+export const MEASURED_IN: Readonly<Record<"heightUnit" | "weightUnit", readonly MeasureKey[]>> = {
+  heightUnit: ["heightCm"],
+  weightUnit: ["weightKg", "targetWeightKg"],
+};
+
+/**
+ * The messages once a unit changes. `form` has the new unit and the value the switch left in each field (kept text
+ * read again in it). A message already shown for one of that unit's answers is said again for what the answer holds
+ * now, in the new unit, whose limits it names, and goes if that is fine; an answer showing no message gets none. So a
+ * unit switch never hides a problem, and never raises one the member wasn't shown.
+ */
+export function messagesAfterUnitChange(shown: OnboardingErrors, form: OnboardingForm, key: "heightUnit" | "weightUnit", schema: OnboardingSchema): OnboardingErrors {
+  const found = validatePage("body", form, schema);
+  const next = { ...shown };
+  for (const field of MEASURED_IN[key]) {
+    if (!shown[field]) continue;
+    if (found[field]) next[field] = found[field];
+    else delete next[field];
+  }
+  return next;
 }
 
 export type Row = Record<string, unknown>;

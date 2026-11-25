@@ -90,7 +90,7 @@ test("weights show and are typed in the member's unit but are always stored in k
   assert.equal(weightText(78.44, "kg"), "78.4");
   assert.equal(weightText(78.4, "lb"), "172.8");
   assert.equal(weightIn(0.7, "lb"), 1.5, "a change converts the same way");
-  assert.equal(weightToKg(172.8, "lb"), 78.4);
+  assert.equal(weightToKg(172.8, "lb"), 78.38, "pounds are kept to 0.01 kg, so they show again as typed (bug 6)");
   assert.equal(weightToKg(71, "kg"), 71);
   assert.equal(weightRangeText("kg"), "between 30 and 500 kg");
   assert.equal(weightRangeText("lb"), "between 67 and 1102 lb");

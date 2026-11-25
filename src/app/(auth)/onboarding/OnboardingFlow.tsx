@@ -26,29 +26,36 @@ import {
   SEX_OPTIONS,
   activityBand,
   activityForBand,
+  BIRTH_DATE_ONCE_NOTE,
   BIRTH_DATE_SAVED_ERROR,
-  ageFromBirthDate,
   formatHeight,
   formatWeight,
   isBirthDateLocked,
   normalizeBirthDate,
   optionLabel,
+  sameWeightKg,
+  shownAge,
   type ActivityBand,
   type Goal,
   type Sex,
 } from "@/lib/domain/profile-options";
 import { ensureProfileRow, loadBirthDate, loadUserContext, logWeighIn, savePreferences, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import {
+  NO_DRAFTS,
   ONBOARDING_PAGES,
   firstName,
   initialOnboardingForm,
+  messagesAfterUnitChange,
   pageSave,
   unavailableGoals,
   validatePage,
+  type MeasureDrafts,
+  type MeasureKey,
   type OnboardingErrors,
   type OnboardingForm,
   type OnboardingPage,
 } from "@/lib/onboarding/form";
+import type { MeasureText } from "@/lib/onboarding/measure-field";
 import { createClient } from "@/lib/supabase/client";
 
 const GOAL_PHOTOS: Readonly<Record<string, keyof typeof ONBOARDING_MEDIA>> = {
@@ -91,6 +98,9 @@ export function OnboardingFlow() {
   const [phase, setPhase] = useState<"loading" | "ready" | "load_failed" | "unavailable" | "welcome">("loading");
   const [context, setContext] = useState<UserContextData | null>(null);
   const [form, setForm] = useState<OnboardingForm | null>(null);
+  // What step 2's dials show in place of their values (text being typed, or kept because it is not a number). Held
+  // here with the answers: Back unmounts the dials, and a NaN answer must come back with the text that gave it.
+  const [drafts, setDrafts] = useState<MeasureDrafts>(NO_DRAFTS);
   // Once saved, the date of birth is shown, not edited: changing it is a FITX support request (the database refuses it).
   const [savedBirthDate, setSavedBirthDate] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
@@ -139,6 +149,7 @@ export function OnboardingFlow() {
       setContext(result.data);
       setSavedBirthDate(result.data.schema.onboardingV3 ? normalizeBirthDate(result.data.profile?.date_of_birth) : null);
       setForm(initialOnboardingForm(result.data, metadataName));
+      setDrafts(NO_DRAFTS);
       setPhase("ready");
     })();
     return () => {
@@ -163,7 +174,31 @@ export function OnboardingFlow() {
     });
   }, []);
 
-  const age = form ? ageFromBirthDate(form.birthDate) : null;
+  const changeDraft = useCallback((key: MeasureKey, draft: MeasureText | null) => {
+    setDrafts((current) => (current[key] === draft ? current : { ...current, [key]: draft }));
+  }, []);
+
+  /** A height or weight that can't be saved is said as soon as its field is left; an empty one waits for Continue. */
+  function checkTyped(key: MeasureKey) {
+    if (!form || form[key] === null) return;
+    const message = validatePage("body", form, schema)[key];
+    if (message) setErrors((current) => (current[key] === message ? current : { ...current, [key]: message }));
+  }
+
+  /**
+   * A new unit, with what the dial that changed it holds in that unit (its kept text read again there). Messages
+   * already shown for the unit's fields are said again for what they hold now, in the new unit (their limits are in it).
+   */
+  function changeUnit<K extends "heightUnit" | "weightUnit">(key: K, unit: OnboardingForm[K], values: Partial<Pick<OnboardingForm, MeasureKey>>) {
+    setForm((current) => (current ? { ...current, ...values, [key]: unit } : current));
+    setSaveError("");
+    if (!form) return;
+    const next = { ...form, ...values, [key]: unit };
+    setErrors((current) => messagesAfterUnitChange(current, next, key, schema));
+  }
+
+  // The readouts follow the date as it is typed, so only an age somebody could have shows (never "1926 yrs").
+  const age = form ? shownAge(form.birthDate) : null;
   const targets = useMemo(() => {
     if (!form) return null;
     // Nutrition's own setup asks for the member's focus; one already stored counts here too, as on every screen.
@@ -222,7 +257,8 @@ export function OnboardingFlow() {
     const prior = await supabase.from("body_metrics").select("weight").eq("user_id", context.userId).not("weight", "is", null)
       .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle();
     const latest = prior.data ? Number((prior.data as { weight: unknown }).weight) : null;
-    if (!prior.error && values.weightKg !== null && (latest === null || Math.abs(latest - values.weightKg) >= 0.05)) {
+    // Compared at the stored 0.01 kg: a change of 0.1 lb (0.045 kg) is a new weight.
+    if (!prior.error && values.weightKg !== null && (latest === null || !sameWeightKg(latest, values.weightKg))) {
       await logWeighIn(supabase, context.userId, values.weightKg, latest === null ? "Starting weight" : "Onboarding update");
     }
     return null;
@@ -350,15 +386,17 @@ export function OnboardingFlow() {
                 {page === "you" && <>
                   <TextField label="Name" value={form.name} onChange={(value) => update("name", value)} error={errors.name} autoComplete="name" maxLength={NAME_MAX_LENGTH} required />
                   <ChoiceTiles legend="Gender" options={SEX_TILES} value={form.gender} onChange={(value) => update("gender", value)} columns="grid-cols-3" variant="tile" error={errors.gender} />
+                  {/* Continue saves the date of birth for good (the database refuses a member's change), so the field
+                      says so before then, as Profile and Explore settings do. */}
                   {savedBirthDate
                     ? <SavedBirthDate value={savedBirthDate} helpHref="/help?from=%2Fonboarding" />
-                    : <BirthDateField value={form.birthDate} onChange={(value) => update("birthDate", value)} error={errors.birthDate} />}
+                    : <BirthDateField value={form.birthDate} onChange={(value) => update("birthDate", value)} error={errors.birthDate} note={BIRTH_DATE_ONCE_NOTE} />}
                 </>}
 
                 {page === "body" && <>
-                  <MeasureDial kind="height" label="Height" value={form.heightCm} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => update("heightUnit", unit)} error={errors.heightCm} showUnits={schema.preferencesV2} />
-                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.weightKg} showUnits={schema.preferencesV2} />
-                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="height" label="Height" value={form.heightCm} draft={drafts.heightCm} onDraftChange={(draft) => changeDraft("heightCm", draft)} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit, cm) => changeUnit("heightUnit", unit, { heightCm: cm })} onCommit={() => checkTyped("heightCm")} error={errors.heightCm} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} draft={drafts.weightKg} onDraftChange={(draft) => changeDraft("weightKg", draft)} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit, kg) => changeUnit("weightUnit", unit, { weightKg: kg })} onCommit={() => checkTyped("weightKg")} error={errors.weightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} draft={drafts.targetWeightKg} onDraftChange={(draft) => changeDraft("targetWeightKg", draft)} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit, kg) => changeUnit("weightUnit", unit, { targetWeightKg: kg })} onCommit={() => checkTyped("targetWeightKg")} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
                 </>}
 
                 {page === "goal" && <>

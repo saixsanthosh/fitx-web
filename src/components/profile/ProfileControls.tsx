@@ -1,25 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useMemo, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Check, Plus, X } from "lucide-react";
 import {
   ageFromBirthDate,
   birthDateBounds,
-  cmToFeetInches,
-  feetInchesToCm,
   HEIGHT_UNIT_OPTIONS,
-  kgToLb,
-  lbToKg,
   MAX_CUSTOM_ENTRIES,
   MAX_CUSTOM_LENGTH,
   commitDraft,
-  parseDecimal,
+  shownAge,
   WEIGHT_UNIT_OPTIONS,
   type HeightUnit,
   type Option,
   type WeightUnit,
 } from "@/lib/domain/profile-options";
+import { measureRead, measureText, measureValue } from "@/lib/onboarding/measure-field";
 
 /**
  * Form controls shared by onboarding and Profile. Choices are native radio and checkbox inputs (so the
@@ -345,14 +342,17 @@ export function TextField({
 }
 
 const heightText = (cm: number | null, unit: HeightUnit) => {
-  if (cm === null || !Number.isFinite(cm)) return { cm: "", feet: "", inches: "" };
-  const { feet, inches } = cmToFeetInches(cm);
-  return { cm: unit === "cm" ? String(Math.round(cm * 10) / 10) : "", feet: String(feet), inches: String(inches) };
+  const shown = measureText("height", unit, cm);
+  return unit === "cm" ? { cm: shown.main, feet: "", inches: "" } : { cm: "", feet: shown.main, inches: shown.inches };
 };
+
+const notANumber = (value: number | null) => value !== null && Number.isNaN(value);
 
 /**
  * Height in centimetres or feet and inches; always reports centimetres (null when empty, NaN when the
- * text is not a number).
+ * text is not a number). Shown and read to 0.1 in the unit shown, like setup's dial (measure-field.ts): its own
+ * unit may be typed after the number ("176cm"), leaving the field shows what will be saved, and text that is not
+ * a number stays as typed.
  */
 export function HeightField({
   label = "Height",
@@ -379,27 +379,29 @@ export function HeightField({
   const [textUnit, setTextUnit] = useState(unit);
   if (textUnit !== unit) {
     setTextUnit(unit);
-    setText(heightText(cm, unit));
+    if (!notANumber(cm)) setText(heightText(cm, unit));
   }
   const report = (next: typeof text, currentUnit: HeightUnit) => {
     setText(next);
-    if (currentUnit === "cm") return onChange(parseDecimal(next.cm));
-    const feet = parseDecimal(next.feet);
-    const inches = parseDecimal(next.inches);
-    if (feet === null && inches === null) return onChange(null);
-    if (Number.isNaN(feet) || Number.isNaN(inches)) return onChange(Number.NaN);
-    onChange(feetInchesToCm(feet ?? 0, inches ?? 0));
+    onChange(measureValue("height", currentUnit, currentUnit === "cm" ? { main: next.cm, inches: "" } : { main: next.feet, inches: next.inches }));
+  };
+  // Leaving the field (not just moving to its inches box or unit switch) shows the value as it will be saved.
+  const settle = (event: FocusEvent<HTMLDivElement>) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    if (cm !== null && !notANumber(cm)) setText(heightText(cm, unit));
   };
   const switchUnit = (next: HeightUnit) => {
     onUnitChange(next);
     setTextUnit(next);
-    setText(heightText(cm, next));
+    // Text that is not a number moves to the new unit's first box and is read again there.
+    if (notANumber(cm)) report(next === "cm" ? { cm: text.feet, feet: "", inches: "" } : { cm: "", feet: text.cm, inches: "" }, next);
+    else setText(heightText(cm, next));
   };
   const errorId = `${id}-error`;
   return (
     <div>
       <label htmlFor={unit === "cm" ? id : `${id}-ft`} className="block text-sm font-medium text-fitx-text">{label}{!required && <span className="font-normal text-fitx-text-secondary"> (optional)</span>}</label>
-      <div className="mt-1.5 flex items-center gap-2">
+      <div className="mt-1.5 flex items-center gap-2" onBlur={settle}>
         {unit === "cm" ? (
           <div className="relative min-w-0 flex-1">
             <input id={id} className={`fitx-field pr-12 ${invalidBorder}`} inputMode="decimal" value={text.cm} aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} onChange={(event) => report({ ...text, cm: event.target.value }, "cm")} />
@@ -424,7 +426,12 @@ export function HeightField({
   );
 }
 
-/** Weight in kilograms or pounds; always reports kilograms (null when empty, NaN when not a number). */
+/**
+ * Weight in kilograms or pounds; always reports kilograms (null when empty, NaN when not a number). Shown and read to
+ * 0.1 in the unit shown, and pounds are kept to 0.01 kg, so 150 lb stays 150 lb (measure-field.ts). A unit typed
+ * after the number is understood ("65kg"; "150 lb" in kilograms switches both weight fields to lb), leaving the field
+ * shows what will be saved, and text that is not a number stays as typed.
+ */
 export function WeightField({
   label,
   kg,
@@ -448,23 +455,35 @@ export function WeightField({
   showUnits?: boolean;
 }) {
   const id = useId();
-  const shown = (value: number | null, inUnit: WeightUnit) => (value === null || !Number.isFinite(value) ? "" : String(inUnit === "lb" ? kgToLb(value) : Math.round(value * 10) / 10));
+  const shown = (value: number | null, inUnit: WeightUnit) => measureText("weight", inUnit, value).main;
   const [text, setText] = useState(() => shown(kg, unit));
-  // Two weight fields share one unit: when the other field switches it, show this value in the new unit too.
+  // Two weight fields share one unit: when the other field switches it, show this value in the new unit too (text
+  // that is not a number stays as typed: it is not a number in either unit).
   const [textUnit, setTextUnit] = useState(unit);
   if (textUnit !== unit) {
     setTextUnit(unit);
-    setText(shown(kg, unit));
+    if (!notANumber(kg)) setText(shown(kg, unit));
   }
-  const report = (value: string, inUnit: WeightUnit) => {
+  const report = (value: string) => {
     setText(value);
-    const parsed = parseDecimal(value);
-    onChange(parsed === null || Number.isNaN(parsed) ? parsed : inUnit === "lb" ? lbToKg(parsed) : parsed);
+    const read = measureRead("weight", unit, { main: value, inches: "" }, showUnits);
+    if (read.unit !== unit) {
+      setTextUnit(read.unit as WeightUnit);
+      onUnitChange(read.unit as WeightUnit);
+    }
+    onChange(read.value);
+  };
+  // Leaving the field shows the value as it will be saved ("65kg" as 65).
+  const settle = () => {
+    if (kg !== null && !notANumber(kg)) setText(shown(kg, unit));
   };
   const switchUnit = (next: WeightUnit) => {
     onUnitChange(next);
     setTextUnit(next);
-    setText(shown(kg, next));
+    if (!notANumber(kg)) return setText(shown(kg, next));
+    const value = measureValue("weight", next, { main: text, inches: "" });
+    onChange(value);
+    if (!notANumber(value)) setText(shown(value, next));
   };
   const describedBy = [hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(" ") || undefined;
   return (
@@ -473,7 +492,7 @@ export function WeightField({
       {hint && <p id={`${id}-hint`} className="mt-0.5 text-xs text-fitx-text-secondary">{hint}</p>}
       <div className="mt-1.5 flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
-          <input id={id} className={`fitx-field pr-12 ${invalidBorder}`} inputMode="decimal" value={text} aria-invalid={error ? true : undefined} aria-describedby={describedBy} onChange={(event) => report(event.target.value, unit)} />
+          <input id={id} className={`fitx-field pr-12 ${invalidBorder}`} inputMode="decimal" value={text} aria-invalid={error ? true : undefined} aria-describedby={describedBy} onChange={(event) => report(event.target.value)} onBlur={settle} />
           <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-sm text-fitx-text-secondary">{unit}</span>
         </div>
         {showUnits && <UnitToggle label={`${label} unit`} options={WEIGHT_UNIT_OPTIONS} value={unit} onChange={switchUnit} />}
@@ -511,11 +530,19 @@ export function SavedBirthDate({ value, helpHref = "/help" }: { value: string; h
   );
 }
 
-export function BirthDateField({ label = "Date of birth", value, onChange, error, required = true }: { label?: string; value: string; onChange: (value: string) => void; error?: string | null; required?: boolean }) {
+export function BirthDateField({ label = "Date of birth", value, onChange, error, required = true, note }: {
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string | null;
+  required?: boolean;
+  /** A line under the field that screen readers hear with it, such as BIRTH_DATE_ONCE_NOTE before the first save. */
+  note?: string;
+}) {
   const id = useId();
   const bounds = useMemo(() => birthDateBounds(), []);
-  const age = ageFromBirthDate(value);
-  const describedBy = [`${id}-age`, error ? `${id}-error` : null].filter(Boolean).join(" ");
+  const age = shownAge(value);
+  const describedBy = [`${id}-age`, error ? `${id}-error` : null, note ? `${id}-note` : null].filter(Boolean).join(" ");
   return (
     <div>
       <label htmlFor={id} className="block text-sm font-medium text-fitx-text">{label}{!required && <span className="font-normal text-fitx-text-secondary"> (optional)</span>}</label>
@@ -533,9 +560,10 @@ export function BirthDateField({ label = "Date of birth", value, onChange, error
           aria-describedby={describedBy}
           onChange={(event) => onChange(event.target.value)}
         />
-        <span id={`${id}-age`} className="text-sm text-fitx-text-secondary" aria-live="polite">{age !== null && age <= 130 ? `${age} years` : ""}</span>
+        <span id={`${id}-age`} className="text-sm text-fitx-text-secondary" aria-live="polite">{age !== null ? `${age} years` : ""}</span>
       </div>
       <FieldError id={`${id}-error`} message={error} />
+      {note && <p id={`${id}-note`} className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">{note}</p>}
     </div>
   );
 }

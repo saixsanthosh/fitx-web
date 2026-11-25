@@ -433,18 +433,36 @@ export const DEFAULT_WATER_ML = 2500;
 
 export const NAME_MAX_LENGTH = 120;
 export const AGE_RANGE = { min: 13, max: 100 } as const;
+/** The oldest age a readout or hint shows: past it the date is a typo (born in the year 0100 is not "1926 years"). */
+export const OLDEST_SHOWN_AGE = 130;
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** The calendar date in `value` (YYYY-MM-DD) as [year, month, day], or null when it is not a real date. */
+function daysInMonth(year: number, month: number) {
+  if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
+}
+
+/**
+ * The calendar date in `value` (YYYY-MM-DD) as [year, month, day], or null when it is not a real date. Checked with
+ * the calendar's own rules, not Date.UTC, which reads the years 0 to 99 as 1900 to 1999: 0001-01-01 is a real date
+ * (one FITX doesn't take, "ages 13 to 100"), not "not a real date".
+ */
 function dateParts(value: unknown): [number, number, number] | null {
   if (typeof value !== "string") return null;
   const match = ISO_DATE.exec(value.trim().slice(0, 10));
   if (!match) return null;
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const check = new Date(Date.UTC(year, month - 1, day));
-  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return null;
   return [year, month, day];
+}
+
+/** Local midnight of a calendar date, the year as written (new Date(y, m, d) would read 0 to 99 as 1900 to 1999). */
+function localDay([year, month, day]: [number, number, number]): Date {
+  const date = new Date(0);
+  date.setFullYear(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+  return date;
 }
 
 /** A stored or typed birth date as YYYY-MM-DD, or null when it is missing or not a real date. */
@@ -464,6 +482,15 @@ export function ageFromBirthDate(birthDate: unknown, today: Date = new Date()): 
 }
 
 /**
+ * The age a readout or hint shows for a date being typed: the age it gives, or null when there is none or nobody could
+ * be that old. A date field reports its year as it is typed (2-0-0-1 passes through 0200), so only a real age shows.
+ */
+export function shownAge(birthDate: unknown, today: Date = new Date()): number | null {
+  const age = ageFromBirthDate(birthDate, today);
+  return age !== null && age <= OLDEST_SHOWN_AGE ? age : null;
+}
+
+/**
  * The age to use for a profile row on `today` (a Date, or a YYYY-MM-DD day key such as the member's local date):
  * the one its birth date gives, else the stored profiles.age. The database refreshes profiles.age from the birth
  * date only when the row is saved, so after a birthday the stored age lags; reading the birth date keeps Home,
@@ -472,7 +499,7 @@ export function ageFromBirthDate(birthDate: unknown, today: Date = new Date()): 
 export function profileAge(row: { age?: unknown; date_of_birth?: unknown } | null | undefined, today: Date | string = new Date()): number | null {
   if (!row) return null;
   const parts = typeof today === "string" ? dateParts(today) : null;
-  const day = typeof today === "string" ? (parts ? new Date(parts[0], parts[1] - 1, parts[2]) : null) : today;
+  const day = typeof today === "string" ? (parts ? localDay(parts) : null) : today;
   const fromBirthDate = day ? ageFromBirthDate(row.date_of_birth, day) : null;
   if (fromBirthDate !== null) return fromBirthDate;
   if (row.age === null || row.age === undefined || row.age === "") return null;
@@ -489,6 +516,11 @@ export function profileAge(row: { age?: unknown; date_of_birth?: unknown } | nul
  * YYYY-MM-DD, or "" when empty. `age` is the age after the save.
  */
 export const BIRTH_DATE_SAVED_ERROR = "Your date of birth is already saved. To change it, ask FITX support.";
+/**
+ * Said beside the date field before a date of birth is first saved, wherever that happens (setup's first step, Profile
+ * > Body and Explore settings use these words): a typo in the year, which decides the teen rules, needs FITX support.
+ */
+export const BIRTH_DATE_ONCE_NOTE = "You can add it once. To change it later, ask FITX support.";
 
 /** True for the database's refusal to change or clear a saved date of birth (birth_date_locked, 20261124100000). */
 export function isBirthDateLocked(error: { message?: string | null } | null | undefined): boolean {
@@ -545,23 +577,59 @@ const CM_PER_INCH = 2.54;
 const KG_PER_LB = 0.45359237;
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/*
+ * Precision. A height or weight is typed, shown and checked to 0.1 in the member's own unit (cm, inches, kg or lb) and
+ * stored in centimetres to 0.1 and kilograms to 0.01. That is fine enough for every height typed to 0.1 in and every
+ * weight typed to 0.1 lb to come back exactly as typed: 150 lb is stored as 68.04 kg and shows as 150 lb again (at
+ * 0.1 kg it was 68.0 kg, which shows as 149.9 lb). Between units nothing is rounded twice.
+ */
+
+/** A height in the unit shown, to 0.1: centimetres, or inches in all for feet and inches. */
+export function heightInUnit(cm: number, unit: HeightUnit): number {
+  return unit === "ft_in" ? round1(cm / CM_PER_INCH) : round1(cm);
+}
+
+/** Centimetres, as stored, for a height typed in the unit shown (inches in all for feet and inches), read to 0.1. */
+export function heightFromUnit(value: number, unit: HeightUnit): number {
+  return unit === "ft_in" ? round1(round1(value) * CM_PER_INCH) : round1(value);
+}
+
+/** A weight in the unit shown, to 0.1 kg or 0.1 lb. */
+export function weightInUnit(kg: number, unit: WeightUnit): number {
+  return unit === "lb" ? kgToLb(kg) : round1(kg);
+}
+
+/** Kilograms, as stored, for a weight typed in the unit shown, read to 0.1. */
+export function weightFromUnit(value: number, unit: WeightUnit): number {
+  return unit === "lb" ? lbToKg(round1(value)) : round1(value);
+}
 
 export function feetInchesToCm(feet: number, inches: number) {
-  return round1((feet * 12 + inches) * CM_PER_INCH);
+  return heightFromUnit(feet * 12 + inches, "ft_in");
 }
 
-/** Whole feet and inches rounded to the nearest inch (5 ft 11.6 in becomes 6 ft 0 in). */
+/** Whole feet and the inches left, to 0.1 in (175 cm is 5 ft 8.9 in; 182.8 cm rounds to 72.0 in, 6 ft 0 in). */
 export function cmToFeetInches(cm: number) {
-  const totalInches = Math.round(cm / CM_PER_INCH);
-  return { feet: Math.floor(totalInches / 12), inches: totalInches % 12 };
+  const totalInches = heightInUnit(cm, "ft_in");
+  const feet = Math.floor(totalInches / 12);
+  return { feet, inches: round1(totalInches - feet * 12) };
 }
 
+/** Kilograms to 0.01 (the stored precision), so pounds typed to 0.1 come back unchanged. */
 export function lbToKg(lb: number) {
-  return round1(lb * KG_PER_LB);
+  return round2(lb * KG_PER_LB);
 }
 
+/** Pounds to 0.1, as shown. */
 export function kgToLb(kg: number) {
   return round1(kg / KG_PER_LB);
+}
+
+/** Two stored weights that are the same to the stored 0.01 kg: 0.1 lb (0.045 kg) is a change. */
+export function sameWeightKg(a: number | null, b: number | null): boolean {
+  return a === null || b === null ? a === b : Math.abs(a - b) < 0.005;
 }
 
 export function formatHeight(cm: number | null | undefined, unit: HeightUnit = DEFAULT_HEIGHT_UNIT) {
@@ -575,7 +643,114 @@ export function formatHeight(cm: number | null | undefined, unit: HeightUnit = D
 
 export function formatWeight(kg: number | null | undefined, unit: WeightUnit = DEFAULT_WEIGHT_UNIT) {
   if (kg == null || !Number.isFinite(kg)) return null;
-  return unit === "lb" ? `${kgToLb(kg)} lb` : `${round1(kg)} kg`;
+  return `${weightInUnit(kg, unit)} ${unit}`;
+}
+
+// ─── Limits a height or weight must keep, in the unit the member types ───────────────────────────
+
+type Limits = { readonly min: number; readonly max: number };
+
+/**
+ * The heights and weights FITX takes, in each unit the member can type them in: the metric ranges, and the whole
+ * imperial values inside them, in inches in all and pounds. Every limit a message names is one FITX accepts: 2 ft 11 in
+ * (88.9 cm) and 66 lb (29.94 kg) are below the minimums, so the imperial ones are 3 ft 0 in and 67 lb. A value is
+ * checked as it is shown, in its own unit and to 0.1, so the field never shows a number other than the one checked.
+ */
+export const HEIGHT_LIMITS: Readonly<Record<HeightUnit, Limits>> = {
+  cm: HEIGHT_RANGE_CM,
+  ft_in: { min: Math.ceil(HEIGHT_RANGE_CM.min / CM_PER_INCH), max: Math.floor(HEIGHT_RANGE_CM.max / CM_PER_INCH) },
+};
+export const WEIGHT_LIMITS: Readonly<Record<WeightUnit, Limits>> = {
+  kg: WEIGHT_RANGE_KG,
+  lb: { min: Math.ceil(WEIGHT_RANGE_KG.min / KG_PER_LB), max: Math.floor(WEIGHT_RANGE_KG.max / KG_PER_LB) },
+};
+
+/** True for a height (stored, in cm) that is a number inside the limits of the unit shown. */
+export function heightInLimits(cm: number | null, unit: HeightUnit): boolean {
+  return cm !== null && Number.isFinite(cm) && inRange(heightInUnit(cm, unit), HEIGHT_LIMITS[unit]);
+}
+
+/** True for a weight (stored, in kg) that is a number inside the limits of the unit shown. */
+export function weightInLimits(kg: number | null, unit: WeightUnit): boolean {
+  return kg !== null && Number.isFinite(kg) && inRange(weightInUnit(kg, unit), WEIGHT_LIMITS[unit]);
+}
+
+const grouped = (value: number) => value.toLocaleString("en-GB", { maximumFractionDigits: 1 });
+const feetAndInches = (totalInches: number) => `${Math.floor(totalInches / 12)} ft ${round1(totalInches % 12)} in`;
+
+/** "90 and 250 cm" or "3 ft 0 in and 8 ft 2 in", for messages. */
+export function heightLimitsText(unit: HeightUnit): string {
+  const { min, max } = HEIGHT_LIMITS[unit];
+  return unit === "ft_in" ? `${feetAndInches(min)} and ${feetAndInches(max)}` : `${grouped(min)} and ${grouped(max)} cm`;
+}
+
+/** "30 and 500 kg" or "67 and 1,102 lb", for messages. */
+export function weightLimitsText(unit: WeightUnit): string {
+  const { min, max } = WEIGHT_LIMITS[unit];
+  return `${grouped(min)} and ${grouped(max)} ${unit}`;
+}
+
+const UNIT_NAMES: Readonly<Record<HeightUnit | WeightUnit, string>> = { cm: "centimetres", ft_in: "feet and inches", kg: "kilograms", lb: "pounds" };
+
+/**
+ * Why a height (stored, in cm; NaN when what is typed is not a number) can't be saved, in the unit shown, or null
+ * when it can. An empty height is the caller's to judge (setup asks for one, Profile doesn't); `optional` adds "or
+ * leave it empty" to the message.
+ */
+export function heightError(cm: number | null, unit: HeightUnit, { optional = false }: { optional?: boolean } = {}): string | null {
+  if (cm === null || heightInLimits(cm, unit)) return null;
+  const empty = optional ? ", or leave it empty" : "";
+  if (Number.isNaN(cm)) return `Enter your height in ${UNIT_NAMES[unit]}, for example ${unit === "ft_in" ? "5 ft 9 in" : "175"}${empty}.`;
+  return `Enter a height between ${heightLimitsText(unit)}${empty}.`;
+}
+
+/**
+ * Why a weight (stored, in kg; NaN when what is typed is not a number) can't be saved, in the unit shown, or null when
+ * it can. An empty weight is the caller's to judge; a `target` weight may always be left empty, and its message says so.
+ */
+export function weightError(kg: number | null, unit: WeightUnit, { target = false }: { target?: boolean } = {}): string | null {
+  if (kg === null || weightInLimits(kg, unit)) return null;
+  if (Number.isNaN(kg)) {
+    return target
+      ? `Enter your target in ${UNIT_NAMES[unit]}, for example ${unit === "lb" ? "145" : "65"}, or leave it empty.`
+      : `Enter your weight in ${UNIT_NAMES[unit]}, for example ${unit === "lb" ? "155" : "70.5"}.`;
+  }
+  return target ? `Enter a target between ${weightLimitsText(unit)}, or leave it empty.` : `Enter a weight between ${weightLimitsText(unit)}.`;
+}
+
+// ─── Reading what is typed in a height or weight field ───────────────────────────────────────────
+
+/** The units a height or weight field's text can name: centimetres, feet, inches, kilograms and pounds. */
+export type MeasureTextUnit = "cm" | "ft" | "in" | "kg" | "lb";
+
+const UNIT_WORDS: Readonly<Record<MeasureTextUnit, readonly string[]>> = {
+  cm: ["cm", "cms", "centimetre", "centimetres", "centimeter", "centimeters"],
+  ft: ["ft", "feet", "foot", "'", "’", "′"],
+  in: ["in", "ins", "inch", "inches", "\"", "”", "″"],
+  kg: ["kg", "kgs", "kilo", "kilos", "kilogram", "kilograms", "kilogramme", "kilogrammes"],
+  lb: ["lb", "lbs", "pound", "pounds"],
+};
+
+// A number ("65", "65.5", "65,5", "65." while typing, ".5", "1,102"), then perhaps a unit and a full stop ("lbs.").
+const MEASURE_TEXT = /^(-?)(\d{1,3}(?:,\d{3})+|\d+(?:[.,]\d*)?|[.,]\d+)\s*([a-z'"’”′″]*)\.?$/i;
+
+/**
+ * A number typed in a height or weight field, with or without a unit after it ("65", "65kg", "70 kg", "5 ft",
+ * "1,102 lb"), and which of `units` it names (null when none is typed). The value is null when the text is empty and
+ * NaN when it is not a number, or names a unit not in `units`. The start of a unit's name counts ("65 k"), so the value
+ * never disappears while the unit is being typed; "1,102" is 1102 (the way messages write it), "72,5" is 72.5.
+ */
+export function readMeasureText(text: string, units: readonly MeasureTextUnit[]): { value: number | null; unit: MeasureTextUnit | null } {
+  const trimmed = text.trim();
+  if (!trimmed) return { value: null, unit: null };
+  const match = MEASURE_TEXT.exec(trimmed);
+  if (!match) return { value: Number.NaN, unit: null };
+  const word = match[3].toLowerCase();
+  const unit = word ? units.find((candidate) => UNIT_WORDS[candidate].some((name) => name.startsWith(word))) ?? null : null;
+  if (word && !unit) return { value: Number.NaN, unit: null };
+  const digits = /^\d{1,3}(?:,\d{3})+$/.test(match[2]) ? match[2].replace(/,/g, "") : match[2].replace(",", ".");
+  const value = Number(`${match[1]}${digits}`);
+  return { value: Number.isFinite(value) ? value : Number.NaN, unit };
 }
 
 /** A number typed into a field ("72,5" counts as 72.5), null when empty, NaN when not a number. */
