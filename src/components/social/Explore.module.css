@@ -151,6 +151,8 @@
 /* Busy: aria-disabled keeps the button focusable (a disabled one drops keyboard focus to the page); drawn as waiting. */
 .smallButton[aria-disabled="true"] { opacity: .55; cursor: progress; }
 .smallButton:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+/* A label drawn as a button around a visually hidden file field (Change photo): the ring shows while the field has focus. */
+.smallButton:has(> input:focus-visible) { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .smallButtonQuiet { border-color: var(--fitx-border); background: var(--fitx-surface-variant); color: var(--fitx-text); }
 .smallButtonQuiet:hover { border-color: var(--fitx-text-disabled); background: var(--fitx-surface-variant); }
 
@@ -274,6 +276,7 @@
 .switch[aria-checked="true"]::before { background: var(--fitx-primary); }
 .switch[aria-checked="true"]::after { transform: translateX(20px); }
 .switch:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.switch:disabled, .switch[aria-disabled="true"] { opacity: .6; }
 .menu { display: flex; flex-direction: column; gap: 4px; }
 .menuItem { display: flex; min-height: 48px; align-items: center; gap: 12px; border-radius: 12px; padding: 0 12px; color: var(--fitx-text); font-size: 15px; font-weight: 550; text-align: left; }
 .menuItem:hover { background: var(--fitx-hover); }

@@ -10,11 +10,13 @@ import { nextCursor, toSocialError, type Cursor, type SocialPost } from "@/lib/s
 import { GROUP_LIMITS } from "@/lib/social/group-limits";
 import { formatValue, timeLeftText, type ChallengeMetric } from "@/lib/social/challenges";
 import { communitiesApi, joinLabel, memberCountText, REMOVE_REASONS, type CommunityPage } from "@/lib/social/communities";
+import { focusAfterRemoval } from "@/lib/social/focus";
 import { AgeNotice } from "../AgeNotice";
 import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
 import { PostCard } from "../PostCard";
 import { SocialPhoto } from "../SocialPhoto";
+import { useFocusAfterRender } from "../useFocusAfterRender";
 import { useNotice } from "../useNotice";
 import { usePaged, useSentinel } from "../usePaged";
 import { GroupComposer } from "./GroupComposer";
@@ -69,6 +71,7 @@ export function CommunityView({ slug }: { slug: string }) {
   const action = joinLabel(community);
 
   async function act() {
+    if (busy) return;
     setBusy(true);
     try {
       if (action.action === "join") {
@@ -100,7 +103,7 @@ export function CommunityView({ slug }: { slug: string }) {
           <h1 id="community-title" className={styles.heroTitle}>{community.name}</h1>
           {community.description && <p className={styles.heroText}>{community.description}</p>}
           <div className={styles.heroActions}>
-            <button type="button" className={`${styles.stageButton} ${action.action === "join" ? "" : styles.stageQuiet}`} disabled={busy} onClick={() => void act()}>
+            <button type="button" className={`${styles.stageButton} ${action.action === "join" ? "" : styles.stageQuiet}`} aria-disabled={busy || undefined} onClick={() => void act()}>
               {busy && <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}{action.label}
             </button>
             {page.moderators.length > 0 && (
@@ -124,8 +127,8 @@ export function CommunityView({ slug }: { slug: string }) {
             </div>
           )}
         </div>
-        <aside className={styles.aside} aria-label="About this community">
-          {page.is_moderator && <Requests page={page} onChange={() => void load()} />}
+        <aside id="community-about" tabIndex={-1} className={styles.aside} aria-label="About this community">
+          {page.is_moderator && <Requests page={page} onChange={load} />}
           {page.challenges.length > 0 && (
             <section className={exploreStyles.panel} aria-labelledby="community-challenge-title">
               <h2 id="community-challenge-title" className={exploreStyles.panelTitle}>Challenges</h2>
@@ -259,16 +262,23 @@ function PostsSection({ page }: { page: CommunityPage }) {
   );
 }
 
-function Requests({ page, onChange }: { page: CommunityPage; onChange: () => void }) {
+const joinAcceptId = (userId: string) => `join-accept-${userId}`;
+
+function Requests({ page, onChange }: { page: CommunityPage; onChange: () => Promise<void> }) {
   const { db } = useReadyExplore();
   const [busy, setBusy] = useState<string | null>(null);
+  const focusAfter = useFocusAfterRender();
   if (!page.requests.length) return null;
   async function answer(userId: string, username: string, accept: boolean) {
+    if (busy) return;
+    const order = page.requests.map(({ user }) => joinAcceptId(user.id));
     setBusy(userId);
     try {
       await communitiesApi.answer(db, page.community.id, userId, accept);
       toast.success(accept ? `@${username} joined` : "Request declined");
-      onChange();
+      await onChange();
+      // The answered row goes: focus the next request's Accept (or the one before), else this column (bug 82's rule).
+      focusAfter(focusAfterRemoval(order, [joinAcceptId(userId)]), () => document.getElementById("community-about"));
     } catch (failure) {
       toast.error(toSocialError(failure).message);
     } finally {
@@ -285,8 +295,8 @@ function Requests({ page, onChange }: { page: CommunityPage; onChange: () => voi
               <Avatar user={user} size={36} />
               <span className={exploreStyles.whoText}><span className={exploreStyles.whoName}>{user.username}</span></span>
             </Link>
-            <button type="button" className={exploreStyles.smallButton} disabled={busy === user.id} onClick={() => void answer(user.id, user.username, true)} aria-label={`Accept @${user.username}`}>Accept</button>
-            <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} disabled={busy === user.id} onClick={() => void answer(user.id, user.username, false)} aria-label={`Decline @${user.username}`}>Decline</button>
+            <button type="button" id={joinAcceptId(user.id)} className={exploreStyles.smallButton} aria-disabled={busy === user.id || undefined} onClick={() => void answer(user.id, user.username, true)} aria-label={`Accept @${user.username}`}>Accept</button>
+            <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} aria-disabled={busy === user.id || undefined} onClick={() => void answer(user.id, user.username, false)} aria-label={`Decline @${user.username}`}>Decline</button>
           </li>
         ))}
       </ul>

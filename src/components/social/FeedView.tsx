@@ -50,7 +50,7 @@ export function FeedView() {
           ))}
           {feed.items.length > 0 && !feed.done && (
             <div className="flex justify-center">
-              <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={feed.more} disabled={feed.status === "more"}>
+              <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={feed.more} aria-disabled={feed.status === "more" || undefined}>
                 {feed.status === "more" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading</> : "Show more"}
               </button>
             </div>

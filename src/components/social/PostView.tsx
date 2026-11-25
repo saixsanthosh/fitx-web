@@ -10,13 +10,17 @@ import { Sheet } from "@/components/ui/Sheet";
 import { fullDate, relativeTime, SOCIAL_LIMITS, socialApi, toSocialError, type SocialComment, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
 import { commentGate } from "@/lib/social/comment-gate";
+import { focusAfterRemoval } from "@/lib/social/focus";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
 import { PostCard } from "./PostCard";
 import { ReportSheet } from "./ReportSheet";
 import { RichText } from "./RichText";
 import { useAsync } from "./useAsync";
+import { useFocusAfterRender } from "./useFocusAfterRender";
 import styles from "./Explore.module.css";
+
+const optionsId = (commentId: string) => `comment-options-${commentId}`;
 
 /** One post with its comments and replies. */
 export function PostView({ id }: { id: string }) {
@@ -52,6 +56,8 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
   const [options, setOptions] = useState<SocialComment | null>(null);
   const [report, setReport] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focusAfter = useFocusAfterRender();
   const comments = list.data ?? [];
   const gate = commentGate(post);
 
@@ -85,12 +91,17 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
 
   async function remove(comment: SocialComment) {
     setOptions(null);
+    // Every comment's options button, in the order shown (a comment, then its replies).
+    const order = comments.flatMap((item) => [item.id, ...(item.replies ?? []).map((reply) => reply.id)]).map(optionsId);
+    const gone = [comment.id, ...(comment.replies ?? []).map((reply) => reply.id)].map(optionsId);
     try {
       await socialApi.deleteComment(db, comment.id);
       const removed = 1 + (comment.replies?.length ?? 0);
       list.setData(comments.filter((item) => item.id !== comment.id).map((item) => ({ ...item, replies: item.replies?.filter((reply) => reply.id !== comment.id) })));
       onCount(-removed);
       toast.success("Comment deleted");
+      // Its options button goes with it: focus the next comment's (or the one before), else the Comments heading.
+      focusAfter(focusAfterRemoval(order, gone), () => heading.current);
     } catch (error) {
       toast.error(toSocialError(error).message);
     }
@@ -105,7 +116,7 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
 
   return (
     <section id="comments" className={styles.panel} aria-labelledby="comments-title">
-      <h2 id="comments-title" className={styles.panelTitle}>Comments</h2>
+      <h2 id="comments-title" ref={heading} tabIndex={-1} className={styles.panelTitle}>Comments</h2>
       {list.status === "loading" && <p className={styles.note}>Loading comments</p>}
       {list.status === "error" && <p className={styles.alert} role="alert">{list.error}</p>}
       {list.status === "ready" && !comments.length && post.can_comment && <p className={styles.note}>No comments yet.</p>}
@@ -182,7 +193,7 @@ function CommentRow({ comment, canReply, onReply, onOptions }: { comment: Social
           {canReply && <button type="button" onClick={() => onReply(comment)} aria-label={`Reply to ${comment.author.username}`}>Reply</button>}
         </div>
       </div>
-      <button type="button" className={styles.iconButton} aria-label={`Options for ${comment.author.username}’s comment`} onClick={() => onOptions(comment)}>
+      <button type="button" id={optionsId(comment.id)} className={styles.iconButton} aria-label={`Options for ${comment.author.username}’s comment`} onClick={() => onOptions(comment)}>
         <MoreHorizontal size={18} aria-hidden="true" />
       </button>
     </div>

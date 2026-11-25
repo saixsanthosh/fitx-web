@@ -15,6 +15,7 @@ import { FollowButton } from "./FollowButton";
 import { PostGrid } from "./PostGrid";
 import { ReportSheet } from "./ReportSheet";
 import { useAsync } from "./useAsync";
+import { useFocusAfterRender } from "./useFocusAfterRender";
 import { useNotice } from "./useNotice";
 import { usePaged, useSentinel } from "./usePaged";
 import styles from "./Explore.module.css";
@@ -50,12 +51,13 @@ function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () =
   const [busy, setBusy] = useState(false);
   const menuNotice = useNotice();
   const confirmNotice = useNotice();
+  const focusAfter = useFocusAfterRender();
 
   /**
    * Runs one safety action. A failure is said where the member pressed (inside the open menu or confirmation: a toast
    * would be under it, D6; a toast for the page's own Unblock); the result is a toast once any sheet has closed.
    */
-  async function act(run: () => Promise<unknown>, done: string, where: "page" | "menu" | "confirm") {
+  async function act(run: () => Promise<unknown>, done: string, where: "page" | "menu" | "confirm", focusTo?: string) {
     if (busy) return;
     setBusy(true);
     menuNotice.clear();
@@ -66,6 +68,8 @@ function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () =
       setConfirm(null);
       toast.success(done);
       await reload();
+      // Unblock is replaced by Follow: focus goes there, never to the page body (bug 82).
+      if (focusTo) focusAfter(focusTo, () => document.getElementById("profile-options"));
     } catch (error) {
       const text = toSocialError(error).message;
       if (where === "menu") menuNotice.show("error", text);
@@ -110,15 +114,15 @@ function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () =
               <Link href="/explore/new" className={styles.smallButton}><ImagePlus size={16} aria-hidden="true" />New post</Link>
             </>
           ) : relation.blocked ? (
-            <button type="button" className={styles.smallButton} aria-disabled={busy || undefined} onClick={() => void act(() => socialApi.setBlock(db, profile.id, false), `@${profile.username} is unblocked`, "page")}>Unblock</button>
+            <button type="button" className={styles.smallButton} aria-disabled={busy || undefined} onClick={() => void act(() => socialApi.setBlock(db, profile.id, false), `@${profile.username} is unblocked`, "page", "profile-follow")}>Unblock</button>
           ) : (
             <>
-              <FollowButton db={db} userId={profile.id} username={profile.username} state={relation.following} onChange={() => void reload()} />
+              <FollowButton id="profile-follow" db={db} userId={profile.id} username={profile.username} state={relation.following} onChange={() => void reload()} />
               {ProfileActions && <ProfileActions userId={profile.id} username={profile.username} />}
             </>
           )}
           {!relation.is_self && (
-            <button type="button" className={styles.iconButton} aria-label="Account options" aria-haspopup="dialog" onClick={() => setMenu(true)}><MoreHorizontal size={20} aria-hidden="true" /></button>
+            <button type="button" id="profile-options" className={styles.iconButton} aria-label="Account options" aria-haspopup="dialog" onClick={() => setMenu(true)}><MoreHorizontal size={20} aria-hidden="true" /></button>
           )}
         </div>
       </header>

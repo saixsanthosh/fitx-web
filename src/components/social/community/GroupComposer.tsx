@@ -35,6 +35,7 @@ export function GroupComposer({ communityId, challengeId, label, placeholder, su
   const [preparing, setPreparing] = useState(0);
   const [busy, setBusy] = useState(false);
   const previews = useRef<string[]>([]);
+  const area = useRef<HTMLTextAreaElement>(null);
   useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
   async function add(files: FileList) {
@@ -74,6 +75,8 @@ export function GroupComposer({ communityId, challengeId, label, placeholder, su
       const created = await communitiesApi.createGroupPost(db, { id, caption, topics: [], media, communityId, challengeId });
       setText("");
       setItems([]);
+      // The emptied form's Post button can no longer take focus: the box does, ready for the next one.
+      area.current?.focus();
       onPosted(created);
     } catch (failure) {
       if (uploaded.length && storage) await storage.from(SOCIAL_BUCKET).remove(uploaded).catch(() => undefined);
@@ -83,12 +86,13 @@ export function GroupComposer({ communityId, challengeId, label, placeholder, su
     }
   }
 
-  const ready = (text.trim().length > 0 || items.length > 0) && preparing === 0 && !busy;
+  const ready = (text.trim().length > 0 || items.length > 0) && preparing === 0;
   return (
     <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); void post(); }}>
       <div className={styles.composerRow}>
         <Avatar user={{ ...profile, id: userId }} size={36} />
         <textarea
+          ref={area}
           className={styles.text}
           aria-label={label}
           placeholder={placeholder}
@@ -116,10 +120,13 @@ export function GroupComposer({ communityId, challengeId, label, placeholder, su
         {items.length + preparing < MAX_PHOTOS ? (
           <label className={styles.attach}>
             <ImagePlus size={18} aria-hidden="true" />Photo
-            <input type="file" accept="image/*" multiple className="sr-only" aria-label="Add photos" disabled={busy} onChange={(event) => { if (event.target.files) void add(event.target.files); event.target.value = ""; }} />
+            <input type="file" accept="image/*" multiple className="sr-only" aria-label="Add photos" aria-disabled={busy || undefined}
+              onClick={(event) => { if (busy) event.preventDefault(); }}
+              onChange={(event) => { if (event.target.files && !busy) void add(event.target.files); event.target.value = ""; }} />
           </label>
         ) : <span />}
-        <button type="submit" className="fitx-button" disabled={!ready}>
+        {/* Posting is aria-disabled, not disabled, so the button keeps keyboard focus (D5). */}
+        <button type="submit" className="fitx-button aria-disabled:opacity-60" disabled={!ready} aria-disabled={busy || undefined}>
           {busy ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Posting</> : submitLabel}
         </button>
       </div>

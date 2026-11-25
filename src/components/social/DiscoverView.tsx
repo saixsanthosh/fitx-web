@@ -220,7 +220,7 @@ function Latest({ filter, title, hideTitle = false }: { filter: { topic?: string
       {latest.items.length > 0 && <PostGrid posts={latest.items} label={title} />}
       {latest.items.length > 0 && !latest.done && (
         <div className="mt-4 flex justify-center">
-          <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={latest.more} disabled={latest.status === "more"}>Show more</button>
+          <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={latest.more} aria-disabled={latest.status === "more" || undefined}>Show more</button>
         </div>
       )}
       <div ref={sentinel} className={styles.sentinel} aria-hidden="true" />

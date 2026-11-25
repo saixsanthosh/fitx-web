@@ -215,7 +215,7 @@ function ConversationList({ box, version, onCompose }: { box: InboxBox; version:
       </ul>
       {more !== "done" && (
         <div className="flex justify-center">
-          <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} onClick={() => void loadMore()} disabled={more === "busy"}>
+          <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} onClick={() => void loadMore()} aria-disabled={more === "busy" || undefined}>
             {more === "busy" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading</> : "Show more"}
           </button>
         </div>
