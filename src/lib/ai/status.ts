@@ -1,4 +1,6 @@
 import "server-only";
+import { GOAL_OPTIONS, LOCATION_OPTIONS, optionLabel } from "@/lib/domain/profile-options";
+import { equipmentKeyFor, equipmentLabel } from "@/lib/training/equipment";
 import { hasAnyProvider, type AiConfig } from "./config";
 import { buildCoachContext, loadContextSources, type CoachContext, type ContextSources } from "./context";
 import { describeAllergies, describeDiet } from "./diet-rules";
@@ -98,17 +100,36 @@ export function providerNotices(config: AiConfig, consentVersion?: number): Prov
 }
 
 /**
+ * The member's training setup as the consent screen names it: Profile's labels ("Gym and home", "Resistance bands"),
+ * never the stored values ("both", "bands"). Only what the summary really sends: until the Workouts setup is done
+ * the place and equipment are not sent (buildCoachContext), so no default is shown as the member's answer.
+ */
+export function trainingSetupWords(setup: { location?: unknown; equipment?: unknown } | undefined): string {
+  const humanize = (value: string) => value.replace(/_/g, " ");
+  const place = typeof setup?.location === "string" ? optionLabel(LOCATION_OPTIONS, setup.location) ?? humanize(setup.location) : null;
+  const kit = [...new Set((Array.isArray(setup?.equipment) ? setup.equipment : []).filter((item): item is string => typeof item === "string").map((item) => {
+    const key = equipmentKeyFor(item);
+    return key === "" ? "No equipment" : key ? equipmentLabel(key) : humanize(item);
+  }))];
+  const answers = [...(place ? [place] : []), ...kit.slice(0, 4)].join(", ") + (kit.length > 4 ? "…" : "");
+  const named = place ? "level, days a week, session length and split" : "session length and split";
+  return answers ? `${answers}; ${named}` : named;
+}
+
+/**
  * "What the coach reads" on the consent screen: every part of the summary that "Use my FITX data"
- * sends (buildCoachContext), with the member's own values where they are short. Empty for under-18
- * accounts, whose data is never sent.
+ * sends (buildCoachContext), with the member's own values where they are short, in the words Profile
+ * uses for them. Empty for under-18 accounts, whose data is never sent.
  */
 export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
   if (facts.minor) return [];
   // Health details, named as the member entered them (summary.training_setup.limitations).
-  const limitations = (summary.training_setup as { limitations?: unknown } | undefined)?.limitations;
+  const setup = summary.training_setup as { limitations?: unknown; location?: unknown; equipment?: unknown } | undefined;
+  const limitations = setup?.limitations;
+  const goal = optionLabel(GOAL_OPTIONS, facts.goal) ?? facts.goal.replace(/_/g, " ");
   return [
     `Age, sex, height, weight trend and target weight${facts.age ? "" : " (age not set yet)"}`,
-    `Goal (${facts.goal.replace(/_/g, " ")}), activity level, experience and training setup (${facts.location}, ${facts.equipment.slice(0, 4).join(", ")}${facts.equipment.length > 4 ? "…" : ""}; level, days a week, session length and split)`,
+    `Goal (${goal}), activity level, experience and training setup (${trainingSetupWords(setup)})`,
     `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitations : "none added yet"}`,
     `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, ${facts.foodHabitsShared ? "where your meals come from, your nutrition goal, " : ""}cuisines and foods you avoid`,
     "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",

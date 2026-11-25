@@ -873,7 +873,8 @@ describe("privacy wording elsewhere", () => {
       "member.age": /\bAge\b/, "member.sex": /\bsex\b/, "member.height_cm": /\bheight\b/, "member.weight_kg": /\bweight trend\b/,
       "member.target_weight_kg": /\btarget weight\b/, "member.experience": /\bexperience\b/,
       goal: /\bGoal\b/, activity_level: /\bactivity level\b/,
-      "training_setup.location": /\btraining setup \(home\b/, "training_setup.equipment": /\bdumbbell, bands\b/, "training_setup.level": /\blevel, days a week\b/,
+      // In Profile's words (bug 71): "Home", "Dumbbells", "Resistance bands", never the stored "home", "bands".
+      "training_setup.location": /\btraining setup \(Home\b/, "training_setup.equipment": /\bDumbbells, Resistance bands\b/, "training_setup.level": /\blevel, days a week\b/,
       "training_setup.days_per_week": /\bdays a week\b/, "training_setup.minutes_per_session": /\bsession length\b/, "training_setup.split": /\bsplit\b/,
       "training_setup.limitations": /\bInjuries or limitations\b/,
       "food_preferences.diet": /\bDiet: /, "food_preferences.allergies": /\ballergies: /, "food_preferences.meals_per_day": /\bmeals a day\b/,
