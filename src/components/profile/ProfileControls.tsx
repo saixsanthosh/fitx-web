@@ -15,6 +15,7 @@ import {
   MAX_CUSTOM_LENGTH,
   commitDraft,
   parseDecimal,
+  shownAge,
   WEIGHT_UNIT_OPTIONS,
   type HeightUnit,
   type Option,
@@ -514,7 +515,7 @@ export function SavedBirthDate({ value, helpHref = "/help" }: { value: string; h
 export function BirthDateField({ label = "Date of birth", value, onChange, error, required = true }: { label?: string; value: string; onChange: (value: string) => void; error?: string | null; required?: boolean }) {
   const id = useId();
   const bounds = useMemo(() => birthDateBounds(), []);
-  const age = ageFromBirthDate(value);
+  const age = shownAge(value);
   const describedBy = [`${id}-age`, error ? `${id}-error` : null].filter(Boolean).join(" ");
   return (
     <div>
@@ -533,7 +534,7 @@ export function BirthDateField({ label = "Date of birth", value, onChange, error
           aria-describedby={describedBy}
           onChange={(event) => onChange(event.target.value)}
         />
-        <span id={`${id}-age`} className="text-sm text-fitx-text-secondary" aria-live="polite">{age !== null && age <= 130 ? `${age} years` : ""}</span>
+        <span id={`${id}-age`} className="text-sm text-fitx-text-secondary" aria-live="polite">{age !== null ? `${age} years` : ""}</span>
       </div>
       <FieldError id={`${id}-error`} message={error} />
     </div>

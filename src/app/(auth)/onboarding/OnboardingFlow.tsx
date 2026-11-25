@@ -27,12 +27,12 @@ import {
   activityBand,
   activityForBand,
   BIRTH_DATE_SAVED_ERROR,
-  ageFromBirthDate,
   formatHeight,
   formatWeight,
   isBirthDateLocked,
   normalizeBirthDate,
   optionLabel,
+  shownAge,
   type ActivityBand,
   type Goal,
   type Sex,
@@ -163,7 +163,8 @@ export function OnboardingFlow() {
     });
   }, []);
 
-  const age = form ? ageFromBirthDate(form.birthDate) : null;
+  // The readouts follow the date as it is typed, so only an age somebody could have shows (never "1926 yrs").
+  const age = form ? shownAge(form.birthDate) : null;
   const targets = useMemo(() => {
     if (!form) return null;
     // Nutrition's own setup asks for the member's focus; one already stored counts here too, as on every screen.

@@ -433,17 +433,27 @@ export const DEFAULT_WATER_ML = 2500;
 
 export const NAME_MAX_LENGTH = 120;
 export const AGE_RANGE = { min: 13, max: 100 } as const;
+/** The oldest age a readout or hint shows: past it the date is a typo (born in the year 0100 is not "1926 years"). */
+export const OLDEST_SHOWN_AGE = 130;
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** The calendar date in `value` (YYYY-MM-DD) as [year, month, day], or null when it is not a real date. */
+function daysInMonth(year: number, month: number) {
+  if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
+}
+
+/**
+ * The calendar date in `value` (YYYY-MM-DD) as [year, month, day], or null when it is not a real date. Checked with
+ * the calendar's own rules, not Date.UTC, which reads the years 0 to 99 as 1900 to 1999: 0001-01-01 is a real date
+ * (one FITX doesn't take, "ages 13 to 100"), not "not a real date".
+ */
 function dateParts(value: unknown): [number, number, number] | null {
   if (typeof value !== "string") return null;
   const match = ISO_DATE.exec(value.trim().slice(0, 10));
   if (!match) return null;
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const check = new Date(Date.UTC(year, month - 1, day));
-  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return null;
   return [year, month, day];
 }
 
@@ -461,6 +471,15 @@ export function ageFromBirthDate(birthDate: unknown, today: Date = new Date()): 
   const [ty, tm, td] = [today.getFullYear(), today.getMonth() + 1, today.getDate()];
   const age = ty - year - (tm < month || (tm === month && td < day) ? 1 : 0);
   return age >= 0 ? age : null;
+}
+
+/**
+ * The age a readout or hint shows for a date being typed: the age it gives, or null when there is none or nobody could
+ * be that old. A date field reports its year as it is typed (2-0-0-1 passes through 0200), so only a real age shows.
+ */
+export function shownAge(birthDate: unknown, today: Date = new Date()): number | null {
+  const age = ageFromBirthDate(birthDate, today);
+  return age !== null && age <= OLDEST_SHOWN_AGE ? age : null;
 }
 
 /**
