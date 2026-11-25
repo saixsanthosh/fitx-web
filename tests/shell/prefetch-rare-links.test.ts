@@ -42,7 +42,8 @@ test("the footer's legal links load when pressed; its site links prefetch like t
   assert.match(footer, /const LEGAL = new Set<string>\(LEGAL_NAV\.map\(\(\{ href \}\) => href\)\);/);
   assert.match(footer, /prefetch=\{LEGAL\.has\(href\) \? false : undefined\}/);
   assert.deepEqual(LEGAL_NAV.map(({ href }) => href), ["/privacy", "/terms", "/cookies", "/refunds"]);
-  assert.ok(PUBLIC_NAV.every(({ href }) => !LEGAL_NAV.some((legal) => legal.href === href)), "no site section is treated as a legal page");
+  const legal = new Set<string>(LEGAL_NAV.map(({ href }) => href));
+  assert.ok(PUBLIC_NAV.every(({ href }) => !legal.has(href)), "no site section is treated as a legal page");
 });
 
 test("the main menu still prefetches: the sidebar, the phone's bar and the public header's sections", () => {
