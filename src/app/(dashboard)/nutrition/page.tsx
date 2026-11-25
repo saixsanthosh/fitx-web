@@ -55,7 +55,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
-import { amountProblem } from "@/lib/food/log-sheet";
+import { amountProblem, listedFoods, noSearchReason, startView, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -134,6 +134,8 @@ export default function NutritionPage() {
   const [derived, setDerived] = useState<FoodPortion | null>(null);
   const [amountPrompt, setAmountPrompt] = useState<AmountPrompt | null>(null);
   const [barcodeMiss, setBarcodeMiss] = useState<BarcodeMiss | null>(null);
+  /** The browse list, kept so the sheet can go back to its start view without asking again. */
+  const [browse, setBrowse] = useState<BrowseList | null>(null);
   /** Add to log was pressed with an amount that can't be logged: its problem shows next to the amount while it lasts. */
   const [amountTried, setAmountTried] = useState(false);
   /** The meal the open Log food adds to; set each time it opens (mealForOpen). */
@@ -317,8 +319,10 @@ export default function NutritionPage() {
   const grams = Number.isFinite(amountNumber) ? Math.round(amountNumber * (chosenPortion ? chosenPortion.grams : 1) * 10) / 10 : Number.NaN;
   const selectedMacros = selected && grams > 0 ? scaleMacros(selected, grams) : null;
   const filtering = dietFilter.nonVeg || dietFilter.egg;
-  const shownResults = results.filter((food) => !hiddenByDiet(food.dietType, dietFilter));
-  const hiddenCount = results.length - shownResults.length;
+  /** What the sheet lists: the browse list on its start view, else what the search or barcode lookup found. */
+  const listed = listedFoods({ searchMode, results }, browse);
+  const shownResults = listed.filter((food) => !hiddenByDiet(food.dietType, dietFilter));
+  const hiddenCount = listed.length - shownResults.length;
 
   const photoFor = useCallback((row: CustomFoodRow | undefined) => (row?.image_path ? photoUrls.get(row.image_path) ?? null : null), [photoUrls]);
   /** One of the member's own foods as the Log food sheet uses it: with its photo and what it keeps from the catalogue. */
@@ -463,12 +467,26 @@ export default function NutritionPage() {
       const response = await fetch("/api/foods/search?browse=1", SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
       if (!response.ok) throw new Error(data.error || "Food search failed.");
-      setResults(data.foods || []);
-      setSources(data.sources || []);
-      setSearchMode("browse");
+      // Listed whenever the sheet shows its start view (listedFoods), never over a search typed meanwhile.
+      setBrowse({ foods: data.foods || [], sources: data.sources || [] });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
     finally { setSearchingFoods(false); }
   }, []);
+
+  /**
+   * Back to the start view (Frequent, Recent and the browse list), with nothing left of an earlier search or barcode
+   * lookup: no old results, source counts, choice or barcode answer.
+   */
+  function showStart() {
+    const view = startView();
+    setResults(view.results);
+    setSources(view.sources);
+    setSearchMode(view.searchMode);
+    setLastSearch(view.lastSearch);
+    setLastQuery(view.lastQuery);
+    setSelected(null); setDerived(null); setAmountPrompt(null); setAmountTried(false); setPickHint(""); setBarcodeMiss(null);
+    if (!browse) void browseFoods();
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void browseFoods(); }, 0);
@@ -479,9 +497,12 @@ export default function NutritionPage() {
     setQuery(value);
     const typed = parseFoodQuery(value);
     if (typed.text.length < 2) {
-      if (!value.trim()) { void browseFoods(); setLastSearch(""); setLastQuery(NO_AMOUNT); return; }
-      setResults([]);
-      if (typed.amount !== null || typed.problem) setError("Add a food name after the amount, for example “150 g rice”.");
+      // Nothing to search for ("", "???", "150 g"): the start view, never an earlier search's results or messages.
+      showStart();
+      setError(""); setNotice("");
+      const reason = noSearchReason(typed, value);
+      if (reason?.kind === "error") setError(reason.message);
+      else if (reason) setNotice(reason.message);
       return;
     }
     setSearchingFoods(true); setError(""); setNotice(""); setPickHint(""); setBarcodeMiss(null);
@@ -598,7 +619,7 @@ export default function NutritionPage() {
     }).select("id");
     if (inserted.error) { setError("That food could not be logged. Please try again."); return; }
     // Back to the day, which now shows it; the toast can take it back.
-    setSelected(null); setLogOpen(false); setQuery(""); setLastSearch(""); setLastQuery(NO_AMOUNT);
+    setLogOpen(false); setQuery(""); showStart();
     const ids = ((inserted.data ?? []) as Array<{ id: string }>).map((row) => row.id);
     announceAdded(ids, food.name, meal);
     void browseFoods();
@@ -670,7 +691,9 @@ export default function NutritionPage() {
         if (document.activeElement === target) return;
       }
     }, 0);
-    setSelected(null); setAmountPrompt(null); setAmountTried(false); setBarcodeMiss(null); setPickHint(""); setError("");
+    // The next Log food opens on the start view with an empty search box, not on this search or barcode answer.
+    showStart();
+    setQuery(""); setBarcode(""); setError(""); setNotice("");
     reopenLog.current = false;
   }
 
