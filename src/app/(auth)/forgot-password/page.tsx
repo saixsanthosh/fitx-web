@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Mail } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
+import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { isEmailAddress, sendCodeProblem } from "@/lib/auth/email-code";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
@@ -15,6 +16,10 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const emailInput = useRef<HTMLInputElement>(null);
+  // An address typed before the page's scripts ran stays (src/components/auth/useKeepTypedValue.ts).
+  useKeepTypedValue(emailInput, email, setEmail);
+  const hydrated = useHydrated();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,11 +55,11 @@ export default function ForgotPasswordPage() {
         {sent ? (
           <p role="status" className={s.lead}>If an account uses <strong>{email.trim()}</strong>, a reset link is on its way.</p>
         ) : (
-          <form onSubmit={submit} className={s.form} noValidate>
+          <form onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
             <label className={s.field}>Email address
               <span className={s.inputWrap}>
                 <Mail size={16} aria-hidden="true" />
-                <input className="fitx-field" type="email" autoComplete="email" inputMode="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+                <input ref={emailInput} className="fitx-field" type="email" autoComplete="email" inputMode="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
               </span>
             </label>
             {error && <p role="alert" className={s.error}>{error}</p>}

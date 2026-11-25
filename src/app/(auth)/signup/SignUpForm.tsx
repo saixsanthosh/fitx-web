@@ -9,6 +9,7 @@ import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
 import { useEmailCode } from "@/components/auth/useEmailCode";
+import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { isEmailAddress } from "@/lib/auth/email-code";
@@ -34,6 +35,17 @@ export default function SignUpForm() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const emailInput = useRef<HTMLInputElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const passwordInput = useRef<HTMLInputElement>(null);
+  const confirmInput = useRef<HTMLInputElement>(null);
+  const options = useRef<HTMLDetailsElement>(null);
+  // Whatever was typed (or opened) before the page's scripts ran stays: the render right after hydration would wipe it.
+  useKeepTypedValue(emailInput, email, setEmail);
+  useKeepTypedValue(nameInput, name, setName);
+  useKeepTypedValue(passwordInput, password, setPassword);
+  useKeepTypedValue(confirmInput, confirm, setConfirm);
+  useKeepOpenState(options, open, setOpen);
+  const hydrated = useHydrated();
   const reduced = useReducedMotionSafe();
   const codeFlow = useEmailCode(noNext);
   const loading = pending !== null || codeFlow.sending;
@@ -127,7 +139,7 @@ export default function SignUpForm() {
               onBusy={(busy) => setPending(busy ? "google" : null)}
             />
             <div className={s.divider}>or</div>
-            <form onSubmit={submit} className={s.form} noValidate>
+            <form onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
               <label className={s.field}>Email address
                 <span className={s.inputWrap}>
                   <Mail size={16} aria-hidden="true" />
@@ -139,25 +151,25 @@ export default function SignUpForm() {
                   {codeFlow.sending ? "Sending code…" : "Email me a code"}
                 </button>
               )}
-              <details className={s.details} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+              <details ref={options} className={s.details} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
                 <summary>Other sign-up options<Plus size={17} aria-hidden="true" /></summary>
                 <div className={s.detailsBody}>
                   <label className={s.field}>Your name
                     <span className={s.inputWrap}>
                       <UserRound size={16} aria-hidden="true" />
-                      <input className="fitx-field" autoComplete="name" required={open} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
+                      <input ref={nameInput} className="fitx-field" autoComplete="name" required={open} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
                     </span>
                   </label>
                   <label className={s.field}>Password
                     <span className={s.inputWrap}>
                       <LockKeyhole size={16} aria-hidden="true" />
-                      <input className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
+                      <input ref={passwordInput} className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
                     </span>
                   </label>
                   <label className={s.field}>Confirm password
                     <span className={s.inputWrap}>
                       <LockKeyhole size={16} aria-hidden="true" />
-                      <input className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                      <input ref={confirmInput} className="fitx-field" type="password" autoComplete="new-password" minLength={8} required={open} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
                     </span>
                   </label>
                   {open && (

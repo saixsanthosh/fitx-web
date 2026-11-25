@@ -5,12 +5,16 @@ import { ArrowLeft } from "lucide-react";
 import { formatCountdown } from "@/lib/auth/email-code";
 import { CodeField } from "./CodeField";
 import type { EmailCode } from "./useEmailCode";
+import { useHydrated, useKeepTypedValue } from "./useKeepTypedValue";
 import s from "./auth.module.css";
 
 /** The second step of signing in with an e-mail code: enter the six digits, resend after a minute, or go back. */
 export function EmailCodeStep({ flow }: { flow: EmailCode }) {
   const input = useRef<HTMLInputElement>(null);
   const { email, code, setCode, verifying, signingIn, error, notice, resendIn, sending } = flow;
+  // Like every auth field, it keeps what it holds when it mounts (this step itself only shows after hydration).
+  useKeepTypedValue(input, code, setCode);
+  const hydrated = useHydrated();
 
   useEffect(() => {
     // No scrolling: the step slides in from the side, and focusing mid-slide would scroll the page sideways.
@@ -32,7 +36,7 @@ export function EmailCodeStep({ flow }: { flow: EmailCode }) {
     <>
       <h1 className={s.title}>Check your email</h1>
       <p className={s.lead}>Code sent to <strong>{email}</strong>. Or tap the link in the email.</p>
-      <form className={s.form} onSubmit={submit} noValidate>
+      <form className={s.form} onSubmit={submit} noValidate data-hydrated={hydrated || undefined}>
         <CodeField
           ref={input}
           value={code}

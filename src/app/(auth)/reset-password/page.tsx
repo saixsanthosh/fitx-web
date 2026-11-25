@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { LockKeyhole } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
+import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { stampSessionCookies } from "@/lib/auth/session-stamp";
 import { createClient } from "@/lib/supabase/client";
@@ -14,6 +15,12 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
+  const passwordInput = useRef<HTMLInputElement>(null);
+  const confirmInput = useRef<HTMLInputElement>(null);
+  // Passwords typed before the page's scripts ran stay (src/components/auth/useKeepTypedValue.ts).
+  useKeepTypedValue(passwordInput, password, setPassword);
+  useKeepTypedValue(confirmInput, confirm, setConfirm);
+  const hydrated = useHydrated();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,17 +56,17 @@ export default function ResetPasswordPage() {
         {saved ? (
           <Link href="/dashboard" className={`fitx-button ${s.primary}`}>Open FITX</Link>
         ) : (
-          <form onSubmit={submit} className={s.form} noValidate>
+          <form onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
             <label className={s.field}>New password
               <span className={s.inputWrap}>
                 <LockKeyhole size={16} aria-hidden="true" />
-                <input className="fitx-field" type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} />
+                <input ref={passwordInput} className="fitx-field" type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} />
               </span>
             </label>
             <label className={s.field}>Confirm password
               <span className={s.inputWrap}>
                 <LockKeyhole size={16} aria-hidden="true" />
-                <input className="fitx-field" type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                <input ref={confirmInput} className="fitx-field" type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={(event) => setConfirm(event.target.value)} />
               </span>
             </label>
             {error && <p role="alert" className={s.error}>{error}</p>}

@@ -9,6 +9,7 @@ import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
 import { useEmailCode } from "@/components/auth/useEmailCode";
+import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { isEmailAddress, passwordSignInProblem } from "@/lib/auth/email-code";
@@ -56,6 +57,13 @@ export default function SignInForm() {
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState("");
   const emailInput = useRef<HTMLInputElement>(null);
+  const passwordInput = useRef<HTMLInputElement>(null);
+  const options = useRef<HTMLDetailsElement>(null);
+  // Whatever was typed (or opened) before the page's scripts ran stays: the render right after hydration would wipe it.
+  useKeepTypedValue(emailInput, email, setEmail);
+  useKeepTypedValue(passwordInput, password, setPassword);
+  useKeepOpenState(options, open, setOpen);
+  const hydrated = useHydrated();
   const reduced = useReducedMotionSafe();
   const codeFlow = useEmailCode(requestedNext);
   const locationError = useSyncExternalStore(subscribeLocation, getLocationError, () => "");
@@ -133,7 +141,7 @@ export default function SignInForm() {
             {notice && !visibleError && <p role="status" className={s.notice}>{notice}</p>}
             {!isSupabaseConfigured && <p role="status" className={s.config}>Supabase environment values are missing here.</p>}
             <div className={s.divider}>or</div>
-            <form onSubmit={submit} className={s.form} noValidate>
+            <form onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
               <label className={s.field}>Email address
                 <span className={s.inputWrap}>
                   <Mail size={16} aria-hidden="true" />
@@ -145,13 +153,13 @@ export default function SignInForm() {
                   {codeFlow.sending ? "Sending code…" : "Email me a code"}
                 </button>
               )}
-              <details className={s.details} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+              <details ref={options} className={s.details} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
                 <summary>Other sign-in options<Plus size={17} aria-hidden="true" /></summary>
                 <div className={s.detailsBody}>
                   <label className={s.field}>Password
                     <span className={s.inputWrap}>
                       <LockKeyhole size={16} aria-hidden="true" />
-                      <input className="fitx-field" type={visible ? "text" : "password"} autoComplete="current-password" required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
+                      <input ref={passwordInput} className="fitx-field" type={visible ? "text" : "password"} autoComplete="current-password" required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
                       <button type="button" className={s.reveal} aria-label={visible ? "Hide password" : "Show password"} onClick={() => setVisible((show) => !show)}>
                         {visible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
                       </button>

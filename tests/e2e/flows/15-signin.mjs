@@ -5,6 +5,8 @@
 // Google button is the redirect flow and nothing is fetched from Google. A new address asks for a code, a wrong code is refused, the right code (pasted with a space)
 // signs in and onboarding opens; an existing account signs in by code and lands on the page it asked for, and
 // asking again within a minute keeps the code already sent. The stand-in keeps codes in an outbox (auth.mjs).
+// An address typed into the server-rendered page before its scripts run is kept once React takes over, and the
+// code step works with it (hotfix 2d).
 import { seeText } from "./common.mjs";
 
 /** Records, in every page of the flow, the stage's data-scene values in order and each worker the page starts. */
@@ -142,6 +144,56 @@ export const flow = {
       t.expect(running === "false", `the stage should not run with reduced motion (data-running=${running})`);
       await t.checkpoint("signin reduced motion", { fullPage: false });
       await page.emulateMedia({ reducedMotion: null });
+    });
+
+    await t.step("an address typed before the page's scripts run is kept, and the code step works with it", async () => {
+      const early = standin.newCredentials("Early Typist", "early").email;
+      // The page's own scripts wait until the address is typed: until then the server-rendered page is all there is.
+      let release = () => {};
+      const released = new Promise((resolve) => { release = resolve; });
+      const held = [];
+      const scripts = (url) => url.pathname.startsWith("/_next/static/") && url.pathname.endsWith(".js");
+      const hold = async (route) => {
+        held.push(new URL(route.request().url()).pathname);
+        await released;
+        await route.fallback();
+      };
+      await page.route(scripts, hold);
+      try {
+        await page.goto("/signin", { waitUntil: "domcontentloaded" });
+        t.label = "typed before hydration";
+        const field = page.getByLabel("Email address");
+        // Focus, not a click: before hydration the cookie banner may still sit over the form on a phone.
+        await field.focus();
+        await page.keyboard.type(early, { delay: 10 });
+        const before = await page.evaluate(() => ({
+          hydrated: Boolean(document.querySelector("form[data-hydrated]")),
+          value: document.querySelector("form input[type=email]")?.value ?? null,
+        }));
+        t.note("before hydration", { held: held.length, ...before });
+        t.expect(held.length > 0 && !before.hydrated, `the page's scripts were held while typing (${held.length} held, hydrated ${before.hydrated})`, before);
+        t.expect(before.value === early, `the server-rendered field took the address (${before.value})`, before);
+        release();
+        await page.waitForSelector("form[data-hydrated]", { timeout: 30000 });
+        // The renders right after hydration (reduced motion, location, data-hydrated) used to empty the field.
+        await page.waitForTimeout(750);
+        const kept = await field.inputValue();
+        t.expect(kept === early, `the address typed before hydration is still in the field (holds "${kept}")`);
+        await t.checkpoint("typed before hydration, kept", { fullPage: false, settle: false });
+      } finally {
+        release();
+        await page.unroute(scripts, hold);
+      }
+      await page.getByRole("button", { name: "Email me a code" }).click();
+      await seeText(t, "Check your email");
+      await seeText(t, early);
+      const code = await sentCode(standin, early);
+      await Promise.all([
+        page.waitForURL((url) => url.pathname === "/onboarding", { timeout: 30000 }),
+        page.getByLabel("6-digit code").fill(code),
+      ]);
+      t.expect(new URL(page.url()).pathname === "/onboarding", `the code sent to the kept address signs in (${page.url()})`);
+      await t.context.clearCookies();
     });
 
     const newEmail = standin.newCredentials("Code Newcomer", "code").email;
