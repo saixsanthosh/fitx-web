@@ -2,9 +2,11 @@
 // Encodes a composition's FFV1 master into the shipped rungs (BRIEF-2 3.2), holding the browser lane with keep-alive
 // so an encode never runs during a render. Usage (through heavy.sh):
 //   heavy.sh node scripts/brand/films/encode.mjs --master=<dir>/<comp>-<theme>/master.mkv --comp=laptop [--rungs=hevc60,avc30,poster]
-//     [--budget] [--crf=<start>] [--tune=grain|none] [--out=<dir>] [--legacy]
-// --budget steps the HEVC CRF (from the recovered 29) until the file fits its byte budget; --legacy makes the old
-// pipeline's HEVC (BT.601, x265 medium, crf 29, keyint 120) for gate A. Outputs go next to the master unless --out.
+//     [--budget] [--crf=<n>] [--avc-crf=<n>] [--tune=grain|none] [--out=<dir>] [--legacy]
+// --crf and --avc-crf are the HEVC 60 and AVC 30 rungs' CRF (default ENCODER's 29 and 27): the one encode's, or with
+// --budget the CRF it starts from, stepping each rung until its file fits its byte budget. They never change ENCODER
+// (part of the film's rev); encoded.json records the CRF each file was made at. --legacy makes the old pipeline's HEVC
+// (BT.601, x265 medium, crf 29, keyint 120) for gate A. Outputs go next to the master unless --out.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -16,10 +18,19 @@ import { CWEBP, FFMPEG } from "./lib/preflight.mjs";
 
 const log = (line) => process.stderr.write(`[encode] ${line}\n`);
 
+/** The CRFs `--crf` and `--avc-crf` take: whole numbers in the range `crfForBudget` steps in. */
+export const CRF_RANGE = Object.freeze({ min: 20, max: 40 });
+
+function crfArg(name, value) {
+  const crf = /^\d+$/.test(value ?? "") ? Number(value) : Number.NaN;
+  if (!(crf >= CRF_RANGE.min && crf <= CRF_RANGE.max)) throw new Error(`--${name} must be a whole number from ${CRF_RANGE.min} to ${CRF_RANGE.max}`);
+  return crf;
+}
+
 export function parseEncodeArgs(argv) {
-  const out = { master: null, comp: null, rungs: ["hevc60", "avc30", "poster"], budget: false, out: null, legacy: false, theme: null, tune: ENCODER.hevc60.tune, crf: null };
+  const out = { master: null, comp: null, rungs: ["hevc60", "avc30", "poster"], budget: false, out: null, legacy: false, theme: null, tune: ENCODER.hevc60.tune, crf: null, avcCrf: null };
   for (const arg of argv) {
-    const match = /^--([a-z]+)(?:=(.*))?$/.exec(arg);
+    const match = /^--([a-z]+(?:-[a-z]+)*)(?:=(.*))?$/.exec(arg);
     if (!match) throw new Error(`unknown argument ${arg}`);
     const [, name, value] = match;
     if (name === "master") out.master = value;
@@ -30,7 +41,8 @@ export function parseEncodeArgs(argv) {
     else if (name === "legacy") out.legacy = true;
     else if (name === "out") out.out = value;
     else if (name === "tune") out.tune = value;
-    else if (name === "crf") out.crf = Number(value);
+    else if (name === "crf") out.crf = crfArg(name, value);
+    else if (name === "avc-crf") out.avcCrf = crfArg(name, value);
     else throw new Error(`unknown flag --${name}`);
   }
   if (!out.master) throw new Error("--master is required");
@@ -39,6 +51,17 @@ export function parseEncodeArgs(argv) {
     if (!["landscape", "portrait"].includes(out.comp) || !out.theme) throw new Error("a reel needs --comp=landscape|portrait and --theme");
   } else if (!out.legacy && !AVC30_SIZES[out.comp]) throw new Error("--comp must be a composition");
   return out;
+}
+
+/**
+ * How each video rung is encoded: `start` is the CRF of its one encode, or with --budget the CRF it steps from, and
+ * `budget` its byte cap under --budget (null: one encode).
+ */
+export function rungEncodes(request) {
+  return {
+    hevc60: { start: request.crf ?? ENCODER.hevc60.crf, budget: request.budget ? BUDGET.hevc60 : null },
+    avc30: { start: request.avcCrf ?? ENCODER.avc30.crf, budget: request.budget ? BUDGET.avc30 : null },
+  };
 }
 
 function run(command, args) {
@@ -87,14 +110,15 @@ async function work(request, lane) {
     outputs.legacy = { file, bytes: statSync(file).size, seconds: (Date.now() - started) / 1000, sha256: sha256(file) };
     lane.touch();
   } else {
+    const plan = rungEncodes(request);
     for (const rung of request.rungs) {
       if (rung === "hevc60") {
         const file = path.join(dir, `${name}-hevc60.mp4`);
-        outputs.hevc60 = { file, ...(await encodeToBudget({ file, budget: request.budget ? BUDGET.hevc60 : null, start: request.crf ?? ENCODER.hevc60.crf, lane, args: (crf, output) => hevc60Args({ input: request.master, output, crf, tune: request.tune }) })), sha256: null };
+        outputs.hevc60 = { file, ...(await encodeToBudget({ file, ...plan.hevc60, lane, args: (crf, output) => hevc60Args({ input: request.master, output, crf, tune: request.tune }) })), sha256: null };
         outputs.hevc60.sha256 = sha256(file);
       } else if (rung === "avc30") {
         const file = path.join(dir, `${name}-avc30.mp4`);
-        outputs.avc30 = { file, ...(await encodeToBudget({ file, budget: request.budget ? BUDGET.avc30 : null, start: ENCODER.avc30.crf, lane, args: (crf, output) => avc30Args({ input: request.master, output, comp: request.comp, crf }) })), sha256: null };
+        outputs.avc30 = { file, ...(await encodeToBudget({ file, ...plan.avc30, lane, args: (crf, output) => avc30Args({ input: request.master, output, comp: request.comp, crf }) })), sha256: null };
         outputs.avc30.sha256 = sha256(file);
       } else if (rung === "reel") {
         const file = path.join(dir, `reel-${request.theme}-${request.comp}.mp4`);
