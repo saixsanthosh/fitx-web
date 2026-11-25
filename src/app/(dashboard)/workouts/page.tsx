@@ -47,6 +47,7 @@ import { contextForLocation, planSummary } from "@/lib/training/plan-summary";
 import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
 import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
+import { loadRecentExerciseDays } from "@/lib/training/recent-days";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
@@ -55,7 +56,7 @@ import { BUILDER_FIELD_IDS, builderSaveProblem, type BuilderProblem } from "./_l
 import { builderSplit } from "./_lib/split-source";
 import { MAX_PLAN_EXERCISES, focusAfterRemove, focusAfterSwap, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
-import { equipmentGapMessage, equipmentGaps } from "./_lib/today-equipment";
+import { equipmentGapMessage, equipmentGaps, listChanged } from "./_lib/today-equipment";
 import { pickToday } from "./_lib/today-pick";
 import { fetchUpcomingScheduled, joinScheduledToPlans, type ScheduledItem } from "./_lib/scheduled";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
@@ -83,6 +84,7 @@ const HISTORY_LIMIT = 6;
 /** Equipment icons shown in the Gym equipment card before "+N". */
 const EQUIPMENT_SHOWN = 9;
 const TARGETS_UNAVAILABLE_NOTICE = "Weight and time targets arrive with the next FITX update. Everything else saves.";
+const SETUP_SAVED = "Setup saved. Workouts now follows your answers.";
 const BUILDER_MODES: ReadonlyArray<[BuilderMode, string]> = [["focus", "Body areas"], ["auto", "Your split"], ["custom", "Blank"]];
 
 /** "Done" in the success colour; the other statuses stay neutral. */
@@ -201,17 +203,6 @@ async function fetchPlanById(supabase: SupabaseBrowserClient, uid: string, planI
   let result = await planListQuery(supabase, uid, true, false).eq("id", planId).maybeSingle();
   if (isMissingRelationshipError(result.error)) result = await planListQuery(supabase, uid, false, false).eq("id", planId).maybeSingle();
   return result.error || !result.data ? null : toPlanRow(result.data as unknown as PlanListRow);
-}
-
-/** Exercise id -> days since the user last trained it, from the last two weeks, for variety. */
-async function fetchRecentExerciseDays(supabase: SupabaseBrowserClient, uid: string): Promise<Map<string, number>> {
-  const since = new Date(Date.now() - 14 * 86400000);
-  const result = await supabase.from("workout_session_exercises").select("exercise_id,created_at").eq("user_id", uid).gte("created_at", since.toISOString()).order("created_at", { ascending: false }).limit(300);
-  const days = new Map<string, number>();
-  for (const row of (result.data ?? []) as Array<{ exercise_id: string | null; created_at: string }>) {
-    if (row.exercise_id && !days.has(row.exercise_id)) days.set(row.exercise_id, Math.floor((Date.now() - Date.parse(row.created_at)) / 86400000));
-  }
-  return days;
 }
 
 export default function WorkoutsPage() {
@@ -365,7 +356,7 @@ export default function WorkoutsPage() {
       loadEquipmentProfiles(supabase, uid),
       loadProgrammes(supabase),
       loadCurrentEnrolment(supabase, uid),
-      fetchRecentExerciseDays(supabase, uid),
+      loadRecentExerciseDays(supabase, uid),
       loadWorkoutSetup(supabase, uid),
     ]);
     const failure = [catalogResult, preferencesResult, planPage, historyResult, activeResult].find((result) => result.error);
@@ -422,11 +413,12 @@ export default function WorkoutsPage() {
     const followed = followedProgramme(programmeResult.programmes, currentEnrolment);
     if (!currentEnrolment || currentEnrolment.status !== "active" || !followed || enrolmentPlans.error || profileResult.error || !catalogResult.exercises.length) return;
     const programmeOwned = expandOwnedEquipment(equipmentFor(profileResult.profiles, currentEnrolment.context, prefs.equipment).keys);
-    // Days planned before the member's list changed (here, in the library, in setup or on another device) are checked
-    // against it: exercises it no longer allows are swapped for the planner's own picks (bug 17).
+    // The list may have changed where no check ran (Profile, another device): days saved before it was last saved are
+    // checked against it (bug 17). A day saved since, the member's own edit included, is left as it is ("visit").
     const checked = await replanProgrammeDays(supabase, {
       userId: uid, enrolment: currentEnrolment, programme: followed, catalog: catalogResult.exercises, owned: programmeOwned,
       level: asLevel(prefs.fitness_level), recentDays: recent, todayKey, includeTargets: !targetsMissing, plansFrom,
+      mode: "visit", listSavedAt: profileResult.savedAt[currentEnrolment.context],
     });
     if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
     const replanned = replanMessage(checked.outcome, currentEnrolment.context);
@@ -475,12 +467,34 @@ export default function WorkoutsPage() {
 
   function setupSaved(next: WorkoutSetup) {
     const firstTime = !setup?.done;
+    // The list the followed programme's days were planned with, before this save (a starting list until one is saved).
+    const programmeList = enrolment ? equipmentFor(profiles, enrolment.context, preferences.equipment).keys : null;
     setSetup(next);
     setProfiles(next.profiles);
     setPreferences((current) => ({ ...current, workout_location: next.location, fitness_level: next.level, equipment: next.profiles.home ?? current.equipment }));
     setSetupOpen(false);
-    setNotice("Setup saved. Workouts now follows your answers.");
+    setNotice(SETUP_SAVED);
     if (firstTime) changeMode(modeForLocation(next.location));
+    const keys = enrolment ? next.profiles[enrolment.context] : null;
+    if (programmeList && listChanged(programmeList, keys)) void replanAfterSetup(next, keys!);
+  }
+
+  /** Setup saved a new list for the followed programme's place: its days ahead follow it (bug 17), as after Save list. */
+  async function replanAfterSetup(next: WorkoutSetup, keys: readonly string[]) {
+    const supabase = createClient();
+    const programme = followedProgramme(programmes, enrolment);
+    if (!supabase || !userId || !enrolment || enrolment.status !== "active" || !programme || !catalog.length || programmeLoadFailed) return;
+    const todayKey = localDateKey();
+    const checked = await replanProgrammeDays(supabase, {
+      userId, enrolment, programme, catalog, owned: expandOwnedEquipment(keys), level: asLevel(next.level), recentDays, todayKey,
+      includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey, mode: "list-saved",
+    });
+    if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
+    // Said with the setup's own line, under the Workout setup button that opened it (D6).
+    const said = checked.outcome.error
+      ? "Your programme’s days ahead couldn’t be checked against your new list. Reload Workouts to try again."
+      : replanMessage(checked.outcome, enrolment.context);
+    if (said) setNotice((current) => (current === SETUP_SAVED ? `${SETUP_SAVED} ${said}` : current));
   }
 
   useEffect(() => {
@@ -782,7 +796,7 @@ export default function WorkoutsPage() {
       const todayKey = localDateKey();
       const checked = await replanProgrammeDays(supabase, {
         userId, enrolment, programme, catalog, owned: expandOwnedEquipment(saved.keys), level, recentDays, todayKey,
-        includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey,
+        includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey, mode: "list-saved",
       });
       if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
       note = checked.outcome.error
@@ -803,7 +817,7 @@ export default function WorkoutsPage() {
     const todayKey = localDateKey();
     const checked = await replanProgrammeDays(supabase, {
       userId, enrolment, programme, catalog, owned: ownedFor(enrolment.context), level, recentDays, todayKey,
-      includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey, onlyPlanId: planId,
+      includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey, onlyPlanId: planId, mode: "asked",
     });
     if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
     setTodayReplan({

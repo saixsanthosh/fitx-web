@@ -5,7 +5,7 @@ import { setTargetReps } from "./sets";
 type Db = SupabaseClient;
 
 /** Optional plan-exercise columns from 20261115110000 (see workouts/_lib/workout-columns.ts). */
-const TARGET_COLUMNS = ["target_weight_kg", "target_duration_seconds"] as const;
+export const TARGET_COLUMNS = ["target_weight_kg", "target_duration_seconds"] as const;
 
 export type PlanExerciseInput = {
   exercise_id: string | null;

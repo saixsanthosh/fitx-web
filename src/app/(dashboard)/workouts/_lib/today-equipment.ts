@@ -4,7 +4,7 @@
  * list does not allow, and what they need, as Details does ("Needs dumbbells, not on your gym list"). Pure.
  */
 import type { CatalogExercise } from "@/lib/training/catalog";
-import { missingEquipment } from "@/lib/training/equipment";
+import { missingEquipment, sortEquipmentKeys } from "@/lib/training/equipment";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
 
 export type EquipmentGaps = { count: number; missing: string[] };
@@ -29,4 +29,12 @@ export function equipmentGapMessage(gaps: EquipmentGaps, listName: string, label
   const names = gaps.missing.map((key) => label(key).toLowerCase());
   const list = names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   return `${gaps.count === 1 ? "1 exercise needs" : `${gaps.count} exercises need`} ${list}, not on your ${listName} list.`;
+}
+
+/**
+ * Whether saving `next` changes the list a programme's days were planned with (`before`, the list in use until now,
+ * a starting list included). A list left unsaved (null) changes nothing. The setup sheet re-plans only then (bug 17).
+ */
+export function listChanged(before: readonly string[], next: readonly string[] | null | undefined): boolean {
+  return next != null && sortEquipmentKeys(before).join(",") !== sortEquipmentKeys(next).join(",");
 }

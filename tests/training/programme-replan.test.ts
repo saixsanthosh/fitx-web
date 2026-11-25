@@ -1,6 +1,8 @@
 // Bug 17 (workouts-1): after Dumbbells were removed from the gym list, the programme's planned Push and Pull days
-// kept their dumbbell exercises, and the card said nothing. Days not started are re-planned for the new list with the
-// planner's own rules, keeping what the member can still do.
+// kept their dumbbell exercises, and the card said nothing. A day's exercises the list rules out are replaced with the
+// planner's own rules, keeping what the member can still do; on an automatic check an exercise the member added by
+// hand stays and is named (review round: the check used to swap a member's own addition straight after saving it).
+// Which days a check touches is tested with a stand-in database in programme-replan-days.test.ts.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { loadCatalog as deriveCatalog } from "../../scripts/catalog/catalog.mjs";
@@ -62,6 +64,12 @@ describe("a programme day re-planned for a list without dumbbells", () => {
     });
   });
 
+  test("an automatic check re-plans the planner's own rows the same way: each fills a slot, none counts as added by hand", () => {
+    const automatic = replanDayRows({ rows: before, slots: ppl.days[0].slots, catalog, owned: withoutDumbbells, level: "intermediate", seed: "enrolment-1:2026-11-30", context: "gym", keepAddedByHand: true });
+    assert.deepEqual(automatic, after);
+    assert.deepEqual(automatic.kept, []);
+  });
+
   test("checking again changes nothing", () => {
     const again = replanDayRows({ rows: asRows(after.rows), slots: ppl.days[0].slots, catalog, owned: withoutDumbbells, level: "intermediate", seed: "enrolment-1:2026-11-30", context: "gym" });
     assert.equal(again.changed, false);
@@ -97,12 +105,27 @@ describe("rows outside the day's slots, and what nothing replaces", () => {
     assert.deepEqual(result.rows[0], { exercise_id: "push_up", exercise_name: "push_up", target_sets: 4, reps_min: 6, reps_max: 8, rest_seconds: 120, target_weight_kg: null, target_duration_seconds: null });
   });
 
-  test("an exercise added by hand (no slot of its own) is swapped as Swap would, else left out and named", () => {
+  test("asked to re-plan, an exercise added by hand (no slot of its own) is swapped as Swap would, else left out and named", () => {
     const bands = expandOwnedEquipment(["resistance_band"]);
     const swapped = replanDayRows({ rows: [row("push_up", 0), row("db_curl", 1)], slots, catalog: small, owned: bands, level: "beginner", seed: "s", context: "gym" });
     assert.deepEqual(swapped.replaced, [{ from: "db_curl", to: "band_curl" }]);
     const dropped = replanDayRows({ rows: [row("push_up", 0), row("old_move", 1)], slots, catalog: small, owned: none, level: "beginner", seed: "s", context: "gym" });
     assert.deepEqual([dropped.dropped, dropped.rows.map((entry) => entry.exercise_id)], [["old_move"], ["push_up"]]);
+  });
+
+  test("an automatic check keeps an exercise added by hand and names it; the planner's own rows are still replaced", () => {
+    const bands = expandOwnedEquipment(["resistance_band"]);
+    const result = replanDayRows({ rows: [row("db_press", 0), row("db_curl", 1)], slots, catalog: small, owned: bands, level: "beginner", seed: "s", context: "gym", keepAddedByHand: true });
+    assert.deepEqual(result.replaced, [{ from: "db_press", to: "push_up" }], "db_press fills the day's chest slot: the planner's pick replaces it");
+    assert.deepEqual(result.kept, ["db_curl"], "db_curl fills no slot of this day: the member added it");
+    assert.deepEqual(result.rows.map((entry) => entry.exercise_id), ["push_up", "db_curl"]);
+    assert.deepEqual(result.rows[1], { exercise_id: "db_curl", exercise_name: "db_curl", target_sets: 4, reps_min: 6, reps_max: 8, rest_seconds: 120, target_weight_kg: 20, target_duration_seconds: null }, "kept as it was, target weight included");
+    assert.equal(result.changed, true);
+  });
+
+  test("a day whose only problem is an exercise added by hand is unchanged on an automatic check", () => {
+    const result = replanDayRows({ rows: [row("push_up", 0), row("db_curl", 1)], slots, catalog: small, owned: none, level: "beginner", seed: "s", context: "gym", keepAddedByHand: true });
+    assert.deepEqual([result.changed, result.kept, result.replaced, result.dropped], [false, ["db_curl"], [], []]);
   });
 
   test("an exercise no longer in the catalogue is kept as it is", () => {
@@ -124,9 +147,25 @@ describe("rows outside the day's slots, and what nothing replaces", () => {
 
 test("what the member reads", () => {
   assert.equal(replanMessage({ replanned: [], unfixable: [] }, "gym"), "");
+  assert.equal(replanMessage({ replanned: [], unfixable: [], kept: [] }, "gym"), "");
   assert.equal(
     replanMessage({ replanned: [{ planId: "a", title: "Push · Push, Pull, Legs", replaced: [{ from: "x", to: "y" }], dropped: [] }, { planId: "b", title: "Pull · Push, Pull, Legs", replaced: [], dropped: ["Shrug"] }], unfixable: [] }, "gym"),
-    "Push and Pull were re-planned for your gym list: exercises it no longer allows were swapped for ones it does. Nothing on your list replaces Shrug, so it was left out.",
+    "Push and Pull were re-planned for your gym list: exercises it doesn’t allow were swapped for ones it does. Nothing on your list replaces Shrug, so it was left out.",
   );
   assert.equal(replanMessage({ replanned: [], unfixable: [{ planId: "c", title: "Legs · Push, Pull, Legs" }] }, "gym"), "Nothing on your list fits Legs. Add equipment, or edit that day.");
+  assert.equal(
+    replanMessage({ replanned: [], unfixable: [], kept: [{ planId: "d", title: "Pull · Push, Pull, Legs", names: ["Barbell Curl"] }] }, "gym"),
+    "Barbell Curl on Pull stays: you added it yourself, though your list doesn’t allow it.",
+  );
+  assert.equal(
+    replanMessage({ replanned: [], unfixable: [], kept: [{ planId: "d", title: "Pull · Push, Pull, Legs", names: ["Barbell Curl"] }, { planId: "e", title: "Push · Push, Pull, Legs", names: ["Cable Fly"] }] }, "gym"),
+    "Barbell Curl on Pull and Cable Fly on Push stay: you added them yourself, though your list doesn’t allow them.",
+  );
+});
+
+test("a programme repeats its days: each day's name is said once", () => {
+  const push = (planId: string) => ({ planId, title: "Push · Push, Pull, Legs", replaced: [{ from: "x", to: "y" }], dropped: [] });
+  assert.equal(replanMessage({ replanned: [push("a"), push("b")], unfixable: [] }, "gym"), "Push was re-planned for your gym list: exercises it doesn’t allow were swapped for ones it does.");
+  const pull = (planId: string) => ({ planId, title: "Pull · Push, Pull, Legs", names: ["Barbell Curl"] });
+  assert.equal(replanMessage({ replanned: [], unfixable: [], kept: [pull("c"), pull("d")] }, "gym"), "Barbell Curl on Pull stays: you added it yourself, though your list doesn’t allow it.");
 });

@@ -14,12 +14,14 @@ import { SearchField } from "@/components/exercises/discovery/SearchField";
 import { MuscleRail } from "@/components/training/MuscleRail";
 import { ModePanel, ModeTabs } from "@/components/workouts/ModeTabs";
 import { clearRecentSearches, forgetSearch, readRecentExercises, readRecentSearches, rememberSearch } from "@/lib/domain/exercise-preferences";
+import { localDateKey } from "@/lib/domain/dates";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { focusAreaCounts, loadCatalogThumbnails, queryCatalog, relaxSuggestions, resultCountLine, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
 import { equipmentFor, saveEquipmentProfile } from "@/lib/training/data";
 import { expandOwnedEquipment, sortEquipmentKeys } from "@/lib/training/equipment";
 import { survivingExerciseIds } from "@/lib/training/exercise-merges";
+import { replanAfterListSaved, replanMessage } from "@/lib/training/programme-replan";
 import { FOCUS_AREAS, FOCUS_COUNT_NOTE } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
@@ -229,13 +231,23 @@ export default function ExerciseLibraryPage() {
   async function saveHaveList() {
     const supabase = createClient();
     if (!supabase || account.status !== "ready" || !state.have) return;
+    const { context } = state;
+    const keys = state.have;
     setSavingList(true);
-    const { error } = await saveEquipmentProfile(supabase, account.userId, state.context, state.have);
+    const { error } = await saveEquipmentProfile(supabase, account.userId, context, keys);
     setSavingList(false);
     if (error) { setListNote({ tone: "error", text: `Your ${contextName} list could not be saved. Check your connection and try again.` }); return; }
-    await reloadProfiles({ context: state.context, keys: state.have });
+    await reloadProfiles({ context, keys });
     navigate({ ...state, have: null });
-    setListNote({ tone: "info", text: `Saved as your ${contextName} list. Workouts uses it too.` });
+    const saved = `Saved as your ${contextName} list. Workouts uses it too.`;
+    setListNote({ tone: "info", text: saved });
+    // The programme the member follows plans its days ahead from this list: they follow it now (bug 17), as when the
+    // list is saved on Workouts, and what changed is said here. Workouts checks again when it opens if this fails.
+    const checked = await replanAfterListSaved(supabase, { userId: account.userId, context, keys, catalog: exercises ?? [], level: account.level ?? "beginner", todayKey: localDateKey() });
+    const replanned = !checked ? "" : checked.error
+      ? "Your programme’s days ahead couldn’t be checked against it yet: Workouts checks them when you open it."
+      : replanMessage(checked, context);
+    if (replanned) setListNote((current) => (current?.text === saved ? { tone: "info", text: `${saved} ${replanned}` } : current));
   }
 
   const resultsTitle = !result ? (catalogue.status === "error" ? "Exercises unavailable" : "Loading exercises") : `${result.items.length.toLocaleString()} ${result.items.length === 1 ? "exercise" : "exercises"}`;
