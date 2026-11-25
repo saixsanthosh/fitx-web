@@ -11,7 +11,7 @@ const links = [...PUBLIC_NAV, ...LEGAL_NAV];
 export async function PublicFooter() {
   const contact = await publicContact();
   return (
-    <footer className="fitx-inverse border-t border-fitx-divider bg-background pb-[env(safe-area-inset-bottom)]">
+    <footer className="fitx-inverse fitx-band-end border-t border-fitx-divider bg-background">
       <div className="fitx-container grid gap-6 py-9 md:grid-cols-[1fr_auto] md:items-start">
         <div className="grid gap-2">
           <Link href="/" aria-label="FITX home" className="inline-flex min-h-11 items-center"><Logo size={30} /></Link>

@@ -8,6 +8,7 @@ import { LogoutButton } from "@/components/app/LogoutButton";
 import { ACCOUNT_NAV, PHONE_MORE_GROUPS, PHONE_TAB_COUNT, PHONE_TABS, isActivePath, phoneSlot } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 import { NavGlyph } from "./NavGlyph";
+import { useBottomInsetRef } from "./useBottomInsetRef";
 
 /** Focus screens that hide the bar: the live workout and the activity recorder. */
 const FOCUS_SCREENS = new Set(["/workouts/active", "/activity/record"]);
@@ -18,11 +19,13 @@ const MORE_SECTIONS = PHONE_MORE_GROUPS.flatMap((group) => group.items.map((item
  * Phones (under 768 px): a fixed bar with the four main sections and More. An ember line glides along the top
  * edge to the current tab and the tab's pill fills in. More opens a bottom sheet with the other sections in
  * their groups (a modal <dialog>: focus stays inside, Escape or a tap outside closes it, focus returns to More).
+ * While it shows, the bar sets --fitx-inset-bottom-bar, so a control reached with Tab is scrolled clear of it.
  */
 export function BottomNav() {
   const pathname = usePathname();
   const sheet = useRef<HTMLDialogElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
+  const bar = useBottomInsetRef("bar");
   const [open, setOpen] = useState(false);
   const slot = open ? PHONE_TAB_COUNT : phoneSlot(pathname);
   const moreActive = slot === PHONE_TAB_COUNT;
@@ -42,7 +45,7 @@ export function BottomNav() {
 
   return (
     <>
-      <nav aria-label="Main navigation" data-coach-avoid="" className="fitx-glass fitx-safe-inline fixed inset-x-0 bottom-0 z-40 border-t border-fitx-divider bg-fitx-nav pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5 [--fitx-pad-inline:.25rem] md:hidden">
+      <nav ref={bar} aria-label="Main navigation" data-coach-avoid="" className="fitx-glass fitx-safe-inline fixed inset-x-0 bottom-0 z-40 border-t border-fitx-divider bg-fitx-nav pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5 [--fitx-pad-inline:.25rem] md:hidden">
         <div className="relative mx-auto grid max-w-[520px] grid-cols-5">
           {/* The current tab's marker: a short ember line on the bar's top edge that glides between tabs. */}
           <span aria-hidden="true" className="pointer-events-none absolute -top-1.5 left-0 flex h-[2px] justify-center transition-[transform,opacity] duration-300 ease-[cubic-bezier(.22,1,.36,1)]"

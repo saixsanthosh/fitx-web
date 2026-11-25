@@ -342,14 +342,34 @@
 }
 
 * { box-sizing: border-box; }
-html { min-height: 100%; -webkit-text-size-adjust: 100%; scroll-padding-top: 84px; }
+/* When the browser scrolls a control into view (Tab, scrollIntoView, an anchor), it keeps these clear: at the top
+   the sticky header; at the bottom whatever is fixed there, the phone's bar or the privacy banner while it is open
+   (each sets its own inset while it shows: components/layout/bottom-inset.ts), plus room for the focus ring. */
+html {
+  min-height: 100%;
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 84px;
+  scroll-padding-bottom: calc(max(var(--fitx-inset-bottom-bar, 0px), var(--fitx-inset-consent, 0px)) + 12px);
+}
 body {
   min-height: 100vh;
   margin: 0;
+  /* While the privacy banner is open the page gets as much room after its end, so its last controls can be
+     scrolled clear of the banner too. A page that ends in a full-width band takes the room inside the band
+     instead (.fitx-ends-in-band, .fitx-band-end), so no strip of page colour shows under it. */
+  padding-bottom: var(--fitx-inset-consent, 0px);
   background: var(--fitx-bg);
   color: var(--fitx-text);
   font-family: var(--font-inter), Arial, sans-serif;
   -webkit-tap-highlight-color: transparent;
+}
+.fitx-ends-in-band { margin-bottom: calc(-1 * var(--fitx-inset-consent, 0px)); }
+.fitx-band-end { padding-bottom: calc(env(safe-area-inset-bottom) + var(--fitx-inset-consent, 0px)); }
+/* The privacy banner (AnalyticsConsent): it floats at the bottom of the screen, above the phone's bar when that
+   shows, so the bar's links are never under it. */
+.fitx-consent { bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 8px), env(safe-area-inset-bottom), 12px); }
+@media (min-width: 640px) {
+  .fitx-consent { bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 12px), env(safe-area-inset-bottom), 24px); }
 }
 /* Form controls inherit the page font through Tailwind's preflight (in @layer base), so size utilities
    such as text-sm still apply to buttons and inputs. Do not add an unlayered `font: inherit` here: it
