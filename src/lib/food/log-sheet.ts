@@ -47,6 +47,25 @@ export function startView(): SearchView {
   return { results: [], sources: [], searchMode: "browse", lastSearch: "", lastQuery: parseFoodQuery("") };
 }
 
+/**
+ * Only the newest search's (or barcode lookup's) answer is used. `start()` numbers a new one and gives a check that is
+ * true while it is still the newest; `drop()`, when the sheet goes back to its start view (closed, logged, a search
+ * with no food name, Barcode left for Search), makes every answer still to come stale, so a late answer can't bring
+ * back an old result, source counts, a barcode answer or a chosen food.
+ */
+export function answerGate(): { start: () => () => boolean; drop: () => void } {
+  let latest = 0;
+  return {
+    start() {
+      const mine = ++latest;
+      return () => mine === latest;
+    },
+    drop() {
+      latest += 1;
+    },
+  };
+}
+
 /** The foods the sheet lists: the browse list on the start view, else what the search or lookup found. */
 export function listedFoods(view: Pick<SearchView, "searchMode" | "results">, browse: BrowseList | null): FoodResult[] {
   return view.searchMode === "browse" ? browse?.foods ?? [] : view.results;

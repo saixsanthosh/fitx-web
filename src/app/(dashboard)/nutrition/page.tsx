@@ -55,7 +55,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
-import { amountProblem, barcodeMissFor, barcodeMissText, listedFoods, noSearchReason, openingPortion, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
+import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, listedFoods, noSearchReason, openingPortion, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -126,8 +126,9 @@ export default function NutritionPage() {
   /** A log or water entry being saved, so a second tap before the button disables can't add it twice. */
   const loggingFood = useRef(false);
   const loggingWater = useRef(false);
-  /** Each search's number: only the newest one's answer is shown. */
-  const searchSeq = useRef(0);
+  /** Searches and barcode lookups: only the newest one's answer is shown, and none once the sheet is back on its start view. */
+  const searchGate = useRef(answerGate());
+  const barcodeGate = useRef(answerGate());
   const [selected, setSelected] = useState<FoodResult | null>(null);
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
@@ -434,11 +435,14 @@ export default function NutritionPage() {
   const lookupBarcode = useCallback(async (value: string) => {
     const checked = checkBarcode(value);
     if (!checked.ok) { setError(barcodeProblem(checked.reason)); return; }
+    // A newer lookup, closing Log food or going to Search replaces this one: its answer, when it comes, is dropped.
+    const current = barcodeGate.current.start();
     // Trying the same barcode again keeps its answer on screen (and its Try again button under the focus) until the new one.
     setBusy(true); setError(""); setNotice(""); setBarcodeMiss((miss) => (miss?.code === checked.code ? miss : null));
     try {
       const response = await fetch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`, SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
+      if (!current()) return;
       if (!response.ok) throw new Error(data.error || "Barcode lookup failed.");
       setResults(data.foods || []);
       setSources(data.sources || []);
@@ -451,7 +455,7 @@ export default function NutritionPage() {
       } else if (data.barcodeStatus === "invalid") { setBarcodeMiss(null); setError(data.error || barcodeProblem("check-digit")); }
       // Unknown, no label, or not checked (busy, no answer): each says why and offers to add the product with this barcode.
       else { setSelected(null); setBarcodeMiss(barcodeMissFor(data.barcodeStatus, checked.code, data.productName)); }
-    } catch (cause) { setBarcodeMiss(null); setError(cause instanceof Error ? cause.message : "Barcode lookup failed."); }
+    } catch (cause) { if (current()) { setBarcodeMiss(null); setError(cause instanceof Error ? cause.message : "Barcode lookup failed."); } }
     finally { setBusy(false); }
   }, [chooseFood]);
 
@@ -480,17 +484,49 @@ export default function NutritionPage() {
 
   /**
    * Back to the start view (Frequent, Recent and the browse list), with nothing left of an earlier search or barcode
-   * lookup: no old results, source counts, choice or barcode answer.
+   * lookup: no old results, source counts, choice or barcode answer, and none to come: a search or lookup still running
+   * is dropped when it answers, and the list no longer waits for it. `keepMiss`: a barcode just missed still fills in
+   * Add your own food (going from Barcode to Search).
    */
-  function showStart() {
+  function showStart({ keepMiss = false }: { keepMiss?: boolean } = {}) {
+    searchGate.current.drop();
+    barcodeGate.current.drop();
     const view = startView();
     setResults(view.results);
     setSources(view.sources);
     setSearchMode(view.searchMode);
     setLastSearch(view.lastSearch);
     setLastQuery(view.lastQuery);
-    setSelected(null); setDerived(null); setAmountPrompt(null); setAmountTried(false); setPickHint(""); setBarcodeMiss(null);
+    setSelected(null); setDerived(null); setAmountPrompt(null); setAmountTried(false); setPickHint("");
+    if (!keepMiss) setBarcodeMiss(null);
+    // Waits only for the browse list, when it has never arrived.
+    setSearchingFoods(false);
     if (!browse) void browseFoods();
+  }
+
+  /** The sheet as the next Log food opens on it: the start view, empty search and barcode boxes, no message. */
+  function resetLogSheet() {
+    showStart();
+    setQuery(""); setBarcode(""); setError(""); setNotice("");
+  }
+
+  /**
+   * Search or Barcode in the open sheet. A barcode's answer is Barcode's own: Search shows the start view, never the
+   * lookup's food or its source chips (a lookup still running is dropped), and Add your own food still starts with a
+   * barcode just missed.
+   */
+  function changeLogMode(next: LogMode) {
+    setLogMode(next);
+    setError("");
+    if (next !== "search") return;
+    if (searchMode === "barcode") showStart({ keepMiss: true });
+    else barcodeGate.current.drop();
+  }
+
+  /** "Search by name" in a barcode answer: Search, as its tab does, with the focus in its box. */
+  function searchByName() {
+    changeLogMode("search");
+    window.setTimeout(() => searchInput.current?.focus(), 60);
   }
 
   useEffect(() => {
@@ -499,8 +535,8 @@ export default function NutritionPage() {
   }, [browseFoods]);
 
   async function runFoodSearch(value: string, packaged = false) {
-    // A newer search replaces this one: a replaced search's answer is dropped, so the buttons never need disabling.
-    const seq = ++searchSeq.current;
+    // A newer search (or the start view) replaces this one: its answer is dropped, so the buttons never need disabling.
+    const current = searchGate.current.start();
     setQuery(value);
     const typed = parseFoodQuery(value);
     if (typed.text.length < 2) {
@@ -516,7 +552,7 @@ export default function NutritionPage() {
     try {
       const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`, SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
-      if (seq !== searchSeq.current) return;
+      if (!current()) return;
       if (!response.ok) throw new Error(data.error || "Food search failed.");
       const found = (data.foods || []).map(withPhoto);
       setResults(found);
@@ -544,8 +580,8 @@ export default function NutritionPage() {
         setAmountPrompt(null);
         setPickHint(outcome.hint);
       }
-    } catch (cause) { if (seq === searchSeq.current) setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
-    finally { if (seq === searchSeq.current) setSearchingFoods(false); }
+    } catch (cause) { if (current()) setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
+    finally { if (current()) setSearchingFoods(false); }
   }
 
   async function searchFoods(event: FormEvent) {
@@ -628,8 +664,8 @@ export default function NutritionPage() {
       },
     }).select("id");
     if (inserted.error) { setError("That food could not be logged. Please try again."); return; }
-    // Back to the day, which now shows it; the toast can take it back.
-    setLogOpen(false); setQuery(""); showStart();
+    // Back to the day, which now shows it; the toast can take it back. The next Log food starts afresh.
+    setLogOpen(false); resetLogSheet();
     const ids = ((inserted.data ?? []) as Array<{ id: string }>).map((row) => row.id);
     announceAdded(ids, food.name, meal);
     void browseFoods();
@@ -649,7 +685,7 @@ export default function NutritionPage() {
       const inserted = await insertEntries(supabase, rowsFromItems(userId, dateKey, [item.entry], target));
       if (inserted.error) { setError("That could not be added. Please try again."); return; }
       // Back to the day, as Add to log does: a toast raised under the open sheet (a modal dialog) can't be seen or undone.
-      setLogOpen(false); setQuery(""); showStart();
+      setLogOpen(false); resetLogSheet();
       announceAdded(((inserted.data ?? []) as Array<{ id: string }>).map((row) => row.id), item.name, target);
       await load(); void refreshRecent();
     } finally {
@@ -703,9 +739,8 @@ export default function NutritionPage() {
         if (document.activeElement === target) return;
       }
     }, 0);
-    // The next Log food opens on the start view with an empty search box, not on this search or barcode answer.
-    showStart();
-    setQuery(""); setBarcode(""); setError(""); setNotice("");
+    // The next Log food opens on the start view with empty boxes, not on this search or barcode answer.
+    resetLogSheet();
     reopenLog.current = false;
   }
 
@@ -868,8 +903,12 @@ export default function NutritionPage() {
     }
     setBusy(false);
     setFoodForm(null);
-    await load();
+    // Opened from Log food, which is not brought back after a save: the next Log food opens on its start view, as after
+    // closing it, never on the search, barcode answer or food that led here.
+    const fromLog = reopenLog.current;
     reopenLog.current = false;
+    if (fromLog) resetLogSheet();
+    await load();
     if (editing) { setNotice(`Saved changes to “${row.name}”.${photoProblem}`); return null; }
     // Saved, not logged: the toast offers to log it now.
     const saved = customFoodResult(row, photoUrl, sourceOf(row, savedFrom) ?? foodForm?.source ?? null);
@@ -1165,7 +1204,7 @@ export default function NutritionPage() {
               </div>
             </section>
           ) : <>
-            <Segmented<LogMode> label="Log by" block value={logMode} onChange={(next) => { setLogMode(next); setError(""); }}
+            <Segmented<LogMode> label="Log by" block value={logMode} onChange={changeLogMode}
               options={[{ value: "search", label: "Search", icon: <Search size={15} aria-hidden="true"/> }, { value: "barcode", label: "Barcode", icon: <ScanBarcode size={15} aria-hidden="true"/> }]}/>
             {logMode === "search" ? <>
               <form onSubmit={searchFoods} className={styles.search} role="search">
@@ -1213,7 +1252,7 @@ export default function NutritionPage() {
                   <div className={ui.toolbar}>
                     <button type="button" id="log-barcode-create" className="fitx-button min-h-11 px-3 text-xs" onClick={() => { hideLog("log-barcode-create"); setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } }); }}>Create a food</button>
                     {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-3 text-xs ${ui.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) void lookupBarcode(barcodeMiss.code); }}>{busy ? "Checking…" : "Try again"}</button>}
-                    <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => { setBarcodeMiss(null); setLogMode("search"); window.setTimeout(() => searchInput.current?.focus(), 60); }}>Search by name</button>
+                    <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={searchByName}>Search by name</button>
                     {said.addToOpenFoodFacts && <a className={ui.textButton} href={`https://world.openfoodfacts.org/product/${barcodeMiss.code}`} target="_blank" rel="noopener noreferrer">Add to Open Food Facts</a>}
                   </div>
                 </div>;

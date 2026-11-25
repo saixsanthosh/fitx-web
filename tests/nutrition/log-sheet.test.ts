@@ -37,7 +37,7 @@ test("55, 56: the start view keeps nothing of an earlier search or lookup", () =
   assert.deepEqual(listedFoods(view, null), [], "before the browse list arrives");
   const page = read("src/app/(dashboard)/nutrition/page.tsx");
   const closeLog = page.slice(page.indexOf("function closeLog("), page.indexOf("function hideLog("));
-  assert.match(closeLog, /showStart\(\);\s*setQuery\(""\); setBarcode\(""\);/, "closing Log food goes back to the start view and an empty box");
+  assert.match(closeLog, /resetLogSheet\(\);/, "closing Log food goes back to the start view and empty boxes (log-sheet-reset.test.ts)");
   const search = page.slice(page.indexOf("async function runFoodSearch("), page.indexOf("async function searchFoods("));
   assert.match(search, /if \(typed\.text\.length < 2\) \{[^}]*showStart\(\);/, "a search with no food name shows the start view");
 });
