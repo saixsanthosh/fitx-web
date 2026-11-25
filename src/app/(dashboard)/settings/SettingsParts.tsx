@@ -13,10 +13,14 @@ export function SettingsGroup({ id, title, sectionId, children }: { id: string; 
   );
 }
 
-/** A row that opens another page: icon, label, an optional short value, and a chevron. */
-export function SettingsLink({ href, icon: Icon, label, value }: { href: string; icon: LucideIcon; label: string; value?: string }) {
+/**
+ * A row that opens another page: icon, label, an optional short value, and a chevron. `prefetch={false}` for a page
+ * members rarely open from here: Next preloads every prefetched route's stylesheets, and Chrome warns about any still
+ * unused after 3 s (bug 95).
+ */
+export function SettingsLink({ href, icon: Icon, label, value, prefetch }: { href: string; icon: LucideIcon; label: string; value?: string; prefetch?: boolean }) {
   return (
-    <Link href={href} className="group -mx-4 flex min-h-14 items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-fitx-hover motion-reduce:transition-none sm:-mx-5 sm:px-5">
+    <Link href={href} prefetch={prefetch} className="group -mx-4 flex min-h-14 items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-fitx-hover motion-reduce:transition-none sm:-mx-5 sm:px-5">
       <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-fitx-surface-variant text-fitx-text"><Icon size={16} /></span>
       <span className="min-w-0 flex-1 font-medium text-fitx-text">{label}</span>
       {value && <span className="hidden truncate text-fitx-text-secondary sm:block">{value}</span>}

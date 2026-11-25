@@ -37,6 +37,17 @@ test("sign-up and sign-in links on the public pages never prefetch (the sign-in 
   assert.match(links(source("src/app/(marketing)/refunds/page.tsx"), "/subscription")[0] ?? "", /prefetch=\{false\}/);
 });
 
+test("Settings' Cookies and analytics row does not prefetch the public cookie page (its styles are the public header's and footer's)", () => {
+  const parts = source("src/app/(dashboard)/settings/SettingsParts.tsx");
+  const row = parts.slice(parts.indexOf("export function SettingsLink("), parts.indexOf("export function SettingsRow("));
+  assert.match(row, /prefetch\?: boolean/);
+  assert.match(row, /<Link href=\{href\} prefetch=\{prefetch\} /, "the row passes the choice on");
+  const data = source("src/app/(dashboard)/settings/SettingsData.tsx");
+  assert.match(data, /<SettingsLink href="\/cookies" prefetch=\{false\} icon=\{Cookie\} label="Cookies and analytics" \/>/);
+  // The other rows open the app's own pages, which share the app's styles: they keep prefetching.
+  assert.doesNotMatch(source("src/app/(dashboard)/settings/page.tsx"), /prefetch=/);
+});
+
 test("the footer's legal links load when pressed; its site links prefetch like the header's", () => {
   const footer = source("src/components/layout/PublicFooter.tsx");
   assert.match(footer, /const LEGAL = new Set<string>\(LEGAL_NAV\.map\(\(\{ href \}\) => href\)\);/);

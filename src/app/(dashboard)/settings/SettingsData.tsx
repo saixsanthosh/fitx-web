@@ -18,7 +18,9 @@ import { SettingsGroup, SettingsLink } from "./SettingsParts";
 export function SettingsData() {
   return (
     <SettingsGroup id="settings-your-data" sectionId="your-data" title="Your data">
-      <SettingsLink href="/cookies" icon={Cookie} label="Cookies and analytics" />
+      {/* The cookie page is a public page: prefetched here it preloads the public header and footer's styles, which
+          this page never uses (bug 95). */}
+      <SettingsLink href="/cookies" prefetch={false} icon={Cookie} label="Cookies and analytics" />
       <DownloadData />
       <DeleteAccount />
     </SettingsGroup>
