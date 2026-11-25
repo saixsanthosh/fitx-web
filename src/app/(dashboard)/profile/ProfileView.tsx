@@ -9,12 +9,13 @@ import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { CountUp } from "@/components/motion";
 import { PHOTO_HEADER_BYTES, PHOTO_NOT_AN_IMAGE, checkPhotoFile, isOwnPhoto, replacePhoto } from "@/components/profile/photo-file";
 import type { NutritionTargets } from "@/lib/domain/nutrition";
-import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, NAME_MAX_LENGTH, formatWeight, optionLabel } from "@/lib/domain/profile-options";
+import { NAME_MAX_LENGTH, formatWeight } from "@/lib/domain/profile-options";
 import { targetReason } from "@/lib/domain/target-reason";
 import { loadUserContext, targetsFor, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import { createClient } from "@/lib/supabase/client";
 import type { SectionNotice } from "./ProfileParts";
 import { BodySection, FoodSection, GoalSection, LimitsSection, TrainingSection, type SectionId, type SectionProps } from "./ProfileSections";
+import { profileHeadline } from "./profile-answers";
 
 const MEDIA_BUCKET = "fitx-user-media";
 /** How long a picture may take to open before it counts as one that doesn't. */
@@ -195,8 +196,8 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
   const [error, setError] = useState("");
   const memberSince = data.profile?.created_at ? new Date(data.profile.created_at).toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : null;
   const [notice, setNotice] = useState("");
-  const goal = optionLabel(GOAL_OPTIONS, data.preferences.primary_goal);
-  const experience = optionLabel(EXPERIENCE_OPTIONS, data.preferences.fitness_level);
+  // The goal, and the experience only once the Workouts setup has asked it (never the "Beginner" default).
+  const headline = profileHeadline(data);
   const storedAvatar = data.profile?.avatar ?? null;
   // A photo that fails to load (an external Google picture, an expired link) shows the placeholder instead.
   const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
@@ -344,7 +345,7 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
               </button>
             </div>
           )}
-          <p className="mt-2 text-[15px] font-medium text-fitx-text">{[goal, experience].filter(Boolean).join(" · ")}</p>
+          {headline && <p className="mt-2 text-[15px] font-medium text-fitx-text">{headline}</p>}
           <p className="mt-1 text-sm text-fitx-text-secondary">
             {data.email && <span className="break-all">{data.email}</span>}
             {data.email && memberSince && <span aria-hidden="true"> · </span>}

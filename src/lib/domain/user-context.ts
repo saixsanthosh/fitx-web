@@ -86,6 +86,8 @@ export const PREFERENCE_COLUMNS_V3 = ["food_source", "nutrition_focus"] as const
 export type PreferenceColumnV3 = (typeof PREFERENCE_COLUMNS_V3)[number];
 /** Added by migration 20261123100020_fitx_workout_setup; read only (the Workouts setup writes it, training/setup.ts). */
 export const PREFERENCE_COLUMNS_V4 = ["workout_setup_at"] as const;
+/** Added by migration 20261123100040_fitx_nutrition_v2; read only (the Nutrition setup writes it, food/setup.ts). */
+export const PREFERENCE_COLUMNS_V5 = ["nutrition_setup_at"] as const;
 export type OptionalPreferenceColumn = PreferenceColumnV2 | PreferenceColumnV3;
 
 /**
@@ -170,6 +172,8 @@ export type UserContextData = {
   hasPreferences: boolean;
   /** When the Workouts setup was last saved (user_preferences.workout_setup_at); null when not, or before its migration. */
   workoutSetupAt: string | null;
+  /** When the Nutrition setup was answered (user_preferences.nutrition_setup_at); null when not, or before its migration. */
+  nutritionSetupAt: string | null;
   /** Stored values that are not part of the vocabulary, kept so screens can mention them. */
   legacy: { dietaryPreferences: string[]; unknownEquipment: string[] };
   /** Home and Gym equipment as Workouts sees it. */
@@ -284,7 +288,7 @@ export function targetsFor(profile: ProfileValues | null, preferences: Preferenc
 }
 
 export async function loadUserContext(supabase: SupabaseClient, user: { id: string; email?: string | null }): Promise<LoadResult> {
-  const preferenceTiers = [PREFERENCE_COLUMNS_V2, PREFERENCE_COLUMNS_V3, PREFERENCE_COLUMNS_V4] as const;
+  const preferenceTiers = [PREFERENCE_COLUMNS_V2, PREFERENCE_COLUMNS_V3, PREFERENCE_COLUMNS_V4, PREFERENCE_COLUMNS_V5] as const;
   const [profileOutcome, preferenceOutcome, weighInResult, equipmentResult] = await Promise.all([
     withColumnTiers([PROFILE_COLUMNS_V3], (kept) =>
       supabase.from("profiles").select([...PROFILE_COLUMNS, ...(kept ? PROFILE_COLUMNS_V3 : [])].join(",")).eq("id", user.id).maybeSingle(),
@@ -337,6 +341,7 @@ export async function loadUserContext(supabase: SupabaseClient, user: { id: stri
       preferences,
       hasPreferences: Boolean(preferenceResult.data),
       workoutSetupAt: typeof preferenceRow?.workout_setup_at === "string" && preferenceRow.workout_setup_at ? preferenceRow.workout_setup_at : null,
+      nutritionSetupAt: typeof preferenceRow?.nutrition_setup_at === "string" && preferenceRow.nutrition_setup_at ? preferenceRow.nutrition_setup_at : null,
       legacy,
       equipmentLists,
       latestWeighIn,

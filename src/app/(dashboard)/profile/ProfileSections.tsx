@@ -71,6 +71,7 @@ import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
 import { equipmentLabel } from "@/lib/training/equipment";
 import { ChipList, Detail, DetailList, EditActions, NotSet, SectionCard, type SectionNotice } from "./ProfileParts";
+import { foodAnswersKnown, goalAnswers, homeEquipmentKnown, mealsText, sessionText } from "./profile-answers";
 
 export type SectionId = "body" | "goal" | "training" | "food" | "limits";
 
@@ -268,6 +269,8 @@ export function GoalSection({ data, editing, notice, onEdit, onClose, onSaved }:
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const unavailable = unavailableProfileGoals(data.schema);
+  // Both are asked in setup; with no preferences row yet they are only the defaults.
+  const answers = goalAnswers(data);
 
   const start = () => {
     setGoal(prefs.primary_goal);
@@ -298,8 +301,8 @@ export function GoalSection({ data, editing, notice, onEdit, onClose, onSaved }:
     <SectionCard id="goal" title="Goal" icon={<Target size={18} />} editing={editing} onEdit={start} canEdit notice={notice}>
       {!editing ? (
         <DetailList>
-          <Detail label="Main goal">{optionLabel(GOAL_OPTIONS, prefs.primary_goal)}</Detail>
-          <Detail label="Daily activity">{optionLabel(ACTIVITY_OPTIONS, prefs.activity_level)}</Detail>
+          <Detail label="Main goal">{answers.goal ?? <NotSet />}</Detail>
+          <Detail label="Daily activity">{answers.activity ?? <NotSet />}</Detail>
         </DetailList>
       ) : (
         <form noValidate onSubmit={(event) => void save(event)}>
@@ -446,8 +449,8 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
           <Detail label="Experience">{answersKnown ? optionLabel(EXPERIENCE_OPTIONS, prefs.fitness_level) : <NotSet />}</Detail>
           <Detail label="Workout setup">{answersKnown ? optionLabel(LOCATION_OPTIONS, prefs.workout_location) : <NotSet />}</Detail>
           <Detail label="Weekly availability">{answersKnown ? <>{prefs.workouts_per_week} {prefs.workouts_per_week === 1 ? "day" : "days"} a week</> : <NotSet />}</Detail>
-          <Detail label="Session length">{prefs.session_duration_minutes} min · {optionLabel(SPLIT_OPTIONS, prefs.workout_split)}</Detail>
-          <Detail label="Home equipment" wide><ChipList items={equipmentChips(lists.home.keys)} empty="No equipment" /></Detail>
+          <Detail label="Session length">{sessionText(data) ?? <NotSet />}</Detail>
+          <Detail label="Home equipment" wide><ChipList items={equipmentChips(lists.home.keys)} empty="No equipment" known={homeEquipmentKnown(lists)} /></Detail>
           <Detail label="Gym equipment" wide>
             {lists.gym.saved ? <ChipList items={equipmentChips(lists.gym.keys)} empty="No equipment" /> : <span className="font-normal text-fitx-text-secondary">A full gym, until you change it</span>}
             {unknown.length > 0 && <span className="mt-2 block text-xs font-normal leading-5 text-fitx-text-secondary">Not used for workouts: {unknown.join(", ")}</span>}
@@ -541,7 +544,8 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
   const dietOptions = DIET_OPTIONS.filter((option) => ONBOARDING_DIETS.includes(option.value) || option.value === prefs.diet_type);
   // 2, 3, 4 or 5+; an older answer outside those (1, 6 or more) stays offered so it is never changed silently.
   const mealOptions = choicesKeeping(ONBOARDING_MEAL_OPTIONS, prefs.meals_per_day);
-  const mealsLabel = (meals: number) => (meals === 5 ? "5+" : String(meals));
+  // Until the Nutrition setup is done, meals a day and the empty lists are only the column defaults.
+  const foodKnown = foodAnswersKnown(data);
 
   const start = () => {
     setDraft(original);
@@ -605,11 +609,11 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
       {!editing ? (
         <DetailList>
           <Detail label="Diet">{optionLabel(DIET_OPTIONS, prefs.diet_type) ?? <NotSet />}</Detail>
-          <Detail label="Meals a day">{mealsLabel(prefs.meals_per_day)}</Detail>
+          <Detail label="Meals a day">{mealsText(data) ?? <NotSet />}</Detail>
           {v3 && <Detail label="Food preference">{optionLabel(FOOD_SOURCE_OPTIONS, prefs.food_source) ?? <NotSet />}</Detail>}
           {v3 && <Detail label="Nutrition goal">{optionLabel(NUTRITION_FOCUS_OPTIONS, prefs.nutrition_focus) ?? <NotSet />}</Detail>}
-          <Detail label="Allergies" wide><ChipList items={labelsFor(ALLERGY_OPTIONS, prefs.allergies)} /></Detail>
-          {v2 && <Detail label="Foods avoided" wide><ChipList items={prefs.food_dislikes} /></Detail>}
+          <Detail label="Allergies" wide><ChipList items={labelsFor(ALLERGY_OPTIONS, prefs.allergies)} known={foodKnown} /></Detail>
+          {v2 && <Detail label="Foods avoided" wide><ChipList items={prefs.food_dislikes} known={foodKnown} /></Detail>}
           <Detail label="Water">{(prefs.daily_water_goal_ml / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} litres a day</Detail>
           {v2 && (prefs.food_rules.length > 0 || prefs.cuisines.length > 0) && (
             <Detail label="Rules and cuisines" wide><ChipList items={[...labelsFor(FOOD_RULE_OPTIONS, prefs.food_rules), ...labelsFor(CUISINE_OPTIONS, prefs.cuisines)]} /></Detail>
@@ -703,7 +707,8 @@ export function LimitsSection({ data, editing, notice, onEdit, onClose, onSaved 
       {!editing ? (
         v2 ? (
           <div className="space-y-2">
-            <ChipList items={labelsFor(LIMITATION_OPTIONS, prefs.limitations)} />
+            {/* The Workouts setup asks about injuries: before it, an empty list is only the default. */}
+            <ChipList items={labelsFor(LIMITATION_OPTIONS, prefs.limitations)} known={trainingAnswersKnown(data)} />
             {prefs.limitations.length > 0 && <p className="text-xs leading-5 text-fitx-text-secondary">Auto workouts don’t avoid these yet. Swap any exercise that hurts.</p>}
           </div>
         ) : <p className="text-sm text-fitx-text-secondary">Arrives with the next FITX update.</p>

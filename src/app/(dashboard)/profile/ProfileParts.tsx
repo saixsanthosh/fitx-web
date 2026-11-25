@@ -4,6 +4,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { m } from "framer-motion";
 import { Check, Info, Pencil } from "lucide-react";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
+import { listAnswer } from "./profile-answers";
 
 /** The edit form's first field. In a radio group that is the chosen option, where Tab would land too. */
 function firstField(section: HTMLElement | null): HTMLElement | null {
@@ -105,12 +106,17 @@ export function Detail({ label, children, wide = false }: { label: string; child
   );
 }
 
-/** Read-only chips for a saved list, or a quiet "None". */
-export function ChipList({ items, empty = "None" }: { items: readonly string[]; empty?: string }) {
-  if (!items.length) return <span className="font-normal text-fitx-text-secondary">{empty}</span>;
+/**
+ * Read-only chips for a saved list. An empty list reads a quiet "None" (or `empty`) only when `known`, that is once
+ * the member has been asked; before that it reads "Not set" (profile-answers.ts listAnswer).
+ */
+export function ChipList({ items, empty = "None", known = true }: { items: readonly string[]; empty?: string; known?: boolean }) {
+  const answer = listAnswer(items, known);
+  if (answer.kind === "not_set") return <NotSet />;
+  if (answer.kind === "none") return <span className="font-normal text-fitx-text-secondary">{empty}</span>;
   return (
     <span className="flex flex-wrap gap-1.5">
-      {items.map((item) => <span key={item} className="rounded-full border border-fitx-border bg-fitx-surface-variant px-2.5 py-1 text-xs font-medium text-fitx-text">{item}</span>)}
+      {answer.items.map((item) => <span key={item} className="rounded-full border border-fitx-border bg-fitx-surface-variant px-2.5 py-1 text-xs font-medium text-fitx-text">{item}</span>)}
     </span>
   );
 }
