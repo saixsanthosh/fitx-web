@@ -318,9 +318,11 @@
 .notice { margin: 0; color: var(--fitx-text-secondary); font-size: 0.8rem; line-height: 1.45; }
 .config { margin: 0; color: var(--fitx-warning); font-size: 0.76rem; line-height: 1.45; }
 
-.footer { display: grid; gap: 2px; margin-top: auto; padding-top: 12px; }
+/* The account links ("Create an account", "Sign in", "Back to sign in") are 44 px touch targets like every other
+   control here; the footer's top padding gives back the 4 px they gained, so each page still fits one screen. */
+.footer { display: grid; gap: 2px; margin-top: auto; padding-top: 8px; }
 .account { margin: 0; color: var(--fitx-text-secondary); font-size: 0.84rem; }
-.account a { display: inline-flex; min-height: 40px; align-items: center; color: var(--fitx-primary-text); font-weight: 700; text-underline-offset: 3px; }
+.account a { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; color: var(--fitx-primary-text); font-weight: 700; text-underline-offset: 3px; }
 .account a:hover { text-decoration: underline; }
 .legal { margin: 0; color: var(--fitx-text-disabled); font-size: 0.68rem; line-height: 1.5; }
 .legal a { color: var(--fitx-text-secondary); text-decoration: underline; text-underline-offset: 3px; }
