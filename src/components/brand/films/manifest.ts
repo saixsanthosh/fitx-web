@@ -68,8 +68,9 @@ export function cutsIn(manifest: FilmManifest | null, theme: FilmTheme, comp: Fi
 /**
  * The cut to switch to when the first one arrives too slowly to play without stalls (FilmVideo's `bufferAhead` says
  * "slow"): the light rung, but only when it really is the smaller file. Switching throws away what has buffered and
- * starts the new file from nothing, so a light cut that is as big or bigger (the welcome film's AVC 30 cuts were
- * encoded at CRF 27, BRIEF-2 D13, and outweigh its HEVC 60 ones in 6 of 10 pairs) would only stall more.
+ * starts the new file from nothing, so a light cut that is as big or bigger would only stall more (release 2b's welcome
+ * AVC 30 cuts, at CRF 27, BRIEF-2 D13, outweighed its HEVC 60 ones in 6 of 10 pairs; since release 2c they are at CRF
+ * 31 and every AVC 30 cut is the smaller file, tests/brand/film-manifest.test.ts).
  */
 export function slowFallback(first: FilmCut, light: FilmCut | null): FilmCut | null {
   return light && light.src !== first.src && light.bytes < first.bytes ? light : null;

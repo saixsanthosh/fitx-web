@@ -293,6 +293,10 @@ test("a slow connection switches only to a light cut that is really smaller (a b
     assert.equal(slowFallback(full, light), light.bytes < full.bytes ? light : null, `${label}: ${full.bytes} → ${light.bytes} bytes`);
     assert.equal(slowFallback(light, light), null, `${label}: already on the light cut, nowhere to go`);
     assert.equal(slowFallback(full, null), null, `${label}: no light cut`);
+    // A light cut as big as the first one, or bigger, is never taken (release 2b's welcome film had six such pairs; no
+    // shipped pair has one since release 2c, so the rule is held here with the same cuts at those sizes).
+    assert.equal(slowFallback(full, { ...light, bytes: full.bytes }), null, `${label}: a light cut as big as the first`);
+    assert.equal(slowFallback(full, { ...light, bytes: full.bytes + 1 }), null, `${label}: a bigger light cut`);
   }
   // The intro's light rung is the rung it is meant to be: about half its HEVC cut's bytes in every pair.
   for (const { label, full, light } of pairs.filter((pair) => pair.film === "intro")) {
@@ -302,4 +306,25 @@ test("a slow connection switches only to a light cut that is really smaller (a b
   // FilmVideo asks the same rule on a "slow" buffer, with the cut it chose first.
   const player = readFileSync("src/components/brand/films/FilmVideo.tsx", "utf8");
   assert.match(player, /const fallback = result === "slow" \? slowFallback\(chosen\.first, light\) : null;\s*if \(fallback\) \{\s*load\(fallback\);/);
+});
+
+test("every AVC 30 cut is smaller than its HEVC 60 cut, in both films, so a slow connection always has a lighter file to go to", () => {
+  // Release 2b's welcome cuts (AVC 30 at CRF 27) were bigger than their HEVC 60 cuts in 6 of 10 pairs; since release 2c
+  // the welcome film's AVC 30 rung is encoded at CRF 31 (encode.mjs --avc-crf=31), the intro's AVC CRF.
+  let pairs = 0;
+  for (const [film, manifest] of everyManifest()) {
+    for (const comp of manifest.comps) {
+      for (const theme of THEMES) {
+        const label = `${film} ${comp} ${theme}`;
+        const hevc = manifest.cuts.filter((cut) => cut.comp === comp && cut.theme === theme && cut.rung === "hevc60");
+        const avc = manifest.cuts.filter((cut) => cut.comp === comp && cut.theme === theme && cut.rung === "avc30");
+        assert.equal(hevc.length, 1, `${label}: one HEVC 60 cut`);
+        assert.equal(avc.length, 1, `${label}: one AVC 30 cut`);
+        assert.ok(avc[0].bytes < hevc[0].bytes, `${label}: the AVC 30 cut is ${avc[0].bytes} bytes, not under the HEVC 60 cut's ${hevc[0].bytes}`);
+        assert.equal(slowFallback(hevc[0], avc[0]), avc[0], `${label}: a slow connection switches to the AVC 30 cut`);
+        pairs += 1;
+      }
+    }
+  }
+  assert.equal(pairs, 2 * COMPS.length * THEMES.length, "both films, every composition in both themes");
 });
