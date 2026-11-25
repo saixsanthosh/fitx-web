@@ -92,6 +92,13 @@
 
 .caption cite { font-style: normal; }
 
+/* "Sign in again" when the session has ended: a link inside the caption line. */
+.signIn {
+  color: var(--fitx-on-stage);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* While the day's quote loads: two quiet lines where the words will be. */
 .loading { display: grid; gap: 12px; }
 .loading span {

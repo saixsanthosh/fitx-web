@@ -1,0 +1,90 @@
+/**
+ * What Profile may show as the member's own answers (bug 26).
+ *
+ * Setup asks only the goal and daily activity. The Workouts setup asks experience, where the member trains, days a
+ * week, equipment and injuries; the Nutrition setup asks the diet, meals a day, allergies and foods avoided. Until
+ * those are done, user_preferences holds only its column defaults (beginner, 45 min full body, 3 meals a day, no
+ * allergies, no injuries), so Profile reads "Not set" for them and leaves them out of the header: a default is never
+ * shown as if the member had chosen it. An empty list only reads "None" once the member has been asked.
+ *
+ * No React here, so node tests cover it (tests/profile/day-one-answers.test.ts).
+ */
+import { DEFAULT_SESSION_MINUTES, DEFAULT_SPLIT, EXPERIENCE_OPTIONS, GOAL_OPTIONS, ACTIVITY_OPTIONS, SPLIT_OPTIONS, optionLabel, type DietType } from "@/lib/domain/profile-options";
+import { trainingAnswersKnown, type UserContextData } from "@/lib/domain/user-context";
+import { initialSetupAnswers, setupDone, setupProblem } from "@/lib/food/setup";
+
+type TrainingData = Pick<UserContextData, "workoutSetupAt" | "equipmentLists" | "preferences">;
+type FoodData = Pick<UserContextData, "nutritionSetupAt" | "preferences" | "legacy">;
+
+/** The Nutrition setup's answers are the member's own: the same rule Nutrition uses to stop asking (setupDone). */
+export function foodAnswersKnown(data: FoodData): boolean {
+  return setupDone({ nutrition_setup_at: data.nutritionSetupAt, diet_type: data.preferences.diet_type, dietary_preferences: data.legacy.dietaryPreferences });
+}
+
+/**
+ * A Profile > Food save answers the Nutrition setup's questions, as a Profile > Training save answers the Workouts
+ * setup's (review home-3), so every answer it saves shows afterwards and Nutrition doesn't ask again. Before the setup
+ * is done it therefore needs the diet, the one answer the setup requires: the setup's own message, or null.
+ */
+export function foodSaveProblem(data: FoodData, diet: DietType | null): string | null {
+  if (foodAnswersKnown(data)) return null;
+  return setupProblem("diet", { ...initialSetupAnswers(null), diet });
+}
+
+/** Whether a Profile > Food save also records the setup as answered (nutrition_setup_at), as the setup does. */
+export function foodSaveMarksSetup(data: Pick<UserContextData, "nutritionSetupAt">): boolean {
+  return !data.nutritionSetupAt;
+}
+
+/** The goal and daily activity from setup; null (Not set) while no preferences row exists, when both are defaults. */
+export function goalAnswers(data: Pick<UserContextData, "hasPreferences" | "preferences">): { goal: string | null; activity: string | null } {
+  if (!data.hasPreferences) return { goal: null, activity: null };
+  return { goal: optionLabel(GOAL_OPTIONS, data.preferences.primary_goal), activity: optionLabel(ACTIVITY_OPTIONS, data.preferences.activity_level) };
+}
+
+/** The line under the member's name: their goal, then their experience once the Workouts setup has asked it. */
+export function profileHeadline(data: TrainingData & Pick<UserContextData, "hasPreferences">): string {
+  const experience = trainingAnswersKnown(data) ? optionLabel(EXPERIENCE_OPTIONS, data.preferences.fitness_level) : null;
+  return [goalAnswers(data).goal, experience].filter(Boolean).join(" · ");
+}
+
+export type SessionAnswer = { kind: "not_set" } | { kind: "assumed"; text: string } | { kind: "answer"; text: string };
+
+/**
+ * Session length and split ("45 min · Full body"). Not set before the Workouts setup, like the other training answers.
+ * After it they are still not answers while they hold the column defaults (45 min, full body): no setup asks them now
+ * (the first onboarding did), so they are what auto workouts assume, shown as that, like Gym equipment's "A full gym,
+ * until you change it" (review home-5). Values that differ from the defaults are the member's own.
+ */
+export function sessionAnswer(data: TrainingData): SessionAnswer {
+  if (!trainingAnswersKnown(data)) return { kind: "not_set" };
+  const { session_duration_minutes: minutes, workout_split: split } = data.preferences;
+  const text = [`${minutes} min`, optionLabel(SPLIT_OPTIONS, split)].filter(Boolean).join(" · ");
+  return minutes === DEFAULT_SESSION_MINUTES && split === DEFAULT_SPLIT ? { kind: "assumed", text } : { kind: "answer", text };
+}
+
+/** Meals a day ("5+" for five or more) once the Nutrition setup is done; null (Not set) before. */
+export function mealsText(data: FoodData): string | null {
+  if (!foodAnswersKnown(data)) return null;
+  return data.preferences.meals_per_day === 5 ? "5+" : String(data.preferences.meals_per_day);
+}
+
+/**
+ * Home equipment is the member's own once the Home list is saved, or when their first answer named some. An empty
+ * list is an answer too for a member whose training answers are known and who trains away from a gym (home, both or
+ * outdoors): the first onboarding asked "What equipment can you use?" and stored "bodyweight" for none, which leaves
+ * no saved list and no keys (review home-4), while the Workouts setup saves a Home list for home and both. For a gym
+ * member nothing ever asked about home equipment, so an empty list stays "Not set".
+ */
+export function homeEquipmentKnown(data: TrainingData): boolean {
+  const home = data.equipmentLists.home;
+  return home.saved || home.keys.length > 0 || (trainingAnswersKnown(data) && data.preferences.workout_location !== "gym");
+}
+
+export type ListAnswer = { kind: "items"; items: string[] } | { kind: "none" } | { kind: "not_set" };
+
+/** A saved list as Profile shows it: its items; "None" once the member was asked; else "Not set". */
+export function listAnswer(items: readonly string[], known: boolean): ListAnswer {
+  if (items.length) return { kind: "items", items: [...items] };
+  return known ? { kind: "none" } : { kind: "not_set" };
+}

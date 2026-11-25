@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
 import { Cookie, Download } from "lucide-react";
 import { DeleteAccount } from "@/components/account/DeleteAccount";
+import { checkSession, signInHref } from "@/components/account/session-state";
 import { countRecords, exportAccountData, exportFileName, ExportError } from "@/lib/account/export";
 import { createClient } from "@/lib/supabase/client";
 import { SettingsGroup, SettingsLink } from "./SettingsParts";
@@ -28,16 +31,20 @@ function inSentence(label: string) {
 }
 
 function DownloadData() {
-  const [state, setState] = useState<{ kind: "idle" | "working" | "done" | "error"; text: string }>({ kind: "idle", text: "" });
+  const [state, setState] = useState<{ kind: "idle" | "working" | "done" | "error" | "signed_out"; text: string }>({ kind: "idle", text: "" });
 
   async function download() {
+    // aria-disabled, not disabled, while working: a disabled button drops keyboard focus to the page (D5).
+    if (state.kind === "working") return;
     const supabase = createClient();
     if (!supabase) return setState({ kind: "error", text: "Downloading isn't available right now because FITX can't reach its database." });
     setState({ kind: "working", text: "Collecting your data…" });
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return setState({ kind: "error", text: "Your session has ended. Sign in again to download your data." });
+    // An ended session and a check that failed (offline) are told apart, as in the Account section.
+    const { state: session, user } = await checkSession<User>(() => supabase.auth.getUser());
+    if (session === "signed_out") return setState({ kind: "signed_out", text: "Your session has ended. Sign in again to download your data." });
+    if (!user) return setState({ kind: "error", text: "We couldn't check that you're signed in, so nothing was downloaded. Check your connection and try again." });
     try {
-      const data = await exportAccountData(supabase, auth.user, {
+      const data = await exportAccountData(supabase, user, {
         onProgress: ({ done, total, label }) => setState({ kind: "working", text: `Collecting ${inSentence(label)} (${done + 1} of ${total})…` }),
       });
       const name = exportFileName();
@@ -63,10 +70,14 @@ function DownloadData() {
         <h3 className="text-sm font-semibold text-fitx-text">Download my data</h3>
         <p className="mt-0.5 max-w-prose text-sm leading-6 text-fitx-text-secondary">Everything FITX stores for you, as a JSON file.</p>
         {state.text && (
-          <p role={state.kind === "error" ? "alert" : "status"} className={`mt-2 text-sm ${state.kind === "error" ? "text-fitx-danger" : state.kind === "done" ? "text-fitx-success" : "text-fitx-text-secondary"}`}>{state.text}</p>
+          <p role={state.kind === "error" || state.kind === "signed_out" ? "alert" : "status"} className={`mt-2 text-sm ${state.kind === "error" || state.kind === "signed_out" ? "text-fitx-danger" : state.kind === "done" ? "text-fitx-success" : "text-fitx-text-secondary"}`}>
+            {state.kind === "signed_out"
+              ? <>Your session has ended. <Link href={signInHref("/settings#your-data")} className="font-medium text-fitx-primary-text underline underline-offset-2">Sign in again</Link> to download your data.</>
+              : state.text}
+          </p>
         )}
       </div>
-      <button type="button" onClick={() => void download()} disabled={state.kind === "working"} className="fitx-button fitx-button-secondary min-h-11 shrink-0 px-4 text-sm">
+      <button type="button" onClick={() => void download()} aria-disabled={state.kind === "working" || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 px-4 text-sm aria-disabled:opacity-60">
         <Download size={16} aria-hidden="true" />{state.kind === "working" ? "Preparing…" : "Download"}
       </button>
     </div>
