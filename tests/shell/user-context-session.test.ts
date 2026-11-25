@@ -26,7 +26,7 @@ function client(answer: () => Promise<Response>, { signedIn = true } = {}) {
 const json = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 /** The status the provider sets for a check that gave no user. */
-async function statusFor(auth: AuthClient) {
+async function statusFor(auth: ReturnType<typeof client>) {
   const { state, user } = await checkSession(() => auth.getUser());
   assert.equal(user, null);
   return sharedStatusWithoutUser(state);
