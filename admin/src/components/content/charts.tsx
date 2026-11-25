@@ -1,29 +1,25 @@
 // Server-drawn charts for the content screens. Shapes are SVG that stretches to its box (so a phone gets
 // the full width); every word and number is HTML beside it, so text never shrinks with the chart. Each
 // chart also has a table or list with the same numbers. Bars grow and lines fade in, and nothing moves
-// with reduced motion (content.module.css).
+// with reduced motion (content.module.css). The picture is named for screen readers with its stretch of
+// time; the scale and axis words beside it are for the eye only (the table reads the numbers).
+import { chartName, chartTop } from "./chart-scale";
 import styles from "./content.module.css";
-
-const nice = (value: number) => {
-  if (value <= 5) return 5;
-  const power = 10 ** Math.floor(Math.log10(value));
-  const scaled = value / power;
-  return (scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10) * power;
-};
 
 export type BarPoint = { label: string; value: number };
 
-export function BarChart({ points, tone = "ink", label, height = 140, format = (n: number) => n.toLocaleString("en-IN") }: { points: BarPoint[]; tone?: "ink" | "accent" | "good"; label: string; height?: number; format?: (n: number) => string }) {
+/** `unit` "paise" for money: the top line is then whole rupees, and ₹0 when nothing was earned. */
+export function BarChart({ points, tone = "ink", label, height = 140, unit = "count", format = (n: number) => n.toLocaleString("en-IN") }: { points: BarPoint[]; tone?: "ink" | "accent" | "good"; label: string; height?: number; unit?: "count" | "paise"; format?: (n: number) => string }) {
   if (!points.length) return null;
-  const top = nice(Math.max(...points.map((point) => point.value), 0));
+  const top = chartTop(Math.max(...points.map((point) => point.value), 0), unit);
   const width = points.length * 10;
   const barClass = tone === "accent" ? styles.barAccent : tone === "good" ? styles.barGood : styles.bar;
   return (
     <figure className={styles.section}>
-      <div className={styles.sectionHead}>
+      <div className={styles.sectionHead} aria-hidden="true">
         <span className={styles.sectionNote}>{format(top)}</span>
       </div>
-      <svg className={styles.chart} viewBox={`0 0 ${width} 100`} preserveAspectRatio="none" height={height} role="img" aria-label={label}>
+      <svg className={styles.chart} viewBox={`0 0 ${width} 100`} preserveAspectRatio="none" height={height} role="img" aria-label={chartName(label, points[0].label, points[points.length - 1].label)}>
         <line className={styles.gridline} x1="0" x2={width} y1="0.5" y2="0.5" vectorEffect="non-scaling-stroke" />
         <line className={styles.gridline} x1="0" x2={width} y1="50" y2="50" vectorEffect="non-scaling-stroke" />
         <line className={styles.gridline} x1="0" x2={width} y1="99.5" y2="99.5" vectorEffect="non-scaling-stroke" />
@@ -36,10 +32,10 @@ export function BarChart({ points, tone = "ink", label, height = 140, format = (
           );
         })}
       </svg>
-      <figcaption className={styles.sectionHead}>
+      <div className={styles.sectionHead} aria-hidden="true">
         <span className={styles.sectionNote}>{points[0].label}</span>
         <span className={styles.sectionNote}>{points[points.length - 1].label}</span>
-      </figcaption>
+      </div>
     </figure>
   );
 }
@@ -49,7 +45,7 @@ export type LineSeries = { key: string; label: string; values: number[]; tone: 1
 export function LineChart({ series, labels, label, height = 200 }: { series: LineSeries[]; labels: string[]; label: string; height?: number }) {
   const count = labels.length;
   if (count < 2 || !series.length) return null;
-  const top = nice(Math.max(...series.flatMap((line) => line.values), 0));
+  const top = chartTop(Math.max(...series.flatMap((line) => line.values), 0));
   const width = 1000;
   const x = (index: number) => (index / (count - 1)) * width;
   const y = (value: number) => 100 - (top ? (value / top) * 96 : 0);
@@ -68,7 +64,7 @@ export function LineChart({ series, labels, label, height = 200 }: { series: Lin
         ))}
         <li>Scale to {top.toLocaleString("en-IN")}</li>
       </ul>
-      <svg className={styles.chart} viewBox={`0 0 ${width} 100`} preserveAspectRatio="none" height={height} role="img" aria-label={label}>
+      <svg className={styles.chart} viewBox={`0 0 ${width} 100`} preserveAspectRatio="none" height={height} role="img" aria-label={chartName(label, labels[0], labels[count - 1])}>
         {[0.5, 50, 99.5].map((line) => (
           <line key={line} className={styles.gridline} x1="0" x2={width} y1={line} y2={line} vectorEffect="non-scaling-stroke" />
         ))}
@@ -77,10 +73,10 @@ export function LineChart({ series, labels, label, height = 200 }: { series: Lin
           <path key={line.key} className={`${lineClass[line.tone]} ${styles.fade}`} d={path(line.values)} vectorEffect="non-scaling-stroke" />
         ))}
       </svg>
-      <figcaption className={styles.sectionHead}>
+      <div className={styles.sectionHead} aria-hidden="true">
         <span className={styles.sectionNote}>{labels[0]}</span>
         <span className={styles.sectionNote}>{labels[count - 1]}</span>
-      </figcaption>
+      </div>
     </figure>
   );
 }

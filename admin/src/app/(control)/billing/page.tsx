@@ -121,7 +121,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
             <Section title="By month" note="Captured, IST months">
               <div className={`${styles.panel} ${styles.panelPad}`}>
                 {data.overview.monthly.length ? (
-                  <BarChart label="Captured payments by month" tone="accent" format={formatInr} points={[...data.overview.monthly].reverse().map((month) => ({ label: monthLabel(month.month), value: month.capturedPaise }))} />
+                  <BarChart label="Captured payments by month" tone="accent" unit="paise" format={formatInr} points={[...data.overview.monthly].reverse().map((month) => ({ label: monthLabel(month.month), value: month.capturedPaise }))} />
                 ) : (
                   <Empty title="No payments yet" />
                 )}

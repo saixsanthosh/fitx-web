@@ -173,7 +173,7 @@ function Revenue({ report }: { report: Report }) {
       </Stats>
       <div className={`${styles.split} ${styles.splitEven}`}>
         <div className={`${styles.panel} ${styles.panelPad}`}>
-          <BarChart label="Captured revenue by month" tone="accent" format={formatInr} points={report.monthly.map((m) => ({ label: monthLabel(m.month), value: m.captured_paise }))} />
+          <BarChart label="Captured revenue by month" tone="accent" unit="paise" format={formatInr} points={report.monthly.map((m) => ({ label: monthLabel(m.month), value: m.captured_paise }))} />
         </div>
         <div className={`${styles.panel} ${styles.panelPad}`}>
           <h3 className={styles.dayTitle}>Subscriptions by status</h3>
