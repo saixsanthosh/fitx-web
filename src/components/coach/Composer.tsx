@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowUp, Dumbbell, MessageCircle, Square, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { composerModes, type ComposerMode } from "./composer-rules";
+import { COMPOSER_MODES, composerModes, nextMode, radioTabStop, type ComposerMode } from "./composer-rules";
 
 export type { ComposerMode };
 const MAX = 2000;
@@ -62,6 +62,10 @@ export function Composer({
   const counterId = useId();
   const canSend = !busy && (mode !== "chat" || draft.trim().length > 0) && draft.length <= MAX;
   const offered = composerModes({ plansAllowed, mealPlansPaused });
+  // A radio group: one Tab stop (the chosen mode), and the arrow keys move and select (bug 87).
+  const choosable = busy ? [] : COMPOSER_MODES.filter((id) => offered[id] === "on");
+  const tabStop = radioTabStop(mode, choosable);
+  const radios = useRef(new Map<ComposerMode, HTMLButtonElement>());
 
   useEffect(() => {
     const element = area.current;
@@ -82,6 +86,15 @@ export function Composer({
     if (canSend) onSend();
   }
 
+  function onRadioKey(event: KeyboardEvent<HTMLDivElement>) {
+    const focused = (event.target as HTMLElement).closest<HTMLElement>("[data-mode]")?.dataset.mode as ComposerMode | undefined;
+    const next = focused ? nextMode(focused, event.key, choosable) : null;
+    if (!next) return;
+    event.preventDefault();
+    if (next !== mode) onMode(next);
+    radios.current.get(next)?.focus();
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
@@ -91,15 +104,21 @@ export function Composer({
 
   return (
     <form onSubmit={submit} className="rounded-2xl border border-fitx-border bg-fitx-card p-2 shadow-lg" aria-label="Message the coach">
-      <div role="radiogroup" aria-label="What do you want?" className="flex gap-1 overflow-x-auto px-1 pb-2 pt-1 [scrollbar-width:none]">
+      <div role="radiogroup" aria-label="What do you want?" onKeyDown={onRadioKey} className="flex gap-1 overflow-x-auto px-1 pb-2 pt-1 [scrollbar-width:none]">
         {MODES.filter(({ id }) => offered[id] !== "hidden").map(({ id, label, short, icon: Icon }) => {
           const disabled = offered[id] !== "on";
           return (
             <button
               key={id}
+              ref={(element) => {
+                if (element) radios.current.set(id, element);
+                else radios.current.delete(id);
+              }}
               type="button"
               role="radio"
+              data-mode={id}
               aria-checked={mode === id}
+              tabIndex={id === tabStop ? 0 : -1}
               disabled={disabled || busy}
               onClick={() => onMode(id)}
               className={cn(

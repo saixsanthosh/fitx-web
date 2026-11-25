@@ -1,6 +1,6 @@
 /**
  * The coach composer's decisions, kept free of React and imports so `node --test` can run them (the test runner has
- * no DOM): which modes it offers, and which mode a starter picks.
+ * no DOM): which modes it offers, which mode a starter picks, and how the arrow keys move in its radio group.
  */
 
 export type ComposerMode = "chat" | "meal_plan" | "workout_plan";
@@ -24,4 +24,34 @@ export function composerModes(options: { plansAllowed: boolean; mealPlansPaused:
 /** The mode a starter or suggestion puts the composer in: its own when that mode can be chosen now, else Ask. */
 export function modeFor(wanted: ComposerMode, options: { plansAllowed: boolean; mealPlansPaused: boolean }): ComposerMode {
   return composerModes(options)[wanted] === "on" ? wanted : "chat";
+}
+
+/**
+ * The mode an arrow key, Home or End moves to in the "What do you want?" radio group: the next or previous mode that
+ * can be chosen, wrapping round, as in any radio group (arrows move and select; the group is one Tab stop). null for
+ * any other key, or when no mode can be chosen.
+ */
+export function nextMode(current: ComposerMode, key: string, choosable: readonly ComposerMode[]): ComposerMode | null {
+  if (!choosable.length) return null;
+  const index = choosable.indexOf(current);
+  const last = choosable.length - 1;
+  switch (key) {
+    case "ArrowRight":
+    case "ArrowDown":
+      return choosable[index < 0 ? 0 : index === last ? 0 : index + 1];
+    case "ArrowLeft":
+    case "ArrowUp":
+      return choosable[index <= 0 ? last : index - 1];
+    case "Home":
+      return choosable[0];
+    case "End":
+      return choosable[last];
+    default:
+      return null;
+  }
+}
+
+/** The radio group's one Tab stop: the chosen mode, or the first that can be chosen when the chosen one can't. */
+export function radioTabStop(current: ComposerMode, choosable: readonly ComposerMode[]): ComposerMode | null {
+  return choosable.includes(current) ? current : choosable[0] ?? null;
 }
