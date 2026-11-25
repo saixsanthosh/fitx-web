@@ -18,3 +18,10 @@ export function startsInFuture(startedAt: number, now: number): boolean {
 export function startedBy<T extends { startedAt: number }>(rows: readonly T[], now: number): T[] {
   return rows.filter((row) => !startsInFuture(row.startedAt, now));
 }
+
+/**
+ * The history card's mark for such an activity. It names the totals that leave it out: a sport's all-time figures
+ * and the personal bests still count every stored activity (they are not period totals), so it can't say "your
+ * totals".
+ */
+export const FUTURE_DATE_MARK = "Future date: not in weekly, monthly or yearly totals";

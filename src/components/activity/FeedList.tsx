@@ -5,7 +5,7 @@ import { CalendarClock, CloudOff, Play } from "lucide-react";
 import { Reveal } from "@/components/motion";
 import { SPORT_NOUN, usesPace } from "@/lib/activity/config";
 import { formatActivityDate, formatDuration, kmValue, paceValue, speedValue } from "@/lib/activity/format";
-import { startsInFuture } from "@/lib/activity/future";
+import { FUTURE_DATE_MARK, startsInFuture } from "@/lib/activity/future";
 import { decodeRoute } from "@/lib/activity/polyline";
 import type { ActivityView } from "@/lib/activity/repository";
 import type { TimelineEntry } from "@/lib/activity/timeline";
@@ -29,7 +29,7 @@ function Figure({ label, value, unit }: { label: string; value: string; unit?: s
 
 /**
  * One walk, run or ride in the feed: who-when line, title, the sport's figures and the route. One dated after
- * now says so: weekly and monthly totals leave it out until then.
+ * now says so: weekly, monthly and yearly totals leave it out until then (all time and bests count it).
  */
 export function ActivityCard({ activity, now }: { activity: ActivityView; now: number | null }) {
   const href = activity.local ? `/activity/local-${activity.clientId}` : `/activity/${activity.id}`;
@@ -49,7 +49,7 @@ export function ActivityCard({ activity, now }: { activity: ActivityView; now: n
             <p className="flex flex-wrap items-center gap-x-2 text-xs text-fitx-text-secondary">
               <span>{formatActivityDate(activity.startedAt)}</span>
               {activity.local && <span className="inline-flex items-center gap-1 text-fitx-warning"><CloudOff size={12} aria-hidden="true" />On this device</span>}
-              {future && <span className="inline-flex items-center gap-1 text-fitx-warning"><CalendarClock size={12} aria-hidden="true" />Future date: not in your totals</span>}
+              {future && <span className="inline-flex items-center gap-1 text-fitx-warning"><CalendarClock size={12} aria-hidden="true" className="shrink-0" />{FUTURE_DATE_MARK}</span>}
             </p>
             <p className="mt-0.5 truncate font-heading text-[17px] font-bold tracking-[-.02em] text-fitx-text group-hover:text-fitx-primary-text">{activity.title}</p>
             <ActivitySourceBadge info={activity} className="mt-1 max-w-full" />

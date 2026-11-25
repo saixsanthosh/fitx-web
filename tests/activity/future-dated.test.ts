@@ -3,9 +3,10 @@
 // goals agree on the same week.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { recentWeeks, sportSummary, weekBySport, weekDays } from "@/lib/activity/feed";
-import { CLOCK_SKEW_MS, startedBy, startsInFuture } from "@/lib/activity/future";
+import { CLOCK_SKEW_MS, FUTURE_DATE_MARK, startedBy, startsInFuture } from "@/lib/activity/future";
 import { destination } from "@/lib/activity/geo";
 import { buildImportRecord, checkStartTime } from "@/lib/activity/import/to-record";
 import { ImportError, type ImportPoint, type ParsedImport } from "@/lib/activity/import/types";
@@ -57,6 +58,22 @@ test("the Walk screen's This week counts walks that happened; all time and bests
   assert.deepEqual([walk.weekCount, walk.weekDistanceM], [1, 4000]);
   assert.deepEqual([walk.count, walk.distanceM], [2, 4829], "all time is every walk stored");
   assert.ok(personalBests(rows).walk.longest, "bests are not period totals");
+});
+
+test("the history card's mark names the totals that leave the walk out, because all time still counts it", () => {
+  // Review round: the card said "not in your totals" while the same page's All time, Average pace and Time
+  // walking counted the walk.
+  const walk = sportSummary(rows, "walk", NOW);
+  assert.equal(walk.movingSeconds, 3000, "Time walking includes the future walk's 10 minutes");
+  assert.equal(FUTURE_DATE_MARK, "Future date: not in weekly, monthly or yearly totals");
+  assert.doesNotMatch(FUTURE_DATE_MARK, /your totals/);
+  // What it names really leaves the walk out: the week, the month and the year (and so Progress and goals).
+  const totals = periodTotals(rows, NOW);
+  for (const period of [totals.week, totals.month, totals.year]) assert.equal(period.distanceM, 12670);
+  // The activity page names the same totals.
+  const page = readFileSync("src/components/activity/ActivityDetailScreen.tsx", "utf8");
+  assert.match(page, /so your weekly, monthly and yearly totals leave it out until then/);
+  assert.match(readFileSync("src/components/activity/FeedList.tsx", "utf8"), /\{FUTURE_DATE_MARK\}/, "the card shows the mark");
 });
 
 test("once its day comes, the walk counts like any other", () => {

@@ -109,7 +109,11 @@ export type SportSummary = {
   bests: SportBests;
 };
 
-/** One sport's totals, averages and bests from its saved (and device-only) activities. */
+/**
+ * One sport's totals, averages and bests from its saved (and device-only) activities. This week counts only the
+ * ones that have started; all time, the averages and the bests count every stored activity, one dated ahead too,
+ * which is why its history card names only the weekly, monthly and yearly totals (FUTURE_DATE_MARK).
+ */
 export function sportSummary(rows: readonly ActivitySummary[], sport: Sport, now: number): SportSummary {
   const mine = rows.filter((row) => row.sport === sport);
   const monday = startOfWeek(now);
