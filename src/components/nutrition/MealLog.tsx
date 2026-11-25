@@ -3,6 +3,7 @@ import { formatAmount } from "@/lib/domain/food-query";
 import { MACRO_LABEL, sumKnown } from "@/lib/domain/nutrition";
 import { mealsStatusText, type DayLoad } from "@/lib/domain/nutrition-day";
 import { entryBasis, entryMissing, isEstimateSnapshot, sameMeal, type MealEntry } from "@/lib/food/client-data";
+import { removedText, type RemovedEntry } from "@/lib/food/meal-undo";
 import { BasisBadge, PortionEstimateBadge } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
 import diary from "./MealLog.module.css";
@@ -20,6 +21,9 @@ interface MealLogProps {
   sections: readonly string[];
   onEdit: (entry: MealEntry) => void;
   onDelete: (entry: MealEntry) => void;
+  /** Foods removed from this day, each shown in its meal with an Undo (it takes the focus when the row goes). */
+  removed: readonly RemovedEntry[];
+  onUndoRemove: (entry: RemovedEntry) => void;
   onSaveMeal: (slot: string) => void;
   onSaveDay: () => void;
   onCopyYesterday: () => void;
@@ -38,8 +42,11 @@ export function isEstimateEntry(entry: MealEntry): boolean {
  * The day's diary: each meal with its total and a quiet add button, the entries as plain rows. Totals leave out
  * unknown values (they are never counted as 0 g) and say so.
  */
-export function MealLog({ entries, title, state, busy, templatesReady, sections, onEdit, onDelete, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
+export function MealLog({ entries, title, state, busy, templatesReady, sections, onEdit, onDelete, removed, onUndoRemove, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
   const unknown = sumKnown(entries).unknown;
+  /** Removed foods whose meal is no longer listed (a member's own section whose last food went) show above the meals. */
+  const orphans = removed.filter((item) => !sections.some((slot) => sameMeal(item.meal, slot)));
+  const undo = (item: RemovedEntry) => <RemovedRow key={`removed-${item.id}`} entry={item} onUndo={onUndoRemove}/>;
   const lacking = (["protein", "carbs", "fat"] as const).filter((key) => unknown[key] > 0);
   return (
     <section className={diary.diary} aria-labelledby="meals-title">
@@ -56,8 +63,10 @@ export function MealLog({ entries, title, state, busy, templatesReady, sections,
       {lacking.length > 0 && <p className={diary.note}>
         {lacking.length > 0 && `${lacking.map((key) => `${unknown[key]} without ${MACRO_LABEL[key]}`).join(", ")}: left out of totals, not counted as 0 g.`}
       </p>}
+      {state === "ready" && orphans.length > 0 && entries.length > 0 && <ul className={diary.orphans}>{orphans.map(undo)}</ul>}
       {state !== "ready" ? <p role="status" className={styles.muted}>{mealsStatusText(state)}</p> : entries.length === 0 ? (
         <div className={diary.empty}>
+          {removed.length > 0 && <ul className={diary.orphans}>{removed.map(undo)}</ul>}
           <p className={diary.emptyTitle}>Nothing logged yet</p>
           <div className={styles.toolbar}>
             <button type="button" className="fitx-button min-h-11 px-4 text-sm" onClick={onLogFood}><Plus size={15} aria-hidden="true"/>Log a food</button>
@@ -68,6 +77,7 @@ export function MealLog({ entries, title, state, busy, templatesReady, sections,
         <div className={diary.meals}>
           {sections.map((slot) => {
             const rows = entries.filter((entry) => sameMeal(entry.meal, slot));
+            const gone = removed.filter((item) => sameMeal(item.meal, slot));
             const kcal = Math.round(sumKnown(rows).calories);
             return (
               <div key={slot} className={diary.meal}>
@@ -75,15 +85,25 @@ export function MealLog({ entries, title, state, busy, templatesReady, sections,
                   <h3 className={diary.mealTitle}>{slot}</h3>
                   <span className={diary.mealKcal}>{rows.length ? `${kcal.toLocaleString()} kcal` : ""}</span>
                   {templatesReady && rows.length > 0 && <button type="button" className={styles.iconButton} disabled={busy} onClick={() => onSaveMeal(slot)} aria-label={`Save ${slot.toLowerCase()} as a meal`} title="Save this meal"><Bookmark size={15} aria-hidden="true"/></button>}
-                  <button type="button" className={diary.add} onClick={() => onAddTo(slot)} aria-label={`Add food to ${slot}`}><Plus size={16} aria-hidden="true"/></button>
+                  <button type="button" data-meal-add={slot} className={diary.add} onClick={() => onAddTo(slot)} aria-label={`Add food to ${slot}`}><Plus size={16} aria-hidden="true"/></button>
                 </div>
-                {rows.length > 0 && <ul className={diary.rows}>{rows.map((row) => <EntryRow key={row.id} entry={row} onEdit={onEdit} onDelete={onDelete}/>)}</ul>}
+                {rows.length + gone.length > 0 && <ul className={diary.rows}>{rows.map((row) => <EntryRow key={row.id} entry={row} onEdit={onEdit} onDelete={onDelete}/>)}{gone.map(undo)}</ul>}
               </div>
             );
           })}
         </div>
       )}
     </section>
+  );
+}
+
+/** A removed food: what was removed, and Undo, which puts it back as it was. */
+function RemovedRow({ entry, onUndo }: { entry: RemovedEntry; onUndo: (entry: RemovedEntry) => void }) {
+  return (
+    <li className={diary.removed}>
+      <p role="status" className={diary.removedText}>{removedText(entry)}</p>
+      <button type="button" data-undo={entry.id} onClick={() => onUndo(entry)} aria-label={`Undo removing ${entry.name}`} className={styles.textButton}>Undo</button>
+    </li>
   );
 }
 

@@ -54,6 +54,7 @@ import {
 } from "@/lib/food/client-data";
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
+import { addedUndoRegistry, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -154,8 +155,11 @@ export default function NutritionPage() {
   /** The control in Log food that opened that dialog (its id), and, once the sheet is back, the one to focus again. */
   const returnFocus = useRef<string | null>(null);
   const [logFocus, setLogFocus] = useState<string | null>(null);
-  /** Where focus goes once the day has reloaded, when the control that had it was replaced or removed. */
-  const pendingFocus = useRef<string | null>(null);
+  /** Where focus goes once the day has reloaded, when the control that had it was replaced or removed: the first found. */
+  const pendingFocus = useRef<string[] | null>(null);
+  /** Foods removed from the day, each with an Undo in its place; and which "Added …" toast can still take back what. */
+  const [removed, setRemoved] = useState<RemovedEntry[]>([]);
+  const addedUndo = useRef(addedUndoRegistry());
   /** What opened Log food, and the Log food button: where the focus goes back when the sheet closes. */
   const logOpener = useRef<HTMLElement | null>(null);
   const logButton = useRef<HTMLButtonElement>(null);
@@ -335,6 +339,8 @@ export default function NutritionPage() {
 
   function shiftDate(offset: number) {
     setDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + offset));
+    // Undo for a removed food lasts until the member moves on to another day.
+    setRemoved([]);
   }
 
   /**
@@ -525,20 +531,26 @@ export default function NutritionPage() {
     }
   }
 
-  /** Takes back rows just added (the Undo button of the toast): deletes them by id, for this member only. */
+  /**
+   * Takes back rows just added (the Undo button of the toast): deletes them by id, for this member only. Never an entry
+   * the member has removed since (or a copy of it put back): those are forgotten, and their toast closed, when removed.
+   */
   async function undoAdded(ids: string[], label: string) {
     const supabase = createClient();
     if (!supabase || !userId || !ids.length) return;
-    const result = await supabase.from("meals").delete().in("id", ids).eq("user_id", userId);
+    if (!addedUndo.current.canUndo(ids)) { toast(undoAddedMessage(0, label)); return; }
+    for (const id of ids) addedUndo.current.forget(id);
+    const result = await supabase.from("meals").delete().in("id", ids).eq("user_id", userId).select("id");
     if (result.error) { toast.error("That could not be undone. Remove it from the Meals tab."); return; }
-    toast(`Removed ${label}.`);
+    toast(undoAddedMessage((result.data ?? []).length, label));
     await load();
     void refreshRecent();
   }
 
   /** Tells the member what was added, with an Undo that removes exactly those rows. */
   function announceAdded(ids: string[], label: string, mealName: string) {
-    toast.success(`Added ${label} to ${mealName}.`, { action: ids.length ? { label: "Undo", onClick: () => void undoAdded(ids, label) } : undefined, duration: 8000 });
+    const toastId = toast.success(`Added ${label} to ${mealName}.`, { action: ids.length ? { label: "Undo", onClick: () => void undoAdded(ids, label) } : undefined, duration: 8000 });
+    if (ids.length) addedUndo.current.remember(ids, toastId);
   }
 
   async function insertLoggedFood(food: FoodResult) {
@@ -669,12 +681,16 @@ export default function NutritionPage() {
     const timer = window.setTimeout(() => { document.getElementById(logFocus)?.focus(); setLogFocus(null); }, 80);
     return () => window.clearTimeout(timer);
   }, [logOpen, logFocus]);
-  // After the day reloads, focus what replaced the control that had it (an entry moved to another meal is a new row).
+  // After the day reloads, focus what replaced the control that had it (an entry moved to another meal is a new row,
+  // a removed one leaves its Undo), or the next choice when that is not there.
   useEffect(() => {
-    const selector = pendingFocus.current;
-    if (!selector) return;
+    const selectors = pendingFocus.current;
+    if (!selectors) return;
     pendingFocus.current = null;
-    document.querySelector<HTMLElement>(selector)?.focus();
+    for (const selector of selectors) {
+      const target = document.querySelector<HTMLElement>(selector);
+      if (target) { target.focus(); return; }
+    }
   }, [entries]);
 
   /** "Type the number" from the scanner: the barcode field, ready to type in. */
@@ -716,11 +732,41 @@ export default function NutritionPage() {
     }
   }
 
+  /**
+   * Removes a logged food. Its row is replaced by "Removed …" with an Undo that puts the same entry back, and the focus
+   * moves to that Undo. Its "Added …" toast, if still open, closes: it can no longer take the entry back.
+   */
   async function removeMeal(entry: MealEntry) {
     const supabase = createClient();
     if (!supabase || !userId) return;
-    const result = await supabase.from("meals").delete().eq("id", entry.id).eq("user_id", userId);
-    if (result.error) setError("That food could not be removed."); else await load();
+    setError("");
+    const result = await supabase.from("meals").delete().eq("id", entry.id).eq("user_id", userId).select(RESTORE_COLUMNS);
+    if (result.error) { setError("That food could not be removed. Please try again."); return; }
+    const toastId = addedUndo.current.forget(entry.id);
+    if (toastId !== undefined) toast.dismiss(toastId);
+    const row = ((result.data ?? []) as unknown as Array<Record<string, unknown>>)[0];
+    if (row) setRemoved((list) => [...list.filter((item) => item.id !== entry.id), { id: entry.id, date: entry.date, meal: entry.meal, name: entry.food_name, row }]);
+    // Its Undo; failing that, its meal's add button, or the day's heading.
+    const section = sections.find((slot) => sameMeal(slot, entry.meal)) ?? entry.meal;
+    pendingFocus.current = [`[data-undo="${entry.id}"]`, `[data-meal-add="${CSS.escape(section)}"]`, "#meals-title"];
+    await load();
+    void refreshRecent();
+  }
+
+  /** Puts a removed food back exactly as it was (its id and time too), then focuses it. */
+  async function undoRemove(item: RemovedEntry) {
+    const supabase = createClient();
+    if (!supabase || !userId) return;
+    const result = await supabase.from("meals").insert(restoreRow(item, userId));
+    // 23505: it is back already (a second press): nothing to undo.
+    if (result.error && result.error.code !== "23505") {
+      setRemoved((list) => list.map((entry) => (entry.id === item.id ? { ...entry, failed: true } : entry)));
+      return;
+    }
+    pendingFocus.current = [`[data-entry-edit="${item.id}"]`, "#meals-title"];
+    await load();
+    setRemoved((list) => list.filter((entry) => entry.id !== item.id));
+    void refreshRecent();
   }
 
   async function saveEntry(entry: MealEntry, change: EntryChange) {
@@ -733,7 +779,7 @@ export default function NutritionPage() {
     setEditingEntry(null);
     setNotice(change.date !== entry.date ? `Moved ${entry.food_name} to ${readableDate(new Date(`${change.date}T00:00:00`))}.` : `Updated ${entry.food_name}.`);
     // Its pencil again (a new one when it moved to another meal), or the day's heading when it left this day.
-    pendingFocus.current = change.date === entry.date ? `[data-entry-edit="${entry.id}"]` : "#meals-title";
+    pendingFocus.current = change.date === entry.date ? [`[data-entry-edit="${entry.id}"]`, "#meals-title"] : ["#meals-title"];
     await load();
   }
 
@@ -1012,7 +1058,7 @@ export default function NutritionPage() {
 
       <div className={styles.panel}>
         {tab === "meals" && <MealLog entries={dayEntries} title={dayLabels.diary} state={dayState} busy={busy} templatesReady={capabilities.templates} sections={sections}
-          onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
+          onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} removed={removed.filter((item) => item.date === dateKey)} onUndoRemove={(item) => void undoRemove(item)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
           onAddSection={() => setNamePrompt({ kind: "section", then: "none" })}
           onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
           onSaveDay={() => setNamePrompt({ kind: "day", initial: `${readableDate(date, { weekday: "long" })} routine` })}/>}
