@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
+import { backdropTaps } from "./sheet-backdrop";
 import { returnFocusTarget } from "./sheet-focus";
 import styles from "./Sheet.module.css";
 
@@ -41,6 +42,8 @@ export type SheetNotice = { id?: number; tone: "error" | "success" | "info"; tex
 export function Sheet({ open, onClose, title, description, children, footer, side = "auto", className = "", returnFocus, notice }: SheetProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
+  // Where the press now ending began: only a tap on the backdrop closes the sheet, not a drag that ends there.
+  const [taps] = useState(backdropTaps);
   const named = useRef(returnFocus);
   useEffect(() => { named.current = returnFocus; });
   const titleId = `${useId()}-sheet-title`;
@@ -83,7 +86,8 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
       ref={ref}
       aria-labelledby={titleId}
       className={`${styles.sheet} ${side === "center" ? styles.center : styles.auto} ${className}`}
-      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onPointerDown={(event) => taps.press(event.target === event.currentTarget)}
+      onClick={(event) => { if (taps.click(event.target === event.currentTarget)) onClose(); }}
     >
       {open && (
         <div className={styles.body}>
