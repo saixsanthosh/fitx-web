@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { storedGoalProgress, type CoachContext } from "./context";
+import { CLOCK_SKEW_MS } from "@/lib/activity/future";
 import { clientMetricForUnit } from "@/lib/domain/goals";
 import { FOOD_SOURCE_OPTIONS, optionLabel } from "@/lib/domain/profile-options";
 import { describeAllergies } from "./diet-rules";
@@ -267,7 +268,8 @@ export async function loadPromptSignals(db: Db, userId: string, context: CoachCo
   const [foods, workouts, activities, goals] = await Promise.all([
     rows(db.from("meals").select("calories, protein").eq("user_id", userId).eq("date", today).limit(200)),
     rows(db.from("workout_sessions").select("name, started_at").eq("user_id", userId).eq("status", "completed").order("started_at", { ascending: false }).limit(1)),
-    rows(db.from("activities").select("sport, distance_m").eq("user_id", userId).gte("started_at", weekAgo).limit(100)),
+    // This week's activities that have started: one dated in the future is in no total until then (bug 7).
+    rows(db.from("activities").select("sport, distance_m").eq("user_id", userId).gte("started_at", weekAgo).lte("started_at", new Date(now.getTime() + CLOCK_SKEW_MS).toISOString()).limit(100)),
     // Without goals v2 (no metric or period) the goal is still offered, with no number (storedGoalProgress).
     rows(goalQuery("title, category, metric, period, target_value, current_value, unit, due_on")).then((found) => found ?? rows(goalQuery("title, category, target_value, current_value, unit, due_on"))),
   ]);

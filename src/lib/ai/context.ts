@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, NUTRITION_FOCUS_OPTIONS, normalizeDietType, optionLabel, profileAge, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
 import { normalizePreferences, normalizeProfile, targetsFor } from "@/lib/domain/user-context";
+import { CLOCK_SKEW_MS } from "@/lib/activity/future";
 import { clientMetricForUnit } from "@/lib/domain/goals";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
@@ -152,10 +153,14 @@ export async function loadContextSources(supabase: Db, userId: string, now = new
     return { profile, preferences, ...EMPTY_SOURCES, equipmentListSaved };
   }
 
-  /** Activities, or null when they could not be read (never "no activities" for a missing table). */
+  /**
+   * Activities, or null when they could not be read (never "no activities" for a missing table). Only those that have
+   * started (a few minutes of clock difference allowed): one dated in the future by a watch with the wrong clock is in
+   * no total until then, as on Activity, Progress and goals (bug 7, lib/activity/future.ts).
+   */
   const activityRows = async (): Promise<ContextSources["activities"]> => {
     try {
-      const { data, error } = await supabase.from("activities").select("sport, started_at, distance_m, moving_seconds, elevation_gain_m").eq("user_id", userId).gte("started_at", `${day(28)}T00:00:00Z`).order("started_at", { ascending: false }).limit(200);
+      const { data, error } = await supabase.from("activities").select("sport, started_at, distance_m, moving_seconds, elevation_gain_m").eq("user_id", userId).gte("started_at", `${day(28)}T00:00:00Z`).lte("started_at", new Date(now.getTime() + CLOCK_SKEW_MS).toISOString()).order("started_at", { ascending: false }).limit(200);
       return !error && Array.isArray(data) ? (data as NonNullable<ContextSources["activities"]>) : null;
     } catch {
       return null;
