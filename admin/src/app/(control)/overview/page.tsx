@@ -11,9 +11,10 @@ import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { auditActionLabel } from "@/lib/audit-catalog";
 import { READ_ONLY_AUDIT_ACTIONS } from "@/lib/audit-catalog";
 import { recentAuditEvents } from "@/lib/data/audit";
-import { getOverviewExtras, getOverviewTrends, getPlatformMetrics, getSupportCounts, type TrendDay } from "@/lib/data/metrics";
+import { getOverviewExtras, getOverviewTrends, getPlatformMetrics, type TrendDay } from "@/lib/data/metrics";
+import { getSupportSummary } from "@/lib/data/support";
 import { MIGRATIONS } from "@/lib/schema";
-import type { SupportStatus } from "@/lib/support-catalog";
+import { supportBanner } from "@/lib/support-banner";
 import { formatIstDateTime, formatShortDay } from "@/lib/time";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -39,35 +40,22 @@ function series(days: TrendDay[], key: keyof Omit<TrendDay, "day">) {
   return days.map((day) => ({ label: formatShortDay(day.day), value: day[key] }));
 }
 
-/** The help requests waiting (new, in progress, waiting on the member), or null when any of their counts could not be read (never a partial sum). */
-function waitingCount(counts: Record<SupportStatus, number | null>): number | null {
-  let sum = 0;
-  for (const status of ["open", "in_progress", "waiting_on_user"] as const) {
-    const count = counts[status];
-    if (count === null) return null;
-    sum += count;
-  }
-  return sum;
-}
-
-/** A count that could not be read is null and shows as "Not known", never as 0. */
-const countText = (count: number | null) => (count === null ? "Not known" : count.toLocaleString("en-IN"));
-
 export default async function OverviewPage() {
   const admin = await requireAdmin("overview.view");
   const canSupport = hasPermission(admin, "support.view");
   const canAudit = hasPermission(admin, "audit.view");
-  const [result, extras, trends, supportCounts, recent] = await Promise.all([
+  const [result, extras, trends, support, recent] = await Promise.all([
     getPlatformMetrics(),
     getOverviewExtras(),
     getOverviewTrends(30),
-    canSupport ? getSupportCounts() : Promise.resolve(null),
+    canSupport ? getSupportSummary() : Promise.resolve(null),
     canAudit ? recentAuditEvents({ limit: 8, excludeActions: READ_ONLY_AUDIT_ACTIONS, permission: "audit.view" }) : Promise.resolve(null),
   ]);
   const days = trends.state === "ready" ? trends.days : [];
   const metrics = result.state === "ready" ? result.metrics : null;
   const more = extras.state === "ready" ? extras.extras : null;
-  const waiting = supportCounts ? waitingCount(supportCounts) : null;
+  // The inbox's own numbers and words ("need attention", "unread"): never Open counted as "new".
+  const banner = supportBanner(support);
 
   return (
     <div className="page-stack">
@@ -103,13 +91,11 @@ export default async function OverviewPage() {
             </div>
           </section>
 
-          {/* Shown while requests wait, and while that cannot be known: a count that could not be read is never a 0. */}
-          {supportCounts && (waiting === null || waiting > 0) && (
-            <Link className="attention-banner" href="/support">
+          {/* Shown while requests need attention or are unread, and while that cannot be known (never a 0). */}
+          {banner && (
+            <Link className="attention-banner" href={banner.href}>
               <span className={ui.live} aria-hidden="true" />
-              {waiting === null
-                ? <span>Help requests waiting: <strong>Not known</strong> · New: {countText(supportCounts.open)}</span>
-                : <span><strong>{waiting.toLocaleString("en-IN")}</strong> help requests waiting · {countText(supportCounts.open)} new</span>}
+              <span>{banner.text}</span>
               <ArrowUpRight aria-hidden="true" size={16} />
             </Link>
           )}

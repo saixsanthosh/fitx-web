@@ -4,6 +4,7 @@ import { emailsFor, listSupportAssignees, usernamesFor } from "@/lib/data/member
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
 import { isMissingFunction, isMissingTable } from "@/lib/schema";
+import type { SupportSummary } from "@/lib/support-banner";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import {
   SUPPORT_CATEGORIES,
@@ -257,6 +258,13 @@ export function statusCounts(value: unknown): Record<SupportStatus, number | nul
   })) as Record<SupportStatus, number | null>;
 }
 
+/** The inbox's unread count; null (unknown, logged) for anything that is not a count, never 0. */
+function unreadCount(raw: unknown): number | null {
+  const count = countOf(raw);
+  if (count === null) logServerError("data.support_unread", { message: "the unread count is not a count" });
+  return count;
+}
+
 /** Counts by status, open work by category and unread, from fitx_admin_support_inbox, else the older counts. */
 async function readInbox(admin: AdminClient): Promise<SupportInbox | "missing" | "failed"> {
   const inbox = await admin.rpc("fitx_admin_support_inbox");
@@ -265,7 +273,7 @@ async function readInbox(admin: AdminClient): Promise<SupportInbox | "missing" |
     return {
       byStatus: statusCounts(source.by_status),
       openByCategory: counts(source.open_by_category),
-      unread: Number(source.unread) || 0,
+      unread: unreadCount(source.unread),
       unreadByCategory: counts(source.unread_by_category),
     };
   }
@@ -280,6 +288,21 @@ async function readInbox(admin: AdminClient): Promise<SupportInbox | "missing" |
     return "failed";
   }
   return { byStatus: statusCounts(older.data), openByCategory: null, unread: null, unreadByCategory: null };
+}
+
+/**
+ * The inbox's own counts for the Dashboard banner (support.view): requests per status and unread, read exactly as the
+ * inbox reads them, so the two always agree. A failed read leaves every count unknown; null before the support
+ * functions exist (nothing to show).
+ */
+export async function getSupportSummary(): Promise<SupportSummary | null> {
+  await requireAdmin("support.view");
+  const admin = createAdminSupabase();
+  if (!admin) return null;
+  const inbox = await readInbox(admin);
+  if (inbox === "missing") return null;
+  if (inbox === "failed") return { byStatus: Object.fromEntries(SUPPORT_STATUSES.map((status) => [status, null])) as Record<SupportStatus, number | null>, unread: null };
+  return { byStatus: inbox.byStatus, unread: inbox.unread };
 }
 
 /** Unread help requests, for the Support badge in the menu; null when unknown (no badge). */
