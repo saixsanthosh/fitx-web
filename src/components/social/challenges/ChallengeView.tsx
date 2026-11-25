@@ -16,6 +16,7 @@ import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
 import { PostCard } from "../PostCard";
 import { SwitchRow } from "../Switch";
+import { useFocusAfterRender } from "../useFocusAfterRender";
 import { GroupComposer } from "../community/GroupComposer";
 import { BadgeMark } from "./BadgeMark";
 import { METRIC_ICON } from "./ChallengeCard";
@@ -29,6 +30,7 @@ export function ChallengeView({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [board, setBoard] = useState<Board | null>(null);
+  const focusAfter = useFocusAfterRender();
 
   const load = useCallback(async () => {
     try {
@@ -68,13 +70,16 @@ export function ChallengeView({ id }: { id: string }) {
   const phase = challengePhase(challenge);
   const open = phase === "open" || phase === "upcoming";
 
-  async function run(work: () => Promise<ChallengePage | boolean>, done: string) {
+  async function run(work: () => Promise<ChallengePage | boolean>, done: string, focusTo?: string) {
+    if (busy) return;
     setBusy(true);
     try {
       const result = await work();
       if (typeof result === "object" && result) setPage(result);
       toast.success(done);
       await load();
+      // Join and Leave replace each other: focus the one now shown, never the page body.
+      if (focusTo) focusAfter(focusTo);
     } catch (failure) {
       toast.error(toSocialError(failure).message);
     } finally {
@@ -86,8 +91,8 @@ export function ChallengeView({ id }: { id: string }) {
     <div className={styles.page}>
       <Link href="/explore/challenges" className={`${exploreStyles.linkQuiet} inline-flex items-center gap-1`}><ArrowLeft size={15} aria-hidden="true" />Challenges</Link>
       <Hero page={challenge} busy={busy}
-        onJoin={() => void run(() => challengesApi.join(db, id), "You joined the challenge")}
-        onLeave={() => void run(() => challengesApi.leave(db, id), "You left the challenge")} />
+        onJoin={() => void run(() => challengesApi.join(db, id), "You joined the challenge", "challenge-leave")}
+        onLeave={() => void run(() => challengesApi.leave(db, id), "You left the challenge", "challenge-join")} />
 
       <div className={styles.layout}>
         <div className="flex min-w-0 flex-col gap-5">
@@ -136,7 +141,8 @@ export function ChallengeView({ id }: { id: string }) {
                   label="Show me on the leaderboard"
                   help="Off by default. Others see your name and count, nothing else."
                   checked={challenge.entry?.on_leaderboard === true}
-                  disabled={busy || phase === "closed"}
+                  disabled={phase === "closed"}
+                  busy={busy}
                   onChange={(next) => void run(() => challengesApi.setLeaderboard(db, id, next), next ? "You are on the leaderboard" : "You are off the leaderboard")}
                 />
               ) : <AgeNotice band={me.age_band} feature="The leaderboard" />}
@@ -186,12 +192,12 @@ function Hero({ page, busy, onJoin, onLeave }: { page: ChallengePage; busy: bool
           </p>
           <div className={styles.heroActions}>
             {!page.joined && (phase === "open" || phase === "upcoming") && (
-              <button type="button" className={styles.stageButton} disabled={busy} onClick={onJoin}>
+              <button type="button" id="challenge-join" className={styles.stageButton} aria-disabled={busy || undefined} onClick={onJoin}>
                 {busy && <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}Join challenge
               </button>
             )}
             {page.joined && (phase === "open" || phase === "upcoming") && (
-              <button type="button" className={`${styles.stageButton} ${styles.stageQuiet}`} disabled={busy} onClick={onLeave}>Leave</button>
+              <button type="button" id="challenge-leave" className={`${styles.stageButton} ${styles.stageQuiet}`} aria-disabled={busy || undefined} onClick={onLeave}>Leave</button>
             )}
             {!page.joined && phase !== "open" && phase !== "upcoming" && <span className={styles.heroMeta}>This challenge has ended.</span>}
           </div>

@@ -10,11 +10,14 @@ import { nextCursor, toSocialError, type Cursor, type SocialPost } from "@/lib/s
 import { GROUP_LIMITS } from "@/lib/social/group-limits";
 import { formatValue, timeLeftText, type ChallengeMetric } from "@/lib/social/challenges";
 import { communitiesApi, joinLabel, memberCountText, REMOVE_REASONS, type CommunityPage } from "@/lib/social/communities";
+import { focusAfterRemoval, postOptionsId } from "@/lib/social/focus";
 import { AgeNotice } from "../AgeNotice";
 import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
 import { PostCard } from "../PostCard";
 import { SocialPhoto } from "../SocialPhoto";
+import { useFocusAfterRender } from "../useFocusAfterRender";
+import { useNotice } from "../useNotice";
 import { usePaged, useSentinel } from "../usePaged";
 import { GroupComposer } from "./GroupComposer";
 import styles from "./Community.module.css";
@@ -68,6 +71,7 @@ export function CommunityView({ slug }: { slug: string }) {
   const action = joinLabel(community);
 
   async function act() {
+    if (busy) return;
     setBusy(true);
     try {
       if (action.action === "join") {
@@ -99,7 +103,7 @@ export function CommunityView({ slug }: { slug: string }) {
           <h1 id="community-title" className={styles.heroTitle}>{community.name}</h1>
           {community.description && <p className={styles.heroText}>{community.description}</p>}
           <div className={styles.heroActions}>
-            <button type="button" className={`${styles.stageButton} ${action.action === "join" ? "" : styles.stageQuiet}`} disabled={busy} onClick={() => void act()}>
+            <button type="button" className={`${styles.stageButton} ${action.action === "join" ? "" : styles.stageQuiet}`} aria-disabled={busy || undefined} onClick={() => void act()}>
               {busy && <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}{action.label}
             </button>
             {page.moderators.length > 0 && (
@@ -123,8 +127,8 @@ export function CommunityView({ slug }: { slug: string }) {
             </div>
           )}
         </div>
-        <aside className={styles.aside} aria-label="About this community">
-          {page.is_moderator && <Requests page={page} onChange={() => void load()} />}
+        <aside id="community-about" tabIndex={-1} className={styles.aside} aria-label="About this community">
+          {page.is_moderator && <Requests page={page} onChange={load} />}
           {page.challenges.length > 0 && (
             <section className={exploreStyles.panel} aria-labelledby="community-challenge-title">
               <h2 id="community-challenge-title" className={exploreStyles.panelTitle}>Challenges</h2>
@@ -178,21 +182,33 @@ function PostsSection({ page }: { page: CommunityPage }) {
   const [removing, setRemoving] = useState<SocialPost | null>(null);
   const [reason, setReason] = useState(REMOVE_REASONS[0].value);
   const [busy, setBusy] = useState(false);
+  const removeNotice = useNotice();
+  const focusAfter = useFocusAfterRender();
+  // A post that leaves the list (deleted, its author blocked, or removed here) takes the focused button with it: focus
+  // the next post's options, or the one before, or the empty list's heading (bug 82's rule).
+  const removePost = (id: string) => {
+    const order = posts.items.map((item) => postOptionsId(item.id));
+    posts.remove(id);
+    focusAfter(focusAfterRemoval(order, [postOptionsId(id)]), () => document.getElementById("community-posts-empty") ?? document.getElementById("community-about"));
+  };
 
   async function remove() {
-    if (!removing) return;
+    if (!removing || busy) return;
     setBusy(true);
+    removeNotice.clear();
     try {
       await communitiesApi.moderatorRemove(db, removing.id, reason);
-      posts.remove(removing.id);
-      toast.success("Post removed from the community");
+      removePost(removing.id);
       setRemoving(null);
+      toast.success("Post removed from the community");
     } catch (failure) {
-      toast.error(toSocialError(failure).message);
+      // Said inside the open sheet: a toast would be under it (D6).
+      removeNotice.show("error", toSocialError(failure).message);
     } finally {
       setBusy(false);
     }
   }
+  const closeRemove = () => { setRemoving(null); removeNotice.clear(); };
 
   return (
     <section className="flex flex-col gap-5" aria-labelledby="community-posts-title">
@@ -211,13 +227,13 @@ function PostsSection({ page }: { page: CommunityPage }) {
       {posts.status === "ready" && !posts.items.length && (
         <div className={exploreStyles.empty}>
           <span className={exploreStyles.emptyMark}><UsersRound size={26} aria-hidden="true" /></span>
-          <h3 className={exploreStyles.emptyTitle}>No posts yet</h3>
+          <h3 id="community-posts-empty" tabIndex={-1} className={exploreStyles.emptyTitle}>No posts yet</h3>
           <p className={exploreStyles.emptyText}>{page.can_post ? "Start the first discussion." : "Join to start the first discussion."}</p>
         </div>
       )}
       {posts.items.map((post, index) => (
         <Reveal key={post.id} y={14} amount={0.08}>
-          <PostCard db={db} post={post} priority={index < 2} onChange={posts.replace} onRemove={posts.remove} />
+          <PostCard db={db} post={post} priority={index < 2} onChange={posts.replace} onRemove={removePost} />
           {page.is_moderator && post.author.id !== userId && (
             <div className={styles.modBar}>
               <button type="button" className={styles.modButton} onClick={() => setRemoving(post)}>Remove from community</button>
@@ -229,13 +245,14 @@ function PostsSection({ page }: { page: CommunityPage }) {
 
       <Sheet
         open={removing !== null}
-        onClose={() => setRemoving(null)}
+        onClose={closeRemove}
         title="Remove this post?"
         description={`Only its author will still see it. They are told the moderators of ${community.name} removed it, not who.`}
+        notice={removeNotice.notice}
         footer={
           <div className="flex gap-2">
-            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={() => setRemoving(null)}>Cancel</button>
-            <button type="button" className="fitx-button fitx-button-danger flex-1" disabled={busy} onClick={() => void remove()}>Remove</button>
+            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={closeRemove}>Cancel</button>
+            <button type="button" className="fitx-button fitx-button-danger flex-1 aria-disabled:opacity-60" aria-disabled={busy || undefined} onClick={() => void remove()}>Remove</button>
           </div>
         }
       >
@@ -253,16 +270,23 @@ function PostsSection({ page }: { page: CommunityPage }) {
   );
 }
 
-function Requests({ page, onChange }: { page: CommunityPage; onChange: () => void }) {
+const joinAcceptId = (userId: string) => `join-accept-${userId}`;
+
+function Requests({ page, onChange }: { page: CommunityPage; onChange: () => Promise<void> }) {
   const { db } = useReadyExplore();
   const [busy, setBusy] = useState<string | null>(null);
+  const focusAfter = useFocusAfterRender();
   if (!page.requests.length) return null;
   async function answer(userId: string, username: string, accept: boolean) {
+    if (busy) return;
+    const order = page.requests.map(({ user }) => joinAcceptId(user.id));
     setBusy(userId);
     try {
       await communitiesApi.answer(db, page.community.id, userId, accept);
       toast.success(accept ? `@${username} joined` : "Request declined");
-      onChange();
+      await onChange();
+      // The answered row goes: focus the next request's Accept (or the one before), else this column (bug 82's rule).
+      focusAfter(focusAfterRemoval(order, [joinAcceptId(userId)]), () => document.getElementById("community-about"));
     } catch (failure) {
       toast.error(toSocialError(failure).message);
     } finally {
@@ -279,8 +303,8 @@ function Requests({ page, onChange }: { page: CommunityPage; onChange: () => voi
               <Avatar user={user} size={36} />
               <span className={exploreStyles.whoText}><span className={exploreStyles.whoName}>{user.username}</span></span>
             </Link>
-            <button type="button" className={exploreStyles.smallButton} disabled={busy === user.id} onClick={() => void answer(user.id, user.username, true)} aria-label={`Accept @${user.username}`}>Accept</button>
-            <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} disabled={busy === user.id} onClick={() => void answer(user.id, user.username, false)} aria-label={`Decline @${user.username}`}>Decline</button>
+            <button type="button" id={joinAcceptId(user.id)} className={exploreStyles.smallButton} aria-disabled={busy === user.id || undefined} onClick={() => void answer(user.id, user.username, true)} aria-label={`Accept @${user.username}`}>Accept</button>
+            <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} aria-disabled={busy === user.id || undefined} onClick={() => void answer(user.id, user.username, false)} aria-label={`Decline @${user.username}`}>Decline</button>
           </li>
         ))}
       </ul>

@@ -8,13 +8,14 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tabs } from "@/components/ui/Tabs";
-import { fullDate, relativeTime, socialApi, type DmPolicy, type SocialAuthor } from "@/lib/social";
+import { fullDate, relativeTime, socialApi, type DmPolicy, type FollowState, type SocialAuthor } from "@/lib/social";
 import { GROUP_LIMITS } from "@/lib/social/group-limits";
 import { DM_POLICY_OPTIONS, messageErrorText, messagesApi, previewText, type ConversationSummary, type InboxBox } from "@/lib/social/messages";
 import { unreadLabel, useInboxRefresh, useUnreadCounts } from "@/lib/social/realtime";
 import { AgeNotice } from "../AgeNotice";
 import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
+import { useNotice } from "../useNotice";
 import { NewMessageSheet } from "./NewMessageSheet";
 import { SendTo } from "./SendTo";
 import styles from "./Messages.module.css";
@@ -35,6 +36,7 @@ export function MessagesView() {
   const [composing, setComposing] = useState(false);
   const [settings, setSettings] = useState(() => params?.get("settings") === "1");
   const [initial, setInitial] = useState<SocialAuthor | null>(null);
+  const [initialFollowing, setInitialFollowing] = useState<FollowState | null>(null);
   const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((value) => value + 1), []);
   useInboxRefresh(me.age_band === "adult" ? userId : null, bump, GROUP_LIMITS.unreadPollMs);
@@ -54,6 +56,7 @@ export function MessagesView() {
       void socialApi.profile(db, to).then((page) => {
         if (!live || !page || page.relation.is_self) return;
         setInitial(page.profile);
+        setInitialFollowing(page.relation.following);
         setComposing(true);
       }).catch(() => undefined);
     }
@@ -114,7 +117,7 @@ export function MessagesView() {
       />
       <p className={styles.privacy}>Messages are private between you and the other member, but they are not end-to-end encrypted.</p>
 
-      <NewMessageSheet db={db} userId={userId} open={composing} initial={initial} onClose={() => { setComposing(false); clearParams(); }} />
+      <NewMessageSheet db={db} userId={userId} open={composing} initial={initial} following={initial ? initialFollowing : null} onClose={() => { setComposing(false); clearParams(); }} />
       <Sheet open={sharing !== null} onClose={clearParams} title="Share post">
         {sharing && <SendTo postId={sharing} onDone={clearParams} />}
       </Sheet>
@@ -212,7 +215,7 @@ function ConversationList({ box, version, onCompose }: { box: InboxBox; version:
       </ul>
       {more !== "done" && (
         <div className="flex justify-center">
-          <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} onClick={() => void loadMore()} disabled={more === "busy"}>
+          <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} onClick={() => void loadMore()} aria-disabled={more === "busy" || undefined}>
             {more === "busy" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading</> : "Show more"}
           </button>
         </div>
@@ -229,23 +232,29 @@ function PolicySheet({ open, value, onClose, onSave }: { open: boolean; value: D
     setChoice(value);
   }
   const [busy, setBusy] = useState(false);
+  const { notice, show, clear } = useNotice();
+  const close = () => { clear(); onClose(); };
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={close}
       title="Who can message you"
       description="New conversations only. Blocking someone always stops their messages."
+      notice={notice}
       footer={
         <div className="flex gap-2">
-          <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={onClose}>Cancel</button>
-          <button type="button" className="fitx-button flex-1" disabled={busy || choice === value} onClick={async () => {
+          <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={close}>Cancel</button>
+          <button type="button" className="fitx-button flex-1 aria-disabled:opacity-60" disabled={choice === value} aria-disabled={busy || undefined} onClick={async () => {
+            if (busy) return;
             setBusy(true);
+            clear();
             try {
               await onSave(choice);
+              close();
               toast.success("Message settings saved");
-              onClose();
             } catch (failure) {
-              toast.error(messageErrorText(failure));
+              // Said inside the sheet: a toast would be under it (D6).
+              show("error", messageErrorText(failure));
             } finally {
               setBusy(false);
             }

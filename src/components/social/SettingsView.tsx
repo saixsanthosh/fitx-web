@@ -6,7 +6,8 @@ import { Camera, Clapperboard, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Sheet } from "@/components/ui/Sheet";
-import { ageOn, avatarPath, fullDate, plural, SOCIAL_BUCKET, SOCIAL_LIMITS, socialApi, toSocialError, type MyContent, type NotificationPrefs } from "@/lib/social";
+import { ageOn, avatarPath, fullDate, plural, SOCIAL_BUCKET, SOCIAL_LIMITS, socialApi, toSocialError, type MyContent, type NotificationPrefs, type SocialAuthor } from "@/lib/social";
+import { focusAfterRemoval } from "@/lib/social/focus";
 import { CREATE_OPTIONS, EXPLORE_RAIL } from "@/lib/social/rail";
 import { compressPhoto } from "@/lib/social/compress";
 import { forgetPhotoUrls } from "@/lib/social/media-urls";
@@ -17,6 +18,8 @@ import { ProfileForm } from "./ProfileForm";
 import { SocialPhoto } from "./SocialPhoto";
 import { SwitchRow } from "./Switch";
 import { useAsync } from "./useAsync";
+import { useFocusAfterRender } from "./useFocusAfterRender";
+import { useNotice } from "./useNotice";
 import styles from "./Explore.module.css";
 
 const ready = (key: string) => EXPLORE_RAIL.some((entry) => entry.key === key && entry.ready);
@@ -75,9 +78,10 @@ function AvatarPicker() {
   const { db, userId, me, profile, setMe } = useReadyExplore();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const focusAfter = useFocusAfterRender();
   async function change(file: File) {
     const storage = createClient()?.storage;
-    if (!storage) return;
+    if (!storage || busy) return;
     setBusy(true);
     let uploaded: string | null = null;
     try {
@@ -102,6 +106,7 @@ function AvatarPicker() {
     }
   }
   async function clear() {
+    if (busy) return;
     const storage = createClient()?.storage;
     setBusy(true);
     try {
@@ -111,6 +116,8 @@ function AvatarPicker() {
         forgetPhotoUrls([old]);
       }
       setMe({ ...me, profile: { ...profile, avatar_path: null } });
+      // Remove goes with the photo: focus moves to Change photo (it used to fall to the page body).
+      focusAfter("explore-avatar-input");
     } catch (error) {
       toast.error(toSocialError(error).message);
     } finally {
@@ -121,11 +128,14 @@ function AvatarPicker() {
     <div className={styles.row}>
       <Avatar user={profile} size={72} />
       <div className="flex flex-wrap gap-2">
+        {/* Busy is aria-disabled (and the picker does not open), not disabled: a disabled field drops keyboard focus. */}
         <label className={`${styles.smallButton} ${styles.smallButtonQuiet} cursor-pointer`} aria-disabled={busy}>
           <Camera size={16} aria-hidden="true" />{busy ? "Saving…" : "Change photo"}
-          <input ref={input} type="file" accept="image/*" className="sr-only" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void change(file); }} />
+          <input ref={input} id="explore-avatar-input" type="file" accept="image/*" className="sr-only" aria-disabled={busy || undefined}
+            onClick={(event) => { if (busy) event.preventDefault(); }}
+            onChange={(event) => { const file = event.target.files?.[0]; if (file) void change(file); }} />
         </label>
-        {profile.avatar_path && <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} disabled={busy} onClick={() => void clear()}><Trash2 size={16} aria-hidden="true" />Remove</button>}
+        {profile.avatar_path && <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} aria-disabled={busy || undefined} onClick={() => void clear()}><Trash2 size={16} aria-hidden="true" />Remove</button>}
       </div>
     </div>
   );
@@ -170,21 +180,35 @@ function MessagesLink() {
   );
 }
 
+const safetyRow = (kind: "blocked" | "restricted", id: string) => `safety-${kind}-${id}`;
+
 function Safety() {
   const { db } = useReadyExplore();
   const lists = useAsync(() => socialApi.safetyLists(db), [db]);
-  async function undo(kind: "blocked" | "restricted", id: string) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const { notice, show } = useNotice();
+  const focusAfter = useFocusAfterRender();
+  async function undo(kind: "blocked" | "restricted", user: SocialAuthor) {
+    if (busy) return;
+    const order = lists.data ? [...lists.data.blocked.map((item) => safetyRow("blocked", item.id)), ...lists.data.restricted.map((item) => safetyRow("restricted", item.id))] : [];
+    setBusy(safetyRow(kind, user.id));
     try {
-      if (kind === "blocked") await socialApi.setBlock(db, id, false);
-      else await socialApi.setRestrict(db, id, false);
+      if (kind === "blocked") await socialApi.setBlock(db, user.id, false);
+      else await socialApi.setRestrict(db, user.id, false);
       await lists.reload();
+      // The row goes: say so beside the list (Unblock used to say nothing), and move focus to the next row, or to the
+      // heading once the list is empty (it used to fall to the page body, bug 82).
+      show("success", kind === "blocked" ? `@${user.username} is unblocked` : `Restriction on @${user.username} removed`);
+      focusAfter(focusAfterRemoval(order, [safetyRow(kind, user.id)]), () => document.getElementById("settings-safety"));
     } catch (error) {
-      toast.error(toSocialError(error).message);
+      show("error", toSocialError(error).message);
+    } finally {
+      setBusy(null);
     }
   }
   return (
     <section className={styles.panel} aria-labelledby="settings-safety">
-      <h2 id="settings-safety" className={styles.panelTitle}>Blocked and restricted</h2>
+      <h2 id="settings-safety" tabIndex={-1} className={styles.panelTitle}>Blocked and restricted</h2>
       {lists.status === "loading" && <p className={styles.note}>Loading</p>}
       {lists.data && !lists.data.blocked.length && !lists.data.restricted.length && <p className={styles.note}>You have not blocked or restricted anyone.</p>}
       {lists.data && (["blocked", "restricted"] as const).map((kind) => lists.data![kind].length > 0 && (
@@ -195,7 +219,7 @@ function Safety() {
               <li key={user.id} className={styles.rowItem}>
                 <Avatar user={user} size={36} />
                 <span className={`${styles.whoText} flex-1`}><span className={styles.whoName}>{user.username}</span></span>
-                <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={() => void undo(kind, user.id)} aria-label={`${kind === "blocked" ? "Unblock" : "Remove restriction on"} @${user.username}`}>
+                <button type="button" id={safetyRow(kind, user.id)} className={`${styles.smallButton} ${styles.smallButtonQuiet}`} aria-disabled={busy === safetyRow(kind, user.id) || undefined} onClick={() => void undo(kind, user)} aria-label={`${kind === "blocked" ? "Unblock" : "Remove restriction on"} @${user.username}`}>
                   {kind === "blocked" ? "Unblock" : "Remove"}
                 </button>
               </li>
@@ -203,6 +227,8 @@ function Safety() {
           </ul>
         </div>
       ))}
+      <p role="status" className={notice && notice.tone !== "error" ? `${styles.note} mt-3` : "sr-only"}>{notice && notice.tone !== "error" ? notice.text : null}</p>
+      {notice?.tone === "error" && <p key={notice.id} role="alert" className={`${styles.alert} mt-3`}>{notice.text}</p>}
     </section>
   );
 }
@@ -231,12 +257,13 @@ function BirthDate() {
   const { db, me, refresh } = useReadyExplore();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
+  const focusAfter = useFocusAfterRender();
   const band = me.age_band;
   if (band !== "unknown" && band !== "teen") return null;
   if (band === "teen") {
     return (
       <section className={styles.panel} aria-labelledby="settings-age">
-        <h2 id="settings-age" className={styles.panelTitle}>Age</h2>
+        <h2 id="settings-age" tabIndex={-1} className={styles.panelTitle}>Age</h2>
         <p className={styles.note}>Messages, communities and leaderboards are for members aged {SOCIAL_LIMITS.adultAge} and over. Everything else in Explore works as usual.</p>
       </section>
     );
@@ -244,11 +271,14 @@ function BirthDate() {
   const age = value ? ageOn(value) : null;
   const problem = !value ? null : age === null || age > 120 || age < 0 ? "Check the date." : age < SOCIAL_LIMITS.minimumAge ? `Explore is for members aged ${SOCIAL_LIMITS.minimumAge} and over.` : null;
   async function save() {
+    if (busy) return;
     setBusy(true);
     try {
       const next = await socialApi.setBirthDate(db, value);
       toast.success(next === "adult" ? "Date of birth saved" : `Date of birth saved. Messages, communities and leaderboards open at ${SOCIAL_LIMITS.adultAge}.`);
       await refresh();
+      // This form goes once the date is saved: focus the Age section that replaces it (a teen), or the next section.
+      focusAfter("settings-age", () => document.getElementById("settings-content") ?? document.getElementById("settings-safety"));
     } catch (error) {
       toast.error(toSocialError(error).message);
     } finally {
@@ -267,13 +297,14 @@ function BirthDate() {
           <input type="date" className={styles.dateField} value={value} max={new Date().toISOString().slice(0, 10)} min="1900-01-01" onChange={(event) => setValue(event.target.value)} aria-describedby="birth-date-hint" required />
         </label>
         <p id="birth-date-hint" className={problem ? styles.hintBad : styles.hint} aria-live="polite">{problem ?? "You can add it once. To change it later, ask FITX support."}</p>
-        <div><button type="submit" className={styles.smallButton} disabled={busy || !value || Boolean(problem)}>Add your date of birth</button></div>
+        <div><button type="submit" className={styles.smallButton} disabled={!value || Boolean(problem)} aria-disabled={busy || undefined}>Add your date of birth</button></div>
       </form>
     </section>
   );
 }
 
 type Pending = { kind: "post" | "story"; id: string; label: string } | { kind: "all" } | null;
+const contentRow = (kind: "post" | "story", id: string) => `content-${kind}-${id}`;
 
 /** "Your Explore content": the member's posts, videos and stories, each with Delete, and "Delete all my Explore content". */
 function YourContent() {
@@ -285,31 +316,40 @@ function YourContent() {
   }), [db]);
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
+  const confirmNotice = useNotice();
+  const focusAfter = useFocusAfterRender();
+  const heading = useRef<HTMLHeadingElement>(null);
   const data = content.data;
   const total = data ? data.counts.posts + data.counts.stories + data.counts.comments : 0;
 
   async function confirm() {
-    if (!pending) return;
+    if (!pending || busy) return;
+    const order = data ? [...data.posts.map((post) => contentRow("post", post.id)), ...data.stories.map((story) => contentRow("story", story.id))] : [];
     setBusy(true);
+    confirmNotice.clear();
     try {
       const paths = pending.kind === "post" ? await socialApi.deletePost(db, pending.id)
         : pending.kind === "story" ? await socialApi.deleteStory(db, pending.id)
           : await socialApi.deleteAllContent(db);
       await removeFiles(paths);
-      toast.success(pending.kind === "all" ? "Your Explore content is deleted" : pending.kind === "story" ? "Story deleted" : "Post deleted");
       setPending(null);
+      toast.success(pending.kind === "all" ? "Your Explore content is deleted" : pending.kind === "story" ? "Story deleted" : "Post deleted");
       await content.reload();
+      // The Delete pressed (and, for everything, "Delete all") has gone: focus the next Delete, or the heading (bug 82).
+      focusAfter(pending.kind === "all" ? null : focusAfterRemoval(order, [contentRow(pending.kind, pending.id)]), () => heading.current);
     } catch (error) {
-      toast.error(toSocialError(error).message);
+      // Said inside the open confirmation: a toast would be under it (D6).
+      confirmNotice.show("error", toSocialError(error).message);
     } finally {
       setBusy(false);
     }
   }
+  const closeConfirm = () => { setPending(null); confirmNotice.clear(); };
 
   if (content.status === "ready" && !data) return null;
   return (
     <section className={styles.panel} aria-labelledby="settings-content">
-      <h2 id="settings-content" className={styles.panelTitle}>Your Explore content</h2>
+      <h2 id="settings-content" ref={heading} tabIndex={-1} className={styles.panelTitle}>Your Explore content</h2>
       {content.status === "loading" && <p className={styles.note}>Loading</p>}
       {content.status === "error" && <p className={styles.alert} role="alert">{content.error}</p>}
       {data && total === 0 && <p className={styles.note}>You have no posts, stories or comments in Explore.</p>}
@@ -329,7 +369,7 @@ function YourContent() {
                     {post.moderation === "hidden" ? " · Hidden by FITX" : post.moderation === "limited" ? " · Limited by FITX" : ""}
                   </span>
                 </span>
-                <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={() => setPending({ kind: "post", id: post.id, label })} aria-label={`Delete post: ${label}`}>
+                <button type="button" id={contentRow("post", post.id)} className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={() => setPending({ kind: "post", id: post.id, label })} aria-label={`Delete post: ${label}`}>
                   <Trash2 size={16} aria-hidden="true" /><span className={styles.deleteLabel}>Delete</span>
                 </button>
               </li>
@@ -351,7 +391,7 @@ function YourContent() {
                   <span className={styles.contentTitle}><Sparkles size={13} aria-hidden="true" className="mr-1 inline" />{label}</span>
                   <span className={styles.contentMeta}>{story.live ? `Live until ${new Date(story.expires_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "Ended"}{story.moderation === "hidden" ? " · Hidden by FITX" : ""}</span>
                 </span>
-                <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={() => setPending({ kind: "story", id: story.id, label })} aria-label={`Delete story: ${label}`}>
+                <button type="button" id={contentRow("story", story.id)} className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={() => setPending({ kind: "story", id: story.id, label })} aria-label={`Delete story: ${label}`}>
                   <Trash2 size={16} aria-hidden="true" /><span className={styles.deleteLabel}>Delete</span>
                 </button>
               </li>
@@ -373,16 +413,17 @@ function YourContent() {
       )}
       <Sheet
         open={pending !== null}
-        onClose={() => setPending(null)}
+        onClose={closeConfirm}
         side="center"
         title={pending?.kind === "all" ? "Delete all your Explore content?" : pending?.kind === "story" ? "Delete this story?" : "Delete this post?"}
         description={pending?.kind === "all"
           ? "Every post, video, story and comment you made in Explore is deleted, with their likes and comments. This cannot be undone."
           : "Its files, likes and comments are deleted too. This cannot be undone."}
+        notice={confirmNotice.notice}
         footer={
           <div className="flex gap-2">
-            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={() => setPending(null)}>Cancel</button>
-            <button type="button" className="fitx-button fitx-button-danger flex-1" disabled={busy} onClick={() => void confirm()}>
+            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={closeConfirm}>Cancel</button>
+            <button type="button" className="fitx-button fitx-button-danger flex-1 aria-disabled:opacity-60" aria-disabled={busy || undefined} onClick={() => void confirm()}>
               {pending?.kind === "all" ? "Delete everything" : "Delete"}
             </button>
           </div>

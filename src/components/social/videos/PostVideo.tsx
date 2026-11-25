@@ -85,6 +85,8 @@ export function VideoPlayer({ postId, media, inView, tall = false, label }: Post
 
   function toggle() {
     const element = video.current;
+    // Still loading: the press does nothing (the button stays focusable, aria-disabled, rather than dropping focus).
+    if (state === "loading") return;
     if (state === "playing" && element) element.pause();
     else void start();
   }
@@ -115,7 +117,7 @@ export function VideoPlayer({ postId, media, inView, tall = false, label }: Post
         }}
         onError={() => { if (src) { setNote("This video could not play."); setState("idle"); } }}
       />
-      <button type="button" className={styles.playButton} aria-label={state === "playing" ? "Pause video" : "Play video"} onClick={toggle} disabled={state === "loading"}>
+      <button type="button" className={styles.playButton} aria-label={state === "playing" ? "Pause video" : "Play video"} onClick={toggle} aria-disabled={state === "loading" || undefined}>
         <span className={styles.playMark} aria-hidden="true">
           {state === "loading" ? <Clapperboard size={24} /> : state === "playing" ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" />}
         </span>

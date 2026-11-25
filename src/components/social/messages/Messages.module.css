@@ -95,6 +95,8 @@
   background: var(--fitx-primary); color: var(--fitx-on-primary); transition: transform .18s cubic-bezier(.22, 1, .36, 1), opacity .18s ease;
 }
 .send:disabled { opacity: .4; }
+/* Sending: still focusable (a disabled button drops keyboard focus), drawn as waiting. */
+.send[aria-disabled="true"] { opacity: .6; cursor: progress; }
 .send:not(:disabled):active { transform: scale(.92); }
 .send:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .over { padding: 0 16px 8px; color: var(--fitx-danger); font-size: 12px; }

@@ -218,7 +218,7 @@ export function VideoPicker({ target, onChange, disabled = false, preview: showP
               <span className={styles.choiceLabel}>Choose a video</span>
               <span className={styles.choiceHint}>Up to {max / 1000} seconds. Made smaller on your device first.</span>
             </span>
-            <input type="file" accept="video/mp4,video/quicktime,video/webm,video/*" className="sr-only" aria-label="Choose a video" disabled={!canChoose}
+            <input id="video-choose" type="file" accept="video/mp4,video/quicktime,video/webm,video/*" className="sr-only" aria-label="Choose a video" disabled={!canChoose}
               onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void pick(file); }} />
           </label>
           {abilities.camera && (

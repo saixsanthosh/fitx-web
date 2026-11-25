@@ -6,10 +6,12 @@
 .subnav {
   display: flex; align-items: center; gap: 6px; min-width: 0;
   border: 1px solid var(--fitx-border); border-radius: 18px; background: var(--fitx-surface); padding: 5px;
+  container: explore-nav / inline-size;
 }
 .subnavLinks { display: flex; flex: 1; min-width: 0; gap: 2px; }
+/* Each tab as wide as its own label, with the spare room shared out (equal shares cut the long names first). */
 .subnavLink {
-  position: relative; display: inline-flex; flex: 1 1 0; min-width: 0; min-height: 44px; align-items: center; justify-content: center; gap: 7px;
+  position: relative; display: inline-flex; flex: 1 1 auto; min-width: 0; min-height: 44px; align-items: center; justify-content: center; gap: 7px;
   border-radius: 13px; padding: 0 10px; color: var(--fitx-text-secondary); font-size: 14px; font-weight: 600; transition: color .18s ease;
   column-gap: 10px;
 }
@@ -19,6 +21,7 @@
 .subnavMarker { position: absolute; inset: 0; z-index: 0; border-radius: 13px; background: var(--fitx-surface-variant); }
 .subnavLabel, .subnavIcon { position: relative; z-index: 1; }
 .subnavIcon { display: inline-flex; }
+/* The ellipsis is only a safety net: the container queries below hide the labels before any would be cut. */
 .subnavLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge {
   position: absolute; top: -9px; right: -7px; z-index: 2; min-width: 18px; height: 18px; border-radius: 999px; padding: 0 5px;
@@ -31,10 +34,19 @@
 .newPost:hover { background: var(--fitx-primary-bright); }
 .newPost:active { transform: scale(.97); }
 .newPost:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
-/* Labels need room: icons only on phones and narrow tablets (the links keep their names for screen readers). */
-@media (max-width: 959px) {
+/*
+ * Labels only where every one fits in full; otherwise icons only, as on phones (the links keep their names for screen
+ * readers). Measured on the rail itself, so the app's sidebar and scrollbars are allowed for (bug 74). The widths are
+ * railLabelsWidth() in lib/social/rail.ts plus about 8% for font and rounding differences: 815 px for six tabs, 912 px
+ * with Videos (data-tabs="7").
+ */
+@container explore-nav (max-width: 887px) {
   .subnavLabel { display: none; }
   .subnavLink { padding: 0; }
+}
+@container explore-nav (max-width: 989px) {
+  .subnav[data-tabs="7"] .subnavLabel { display: none; }
+  .subnav[data-tabs="7"] .subnavLink { padding: 0; }
 }
 @media (max-width: 639px) {
   .newPostLabel { display: none; }
@@ -136,7 +148,11 @@
 }
 .smallButton:hover { background: var(--fitx-primary-bright); }
 .smallButton:disabled { opacity: .55; }
+/* Busy: aria-disabled keeps the button focusable (a disabled one drops keyboard focus to the page); drawn as waiting. */
+.smallButton[aria-disabled="true"] { opacity: .55; cursor: progress; }
 .smallButton:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+/* A label drawn as a button around a visually hidden file field (Change photo): the ring shows while the field has focus. */
+.smallButton:has(> input:focus-visible) { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .smallButtonQuiet { border-color: var(--fitx-border); background: var(--fitx-surface-variant); color: var(--fitx-text); }
 .smallButtonQuiet:hover { border-color: var(--fitx-text-disabled); background: var(--fitx-surface-variant); }
 
@@ -260,6 +276,7 @@
 .switch[aria-checked="true"]::before { background: var(--fitx-primary); }
 .switch[aria-checked="true"]::after { transform: translateX(20px); }
 .switch:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
+.switch:disabled, .switch[aria-disabled="true"] { opacity: .6; }
 .menu { display: flex; flex-direction: column; gap: 4px; }
 .menuItem { display: flex; min-height: 48px; align-items: center; gap: 12px; border-radius: 12px; padding: 0 12px; color: var(--fitx-text); font-size: 15px; font-weight: 550; text-align: left; }
 .menuItem:hover { background: var(--fitx-hover); }

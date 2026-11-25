@@ -62,6 +62,7 @@
 .stageButton:hover { background: var(--fitx-primary-bright); }
 .stageButton:active { transform: scale(.97); }
 .stageButton:disabled { opacity: .6; }
+.stageButton[aria-disabled="true"] { opacity: .6; cursor: progress; }
 .stageButton:focus-visible { outline: 2px solid var(--fitx-on-stage); outline-offset: 3px; }
 .stageQuiet { border: 1px solid color-mix(in srgb, var(--fitx-on-stage) 40%, transparent); background: transparent; color: var(--fitx-on-stage); }
 .stageQuiet:hover { background: color-mix(in srgb, var(--fitx-on-stage) 12%, transparent); }
@@ -70,6 +71,10 @@
 
 .section { display: flex; flex-direction: column; gap: 12px; }
 .sectionTitle { color: var(--fitx-text); font-family: var(--font-heading, inherit); font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
+/* Community's Challenges section with none open: one line, and the way to the finished ones and their results. */
+.challengesNote { display: flex; flex-direction: column; gap: 10px; border: 1px dashed var(--fitx-border); border-radius: 18px; padding: 16px; }
+/* Now always shown, so a full 44 px target (the quiet link style is 32 px tall). Two classes beat .linkQuiet's one. */
+.section .allChallenges { min-height: 44px; }
 .challengeRow {
   display: flex; min-height: 64px; align-items: center; gap: 12px; border: 1px solid var(--fitx-border); border-radius: 16px; background: var(--fitx-card-bg);
   padding: 10px 14px; color: var(--fitx-text); transition: border-color .18s ease;

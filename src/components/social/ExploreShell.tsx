@@ -174,7 +174,8 @@ function ExploreNav() {
     { key: "profile", href: profileHref, label: "Profile", icon: UserRound, active: pathname === profileHref || pathname.startsWith("/explore/settings") },
   ];
   return (
-    <nav className={styles.subnav} aria-label="Explore">
+    // data-tabs: the rail shows its labels only where every one fits in full (Explore.module.css, bug 74).
+    <nav className={styles.subnav} aria-label="Explore" data-tabs={items.length}>
       <div className={styles.subnavLinks}>
         {items.map((item) => {
           const Icon = item.icon;

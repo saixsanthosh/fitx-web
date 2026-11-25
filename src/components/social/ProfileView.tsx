@@ -6,7 +6,7 @@ import { Camera, Flag, ImagePlus, Lock, MoreHorizontal, Settings2, ShieldOff, Us
 import { toast } from "sonner";
 import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
-import { compactCount, nextCursor, socialApi, toSocialError, type Cursor, type FollowListEntry, type ProfilePage, type SocialPost } from "@/lib/social";
+import { countParts, nextCursor, socialApi, toSocialError, type Cursor, type FollowListEntry, type ProfilePage, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
@@ -15,6 +15,8 @@ import { FollowButton } from "./FollowButton";
 import { PostGrid } from "./PostGrid";
 import { ReportSheet } from "./ReportSheet";
 import { useAsync } from "./useAsync";
+import { useFocusAfterRender } from "./useFocusAfterRender";
+import { useNotice } from "./useNotice";
 import { usePaged, useSentinel } from "./usePaged";
 import styles from "./Explore.module.css";
 
@@ -38,27 +40,47 @@ export function ProfileView({ username }: { username: string }) {
 
 function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () => Promise<void> }) {
   const { profile, counts, relation } = page;
+  const postCount = countParts(counts.posts, "post");
+  const followerCount = countParts(counts.followers, "follower");
+  const followingCount = countParts(counts.following, "following", "following");
   const ProfileActions = PROFILE_ACTIONS;
   const [menu, setMenu] = useState(false);
   const [confirm, setConfirm] = useState<"block" | "remove" | null>(null);
   const [report, setReport] = useState(false);
   const [list, setList] = useState<"followers" | "following" | null>(null);
   const [busy, setBusy] = useState(false);
+  const menuNotice = useNotice();
+  const confirmNotice = useNotice();
+  const focusAfter = useFocusAfterRender();
 
-  async function act(run: () => Promise<unknown>, done: string) {
+  /**
+   * Runs one safety action. A failure is said where the member pressed (inside the open menu or confirmation: a toast
+   * would be under it, D6; a toast for the page's own Unblock); the result is a toast once any sheet has closed.
+   */
+  async function act(run: () => Promise<unknown>, done: string, where: "page" | "menu" | "confirm", focusTo?: string) {
+    if (busy) return;
     setBusy(true);
+    menuNotice.clear();
+    confirmNotice.clear();
     try {
       await run();
-      toast.success(done);
       setMenu(false);
       setConfirm(null);
+      toast.success(done);
       await reload();
+      // Unblock is replaced by Follow: focus goes there, never to the page body (bug 82).
+      if (focusTo) focusAfter(focusTo, () => document.getElementById("profile-options"));
     } catch (error) {
-      toast.error(toSocialError(error).message);
+      const text = toSocialError(error).message;
+      if (where === "menu") menuNotice.show("error", text);
+      else if (where === "confirm") confirmNotice.show("error", text);
+      else toast.error(text);
     } finally {
       setBusy(false);
     }
   }
+  const closeMenu = () => { setMenu(false); menuNotice.clear(); };
+  const closeConfirm = () => { setConfirm(null); confirmNotice.clear(); };
 
   return (
     <div className="flex flex-col gap-7">
@@ -73,12 +95,13 @@ function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () =
               {relation.follows_you && !relation.is_self && <span className={`${styles.restrictedTag} ml-2`}>Follows you</span>}
             </p>
             <div className={styles.counts}>
-              <span className={styles.countButton}><span className={styles.countValue}>{compactCount(counts.posts)}</span><span className={styles.countLabel}>{counts.posts === 1 ? "post" : "posts"}</span></span>
-              <button type="button" className={styles.countButton} disabled={!page.can_see_posts} onClick={() => setList("followers")} aria-label={`${counts.followers} followers`}>
-                <span className={styles.countValue}>{compactCount(counts.followers)}</span><span className={styles.countLabel}>{counts.followers === 1 ? "follower" : "followers"}</span>
+              {/* Each count's name is built from the same parts it draws ("1 follower"), never a separate string. */}
+              <span className={styles.countButton}><span className={styles.countValue}>{postCount.value}</span><span className={styles.countLabel}>{postCount.unit}</span></span>
+              <button type="button" className={styles.countButton} disabled={!page.can_see_posts} onClick={() => setList("followers")} aria-label={followerCount.name}>
+                <span className={styles.countValue}>{followerCount.value}</span><span className={styles.countLabel}>{followerCount.unit}</span>
               </button>
-              <button type="button" className={styles.countButton} disabled={!page.can_see_posts} onClick={() => setList("following")} aria-label={`${counts.following} following`}>
-                <span className={styles.countValue}>{compactCount(counts.following)}</span><span className={styles.countLabel}>following</span>
+              <button type="button" className={styles.countButton} disabled={!page.can_see_posts} onClick={() => setList("following")} aria-label={followingCount.name}>
+                <span className={styles.countValue}>{followingCount.value}</span><span className={styles.countLabel}>{followingCount.unit}</span>
               </button>
             </div>
           </div>
@@ -91,15 +114,15 @@ function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () =
               <Link href="/explore/new" className={styles.smallButton}><ImagePlus size={16} aria-hidden="true" />New post</Link>
             </>
           ) : relation.blocked ? (
-            <button type="button" className={styles.smallButton} disabled={busy} onClick={() => void act(() => socialApi.setBlock(db, profile.id, false), `@${profile.username} is unblocked`)}>Unblock</button>
+            <button type="button" className={styles.smallButton} aria-disabled={busy || undefined} onClick={() => void act(() => socialApi.setBlock(db, profile.id, false), `@${profile.username} is unblocked`, "page", "profile-follow")}>Unblock</button>
           ) : (
             <>
-              <FollowButton db={db} userId={profile.id} username={profile.username} state={relation.following} onChange={() => void reload()} />
+              <FollowButton id="profile-follow" db={db} userId={profile.id} username={profile.username} state={relation.following} onChange={() => void reload()} />
               {ProfileActions && <ProfileActions userId={profile.id} username={profile.username} />}
             </>
           )}
           {!relation.is_self && (
-            <button type="button" className={styles.iconButton} aria-label="Account options" aria-haspopup="dialog" onClick={() => setMenu(true)}><MoreHorizontal size={20} aria-hidden="true" /></button>
+            <button type="button" id="profile-options" className={styles.iconButton} aria-label="Account options" aria-haspopup="dialog" onClick={() => setMenu(true)}><MoreHorizontal size={20} aria-hidden="true" /></button>
           )}
         </div>
       </header>
@@ -116,39 +139,40 @@ function Profile({ db, page, reload }: { db: Db; page: ProfilePage; reload: () =
         </div>
       )}
 
-      <Sheet open={menu} onClose={() => setMenu(false)} title={`@${profile.username}`}>
+      <Sheet open={menu} onClose={closeMenu} title={`@${profile.username}`} notice={menuNotice.notice}>
         <div className={styles.menu}>
           {relation.follows_you && (
-            <button type="button" className={styles.menuItem} onClick={() => { setMenu(false); setConfirm("remove"); }}><UserMinus size={18} aria-hidden="true" />Remove follower</button>
+            <button type="button" className={styles.menuItem} onClick={() => { closeMenu(); setConfirm("remove"); }}><UserMinus size={18} aria-hidden="true" />Remove follower</button>
           )}
-          <button type="button" className={styles.menuItem} disabled={busy} onClick={() => void act(() => socialApi.setRestrict(db, profile.id, !relation.restricted), relation.restricted ? "Restriction removed" : `@${profile.username} is restricted`)}>
+          <button type="button" className={`${styles.menuItem} aria-disabled:opacity-60`} aria-disabled={busy || undefined} onClick={() => void act(() => socialApi.setRestrict(db, profile.id, !relation.restricted), relation.restricted ? "Restriction removed" : `@${profile.username} is restricted`, "menu")}>
             <ShieldOff size={18} aria-hidden="true" />{relation.restricted ? "Remove restriction" : "Restrict"}
           </button>
           {!relation.restricted && <p className={`${styles.hint} px-3`}>Restricted: their comments on your posts are seen only by them and you, and they send you no notifications.</p>}
-          <button type="button" className={styles.menuItem} onClick={() => { setMenu(false); setReport(true); }}><Flag size={18} aria-hidden="true" />Report account</button>
+          <button type="button" className={styles.menuItem} onClick={() => { closeMenu(); setReport(true); }}><Flag size={18} aria-hidden="true" />Report account</button>
           {!relation.blocked && (
-            <button type="button" className={`${styles.menuItem} ${styles.menuDanger}`} onClick={() => { setMenu(false); setConfirm("block"); }}><UserX size={18} aria-hidden="true" />Block</button>
+            <button type="button" className={`${styles.menuItem} ${styles.menuDanger}`} onClick={() => { closeMenu(); setConfirm("block"); }}><UserX size={18} aria-hidden="true" />Block</button>
           )}
         </div>
       </Sheet>
       <Sheet
         open={confirm !== null}
-        onClose={() => setConfirm(null)}
+        onClose={closeConfirm}
         side="center"
         title={confirm === "block" ? `Block @${profile.username}?` : `Remove @${profile.username}?`}
         description={confirm === "block"
           ? "Neither of you will see the other’s profile, posts or comments, and any follows between you end. They are not told."
           : "They stop following you. They are not told."}
+        notice={confirmNotice.notice}
         footer={
           <div className="flex gap-2">
-            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={() => setConfirm(null)}>Cancel</button>
+            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={closeConfirm}>Cancel</button>
             <button
               type="button"
-              className="fitx-button fitx-button-danger flex-1"
-              disabled={busy}
+              className="fitx-button fitx-button-danger flex-1 aria-disabled:opacity-60"
+              aria-disabled={busy || undefined}
               onClick={() => void (confirm === "block"
-                ? act(() => socialApi.setBlock(db, profile.id, true), `@${profile.username} is blocked`)
-                : act(() => socialApi.removeFollower(db, profile.id), "Follower removed"))}
+                ? act(() => socialApi.setBlock(db, profile.id, true), `@${profile.username} is blocked`, "confirm")
+                : act(() => socialApi.removeFollower(db, profile.id), "Follower removed", "confirm"))}
             >
               {confirm === "block" ? "Block" : "Remove"}
             </button>
@@ -217,15 +241,17 @@ function SavedPosts({ db }: { db: Db }) {
   );
 }
 
+/** Followers or following, in a sheet: what a Follow button there did (a request sent, a failure) is said in the sheet. */
 function FollowList({ db, userId, kind, onClose }: { db: Db; userId: string; kind: "followers" | "following" | null; onClose: () => void }) {
+  const { notice, show, clear } = useNotice();
   return (
-    <Sheet open={kind !== null} onClose={onClose} title={kind === "following" ? "Following" : "Followers"}>
-      {kind && <FollowListBody db={db} userId={userId} kind={kind} />}
+    <Sheet open={kind !== null} onClose={() => { clear(); onClose(); }} title={kind === "following" ? "Following" : "Followers"} notice={notice}>
+      {kind && <FollowListBody db={db} userId={userId} kind={kind} onNotice={show} />}
     </Sheet>
   );
 }
 
-function FollowListBody({ db, userId, kind }: { db: Db; userId: string; kind: "followers" | "following" }) {
+function FollowListBody({ db, userId, kind, onNotice }: { db: Db; userId: string; kind: "followers" | "following"; onNotice: (tone: "error" | "success", text: string) => void }) {
   const { userId: me } = useReadyExplore();
   const list = useAsync<FollowListEntry[]>(() => socialApi.followList(db, userId, kind), [db, userId, kind]);
   if (list.status === "loading") return <p className={styles.note}>Loading</p>;
@@ -239,7 +265,7 @@ function FollowListBody({ db, userId, kind }: { db: Db; userId: string; kind: "f
             <Avatar user={entry.user} size={40} />
             <span className={styles.whoText}><span className={styles.whoName}>{entry.user.username}</span><span className={styles.reason}>{entry.user.display_name}</span></span>
           </Link>
-          {entry.user.id !== me && <FollowButton db={db} userId={entry.user.id} username={entry.user.username} state={entry.following} compact />}
+          {entry.user.id !== me && <FollowButton db={db} userId={entry.user.id} username={entry.user.username} state={entry.following} compact onNotice={onNotice} />}
         </li>
       ))}
     </ul>

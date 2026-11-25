@@ -46,6 +46,11 @@ export const PROFILE_ACTIONS: ComponentType<ProfileActionsProps> | null = Messag
 /**
  * social-stories' story viewer renders this under a story (social-groups: a reply sent as a message), keyed by story.
  * `onActiveChange(true)` while the reply has focus or a draft: the viewer holds that story still until it is false.
+ * The viewer is a modal dialog, so it says "Reply sent" (`onSent`) and why a reply did not go (`onFailed`, with the
+ * words) inside itself: a toast would be drawn under it, unseen and unheard (bug 18). `ownerName` names the story's
+ * owner in those words.
  */
-export type StoryReplyProps = { storyId: string; ownerId: string; onSent: () => void; onActiveChange?: (active: boolean) => void };
+export type StoryReplyProps = {
+  storyId: string; ownerId: string; ownerName?: string; onSent: () => void; onFailed?: (text: string) => void; onActiveChange?: (active: boolean) => void;
+};
 export const STORY_REPLY: ComponentType<StoryReplyProps> | null = StoryReply;

@@ -20,7 +20,8 @@ const MESSAGES: Record<string, string> = {
   social_suspended: "Your Explore account is paused by FITX. You can still delete your content and change your settings.",
   social_unavailable: "Explore is paused by FITX for now. You can still manage or delete your content in Explore settings.",
   social_age_restricted: "That part of Explore is for members aged 18 and over.",
-  social_dm_not_allowed: "This member does not take messages from you.",
+  // The message pages say more, from what the sender knows (messageErrorText in messages.ts, bug 19).
+  social_dm_not_allowed: "This member is not taking messages from you.",
   social_video_cap: "Video posts are full for now. Try a photo instead.",
   social_storage_full: "Explore is out of space for new uploads right now. Try again later.",
   social_story_expired: "That story has ended.",

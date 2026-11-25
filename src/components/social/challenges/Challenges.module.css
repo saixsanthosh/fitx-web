@@ -51,6 +51,8 @@
 .stageButton:hover { background: var(--fitx-primary-bright); }
 .stageButton:active { transform: scale(.97); }
 .stageButton:disabled { opacity: .6; }
+/* Joining or leaving: aria-disabled keeps the button focusable (D5); drawn as waiting. */
+.stageButton[aria-disabled="true"] { opacity: .6; cursor: progress; }
 .stageButton:focus-visible { outline: 2px solid var(--fitx-on-stage); outline-offset: 3px; }
 .stageQuiet { border: 1px solid color-mix(in srgb, var(--fitx-on-stage) 40%, transparent); background: transparent; color: var(--fitx-on-stage); }
 .stageQuiet:hover { background: color-mix(in srgb, var(--fitx-on-stage) 12%, transparent); }

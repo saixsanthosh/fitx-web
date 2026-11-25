@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Sheet } from "@/components/ui/Sheet";
 import { SOCIAL_LIMITS, socialApi, toSocialError, type ReportReason, type ReportTarget } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
+import { useNotice } from "./useNotice";
 import styles from "./Explore.module.css";
 
 export const REPORT_REASONS: { value: ReportReason; label: string }[] = [
@@ -23,25 +24,35 @@ const NOUN: Record<ReportTarget, string> = {
   post: "post", comment: "comment", account: "account", story: "story", message: "message", community: "community", challenge: "challenge",
 };
 
-/** Reports a post, comment, account, story, message, community or challenge to FITX's moderators. The member who posted it is not told who reported. */
-export function ReportSheet({ db, target, onClose }: { db: Db; target: { type: ReportTarget; id: string } | null; onClose: () => void }) {
+export const REPORT_SENT = "Report sent. Thank you.";
+
+/**
+ * Reports a post, comment, account, story, message, community or challenge to FITX's moderators. The member who posted
+ * it is not told who reported. A failure is said inside the sheet (D6). The thanks is a toast once the sheet has
+ * closed, unless the host is itself a dialog that stays open (the story viewer), which says it with `onSent`.
+ */
+export function ReportSheet({ db, target, onClose, onSent }: { db: Db; target: { type: ReportTarget; id: string } | null; onClose: () => void; onSent?: (text: string) => void }) {
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [details, setDetails] = useState("");
   const [busy, setBusy] = useState(false);
+  const { notice, show, clear } = useNotice();
   const close = () => {
     setReason(null);
     setDetails("");
+    clear();
     onClose();
   };
   async function send() {
-    if (!target || !reason) return;
+    if (!target || !reason || busy) return;
     setBusy(true);
+    clear();
     try {
       await socialApi.report(db, target.type, target.id, reason, details.trim() || null);
-      toast.success("Report sent. Thank you.");
       close();
+      if (onSent) onSent(REPORT_SENT);
+      else toast.success(REPORT_SENT);
     } catch (error) {
-      toast.error(toSocialError(error).message);
+      show("error", toSocialError(error).message);
     } finally {
       setBusy(false);
     }
@@ -52,7 +63,8 @@ export function ReportSheet({ db, target, onClose }: { db: Db; target: { type: R
       onClose={close}
       title={`Report ${target ? NOUN[target.type] : ""}`}
       description="FITX reviews reports. They are not shared with the person you report."
-      footer={<button type="button" className="fitx-button w-full" disabled={!reason || busy} onClick={() => void send()}>{busy ? "Sending…" : "Send report"}</button>}
+      notice={notice}
+      footer={<button type="button" className="fitx-button w-full aria-disabled:opacity-60" disabled={!reason} aria-disabled={busy || undefined} onClick={() => void send()}>{busy ? "Sending…" : "Send report"}</button>}
     >
       <fieldset className={styles.radioList}>
         <legend className="sr-only">Reason</legend>

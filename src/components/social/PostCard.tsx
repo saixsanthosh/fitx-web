@@ -9,11 +9,13 @@ import { useReducedMotionSafe } from "@/components/motion/useReducedMotionSafe";
 import { Sheet } from "@/components/ui/Sheet";
 import { SOCIAL_BUCKET, fullDate, plural, relativeTime, socialApi, toSocialError, topicLabel, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
+import { postOptionsId } from "@/lib/social/focus";
 import { forgetPhotoUrls } from "@/lib/social/media-urls";
 import { POST_VIDEO, SHARE_TARGETS } from "@/lib/social/slots";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "./Avatar";
 import { useExplore } from "./ExploreContext";
+import { useNotice } from "./useNotice";
 import { EditPostSheet } from "./EditPostSheet";
 import { ReportSheet } from "./ReportSheet";
 import { RichText } from "./RichText";
@@ -29,7 +31,7 @@ type Props = {
   /** On the post's own page the caption is shown in full and the comment link is left out. */
   detail?: boolean;
   onChange?: (post: SocialPost) => void;
-  /** The post was deleted, or its author blocked: take it off the list. */
+  /** The post was deleted, or its author blocked: take it off the list (and move focus on, see FeedView). */
   onRemove?: (id: string) => void;
 };
 
@@ -46,6 +48,7 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
   const [busy, setBusy] = useState(false);
   const [sharing, setSharing] = useState(false);
   const pending = useRef(false);
+  const confirmNotice = useNotice();
   const videosOn = useExplore().me?.videos === true;
 
   const [shown, setShown] = useState(post);
@@ -121,32 +124,37 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
     }
   }
 
+  // A failure is said inside the open confirmation (a toast would be under it, D6); the result once it has closed.
   async function remove() {
+    if (busy) return;
     setBusy(true);
+    confirmNotice.clear();
     try {
       const paths = await socialApi.deletePost(db, state.id);
       const storage = createClient()?.storage;
       if (storage && paths.length) await storage.from(SOCIAL_BUCKET).remove(paths);
       forgetPhotoUrls(paths);
-      toast.success("Post deleted");
       setConfirm(null);
+      toast.success("Post deleted");
       onRemove?.(state.id);
     } catch (error) {
-      toast.error(toSocialError(error).message);
+      confirmNotice.show("error", toSocialError(error).message);
     } finally {
       setBusy(false);
     }
   }
 
   async function block() {
+    if (busy) return;
     setBusy(true);
+    confirmNotice.clear();
     try {
       await socialApi.setBlock(db, author.id, true);
-      toast.success(`@${author.username} is blocked`);
       setConfirm(null);
+      toast.success(`@${author.username} is blocked`);
       onRemove?.(state.id);
     } catch (error) {
-      toast.error(toSocialError(error).message);
+      confirmNotice.show("error", toSocialError(error).message);
     } finally {
       setBusy(false);
     }
@@ -162,7 +170,7 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
             <span className={styles.whoMeta}>@{author.username}{state.location ? ` · ${state.location}` : ""}</span>
           </span>
         </Link>
-        <button type="button" className={styles.iconButton} aria-label="Post options" aria-haspopup="dialog" onClick={() => setMenu(true)}>
+        <button type="button" id={postOptionsId(state.id)} className={styles.iconButton} aria-label="Post options" aria-haspopup="dialog" onClick={() => setMenu(true)}>
           <MoreHorizontal size={20} aria-hidden="true" />
         </button>
       </header>
@@ -249,16 +257,17 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
 
       <Sheet
         open={confirm !== null}
-        onClose={() => setConfirm(null)}
+        onClose={() => { setConfirm(null); confirmNotice.clear(); }}
         side="center"
         title={confirm === "delete" ? "Delete this post?" : `Block @${author.username}?`}
         description={confirm === "delete"
           ? "Its photos, likes and comments are deleted too. This cannot be undone."
           : "Neither of you will see the other’s profile, posts or comments, and any follows between you end. They are not told."}
+        notice={confirmNotice.notice}
         footer={
           <div className="flex gap-2">
-            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={() => setConfirm(null)}>Cancel</button>
-            <button type="button" className="fitx-button fitx-button-danger flex-1" disabled={busy} onClick={() => void (confirm === "delete" ? remove() : block())}>
+            <button type="button" className="fitx-button fitx-button-secondary flex-1" onClick={() => { setConfirm(null); confirmNotice.clear(); }}>Cancel</button>
+            <button type="button" className="fitx-button fitx-button-danger flex-1 aria-disabled:opacity-60" aria-disabled={busy || undefined} onClick={() => void (confirm === "delete" ? remove() : block())}>
               {confirm === "delete" ? "Delete" : "Block"}
             </button>
           </div>

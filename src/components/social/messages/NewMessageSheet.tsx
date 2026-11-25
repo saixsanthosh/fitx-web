@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { SendHorizontal, X } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
-import type { Db, SocialAuthor } from "@/lib/social";
+import type { Db, FollowState, SocialAuthor } from "@/lib/social";
 import { GROUP_LIMITS } from "@/lib/social/group-limits";
-import { draftState, messageErrorText, messagesApi } from "@/lib/social/messages";
+import { draftState, firstMessageNote, messageErrorText, messagesApi } from "@/lib/social/messages";
 import { refreshUnreadCounts } from "@/lib/social/realtime";
 import { Avatar } from "../Avatar";
 import { PeoplePicker } from "./PeoplePicker";
@@ -19,20 +19,33 @@ type Props = {
   onClose: () => void;
   /** A person already chosen (from a profile's Message button). */
   initial?: SocialAuthor | null;
+  /** Whether the member follows `initial` (from its profile), so a refusal can say what they can do; null if not known. */
+  following?: FollowState | null;
+  /** The button that opened the sheet, for focus to return to on close (Sheet's `returnFocus`). */
+  returnFocus?: RefObject<HTMLElement | null>;
 };
 
-/** Starts a conversation: choose a person, write the first message, send. A stranger's first message lands in Requests. */
-export function NewMessageSheet({ db, userId, open, onClose, initial = null }: Props) {
+/**
+ * Starts a conversation: choose a person, write the first message, send. Whether it can go, and whether it waits in
+ * Requests, is the other member's setting, which the sheet cannot see: it says so before sending and, when the message
+ * is not taken, says what the member can do (without the other member's age or settings).
+ */
+export function NewMessageSheet({ db, userId, open, onClose, initial = null, following = null, returnFocus }: Props) {
   const router = useRouter();
   const [to, setTo] = useState<SocialAuthor | null>(initial);
-  const [shownInitial, setShownInitial] = useState(initial);
-  if (shownInitial !== initial) {
-    setShownInitial(initial);
-    setTo(initial);
+  const [error, setError] = useState<string | null>(null);
+  // The sheet stays mounted between openings (MessageButton, MessagesView) and keeps the draft. A refusal answers one
+  // attempt, though: closing the sheet, opening it again or opening it for someone else clears it. Otherwise the sheet
+  // would open on the old refusal, announced again where the note about what will happen goes, with advice worked out
+  // from that attempt's follow state (from before the member followed, say).
+  const [shown, setShown] = useState({ open, initial });
+  if (shown.open !== open || shown.initial !== initial) {
+    if (shown.initial !== initial) setTo(initial);
+    setShown({ open, initial });
+    setError(null);
   }
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const draft = draftState(body);
 
   async function send() {
@@ -46,14 +59,15 @@ export function NewMessageSheet({ db, userId, open, onClose, initial = null }: P
       onClose();
       router.push(`/explore/messages/${result.conversation_id}`);
     } catch (failure) {
-      setError(messageErrorText(failure));
+      // What the sheet knows of the person it was opened for; someone picked from search is not known.
+      setError(messageErrorText(failure, { username: to.username, following: initial && to.id === initial.id ? following : null }));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="New message">
+    <Sheet open={open} onClose={onClose} title="New message" returnFocus={returnFocus}>
       <div className="flex flex-col gap-4">
         {to ? (
           <div className={styles.person}>
@@ -83,13 +97,13 @@ export function NewMessageSheet({ db, userId, open, onClose, initial = null }: P
                 onChange={(event) => setBody(event.target.value)}
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }}
               />
-              <button type="submit" className={styles.send} aria-label="Send" disabled={!draft.ok || busy}>
+              {/* Busy is aria-disabled, not disabled: a disabled button drops keyboard focus to the page. */}
+              <button type="submit" className={styles.send} aria-label="Send" disabled={!draft.ok} aria-disabled={busy || undefined}>
                 <SendHorizontal size={18} aria-hidden="true" />
               </button>
             </div>
             {draft.over > 0 && <p className={styles.over}>{draft.over.toLocaleString("en-GB")} characters over the limit.</p>}
-            {error && <p className="text-sm text-fitx-danger" role="alert">{error}</p>}
-            <p className={styles.time}>If @{to.username} does not follow you, this goes to their requests.</p>
+            {error ? <p className="text-sm text-fitx-danger" role="alert">{error}</p> : <p className={styles.time}>{firstMessageNote(to.username)}</p>}
           </form>
         )}
       </div>

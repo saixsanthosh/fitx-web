@@ -6,16 +6,19 @@ import { Bell } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fullDate, nextCursor, relativeTime, socialApi, toSocialError, type Cursor, type SocialAuthor, type SocialNotification } from "@/lib/social";
+import { focusAfterRemoval } from "@/lib/social/focus";
 import { notificationHref, notificationText } from "@/lib/social/text";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
 import { FollowButton } from "./FollowButton";
 import { SocialPhoto } from "./SocialPhoto";
 import { useAsync } from "./useAsync";
+import { useFocusAfterRender } from "./useFocusAfterRender";
 import { usePaged, useSentinel } from "./usePaged";
 import styles from "./Explore.module.css";
 
 const PAGE = 30;
+const acceptId = (userId: string) => `request-accept-${userId}`;
 
 
 /** Follow requests to answer, then likes, comments, replies, mentions and follows, newest first. */
@@ -27,6 +30,14 @@ export function NotificationsView() {
     return { items, next: nextCursor(items, PAGE) };
   });
   const sentinel = useSentinel(list.more, !list.done && list.status === "ready");
+  const focusAfter = useFocusAfterRender();
+  // An answered request leaves the list: focus the next one's Accept (or the one before), else the notifications.
+  const answered = async (userId: string) => {
+    const order = (requests.data ?? []).map((request) => acceptId(request.user.id));
+    await requests.reload();
+    void refresh();
+    focusAfter(focusAfterRemoval(order, [acceptId(userId)]), () => document.getElementById("notifications-list") ?? document.getElementById("notifications-empty"));
+  };
   // Waiting requests are answered in their own section above, so the list leaves them out.
   const notes = list.items.filter((note) => note.type !== "follow_request");
   const marked = useRef(false);
@@ -44,7 +55,7 @@ export function NotificationsView() {
           <h2 id="requests-title" className={styles.panelTitle}>Follow requests</h2>
           <ul className={styles.rowList}>
             {requests.data.map((request) => (
-              <Request key={request.user.id} user={request.user} onDone={() => { void requests.reload(); void refresh(); }} />
+              <Request key={request.user.id} user={request.user} onDone={() => void answered(request.user.id)} />
             ))}
           </ul>
         </section>
@@ -54,12 +65,12 @@ export function NotificationsView() {
       {list.status === "ready" && !notes.length && !requests.data?.length && (
         <div className={styles.empty}>
           <span className={styles.emptyMark}><Bell size={26} aria-hidden="true" /></span>
-          <h2 className={styles.emptyTitle}>Nothing new</h2>
+          <h2 id="notifications-empty" tabIndex={-1} className={styles.emptyTitle}>Nothing new</h2>
           <p className={styles.emptyText}>Likes, comments, mentions and follows show here.</p>
         </div>
       )}
       {notes.length > 0 && (
-        <ul className="flex flex-col gap-1" aria-label="Notifications">
+        <ul id="notifications-list" tabIndex={-1} className="flex flex-col gap-1" aria-label="Notifications">
           {notes.map((note) => {
             const href = notificationHref(note, profile.username);
             const text = notificationText(note);
@@ -96,6 +107,7 @@ function Request({ user, onDone }: { user: SocialAuthor; onDone: () => void }) {
   const { db } = useReadyExplore();
   const [busy, setBusy] = useState(false);
   async function answer(accept: boolean) {
+    if (busy) return;
     setBusy(true);
     try {
       await socialApi.answerRequest(db, user.id, accept);
@@ -112,8 +124,8 @@ function Request({ user, onDone }: { user: SocialAuthor; onDone: () => void }) {
         <Avatar user={user} size={44} />
         <span className={styles.whoText}><span className={styles.whoName}>{user.username}</span><span className={styles.reason}>{user.display_name}</span></span>
       </Link>
-      <button type="button" className={styles.smallButton} disabled={busy} onClick={() => void answer(true)} aria-label={`Accept @${user.username}`}>Accept</button>
-      <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} disabled={busy} onClick={() => void answer(false)} aria-label={`Decline @${user.username}`}>Decline</button>
+      <button type="button" id={acceptId(user.id)} className={styles.smallButton} aria-disabled={busy || undefined} onClick={() => void answer(true)} aria-label={`Accept @${user.username}`}>Accept</button>
+      <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} aria-disabled={busy || undefined} onClick={() => void answer(false)} aria-label={`Decline @${user.username}`}>Decline</button>
     </li>
   );
 }

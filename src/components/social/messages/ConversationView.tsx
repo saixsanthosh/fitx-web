@@ -16,11 +16,13 @@ import { AgeNotice } from "../AgeNotice";
 import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
 import { ReportSheet } from "../ReportSheet";
+import { useFocusAfterRender } from "../useFocusAfterRender";
 import { SocialPhoto } from "../SocialPhoto";
 import styles from "./Messages.module.css";
 import exploreStyles from "../Explore.module.css";
 
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+const unsentId = (id: string) => `message-${id}-unsent`;
 
 /** /explore/messages/[id]: one conversation, the request banner, the composer, unsend and report. */
 export function ConversationView({ id }: { id: string }) {
@@ -39,6 +41,7 @@ export function ConversationView({ id }: { id: string }) {
   const [blocking, setBlocking] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const focusAfter = useFocusAfterRender();
   const adult = me.age_band === undefined || me.age_band === "adult";
 
   const load = useCallback(async () => {
@@ -104,6 +107,8 @@ export function ConversationView({ id }: { id: string }) {
       setBody("");
       setMessages((current) => mergeNewest(current, [result.message]));
       if (result.status !== head.status) setHead({ ...head, status: result.status });
+      // The emptied box disables Send, which cannot keep focus (D5): the box takes it, ready for the next message.
+      focusAfter("conversation-message");
     } catch (failure) {
       toast.error(messageErrorText(failure));
     } finally {
@@ -112,6 +117,7 @@ export function ConversationView({ id }: { id: string }) {
   }
 
   async function answer(accept: boolean) {
+    if (answering) return;
     setAnswering(true);
     try {
       await messagesApi.answer(db, id, accept);
@@ -119,6 +125,8 @@ export function ConversationView({ id }: { id: string }) {
       if (accept) {
         toast.success("Request accepted");
         await load();
+        // The request's buttons go: focus the message box that replaces them.
+        focusAfter("conversation-message", () => document.getElementById("conversation-back"));
       } else {
         toast.success("Request deleted");
         router.push("/explore/messages?box=requests");
@@ -147,6 +155,9 @@ export function ConversationView({ id }: { id: string }) {
     try {
       await messagesApi.unsend(db, message.id);
       setMessages((current) => current.map((m) => (m.id === message.id ? { ...m, body: "", unsent: true, post: null, story: null, post_unavailable: false } : m)));
+      // Its options button goes with the message: focus its "You unsent a message" in its place (the log announces it),
+      // never the page body (bug 82).
+      focusAfter(unsentId(message.id));
     } catch (failure) {
       toast.error(messageErrorText(failure));
     }
@@ -194,7 +205,7 @@ export function ConversationView({ id }: { id: string }) {
       <h1 className="sr-only">Conversation with {head.other.display_name}</h1>
       <section className={styles.thread} aria-label={`Conversation with @${head.other.username}`}>
         <header className={styles.threadHead}>
-          <Link href="/explore/messages" className={exploreStyles.iconButton} aria-label="Back to messages"><ArrowLeft size={20} aria-hidden="true" /></Link>
+          <Link id="conversation-back" href="/explore/messages" className={exploreStyles.iconButton} aria-label="Back to messages"><ArrowLeft size={20} aria-hidden="true" /></Link>
           <Link href={`/explore/u/${head.other.username}`} className={styles.threadWho}>
             <Avatar user={head.other} size={40} />
             <span className="flex min-w-0 flex-col">
@@ -218,10 +229,12 @@ export function ConversationView({ id }: { id: string }) {
             stick.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
           }}
         >
-          {older === "idle" && messages.length >= GROUP_LIMITS.messagesPage && (
-            <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet} self-center`} onClick={() => void loadOlder()}>Show earlier messages</button>
+          {/* The button stays (aria-disabled) while it loads, so keyboard focus stays on it instead of falling to the page. */}
+          {older !== "done" && messages.length >= GROUP_LIMITS.messagesPage && (
+            <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet} self-center`} aria-disabled={older === "busy" || undefined} onClick={() => void loadOlder()}>
+              {older === "busy" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading earlier messages</> : "Show earlier messages"}
+            </button>
           )}
-          {older === "busy" && <Loader2 size={18} className="animate-spin self-center text-fitx-text-secondary motion-reduce:animate-none" aria-label="Loading earlier messages" />}
           {days.map((day) => (
             <div key={day.day} className="flex flex-col gap-1">
               <p className={styles.dayLabel}>{day.label}</p>
@@ -244,8 +257,8 @@ export function ConversationView({ id }: { id: string }) {
               @{head.other.username} would like to message you. Links stay as plain text until you accept. Delete the request and nothing more comes from them.
             </p>
             <div className={styles.bannerActions}>
-              <button type="button" className={exploreStyles.smallButton} disabled={answering} onClick={() => void answer(true)}>Accept</button>
-              <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} disabled={answering} onClick={() => void answer(false)}>Delete request</button>
+              <button type="button" className={exploreStyles.smallButton} aria-disabled={answering || undefined} onClick={() => void answer(true)}>Accept</button>
+              <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} aria-disabled={answering || undefined} onClick={() => void answer(false)}>Delete request</button>
             </div>
           </div>
         )}
@@ -261,6 +274,7 @@ export function ConversationView({ id }: { id: string }) {
           <form className="flex flex-col" onSubmit={(event) => { event.preventDefault(); void send(); }}>
             <div className={styles.composer}>
               <textarea
+                id="conversation-message"
                 className={styles.input}
                 aria-label="Message"
                 placeholder="Message"
@@ -270,7 +284,8 @@ export function ConversationView({ id }: { id: string }) {
                 onChange={(event) => setBody(event.target.value)}
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }}
               />
-              <button type="submit" className={styles.send} aria-label="Send" disabled={!draft.ok || sending}>
+              {/* Sending is aria-disabled, not disabled: a disabled button drops keyboard focus to the page (D5). */}
+              <button type="submit" className={styles.send} aria-label="Send" disabled={!draft.ok} aria-disabled={sending || undefined}>
                 {sending ? <Loader2 size={18} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <SendHorizontal size={18} aria-hidden="true" />}
               </button>
             </div>
@@ -322,7 +337,8 @@ function Bubble({ message, plainLinks, onActions }: { message: DirectMessage; pl
   if (message.unsent) {
     return (
       <div className={`${styles.message} ${side}`}>
-        <p className={`${styles.bubble} ${styles.unsent}`}>{message.mine ? "You unsent a message" : "Message unsent"}</p>
+        {/* Focusable from script only: where focus lands after Unsend, in the message's own place. */}
+        <p id={unsentId(message.id)} tabIndex={-1} className={`${styles.bubble} ${styles.unsent}`}>{message.mine ? "You unsent a message" : "Message unsent"}</p>
         {time}
       </div>
     );

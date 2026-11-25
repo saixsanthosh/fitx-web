@@ -5,10 +5,12 @@ import { Compass, ImagePlus, Loader2 } from "lucide-react";
 import { Reveal } from "@/components/motion/Reveal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { nextCursor, socialApi, type Cursor, type SocialPost } from "@/lib/social";
+import { focusAfterRemoval, postOptionsId } from "@/lib/social/focus";
 import { FEED_TOP_SLOT } from "@/lib/social/slots";
 import { useReadyExplore } from "./ExploreContext";
 import { PostCard } from "./PostCard";
 import { Suggestions } from "./Suggestions";
+import { useFocusAfterRender } from "./useFocusAfterRender";
 import { usePaged, useSentinel } from "./usePaged";
 import styles from "./Explore.module.css";
 
@@ -23,6 +25,14 @@ export function FeedView() {
   });
   const sentinel = useSentinel(feed.more, !feed.done && feed.status === "ready");
   const FeedTop = FEED_TOP_SLOT;
+  const focusAfter = useFocusAfterRender();
+  // A deleted post (or a blocked author's) leaves the feed with its Post options button: focus the next card's, or the
+  // one before, or the empty feed's heading, never the page body (bug 82's rule).
+  const removePost = (id: string) => {
+    const order = feed.items.map((item) => postOptionsId(item.id));
+    feed.remove(id);
+    focusAfter(focusAfterRemoval(order, [postOptionsId(id)]), () => document.getElementById("feed-empty"));
+  };
 
   return (
     <>
@@ -45,12 +55,12 @@ export function FeedView() {
           {feed.status !== "loading" && feed.status !== "error" && !feed.items.length && <EmptyFeed />}
           {feed.items.map((post, index) => (
             <Reveal key={post.id} y={14} amount={0.08}>
-              <PostCard db={db} post={post} priority={index < 2} onChange={feed.replace} onRemove={feed.remove} />
+              <PostCard db={db} post={post} priority={index < 2} onChange={feed.replace} onRemove={removePost} />
             </Reveal>
           ))}
           {feed.items.length > 0 && !feed.done && (
             <div className="flex justify-center">
-              <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={feed.more} disabled={feed.status === "more"}>
+              <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={feed.more} aria-disabled={feed.status === "more" || undefined}>
                 {feed.status === "more" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading</> : "Show more"}
               </button>
             </div>
@@ -71,7 +81,7 @@ function EmptyFeed() {
   return (
     <div className={styles.empty}>
       <span className={styles.emptyMark}><Compass size={26} aria-hidden="true" /></span>
-      <h2 className={styles.emptyTitle}>Your feed is quiet</h2>
+      <h2 id="feed-empty" tabIndex={-1} className={styles.emptyTitle}>Your feed is quiet</h2>
       <p className={styles.emptyText}>Follow people to see their posts here, or share your first one.</p>
       <div className="flex flex-wrap justify-center gap-2">
         <Link href="/explore/discover" className="fitx-button"><Compass size={17} aria-hidden="true" />Find people</Link>

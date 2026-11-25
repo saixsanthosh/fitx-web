@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
+import { returnFocusTarget } from "./sheet-focus";
 import styles from "./Sheet.module.css";
 
 type SheetProps = {
@@ -16,16 +17,32 @@ type SheetProps = {
   /** Phones always get a bottom sheet. From 768 px: a side panel ("auto", default) or a centred dialog. */
   side?: "auto" | "center";
   className?: string;
+  /**
+   * The control focus returns to when the sheet closes, when that is not simply the element that had focus as it
+   * opened (for example a button that was busy, and so lost focus, while the sheet got ready). Optional.
+   */
+  returnFocus?: RefObject<HTMLElement | null>;
+  /**
+   * A message about what the member just did in this sheet (an error, a confirmation), shown between the content and
+   * the actions, in a live region inside the dialog: a toast raised while a modal is open is drawn under it and is
+   * neither seen nor heard (D6). Pass it, even as null, to have the region ready; leave it out and nothing is drawn.
+   */
+  notice?: SheetNotice | null;
 };
+
+/** What `notice` takes: a new `id` makes the same words, said again, be announced again. */
+export type SheetNotice = { id?: number; tone: "error" | "success" | "info"; text: string };
 
 /**
  * A modal sheet on the native <dialog>: focus moves in and stays in, the page behind is inert, Escape
- * and a tap on the backdrop close it, and focus returns to whatever opened it. The content mounts only
- * while open.
+ * and a tap on the backdrop close it, and focus returns to whatever opened it (or to `returnFocus`).
+ * The content mounts only while open.
  */
-export function Sheet({ open, onClose, title, description, children, footer, side = "auto", className = "" }: SheetProps) {
+export function Sheet({ open, onClose, title, description, children, footer, side = "auto", className = "", returnFocus, notice }: SheetProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const named = useRef(returnFocus);
+  useEffect(() => { named.current = returnFocus; });
   const titleId = `${useId()}-sheet-title`;
 
   useLayoutEffect(() => {
@@ -37,7 +54,7 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
     }
     if (!open && dialog.open) {
       dialog.close();
-      if (opener.current?.isConnected) opener.current.focus();
+      returnFocusTarget(named.current?.current, opener.current, document.body)?.focus();
     }
   }, [open]);
 
@@ -46,7 +63,7 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
     const dialog = ref.current;
     return () => {
       if (dialog?.open) dialog.close();
-      if (opener.current?.isConnected) opener.current.focus();
+      returnFocusTarget(named.current?.current, opener.current, document.body)?.focus();
     };
   }, []);
 
@@ -79,6 +96,15 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
             <button type="button" className={styles.close} onClick={onClose} aria-label="Close"><X size={18} aria-hidden="true" /></button>
           </header>
           <div className={styles.content}>{children}</div>
+          {notice !== undefined && (
+            <div className={styles.notices}>
+              {/* Confirmations go to a polite region that is always there; errors are a new alert each time. */}
+              <p role="status" className={notice && notice.tone !== "error" ? `${styles.notice} ${notice.tone === "success" ? styles.noticeOk : styles.noticeInfo}` : styles.noticeIdle}>
+                {notice && notice.tone !== "error" ? notice.text : null}
+              </p>
+              {notice?.tone === "error" && <p key={notice.id ?? notice.text} role="alert" className={`${styles.notice} ${styles.noticeError}`}>{notice.text}</p>}
+            </div>
+          )}
           {footer && <footer className={styles.footer}>{footer}</footer>}
         </div>
       )}
