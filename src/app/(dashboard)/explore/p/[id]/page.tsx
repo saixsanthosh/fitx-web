@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PostView } from "@/components/social/PostView";
-import { isUuid } from "@/lib/social/paths";
+import { routeId } from "@/lib/social/route-params";
 
-export const metadata: Metadata = { title: "Post" };
+type Props = { params: Promise<{ id: string }> };
 
-export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const postId = id.toLowerCase();
-  if (!isUuid(postId)) notFound();
+/** A malformed address is not found, and titled so (not "Post"). */
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  if (!routeId((await params).id)) notFound();
+  return { title: "Post" };
+}
+
+export default async function PostPage({ params }: Props) {
+  const postId = routeId((await params).id);
+  if (!postId) notFound();
   return <PostView id={postId} />;
 }

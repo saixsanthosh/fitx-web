@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ChallengeView } from "@/components/social/challenges/ChallengeView";
-import { isUuid } from "@/lib/social/paths";
+import { routeId } from "@/lib/social/route-params";
 
-export const metadata: Metadata = { title: "Challenge" };
+type Props = { params: Promise<{ id: string }> };
 
-export default async function ChallengePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const challengeId = id.toLowerCase();
-  if (!isUuid(challengeId)) notFound();
+/** A malformed address is not found, and titled so (not "Challenge"). */
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  if (!routeId((await params).id)) notFound();
+  return { title: "Challenge" };
+}
+
+export default async function ChallengePage({ params }: Props) {
+  const challengeId = routeId((await params).id);
+  if (!challengeId) notFound();
   return <ChallengeView id={challengeId} />;
 }

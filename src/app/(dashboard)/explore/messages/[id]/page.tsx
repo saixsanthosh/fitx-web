@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ConversationView } from "@/components/social/messages/ConversationView";
-import { isUuid } from "@/lib/social/paths";
+import { routeId } from "@/lib/social/route-params";
 
-export const metadata: Metadata = { title: "Conversation" };
+type Props = { params: Promise<{ id: string }> };
 
-export default async function ConversationPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const conversationId = id.toLowerCase();
-  if (!isUuid(conversationId)) notFound();
+/** A malformed address is not found, and titled so (not "Conversation"). Never a name: the tab is not private. */
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  if (!routeId((await params).id)) notFound();
+  return { title: "Conversation" };
+}
+
+export default async function ConversationPage({ params }: Props) {
+  const conversationId = routeId((await params).id);
+  if (!conversationId) notFound();
   return <ConversationView id={conversationId} />;
 }
