@@ -5,6 +5,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { exerciseProblem, problemAfterExerciseChange, type ActionProblem } from "@/app/(dashboard)/workouts/active/_lib/action-problem";
 import { setInputId, setProblemId } from "@/app/(dashboard)/workouts/active/_lib/set-entry";
 
 const page = readFileSync("src/app/(dashboard)/workouts/active/page.tsx", "utf8");
@@ -51,7 +52,43 @@ describe("every other message sits beside its control", () => {
     assert.match(page, /\{problem\?\.at === "clock" && <p role="alert"[^\n]*\n\s+<\/section>/, "inside the clock section");
     assert.match(page, /\{paused && problem\?\.at === "banner" && <p role="alert"/);
     assert.match(page, /togglePause\("banner"\)/);
-    assert.match(page, /\{problem\?\.at === "swap" && <p role="alert"/);
-    assert.match(page, /\{problem\?\.at === "add-set" && <p role="alert"/);
+    assert.match(page, /\{swapProblem && <p role="alert"/);
+    assert.match(page, /\{addSetProblem && <p role="alert"/);
+  });
+});
+
+describe("Swap and Add set problems belong to their exercise (review round, workouts-r3)", () => {
+  const swap: ActionProblem = { at: "swap", exerciseId: "ex-1", message: "That exercise couldn’t be swapped. Check your connection and try again." };
+  const addSet: ActionProblem = { at: "add-set", exerciseId: "ex-1", message: "A movement can have up to 30 sets in one session." };
+
+  test("shown only while that exercise is on screen, and only in its own place", () => {
+    assert.equal(exerciseProblem(swap, "swap", "ex-1"), swap.message);
+    assert.equal(exerciseProblem(swap, "swap", "ex-2"), null, "never under the next exercise's buttons");
+    assert.equal(exerciseProblem(swap, "add-set", "ex-1"), null);
+    assert.equal(exerciseProblem(addSet, "add-set", "ex-1"), addSet.message);
+    assert.equal(exerciseProblem(addSet, "add-set", undefined), null);
+    assert.equal(exerciseProblem(null, "swap", "ex-1"), null);
+  });
+
+  test("moving to another exercise clears them; a set's, the clock's and Finish's stay", () => {
+    assert.equal(problemAfterExerciseChange(swap), null);
+    assert.equal(problemAfterExerciseChange(addSet), null);
+    const kept: ActionProblem[] = [
+      { at: "set", setId: "s1", field: "draftWeight", message: "The weight must be 2,000 kg or less." },
+      { at: "clock", message: "The workout could not be paused. Check your connection and try again." },
+      { at: "finish", message: "Complete at least one set before finishing your workout." },
+    ];
+    for (const problem of kept) assert.equal(problemAfterExerciseChange(problem), problem);
+    assert.equal(problemAfterExerciseChange(null), null);
+  });
+
+  test("the page names the exercise in each, and every way to another exercise goes through showExercise", () => {
+    assert.equal((page.match(/setProblem\(\{ at: "swap", exerciseId: exercise\.id,/g) ?? []).length, 2);
+    assert.equal((page.match(/setProblem\(\{ at: "add-set", exerciseId: exercise\.id,/g) ?? []).length, 2);
+    assert.match(page, /function showExercise\(next: number \| \(\(index: number\) => number\)\) \{\s+setExerciseIndex\(next\);\s+setProblem\(problemAfterExerciseChange\);/);
+    assert.equal((page.match(/onClick=\{\(\) => showExercise\(/g) ?? []).length, 5, "the chips, Previous and Next (the clock row's and the phone bar's)");
+    assert.doesNotMatch(page, /onClick=\{\(\) => setExerciseIndex\(/);
+    assert.match(page, /const swapProblem = exerciseProblem\(problem, "swap", currentExercise\?\.id\);/);
+    assert.match(page, /const addSetProblem = exerciseProblem\(problem, "add-set", currentExercise\?\.id\);/);
   });
 });

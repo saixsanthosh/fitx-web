@@ -36,6 +36,7 @@ import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS, SET_REP_SOURCE_COLUMNS } from "../_lib/workout-columns";
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { readWithOptional, recordHref, stripStats } from "../history/_lib/session-record";
+import { exerciseProblem, problemAfterExerciseChange, type ActionProblem } from "./_lib/action-problem";
 import { formatHistorySet, lastTimeForSet, summariseLastTime } from "./_lib/last-time";
 import { SESSION_NOT_FOUND, sessionLinkFrom, type SessionLink } from "./_lib/session-link";
 import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId } from "./_lib/set-entry";
@@ -54,13 +55,6 @@ type SetRow = { id: string; session_exercise_id: string; set_number: number; tar
 /** "Last time" per exercise (surviving id → latest completed session with it, or null), for the ids in `key`. */
 type PreviousState = { key: string; failed: boolean; byExercise: Map<string, ExerciseSession | null> };
 type Completion = { finishedAt: string; duration: number; records: number; muscles: MuscleSummary | null; musclesFailed: boolean };
-/**
- * Why an action did not work, shown beside the control that was used (bug 11): the clock's Pause or Resume, the paused
- * banner's Resume, Swap, Add set, a set's Complete button (with the box at fault), or Finish and Abandon.
- */
-type ActionProblem =
-  | { at: "clock" | "banner" | "swap" | "add-set" | "finish"; message: string }
-  | { at: "set"; setId: string; field: DraftField | null; message: string };
 
 const SESSION_COLUMNS = ["id", "user_id", "plan_id", "name", "started_at", "status"] as const;
 const SESSION_EXERCISE_COLUMNS = ["id", "exercise_id", "exercise_name", "target_sets", "reps_min", "reps_max", "rest_seconds", "sort_order"] as const;
@@ -392,7 +386,7 @@ export default function ActiveWorkoutPage() {
   async function swapExercise(replacement: CatalogExercise) {
     const exercise = currentExercise;
     if (!exercise || !session) return;
-    if (exercise.sets.some((set) => Boolean(set.completed_at))) { setSwapOpen(false); return setProblem({ at: "swap", message: "Swap an exercise before logging its sets." }); }
+    if (exercise.sets.some((set) => Boolean(set.completed_at))) { setSwapOpen(false); return setProblem({ at: "swap", exerciseId: exercise.id, message: "Swap an exercise before logging its sets." }); }
     const supabase = createClient();
     if (!supabase) return;
     // Reps or seconds follow the new movement when its type differs (a hold for push-ups, or the reverse).
@@ -402,7 +396,7 @@ export default function ActiveWorkoutPage() {
     const outcome = await withOptionalColumns(["target_duration_seconds"], (include) =>
       supabase.from("workout_session_exercises").update(payloadFor(patch, ["target_duration_seconds"], include)).eq("id", exercise.id).eq("user_id", session.user_id).select("id").maybeSingle(),
     { includeOptional: targetsSupported });
-    if (outcome.result.error || !outcome.result.data) { setSwapOpen(false); return setProblem({ at: "swap", message: "That exercise couldn’t be swapped. Check your connection and try again." }); }
+    if (outcome.result.error || !outcome.result.data) { setSwapOpen(false); return setProblem({ at: "swap", exerciseId: exercise.id, message: "That exercise couldn’t be swapped. Check your connection and try again." }); }
     const stored = { ...prescription, target_duration_seconds: outcome.includedOptional ? prescription.target_duration_seconds : exercise.target_duration_seconds };
     const changed = stored.reps_min !== exercise.reps_min || stored.reps_max !== exercise.reps_max || stored.target_duration_seconds !== exercise.target_duration_seconds;
     const targetReps = setTargetReps(stored);
@@ -417,6 +411,12 @@ export default function ActiveWorkoutPage() {
     if (setTimer?.exerciseId === exercise.id) setSetTimer(null);
     setSwapOpen(false);
     setProblem(null);
+  }
+
+  /** Moves to another exercise; a Swap or Add set problem was about the one left, so it goes (workouts-r3). */
+  function showExercise(next: number | ((index: number) => number)) {
+    setExerciseIndex(next);
+    setProblem(problemAfterExerciseChange);
   }
 
   /** A set's problem goes once the member changes that set: it was about what the boxes held. */
@@ -545,7 +545,7 @@ export default function ActiveWorkoutPage() {
 
   async function addSet(exercise: LiveExercise) {
     const supabase = createClient(); if (!supabase || !session || clock?.paused) return;
-    if (exercise.sets.length >= 30) return setProblem({ at: "add-set", message: "A movement can have up to 30 sets in one session." });
+    if (exercise.sets.length >= 30) return setProblem({ at: "add-set", exerciseId: exercise.id, message: "A movement can have up to 30 sets in one session." });
     const next = exercise.sets.length + 1;
     // No rep target for a timed movement: its sets are logged by time.
     const targetReps = setTargetReps(exercise);
@@ -554,7 +554,7 @@ export default function ActiveWorkoutPage() {
     { includeOptional: timedSetsSupported });
     if (!inserted.includedOptional) setTimedSetsSupported(false);
     const row = inserted.result.data as unknown as SetRow | null;
-    if (inserted.result.error || !row) return setProblem({ at: "add-set", message: "A new set could not be added. Check your connection and try again." });
+    if (inserted.result.error || !row) return setProblem({ at: "add-set", exerciseId: exercise.id, message: "A new set could not be added. Check your connection and try again." });
     setExercises((items) => items.map((item) => item.id === exercise.id ? { ...item, sets: [...item.sets, { id: row.id, set_number: row.set_number, target_reps: row.target_reps, reps: row.reps, completed_at: row.completed_at, weight_kg: exercise.target_weight_kg ?? 0, duration_seconds: null, rep_source: null, draftWeight: String(exercise.target_weight_kg ?? ""), draftReps: targetReps == null ? "" : String(targetReps), draftDuration: "" }] } : item));
     setProblem(null);
   }
@@ -706,6 +706,9 @@ export default function ActiveWorkoutPage() {
   const swapTarget = currentExercise?.exercise_id ? catalog.find((exercise) => exercise.id === currentExercise.exercise_id) : undefined;
   const swapMissing = swapTarget ? missingEquipment(swapTarget.required_equipment, owned) : [];
   const currentProgress = currentExercise ? exerciseProgress(currentExercise) : null;
+  // Only the exercise on screen's own Swap and Add set problems show under its buttons.
+  const swapProblem = exerciseProblem(problem, "swap", currentExercise?.id);
+  const addSetProblem = exerciseProblem(problem, "add-set", currentExercise?.id);
   const currentSet = currentProgress?.current && currentExercise ? currentExercise.sets.find((set) => set.id === currentProgress.current!.id) ?? null : null;
   const target = currentExercise ? setTarget(currentExercise, currentSet) : null;
   const showDuration = Boolean(currentExercise && timedSetsSupported && isTimedPrescription(currentExercise));
@@ -757,7 +760,7 @@ export default function ActiveWorkoutPage() {
     {exercises.length > 0 && <nav ref={chipsRef} aria-label="Workout exercises" className="relative -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{exercises.map((exercise, index) => {
       const chip = exerciseProgress(exercise);
       const complete = chip.total > 0 && chip.left === 0;
-      return <button key={exercise.id} type="button" aria-current={currentExerciseIndex === index ? "step" : undefined} onClick={() => setExerciseIndex(index)} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm transition-colors ${currentExerciseIndex === index ? "border-fitx-primary bg-fitx-primary/[.08] text-fitx-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40"}`}>
+      return <button key={exercise.id} type="button" aria-current={currentExerciseIndex === index ? "step" : undefined} onClick={() => showExercise(index)} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm transition-colors ${currentExerciseIndex === index ? "border-fitx-primary bg-fitx-primary/[.08] text-fitx-text" : "border-fitx-border text-fitx-text-secondary hover:border-fitx-primary/40"}`}>
         <span className="font-mono text-[11px] text-fitx-text-secondary">{String(index + 1).padStart(2, "0")}</span>
         <span className="max-w-36 truncate">{exercise.name}</span>
         <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${complete ? "bg-fitx-primary/10 text-fitx-primary-text" : "bg-fitx-surface-variant text-fitx-text-secondary"}`}>{complete ? <Check size={11} aria-hidden="true" className="inline" /> : null}{chip.done}/{chip.total}<span className="sr-only"> sets done</span></span>
@@ -785,11 +788,11 @@ export default function ActiveWorkoutPage() {
             <button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button>
             {survivor && <Link href={`/exercises/${encodeURIComponent(survivor)}`} target="_blank" rel="noopener noreferrer" className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><Info size={14} aria-hidden="true" />About<span className="sr-only"> {currentExercise.name} (opens in a new tab)</span></Link>}
             <span className="ml-auto flex items-center gap-2">
-              <button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} aria-label="Previous exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronLeft size={18} aria-hidden="true" /></button>
-              <button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} aria-label="Next exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronRight size={18} aria-hidden="true" /></button>
+              <button type="button" onClick={() => showExercise((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} aria-label="Previous exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronLeft size={18} aria-hidden="true" /></button>
+              <button type="button" onClick={() => showExercise((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} aria-label="Next exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronRight size={18} aria-hidden="true" /></button>
             </span>
           </div>
-          {problem?.at === "swap" && <p role="alert" className={PROBLEM_CLASS}>{problem.message}</p>}
+          {swapProblem && <p role="alert" className={PROBLEM_CLASS}>{swapProblem}</p>}
           <SessionRings target={target} setTimer={timerHere && setTimer ? { remaining: timerRemaining, total: setTimer.seconds } : null} rest={restRing} plannedRestSeconds={currentExercise.rest_seconds} setsDone={currentProgress.done} setsTotal={currentProgress.total} />
         </div>
       </div>
@@ -832,7 +835,7 @@ export default function ActiveWorkoutPage() {
             onUse={(result) => applyCameraCount(currentExercise.id, currentSet.id, result)}
           />}
         </div>
-        {problem?.at === "add-set" && <p role="alert" className={PROBLEM_CLASS}>{problem.message}</p>}
+        {addSetProblem && <p role="alert" className={PROBLEM_CLASS}>{addSetProblem}</p>}
         {upNext && <UpNext title={upNext.title} detail={upNext.detail} finish={nextAfterSet.kind === "finish"} exercise={upNextExercise ? { id: upNextId, name: upNextExercise.name, sourceRef: upNextId ? catalog.find((item) => item.id === upNextId)?.source_ref ?? null : null } : null} />}
         </div>
       </div>
@@ -851,7 +854,7 @@ export default function ActiveWorkoutPage() {
     </div>
 
     {resting && <RestDock remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
-    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+.75rem)] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => setExerciseIndex((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} className="fitx-button fitx-button-secondary min-h-12"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => setExerciseIndex((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} className="fitx-button min-h-12">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
+    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+.75rem)] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => showExercise((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} className="fitx-button fitx-button-secondary min-h-12"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => showExercise((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} className="fitx-button min-h-12">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
     {swapOpen && swapTarget && <SwapSheet target={swapTarget} catalog={catalog} owned={owned} level={level} exclude={new Set(exercises.flatMap((exercise) => (exercise.exercise_id ? [exercise.exercise_id] : [])))} contextLabel={ownedContext} onPick={(exercise) => void swapExercise(exercise)} onClose={() => setSwapOpen(false)} />}
   </div>;
 }
