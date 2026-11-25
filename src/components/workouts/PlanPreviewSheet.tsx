@@ -81,8 +81,8 @@ type PlanPreviewProps = {
   starting: boolean;
   /** Starts the workout; resolves with a message when it could not. */
   onBegin: (planId: string, title: string) => Promise<string | null>;
-  /** Opens the plan in the builder. */
-  onEdit?: (planId: string) => void;
+  /** Opens the plan in the builder; resolves with a message when it could not (shown here, beside Edit plan). */
+  onEdit?: (planId: string) => Promise<string | null>;
   onClose: () => void;
 };
 
@@ -91,6 +91,9 @@ export function PlanPreview({ loaded, onRetry, catalog, ownedFor, todayKey, prog
   const ids = useId();
   const [info, setInfo] = useState<CatalogExercise | null>(null);
   const [beginError, setBeginError] = useState("");
+  // Edit plan reads the plan before the builder opens: busy meanwhile (still focusable), and why it failed, here (D6).
+  const [opening, setOpening] = useState(false);
+  const [editError, setEditError] = useState("");
 
   const byId = useMemo(() => new Map(catalog.map((exercise) => [exercise.id, exercise])), [catalog]);
   const ready = loaded.status === "ready" ? loaded : null;
@@ -121,15 +124,24 @@ export function PlanPreview({ loaded, onRetry, catalog, ownedFor, todayKey, prog
     if (message) setBeginError(message);
   }
 
+  async function edit() {
+    if (!plan || !onEdit || opening) return;
+    setEditError(""); setOpening(true);
+    const message = await onEdit(plan.id);
+    setOpening(false);
+    if (message) setEditError(message);
+  }
+
   const footer = !ready ? undefined : (
     <div className="w-full space-y-2">
       {beginError && <p role="alert" className="fitx-alert fitx-alert-danger">{beginError}</p>}
+      {editError && <p role="alert" className="fitx-alert fitx-alert-danger">{editError}</p>}
       {activeSession
         ? <p className="text-xs text-fitx-text-secondary">You have a workout in progress ({activeSession.name}). Finish it before you begin another.</p>
         : done ? <p className="text-xs text-fitx-text-secondary">{ready.lastSession ? `You did this day ${doneLabel(localKey(ready.lastSession.started_at), todayKey)}.` : "You did this day."} Each programme day counts once; the next one is on your programme card.</p>
           : pausedDay ? <p className="text-xs text-fitx-text-secondary">Your programme is paused. Resume it to train its days.</p> : null}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        {onEdit && !done && !activeSession && <button type="button" onClick={() => onEdit(ready.plan.id)} className="fitx-button fitx-button-secondary min-h-11"><Pencil size={15} aria-hidden="true" />Edit plan</button>}
+        {onEdit && !done && !activeSession && <button type="button" onClick={() => void edit()} aria-disabled={opening || undefined} className="fitx-button fitx-button-secondary min-h-11 aria-disabled:opacity-60"><Pencil size={15} aria-hidden="true" />{opening ? "Opening…" : "Edit plan"}</button>}
         {done && ready.lastSession && <Link href={`/workouts/history/${ready.lastSession.id}`} className="fitx-button fitx-button-secondary min-h-11">View workout record<ArrowRight size={15} aria-hidden="true" /></Link>}
         {activeSession
           ? <Link href={`/workouts/active?session=${activeSession.id}`} className="fitx-button min-h-12 sm:min-w-56">Continue current workout<ArrowRight size={16} aria-hidden="true" /></Link>

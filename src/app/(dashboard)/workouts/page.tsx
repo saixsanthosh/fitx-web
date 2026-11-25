@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, CalendarDays, ChevronDown, Copy, Info, Pencil, Plus, RotateCcw, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { EquipmentThumb } from "@/components/equipment/EquipmentTile";
@@ -9,6 +9,7 @@ import { Reveal } from "@/components/motion";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Section } from "@/components/ui/Section";
 import { MuscleRail } from "@/components/training/MuscleRail";
+import { ActionNote } from "@/components/workouts/ActionNote";
 import { ActionsMenu } from "@/components/workouts/ActionsMenu";
 import { AreaLaunchRail } from "@/components/workouts/AreaLaunchRail";
 import { HomeCollection } from "@/components/workouts/HomeCollection";
@@ -55,6 +56,7 @@ import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout
 import { BUILDER_FIELD_IDS, builderSaveProblem, type BuilderProblem } from "./_lib/builder-save";
 import { builderSplit } from "./_lib/split-source";
 import { MAX_PLAN_EXERCISES, focusAfterRemove, focusAfterSwap, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
+import { focusAfterPlanDelete, historyNote, moreNote, planCardNote, plansLineNote, type ListNote } from "./_lib/list-notes";
 import { deletePlanAndItsItem, itemLeftMessage } from "./_lib/plan-delete";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { equipmentGapMessage, equipmentGaps, listChanged } from "./_lib/today-equipment";
@@ -240,6 +242,15 @@ export default function WorkoutsPage() {
   // Whether workout_plan_exercises has the weight and time target columns: null until known.
   const [targetsSupported, setTargetsSupported] = useState<boolean | null>(null);
   const [notice, setNotice] = useState("");
+  // What a plan card's or a History row's action did, beside that control (D6, workouts-r5); and, after a plan is
+  // deleted, the plan whose Start takes focus (null: the empty list's Build a workout).
+  const [listNote, setListNote] = useState<ListNote | null>(null);
+  const [planFocus, setPlanFocus] = useState<{ planId: string | null; seq: number } | null>(null);
+  useEffect(() => {
+    if (!planFocus) return;
+    const card = planFocus.planId ? document.querySelector<HTMLElement>(`[id="workout-plan-${planFocus.planId}"] [data-plan-start]`) : null;
+    (card ?? document.querySelector<HTMLElement>("[data-plan-start]") ?? document.getElementById("plans-build-first"))?.focus();
+  }, [planFocus]);
   // The plan list is paged; `listDayKey` is the "today" its segments and labels were built with.
   const [planCursor, setPlanCursor] = useState<PlanPageCursor | null>(null);
   const [loadingMorePlans, setLoadingMorePlans] = useState(false);
@@ -745,23 +756,27 @@ export default function WorkoutsPage() {
 
   async function repeatSession(session: SessionRow) {
     const supabase = createClient();
-    if (!supabase || !userId) return;
-    setError(""); setNotice(""); setSaving(true);
+    if (!supabase || !userId || saving) return;
+    setNotice(""); setListNote(null); setSaving(true);
     const outcome = await withOptionalColumns(PRESCRIPTION_TARGET_COLUMNS, (include) =>
       supabase.from("workout_session_exercises").select(columnList(["id", "exercise_id", "exercise_name", "sort_order", "target_sets", "reps_min", "reps_max", "rest_seconds"], PRESCRIPTION_TARGET_COLUMNS, include)).eq("session_id", session.id).eq("user_id", userId).order("sort_order"),
     { includeOptional: targetsSupported !== false });
     setSaving(false);
-    if (outcome.result.error) return setError("That workout couldn’t be loaded to repeat. Check your connection and try again.");
+    // A problem is said in the workout's own History row, beside its Repeat button (D6).
+    const problem = (text: string) => setListNote({ at: "history", sessionId: session.id, text });
+    if (outcome.result.error) return problem("That workout couldn’t be loaded to repeat. Check your connection and try again.");
     const rows = (outcome.result.data || []) as unknown as PlanExerciseRow[];
     const nextPreview = rows.flatMap((row) => {
       const exercise = row.exercise_id ? catalog.find((item) => item.id === survivingExerciseId(row.exercise_id!)) : undefined;
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     }).map((row, sort_order) => ({ ...row, sort_order }));
-    if (!nextPreview.length) return setError("The movements from that workout are no longer in the library.");
+    if (!nextPreview.length) return problem("The movements from that workout are no longer in the library.");
     setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(session.name); setPlanNotes(""); setSplit(preferences.workout_split || "custom");
-    setPlanLocation("gym"); setPlannedFor(localDateKey()); setTime("18:00"); setAutoNote("");
+    setPlanLocation("gym"); setPlannedFor(localDateKey()); setTime("18:00");
     setPreview(nextPreview); showBuilder();
-    if (nextPreview.length < rows.length) setNotice(`${rows.length - nextPreview.length} movement${rows.length - nextPreview.length === 1 ? " is" : "s are"} no longer in the library and ${rows.length - nextPreview.length === 1 ? "was" : "were"} left out.`);
+    // What was left out is said inside the builder, which now covers the page (D6), not behind it.
+    const missing = rows.length - nextPreview.length;
+    setAutoNote(missing > 0 ? `${missing} movement${missing === 1 ? " is" : "s are"} no longer in the library and ${missing === 1 ? "was" : "were"} left out.` : "");
   }
 
   /** Keeps the user's sets and rest; reps or time follow the new movement when its type differs (see swapRow). */
@@ -843,7 +858,8 @@ export default function WorkoutsPage() {
     });
     setProgrammeBusy(false);
     await load();
-    setNotice(programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays));
+    // Said on the new programme card, where the Follow sheet closed (D6).
+    setProgrammeNote({ tone: scheduled.error && !scheduled.created ? "error" : "info", text: programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays) });
     return null;
   }
 
@@ -877,7 +893,8 @@ export default function WorkoutsPage() {
     setProgrammeBusy(false);
     if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be left. Check your connection and try again." });
     await load();
-    setNotice(`You no longer follow ${programme ? programmeShortTitle(programme) : "the programme"}. Its upcoming days are removed; finished workouts stay in your history.`);
+    // Said in the Programme section, where the card was (D6).
+    setProgrammeNote({ tone: "info", text: `You no longer follow ${programme ? programmeShortTitle(programme) : "the programme"}. Its upcoming days are removed; finished workouts stay in your history.` });
   }
 
   async function pause() {
@@ -913,7 +930,7 @@ export default function WorkoutsPage() {
     setProgrammeBusy(false);
     if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be finished. Check your connection and try again." });
     await load();
-    setNotice("Programme finished. Choose your next one below; your workouts stay in your history.");
+    setProgrammeNote({ tone: "info", text: "Programme finished. Choose your next one below; your workouts stay in your history." });
   }
 
   /** Start on the Today card: straight into the session (its exercises are on the card already). */
@@ -966,10 +983,15 @@ export default function WorkoutsPage() {
     setPreview((rows) => moveRow(rows, index, direction));
   }
 
-  async function editPlan(planId: string) {
+  /**
+   * Opens a plan in the builder. Resolves with why it could not, for the caller to say where it was asked: in the
+   * plan's card, or in the plan preview (D6). `beforeOpen` runs as the builder opens (the preview closes then).
+   */
+  async function editPlan(planId: string, beforeOpen?: () => void): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return;
-    setError(""); setNotice(""); setSaving(true);
+    if (!supabase || !userId) return "FITX is not connected to Supabase.";
+    if (saving) return null;
+    setNotice(""); setListNote(null); setSaving(true);
     const [planResult, exercisesResult, eventResult] = await Promise.all([
       withOptionalColumns(PROGRAMME_PLAN_COLUMNS, (include) =>
         supabase.from("workout_plans").select(columnList(["id", "title", "planned_for", "status", "split", "notes", "workout_location"], PROGRAMME_PLAN_COLUMNS, include)).eq("id", planId).eq("user_id", userId).maybeSingle()),
@@ -979,7 +1001,7 @@ export default function WorkoutsPage() {
     ]);
     const planRow = planResult.result.data as unknown as EditedPlanRow | null;
     if (planResult.result.error || !planRow || exercisesResult.error) {
-      setSaving(false); setError("This workout could not be opened for editing. Check your connection and try again."); return;
+      setSaving(false); return "This workout could not be opened for editing. Check your connection and try again.";
     }
     const rows = exercisesResult.rows;
     const nextPreview = rows.flatMap((row) => {
@@ -987,8 +1009,9 @@ export default function WorkoutsPage() {
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     });
     if (rows.length && !nextPreview.length) {
-      setSaving(false); setError("The saved movements are no longer available in the active library."); return;
+      setSaving(false); return "The saved movements are no longer available in the active library.";
     }
+    beforeOpen?.();
     setBuilderMode("custom"); setEditingPlanId(planId); setEditingPlannedFor(planRow.planned_for || null); setTitle(planRow.title); setPlanNotes(planRow.notes || ""); setSplit(planRow.split); setPlanLocation(planRow.workout_location || "gym");
     setEditingProgrammeDay(Boolean(planRow.programme_enrolment_id && planRow.planned_for));
     // A To-Do workout linked to the plan has its own time: prefer the scheduled event on the plan's day.
@@ -997,34 +1020,44 @@ export default function WorkoutsPage() {
     const ownEvent = timedEvents.find((event) => event.status === "scheduled" && localDateKey(new Date(event.starts_at)) === planDay) ?? timedEvents[0];
     setPlannedFor(planRow.planned_for || ""); setTime(ownEvent ? new Date(ownEvent.starts_at).toTimeString().slice(0, 5) : "18:00");
     setAutoNote(""); setPreview(nextPreview); showBuilder(); setSaving(false);
+    return null;
   }
 
-  async function duplicatePlan(plan: PlanRow) {
+  /** Opens a copy of a plan in the builder; resolves with why it could not (said in the plan's card). */
+  async function duplicatePlan(plan: PlanRow): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return;
-    setError(""); setNotice(""); setSaving(true);
+    if (!supabase || !userId) return "FITX is not connected to Supabase.";
+    if (saving) return null;
+    setNotice(""); setListNote(null); setSaving(true);
     const [planResult, exercisesResult] = await Promise.all([
       supabase.from("workout_plans").select("title,split,notes,workout_location").eq("id", plan.id).eq("user_id", userId).maybeSingle(),
       readPlanRows(plan.id),
     ]);
-    if (planResult.error || !planResult.data || exercisesResult.error) { setSaving(false); setError("This workout could not be copied. Check your connection and try again."); return; }
-    if (!exercisesResult.rows.length) { setSaving(false); setError("This plan has no exercises to copy yet. Edit it to add some first."); return; }
+    if (planResult.error || !planResult.data || exercisesResult.error) { setSaving(false); return "This workout could not be copied. Check your connection and try again."; }
+    if (!exercisesResult.rows.length) { setSaving(false); return "This plan has no exercises to copy yet. Edit it to add some first."; }
     const nextPreview = exercisesResult.rows.flatMap((row) => {
       const exercise = row.exercise_id ? catalog.find((item) => item.id === survivingExerciseId(row.exercise_id!)) : undefined;
       return exercise ? [toPlannedExercise(row, exercise)] : [];
     });
-    if (!nextPreview.length) { setSaving(false); setError("The saved movements are no longer available in the active library."); return; }
+    if (!nextPreview.length) { setSaving(false); return "The saved movements are no longer available in the active library."; }
     setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle(`${planResult.data.title} copy`); setPlanNotes(planResult.data.notes || ""); setSplit(planResult.data.split); setPlanLocation(planResult.data.workout_location || "gym"); setPlannedFor(""); setTime("18:00");
     setAutoNote(""); setPreview(nextPreview); showBuilder(); setSaving(false);
+    return null;
+  }
+
+  /** A plan card's menu action said what went wrong in that card (D6). */
+  function sayOnPlan(planId: string, message: string | null) {
+    if (message) setListNote({ at: "plan", planId, tone: "error", text: message });
   }
 
   async function loadMorePlans() {
     const supabase = createClient();
     if (!supabase || !userId || !planCursor || loadingMorePlans) return;
-    setLoadingMorePlans(true); setError("");
+    setLoadingMorePlans(true); setListNote((current) => (current?.at === "more" ? null : current));
     const page = await fetchPlanPage(supabase, userId, listDayKey, planCursor);
     setLoadingMorePlans(false);
-    if (page.error) return setError("More plans couldn’t be loaded. Check your connection and try again.");
+    // Said beside the button, at the bottom of the list (D6).
+    if (page.error) return setListNote({ at: "more", text: "More plans couldn’t be loaded. Check your connection and try again." });
     setPlans((current) => mergePlansById(current, page.rows));
     setPlanCursor(page.next);
   }
@@ -1033,12 +1066,16 @@ export default function WorkoutsPage() {
     if (!window.confirm(`Delete “${plan.title}” and its saved exercise order? Completed workout sessions will remain in your history.`)) return;
     const supabase = createClient();
     if (!supabase || !userId) return;
+    setListNote(null);
     // The planner item FITX scheduled for the plan's date goes with it, once the plan is gone (bug 48, Also seen; a
     // failed delete leaves both as they were). A To-Do item the member linked to the plan stays, unlinked.
     const outcome = await deletePlanAndItsItem(supabase, userId, plan);
-    if (outcome.status === "failed") return setError("That workout could not be deleted.");
+    if (outcome.status === "failed") return setListNote({ at: "plan", planId: plan.id, tone: "error", text: "That workout could not be deleted. Check your connection and try again." });
+    // Its card goes, and the menu that held focus with it: the next plan's Start takes focus (D5); the list's line says why.
+    const next = focusAfterPlanDelete(plans, plan.id);
     await load();
-    if (outcome.status === "deleted-item-left") setNotice(itemLeftMessage(plan.title));
+    setListNote({ at: "plans", tone: "info", text: outcome.status === "deleted-item-left" ? itemLeftMessage(plan.title) : `Deleted “${plan.title}”.` });
+    setPlanFocus((current) => ({ planId: next, seq: (current?.seq ?? 0) + 1 }));
   }
 
   async function savePlan(thenStart = false) {
@@ -1174,16 +1211,19 @@ export default function WorkoutsPage() {
       }
     }
     const savedTitle = title.trim();
+    // The builder closes: what happened next is said with the saved plan, in its card in Your plans, or on the
+    // programme card for a programme day (D6), not at the top of the page.
+    const sayOnSaved = (tone: "info" | "error", text: string) => (editingProgrammeDay ? setProgrammeNote({ tone, text }) : setListNote({ at: "plan", planId, tone, text }));
     setSaving(false);
     setCreatorOpen(false);
     if (thenStart) {
       const message = await startWorkout(planId, savedTitle);
-      if (message) { await load(); setError(message); }
+      if (message) { await load(); sayOnSaved("error", message); }
       return;
     }
     await load();
-    if (scheduleWarning) setError(scheduleWarning);
-    if (droppedTargets) setNotice("Workout saved. Weight and time targets aren’t available yet while FITX finishes an update, so those values weren’t stored. Everything else in the plan is saved.");
+    const saved = [scheduleWarning, droppedTargets ? "Workout saved. Weight and time targets aren’t available yet while FITX finishes an update, so those values weren’t stored. Everything else in the plan is saved." : ""].filter(Boolean).join(" ");
+    if (saved) sayOnSaved(scheduleWarning ? "error" : "info", saved);
   }
 
   /**
@@ -1327,6 +1367,8 @@ export default function WorkoutsPage() {
                       </span>
                     </Link>
                     <button type="button" disabled={saving} onClick={() => void repeatSession(session)} aria-label={`Repeat ${session.name}`} title="Repeat" className={styles.iconButton}><RotateCcw size={16} aria-hidden="true" /></button>
+                    {/* Why Repeat did not work, in this row beside the button (D6). */}
+                    {historyNote(listNote, session.id) && <p role="alert" className={styles.rowNote}>{historyNote(listNote, session.id)}</p>}
                   </li>
                 );
               })}
@@ -1353,9 +1395,15 @@ export default function WorkoutsPage() {
                   <p className="font-medium">This programme is no longer available</p>
                   <p className="text-sm text-fitx-text-secondary">Your workouts stay in your history.</p>
                   <button type="button" onClick={() => void leave()} disabled={programmeBusy} className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start text-sm">Leave programme</button>
+                  {/* Why Leave did not work, beside it (D6): ProgrammeCard shows the same note for a programme it can show. */}
+                  <ActionNote note={programmeNote} live className="mt-2" />
                 </section>
-            : <ProgrammeBrowser programmes={gymProgrammes} enrolAvailable={enrolAvailable && !programmeLoadFailed} busy={programmeBusy} onEnrol={enrol}
-                disabledNote={programmeLoadFailed ? "Following waits until your programme has loaded." : !enrolAvailable ? "Following a programme arrives with the next FITX update." : undefined} />}
+            : <>
+                {/* What leaving or finishing did, where the card was (D6). */}
+                <ActionNote note={programmeNote} live />
+                <ProgrammeBrowser programmes={gymProgrammes} enrolAvailable={enrolAvailable && !programmeLoadFailed} busy={programmeBusy} onEnrol={enrol}
+                  disabledNote={programmeLoadFailed ? "Following waits until your programme has loaded." : !enrolAvailable ? "Following a programme arrives with the next FITX update." : undefined} />
+              </>}
         </Section>
       </Reveal>
       )}
@@ -1365,39 +1413,48 @@ export default function WorkoutsPage() {
         <Section title="Your plans" id="plans">
           {/* Each plan once: its scheduled item joins its row (time, and today's Start keeps the planner item). */}
           <ScheduledWorkouts items={plansWithScheduled.rest} dayLabel={(day) => whenLabel(day, listDayKey || localDateKey())} onStart={startScheduled} starting={Boolean(starting)} />
+          {/* The list's own line (D6): a deleted plan, or a message for a plan that is not on the list. */}
+          <ActionNote note={plansLineNote(listNote, plans)} live />
           {plans.length ? (
             <div className={styles.planList}>
               {plans.map((plan) => {
                 const event = plansWithScheduled.byPlan.get(plan.id);
                 const time = event?.startsAt ? readableDate(new Date(event.startsAt), { hour: "numeric", minute: "2-digit" }) : null;
+                // What this card's Edit, Duplicate or Delete did, right under it (D6).
+                const cardNote = planCardNote(listNote, plan.id);
                 return (
-                <article key={plan.id} id={`workout-plan-${plan.id}`} className={styles.planRow}>
+                <Fragment key={plan.id}>
+                <article id={`workout-plan-${plan.id}`} className={styles.planRow}>
                   <div className="min-w-0 flex-1">
                     <h3 className={styles.itemTitle}>{plan.title}</h3>
                     <p className={styles.itemMeta}><CalendarDays size={13} aria-hidden="true" />{plan.planned_for ? whenLabel(plan.planned_for, todayKey) : "No date"}{time ? `, ${time}` : ""}<PlanStatusChip status={planCardStatus(plan.planned_for, todayKey, plan.last_done_key)} /></p>
                   </div>
-                  <button type="button" aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`}
+                  <button type="button" data-plan-start aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`}
                     onClick={() => (event?.startHref ? startScheduled(plan.id, event.id) : setPreviewPlanId(plan.id))}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
                   {/* One visible action per row (phase 7.4); editing, copying and deleting sit in its menu. */}
                   <ActionsMenu label={`More actions for ${plan.title}`} items={[
-                    { label: "Edit", name: `Edit ${plan.title}`, icon: Pencil, onSelect: () => void editPlan(plan.id), disabled: saving },
-                    { label: "Duplicate", name: `Duplicate ${plan.title}`, icon: Copy, onSelect: () => void duplicatePlan(plan), disabled: saving },
+                    { label: "Edit", name: `Edit ${plan.title}`, icon: Pencil, onSelect: () => void editPlan(plan.id).then((message) => sayOnPlan(plan.id, message)), disabled: saving },
+                    { label: "Duplicate", name: `Duplicate ${plan.title}`, icon: Copy, onSelect: () => void duplicatePlan(plan).then((message) => sayOnPlan(plan.id, message)), disabled: saving },
                     { label: "Delete", name: `Delete ${plan.title}`, icon: Trash2, onSelect: () => void deletePlan(plan), tone: "danger" },
                   ]} />
                 </article>
+                {cardNote && <ActionNote note={cardNote} />}
+                </Fragment>
                 );
               })}
               {(planCursor || (counts.plans !== null && counts.plans > plans.length)) && (
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <p className="text-xs text-fitx-text-secondary">{plans.length.toLocaleString()}{counts.plans !== null && counts.plans >= plans.length ? ` of ${counts.plans.toLocaleString()}` : ""} plans</p>
                   {planCursor && <button type="button" onClick={() => void loadMorePlans()} disabled={loadingMorePlans} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}
+                  {/* Why more plans did not load, beside the button at the bottom of the list (D6). */}
+                  {moreNote(listNote) && <p role="alert" className="m-0 basis-full text-sm text-fitx-danger">{moreNote(listNote)}</p>}
                 </div>
               )}
             </div>
           ) : (
             <div className={styles.quietEmpty}>
               <p className="font-medium">No saved plans</p>
-              <button type="button" className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start" onClick={() => openCreator("focus")}><Plus size={16} aria-hidden="true" />Build a workout</button>
+              <button type="button" id="plans-build-first" className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start" onClick={() => openCreator("focus")}><Plus size={16} aria-hidden="true" />Build a workout</button>
             </div>
           )}
         </Section>
@@ -1497,7 +1554,7 @@ export default function WorkoutsPage() {
       {infoExercise && <ExerciseInfoSheet exerciseId={infoExercise.id} name={infoExercise.name} owned={builderOwned} listName={builderContext} fullPageLink={false} onClose={() => setInfoExercise(null)} />}
       {previewPlanId && userId && <PlanPreviewSheet planId={previewPlanId} userId={userId} catalog={catalog} ownedFor={ownedFor} todayKey={listDayKey || localDateKey()} programme={previewProgramme}
         activeSession={activeSession ? { id: activeSession.id, name: activeSession.name } : null} starting={starting === previewPlanId} includeTargets={targetsSupported !== false}
-        onBegin={startWorkout} onEdit={(planId) => { setPreviewPlanId(null); void editPlan(planId); }} onClose={() => setPreviewPlanId(null)} />}
+        onBegin={startWorkout} onEdit={(planId) => editPlan(planId, () => setPreviewPlanId(null))} onClose={() => setPreviewPlanId(null)} />}
       {setupOpen && setup && <Sheet title="Workout setup" size="lg" onClose={() => setSetupOpen(false)}>
         <WorkoutSetupFlow setup={{ ...setup, profiles }} userId={userId} legacyWords={preferences.equipment} variant="sheet" onSaved={setupSaved} />
       </Sheet>}
