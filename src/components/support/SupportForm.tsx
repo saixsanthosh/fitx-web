@@ -20,6 +20,8 @@ export function SupportForm({ fromPath, categories = SUPPORT_CATEGORIES }: { fro
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Send message stays focusable while sending (aria-disabled), so focus is kept and a second press does nothing.
+    if (pending) return;
     const form = event.currentTarget;
     const data = new FormData(form);
     const payload = { category: data.get("category"), subject: data.get("subject"), body: data.get("body"), pagePath: fromPath ?? null };
@@ -68,7 +70,7 @@ export function SupportForm({ fromPath, categories = SUPPORT_CATEGORIES }: { fro
         <textarea name="body" required minLength={SUPPORT_LIMITS.bodyMin} maxLength={SUPPORT_LIMITS.bodyMax} rows={6} className="fitx-field mt-1.5 min-h-32 py-3" placeholder="What happened, and what did you expect? Leave out passwords." />
       </label>
       {status && <p role={status.tone === "danger" ? "alert" : "status"} className={`fitx-alert ${status.tone === "danger" ? "fitx-alert-danger" : "fitx-alert-success"}`}>{status.text}</p>}
-      <button type="submit" disabled={pending} className="fitx-button min-h-11 w-full px-5 sm:w-auto">
+      <button type="submit" aria-disabled={pending || undefined} className="fitx-button min-h-11 w-full px-5 aria-disabled:cursor-wait aria-disabled:opacity-60 sm:w-auto">
         {pending ? <LoaderCircle aria-hidden="true" size={17} className="animate-spin" /> : <Send aria-hidden="true" size={17} />}
         <span>{pending ? "Sending…" : "Send message"}</span>
       </button>

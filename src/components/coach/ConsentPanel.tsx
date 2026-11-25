@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Dumbbell, LockKeyhole, MessageCircle, ShieldCheck, Utensils } from "lucide-react";
 import type { ProviderNotice } from "@/lib/ai/status";
@@ -18,6 +18,7 @@ export function ConsentPanel({
   minor,
   ageMissing,
   memberDataAvailable,
+  focusKey = 0,
   onDone,
 }: {
   providers: ProviderNotice[];
@@ -26,6 +27,11 @@ export function ConsentPanel({
   /** No age in the profile: "Use my FITX data" waits for one (the server refuses it too). */
   ageMissing: boolean;
   memberDataAvailable: boolean;
+  /**
+   * A new key moves focus to the heading: the screen replaced the coach (after "Delete my coach data", or when a reply
+   * found the consent gone), so focus starts there, not on the page body. 0 (on load) leaves focus alone.
+   */
+  focusKey?: number;
   onDone: (shareData: boolean) => void;
 }) {
   // null until the member chooses; under-18 accounts never share.
@@ -33,9 +39,15 @@ export function ConsentPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const chosen = minor || shareData !== null;
+  const heading = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (focusKey) heading.current?.focus();
+  }, [focusKey]);
 
   async function start() {
-    if (!chosen) return;
+    // Start coaching stays focusable while saving (aria-disabled), so a refusal's message is read with focus kept.
+    if (!chosen || saving) return;
     setSaving(true);
     setError("");
     try {
@@ -52,7 +64,7 @@ export function ConsentPanel({
       <div className="fitx-panel overflow-hidden">
         <div className="border-b border-fitx-divider px-5 py-6 sm:px-8 sm:py-8">
           <p className="text-xs font-semibold uppercase tracking-[.14em] text-fitx-primary-text">FITX Coach</p>
-          <h2 id="coach-consent-title" className="mt-2 text-[24px] font-bold leading-tight tracking-[-.03em] text-fitx-text sm:text-[28px]">Coaching built on your own numbers</h2>
+          <h2 ref={heading} tabIndex={-1} id="coach-consent-title" className="mt-2 text-[24px] font-bold leading-tight tracking-[-.03em] text-fitx-text sm:text-[28px]">Coaching built on your own numbers</h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-fitx-text-secondary">
             Free AI services answer. FITX checks every food against its nutrition data and every exercise against its library.
           </p>
@@ -144,7 +156,7 @@ export function ConsentPanel({
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
             {!chosen && <p id="coach-consent-choose" className="text-sm text-fitx-text-secondary sm:mr-auto">Choose how the coach should work to start.</p>}
             <Link href="/dashboard" className="fitx-button fitx-button-quiet">Not now</Link>
-            <button type="button" onClick={start} disabled={saving || !chosen} aria-describedby={chosen ? undefined : "coach-consent-choose"} className="fitx-button">
+            <button type="button" onClick={start} disabled={!chosen} aria-disabled={saving || undefined} aria-describedby={chosen ? undefined : "coach-consent-choose"} className="fitx-button aria-disabled:opacity-60">
               {saving ? "Starting…" : "Start coaching"}
             </button>
           </div>

@@ -7,7 +7,7 @@
 }
 .round:hover { background: var(--fitx-hover); color: var(--fitx-text); }
 .round:active { transform: scale(.94); }
-.round:disabled { opacity: .4; }
+.round:disabled, .round[aria-disabled="true"] { opacity: .4; }
 .round:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .roundOn { border-color: var(--fitx-primary); color: var(--fitx-primary-text); }
 .mic { -webkit-touch-callout: none; }

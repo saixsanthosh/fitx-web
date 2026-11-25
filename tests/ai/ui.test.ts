@@ -10,7 +10,8 @@ describe("coach page components", () => {
   test("the consent screen starts with no choice made, and Start waits for one", () => {
     const panel = source("ConsentPanel.tsx");
     assert.match(panel, /useState<boolean \| null>\(minor \? false : null\)/, "adults start with nothing chosen; under-18s never share");
-    assert.match(panel, /disabled=\{saving \|\| !chosen\}/);
+    // Disabled until a choice is made; while saving it stays focusable (aria-disabled), so focus isn't dropped (bug 86).
+    assert.match(panel, /disabled=\{!chosen\} aria-disabled=\{saving \|\| undefined\}/);
     assert.doesNotMatch(panel, /\(recommended\)/);
     assert.match(panel, /saveConsent\(shareData === true && !minor\)/);
     assert.doesNotMatch(panel, /Fit your diet, allergies and budget/, "FITX checks names, so plans don't promise more");

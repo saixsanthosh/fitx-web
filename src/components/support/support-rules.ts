@@ -31,6 +31,12 @@ export function helpCategories(complaintsAccepted: boolean): readonly SupportCat
 
 export const SUPPORT_LIMITS = { subjectMin: 3, subjectMax: 120, bodyMin: 10, bodyMax: 4000, replyMax: 4000 } as const;
 
+/**
+ * How many messages the database takes from one account (fitx_submit_support_request: 3 requests an hour and 10 a day;
+ * fitx_reply_support_request: 10 replies an hour), on top of the routes' own burst limit (ROUTE_LIMITS.support).
+ */
+export const SUPPORT_RATE = { requestsPerHour: 3, requestsPerDay: 10, repliesPerHour: 10 } as const;
+
 /** Largest JSON body the support routes read, in bytes. */
 export const SUPPORT_MAX_BODY_BYTES = 20_000;
 
@@ -72,13 +78,19 @@ export function validateSupportRequest(input: unknown): { ok: true; value: Suppo
   return { ok: true, value: { category, subject, body, pagePath: safePagePath(record.pagePath) } };
 }
 
+/** Why a reply can't be sent as typed (only spaces, nothing, or too long), in the server's own words; null when it can. */
+export function replyTextProblem(value: unknown): string | null {
+  const body = text(value);
+  return !body || characterCount(body) > SUPPORT_LIMITS.replyMax ? `Write 1 to ${SUPPORT_LIMITS.replyMax.toLocaleString("en-IN")} characters.` : null;
+}
+
 export function validateSupportReply(input: unknown): { ok: true; value: { requestId: string; body: string } } | { ok: false; error: string } {
   const record = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const requestId = typeof record.requestId === "string" && UUID.test(record.requestId) ? record.requestId.toLowerCase() : null;
-  const body = text(record.body);
   if (!requestId) return { ok: false, error: "That conversation could not be found." };
-  if (!body || characterCount(body) > SUPPORT_LIMITS.replyMax) return { ok: false, error: `Write 1 to ${SUPPORT_LIMITS.replyMax.toLocaleString("en-IN")} characters.` };
-  return { ok: true, value: { requestId, body } };
+  const problem = replyTextProblem(record.body);
+  if (problem) return { ok: false, error: problem };
+  return { ok: true, value: { requestId, body: text(record.body) } };
 }
 
 /** One message in a Help thread, as the Help page shows it. */
@@ -108,9 +120,66 @@ export function withSentReplies(thread: { status: string; messages: SupportMessa
   };
 }
 
+export type SupportSendKind = "request" | "reply";
+/** Which limit stopped a message: the routes' burst limit, or the database's hourly or daily one. */
+export type SupportLimitWindow = "burst" | "hour" | "day";
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
+
+/**
+ * Which limit holds and when the next message can go, from the times the person's own recent messages were sent
+ * (requests, or replies), counted as the database counts them: a request waits while 3 were sent in the last hour or
+ * 10 in the last day, a reply while 10 were sent in the last hour. `reported` is the limit the database named; it is
+ * kept, with no time, when the times don't show a limit (they could not be read, or the clocks differ).
+ */
+export function supportWait(kind: SupportSendKind, times: readonly string[], now: number, reported: "hour" | "day" = "hour"): { window: "hour" | "day"; at: number | null } {
+  const newest = times.map((value) => Date.parse(value)).filter(Number.isFinite).sort((a, b) => b - a);
+  const freeAt = (windowMs: number, limit: number) => {
+    const inWindow = newest.filter((at) => at > now - windowMs);
+    return inWindow.length >= limit ? inWindow[limit - 1] + windowMs : null;
+  };
+  if (kind === "reply") return { window: "hour", at: freeAt(HOUR_MS, SUPPORT_RATE.repliesPerHour) };
+  const hour = freeAt(HOUR_MS, SUPPORT_RATE.requestsPerHour);
+  const day = freeAt(DAY_MS, SUPPORT_RATE.requestsPerDay);
+  if (day !== null && (hour === null || day >= hour)) return { window: "day", at: day };
+  if (hour !== null) return { window: "hour", at: hour };
+  return { window: reported, at: null };
+}
+
+/**
+ * "at 2:32 pm IST", or "on 27 Nov at 9:15 am IST" on another day: India Standard Time, as the Help page shows times.
+ * `at` is rounded up to the next whole minute (for the day too), because the time shown has no seconds: 2:12:03 is
+ * shown as 2:13, never as 2:12, when a message sent at 2:12 would still be refused.
+ */
+export function supportTimeText(at: number, now: number): string {
+  const shown = Math.ceil(at / 60_000) * 60_000;
+  const time = new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(shown);
+  const day = (value: number) => new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" }).format(value);
+  return day(shown) === day(now) ? `at ${time} IST` : `on ${day(shown)} at ${time} IST`;
+}
+
+/** What the Help page says when a limit stops a message: the real limit and when the next one can go. */
+export function supportLimitMessage(kind: SupportSendKind, window: SupportLimitWindow, at: number | null, now: number): string {
+  if (window === "burst") {
+    const seconds = at === null ? null : Math.max(1, Math.ceil((at - now) / 1000));
+    return `You've sent several messages in the last minute. ${seconds === null ? "Your next one can go in a minute." : `Your next one can go in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`}`;
+  }
+  const rule = kind === "reply"
+    ? `You can send up to ${SUPPORT_RATE.repliesPerHour} replies an hour.`
+    : window === "day" ? `You can send up to ${SUPPORT_RATE.requestsPerDay} messages a day.` : `You can send up to ${SUPPORT_RATE.requestsPerHour} messages an hour.`;
+  const when = at !== null ? `Your next one can go ${supportTimeText(at, now)}.` : `Your next one can go within ${window === "day" ? "a day" : "an hour"}.`;
+  return `${rule} ${when}`;
+}
+
+/** The body of a support route's 429: which limit, when the next message can go (ISO, or null), and the words to show. */
+export function supportLimitBody(kind: SupportSendKind, window: SupportLimitWindow, at: number | null, now: number) {
+  return { error: "rate_limited", window, retryAt: at === null ? null : new Date(at).toISOString(), message: supportLimitMessage(kind, window, at, now) };
+}
+
 /** Error codes the support routes return, in the words the Help page shows. */
 export const SUPPORT_ERROR_MESSAGES: Record<string, string> = {
-  rate_limited: "You have sent several messages recently. Please wait a little before sending another.",
+  rate_limited: `You've reached the limit for messages to the FITX team: up to ${SUPPORT_RATE.requestsPerHour} messages an hour and ${SUPPORT_RATE.requestsPerDay} a day, and ${SUPPORT_RATE.repliesPerHour} replies an hour. Please try again later.`,
   invalid: "Check the length of what you wrote and try again.",
   unavailable: "Help requests are not switched on yet.",
   feature_unavailable: "Messages are paused for now. Please try again later.",

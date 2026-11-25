@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
 import { Mic, Volume2, VolumeX } from "lucide-react";
 import { VOICE_PRIVACY } from "@/lib/ai/disclosure";
 import { cn } from "@/lib/utils";
@@ -145,6 +146,8 @@ export function VoiceButton({
   const [listening, setListening] = useState(false);
   const [explain, setExplain] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const mic = useRef<HTMLButtonElement>(null);
+  const explainTitle = useRef<HTMLHeadingElement>(null);
   const recognition = useRef<Recognition | null>(null);
   const finals = useRef<string[]>([]);
   const heard = useRef("");
@@ -201,10 +204,33 @@ export function VoiceButton({
     recognition.current?.stop();
   }, []);
 
-  const press = () => {
+  /**
+   * The explainer is a small non-modal dialog (BRIEF-3 D5). Opened from the keyboard, focus moves to its title, so it is
+   * announced (the title, not a button: the Space that opened it is let go there and must not press "Turn on voice").
+   * Its buttons, Escape, and the problem note's OK remove the control in use: focus goes back to the microphone first,
+   * so it never falls to the page.
+   */
+  const openExplain = (fromKeyboard: boolean) => {
+    if (!fromKeyboard) {
+      setExplain(true);
+      return;
+    }
+    flushSync(() => setExplain(true));
+    explainTitle.current?.focus();
+  };
+  const closeExplain = () => {
+    mic.current?.focus();
+    setExplain(false);
+  };
+  const clearProblem = () => {
+    mic.current?.focus();
+    setProblem(null);
+  };
+
+  const press = (fromKeyboard = false) => {
     if (disabled) return;
     if (read(VOICE_OK_KEY) !== "yes") {
-      setExplain(true);
+      openExplain(fromKeyboard);
       return;
     }
     if (recognition.current) {
@@ -229,8 +255,10 @@ export function VoiceButton({
   return (
     <div className={styles.voice}>
       <button
+        ref={mic}
         type="button"
-        disabled={disabled}
+        // aria-disabled while an answer is coming: the button sent the words and keeps keyboard focus (press() checks).
+        aria-disabled={disabled || undefined}
         aria-pressed={listening}
         aria-label={listening ? "Stop talking" : "Hold to talk"}
         title="Hold to talk, or tap to start and tap again to stop"
@@ -244,7 +272,7 @@ export function VoiceButton({
         onKeyDown={(event) => {
           if ((event.key === " " || event.key === "Enter") && !event.repeat) {
             event.preventDefault();
-            press();
+            press(true);
           }
         }}
         onKeyUp={(event) => {
@@ -263,21 +291,32 @@ export function VoiceButton({
       {problem && (
         <p role="status" className={styles.problem}>
           {problem}
-          <button type="button" onClick={() => setProblem(null)} className={styles.link}>OK</button>
+          <button type="button" onClick={clearProblem} className={styles.link}>OK</button>
         </p>
       )}
       {explain && (
-        <div role="dialog" aria-modal="false" aria-labelledby="coach-voice-title" className={styles.explain}>
-          <h3 id="coach-voice-title" className={styles.explainTitle}>Talk to your coach</h3>
-          <p className={styles.explainText}>{VOICE_PRIVACY}</p>
+        <div
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby="coach-voice-title"
+          aria-describedby="coach-voice-text"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            closeExplain();
+          }}
+          className={styles.explain}
+        >
+          <h3 ref={explainTitle} tabIndex={-1} id="coach-voice-title" className={styles.explainTitle}>Talk to your coach</h3>
+          <p id="coach-voice-text" className={styles.explainText}>{VOICE_PRIVACY}</p>
           <div className={styles.explainActions}>
             <button type="button" className="fitx-button" onClick={() => {
               write(VOICE_OK_KEY, "yes");
-              setExplain(false);
+              closeExplain();
             }}>
               Turn on voice
             </button>
-            <button type="button" className={styles.link} onClick={() => setExplain(false)}>Not now</button>
+            <button type="button" className={styles.link} onClick={closeExplain}>Not now</button>
           </div>
         </div>
       )}

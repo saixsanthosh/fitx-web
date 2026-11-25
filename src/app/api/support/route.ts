@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { validateSupportRequest } from "@/components/support/support-rules";
+import { supportLimitBody, validateSupportRequest } from "@/components/support/support-rules";
 import { isSameOriginRequest } from "@/lib/auth/same-origin";
 import { takeRouteLimit } from "@/lib/security/rate-limit";
 import { rateLimitedResponse } from "@/lib/security/responses";
 import { isMissingFunctionError } from "@/lib/supabase/errors";
 import { createClient } from "@/lib/supabase/server";
+import { supportLimitResponse } from "./limit";
 import { readSupportJson } from "./read-json";
 
 const noStore = { "Cache-Control": "private, no-store" };
@@ -22,7 +23,10 @@ export async function POST(request: NextRequest) {
 
   // Bursts stop here; the hourly and daily limits are the database function's.
   const limit = takeRouteLimit("support", user.id);
-  if (!limit.allowed) return rateLimitedResponse(limit.retryAfterSeconds);
+  if (!limit.allowed) {
+    const now = Date.now();
+    return rateLimitedResponse(limit.retryAfterSeconds, supportLimitBody("request", "burst", now + limit.retryAfterSeconds * 1000, now));
+  }
   const body = await readSupportJson(request);
   if (body.tooLarge) return NextResponse.json({ error: "payload_too_large" }, { status: 413, headers: noStore });
   const checked = validateSupportRequest(body.value);
@@ -36,7 +40,8 @@ export async function POST(request: NextRequest) {
   });
   if (error) {
     if (isMissingFunctionError(error)) return NextResponse.json({ error: "unavailable" }, { status: 503, headers: noStore });
-    if (error.code === "PT429") return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: noStore });
+    // The database's hourly or daily limit: say which, and when the next one can go.
+    if (error.code === "PT429") return supportLimitResponse(supabase, "request", error.details);
     // A table check (length or category) refused the values the checks above let through.
     if (error.code === "23514") return NextResponse.json({ error: "invalid" }, { status: 400, headers: noStore });
     console.warn("FITX support request failed", error.code);

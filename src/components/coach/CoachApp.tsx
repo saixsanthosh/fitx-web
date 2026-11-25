@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { Dumbbell, Footprints, History, Loader2, MessageCircle, MessageSquarePlus, Settings2, Target, UserRound, Utensils, X } from "lucide-react";
 import { useHydrated } from "@/components/ui/use-hydrated";
-import { capabilityStarters } from "@/lib/ai/capabilities";
+import { capabilityStarters, generalPrompts } from "@/lib/ai/capabilities";
 import type { QuickPrompt } from "@/lib/ai/quick-prompts";
 import type { CoachState, CoachStatus } from "@/lib/ai/status";
 import { cn } from "@/lib/utils";
@@ -13,10 +14,12 @@ import { CoachRequestError, applyAction, deleteThread, fetchStatus, fetchThread,
 import { CoachSettings } from "./CoachSettings";
 import { CoachUnavailable } from "./CoachUnavailable";
 import { Composer, type ComposerMode } from "./Composer";
+import { modeFor } from "./composer-rules";
 import { ReadAloudToggle, VoiceButton, useReadAloud } from "./CoachVoice";
 import { ConsentPanel } from "./ConsentPanel";
 import { ConsentRenewal } from "./ConsentRenewal";
 import { ConversationList } from "./ConversationList";
+import { UNAVAILABLE_STATES as UNAVAILABLE, announcementText, focusAfterDelete, settingsReachable, statusAfterDelete } from "./focus-rules";
 import { formatResetTime } from "./format";
 import type { PlanActions } from "./MealPlanCard";
 import { MessageView } from "./MessageView";
@@ -25,8 +28,6 @@ import styles from "./Coach.module.css";
 
 type Pending = { task: ComposerMode; status: string | null; text: string };
 type Problem = { message: string; retryAt?: string };
-
-const UNAVAILABLE = new Set<CoachState>(["paused", "not_configured", "not_available"]);
 
 /**
  * variant "page": the AI Coach page (conversation rail on wide screens, the window scrolls).
@@ -52,7 +53,13 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   const [loadingThread, setLoadingThread] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [announcement, setAnnouncement] = useState("");
+  // The page's one polite live region, kept in place across the coach, consent and paused views (see the return).
+  const [announcement, setAnnouncement] = useState({ text: "", count: 0 });
+  const announce = useCallback((text: string) => setAnnouncement((old) => ({ text, count: old.count + 1 })), []);
+  // A screen that replaces the coach (the consent screen, or the paused one) takes focus on its heading, and so does the
+  // paused screen when its Coach settings button goes: each request is a new key (ConsentPanel, CoachUnavailable).
+  const [headingFocus, setHeadingFocus] = useState(0);
+  const focusHeading = useCallback(() => setHeadingFocus((key) => key + 1), []);
   const [focusKey, setFocusKey] = useState(0);
   const stopper = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -75,6 +82,16 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     if (nearBottom) end.current?.scrollIntoView({ block: "end" });
   }, [inPanel]);
   useEffect(scrollToEnd, [messages, pending, scrollToEnd]);
+
+  // The composer's height, so what scrolls into view at the end of the conversation (a reply, an error) is never
+  // left behind it (Coach.module.css .end). It changes with the mode (the meal plan's budget field) and the text.
+  const measureDock = useCallback((dock: HTMLDivElement | null) => {
+    const chat = dock?.parentElement;
+    if (!dock || !chat || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => chat.style.setProperty("--coach-dock-height", `${Math.ceil(dock.getBoundingClientRect().height)}px`));
+    observer.observe(dock);
+    return () => observer.disconnect();
+  }, []);
 
   // A prompt from another page fills the box once per key; the member still presses Send.
   const promptKey = openWith?.key;
@@ -102,6 +119,26 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     }
   }, []);
 
+  /**
+   * The 30 days after FITX's eating-disorder note (status.careMode): no meal plans or swaps and no food prompts. The
+   * server says whether they started (a swap note can start them too); the suggestions written from the member's
+   * data leave out food from then on (quick-prompts.ts).
+   */
+  const refreshCareMode = useCallback(() => {
+    void fetchStatus()
+      .then((fresh) => {
+        setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts, careMode: fresh.careMode }));
+        if (fresh.careMode) setMode((old) => (old === "meal_plan" ? "chat" : old));
+      })
+      .catch(() => {});
+  }, []);
+
+  function startCarePeriod() {
+    setStatus((old) => ({ ...old, careMode: true }));
+    setMode((old) => (old === "meal_plan" ? "chat" : old));
+    refreshCareMode();
+  }
+
   function updateQuota(quota: CoachQuota | null) {
     if (quota) setQuotas((old) => [...old.filter((item) => item.kind !== quota.kind), quota]);
   }
@@ -113,22 +150,26 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     }
     const failure = error instanceof CoachRequestError ? error : new CoachRequestError("failed", "Something went wrong. Please try again.");
     if (failure.code === "consent_required") {
+      focusHeading();
       setStatus((old) => ({ ...old, state: "consent" }));
       // The reason may be a profile change (now under 18), so the consent screen takes its details afresh.
       void fetchStatus().then(setStatus).catch(() => {});
       return;
     }
     if (failure.code === "paused" || failure.code === "not_configured" || failure.code === "not_available") {
+      // The paused screen replaces the coach and the control in use: focus goes to its heading.
+      focusHeading();
       setStatus((old) => ({ ...old, state: failure.code as CoachState }));
       return;
     }
-    setDraft(text);
+    // A failed send puts its words back in the message box; a failed open or delete leaves what was typed there.
+    if (text) setDraft(text);
     const when = formatResetTime(failure.retryAt);
     const message =
       failure.code === "quota"
         ? `${failure.message}${when ? ` The next one is back at ${when}.` : ""}`
         : failure.code === "at_capacity"
-          ? `${failure.message} Nothing was used from your limit.${when ? ` Try again after ${when}.` : " Try again in a few minutes."}`
+          ? `${failure.message} Nothing was used from your limit.${when ? ` Try again after ${when}.` : " Please try again."}`
           : failure.message;
     setProblem({ message, retryAt: failure.retryAt });
   }
@@ -164,6 +205,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       else if (event.type === "message") {
         setMessages((old) => [...old, event.message]);
         recordActions(event.actions);
+        // FITX's eating-disorder note starts the 30 days without meal plans: the page stops offering them at once.
+        if (event.message.role === "safety" && event.message.data?.safety === "eating_disorder") startCarePeriod();
         // Read aloud (when the member turned it on): chat replies and safety notes; plans are cards to read.
         if (event.message.role !== "user" && event.message.task === "chat") speakReply(event.message.content);
         // A plan is long: show its start, not its end, once it is on the page.
@@ -229,13 +272,23 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     setHistoryOpen(false);
   }
 
-  async function removeThread(thread: CoachThreadSummary) {
+  /**
+   * `list`: the conversation list the Delete button was pressed in (the rail, or the history drawer). The deleted row
+   * goes, so focus moves to the conversation that takes its place, or to "New conversation" (focusAfterDelete).
+   */
+  async function removeThread(thread: CoachThreadSummary, list: HTMLElement | null) {
     if (!window.confirm(`Delete “${thread.title}”? This can't be undone. Foods and workouts you added stay.`)) return;
     try {
       await deleteThread(thread.id);
-      setThreads((old) => old.filter((item) => item.id !== thread.id));
-      if (thread.id === threadId) newConversation();
-      setAnnouncement("Conversation deleted.");
+      const target = focusAfterDelete(threads.map((item) => item.id), thread.id);
+      // Committed at once, so the row is gone and its replacement is there to focus.
+      flushSync(() => {
+        setThreads((old) => old.filter((item) => item.id !== thread.id));
+        if (thread.id === threadId) newConversation();
+      });
+      const next = target.kind === "thread" ? list?.querySelector<HTMLElement>(`[data-coach-thread="${target.id}"]`) : list?.querySelector<HTMLElement>("[data-coach-new]");
+      next?.focus();
+      announce(`Deleted “${thread.title}”.`);
     } catch (error) {
       handleFailure(error, "");
     }
@@ -249,11 +302,11 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
         applyAction(id)
           .then((result) => {
             setActionStates((old) => ({ ...old, [id]: "applied" }));
-            setAnnouncement(result.kind === "workout_plan" ? "Saved as a workout draft in Workouts." : "Saved to My foods in Nutrition. Nothing was logged as eaten.");
+            announce(result.kind === "workout_plan" ? "Saved as a workout draft in Workouts." : "Saved to My foods in Nutrition. Nothing was logged as eaten.");
           })
           .catch((error) => {
             setActionStates((old) => ({ ...old, [id]: "error" }));
-            setAnnouncement(error instanceof CoachRequestError ? error.message : "Couldn't add it. Please try again.");
+            announce(error instanceof CoachRequestError ? error.message : "Couldn't add it. Please try again.");
           });
       },
       swapsFor: (id) => (id ? swaps[id] ?? [] : []),
@@ -262,18 +315,21 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
           const result = await requestSwap(id, note);
           recordActions([result.action]);
           updateQuota(result.quota);
+          announce(`Swap found: ${result.swap.item.name}, shown below the food it replaces.`);
           return null;
         } catch (error) {
           if (error instanceof CoachRequestError) {
+            // A swap note can bring FITX's eating-disorder note (coach.ts requestSwap), which starts the 30 days.
+            if (error.code === "refused") refreshCareMode();
             const when = formatResetTime(error.retryAt);
             return error.code === "at_capacity" ? `${error.message}${when ? ` Try again after ${when}.` : ""}` : error.message;
           }
           return "Couldn't find a swap. Please try again.";
         }
       },
-      canSwap: plansAllowed,
+      canSwap: plansAllowed && !status.careMode,
     }),
-    [actionStates, swaps, plansAllowed, recordActions],
+    [actionStates, swaps, plansAllowed, status.careMode, recordActions, refreshCareMode, announce],
   );
 
   const settings = (
@@ -291,7 +347,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
         if (!share) { setMode("chat"); newConversation(); }
         // Prompts written from the member's data appear once sharing is on (and go once it is off).
         void fetchStatus().then((fresh) => setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts }))).catch(() => {});
-        setAnnouncement(share
+        announce(share
           ? "The coach can now use your FITX data."
           : "Questions only: the coach no longer gets your logs or profile, only your questions and what its safety rules need, such as the lowest daily calories it may suggest. Your next message starts a new conversation.");
       }}
@@ -300,7 +356,12 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
         newConversation();
         setThreads([]);
         setShareData(false);
-        setAnnouncement("Your coach data was deleted.");
+        // On the paused screen, Coach settings goes now (statusAfterDelete); otherwise the consent screen replaces the
+        // coach once the fresh status arrives. Either way focus goes to that screen's heading, and the live region (kept
+        // in place) says why.
+        setStatus(statusAfterDelete);
+        focusHeading();
+        announce("Your coach data was deleted.");
         void fetchStatus()
           .then((fresh) => {
             setStatus(fresh);
@@ -312,35 +373,51 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     />
   );
 
+  // One polite live region, at the same place in every view, so an announcement made as the view changes (the
+  // consent screen replacing the coach) is still read, and the same words twice are read twice (announcementText).
+  const live = <p className="sr-only" aria-live="polite">{announcementText(announcement.text, announcement.count)}</p>;
+
   if (UNAVAILABLE.has(status.state)) {
     // Paused or not set up: a member who used the coach can still change sharing or delete their coach data.
-    const hasCoachData = status.state !== "not_available" && (status.consent !== null || threads.length > 0);
+    const hasCoachData = settingsReachable(status, threads.length);
     return (
       <>
-        <CoachUnavailable state={status.state as "paused" | "not_configured" | "not_available"} onSettings={hasCoachData ? () => setSettingsOpen(true) : undefined} />
-        {hasCoachData && settings}
-        <p className="sr-only" aria-live="polite">{announcement}</p>
+        <>
+          <CoachUnavailable
+            state={status.state as "paused" | "not_configured" | "not_available"}
+            onSettings={hasCoachData ? () => setSettingsOpen(true) : undefined}
+            focusKey={headingFocus}
+          />
+          {hasCoachData && settings}
+        </>
+        {live}
       </>
     );
   }
   if (status.state === "consent") {
     return (
-      <ConsentPanel
-        providers={status.providers}
-        sharedSummary={status.sharedSummary}
-        minor={status.minor}
-        ageMissing={status.ageMissing}
-        memberDataAvailable={status.memberDataAvailable}
-        onDone={(share) => {
-          setShareData(share);
-          setStatus((old) => ({ ...old, state: "ready", consent: { shareData: share, consentedAt: new Date().toISOString() } }));
-          void fetchStatus().then((fresh) => {
-            setQuotas(fresh.quotas);
-            setThreads(fresh.threads);
-            setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts }));
-          }).catch(() => {});
-        }}
-      />
+      <>
+        <ConsentPanel
+          providers={status.providers}
+          sharedSummary={status.sharedSummary}
+          minor={status.minor}
+          ageMissing={status.ageMissing}
+          memberDataAvailable={status.memberDataAvailable}
+          focusKey={headingFocus}
+          onDone={(share) => {
+            setShareData(share);
+            // The coach replaces the consent screen: focus goes to the message box (Composer's focusKey).
+            setFocusKey((key) => key + 1);
+            setStatus((old) => ({ ...old, state: "ready", consent: { shareData: share, consentedAt: new Date().toISOString() } }));
+            void fetchStatus().then((fresh) => {
+              setQuotas(fresh.quotas);
+              setThreads(fresh.threads);
+              setStatus((old) => ({ ...old, quickPrompts: fresh.quickPrompts, careMode: fresh.careMode }));
+            }).catch(() => {});
+          }}
+        />
+        {live}
+      </>
     );
   }
 
@@ -351,184 +428,177 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   // Prompts written from the member's own data when they share it; general ones otherwise.
   const prompts: StarterPrompt[] = plansAllowed && status.quickPrompts.length
     ? status.quickPrompts
-    : (status.minor ? MINOR_PROMPTS : GENERAL_PROMPTS).map(([source, context, text], index) => ({ id: `general-${index}`, source, context, text, mode: "chat" as const }));
+    : generalPrompts({ minor: status.minor, careMode: status.careMode }).map(({ source, context, text }, index) => ({ id: `general-${index}`, source, context, text, mode: "chat" as const }));
 
   function choosePrompt(prompt: StarterPrompt) {
-    setMode(prompt.mode !== "chat" && plansAllowed ? prompt.mode : "chat");
+    setMode(modeFor(prompt.mode, { plansAllowed, mealPlansPaused: status.careMode }));
     setDraft(prompt.text);
     setFocusKey((key) => key + 1);
   }
 
   const list = (
-    <ConversationList threads={threads} activeId={threadId} onOpen={(id) => void openThread(id)} onNew={newConversation} onDelete={(thread) => void removeThread(thread)} busy={busy} />
+    <ConversationList threads={threads} activeId={threadId} onOpen={(id) => void openThread(id)} onNew={newConversation} onDelete={(thread, list) => void removeThread(thread, list)} busy={busy} />
   );
 
   return (
-    <div className={cn(styles.layout, inPanel && styles.panelLayout)}>
-      {!inPanel && <aside className={styles.rail} aria-label="Conversations and limits">
-        <div className={styles.railInner}>
-          <div className={styles.railList}>{list}</div>
-          {(chatQuota || planQuota) && (
-            <div className={styles.limits}>
-              <h2 className={styles.limitsTitle}>Last 24 hours</h2>
-              {chatQuota && <QuotaLine label="Messages" quota={chatQuota} />}
-              {planQuota && <QuotaLine label="Plans" quota={planQuota} />}
-            </div>
-          )}
-        </div>
-      </aside>}
-
-      <div className={styles.chat}>
-        <div className={styles.bar}>
-          <p className={styles.mode}>
-            <span aria-hidden="true" className={cn(styles.dot, plansAllowed && styles.dotOn)} />
-            {plansAllowed ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
-          </p>
-          <div className={styles.tools}>
-            <ReadAloudToggle readAloud={readAloud} />
-            <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
-              <History size={17} aria-hidden="true" /><span className="sr-only sm:not-sr-only">History</span>
-            </button>
-            <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className={cn("grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
-              <MessageSquarePlus size={18} aria-hidden="true" />
-            </button>
-            <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Coach settings" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
-              <Settings2 size={18} aria-hidden="true" />
-            </button>
+    <>
+      <div className={cn(styles.layout, inPanel && styles.panelLayout)}>
+        {!inPanel && <aside className={styles.rail} aria-label="Conversations and limits">
+          <div className={styles.railInner}>
+            <div className={styles.railList}>{list}</div>
+            {(chatQuota || planQuota) && (
+              <div className={styles.limits}>
+                <h2 className={styles.limitsTitle}>Last 24 hours</h2>
+                {chatQuota && <QuotaLine label="Messages" quota={chatQuota} />}
+                {planQuota && <QuotaLine label="Plans" quota={planQuota} />}
+              </div>
+            )}
           </div>
-        </div>
+        </aside>}
 
-        {status.renewal && (
-          <ConsentRenewal
-            renewal={status.renewal}
-            onAgreed={() => {
-              setStatus((old) => ({ ...old, renewal: null }));
-              setAnnouncement("Agreed to the updated terms.");
-              // The services' notices and the prompts written from the member's data follow the new consent.
-              void fetchStatus().then((fresh) => setStatus((old) => ({ ...old, providers: fresh.providers, memberDataAvailable: fresh.memberDataAvailable, quickPrompts: fresh.quickPrompts, renewal: fresh.renewal }))).catch(() => {});
-            }}
-          />
-        )}
+        <div className={styles.chat}>
+          <div className={styles.bar}>
+            <p className={styles.mode}>
+              <span aria-hidden="true" className={cn(styles.dot, plansAllowed && styles.dotOn)} />
+              {plansAllowed ? "Using your FITX data" : status.minor ? "General questions only" : "Questions only"}
+            </p>
+            <div className={styles.tools}>
+              <ReadAloudToggle readAloud={readAloud} />
+              <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
+                <History size={17} aria-hidden="true" /><span className="sr-only sm:not-sr-only">History</span>
+              </button>
+              <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className={cn("grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
+                <MessageSquarePlus size={18} aria-hidden="true" />
+              </button>
+              <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Coach settings" className="grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
+                <Settings2 size={18} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
 
-        <section ref={threadBox} aria-label="Conversation" aria-busy={busy || loadingThread} className={styles.thread}>
-          {loadingThread ? (
-            <p className={styles.thinking}><Loader2 size={16} aria-hidden="true" className="animate-spin" /> Opening conversation…</p>
-          ) : messages.length === 0 && !pending ? (
-            <div className={styles.hello}>
-              <div>
-                <h2 className={styles.helloTitle}>What can I help with?</h2>
-                {status.providers.length > 0 && (
-                  <p className={styles.services}>
-                    <span className={styles.service}><span aria-hidden="true" className={cn(styles.dot, styles.dotOn)} />{status.providers.length === 1 ? "1 AI service ready" : `${status.providers.length} AI services ready`}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{status.providers.map((provider) => provider.name).join(", ")}</span>
+          {status.renewal && (
+            <ConsentRenewal
+              renewal={status.renewal}
+              // The prompt goes: focus moves to the message box rather than to the page body.
+              onClosed={() => setFocusKey((key) => key + 1)}
+              onAgreed={() => {
+                setStatus((old) => ({ ...old, renewal: null }));
+                announce("Agreed to the updated terms.");
+                // The services' notices and the prompts written from the member's data follow the new consent.
+                void fetchStatus().then((fresh) => setStatus((old) => ({ ...old, providers: fresh.providers, memberDataAvailable: fresh.memberDataAvailable, quickPrompts: fresh.quickPrompts, renewal: fresh.renewal }))).catch(() => {});
+              }}
+            />
+          )}
+
+          <section ref={threadBox} aria-label="Conversation" aria-busy={busy || loadingThread} className={styles.thread}>
+            {loadingThread ? (
+              <p className={styles.thinking}><Loader2 size={16} aria-hidden="true" className="animate-spin" /> Opening conversation…</p>
+            ) : messages.length === 0 && !pending ? (
+              <div className={styles.hello}>
+                <div>
+                  <h2 className={styles.helloTitle}>What can I help with?</h2>
+                  {status.providers.length > 0 && (
+                    <p className={styles.services}>
+                      <span className={styles.service}><span aria-hidden="true" className={cn(styles.dot, styles.dotOn)} />{status.providers.length === 1 ? "1 AI service ready" : `${status.providers.length} AI services ready`}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{status.providers.map((provider) => provider.name).join(", ")}</span>
+                    </p>
+                  )}
+                </div>
+                <ul className={styles.skills} aria-label="What the coach can do">
+                  {capabilityStarters({ sharesData: plansAllowed, careMode: status.careMode }).map((starter) => (
+                    <li key={starter.id}>
+                      <button type="button" onClick={() => choosePrompt({ id: `skill-${starter.id}`, source: "general", context: starter.label, text: starter.text, mode: starter.mode })} className={styles.skill}>
+                        {starter.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <ul className={styles.prompts} aria-label="Suggested questions">
+                  {prompts.map((prompt) => {
+                    const Icon = PROMPT_ICONS[prompt.source];
+                    return (
+                      <li key={prompt.id}>
+                        <button type="button" onClick={() => choosePrompt(prompt)} className={styles.prompt}>
+                          <span className={styles.promptContext}><Icon size={14} aria-hidden="true" /><span>{prompt.context}</span></span>
+                          <span className={styles.promptText}>{prompt.text}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <div key={message.id} id={`coach-message-${message.id}`} className="scroll-mt-24">
+                  <MessageView message={message} actions={planActions} />
+                </div>
+              ))
+            )}
+
+            {pending && (
+              <div className="grid gap-2.5" aria-live="polite">
+                <p className={styles.replyMeta}><span aria-hidden="true" className={styles.mark}>FX</span>FITX Coach</p>
+                {pending.text ? (
+                  <div><RichText text={pending.text} /><span aria-hidden="true" className={styles.caret} /></div>
+                ) : (
+                  <p className={styles.thinking}>
+                    <span aria-hidden="true" className={styles.dots}><span /><span /><span /></span>
+                    {pending.status ? `${pending.status}…` : "Thinking…"}
                   </p>
                 )}
               </div>
-              <ul className={styles.skills} aria-label="What the coach can do">
-                {capabilityStarters({ sharesData: plansAllowed }).map((starter) => (
-                  <li key={starter.id}>
-                    <button type="button" onClick={() => choosePrompt({ id: `skill-${starter.id}`, source: "general", context: starter.label, text: starter.text, mode: starter.mode })} className={styles.skill}>
-                      {starter.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <ul className={styles.prompts} aria-label="Suggested questions">
-                {prompts.map((prompt) => {
-                  const Icon = PROMPT_ICONS[prompt.source];
-                  return (
-                    <li key={prompt.id}>
-                      <button type="button" onClick={() => choosePrompt(prompt)} className={styles.prompt}>
-                        <span className={styles.promptContext}><Icon size={14} aria-hidden="true" /><span>{prompt.context}</span></span>
-                        <span className={styles.promptText}>{prompt.text}</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <div key={message.id} id={`coach-message-${message.id}`} className="scroll-mt-24">
-                <MessageView message={message} actions={planActions} />
+            )}
+
+            {problem && (
+              <div role="alert" className="fitx-alert fitx-alert-danger flex items-start justify-between gap-3">
+                <span>{problem.message}</span>
+                {/* The alert goes with its Dismiss button: focus moves to the message box, which holds the words again. */}
+                <button type="button" onClick={() => { setProblem(null); setFocusKey((key) => key + 1); }} aria-label="Dismiss" className="-m-2 grid h-11 w-11 shrink-0 place-items-center rounded-lg hover:bg-fitx-hover"><X size={16} aria-hidden="true" /></button>
               </div>
-            ))
-          )}
+            )}
+            {/* Clears the sticky composer when scrolled to. */}
+            <div ref={end} className={styles.end} />
+          </section>
 
-          {pending && (
-            <div className="grid gap-2.5" aria-live="polite">
-              <p className={styles.replyMeta}><span aria-hidden="true" className={styles.mark}>FX</span>FITX Coach</p>
-              {pending.text ? (
-                <div><RichText text={pending.text} /><span aria-hidden="true" className={styles.caret} /></div>
-              ) : (
-                <p className={styles.thinking}>
-                  <span aria-hidden="true" className={styles.dots}><span /><span /><span /></span>
-                  {pending.status ? `${pending.status}…` : "Thinking…"}
-                </p>
-              )}
-            </div>
-          )}
-
-          {problem && (
-            <div role="alert" className="fitx-alert fitx-alert-danger flex items-start justify-between gap-3">
-              <span>{problem.message}</span>
-              <button type="button" onClick={() => setProblem(null)} aria-label="Dismiss" className="-m-2 grid h-11 w-11 shrink-0 place-items-center rounded-lg hover:bg-fitx-hover"><X size={16} aria-hidden="true" /></button>
-            </div>
-          )}
-          {/* Clears the sticky composer when scrolled to. */}
-          <div ref={end} className="scroll-mb-48" />
-        </section>
-
-        <div className={styles.composerDock}>
-          <Composer
-            draft={draft}
-            onDraft={setDraft}
-            mode={mode}
-            onMode={setMode}
-            budget={budget}
-            onBudget={setBudget}
-            plansAllowed={plansAllowed}
-            plansNote={status.minor ? "Plans aren't available for under-18 accounts." : status.ageMissing ? "Plans need your age in Profile and “Use my FITX data”." : !shareData ? "Plans need “Use my FITX data”, in Coach settings." : null}
-            busy={busy}
-            onSend={() => void send()}
-            onStop={() => stopper.current?.abort()}
-            hint={quotaHint}
-            focusKey={focusKey}
-            voice={
-              <VoiceButton
-                  disabled={busy}
-                  onStart={() => { readAloud.cancel(); setMode("chat"); }}
-                  onTranscript={setDraft}
-                  onFinished={(text) => void send(text)}
-                />
-            }
-          />
+          <div ref={measureDock} className={styles.composerDock}>
+            <Composer
+              draft={draft}
+              onDraft={setDraft}
+              mode={mode}
+              onMode={setMode}
+              budget={budget}
+              onBudget={setBudget}
+              plansAllowed={plansAllowed}
+              mealPlansPaused={status.careMode}
+              plansNote={status.minor ? "Plans aren't available for under-18 accounts." : status.ageMissing ? "Plans need your age in Profile and “Use my FITX data”." : !shareData ? "Plans need “Use my FITX data”, in Coach settings." : null}
+              busy={busy}
+              onSend={() => void send()}
+              onStop={() => stopper.current?.abort()}
+              hint={quotaHint}
+              focusKey={focusKey}
+              voice={
+                <VoiceButton
+                    disabled={busy}
+                    onStart={() => { readAloud.cancel(); setMode("chat"); }}
+                    onTranscript={setDraft}
+                    onFinished={(text) => void send(text)}
+                  />
+              }
+            />
+          </div>
         </div>
+
+        <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} closeWhenWide={!inPanel}>{list}</HistoryDrawer>
+
+        {settings}
       </div>
-
-      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} closeWhenWide={!inPanel}>{list}</HistoryDrawer>
-
-      {settings}
-      <p className="sr-only" aria-live="polite">{announcement}</p>
-    </div>
+      {live}
+    </>
   );
 }
 
 type StarterPrompt = Omit<QuickPrompt, "source"> & { source: QuickPrompt["source"] | "general" };
-
-type GeneralPrompt = [StarterPrompt["source"], string, string];
-const GENERAL_PROMPTS: GeneralPrompt[] = [
-  ["food", "Protein", "How much protein do I need a day?"],
-  ["food", "Budget", "How do I eat well on a tight budget?"],
-  ["training", "Training", "What's a good beginner training split?"],
-  ["training", "Warm-up", "How do I warm up before lifting?"],
-];
-const MINOR_PROMPTS: GeneralPrompt[] = [
-  ["food", "Food", "What should I eat before sports practice?"],
-  ["training", "Strength", "How can I get stronger safely?"],
-  ["general", "Recovery", "How much sleep do I need?"],
-];
 const PROMPT_ICONS: Record<StarterPrompt["source"], typeof Utensils> = {
   food: Utensils, training: Dumbbell, activity: Footprints, goal: Target, setup: UserRound, general: MessageCircle,
 };

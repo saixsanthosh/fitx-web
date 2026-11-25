@@ -1,4 +1,6 @@
 import "server-only";
+import { GOAL_OPTIONS, LIMITATION_OPTIONS, LOCATION_OPTIONS, optionLabel } from "@/lib/domain/profile-options";
+import { equipmentKeyFor, equipmentLabel } from "@/lib/training/equipment";
 import { hasAnyProvider, type AiConfig } from "./config";
 import { buildCoachContext, loadContextSources, type CoachContext, type ContextSources } from "./context";
 import { describeAllergies, describeDiet } from "./diet-rules";
@@ -45,6 +47,11 @@ export type CoachStatus = {
   quickPrompts: QuickPrompt[];
   /** Set only for a sharing adult whose consent predates the current screen and would gain something by agreeing. */
   renewal: ConsentRenewal | null;
+  /**
+   * FITX showed its eating-disorder note in the last 30 days (CARE_DAYS): the coach makes no meal plans or swaps and
+   * gives no calorie targets then (coach.ts planBlock), so the page doesn't offer them either. true when it can't be read.
+   */
+  careMode: boolean;
 };
 
 /** Each provider's data use, from its own terms as checked on 2026-11-16. The owner should re-check them. */
@@ -98,18 +105,46 @@ export function providerNotices(config: AiConfig, consentVersion?: number): Prov
 }
 
 /**
+ * The member's training setup as the consent screen names it: Profile's labels ("Gym and home", "Resistance bands"),
+ * never the stored values ("both", "bands"). Only what the summary really sends: until the Workouts setup is done
+ * the place and equipment are not sent (buildCoachContext), so no default is shown as the member's answer.
+ */
+export function trainingSetupWords(setup: { location?: unknown; equipment?: unknown } | undefined): string {
+  const humanize = (value: string) => value.replace(/_/g, " ");
+  const place = typeof setup?.location === "string" ? optionLabel(LOCATION_OPTIONS, setup.location) ?? humanize(setup.location) : null;
+  const kit = [...new Set((Array.isArray(setup?.equipment) ? setup.equipment : []).filter((item): item is string => typeof item === "string").map((item) => {
+    const key = equipmentKeyFor(item);
+    return key === "" ? "No equipment" : key ? equipmentLabel(key) : humanize(item);
+  }))];
+  const answers = [...(place ? [place] : []), ...kit.slice(0, 4)].join(", ") + (kit.length > 4 ? "…" : "");
+  const named = place ? "level, days a week, session length and split" : "session length and split";
+  return answers ? `${answers}; ${named}` : named;
+}
+
+/**
+ * Injuries or limitations as the consent screen names them: Profile's labels for the ones picked from its list ("Lower
+ * back", "Knees", not the stored "lower_back" the summary spells "lower back"), the member's own notes as typed.
+ */
+export function limitationWords(sent: string): string {
+  const labels = new Map(LIMITATION_OPTIONS.map((option) => [option.value.replace(/_/g, " "), option.label]));
+  return sent.split(", ").map((item) => labels.get(item) ?? item).join(", ");
+}
+
+/**
  * "What the coach reads" on the consent screen: every part of the summary that "Use my FITX data"
- * sends (buildCoachContext), with the member's own values where they are short. Empty for under-18
- * accounts, whose data is never sent.
+ * sends (buildCoachContext), with the member's own values where they are short, in the words Profile
+ * uses for them. Empty for under-18 accounts, whose data is never sent.
  */
 export function sharedSummaryLines({ facts, summary }: CoachContext): string[] {
   if (facts.minor) return [];
   // Health details, named as the member entered them (summary.training_setup.limitations).
-  const limitations = (summary.training_setup as { limitations?: unknown } | undefined)?.limitations;
+  const setup = summary.training_setup as { limitations?: unknown; location?: unknown; equipment?: unknown } | undefined;
+  const limitations = setup?.limitations;
+  const goal = optionLabel(GOAL_OPTIONS, facts.goal) ?? facts.goal.replace(/_/g, " ");
   return [
     `Age, sex, height, weight trend and target weight${facts.age ? "" : " (age not set yet)"}`,
-    `Goal (${facts.goal.replace(/_/g, " ")}), activity level, experience and training setup (${facts.location}, ${facts.equipment.slice(0, 4).join(", ")}${facts.equipment.length > 4 ? "…" : ""}; level, days a week, session length and split)`,
-    `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitations : "none added yet"}`,
+    `Goal (${goal}), activity level, experience and training setup (${trainingSetupWords(setup)})`,
+    `Injuries or limitations: ${typeof limitations === "string" && limitations ? limitationWords(limitations) : "none added yet"}`,
     `Diet: ${describeDiet(facts.diet)}; allergies: ${describeAllergies(facts.allergies)}${facts.budget ? `; food budget: ${facts.budget}` : ""}; meals a day, ${facts.foodHabitsShared ? "where your meals come from, your nutrition goal, " : ""}cuisines and foods you avoid`,
     "The last 7 days of food you logged (daily totals and the foods you log most), your daily targets and the names of foods you saved",
     "The last 4 weeks of workouts, your personal records and active goals, and how many workouts and other planner items you have in the next 7 days",
@@ -130,6 +165,7 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     threads: [],
     quickPrompts: [],
     renewal: null,
+    careMode: false,
   };
   if (!config.enabled) return { ...base, state: "paused", ...(await storedCoachData(db, userId, now)) };
   if (!hasAnyProvider(config)) return { ...base, state: "not_configured", ...(await storedCoachData(db, userId, now)) };
@@ -148,13 +184,17 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
     // Services added after this consent was given get none of the member's data (registry.ts), and Coach settings says so.
     const forConsent = { providers: providerNotices(config, consent.version), memberDataAvailable: canSendMemberData(config, consent.version) };
     const sharing = consent.shareData && facts.adult && forConsent.memberDataAvailable;
-    const [quotas, threads, quickPrompts] = await Promise.all([
+    // The care period is account-wide: it holds with "Questions only" and for under-18 accounts too. When it can't be
+    // read (null), the page offers neither meal plans nor personal prompts, as the coach's own check fails closed too.
+    const careRead = store.hasRecentSafetyNote(db, userId, "eating_disorder", CARE_DAYS).catch(() => null);
+    const [quotas, threads, quickPrompts, care] = await Promise.all([
       store.quotaStatus(db),
       store.listThreads(db, userId),
-      sharing ? personalPrompts(db, userId, sources, now) : Promise.resolve([]),
+      sharing ? careRead.then((known) => (known === null ? [] : personalPrompts(db, userId, sources, now, known))) : Promise.resolve([]),
+      careRead,
     ]);
     const renewal = consentRenewal(config, consent, facts.adult);
-    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts, ...forConsent, renewal };
+    return { ...base, state: "ready", consent: { shareData: consent.shareData, consentedAt: consent.consentedAt }, ...age, sharedSummary, quotas, threads, quickPrompts, ...forConsent, renewal, careMode: care !== false };
   } catch (error) {
     if (error instanceof store.CoachStoreError && error.code === "not_available") return { ...base, state: "not_available", ...age };
     throw error;
@@ -163,13 +203,12 @@ export async function coachStatus(db: store.Db, userId: string, config: AiConfig
 
 /**
  * The quick prompts for a member who shares their data. The targets use the latest weigh-in, as Home and
- * Nutrition do. For 30 days after FITX's eating-disorder note they leave out food, calories and weight, as the
- * coach does (runCoachTurn). Any failure, that check's included, just means no personal prompts: the page then
+ * Nutrition do. For 30 days after FITX's eating-disorder note (careMode, read by coachStatus) they leave out food,
+ * calories and weight, as the coach does (runCoachTurn). Any failure just means no personal prompts: the page then
  * offers general ones.
  */
-async function personalPrompts(db: store.Db, userId: string, sources: ContextSources, now: Date): Promise<QuickPrompt[]> {
+async function personalPrompts(db: store.Db, userId: string, sources: ContextSources, now: Date, careMode: boolean): Promise<QuickPrompt[]> {
   try {
-    const careMode = await store.hasRecentSafetyNote(db, userId, "eating_disorder", CARE_DAYS);
     const { data } = await db.from("body_metrics").select("date, weight").eq("user_id", userId).not("weight", "is", null)
       .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1);
     const weighIns = Array.isArray(data) ? (data as ContextSources["weighIns"]) : [];

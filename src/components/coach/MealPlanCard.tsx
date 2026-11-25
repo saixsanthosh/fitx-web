@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
+import { flushSync } from "react-dom";
 import Image from "next/image";
 import { CircleCheck, Lightbulb, Utensils, Wallet } from "lucide-react";
 import type { CoachFoodItem, CoachMealPlan, CoachSwap } from "@/lib/ai/types";
@@ -116,17 +117,24 @@ function FoodRow({ item, actions, nested = false }: { item: CoachFoodItem; actio
   const [imageFailed, setImageFailed] = useState(false);
   const noteId = useId();
   const detailId = useId();
+  const swapToggle = useRef<HTMLButtonElement>(null);
   const swaps = actions.swapsFor(item.actionId);
 
   async function findSwap(event: FormEvent) {
     event.preventDefault();
-    if (!item.actionId) return;
+    // "Find a swap" stays focusable while it works (aria-disabled), so a refusal's message is read with focus kept.
+    if (!item.actionId || busy) return;
     setBusy(true);
     setSwapError("");
     const error = await actions.requestSwap(item.actionId, note.trim());
     setBusy(false);
-    if (error) setSwapError(error);
-    else setSwapOpen(false);
+    if (error) {
+      setSwapError(error);
+      return;
+    }
+    // The form closes and the swap appears below the food: focus goes back to the button that opened the form.
+    flushSync(() => setSwapOpen(false));
+    swapToggle.current?.focus();
   }
 
   return (
@@ -160,7 +168,7 @@ function FoodRow({ item, actions, nested = false }: { item: CoachFoodItem; actio
           <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
             <ActionButton state={actions.stateOf(item.actionId)} onApply={() => actions.apply(item.actionId!)} label="Add to My Food Plan" doneLabel="Saved to My foods" doneHref="/nutrition" doneLinkLabel="View in Nutrition" describedBy={detailId} />
             {actions.canSwap && !nested && (
-              <button type="button" onClick={() => setSwapOpen((open) => !open)} aria-expanded={swapOpen} className="min-h-11 text-sm font-medium text-fitx-text-secondary underline-offset-4 hover:text-fitx-text hover:underline">
+              <button ref={swapToggle} type="button" onClick={() => setSwapOpen((open) => !open)} aria-expanded={swapOpen} className="min-h-11 text-sm font-medium text-fitx-text-secondary underline-offset-4 hover:text-fitx-text hover:underline">
                 Can&apos;t afford this?
               </button>
             )}
@@ -173,7 +181,7 @@ function FoodRow({ item, actions, nested = false }: { item: CoachFoodItem; actio
           <label htmlFor={noteId} className="text-sm font-medium text-fitx-text">What can you get or afford instead? <span className="font-normal text-fitx-text-secondary">(optional)</span></label>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row">
             <input id={noteId} value={note} maxLength={200} onChange={(event) => setNote(event.target.value)} placeholder="For example: chana, eggs, local rice" className="fitx-field" />
-            <button type="submit" disabled={busy} className="fitx-button fitx-button-secondary shrink-0">{busy ? "Finding…" : "Find a swap"}</button>
+            <button type="submit" aria-disabled={busy || undefined} className="fitx-button fitx-button-secondary shrink-0 aria-disabled:opacity-60">{busy ? "Finding…" : "Find a swap"}</button>
           </div>
           {swapError && <p role="alert" className="fitx-alert fitx-alert-danger mt-2">{swapError}</p>}
         </form>

@@ -48,8 +48,11 @@ export type AttemptLog = { provider: ProviderId; model: string; outcome: Attempt
 
 export type AiTextResult = { text: string; provider: ProviderId; model: string; usage?: AiUsage; attempts: AttemptLog[] };
 
-/** Why the coach cannot answer right now. Each maps to an honest message on the page. */
-export type UnavailableReason = "disabled" | "not_configured" | "at_capacity" | "refused" | "private";
+/**
+ * Why the coach cannot answer right now. Each maps to an honest message on the page. "unusable": every model that
+ * was tried answered, but nothing it sent passed FITX's checks (a plan in the wrong shape, an empty reply).
+ */
+export type UnavailableReason = "disabled" | "not_configured" | "at_capacity" | "refused" | "private" | "unusable";
 
 export type CoachQuota = { kind: "chat" | "plan"; used: number; limit: number; resetsAt: string };
 

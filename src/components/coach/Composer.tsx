@@ -3,9 +3,9 @@
 import { useEffect, useId, useRef, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowUp, Dumbbell, MessageCircle, Square, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { COMPOSER_MODES, MESSAGE_MAX as MAX, composerModes, lengthNotice, nextMode, radioTabStop, type ComposerMode } from "./composer-rules";
 
-export type ComposerMode = "chat" | "meal_plan" | "workout_plan";
-const MAX = 2000;
+export type { ComposerMode };
 
 const MODES: Array<{ id: ComposerMode; label: string; short: string; icon: typeof MessageCircle }> = [
   { id: "chat", label: "Ask", short: "Ask", icon: MessageCircle },
@@ -28,6 +28,7 @@ export function Composer({
   onBudget,
   plansAllowed,
   plansNote,
+  mealPlansPaused = false,
   busy,
   onSend,
   onStop,
@@ -43,6 +44,8 @@ export function Composer({
   onBudget: (value: string) => void;
   plansAllowed: boolean;
   plansNote: string | null;
+  /** The 30 days after FITX's eating-disorder note: "Plan my meals" is not offered (composerModes). */
+  mealPlansPaused?: boolean;
   busy: boolean;
   onSend: () => void;
   onStop: () => void;
@@ -57,6 +60,13 @@ export function Composer({
   const hintId = useId();
   const counterId = useId();
   const canSend = !busy && (mode !== "chat" || draft.trim().length > 0) && draft.length <= MAX;
+  const offered = composerModes({ plansAllowed, mealPlansPaused });
+  // A radio group: one Tab stop (the chosen mode), and the arrow keys move and select (bug 87).
+  const choosable = busy ? [] : COMPOSER_MODES.filter((id) => offered[id] === "on");
+  const tabStop = radioTabStop(mode, choosable);
+  const radios = useRef(new Map<ComposerMode, HTMLButtonElement>());
+  // The counter is described, and the length announced, only near or over the limit (bug 88).
+  const length = lengthNotice(draft.length);
 
   useEffect(() => {
     const element = area.current;
@@ -74,7 +84,18 @@ export function Composer({
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    // Send is aria-disabled, not disabled, when there is nothing to send: a focused button that turns disabled (as
+    // Send does once an answer arrives and the box is empty) drops keyboard focus to the page in Chrome.
     if (canSend) onSend();
+  }
+
+  function onRadioKey(event: KeyboardEvent<HTMLDivElement>) {
+    const focused = (event.target as HTMLElement).closest<HTMLElement>("[data-mode]")?.dataset.mode as ComposerMode | undefined;
+    const next = focused ? nextMode(focused, event.key, choosable) : null;
+    if (!next) return;
+    event.preventDefault();
+    if (next !== mode) onMode(next);
+    radios.current.get(next)?.focus();
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -86,15 +107,21 @@ export function Composer({
 
   return (
     <form onSubmit={submit} className="rounded-2xl border border-fitx-border bg-fitx-card p-2 shadow-lg" aria-label="Message the coach">
-      <div role="radiogroup" aria-label="What do you want?" className="flex gap-1 overflow-x-auto px-1 pb-2 pt-1 [scrollbar-width:none]">
-        {MODES.map(({ id, label, short, icon: Icon }) => {
-          const disabled = id !== "chat" && !plansAllowed;
+      <div role="radiogroup" aria-label="What do you want?" onKeyDown={onRadioKey} className="flex gap-1 overflow-x-auto px-1 pb-2 pt-1 [scrollbar-width:none]">
+        {MODES.filter(({ id }) => offered[id] !== "hidden").map(({ id, label, short, icon: Icon }) => {
+          const disabled = offered[id] !== "on";
           return (
             <button
               key={id}
+              ref={(element) => {
+                if (element) radios.current.set(id, element);
+                else radios.current.delete(id);
+              }}
               type="button"
               role="radio"
+              data-mode={id}
               aria-checked={mode === id}
+              tabIndex={id === tabStop ? 0 : -1}
               disabled={disabled || busy}
               onClick={() => onMode(id)}
               className={cn(
@@ -125,7 +152,7 @@ export function Composer({
           onChange={(event) => onDraft(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder={PLACEHOLDER[mode]}
-          aria-describedby={`${hintId} ${counterId}`}
+          aria-describedby={length.shown ? `${hintId} ${counterId}` : hintId}
           className="max-h-[168px] min-h-11 flex-1 resize-none bg-transparent px-2.5 py-2.5 text-[15px] leading-6 text-fitx-text outline-none placeholder:text-fitx-text-disabled"
         />
         {voice}
@@ -134,7 +161,7 @@ export function Composer({
             <Square size={15} aria-hidden="true" fill="currentColor" />
           </button>
         ) : (
-          <button type="submit" disabled={!canSend} aria-label={mode === "chat" ? "Send" : mode === "meal_plan" ? "Make my meal plan" : "Make my workout"} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-fitx-primary text-fitx-on-primary transition-colors hover:bg-fitx-primary-bright disabled:opacity-40">
+          <button type="submit" aria-disabled={!canSend || undefined} aria-label={mode === "chat" ? "Send" : mode === "meal_plan" ? "Make my meal plan" : "Make my workout"} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-fitx-primary text-fitx-on-primary transition-colors hover:bg-fitx-primary-bright aria-disabled:opacity-40 aria-disabled:hover:bg-fitx-primary">
             <ArrowUp size={18} aria-hidden="true" />
           </button>
         )}
@@ -144,9 +171,14 @@ export function Composer({
           {!plansAllowed && plansNote && mode === "chat" ? `${plansNote} ` : hint ? `${hint} · ` : null}
           <span className="whitespace-nowrap">Not medical advice.</span>
         </span>
-        <span id={counterId} aria-live="polite" className={cn(draft.length > MAX - 200 ? "" : "sr-only", draft.length > MAX && "text-fitx-danger")}>
-          {draft.length}/{MAX}
-        </span>
+        {length.shown && (
+          <span id={counterId} className={cn(length.over && "text-fitx-danger")}>
+            <span aria-hidden="true">{draft.length}/{MAX}</span>
+            <span className="sr-only">{draft.length} of {MAX} characters</span>
+          </span>
+        )}
+        {/* Changes only when the message comes near or goes over the limit, so typing is not read out key by key. */}
+        <span className="sr-only" aria-live="polite">{length.live}</span>
       </div>
     </form>
   );

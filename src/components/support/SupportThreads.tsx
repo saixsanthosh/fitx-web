@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle } from "lucide-react";
 import {
-  SUPPORT_CATEGORY_LABELS, SUPPORT_ERROR_MESSAGES, SUPPORT_LIMITS, SUPPORT_STATUS_LABELS, sentReply, withSentReplies, type SupportCategory,
-  type SupportMessageView,
+  SUPPORT_CATEGORY_LABELS, SUPPORT_ERROR_MESSAGES, SUPPORT_LIMITS, SUPPORT_STATUS_LABELS, replyTextProblem, sentReply, withSentReplies,
+  type SupportCategory, type SupportMessageView,
 } from "@/components/support/support-rules";
 
 export type SupportThreadView = {
@@ -40,14 +40,29 @@ function ReplyForm({ requestId, onSent }: { requestId: string; onSent: (reply: S
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The text itself is what's wrong (only spaces, or too long): the box is marked and keeps focus.
+  const [invalid, setInvalid] = useState(false);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const errorId = useId();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Send reply stays focusable while sending (aria-disabled), so a second press does nothing.
+    if (pending) return;
     const form = event.currentTarget;
-    const body = String(new FormData(form).get("body") ?? "").trim();
-    if (!body) return;
+    const typed = String(new FormData(form).get("body") ?? "");
+    // The server's rule, said here rather than silently doing nothing (bug 47): a reply of only spaces is empty.
+    const problem = replyTextProblem(typed);
+    if (problem) {
+      setError(problem);
+      setInvalid(true);
+      box.current?.focus();
+      return;
+    }
+    const body = typed.trim();
     setPending(true);
     setError(null);
+    setInvalid(false);
     try {
       const response = await fetch("/api/support/reply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId, body }) });
       const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string; reply?: unknown };
@@ -69,13 +84,29 @@ function ReplyForm({ requestId, onSent }: { requestId: string; onSent: (reply: S
   }
 
   return (
-    <form onSubmit={submit} className="mt-3 space-y-2">
+    // The reply's own check (replyTextProblem) speaks for an empty box too, in the same words as for one of only spaces.
+    <form onSubmit={submit} noValidate className="mt-3 space-y-2">
       <label className="block text-sm font-medium text-fitx-text">
         Reply
-        <textarea name="body" required maxLength={SUPPORT_LIMITS.replyMax} rows={3} className="fitx-field mt-1.5 min-h-20 py-2.5" />
+        <textarea
+          ref={box}
+          name="body"
+          required
+          maxLength={SUPPORT_LIMITS.replyMax}
+          rows={3}
+          aria-invalid={invalid || undefined}
+          aria-describedby={error ? errorId : undefined}
+          onChange={() => {
+            if (invalid) {
+              setInvalid(false);
+              setError(null);
+            }
+          }}
+          className="fitx-field mt-1.5 min-h-20 py-2.5"
+        />
       </label>
-      {error && <p role="alert" className="fitx-alert fitx-alert-danger">{error}</p>}
-      <button type="submit" disabled={pending} className="fitx-button fitx-button-secondary min-h-10 px-4 text-sm">
+      {error && <p id={errorId} role="alert" className="fitx-alert fitx-alert-danger">{error}</p>}
+      <button type="submit" aria-disabled={pending || undefined} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm aria-disabled:cursor-wait aria-disabled:opacity-60">
         {pending && <LoaderCircle aria-hidden="true" size={16} className="animate-spin" />}
         <span>{pending ? "Sending…" : "Send reply"}</span>
       </button>

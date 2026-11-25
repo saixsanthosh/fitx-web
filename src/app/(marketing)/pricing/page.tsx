@@ -58,8 +58,13 @@ export default async function PricingPage() {
           </ul>
           <p className="mt-4 text-xs leading-5 text-fitx-text-secondary">Food data providers may apply their own fair-use limits.</p>
           <div className="mt-auto pt-6">
-            <Link href="/signup" className="fitx-button fitx-button-secondary min-h-11 w-full">
+            {/* The page stays static: both links render, and the head script's sign-in hint (fitx_auth) hides one before
+                first paint, as in the public header. A signed-in member already has this account. */}
+            <Link href="/signup" prefetch={false} className="fitx-when-signed-out fitx-button fitx-button-secondary min-h-11 w-full">
               Create account
+            </Link>
+            <Link href="/dashboard" prefetch={false} className="fitx-when-signed-in fitx-button fitx-button-secondary min-h-11 w-full">
+              Open dashboard
             </Link>
           </div>
         </section>

@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { validateSupportReply } from "@/components/support/support-rules";
+import { supportLimitBody, validateSupportReply } from "@/components/support/support-rules";
 import { isSameOriginRequest } from "@/lib/auth/same-origin";
 import { takeRouteLimit } from "@/lib/security/rate-limit";
 import { rateLimitedResponse } from "@/lib/security/responses";
 import { isMissingFunctionError } from "@/lib/supabase/errors";
 import { createClient } from "@/lib/supabase/server";
+import { supportLimitResponse } from "../limit";
 import { readSupportJson } from "../read-json";
 
 const noStore = { "Cache-Control": "private, no-store" };
@@ -19,7 +20,10 @@ export async function POST(request: NextRequest) {
 
   // Bursts stop here; the hourly and daily limits are the database function's.
   const limit = takeRouteLimit("support", user.id);
-  if (!limit.allowed) return rateLimitedResponse(limit.retryAfterSeconds);
+  if (!limit.allowed) {
+    const now = Date.now();
+    return rateLimitedResponse(limit.retryAfterSeconds, supportLimitBody("reply", "burst", now + limit.retryAfterSeconds * 1000, now));
+  }
   const body = await readSupportJson(request);
   if (body.tooLarge) return NextResponse.json({ error: "payload_too_large" }, { status: 413, headers: noStore });
   const checked = validateSupportReply(body.value);
@@ -28,7 +32,8 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase.rpc("fitx_reply_support_request", { p_request_id: checked.value.requestId, p_body: checked.value.body });
   if (error) {
     if (isMissingFunctionError(error)) return NextResponse.json({ error: "unavailable" }, { status: 503, headers: noStore });
-    if (error.code === "PT429") return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: noStore });
+    // The database's hourly or daily limit: say which, and when the next one can go.
+    if (error.code === "PT429") return supportLimitResponse(supabase, "reply", error.details);
     if (error.code === "PT409") return NextResponse.json({ error: "closed" }, { status: 409, headers: noStore });
     if (error.code === "PT404") return NextResponse.json({ error: "not_found" }, { status: 404, headers: noStore });
     // A table check (the reply length) refused a value the checks above let through.
