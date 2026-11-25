@@ -14,8 +14,8 @@
  *                         size while the frame clears to the theme background, and `LogoReveal film-end` locks over
  *
  * World = gym set space (see `mark-floor.ts` for the mark's axes and `props.ts` for the bar). Every frame is a pure
- * function of film time (seekable); the beats come from `timeline.ts` (PROVISIONAL until the owner approves the
- * animatic and gate A has passed).
+ * function of film time (seekable); the beats come from `timeline.ts`, final since gate A passed (BRIEF-2 D10) and
+ * the D5 animatic was approved (D11).
  *
  * Imports stay node-safe (no `motion/index.ts`, `fx/post.ts`, `sets/index.ts` or `shots/common.ts`, which strip-only
  * TypeScript cannot load), so `FILM_DEFS.welcome()` loads in node tests.

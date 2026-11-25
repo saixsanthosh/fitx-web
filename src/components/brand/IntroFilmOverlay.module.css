@@ -173,12 +173,17 @@
   animation: fade-out var(--exit) cubic-bezier(.5, 0, .75, 0) var(--exit-at) forwards;
 }
 
-/* A soft grade-like falloff in the title corner keeps warm white legible on sunlit frames. */
+/*
+ * A soft grade-like falloff in the title corner keeps warm white legible on sunlit frames. Its width is measured on the
+ * picture's box (.film, through .titleBlock and .scrimExit, which fill it), so under the scope matte it ends at the
+ * picture's edge, never over the side bar. Without the matte the box is the whole stage, fixed to the viewport, and the
+ * root does not scroll while the intro plays (CinematicIntro.module.css), so 100% is the 100vw it was.
+ */
 .titleScrim {
   position: absolute;
   left: 0;
   bottom: var(--bar);
-  width: min(100vw, 1500px);
+  width: min(100%, 1500px);
   height: min(50%, 460px);
   background: radial-gradient(ellipse 64% 100% at 22% 100%, rgba(9, 11, 13, .4), rgba(9, 11, 13, .17) 46%, rgba(9, 11, 13, 0) 78%);
   animation: fade-in .5s cubic-bezier(.3, .7, .4, 1) var(--at) backwards;

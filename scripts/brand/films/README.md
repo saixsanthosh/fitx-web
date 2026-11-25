@@ -111,12 +111,26 @@ How a frame is made:
 
 ```sh
 heavy.sh node scripts/brand/films/encode.mjs --master=<dir>/laptop-dark/master.mkv --comp=laptop --theme=dark --budget
+heavy.sh node scripts/brand/films/encode.mjs --master=<dir>/laptop-dark/master.mkv --comp=laptop --theme=dark --avc-crf=31
 ```
+
+Flags: `--master=<file>` (required), `--comp=<composition>`, `--theme=<theme>`, `--rungs=<list>` (default
+`hevc60,avc30,poster`; `reel` alone for a landing reel), `--budget`, `--crf=<n>`, `--avc-crf=<n>`, `--tune=grain|none`,
+`--out=<dir>`, `--legacy`.
+
+- `--crf=<n>` is the `hevc60` rung's CRF and `--avc-crf=<n>` the `avc30` rung's: the CRF of its one encode, or with
+  `--budget` the CRF it starts from. Without them the rungs start from `ENCODER`'s 29 and 27. Each takes a whole number
+  from 20 to 40, the range `--budget` steps in.
+- `--budget` steps each rung's CRF by one until its file fits its byte budget: up while the file is over it, down while
+  it is more than 15% under it. So `--avc-crf=31 --budget` can still end below 31 on a film that codes small, such as
+  the welcome film; for one encode at exactly 31, leave `--budget` out.
+- The flags never change `ENCODER` (`lib/encoders.mjs`), which is hashed into the film's rev; `encoded.json` records
+  the CRF each file was made at (`outputs.<rung>.crf`).
 
 | Rung | Settings |
 |---|---|
-| `hevc60` | x265 `slow`, CRF from 29 stepped to fit 3.4 MB with `--budget`, keyint 60, level 4.1 high tier, VBV 50000/50000, `pools=4`, `hvc1`; no tune by default (`--tune=grain` doubles the bytes, measured below) |
-| `avc30` | x264 `slow`, High, CRF from 27 stepped to fit 1.6 MB with `--budget`, keyint 30, every other frame, 0.75× size (720×1440, 900×1200, 1200×900, 1440×810, 1440×720) |
+| `hevc60` | x265 `slow`, CRF 29 (`--crf`), stepped to fit 3.4 MB with `--budget`, keyint 60, level 4.1 high tier, VBV 50000/50000, `pools=4`, `hvc1`; no tune by default (`--tune=grain` doubles the bytes, measured below) |
+| `avc30` | x264 `slow`, High, CRF 27 (`--avc-crf`), stepped to fit 1.6 MB with `--budget`, keyint 30, every other frame, 0.75× size (720×1440, 900×1200, 1200×900, 1440×810, 1440×720) |
 | poster | frame 0 → PNG → `cwebp -q 82` (down in steps of 6 until under 50 KB) |
 | `reel` (`--comp=landscape\|portrait --theme=…`) | the landing reel as shipped: x264 slow, High, CRF 29 landscape / 27 portrait, keyint 250, now tagged BT.709 tv |
 

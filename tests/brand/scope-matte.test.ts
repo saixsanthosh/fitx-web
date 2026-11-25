@@ -213,3 +213,67 @@ test("the letterbox leaves nothing on the screen's edges: its bars slide a whole
   assert.match(css, /\.barsOut \.barTop \{ animation: bar-top-out [^;]* both; \}/);
   assert.match(css, /\.barsOut \.barBottom \{ animation: bar-bottom-out [^;]* both; \}/);
 });
+
+/** A rule body's declarations by property, comments already stripped: `{ position: "absolute", left: "0", … }`. */
+function declarations(body: string): Record<string, string> {
+  const lines = body.split(";").map((line) => line.trim()).filter(Boolean);
+  return Object.fromEntries(lines.map((line) => [line.slice(0, line.indexOf(":")).trim(), line.slice(line.indexOf(":") + 1).trim()]));
+}
+
+/**
+ * A CSS length in px: `0`, px, a unit `per100` gives (what 100 of it measures), or min() or max() of those. Any other
+ * form throws, so a rule written another way fails until this reads it, instead of passing unread.
+ */
+function cssLength(value: string | undefined, per100: Readonly<Record<string, number>>): number {
+  const call = value?.match(/^(min|max)\((.*)\)$/);
+  if (call) return Math[call[1] as "min" | "max"](...call[2].split(",").map((part) => cssLength(part.trim(), per100)));
+  if (value === "0") return 0;
+  const length = value?.match(/^(-?\d*\.?\d+)([a-z%]+)$/);
+  if (length?.[2] === "px") return Number(length[1]);
+  if (!length || !(length[2] in per100)) throw new Error(`a length this test does not read: ${value}`);
+  return (Number(length[1]) / 100) * per100[length[2]];
+}
+
+test("the title scrim keeps to the picture: measured on the graphics' box, the width it had wherever there is no matte", () => {
+  const css = source(FILES.graphics).replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = (name: string) => css.match(new RegExp(String.raw`^\.${name} \{([^}]*)\}`, "m"))?.[1] ?? "";
+  // Its containing block is the graphics' box: .film > .titleBlock > .scrimExit > .titleScrim, each filling the one above.
+  assert.match(rule("film"), /position: absolute;\s*inset: 0;/);
+  assert.match(rule("titleBlock"), /position: absolute;[^]*inset: 0;/);
+  assert.match(rule("scrimExit"), /position: absolute;\s*inset: 0;/);
+  const body = rule("titleScrim");
+  const scrim = declarations(body);
+  assert.deepEqual([scrim.position, scrim.bottom], ["absolute", "var(--bar)"], "on the bottom bar; across, its left and width place it");
+  assert.doesNotMatch(BLOCKS.graphics[0].body, /titleScrim/, "so the matte needs no rule of its own for it");
+  const overlay = source("src/components/brand/IntroFilmOverlay.tsx");
+  assert.match(overlay, /<div ref=\{rootRef\} className=\{styles\.film\}/);
+  assert.match(overlay, /className=\{styles\.titleBlock\}[\s\S]{0,700}<span className=\{styles\.scrimExit\}>\s*<span className=\{styles\.titleScrim\} \/>\s*<\/span>/);
+  // Without the matte the graphics' box is the stage: fixed to the viewport, and the root does not scroll while the intro
+  // plays, so no scrollbar takes width from it and 100% of it is 100vw.
+  assert.match(source(FILES.intro), /^\.intro \{[^}]*position: fixed;[^}]*inset: 0;/m);
+  assert.match(source(FILES.intro), /:global\(:root\[data-fitx-intro="pending"\]\),\s*:global\(:root\[data-fitx-intro="active"\]\) \{ overflow: hidden; \}/);
+  // Where it lies on a W × H screen (px from the screen's left), worked out from the stylesheet's own left and width:
+  // % is of the graphics' box (drawn's frame), vw and cqw of the screen, which the stage fills, vh and cqh of its height.
+  // The rule it replaced goes through the same working.
+  const span = (width: number, height: number, declared: Record<string, string>) => {
+    const { frame, bar } = drawn(width, height, pickComposition(width, height));
+    const per100 = { "%": frame, vw: width, cqw: width, vh: height, cqh: height };
+    const left = bar + cssLength(declared.left, per100);
+    return { box: [bar, bar + frame], at: [left, left + cssLength(declared.width, per100)] };
+  };
+  const before = { left: "0", width: "min(100vw, 1500px)" };
+  const inside = ({ box, at }: ReturnType<typeof span>) => at[0] >= box[0] - 1e-9 && at[1] <= box[1] + 1e-9;
+  const tenths = ([a, b]: number[]) => [Math.round(a * 10) / 10, Math.round(b * 10) / 10];
+  const screens = [[852, 349], [2201, 1000], [2400, 1000], [2560, 1080], [3440, 1290], [2200, 1000], [1920, 947], [1440, 900], [1280, 720], [1180, 820], [820, 1180], [390, 844]] as const;
+  for (const [width, height] of screens) {
+    const now = span(width, height, scrim);
+    assert.ok(inside(now), `${width}×${height}: the scrim (${tenths(now.at).join(" to ")} px) ends inside the picture (${tenths(now.box).join(" to ")} px)`);
+    if (now.box[0] === 0) assert.deepEqual(now.at, span(width, height, before).at, `${width}×${height}: no side bars, the scrim is as wide as before`);
+  }
+  // A phone held in landscape (852 × 349, the films check of 2b): the old rule reached 894.1 px, past the box's edge at
+  // 809.9, so the same working fails it; the rule now ends on that edge.
+  const phone = { now: span(852, 349, scrim), before: span(852, 349, before) };
+  assert.deepEqual([tenths(phone.now.box), tenths(phone.before.at), tenths(phone.now.at)], [[42.1, 809.9], [42.1, 894.1], [42.1, 809.9]]);
+  assert.equal(inside(phone.before), false, "the old rule fails the check above");
+  assert.doesNotMatch(body, /vw/, "nothing in it is measured on the screen");
+});
