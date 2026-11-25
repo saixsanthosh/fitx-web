@@ -87,7 +87,7 @@ export function WorkoutHistoryScreen() {
   );
 
   if (state.status === "loading") return <div className="mx-auto max-w-4xl space-y-3">{heading}<div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading your workouts…</div></div>;
-  if (state.status === "error") return <div className="mx-auto max-w-4xl space-y-3">{heading}<EmptyState title="History unavailable" description={state.message} action={<button type="button" onClick={() => { setState({ status: "loading" }); void load(); }} className="fitx-button">Try again</button>} /></div>;
+  if (state.status === "error") return <div className="mx-auto max-w-4xl space-y-3">{heading}<EmptyState headingLevel={2} title="History unavailable" description={state.message} action={<button type="button" onClick={() => { setState({ status: "loading" }); void load(); }} className="fitx-button">Try again</button>} /></div>;
 
   const groups = groupByMonth(state.rows);
   return (
@@ -101,7 +101,7 @@ export function WorkoutHistoryScreen() {
       )}
       {state.completed !== null && state.rows.length > 0 && <p className="m-0 text-sm text-fitx-text-secondary"><span className="font-semibold text-fitx-text">{state.completed.toLocaleString()}</span> {state.completed === 1 ? "workout" : "workouts"} completed. Stopped workouts are listed too but aren’t counted.</p>}
       {!state.rows.length ? (
-        <EmptyState title="No workouts yet" description="Workouts you finish or stop appear here, with their sets and the muscles they trained." action={<Link href="/workouts" className="fitx-button"><Dumbbell size={15} aria-hidden="true" />Go to workouts</Link>} />
+        <EmptyState headingLevel={2} title="No workouts yet" description="Workouts you finish or stop appear here, with their sets and the muscles they trained." action={<Link href="/workouts" className="fitx-button"><Dumbbell size={15} aria-hidden="true" />Go to workouts</Link>} />
       ) : (
         <div className="space-y-6">
           {groups.map((group) => (

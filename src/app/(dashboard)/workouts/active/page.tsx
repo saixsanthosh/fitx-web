@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Check, ChevronLeft, ChevronRight, History, Info, Pause, Play, Plus, Smartphone, Square, Trophy, Volume2, VolumeX, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { CountWithCamera, cameraFitsSet, cameraRuleFor, type CameraCountResult } from "@/components/form-coach";
 import { ExerciseDemo } from "@/components/session/ExerciseDemo";
 import { RestDock } from "@/components/session/RestDock";
@@ -78,6 +79,11 @@ function unavailableFieldsNotice(targetsSupported: boolean, timedSetsSupported: 
 }
 
 type Supabase = NonNullable<ReturnType<typeof createClient>>;
+
+/** A page state without a running workout (loading, none, unavailable, abandoned): the page's h1, then the state. */
+function ActiveState({ children }: { children: ReactNode }) {
+  return <div className="mx-auto max-w-5xl"><PageHeader title="Workout" />{children}</div>;
+}
 
 /** The browser's time zone, so the database counts the session's day as the user does. */
 function browserTimeZone(): string | null {
@@ -662,9 +668,10 @@ export default function ActiveWorkoutPage() {
     setSession({ ...session, status: "abandoned" });
   }
 
-  if (loading || redirecting) return <div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">{redirecting ? "Opening the workout record…" : "Loading workout…"}</div>;
-  if (noSession) return <EmptyState title="No workout in progress" description="Start a workout from your plans or a programme day. Finished workouts are kept in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href="/workouts" className="fitx-button">Go to workouts</Link><Link href="/workouts/history" className="fitx-button fitx-button-secondary"><History size={15} aria-hidden="true" />Workout history</Link></div>} />;
-  if (!session) return <EmptyState title="Workout not available" description={error || "This workout session could not be loaded."} action={<Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link>} />;
+  // Every state of the page has one main heading (bug 94): "Workout" over a state, the workout's name while it runs.
+  if (loading || redirecting) return <ActiveState><div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary motion-reduce:animate-none">{redirecting ? "Opening the workout record…" : "Loading workout…"}</div></ActiveState>;
+  if (noSession) return <ActiveState><EmptyState headingLevel={2} title="No workout in progress" description="Start a workout from your plans or a programme day. Finished workouts are kept in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href="/workouts" className="fitx-button">Go to workouts</Link><Link href="/workouts/history" className="fitx-button fitx-button-secondary"><History size={15} aria-hidden="true" />Workout history</Link></div>} /></ActiveState>;
+  if (!session) return <ActiveState><EmptyState headingLevel={2} title="Workout not available" description={error || "This workout session could not be loaded."} action={<Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link>} /></ActiveState>;
   if (finished && completion) {
     const stats = sessionStats({ status: "completed", started_at: session.started_at, completed_at: completion.finishedAt, duration_seconds: completion.duration }, exercises);
     return <div className="mx-auto max-w-4xl space-y-5">
@@ -689,8 +696,8 @@ export default function ActiveWorkoutPage() {
       </section>
     </div>;
   }
-  if (session.status === "abandoned") return <EmptyState title="Workout abandoned" description="It doesn’t count as a completed workout. The sets you completed are kept with it in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href={recordHref(session.id)} className="fitx-button">View its record</Link><Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link></div>} />;
-  if (session.status !== "in_progress") return <EmptyState title="Opening the workout record" description="This workout has finished." action={<Link href={recordHref(session.id)} className="fitx-button">View its record</Link>} />;
+  if (session.status === "abandoned") return <ActiveState><EmptyState headingLevel={2} title="Workout abandoned" description="It doesn’t count as a completed workout. The sets you completed are kept with it in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href={recordHref(session.id)} className="fitx-button">View its record</Link><Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link></div>} /></ActiveState>;
+  if (session.status !== "in_progress") return <ActiveState><EmptyState headingLevel={2} title="Opening the workout record" description="This workout has finished." action={<Link href={recordHref(session.id)} className="fitx-button">View its record</Link>} /></ActiveState>;
 
   const paused = Boolean(clock?.paused);
   const fieldsNotice = unavailableFieldsNotice(targetsSupported, timedSetsSupported);
@@ -756,7 +763,7 @@ export default function ActiveWorkoutPage() {
       </button>;
     })}</nav>}
 
-    {!exercises.length && <EmptyState title="No exercises in this session" description="This workout has no movements yet. Go back and start a saved plan with exercises." />}
+    {!exercises.length && <EmptyState headingLevel={2} title="No exercises in this session" description="This workout has no movements yet. Go back and start a saved plan with exercises." />}
     {currentExercise && currentProgress && <section aria-labelledby="current-exercise-title" className="fitx-panel overflow-hidden">
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:gap-7">
         <div className="min-w-0"><ExerciseDemo exerciseId={survivor} name={currentExercise.name} /></div>

@@ -1057,13 +1057,14 @@ export default function WorkoutsPage() {
     return startFailureMessage(started.failure);
   }
 
+  // The page's h1 is there in every state (bug 94), loading and unavailable included.
   if (loading) return (
-    <div className={styles.page} aria-busy="true" aria-label="Loading workouts">
-      <div className="mb-8 h-9 w-40 rounded-lg bg-fitx-surface-variant" />
-      <div className={styles.topGrid}><div className={`${styles.skeleton} h-96`} /><div className={`${styles.skeleton} hidden h-96 lg:block`} /></div>
+    <div className={styles.page}>
+      <PageHeader title="Workouts" />
+      <div className={styles.topGrid} aria-busy="true" aria-label="Loading workouts"><div className={`${styles.skeleton} h-96`} /><div className={`${styles.skeleton} hidden h-96 lg:block`} /></div>
     </div>
   );
-  if (error && !userId) return <EmptyState title="Workouts unavailable" description={error} action={<button className="fitx-button fitx-button-secondary" onClick={() => { setLoading(true); void load(); }}>Try again</button>} />;
+  if (error && !userId) return <div className={styles.page}><PageHeader title="Workouts" /><EmptyState headingLevel={2} title="Workouts unavailable" description={error} action={<button className="fitx-button fitx-button-secondary" onClick={() => { setLoading(true); void load(); }}>Try again</button>} /></div>;
   // Hidden only once the database has said it lacks the target columns, so nothing typed is lost on save.
   const showTargets = targetsSupported !== false;
   const gymEquipment = equipmentFor(profiles, "gym", preferences.equipment);

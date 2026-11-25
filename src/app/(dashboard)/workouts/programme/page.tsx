@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { ArrowLeft, Check, CircleDashed, Dumbbell, Minus, Moon } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { PageHeading } from "@/components/app/PageHeading";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { StatStrip } from "@/components/training/StatStrip";
 import { PlanPreviewSheet } from "@/components/workouts/PlanPreviewSheet";
 import { ProgrammeJourney, startedLabel } from "@/components/workouts/ProgrammeJourney";
@@ -122,10 +123,12 @@ export default function ProgrammeJourneyPage() {
     setLoadingEarlier(false);
   }
 
-  const back = <Link href="/workouts" className="inline-flex min-h-10 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workouts</Link>;
-  if (state === "loading") return <div className="space-y-4" role="status" aria-label="Loading your programme">{back}<div className="h-9 w-1/2 animate-pulse rounded bg-fitx-surface-variant motion-reduce:animate-none" /><div className="h-24 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /><div className="h-40 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /></div>;
-  if (state === "error") return <div className="space-y-4">{back}<EmptyState title="Programme unavailable" description={message} action={<button type="button" className="fitx-button fitx-button-secondary" onClick={() => { setState("loading"); void load(); }}>Try again</button>} /></div>;
-  if (state === "none" || !loaded || !view) return <div className="space-y-4">{back}<EmptyState title="You’re not following a programme" description="Pick a programme on the Workouts page. FITX plans your training days on the weekdays you choose, with rest days in between." action={<Link href="/workouts" className="fitx-button">Choose a programme</Link>} /></div>;
+  const back = <Link href="/workouts" className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workouts</Link>;
+  // Every state has one main heading (bug 94): "Programme" until the programme's own name can be shown.
+  const heading = <PageHeader title="Programme" className="mb-0 sm:mb-0" />;
+  if (state === "loading") return <div className="space-y-4">{back}{heading}<div role="status" aria-label="Loading your programme" className="space-y-4"><div className="h-24 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /><div className="h-40 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /></div></div>;
+  if (state === "error") return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="Programme unavailable" description={message} action={<button type="button" className="fitx-button fitx-button-secondary" onClick={() => { setState("loading"); void load(); }}>Try again</button>} /></div>;
+  if (state === "none" || !loaded || !view) return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="You’re not following a programme" description="Pick a programme on the Workouts page. FITX plans your training days on the weekdays you choose, with rest days in between." action={<Link href="/workouts" className="fitx-button">Choose a programme</Link>} /></div>;
 
   const { enrolment, programme } = loaded;
   const paused = enrolment.status === "paused";
