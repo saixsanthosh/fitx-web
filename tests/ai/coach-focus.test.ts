@@ -168,6 +168,16 @@ describe("the same mistake elsewhere in the coach", () => {
     const app = source("CoachApp.tsx");
     assert.match(app, /onClick=\{\(\) => \{ setProblem\(null\); setFocusKey\(\(key\) => key \+ 1\); \}\} aria-label="Dismiss"/);
     assert.doesNotMatch(app, /onClick=\{\(\) => setProblem\(null\)\}/);
+    // The box holds the words of a failed send again, and a failed open or delete (text "") leaves what was typed.
+    assert.match(app, /handleFailure\(error, ""\);/);
+    assert.match(app, /\n\s+if \(text\) setDraft\(text\);\n\s+const when = formatResetTime\(failure\.retryAt\);/);
+  });
+
+  test("the paused page's coach settings read the same words twice too (review round)", () => {
+    const paused = source("CoachPausedControls.tsx");
+    assert.match(paused, /role="status" aria-live="polite">\{announcementText\(announcement\.text, announcement\.count\)\}<\/p>/);
+    assert.match(paused, /announce\("Your coach data was deleted\."\);/);
+    assert.doesNotMatch(paused, /setAnnouncement\("/, "every announcement goes through announce()");
   });
 
   test("the sharing switch stays focusable once it can't be used, and says when it can be used again (review round)", () => {

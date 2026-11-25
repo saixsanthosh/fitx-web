@@ -162,7 +162,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       setStatus((old) => ({ ...old, state: failure.code as CoachState }));
       return;
     }
-    setDraft(text);
+    // A failed send puts its words back in the message box; a failed open or delete leaves what was typed there.
+    if (text) setDraft(text);
     const when = formatResetTime(failure.retryAt);
     const message =
       failure.code === "quota"

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import type { ProviderNotice } from "@/lib/ai/status";
 import { CoachSettings } from "./CoachSettings";
+import { announcementText } from "./focus-rules";
 
 /**
  * While the AI coach is switched off in Admin, /ai-coach lands on /unavailable: this keeps the coach's data
@@ -22,7 +23,9 @@ export function CoachPausedControls({
 }) {
   const [open, setOpen] = useState(false);
   const [shareData, setShareData] = useState(initialShareData);
-  const [announcement, setAnnouncement] = useState("");
+  // The same words twice are read twice (announcementText), as on the coach page.
+  const [announcement, setAnnouncement] = useState({ text: "", count: 0 });
+  const announce = (text: string) => setAnnouncement((old) => ({ text, count: old.count + 1 }));
 
   return (
     <div className="grid justify-items-center gap-2">
@@ -30,7 +33,7 @@ export function CoachPausedControls({
         <SlidersHorizontal aria-hidden="true" size={16} />
         Coach settings
       </button>
-      <p className="text-sm text-fitx-text-secondary" role="status" aria-live="polite">{announcement}</p>
+      <p className="text-sm text-fitx-text-secondary" role="status" aria-live="polite">{announcementText(announcement.text, announcement.count)}</p>
       <CoachSettings
         open={open}
         onClose={() => setOpen(false)}
@@ -41,12 +44,12 @@ export function CoachPausedControls({
         canTurnOn={false}
         onShareChange={(share) => {
           setShareData(share);
-          setAnnouncement(share ? "" : "The coach no longer uses your FITX data.");
+          announce(share ? "" : "The coach no longer uses your FITX data.");
         }}
         onDeleted={() => {
           setOpen(false);
           setShareData(false);
-          setAnnouncement("Your coach data was deleted.");
+          announce("Your coach data was deleted.");
         }}
       />
     </div>
