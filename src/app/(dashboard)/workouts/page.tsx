@@ -50,6 +50,7 @@ import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
+import { BUILDER_FIELD_IDS, builderSaveProblem, type BuilderProblem } from "./_lib/builder-save";
 import { MAX_PLAN_EXERCISES, focusAfterRemove, focusAfterSwap, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { pickToday } from "./_lib/today-pick";
@@ -265,6 +266,10 @@ export default function WorkoutsPage() {
   // what the builder's live region says about it (bug 14).
   const [builderFocus, setBuilderFocus] = useState<{ target: BuilderFocus; seq: number } | null>(null);
   const [builderNotice, setBuilderNotice] = useState("");
+  // Why the builder could not save or add, beside the control it is about (bug 85); a field problem focuses that field.
+  const [builderProblem, setBuilderProblem] = useState<BuilderProblem | null>(null);
+  const [builderFieldFocus, setBuilderFieldFocus] = useState<{ id: string; seq: number } | null>(null);
+  useEffect(() => { if (builderFieldFocus) document.getElementById(builderFieldFocus.id)?.focus(); }, [builderFieldFocus]);
   const [autoDay, setAutoDay] = useState(0);
   const [autoSeed, setAutoSeed] = useState(0);
   const [autoNote, setAutoNote] = useState("");
@@ -456,7 +461,7 @@ export default function WorkoutsPage() {
       setBuilderMode("custom"); setEditingPlanId(null); setEditingProgrammeDay(false); setTitle("Custom workout"); setPlanNotes(""); setSplit(preferences.workout_split || "full_body"); setPlanLocation(preferences.workout_location || "gym");
       setPlannedFor(localDateKey());
       setPreview([plannedFrom(exercise, 0)]); setAutoNote("");
-      setBuilderNotice(""); setCreatorOpen(true);
+      setBuilderNotice(""); setBuilderProblem(null); setCreatorOpen(true);
       window.history.replaceState(null, "", "/workouts");
     });
   }, [catalog, loading, preferences.workout_split, preferences.workout_location]);
@@ -697,6 +702,7 @@ export default function WorkoutsPage() {
   /** Opens the builder with its live region quiet (nothing from an earlier visit is read out again). */
   function showBuilder() {
     setBuilderNotice("");
+    setBuilderProblem(null);
     setCreatorOpen(true);
   }
 
@@ -826,7 +832,8 @@ export default function WorkoutsPage() {
   /** Ticking adds the exercise at the end; unticking removes it. The other rows keep their order and edits. */
   function toggleSelected(exercise: CatalogExercise) {
     const next = toggleRow(preview, exercise);
-    if (!next) { setError(`A workout can contain up to ${MAX_PLAN_EXERCISES} exercises.`); return; }
+    if (!next) { setBuilderProblem({ at: "picker", message: `A workout can contain up to ${MAX_PLAN_EXERCISES} exercises.` }); return; }
+    setBuilderProblem((current) => (current?.at === "picker" ? null : current));
     setPreview(next);
   }
 
@@ -928,14 +935,18 @@ export default function WorkoutsPage() {
   }
 
   async function savePlan(thenStart = false) {
-    setError(""); setNotice("");
-    if (!userId || !title.trim() || preview.length === 0) {
-      setError(preview.length === 0 ? "Choose at least one exercise for your workout." : "Give this workout a name.");
+    // Not disabled while saving (Chrome would drop focus from the pressed button): a second press is ignored.
+    if (saving) return;
+    setError(""); setNotice(""); setBuilderProblem(null);
+    const problem = builderSaveProblem({ title, exerciseCount: preview.length, programmeDay: editingProgrammeDay, plannedFor, originalPlannedFor: editingPlannedFor });
+    if (problem) {
+      setBuilderProblem(problem);
+      if (problem.at === "name" || problem.at === "date") setBuilderFieldFocus((current) => ({ id: BUILDER_FIELD_IDS[problem.at as "name" | "date"].field, seq: (current?.seq ?? 0) + 1 }));
       return;
     }
-    if (editingProgrammeDay && plannedFor !== editingPlannedFor) return setError("A programme day keeps its date.");
+    const saveProblem = (message: string) => { setBuilderProblem({ at: "save", message }); };
     const supabase = createClient();
-    if (!supabase) return setError("FITX is not connected to Supabase.");
+    if (!userId || !supabase) return saveProblem("FITX is not connected to Supabase.");
     setSaving(true);
     const patch = {
       title: title.trim(), split, workout_location: planLocation,
@@ -957,7 +968,7 @@ export default function WorkoutsPage() {
     if (!rpc.error) return afterSave(supabase, rpc.data as string, false, thenStart, previousPlannedFor);
     if (!isMissingFunctionError(rpc.error)) {
       setSaving(false);
-      return setError(editingPlanId ? "The workout could not be updated. Your saved plan is unchanged." : "The workout could not be saved. Please try again.");
+      return saveProblem(editingPlanId ? "The workout could not be updated. Your saved plan is unchanged." : "The workout could not be saved. Please try again.");
     }
 
     if (editingPlanId) {
@@ -966,21 +977,21 @@ export default function WorkoutsPage() {
         readPlanRows(editingPlanId),
       ]);
       if (currentPlan.error || !currentPlan.data || currentExercises.error) {
-        setSaving(false); return setError("The saved workout could not be prepared for an update. Check your connection and try again.");
+        setSaving(false); return saveProblem("The saved workout could not be prepared for an update. Check your connection and try again.");
       }
       originalPlan = currentPlan.data;
       originalRows = currentExercises.rows;
       if (!currentExercises.includedTargets) includeTargets = false;
       const updated = await supabase.from("workout_plans").update(patch).eq("id", editingPlanId).eq("user_id", userId);
-      if (updated.error) { setSaving(false); return setError("The workout details could not be updated."); }
+      if (updated.error) { setSaving(false); return saveProblem("The workout details could not be updated."); }
       const removed = await supabase.from("workout_plan_exercises").delete().eq("plan_id", editingPlanId).eq("user_id", userId);
       if (removed.error) {
         await supabase.from("workout_plans").update(originalPlan).eq("id", editingPlanId).eq("user_id", userId);
-        setSaving(false); return setError("The workout exercises could not be updated. Your previous plan was restored.");
+        setSaving(false); return saveProblem("The workout exercises could not be updated. Your previous plan was restored.");
       }
     } else {
       const inserted = await supabase.from("workout_plans").insert({ user_id: userId, ...patch }).select("id").single();
-      if (inserted.error || !inserted.data) { setSaving(false); return setError("The workout could not be saved. Please try again."); }
+      if (inserted.error || !inserted.data) { setSaving(false); return saveProblem("The workout could not be saved. Please try again."); }
       planId = inserted.data.id;
     }
 
@@ -1009,11 +1020,11 @@ export default function WorkoutsPage() {
         await supabase.from("workout_plans").delete().eq("id", planId).eq("user_id", userId);
       }
       setSaving(false);
-      return setError(restored ? "The workout exercises could not be saved. Your previous plan was restored." : "The workout update was interrupted. Reload this page and check the saved exercise list.");
+      return saveProblem(restored ? "The workout exercises could not be saved. Your previous plan was restored." : "The workout update was interrupted. Reload this page and check the saved exercise list.");
     }
     // Only possible when the builder showed target fields before the database said it lacks them.
     const droppedTargets = !savedExercises.includedOptional && hasValuesIn(rows, PRESCRIPTION_TARGET_COLUMNS);
-    if (!planId) { setSaving(false); return setError("The workout could not be saved. Please try again."); }
+    if (!planId) { setSaving(false); return saveProblem("The workout could not be saved. Please try again."); }
     return afterSave(supabase, planId, droppedTargets, thenStart, originalPlan ? originalPlan.planned_for : previousPlannedFor);
   }
 
@@ -1306,8 +1317,23 @@ export default function WorkoutsPage() {
             {(focusPickerOpen || !focusAreas.length) && <div id="builder-focus-tiles"><MuscleRail bleed={false} value={focusAreas} label="Body areas to train" details={focusDetails} onChange={(areas) => { setFocusAreas(areas); applyFocus(builderContext, areas, autoSeed); }} /></div>}
           </div>}
           <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Workout name<input className="fitx-field" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-            <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Date<input className="fitx-field" type="date" value={plannedFor} onChange={(event) => setPlannedFor(event.target.value)} disabled={editingProgrammeDay} aria-describedby={editingProgrammeDay ? "programme-day-date-note" : undefined} />{editingProgrammeDay && <span id="programme-day-date-note">A programme day keeps its date.</span>}</label>
+            {/* A problem with the name or date shows right under the field, which is marked invalid and takes focus (bug 85). */}
+            <div className="grid content-start gap-1.5">
+              <label htmlFor={BUILDER_FIELD_IDS.name.field} className="text-xs text-fitx-text-secondary">Workout name</label>
+              <input id={BUILDER_FIELD_IDS.name.field} className="fitx-field aria-invalid:border-fitx-danger!" maxLength={120} value={title}
+                aria-invalid={builderProblem?.at === "name" || undefined} aria-describedby={builderProblem?.at === "name" ? BUILDER_FIELD_IDS.name.message : undefined}
+                onChange={(event) => { setTitle(event.target.value); setBuilderProblem((current) => (current?.at === "name" ? null : current)); }} />
+              {builderProblem?.at === "name" && <p id={BUILDER_FIELD_IDS.name.message} role="alert" className="m-0 text-xs font-medium text-fitx-danger">{builderProblem.message}</p>}
+            </div>
+            <div className="grid content-start gap-1.5">
+              <label htmlFor={BUILDER_FIELD_IDS.date.field} className="text-xs text-fitx-text-secondary">Date</label>
+              <input id={BUILDER_FIELD_IDS.date.field} className="fitx-field aria-invalid:border-fitx-danger!" type="date" value={plannedFor} disabled={editingProgrammeDay}
+                aria-invalid={builderProblem?.at === "date" || undefined}
+                aria-describedby={[editingProgrammeDay ? "programme-day-date-note" : "", builderProblem?.at === "date" ? BUILDER_FIELD_IDS.date.message : ""].filter(Boolean).join(" ") || undefined}
+                onChange={(event) => { setPlannedFor(event.target.value); setBuilderProblem((current) => (current?.at === "date" ? null : current)); }} />
+              {editingProgrammeDay && <span id="programme-day-date-note" className="text-xs text-fitx-text-secondary">A programme day keeps its date.</span>}
+              {builderProblem?.at === "date" && <p id={BUILDER_FIELD_IDS.date.message} role="alert" className="m-0 text-xs font-medium text-fitx-danger">{builderProblem.message}</p>}
+            </div>
             <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Start time<input className="fitx-field" type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={!plannedFor} /></label>
             {builderProgramme && <label className="grid gap-1.5 text-xs text-fitx-text-secondary">Day<select className="fitx-field" value={autoDay % builderProgramme.days.length} onChange={(event) => { const day = Number(event.target.value); setAutoDay(day); applyAuto(builderContext, day, autoSeed); }}>{builderProgramme.days.map((day, index) => <option key={day.key} value={index}>{day.title}</option>)}</select></label>}
           </div>
@@ -1336,9 +1362,14 @@ export default function WorkoutsPage() {
             ))}</ol> : <p className="rounded-xl border border-dashed border-fitx-border px-4 py-5 text-sm text-fitx-text-secondary">{builderMode === "focus" && !editingPlanId && !focusAreas.length ? "Pick an area above or add exercises below." : "Add exercises below."}</p>}
           </div>
           <LibraryPicker catalog={catalog} selectedIds={selected} owned={builderOwned} listName={builderContext} full={preview.length >= MAX_PLAN_EXERCISES} onToggle={toggleSelected} onInfo={setInfoExercise} />
-          {error && <p role="alert" className="fitx-alert fitx-alert-danger mt-4 px-3 py-2 text-sm">{error}</p>}
+          {builderProblem?.at === "picker" && <p role="alert" className="fitx-alert fitx-alert-danger mt-4 px-3 py-2 text-sm">{builderProblem.message}</p>}
         </div>
-        <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-fitx-divider bg-fitx-elevated p-3 sm:flex sm:justify-end sm:px-6 sm:py-4"><button disabled={saving || !preview.length} onClick={() => void savePlan()} className={`fitx-button ${activeSession ? "col-span-2" : "fitx-button-secondary"}`}>{saving ? "Saving…" : editingPlanId ? "Save changes" : "Save workout"}<CalendarDays size={16}/></button>{!activeSession && <button disabled={saving || !preview.length || Boolean(starting)} onClick={() => void savePlan(true)} className="fitx-button">{starting ? "Starting…" : "Save and start"}<ArrowRight size={16}/></button>}</div>
+        <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-fitx-divider bg-fitx-elevated p-3 sm:flex sm:flex-wrap sm:justify-end sm:px-6 sm:py-4">
+          {/* A save that did not work says so here, beside the buttons (D6); the buttons keep focus while saving. */}
+          {builderProblem?.at === "save" && <p role="alert" className="fitx-alert fitx-alert-danger col-span-2 m-0 px-3 py-2 text-sm sm:basis-full">{builderProblem.message}</p>}
+          <button disabled={!preview.length} aria-disabled={saving || undefined} onClick={() => void savePlan()} className={`fitx-button aria-disabled:opacity-60 ${activeSession ? "col-span-2" : "fitx-button-secondary"}`}>{saving ? "Saving…" : editingPlanId ? "Save changes" : "Save workout"}<CalendarDays size={16}/></button>
+          {!activeSession && <button disabled={!preview.length} aria-disabled={saving || Boolean(starting) || undefined} onClick={() => { if (!starting) void savePlan(true); }} className="fitx-button aria-disabled:opacity-60">{starting ? "Starting…" : "Save and start"}<ArrowRight size={16}/></button>}
+        </div>
       </div></div>}
 
       {rowToSwap && <SwapSheet target={rowToSwap.exercise} catalog={catalog} owned={builderOwned} level={level} exclude={new Set(preview.map((row) => row.exercise.id))} contextLabel={builderContext} onPick={(exercise) => swapPreview(swapIndex!, exercise)} onClose={() => setSwapIndex(null)} />}
