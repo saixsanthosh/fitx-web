@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { formatAmount } from "@/lib/domain/food-query";
 import type { FoodResult } from "@/lib/food/types";
+import { FITX_RECIPE_SOURCE } from "@/lib/food/value-basis";
 import { BasisBadge, DietBadge, StateTag } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
 
@@ -10,7 +11,8 @@ import styles from "./FoodUi.module.css";
  */
 export function FoodResultCard({ food, active, dietUnchecked = false, onSelect }: { food: FoodResult; active: boolean; dietUnchecked?: boolean; onSelect: (food: FoodResult) => void }) {
   const piece = food.portions.find((portion) => portion.countDefault) ?? food.portions[0];
-  const meta = [food.brand, food.kind === "custom" ? "Your food" : food.source === "Open Food Facts" ? "Open Food Facts" : food.kind === "catalog" && food.source === "USDA FoodData Central" ? "USDA" : food.source]
+  // Who the values come from; the badge says how. A FITX recipe estimate is FITX's own, as a USDA food is "USDA".
+  const meta = [food.brand, food.kind === "custom" ? "Your food" : food.source === "Open Food Facts" ? "Open Food Facts" : food.kind === "catalog" && food.source === "USDA FoodData Central" ? "USDA" : food.source === FITX_RECIPE_SOURCE ? "FITX" : food.source]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -20,7 +22,7 @@ export function FoodResultCard({ food, active, dietUnchecked = false, onSelect }
         <span className={styles.foodName}>{food.name}</span>
         <span className={styles.foodMeta}>{meta}{food.recentCount > 0 ? " · logged recently" : ""}{food.suggestion ? " · similar spelling" : ""}</span>
         <span className={styles.foodTags}>
-          <BasisBadge basis={food.valueBasis}/>
+          <BasisBadge basis={food.valueBasis} source={food.source}/>
           <StateTag state={food.state}/>
           <DietBadge diet={food.dietType}/>
           {dietUnchecked && <span className={styles.tag} title="FITX has no diet label for this food, so the diet filter can't hide it. Check its ingredients.">Diet not checked</span>}

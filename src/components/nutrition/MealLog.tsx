@@ -96,7 +96,7 @@ function EntryRow({ entry, onEdit, onDelete }: { entry: MealEntry; onEdit: (entr
         <p className={styles.rowMeta}>
           <span>{amountText}</span>
           {portion?.estimate && <PortionEstimateBadge/>}
-          <BasisBadge basis={entryBasis(entry)}/>
+          <BasisBadge basis={entryBasis(entry)} source={entry.source}/>
         </p>
         <p className={styles.rowMacros}>{macro("P", "protein")} · {macro("C", "carbs")} · {macro("F", "fat")}</p>
       </div>

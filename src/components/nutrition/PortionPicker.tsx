@@ -7,6 +7,7 @@ import type { FoodPortion, FoodUnit } from "@/lib/domain/food-query";
 import type { FoodMacros, MacroKey } from "@/lib/domain/nutrition";
 import { amountMode, countMode, pieceSizeLabel } from "@/lib/food/pieces";
 import type { FoodResult } from "@/lib/food/types";
+import { FITX_RECIPE_SOURCE } from "@/lib/food/value-basis";
 import { PortionEstimateBadge } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
 
@@ -100,7 +101,9 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
           ? `A ${chosen.unit} is taken as ${formatAmount(chosen.vessel.ml)} ml (${chosen.vessel.custom ? "the size you set" : "FITX's working size, not a standard"}), weighed with this food's USDA ${chosen.derivedFrom?.label ?? "measure"} = ${formatAmount(chosen.derivedFrom?.grams ?? 0)} g.`
           : chosen.derivedFrom
             ? `Worked out from USDA's ${chosen.derivedFrom.label} = ${formatAmount(chosen.derivedFrom.grams)} g (US measures).`
-            : `USDA average for ${chosen.label}: ${formatAmount(chosen.grams)} g.`} Real pieces and cups vary; weigh it for an exact log.
+            : food.source === FITX_RECIPE_SOURCE
+              ? `One serving is FITX's whole recipe: ${formatAmount(chosen.grams)} g of ingredients.`
+              : `USDA average for ${chosen.label}: ${formatAmount(chosen.grams)} g.`} Real pieces and cups vary; weigh it for an exact log.
       </p>}
       {!hasVolume && <p className={styles.portionSource}>No ml, cup or katori: the source has no volume measure for this food.</p>}
       {hasVessel && onMeasures && <button type="button" className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}

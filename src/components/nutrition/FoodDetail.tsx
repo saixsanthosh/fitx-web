@@ -63,7 +63,7 @@ export function FoodDetail(props: FoodDetailProps) {
         <div className="min-w-0 flex-1">
           <p className="text-[17px] font-semibold leading-snug tracking-[-.01em]">{food.name}</p>
           <p className="mt-1 text-xs text-fitx-text-secondary">{food.brand ? `${food.brand} · ` : ""}{food.basis}</p>
-          <p className="mt-1.5 flex flex-wrap gap-1"><BasisBadge basis={food.valueBasis}/><StateTag state={food.state}/><DietBadge diet={food.dietType}/></p>
+          <p className="mt-1.5 flex flex-wrap gap-1"><BasisBadge basis={food.valueBasis} source={food.source}/><StateTag state={food.state}/><DietBadge diet={food.dietType}/></p>
         </div>
         {props.onClear && <button type="button" onClick={props.onClear} aria-label="Clear selected food" className={styles.iconButton}><X size={16}/></button>}
       </div>

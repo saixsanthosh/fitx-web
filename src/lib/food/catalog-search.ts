@@ -8,7 +8,7 @@ import type { FoodPortion } from "@/lib/domain/food-query";
 import { dietTypeOf, stapleDietType, strongerDiet } from "@/lib/food/diet";
 import { recipeValues, type RecipeDef } from "@/lib/food/recipe";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
-import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
+import { basisForDataType, basisInfo, customValueBasis, FITX_RECIPE_SOURCE } from "@/lib/food/value-basis";
 
 export const USDA_SOURCE = "USDA FoodData Central";
 export const CUSTOM_SOURCE = "FITX custom food";
@@ -53,7 +53,7 @@ interface StapleJson {
 }
 type FoundationJson = Array<{ id: string; name: string; calories: number; protein: number; carbs: number; fat: number }>;
 
-export const RECIPE_SOURCE = "FITX recipe estimate";
+export const RECIPE_SOURCE = FITX_RECIPE_SOURCE;
 
 /** Aliases and keywords an overlay adds to a food, from fitx-staples.json `names`. */
 export function overlayFor(names: StapleJson["names"], id: string): { aliases: string[]; keywords: string[] } {
@@ -84,7 +84,8 @@ function recipeFood(recipe: RecipeDef): RankableFood {
     source: RECIPE_SOURCE,
     dataType: null,
     valueBasis: "estimated",
-    basis: "FITX recipe estimate · calculated from USDA ingredients",
+    // The badge already says "FITX recipe estimate"; this line says how.
+    basis: "Calculated by FITX from USDA values for its ingredients",
     state: recipe.state,
     dietType: recipe.diet,
     portions: [values.portion],
