@@ -55,7 +55,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
-import { amountProblem, listedFoods, noSearchReason, startView, type BrowseList } from "@/lib/food/log-sheet";
+import { amountProblem, barcodeMissFor, barcodeMissText, listedFoods, noSearchReason, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -73,7 +73,6 @@ async function loadPrefs(supabase: NonNullable<ReturnType<typeof createClient>>,
 type Tab = "meals" | "foods" | "routines" | "history";
 type LogMode = "search" | "barcode";
 type NamePrompt = { kind: "meal"; slot: string; initial: string } | { kind: "day"; initial: string } | { kind: "section"; then: "sheet" | "none" };
-type BarcodeMiss = { code: string; name: string | null; noLabel: boolean };
 
 const EXAMPLES = ["3 idli", "2 roti", "150 g rice", "1 cup dal", "2 eggs"];
 const NO_AMOUNT = parseFoodQuery("");
@@ -433,7 +432,8 @@ export default function NutritionPage() {
   const lookupBarcode = useCallback(async (value: string) => {
     const checked = checkBarcode(value);
     if (!checked.ok) { setError(barcodeProblem(checked.reason)); return; }
-    setBusy(true); setError(""); setNotice(""); setBarcodeMiss(null);
+    // Trying the same barcode again keeps its answer on screen (and its Try again button under the focus) until the new one.
+    setBusy(true); setError(""); setNotice(""); setBarcodeMiss((miss) => (miss?.code === checked.code ? miss : null));
     try {
       const response = await fetch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`, SEARCH_FETCH);
       const data = (await response.json()) as FoodSearchResponse;
@@ -442,12 +442,14 @@ export default function NutritionPage() {
       setSources(data.sources || []);
       setSearchMode("barcode");
       setLastQuery(NO_AMOUNT);
-      if (data.foods?.length) chooseFood(data.foods[0]);
-      else if (data.barcodeStatus === "invalid") setError(data.error || barcodeProblem("check-digit"));
-      else if (data.barcodeStatus === "rate_limited") setError("Open Food Facts is busy right now (it limits how often FITX can ask). Try again in a minute, or add the product yourself.");
-      else if (data.barcodeStatus === "timeout" || data.barcodeStatus === "unavailable") setError("Open Food Facts didn't answer, so the barcode couldn't be checked. Try again shortly, or add the product yourself.");
-      else { setSelected(null); setBarcodeMiss({ code: checked.code, name: data.productName ?? null, noLabel: data.barcodeStatus === "no_label" }); }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Barcode lookup failed."); }
+      if (data.foods?.length) {
+        chooseFood(data.foods[0]);
+        // The barcode controls make way for the product: its amount takes the focus.
+        window.setTimeout(() => document.getElementById("log-portion-amount")?.focus({ preventScroll: true }), 60);
+      } else if (data.barcodeStatus === "invalid") { setBarcodeMiss(null); setError(data.error || barcodeProblem("check-digit")); }
+      // Unknown, no label, or not checked (busy, no answer): each says why and offers to add the product with this barcode.
+      else { setSelected(null); setBarcodeMiss(barcodeMissFor(data.barcodeStatus, checked.code, data.productName)); }
+    } catch (cause) { setBarcodeMiss(null); setError(cause instanceof Error ? cause.message : "Barcode lookup failed."); }
     finally { setBusy(false); }
   }, [chooseFood]);
 
@@ -1162,7 +1164,7 @@ export default function NutritionPage() {
               {foodList}
               {visibleSources.length > 0 && !showBrowse && <p className={styles.sources} aria-label="Sources for these results">{visibleSources.map((source) => <span key={source.id} className={source.status === "ok" || source.status === "no_results" ? styles.sourceChip : styles.sourceChipDown}>{sourceText(source)}</span>)}</p>}
               <div className={styles.sheetFoot}>
-                <button type="button" id="log-add-food" onClick={() => { hideLog("log-add-food"); setFoodForm({ editing: null, prefill: null }); }} className={ui.textButton}><Plus size={13} className="mr-1 inline" aria-hidden="true"/>Add your own food</button>
+                <button type="button" id="log-add-food" onClick={() => { hideLog("log-add-food"); setFoodForm({ editing: null, prefill: barcodeMiss ? { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } : null }); }} className={ui.textButton}><Plus size={13} className="mr-1 inline" aria-hidden="true"/>Add your own food</button>
                 <Link href="/nutrition/sources" className={ui.textButton}><BookOpen size={13} className="mr-1 inline" aria-hidden="true"/>Sources</Link>
               </div>
             </> : <div className={styles.barcode}>
@@ -1177,16 +1179,20 @@ export default function NutritionPage() {
                   <button className="fitx-button shrink-0 px-4" disabled={busy || !barcode.trim()} aria-label="Find barcode">{busy ? "Finding…" : "Find"}</button>
                 </div>
               </form>
-              {barcodeMiss && <div className={ui.callout}>
-                <p>{barcodeMiss.noLabel
-                  ? `Open Food Facts knows ${barcodeMiss.code}${barcodeMiss.name ? ` (“${barcodeMiss.name}”)` : ""} but has no nutrition label for it.`
-                  : `No product with barcode ${barcodeMiss.code} on Open Food Facts.`} Nothing was guessed.</p>
-                <div className={ui.toolbar}>
-                  <button type="button" id="log-barcode-create" className="fitx-button min-h-11 px-3 text-xs" onClick={() => { hideLog("log-barcode-create"); setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } }); }}>Create a food</button>
-                  <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => { setBarcodeMiss(null); setLogMode("search"); window.setTimeout(() => searchInput.current?.focus(), 60); }}>Search by name</button>
-                  <a className={ui.textButton} href={`https://world.openfoodfacts.org/product/${barcodeMiss.code}`} target="_blank" rel="noopener noreferrer">Add to Open Food Facts</a>
-                </div>
-              </div>}
+              {barcodeMiss && (() => {
+                // Every miss (unknown, no label, or not checked because Open Food Facts was busy or didn't answer) offers
+                // to add the product with this barcode filled in; one not checked also offers to try again.
+                const said = barcodeMissText(barcodeMiss);
+                return <div className={ui.callout}>
+                  <p role="status">{said.text}</p>
+                  <div className={ui.toolbar}>
+                    <button type="button" id="log-barcode-create" className="fitx-button min-h-11 px-3 text-xs" onClick={() => { hideLog("log-barcode-create"); setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } }); }}>Create a food</button>
+                    {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-3 text-xs ${ui.actionBusy}`} aria-disabled={busy || undefined} onClick={() => { if (!busy) void lookupBarcode(barcodeMiss.code); }}>{busy ? "Checking…" : "Try again"}</button>}
+                    <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => { setBarcodeMiss(null); setLogMode("search"); window.setTimeout(() => searchInput.current?.focus(), 60); }}>Search by name</button>
+                    {said.addToOpenFoodFacts && <a className={ui.textButton} href={`https://world.openfoodfacts.org/product/${barcodeMiss.code}`} target="_blank" rel="noopener noreferrer">Add to Open Food Facts</a>}
+                  </div>
+                </div>;
+              })()}
             </div>}
           </>}
         </div>
