@@ -28,7 +28,7 @@ test("Sheet takes returnFocus as an optional, additive prop and uses the same ru
   assert.match(sheet, /returnFocus\?: RefObject<HTMLElement \| null>;/);
   assert.equal((sheet.match(/returnFocusTarget\(named\.current\?\.current, opener\.current, document\.body\)\?\.focus\(\);/g) ?? []).length, 2);
   // Existing props keep their names and defaults (other streams' sheets are unchanged).
-  assert.match(sheet, /export function Sheet\(\{ open, onClose, title, description, children, footer, side = "auto", className = "", returnFocus \}: SheetProps\)/);
+  assert.match(sheet, /export function Sheet\(\{ open, onClose, title, description, children, footer, side = "auto", className = "", returnFocus, notice \}: SheetProps\)/);
 });
 
 test("Message stays focusable while it looks things up, and names itself as the place to return to", () => {
