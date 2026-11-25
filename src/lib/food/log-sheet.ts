@@ -3,12 +3,24 @@
  * to the amount (only while it is wrong), the start view the sheet opens on and goes back to, and what a barcode
  * lookup that found no usable product says and offers.
  */
-import { parseFoodQuery, type ParsedFoodQuery } from "@/lib/domain/food-query";
+import { parseFoodQuery, type FoodPortion, type ParsedFoodQuery } from "@/lib/domain/food-query";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 
 /** The amount's problem once Add to log was pressed, or null: it goes away as soon as the amount is right. */
 export function amountProblem(grams: number): string | null {
   return Number.isFinite(grams) && grams >= 1 && grams <= 5000 ? null : "Enter an amount that comes to between 1 and 5,000 grams.";
+}
+
+/**
+ * The measure a food opens on when nothing was typed, as an index into its measures (-1: 100 g). Its default piece or
+ * serving first; else the serving its own data gives: a package label's, or the one you saved for a food of your own,
+ * even when that is only a weight ("Digestive biscuits", 45 g, opens at 1 × 45 g, not 100 g). Such a weight is the
+ * opening amount only: it never answers a bare count, so "3 digestive biscuits" still asks for grams.
+ */
+export function openingPortion(food: Pick<FoodResult, "kind">, portions: readonly FoodPortion[]): number {
+  const usual = portions.findIndex((portion) => portion.countDefault);
+  if (usual >= 0 || (food.kind !== "custom" && food.kind !== "packaged")) return usual;
+  return portions.findIndex((portion) => portion.unit === "serving" && portion.estimate === false);
 }
 
 /** What the sheet lists before anything is searched: the staples (with Frequent and Recent above them). */

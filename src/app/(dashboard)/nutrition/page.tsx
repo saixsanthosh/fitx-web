@@ -55,7 +55,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
-import { amountProblem, barcodeMissFor, barcodeMissText, listedFoods, noSearchReason, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
+import { amountProblem, barcodeMissFor, barcodeMissText, listedFoods, noSearchReason, openingPortion, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -419,9 +419,9 @@ export default function NutritionPage() {
       const measures = portions.length && resolution.reason !== "no-size-weight" && resolution.unit !== "spoon" ? " You can also pick one of this food's measures under Unit." : "";
       setAmountPrompt({ message: `${askForGramsMessage(food.name, resolution)}${measures}`, actions, typed: { amount: resolution.amount, unit: resolution.unit } });
     } else {
-      // Nothing typed: one of the food's own pieces or servings when it has one, otherwise 100 g.
-      // The label's own serving is the default for a scanned product.
-      const index = portions.findIndex((portion) => portion.countDefault || (food.kind === "packaged" && portion.unit === "serving" && portion.estimate === false));
+      // Nothing typed: one of the food's own pieces or servings when it has one, otherwise 100 g. A scanned product
+      // opens on its label's serving, and a food of the member's own on the serving they saved, even a plain weight.
+      const index = openingPortion(food, portions);
       setUnitKey(index >= 0 ? `portion:${index}` : "g");
       if (typed.problem) {
         // "0 idli" or "-2 idli": no amount is assumed; the panel says why and waits for one.

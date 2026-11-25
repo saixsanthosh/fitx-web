@@ -17,7 +17,8 @@ const round1 = (value: number) => Math.round(value * 10) / 10;
  * The saved serving as a measure. One that names a single measure counts as it: "1 item" (38 g) is a piece, "1 cup"
  * (240 g) a cup, so cups, ml and katori follow from it. Another named serving ("2 biscuits") is the food's default
  * count. A serving that is only a weight ("100 g", or no name) is not a count: "3 idli" is never 3 × 100 g; the app
- * asks for grams instead. None is an estimate: the member weighed it or copied it.
+ * asks for grams instead. It is still what the food opens on when nothing was typed (log-sheet's openingPortion).
+ * None is an estimate: the member weighed it or copied it.
  */
 export function customServingPortion(servingSize: unknown, servingGrams: unknown): FoodPortion {
   const grams = Number(servingGrams) > 0 ? Number(servingGrams) : 100;
