@@ -50,3 +50,10 @@ test("after a new code is sent, focus waits in the code field and the status lin
   assert.doesNotMatch(text, /\{notice && !error && <p role="status"/, "not added together with its text");
   assert.match(read("src/components/auth/auth.module.css"), /\.notice:empty \{ position: absolute; \}/, "out of the flow while empty, still in the accessibility tree");
 });
+
+test("while the code signs in, the code field is read-only, not disabled, so it keeps focus until the page moves on", () => {
+  const field = read("src/components/auth/CodeField.tsx");
+  assert.match(field, /readOnly=\{readOnly\}/);
+  assert.doesNotMatch(field, /\bdisabled=/, "a disabled field would drop focus to the page for up to the sign-in finish's 15 s");
+  assert.match(read("src/components/auth/EmailCodeStep.tsx"), /readOnly=\{signingIn\}/);
+});

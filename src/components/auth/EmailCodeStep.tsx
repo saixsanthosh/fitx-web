@@ -57,7 +57,7 @@ export function EmailCodeStep({ flow }: { flow: EmailCode }) {
           onChange={setCode}
           onComplete={(full) => void flow.verify(full)}
           invalid={Boolean(error)}
-          disabled={signingIn}
+          readOnly={signingIn}
           describedBy={error ? "auth-code-error" : undefined}
         />
         {error && <p id="auth-code-error" role="alert" className={s.error}>{error}</p>}
