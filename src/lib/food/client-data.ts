@@ -12,6 +12,8 @@ import { parseExtraNutrients } from "@/lib/food/custom-nutrients";
 import { FOOD_PHOTO_BUCKET } from "@/lib/food/food-photos";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
 import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
+import { catalogueCopies } from "@/lib/food/catalogue-copies";
+import { catalogueRef, customServingPortion, withSourceFood } from "@/lib/food/saved-foods";
 
 export const CUSTOM_SOURCE = "FITX custom food";
 export const MEAL_SLOTS = DEFAULT_MEALS;
@@ -301,13 +303,42 @@ const DIET_TYPES = new Set(["vegan", "veg", "egg", "non_veg"]);
  * Recent foods with your own foods as they are saved now: an edit applies at once, and a deleted food drops out,
  * so Recent never re-logs values you have corrected. Other foods keep what was logged.
  */
-export function withCurrentCustomFoods(recent: readonly FoodResult[], rows: readonly CustomFoodRow[], photoFor: (row: CustomFoodRow) => string | null = () => null): FoodResult[] {
+export function withCurrentCustomFoods(
+  recent: readonly FoodResult[],
+  rows: readonly CustomFoodRow[],
+  photoFor: (row: CustomFoodRow) => string | null = () => null,
+  savedFrom: SavedFrom = new Map(),
+): FoodResult[] {
   const byId = new Map(rows.map((row) => [row.id, row]));
   return recent.flatMap((food) => {
     if (food.kind !== "custom") return [food];
     const row = byId.get(food.id);
-    return row ? [customFoodResult(row, photoFor(row))] : [];
+    return row ? [customFoodResult(row, photoFor(row), sourceOf(row, savedFrom))] : [];
   });
+}
+
+/** The catalogue foods your own foods were copied from, by catalogue id (their source_ref). */
+export type SavedFrom = ReadonlyMap<string, Pick<FoodResult, "portions" | "dietType">>;
+
+/** The catalogue food a saved food was copied from, when this page has it. */
+export function sourceOf(row: Pick<CustomFoodRow, "source_ref">, savedFrom: SavedFrom): Pick<FoodResult, "portions" | "dietType"> | null {
+  const ref = catalogueRef(row.source_ref);
+  return ref ? savedFrom.get(ref) ?? null : null;
+}
+
+/**
+ * The catalogue foods (with their measures and diet labels) that the member's saved foods were copied from, read under
+ * row-level security. Empty when there are none, or when the catalogue can't answer (not seeded, or a read failed):
+ * the saved foods then keep only their own serving.
+ */
+export async function loadSavedFrom(supabase: SupabaseClient, rows: readonly Pick<CustomFoodRow, "source_ref">[]): Promise<SavedFrom> {
+  const ids = [...new Set(rows.map((row) => catalogueRef(row.source_ref)).filter((ref): ref is string => Boolean(ref) && /^\d+$/.test(ref as string)))];
+  if (!ids.length) return new Map();
+  try {
+    return (await catalogueCopies(supabase, ids)) ?? new Map();
+  } catch {
+    return new Map();
+  }
 }
 
 /** A custom food as stored (values per 100 g), with the v2 fields when the migration is applied. */
@@ -438,14 +469,15 @@ async function removePhotoFile(supabase: SupabaseClient, userId: string, path: s
   if (path && path.startsWith(`${userId}/foods/`)) await supabase.storage.from(FOOD_PHOTO_BUCKET).remove([path]);
 }
 
-/** A custom food as a search result; `photoUrl` is a signed link to the user's own photo of it. */
-export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = null): FoodResult {
-  const serving = Number(row.serving_grams) > 0 ? Number(row.serving_grams) : 100;
-  const label = row.serving_size && !/^\d+(\.\d+)?\s*g$/i.test(row.serving_size) ? `1 serving (${row.serving_size}, ${round1(serving)} g)` : `1 serving (${round1(serving)} g)`;
+/**
+ * A custom food as a search result; `photoUrl` is a signed link to the user's own photo of it, and `source` the
+ * catalogue food it was copied from (its measures and diet label apply while the values are still that food's).
+ */
+export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = null, source: Pick<FoodResult, "portions" | "dietType"> | null = null): FoodResult {
   const origin = row.origin ?? "user";
   const valueBasis = customValueBasis(origin, row.value_basis);
   const extra = parseExtraNutrients(row.extra);
-  return {
+  return withSourceFood({
     id: row.id,
     kind: "custom",
     name: row.name,
@@ -466,12 +498,13 @@ export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = n
     basis: origin === "ai_coach" ? `${basisInfo("ai_suggested").label} · saved` : `Your food · ${basisInfo(valueBasis).label}`,
     state: null,
     dietType: null,
-    portions: [{ label, unit: "serving", grams: serving, countDefault: true, estimate: false }],
+    // The saved serving counts as the measure it names ("1 item", "1 cup").
+    portions: [customServingPortion(row.serving_size, row.serving_grams)],
     barcode: row.barcode ?? null,
     origin,
     recentCount: 0,
     suggestion: false,
-  };
+  }, source);
 }
 
 /** Saved meals ("meal") and daily routines ("day"). */

@@ -47,10 +47,11 @@ import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, wr
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
   buildMealValues, sameMeal, clearTargets, customFoodResult, deleteTemplate, detectCapabilities, entryUpdate, foodFromEntry, frequentFromEntries, insertEntries, isEstimateSnapshot, loadCustomFoods,
-  loadRecentFoods, loadRecentMeals, loadTargets, loadTemplates, MEAL_COLUMNS, removeCustomFood, removeCustomFoodPhoto, rowsFromItems, saveCustomFood,
-  saveTargets, saveTemplate, usualAmount, withCurrentCustomFoods, type CustomFoodInput, type CustomFoodRow, type FrequentFood, type ManualTargets, type MealEntry,
-  type MealTemplate, type NutritionCapabilities,
+  loadRecentFoods, loadRecentMeals, loadSavedFrom, loadTargets, loadTemplates, MEAL_COLUMNS, removeCustomFood, removeCustomFoodPhoto, rowsFromItems, saveCustomFood,
+  saveTargets, saveTemplate, sourceOf, usualAmount, withCurrentCustomFoods, type CustomFoodInput, type CustomFoodRow, type FrequentFood, type ManualTargets, type MealEntry,
+  type MealTemplate, type NutritionCapabilities, type SavedFrom,
 } from "@/lib/food/client-data";
+import { servingToSave } from "@/lib/food/saved-foods";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -96,6 +97,8 @@ export default function NutritionPage() {
   const [capabilities, setCapabilities] = useState<NutritionCapabilities>(NO_CAPABILITIES);
   const [entries, setEntries] = useState<MealEntry[]>([]);
   const [customRows, setCustomRows] = useState<CustomFoodRow[]>([]);
+  /** The catalogue foods the member's own foods were copied from: their measures and diet labels still apply. */
+  const [savedFrom, setSavedFrom] = useState<SavedFrom>(() => new Map());
   /** Signed links to the user's own food photos, by storage path. */
   const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(() => new Map());
   const [templates, setTemplates] = useState<MealTemplate[]>([]);
@@ -164,7 +167,8 @@ export default function NutritionPage() {
     });
   }, []);
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
-  const [foodForm, setFoodForm] = useState<{ editing: CustomFoodRow | null; prefill: CustomFoodPrefill | null } | null>(null);
+  /** The food form: editing one of the member's foods, or a new one (`source`: the catalogue food it copies). */
+  const [foodForm, setFoodForm] = useState<{ editing: CustomFoodRow | null; prefill: CustomFoodPrefill | null; source?: FoodResult | null } | null>(null);
   const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null);
   const [targetsOpen, setTargetsOpen] = useState(false);
   const context = useOptionalUserContext()?.data ?? null;
@@ -198,7 +202,7 @@ export default function NutritionPage() {
       supabase.from("water_logs").select("amount_ml").eq("user_id", uid).eq("local_date", dateKey),
       supabase.from("profiles").select("age,gender,height,weight").eq("id", uid).maybeSingle(),
       loadPrefs(supabase, uid),
-      loadCustomFoods(supabase, uid, caps.customFoodsV2),
+      loadCustomFoods(supabase, uid, caps.customFoodsV2).then(async (rows) => ({ ...rows, savedFrom: await loadSavedFrom(supabase, rows.rows) })),
       caps.targets ? loadTargets(supabase, uid) : Promise.resolve(null),
       caps.templates ? loadTemplates(supabase, uid) : Promise.resolve([]),
       // Daily calorie and protein goals come first, as on Home, so both pages show the same "kcal left".
@@ -217,6 +221,7 @@ export default function NutritionPage() {
       setEstimated(estimateNutritionTargets({ ...profile, age: profileAge({ age: profile.age, date_of_birth: birthDate }) }, prefs?.activity_level, prefs?.primary_goal, prefs?.nutrition_focus ?? null));
       if (!dietFilterSet.current) { dietFilterSet.current = true; setDietFilter(dietFilterFor(prefs?.dietary_preferences)); }
       setCustomRows(custom.rows);
+      setSavedFrom(custom.savedFrom);
       if (caps.customFoodsV2) setPhotoUrls(await signedPhotoUrls(supabase, custom.rows.map((row) => row.image_path ?? "")));
       setManualTargets(targets);
       setDailyGoals(goalViews);
@@ -274,10 +279,12 @@ export default function NutritionPage() {
   const hiddenCount = results.length - shownResults.length;
 
   const photoFor = useCallback((row: CustomFoodRow | undefined) => (row?.image_path ? photoUrls.get(row.image_path) ?? null : null), [photoUrls]);
+  /** One of the member's own foods as the Log food sheet uses it: with its photo and what it keeps from the catalogue. */
+  const savedFood = useCallback((row: CustomFoodRow) => customFoodResult(row, photoFor(row), sourceOf(row, savedFrom)), [photoFor, savedFrom]);
   /** Recent foods, with your own foods as saved now (edits apply, deleted ones drop out), through the diet filter. */
   const shownRecent = useMemo(
-    () => withCurrentCustomFoods(recentFoods, customRows, photoFor).filter((food) => !hiddenByDiet(food.dietType, dietFilter)),
-    [recentFoods, customRows, photoFor, dietFilter],
+    () => withCurrentCustomFoods(recentFoods, customRows, photoFor, savedFrom).filter((food) => !hiddenByDiet(food.dietType, dietFilter)),
+    [recentFoods, customRows, photoFor, savedFrom, dietFilter],
   );
   function changeDietFilter(change: Partial<DietFilter>) {
     dietFilterSet.current = true;
@@ -450,9 +457,12 @@ export default function NutritionPage() {
           : "No matching food was found. Try other words, search packaged products, or add your own food.");
       }
       // Select the food that is clearly meant, or ask which one (keeping the amount, or saying why it can't be used).
-      const outcome = searchOutcome(typed, found, data.pick, dietFilter, packaged);
-      if (outcome.kind === "pick") chooseFood(outcome.food, typed);
-      else if (outcome.kind === "choose") {
+      const outcome = searchOutcome(typed, found, data.pick, dietFilter, packaged, data.passedOver);
+      if (outcome.kind === "pick") {
+        chooseFood(outcome.food, typed);
+        // The member's own food of that name couldn't weigh the amount typed: say which food is selected instead.
+        if (outcome.note) setNotice(outcome.note);
+      } else if (outcome.kind === "choose") {
         setSelected(null);
         setDerived(null);
         setAmountPrompt(null);
@@ -692,7 +702,7 @@ export default function NutritionPage() {
     reopenLog.current = false;
     if (editing) { setNotice(`Saved changes to “${row.name}”.${photoProblem}`); return; }
     // Saved, not logged: the toast offers to log it now.
-    const saved = customFoodResult(row, photoUrl);
+    const saved = customFoodResult(row, photoUrl, sourceOf(row, savedFrom) ?? foodForm?.source ?? null);
     toast.success(`Saved “${row.name}” to My foods.${photoProblem}`, { action: { label: "Log it", onClick: () => { chooseFood(saved); setLogMode("search"); setLogOpen(true); } }, duration: 8000 });
   }
 
@@ -787,23 +797,25 @@ export default function NutritionPage() {
 
   /**
    * Opens the new-food form from the chosen food: a package's label or a catalogue food copied as it is, so it can be
-   * re-logged from My foods. The values keep where they came from (USDA lab analysis, a typical recipe, a package label),
-   * and the weight of the chosen serving, when it is not an estimate, becomes the saved serving.
+   * re-logged from My foods. The values keep where they came from (USDA lab analysis, a typical recipe, a package label).
    */
   function saveSelectedAsFood(food: FoodResult) {
-    const serving = food.portions.find((portion) => portion.unit === "serving");
+    // The measure in use (3 idli: "1 item", 38 g) becomes the saved serving; the copy remembers the catalogue food it
+    // came from (source_ref), so it keeps that food's other measures and diet label while its values are unchanged.
+    const serving = servingToSave(food, chosenPortion);
     hideLog();
     setFoodForm({
       editing: null,
+      source: food,
       prefill: {
         name: food.name, brand: food.brand, barcode: food.barcode,
-        servingLabel: serving ? serving.label.replace(/^1 serving \((.*)\)$/, "$1") : "",
-        servingGrams: serving?.grams ?? 100,
+        servingLabel: serving.label,
+        servingGrams: serving.grams,
         per100g: { calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat },
         missing: food.missing,
         imageUrl: food.image, imageAttribution: food.imageCredit,
         origin: food.barcode ? "barcode" : "user",
-        sourceRef: food.barcode ?? (food.kind === "catalog" && /^\d+$/.test(food.id) ? food.id : null),
+        sourceRef: food.barcode ?? (food.kind === "catalog" && (/^\d+$/.test(food.id) || food.id.startsWith("fitx-recipe-")) ? food.id : null),
         valueBasis: food.valueBasis,
       },
     });
@@ -932,7 +944,7 @@ export default function NutritionPage() {
           onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
           onSaveDay={() => setNamePrompt({ kind: "day", initial: `${readableDate(date, { weekday: "long" })} routine` })}/>}
         {tab === "foods" && <MyFoods rows={customRows} loading={loading} busy={busy}
-          photoFor={photoFor} onUse={(row) => { chooseFood(customFoodResult(row, photoFor(row))); openLog({ quiet: true }); }} onAdd={() => setFoodForm({ editing: null, prefill: null })}
+          photoFor={photoFor} onUse={(row) => { chooseFood(savedFood(row)); openLog({ quiet: true }); }} onAdd={() => setFoodForm({ editing: null, prefill: null })}
           onEdit={(row) => setFoodForm({ editing: row, prefill: null })} onRemove={(row) => void removeFood(row)}/>}
         {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
           onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}

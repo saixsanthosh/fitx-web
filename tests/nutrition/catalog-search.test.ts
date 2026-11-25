@@ -76,12 +76,13 @@ test("every food the seed parts add has a USDA data type, so only Admin's own fo
 
 test("custom foods keep their saved serving, origin and value basis", () => {
   const food = customRowToFood({ id: "c1", name: "Poha (home)", brand: null, serving_size: "1 bowl", serving_grams: 180, calories_per_100g: 130, protein_per_100g: 2.5, carbs_per_100g: 24, fat_per_100g: 3, origin: "ai_coach", value_basis: "recipe_calculated" }, 3);
-  assert.deepEqual(food.portions, [{ label: "1 serving (1 bowl, 180 g)", unit: "serving", grams: 180, countDefault: true, estimate: false }]);
+  assert.deepEqual(food.portions, [{ label: "1 bowl", unit: "bowl", grams: 180, countDefault: true, estimate: false }], "the measure the serving names (bug 5)");
   assert.equal(food.origin, "ai_coach");
   assert.equal(food.basis, "AI suggestion · saved");
   assert.equal(food.recentCount, 3);
   const plain = customRowToFood({ id: "c2", name: "Shake", serving_size: "100 g", serving_grams: null, calories_per_100g: 60, protein_per_100g: 8, carbs_per_100g: 5, fat_per_100g: 1 });
   assert.equal(plain.portions[0].label, "1 serving (100 g)");
+  assert.equal(plain.portions[0].countDefault, undefined, "a weight is not a piece: \"3 shake\" is never 3 × 100 g");
   assert.equal(plain.valueBasis, "user_entered");
 });
 

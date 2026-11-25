@@ -52,7 +52,8 @@ export function countMode(food: { name: string; kind?: string; source?: string }
 
 /** One line on why a counted food can only be logged in grams. */
 export function noPieceReason(food: { kind?: string; source?: string }): string {
-  if (food.kind === "custom") return "Grams only: your food has no piece weight saved. Edit it to add one.";
+  // A saved serving that names one piece ("1 idli", 45 g) is the piece weight (src/lib/food/saved-foods.ts).
+  if (food.kind === "custom") return "Grams only: your food has no piece weight saved. To count it, edit it and set its serving to one piece, such as “1 idli”, with that piece's weight.";
   if (food.source === "Open Food Facts") return "Grams only: the package label gives no weight per piece.";
   return "Grams only: the source data has no weight per piece, and FITX won't guess one.";
 }

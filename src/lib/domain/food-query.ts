@@ -379,10 +379,6 @@ export function formatAmount(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
-function tokenize(input: string): string[] {
-  return tokenizeWithSigns(input).map((item) => item.token);
-}
-
 /** The tokens, each marked when it was a number typed with a minus sign ("-2", "−2"), which the token itself drops. */
 function tokenizeWithSigns(input: string): Array<{ token: string; negative: boolean }> {
   let text = String(input ?? "").toLowerCase().replace(/[−–]/g, "-");

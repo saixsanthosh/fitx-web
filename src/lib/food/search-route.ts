@@ -21,6 +21,7 @@ import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { customRowToFood, publicFood, rankAndPick, searchRowToFood, stemsFor, type RankableFood } from "@/lib/food/catalog-search";
 import { catalogueCopies, heldByCatalogue, withCatalogueCopies } from "@/lib/food/catalogue-copies";
 import type { OffAnswer } from "@/lib/food/open-food-facts";
+import { catalogueRef, withSourceFood } from "@/lib/food/saved-foods";
 import type { FoodResult, FoodSearchResponse, SourceId, SourceState, SourceStatus } from "@/lib/food/types";
 import { isMissingColumnError, isMissingFunctionError } from "@/lib/supabase/errors";
 
@@ -40,7 +41,7 @@ export interface FoodSearchServices {
 export const SEARCH_CACHE_CONTROL = "private, no-store";
 const TOTAL_LIMIT = 40;
 const CUSTOM_COLUMNS = "id,name,brand,serving_size,serving_grams,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g";
-const CUSTOM_COLUMNS_V2 = `${CUSTOM_COLUMNS},barcode,origin,value_basis,image_url,image_attribution`;
+const CUSTOM_COLUMNS_V2 = `${CUSTOM_COLUMNS},barcode,origin,value_basis,image_url,image_attribution,source_ref`;
 
 export async function searchFoods(request: Request, supabase: SupabaseClient | null, services: FoodSearchServices): Promise<Response> {
   const { data: { user } } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
@@ -129,6 +130,8 @@ export async function searchFoods(request: Request, supabase: SupabaseClient | n
   let mode: "catalog" | "fallback" = "catalog";
   let fromDb: RankableFood[] = [];
   let custom: RankableFood[];
+  /** The catalogue food each of your own foods was copied from (its source_ref), by your food's id. */
+  let copiedFrom: Map<string, string>;
   let catalogState: SourceState;
   let seeded = false;
   const { data: rows, error } = await supabase.rpc("search_foods", { phrase: searchText, stems: stemsFor(query.words), max_results: 120 });
@@ -136,6 +139,7 @@ export async function searchFoods(request: Request, supabase: SupabaseClient | n
     const results = (Array.isArray(rows) ? rows : []).map((row) => searchRowToFood(row as Record<string, unknown>));
     fromDb = results.filter((food) => food.kind === "catalog");
     custom = results.filter((food) => food.kind === "custom");
+    copiedFrom = await sourceRefs(supabase, user.id, custom.map((food) => food.id));
     catalogState = "no_results";
     seeded = fromDb.length > 0;
     if (!fromDb.length) {
@@ -149,7 +153,7 @@ export async function searchFoods(request: Request, supabase: SupabaseClient | n
     if (!isMissingFunctionError(error)) console.warn("FITX food catalogue search failed", error.code);
     mode = "fallback";
     catalogState = isMissingFunctionError(error) ? "not_used" : "error";
-    custom = await customFoods(supabase, user.id);
+    ({ foods: custom, copiedFrom } = await customFoods(supabase, user.id));
   }
   const inDb = new Set(fromDb.map((food) => food.id));
   let builtIn = services.localFoods.filter((food) => !inDb.has(food.id));
@@ -163,7 +167,13 @@ export async function searchFoods(request: Request, supabase: SupabaseClient | n
       for (const id of copies.keys()) inDb.add(id);
     }
   }
-  const ranked = rankAndPick([...fromDb, ...builtIn], custom, query.words);
+  // Your own foods copied from a catalogue food keep its measures and diet label while their values are its own, so a
+  // copy of Idli still counts "3 idli" as three 38 g idlis (src/lib/food/saved-foods.ts).
+  if (copiedFrom.size) {
+    const sources = await copiedFoods(supabase, [...copiedFrom.values()], [...fromDb, ...builtIn], services.localFoods, seeded);
+    custom = custom.map((food) => withSourceFood(food, sources.get(copiedFrom.get(food.id) ?? "")));
+  }
+  const ranked = rankAndPick([...fromDb, ...builtIn], custom, query.words, query);
   const dbCount = ranked.foods.filter((food) => food.kind === "catalog" && inDb.has(food.id)).length;
   const builtInCount = ranked.foods.filter((food) => food.kind === "catalog" && !inDb.has(food.id)).length;
   const customCount = ranked.foods.length - dbCount - builtInCount;
@@ -179,24 +189,66 @@ export async function searchFoods(request: Request, supabase: SupabaseClient | n
     const seen = new Set(foods.map((food) => `${food.source}:${food.id}`));
     foods = [...foods, ...usda.foods.filter((food) => !seen.has(`${food.source}:${food.id}`)).slice(0, 8)];
   }
-  return respond({ foods: foods.slice(0, TOTAL_LIMIT), sources, pick: ranked.pick, mode });
+  return respond({ foods: foods.slice(0, TOTAL_LIMIT), sources, pick: ranked.pick, passedOver: ranked.passedOver, mode });
 }
 
 /** The user's custom foods for the built-in search: archived ones left out once the v2 columns exist. */
-async function customFoods(supabase: SupabaseClient, userId: string): Promise<RankableFood[]> {
+async function customFoods(supabase: SupabaseClient, userId: string): Promise<{ foods: RankableFood[]; copiedFrom: Map<string, string> }> {
   const v2 = await supabase.from("custom_foods").select(CUSTOM_COLUMNS_V2).eq("user_id", userId).is("archived_at", null).order("name").limit(300);
   const result = v2.error && isMissingColumnError(v2.error)
     ? await supabase.from("custom_foods").select(CUSTOM_COLUMNS).eq("user_id", userId).order("name").limit(300)
     : v2;
-  if (result.error) return [];
-  return ((result.data ?? []) as unknown as Array<Record<string, unknown>>).map((row) => customRowToFood(row));
+  if (result.error) return { foods: [], copiedFrom: new Map() };
+  const rows = (result.data ?? []) as unknown as Array<Record<string, unknown>>;
+  return { foods: rows.map((row) => customRowToFood(row)), copiedFrom: refsOf(rows) };
 }
 
-function respond(body: Omit<FoodSearchResponse, "foods" | "pick"> & { foods: Array<RankableFood | FoodResult>; pick: RankableFood | FoodResult | null }) {
+/** Your foods' catalogue sources (source_ref) by food id; barcodes and blanks are left out. */
+function refsOf(rows: ReadonlyArray<Record<string, unknown>>): Map<string, string> {
+  return new Map(rows.flatMap((row) => {
+    const ref = catalogueRef(row.source_ref);
+    return ref ? [[String(row.id), ref] as [string, string]] : [];
+  }));
+}
+
+/** search_foods leaves source_ref out of your foods' rows: one read for the ones it found. Nothing before Nutrition v2. */
+async function sourceRefs(supabase: SupabaseClient, userId: string, ids: readonly string[]): Promise<Map<string, string>> {
+  if (!ids.length) return new Map();
+  const { data, error } = await supabase.from("custom_foods").select("id,source_ref").eq("user_id", userId).in("id", [...ids]);
+  return error || !Array.isArray(data) ? new Map() : refsOf(data as Array<Record<string, unknown>>);
+}
+
+/**
+ * The catalogue foods your foods were copied from: from this search's results when they are there, else the
+ * catalogue's current rows (a food Admin hid stays out), else, before the catalogue is seeded or while it can't be
+ * read, the built-in list. FITX's recipe estimates are only in the built-in list.
+ */
+async function copiedFoods(supabase: SupabaseClient, refs: readonly string[], found: readonly RankableFood[], localFoods: readonly RankableFood[], seeded: boolean): Promise<Map<string, RankableFood>> {
+  const wanted = [...new Set(refs)];
+  const out = new Map<string, RankableFood>();
+  for (const ref of wanted) {
+    const hit = found.find((food) => food.kind === "catalog" && food.id === ref);
+    if (hit) out.set(ref, hit);
+  }
+  const numeric = wanted.filter((ref) => !out.has(ref) && /^\d+$/.test(ref));
+  const copies = numeric.length && seeded ? await catalogueCopies(supabase, numeric, { seeded: true }) : null;
+  if (copies) for (const [id, food] of copies) out.set(id, food);
+  for (const ref of wanted) {
+    if (out.has(ref)) continue;
+    const local = localFoods.find((food) => food.id === ref);
+    // On a seeded catalogue, a catalogue food missing from its answer is one Admin hid.
+    if (local && !(copies && heldByCatalogue(local))) out.set(ref, local);
+  }
+  return out;
+}
+
+function respond(body: Omit<FoodSearchResponse, "foods" | "pick" | "passedOver"> & { foods: Array<RankableFood | FoodResult>; pick: RankableFood | FoodResult | null; passedOver?: RankableFood | FoodResult | null }) {
+  const { passedOver, ...rest } = body;
   const payload: FoodSearchResponse = {
-    ...body,
+    ...rest,
     foods: body.foods.map((food) => publicFood(food)),
     pick: body.pick ? { source: body.pick.source, id: body.pick.id } : null,
+    ...(passedOver ? { passedOver: { source: passedOver.source, id: passedOver.id } } : {}),
   };
   return NextResponse.json(payload, { headers: { "Cache-Control": SEARCH_CACHE_CONTROL } });
 }
