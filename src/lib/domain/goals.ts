@@ -115,6 +115,8 @@ export type GoalView = {
    * read as 0); null when not checked.
    */
   missingEntries: number | null;
+  /** True when logged corrections add up to less than zero (made before the app refused that): shown as 0. */
+  belowZero?: boolean;
 };
 
 const num = (value: unknown): number | null => {
@@ -126,12 +128,18 @@ const str = (value: unknown): string | null => (typeof value === "string" && val
 const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
   typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 
-/** One row of fitx_goal_progress, or a plain goals row from a database without goals v2. */
+/**
+ * One row of fitx_goal_progress, or a plain goals row from a database without goals v2. A total is never below
+ * zero: fitx_goal_progress adds a manual goal's entries without a floor, so corrections larger than what was
+ * logged (made before the app refused them) would read "-35 of 20 lengths"; like the stored total, which a
+ * trigger keeps at zero or above, it reads 0.
+ */
 export function parseGoalRow(raw: Record<string, unknown>): GoalView {
   const stored = isGoalMetric(raw.metric) && !isClientMetric(raw.metric) ? raw.metric : "manual";
   const client = stored === "manual" ? clientMetricForUnit(raw.unit) : null;
   const metric: GoalMetric = client ?? stored;
   const legacy = raw.period === undefined;
+  const measured = client ? null : num(raw.current_value) ?? (legacy ? 0 : null);
   return {
     id: String(raw.id),
     title: String(raw.title ?? ""),
@@ -153,12 +161,13 @@ export function parseGoalRow(raw: Record<string, unknown>): GoalView {
     periodEnd: str(raw.period_end),
     // A database without goals v2 has only the browser-kept manual total. A client-measured goal has no value
     // until the app measures it (src/lib/data/goals.ts): the stored manual total is not its progress.
-    currentValue: client ? null : num(raw.current_value) ?? (legacy ? 0 : null),
+    currentValue: measured === null ? null : Math.max(0, measured),
     valueAsOf: str(raw.value_as_of),
     startValue: client ? null : num(raw.start_value) ?? num(raw.baseline_value),
     linkedTodos: num(raw.linked_todos) ?? 0,
     linkedTodosDone: num(raw.linked_todos_done) ?? 0,
     missingEntries: null,
+    ...(measured !== null && measured < 0 ? { belowZero: true } : {}),
   };
 }
 
@@ -592,4 +601,45 @@ export function parseProgressAmount(text: string): number | null {
   if (!/^[-+]?(\d+\.?\d*|\.\d+)$/.test(value)) return null;
   const amount = Number(value);
   return Number.isFinite(amount) && amount !== 0 ? amount : null;
+}
+
+/**
+ * Why taking `amount` off would be refused, or null: a correction can take the total down to zero, never below
+ * ("-35 of 20 lengths \u00b7 55 to go" was possible). The total is this period's (today, this week) or, long-term,
+ * all of it, as the goal shows it.
+ */
+export function correctionProblem(goal: Pick<GoalView, "currentValue" | "metric" | "unit">, amount: number): string | null {
+  if (!(amount < 0)) return null;
+  const total = Math.max(0, goal.currentValue ?? 0);
+  if (tidy(total + amount) >= 0) return null;
+  return total > 0 ? `You can take off at most ${formatGoalValue(total, goal.metric, goal.unit)}.` : "There\u2019s nothing logged to take off yet.";
+}
+
+/** The amount to log from the Log progress field, or the message to show beside it. */
+export function checkProgressAmount(
+  text: string,
+  goal: Pick<GoalView, "currentValue" | "metric" | "unit">,
+  schema: "v1" | "v2",
+): { ok: true; amount: number } | { ok: false; error: string } {
+  const amount = parseProgressAmount(text);
+  if (amount === null) return { ok: false, error: "Enter a number, for example 2 or 1.5." };
+  if (amount < 0 && schema === "v1") return { ok: false, error: "To take progress off, delete the entry in Progress history." };
+  const problem = correctionProblem(goal, amount);
+  return problem ? { ok: false, error: problem } : { ok: true, amount };
+}
+
+/**
+ * Whether a logged entry counts in the goal's current total: every entry for a long-term goal, else only those
+ * logged on the days of this period (as fitx_goal_progress counts them, by the local day).
+ */
+export function entryCounts(goal: Pick<GoalView, "period" | "periodStart" | "periodEnd">, loggedAt: string): boolean {
+  if (goal.period === "long_term" || !goal.periodStart || !goal.periodEnd) return true;
+  const day = localDay(loggedAt);
+  return day !== null && day >= goal.periodStart && day <= goal.periodEnd;
+}
+
+/** Why deleting a logged entry would be refused (the total would go below zero), or null. */
+export function entryRemovalProblem(goal: Pick<GoalView, "currentValue" | "period" | "periodStart" | "periodEnd">, entry: { amount: number; loggedAt: string }): string | null {
+  if (!(entry.amount > 0) || !entryCounts(goal, entry.loggedAt)) return null;
+  return tidy(Math.max(0, goal.currentValue ?? 0) - entry.amount) < 0 ? "Deleting this would take the total below zero. Delete the minus entries first." : null;
 }

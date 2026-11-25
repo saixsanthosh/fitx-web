@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { m } from "framer-motion";
 import { toast } from "sonner";
 import { Check, CheckCircle2, History, Pause, Pencil, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
@@ -13,7 +13,7 @@ import { WidgetError } from "@/components/widgets/WidgetCard";
 import { addGoalEntry, deleteGoal, deleteGoalEntry, listGoalEntries, setGoalStatus, type GoalEntry, type GoalsSchema } from "@/lib/data/goals";
 import type { SummaryResult } from "@/lib/data/today";
 import {
-  evaluateView, formatGoalValue, parseProgressAmount, periodLabel, progressSummary, remainingLabel, sortGoals,
+  checkProgressAmount, entryCounts, entryRemovalProblem, evaluateView, formatGoalValue, periodLabel, progressSummary, remainingLabel, sortGoals,
   type GoalContext, type GoalPeriod, type GoalTemplateKey, type GoalView,
 } from "@/lib/domain/goals";
 import { dailyTargets } from "@/lib/domain/today";
@@ -48,6 +48,7 @@ export function GoalsPanel({ date, goals, summary, request }: {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [handled, setHandled] = useState<number | null>(null);
   const [removing, setRemoving] = useState<GoalView | null>(null);
+  const [removeError, setRemoveError] = useState("");
   const [history, setHistory] = useState<GoalView | null>(null);
   const [logging, setLogging] = useState<GoalView | null>(null);
   // Each request from the address opens the editor once.
@@ -86,6 +87,7 @@ export function GoalsPanel({ date, goals, summary, request }: {
   }
 
   async function remove(goal: GoalView) {
+    setRemoveError("");
     try {
       const { db, userId } = await getSession();
       await deleteGoal(db, userId, goal.id);
@@ -93,7 +95,8 @@ export function GoalsPanel({ date, goals, summary, request }: {
       goals.reload();
       toast(`Deleted “${goal.title}”.`);
     } catch (failure) {
-      toast.error(messageFor(failure, "That goal could not be deleted."));
+      // Inside the open sheet: a toast would sit under the modal dialog.
+      setRemoveError(messageFor(failure, "That goal could not be deleted."));
     }
   }
 
@@ -104,7 +107,7 @@ export function GoalsPanel({ date, goals, summary, request }: {
       today={date}
       onEdit={() => setEditor({ mode: "edit", goal })}
       onStatus={(status) => void changeStatus(goal, status)}
-      onDelete={() => setRemoving(goal)}
+      onDelete={() => { setRemoveError(""); setRemoving(goal); }}
       onHistory={() => setHistory(goal)}
       onLog={() => setLogging(goal)}
     />
@@ -190,6 +193,7 @@ export function GoalsPanel({ date, goals, summary, request }: {
           </>}
         >
           <p className={styles.confirm}>Pause or complete it instead to keep the history.</p>
+          {removeError && <p role="alert" className="fitx-alert fitx-alert-danger mt-3">{removeError}</p>}
         </Sheet>
       )}
 
@@ -274,6 +278,7 @@ function GoalRow({ goal, today, onEdit, onStatus, onDelete, onHistory, onLog }: 
         <span className={over ? styles.overText : evaluation.achieved ? styles.doneText : undefined}>{[left, when].filter(Boolean).join(" · ")}</span>
       </p>
       {goal.missingEntries ? <p className={styles.missing}>{goal.missingEntries} {goal.missingEntries === 1 ? "food has" : "foods have"} no {goal.metric === "protein_g" ? "protein" : "calorie"} value, not counted</p> : null}
+      {goal.belowZero ? <p className={styles.missing}>Minus entries add up to less than zero, so this shows 0. Delete them in Progress history.</p> : null}
     </li>
   );
 }
@@ -286,9 +291,9 @@ function LogSheet({ goal, schema, onClose, onHistory, onLogged }: { goal: GoalVi
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const value = parseProgressAmount(amount);
-    if (value === null) { setError("Enter a number, for example 2 or 1.5."); return; }
-    if (value < 0 && schema === "v1") { setError("To take progress off, delete the entry in Progress history."); return; }
+    const checked = checkProgressAmount(amount, goal, schema);
+    if (!checked.ok) { setError(checked.error); return; }
+    const value = checked.amount;
     setError("");
     setSaving(true);
     try {
@@ -324,10 +329,21 @@ function LogSheet({ goal, schema, onClose, onHistory, onLogged }: { goal: GoalVi
   );
 }
 
+/**
+ * The entries logged for a goal, newest first, each deletable. A deletion that would take the total below zero
+ * is refused with the reason, inside the sheet (a toast would sit under it). After a deletion, focus moves to
+ * the next entry's button (or the empty message) and the result is announced.
+ */
 function HistorySheet({ goal, schema, onClose, onChanged }: { goal: GoalView; schema: GoalsSchema; onClose: () => void; onChanged: () => void }) {
   const [entries, setEntries] = useState<GoalEntry[] | null>(null);
   const [error, setError] = useState("");
+  const [problem, setProblem] = useState("");
+  const [announcement, setAnnouncement] = useState("");
   const [current, setCurrent] = useState(goal);
+  const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const emptyRef = useRef<HTMLParagraphElement | null>(null);
+  // The entry whose Delete button takes focus once the list has re-rendered ("empty": the empty message).
+  const focusNext = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -343,23 +359,41 @@ function HistorySheet({ goal, schema, onClose, onChanged }: { goal: GoalView; sc
     return () => { active = false; };
   }, [goal.id]);
 
+  useEffect(() => {
+    const target = focusNext.current;
+    if (!target) return;
+    focusNext.current = null;
+    if (target === "empty") emptyRef.current?.focus();
+    else buttons.current.get(target)?.focus();
+  }, [entries]);
+
   async function remove(entry: GoalEntry) {
+    setProblem("");
+    const refused = schema === "v2" ? entryRemovalProblem(current, entry) : null;
+    if (refused) { setProblem(refused); return; }
     try {
       const { db, userId } = await getSession();
       await deleteGoalEntry(db, userId, current, entry, schema);
-      setEntries((list) => (list ?? []).filter((item) => item.id !== entry.id));
-      setCurrent((value) => ({ ...value, currentValue: Math.max(0, (value.currentValue ?? 0) - entry.amount) }));
+      const list = entries ?? [];
+      const index = list.findIndex((item) => item.id === entry.id);
+      const rest = list.filter((item) => item.id !== entry.id);
+      focusNext.current = (rest[index] ?? rest[index - 1])?.id ?? "empty";
+      setEntries(rest);
+      setCurrent((value) => ({ ...value, currentValue: Math.max(0, (value.currentValue ?? 0) - (entryCounts(value, entry.loggedAt) ? entry.amount : 0)) }));
+      setAnnouncement(`Deleted the entry of ${entry.amount > 0 ? "" : "minus "}${formatGoalValue(Math.abs(entry.amount), goal.metric, goal.unit)}.`);
       onChanged();
     } catch (failure) {
-      toast.error(messageFor(failure, "That entry could not be deleted."));
+      setProblem(messageFor(failure, "That entry could not be deleted."));
     }
   }
 
   return (
     <Sheet open onClose={onClose} title="Progress history" description={goal.title}>
+      <p role="status" className="sr-only">{announcement}</p>
+      {problem && <p role="alert" className="fitx-alert fitx-alert-danger mb-3">{problem}</p>}
       {error ? <p role="alert" className="fitx-alert fitx-alert-danger">{error}</p>
         : entries === null ? <div className={styles.skeleton} aria-busy="true" aria-label="Loading history"><span /></div>
-          : entries.length === 0 ? <p className={styles.confirm}>Nothing logged yet.</p>
+          : entries.length === 0 ? <p ref={emptyRef} tabIndex={-1} className={styles.confirm}>Nothing logged yet.</p>
             : (
               <ul className={styles.history}>
                 {entries.map((entry) => (
@@ -368,7 +402,13 @@ function HistorySheet({ goal, schema, onClose, onChanged }: { goal: GoalView; sc
                       <strong>{entry.amount > 0 ? "+" : "−"}{formatGoalValue(Math.abs(entry.amount), goal.metric, goal.unit)}</strong>
                       <span>{new Date(entry.loggedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}{entry.note ? ` · ${entry.note}` : ""}</span>
                     </div>
-                    <button type="button" className={styles.iconButton} onClick={() => void remove(entry)} aria-label={`Delete the entry of ${formatGoalValue(entry.amount, goal.metric, goal.unit)}`}><Trash2 size={16} aria-hidden="true" /></button>
+                    <button
+                      type="button"
+                      ref={(element) => { if (element) buttons.current.set(entry.id, element); else buttons.current.delete(entry.id); }}
+                      className={styles.iconButton}
+                      onClick={() => void remove(entry)}
+                      aria-label={`Delete the entry of ${formatGoalValue(entry.amount, goal.metric, goal.unit)}`}
+                    ><Trash2 size={16} aria-hidden="true" /></button>
                   </li>
                 ))}
               </ul>

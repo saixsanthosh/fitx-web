@@ -7,7 +7,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays } from "@/lib/domain/day-keys";
-import { clientGoalValue, goalWindow, isClientMetric, parseGoalRow, type GoalActivityRow, type GoalInput, type GoalSessionRow, type GoalStatus, type GoalView } from "@/lib/domain/goals";
+import { clientGoalValue, correctionProblem, entryRemovalProblem, goalWindow, isClientMetric, parseGoalRow, type GoalActivityRow, type GoalInput, type GoalSessionRow, type GoalStatus, type GoalView } from "@/lib/domain/goals";
 import { macroValue, type MealValueRow } from "@/lib/domain/meal-totals";
 import { loadActivitiesBetween } from "./activities";
 import { browserTimeZone } from "./today";
@@ -143,12 +143,15 @@ export async function listGoalEntries(db: Db, userId: string, goalId: string, li
 }
 
 /**
- * Logs manual progress. On v2 a trigger keeps the goal's total, and corrections may be negative.
- * On v1 only positive amounts are accepted and the total is written from the browser, as before.
+ * Logs manual progress. On v2 a trigger keeps the goal's total, and corrections may be negative, down to a
+ * total of zero, never below. On v1 only positive amounts are accepted and the total is written from the
+ * browser, as before.
  */
 export async function addGoalEntry(db: Db, userId: string, goal: GoalView, amount: number, note: string | null, schema: GoalsSchema): Promise<void> {
   if (!Number.isFinite(amount) || amount === 0) throw new DataError("Enter an amount other than zero.");
   if (schema === "v1" && amount < 0) throw new FeatureUnavailableError("Corrections arrive with the next FITX update. Delete an entry instead.");
+  const belowZero = correctionProblem(goal, amount);
+  if (belowZero) throw new DataError(belowZero);
   const inserted = await db.from("goal_progress_entries").insert({ user_id: userId, goal_id: goal.id, amount: Number(amount.toFixed(2)), note });
   if (inserted.error) throw new DataError("That progress could not be saved.", inserted.error);
   if (schema === "v1") {
@@ -158,7 +161,13 @@ export async function addGoalEntry(db: Db, userId: string, goal: GoalView, amoun
   }
 }
 
+/**
+ * Deletes a logged entry. On v2 (where the total is the sum of the entries) that is refused when it would take
+ * the total below zero: the corrections are deleted first. On v1 the browser-kept total stops at zero, as before.
+ */
 export async function deleteGoalEntry(db: Db, userId: string, goal: GoalView, entry: GoalEntry, schema: GoalsSchema): Promise<void> {
+  const belowZero = schema === "v2" ? entryRemovalProblem(goal, entry) : null;
+  if (belowZero) throw new DataError(belowZero);
   const removed = await db.from("goal_progress_entries").delete().eq("id", entry.id).eq("user_id", userId);
   if (removed.error) throw new DataError("That entry could not be deleted.", removed.error);
   if (schema === "v1") {
