@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { Apple, Eye, EyeOff, LockKeyhole, Mail, Plus } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
@@ -60,6 +60,7 @@ export default function SignInForm() {
   const emailInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
+  const passwordId = useId();
   // Whatever was typed (or opened) before the page's scripts ran stays: the render right after hydration would wipe it.
   useKeepTypedValue(emailInput, email, setEmail);
   useKeepTypedValue(passwordInput, password, setPassword);
@@ -164,15 +165,18 @@ export default function SignInForm() {
               <details ref={options} className={s.details} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
                 <summary>Other sign-in options<Plus size={17} aria-hidden="true" /></summary>
                 <div className={s.detailsBody}>
-                  <label className={s.field}>Password
+                  {/* The label holds only the field: wrapped around the Show password button too, it named the box
+                      "Password Show password". The button sits beside the field, named for itself. */}
+                  <div className={s.field}>
+                    <label htmlFor={passwordId}>Password</label>
                     <span className={s.inputWrap}>
                       <LockKeyhole size={16} aria-hidden="true" />
-                      <input ref={passwordInput} className="fitx-field" type={visible ? "text" : "password"} autoComplete="current-password" required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
-                      <button type="button" className={s.reveal} aria-label={visible ? "Hide password" : "Show password"} onClick={() => setVisible((show) => !show)}>
+                      <input ref={passwordInput} id={passwordId} className="fitx-field" type={visible ? "text" : "password"} autoComplete="current-password" required={open} value={password} onChange={(event) => setPassword(event.target.value)} />
+                      <button type="button" className={s.reveal} aria-label={visible ? "Hide password" : "Show password"} aria-controls={passwordId} onClick={() => setVisible((show) => !show)}>
                         {visible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
                       </button>
                     </span>
-                  </label>
+                  </div>
                   {open && (
                     <button type="submit" disabled={loading} className={`fitx-button ${s.primary}`}>
                       {pending === "password" ? "Signing in…" : "Sign in with email"}
