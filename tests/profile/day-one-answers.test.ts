@@ -12,7 +12,7 @@ import {
   listAnswer,
   mealsText,
   profileHeadline,
-  sessionText,
+  sessionAnswer,
 } from "@/app/(dashboard)/profile/profile-answers";
 import { loadUserContext, normalizePreferences, type UserContextData } from "@/lib/domain/user-context";
 
@@ -49,7 +49,7 @@ describe("a brand-new member", () => {
   });
 
   test("session length, meals a day and the lists read Not set", () => {
-    assert.equal(sessionText(fresh), null);
+    assert.deepEqual(sessionAnswer(fresh), { kind: "not_set" });
     assert.equal(mealsText(fresh), null);
     assert.equal(foodAnswersKnown(fresh), false);
     assert.deepEqual(listAnswer([], foodAnswersKnown(fresh)), { kind: "not_set" }, "allergies and foods avoided");
@@ -63,11 +63,23 @@ describe("a brand-new member", () => {
 });
 
 describe("once the member has answered", () => {
-  test("after the Workouts setup: experience in the header, session length and an empty injuries list as None", () => {
+  test("after the Workouts setup: experience in the header, and an empty injuries list as None", () => {
     const trained = member({ ...DAY_ONE_ROW, workout_setup_at: "2026-11-25T19:30:00Z" });
     assert.equal(profileHeadline(trained), "Weight loss · Beginner");
-    assert.equal(sessionText(trained), "45 min · Full body");
     assert.deepEqual(listAnswer([], true), { kind: "none" });
+  });
+
+  test("session length and split: no setup asks them, so the defaults read as what auto workouts assume (review home-5)", () => {
+    const trained = member({ ...DAY_ONE_ROW, workout_setup_at: "2026-11-25T19:30:00Z" });
+    // Shown as "45 min · Full body, until you change it", in the quiet text Gym equipment's assumption uses.
+    assert.deepEqual(sessionAnswer(trained), { kind: "assumed", text: "45 min · Full body" });
+  });
+
+  test("session length or split changed from the defaults (Profile > Training, or the first onboarding) is an answer", () => {
+    const set = (row: Record<string, unknown>) => sessionAnswer(member({ ...DAY_ONE_ROW, workout_setup_at: "2026-11-25T19:30:00Z", ...row }));
+    assert.deepEqual(set({ session_duration_minutes: 60 }), { kind: "answer", text: "60 min · Full body" });
+    assert.deepEqual(set({ workout_split: "upper_lower" }), { kind: "answer", text: "45 min · Upper / lower" });
+    assert.deepEqual(set({ session_duration_minutes: 30, workout_split: "push_pull_legs" }), { kind: "answer", text: "30 min · Push / pull / legs" });
   });
 
   test("a saved equipment list counts as the Workouts setup (before its migration) and as known home equipment", () => {
@@ -175,7 +187,8 @@ describe("Profile uses the rules", () => {
 
   test("no default is printed as an answer", () => {
     assert.match(read("ProfileView.tsx"), /const headline = profileHeadline\(data\);/);
-    assert.match(sections, /<Detail label="Session length">\{sessionText\(data\) \?\? <NotSet \/>\}<\/Detail>/);
+    assert.match(sections, /const session = sessionAnswer\(data\);/);
+    assert.match(sections, /session\.kind === "not_set" \? <NotSet \/> : session\.kind === "assumed" \? <span className="font-normal text-fitx-text-secondary">\{session\.text\}, until you change it<\/span> : session\.text/);
     assert.match(sections, /<Detail label="Meals a day">\{mealsText\(data\) \?\? <NotSet \/>\}<\/Detail>/);
     assert.match(sections, /<ChipList items=\{labelsFor\(ALLERGY_OPTIONS, prefs\.allergies\)\} known=\{foodKnown\} \/>/);
     assert.match(sections, /<ChipList items=\{prefs\.food_dislikes\} known=\{foodKnown\} \/>/);

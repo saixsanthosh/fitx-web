@@ -9,7 +9,7 @@
  *
  * No React here, so node tests cover it (tests/profile/day-one-answers.test.ts).
  */
-import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, ACTIVITY_OPTIONS, SPLIT_OPTIONS, optionLabel, type DietType } from "@/lib/domain/profile-options";
+import { DEFAULT_SESSION_MINUTES, DEFAULT_SPLIT, EXPERIENCE_OPTIONS, GOAL_OPTIONS, ACTIVITY_OPTIONS, SPLIT_OPTIONS, optionLabel, type DietType } from "@/lib/domain/profile-options";
 import { trainingAnswersKnown, type UserContextData } from "@/lib/domain/user-context";
 import { initialSetupAnswers, setupDone, setupProblem } from "@/lib/food/setup";
 
@@ -48,10 +48,19 @@ export function profileHeadline(data: TrainingData & Pick<UserContextData, "hasP
   return [goalAnswers(data).goal, experience].filter(Boolean).join(" · ");
 }
 
-/** "45 min · Full body" once the training answers are the member's own; null (Not set) before. */
-export function sessionText(data: TrainingData): string | null {
-  if (!trainingAnswersKnown(data)) return null;
-  return [`${data.preferences.session_duration_minutes} min`, optionLabel(SPLIT_OPTIONS, data.preferences.workout_split)].filter(Boolean).join(" · ");
+export type SessionAnswer = { kind: "not_set" } | { kind: "assumed"; text: string } | { kind: "answer"; text: string };
+
+/**
+ * Session length and split ("45 min · Full body"). Not set before the Workouts setup, like the other training answers.
+ * After it they are still not answers while they hold the column defaults (45 min, full body): no setup asks them now
+ * (the first onboarding did), so they are what auto workouts assume, shown as that, like Gym equipment's "A full gym,
+ * until you change it" (review home-5). Values that differ from the defaults are the member's own.
+ */
+export function sessionAnswer(data: TrainingData): SessionAnswer {
+  if (!trainingAnswersKnown(data)) return { kind: "not_set" };
+  const { session_duration_minutes: minutes, workout_split: split } = data.preferences;
+  const text = [`${minutes} min`, optionLabel(SPLIT_OPTIONS, split)].filter(Boolean).join(" · ");
+  return minutes === DEFAULT_SESSION_MINUTES && split === DEFAULT_SPLIT ? { kind: "assumed", text } : { kind: "answer", text };
 }
 
 /** Meals a day ("5+" for five or more) once the Nutrition setup is done; null (Not set) before. */

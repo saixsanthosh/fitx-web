@@ -71,7 +71,7 @@ import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
 import { equipmentLabel } from "@/lib/training/equipment";
 import { ChipList, Detail, DetailList, EditActions, NotSet, SectionCard, type SectionNotice } from "./ProfileParts";
-import { foodAnswersKnown, foodSaveMarksSetup, foodSaveProblem, goalAnswers, homeEquipmentKnown, mealsText, sessionText } from "./profile-answers";
+import { foodAnswersKnown, foodSaveMarksSetup, foodSaveProblem, goalAnswers, homeEquipmentKnown, mealsText, sessionAnswer } from "./profile-answers";
 
 export type SectionId = "body" | "goal" | "training" | "food" | "limits";
 
@@ -348,6 +348,8 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
   const lists = data.equipmentLists;
   // Until the Workouts setup is done, experience, place and days a week are only the column defaults.
   const answersKnown = trainingAnswersKnown(data);
+  // No setup asks session length or split: the defaults read as what auto workouts assume (profile-answers.ts).
+  const session = sessionAnswer(data);
   const original: TrainingDraft = {
     location: prefs.workout_location,
     experience: prefs.fitness_level,
@@ -449,7 +451,9 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
           <Detail label="Experience">{answersKnown ? optionLabel(EXPERIENCE_OPTIONS, prefs.fitness_level) : <NotSet />}</Detail>
           <Detail label="Workout setup">{answersKnown ? optionLabel(LOCATION_OPTIONS, prefs.workout_location) : <NotSet />}</Detail>
           <Detail label="Weekly availability">{answersKnown ? <>{prefs.workouts_per_week} {prefs.workouts_per_week === 1 ? "day" : "days"} a week</> : <NotSet />}</Detail>
-          <Detail label="Session length">{sessionText(data) ?? <NotSet />}</Detail>
+          <Detail label="Session length">
+            {session.kind === "not_set" ? <NotSet /> : session.kind === "assumed" ? <span className="font-normal text-fitx-text-secondary">{session.text}, until you change it</span> : session.text}
+          </Detail>
           <Detail label="Home equipment" wide><ChipList items={equipmentChips(lists.home.keys)} empty="No equipment" known={homeEquipmentKnown(data)} /></Detail>
           <Detail label="Gym equipment" wide>
             {lists.gym.saved ? <ChipList items={equipmentChips(lists.gym.keys)} empty="No equipment" /> : <span className="font-normal text-fitx-text-secondary">A full gym, until you change it</span>}
