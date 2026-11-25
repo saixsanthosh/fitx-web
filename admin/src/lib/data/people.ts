@@ -7,7 +7,7 @@ import { isAdminRole, type AdminRole } from "@/lib/roles";
 import { isMissingFunction, isMissingTable } from "@/lib/schema";
 import { trainingAnswers, type TrainingAnswers } from "@/lib/training-answers";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import type { PeopleFilters } from "@/components/users/people-filters";
+import { normalisePeopleQuery, type PeopleFilters } from "@/components/users/people-filters";
 
 export const PEOPLE_PAGE_SIZE = 25;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -175,7 +175,7 @@ export async function searchPeople(rawQuery: string, rawPage: number): Promise<P
   const admin = createAdminSupabase();
   if (!admin) return { state: "service_key_missing" };
 
-  const query = rawQuery.trim().slice(0, 120);
+  const query = normalisePeopleQuery(rawQuery);
   const page = Number.isInteger(rawPage) ? Math.min(Math.max(rawPage, 1), 1000) : 1;
 
   const { data, error } = await admin.rpc("fitx_admin_search_users", {
