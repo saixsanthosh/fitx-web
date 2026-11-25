@@ -33,13 +33,16 @@ interface PortionPickerProps {
   /** Opens the dialog where the member sets the size of their katori and bowl. */
   onMeasures?: () => void;
   idPrefix?: string;
+  /** Why the amount can't be logged (shown once Add to log was pressed, while it is still wrong), next to the amount. */
+  amountProblem?: string | null;
 }
 
 const MACRO_TILES: Array<[MacroKey, string]> = [["protein", "protein"], ["carbs", "carbs"], ["fat", "fat"]];
 
 /** Amount (typed, or stepped up and down) and unit with the live grams and nutrition, and an honest note when the grams are an estimate. */
-export function PortionPicker({ food, amount, unitKey, options, chosen, grams, macros, prompt, onAmount, onUnit, onMeasures, idPrefix = "portion" }: PortionPickerProps) {
+export function PortionPicker({ food, amount, unitKey, options, chosen, grams, macros, prompt, onAmount, onUnit, onMeasures, idPrefix = "portion", amountProblem = null }: PortionPickerProps) {
   const noteId = `${idPrefix}-note`;
+  const problemId = `${idPrefix}-amount-problem`;
   const kind = stepKindOf(chosen?.unit ?? null);
   const step = (direction: 1 | -1) => onAmount(formatAmount(stepAmount(Number(amount), direction, kind)));
   const hasVolume = options.some((portion) => portion.unit === "ml" || portion.vessel);
@@ -79,7 +82,8 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
           <label htmlFor={`${idPrefix}-amount`}>Amount</label>
           <div className={styles.stepper}>
             <button type="button" onClick={() => step(-1)} aria-label="Decrease amount" className={styles.stepButton}><Minus size={16}/></button>
-            <input id={`${idPrefix}-amount`} className="fitx-field" inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => onAmount(event.target.value)} aria-describedby={noteId}/>
+            <input id={`${idPrefix}-amount`} className="fitx-field" inputMode="decimal" type="number" min="0" step="any" value={amount} onChange={(event) => onAmount(event.target.value)}
+              aria-invalid={amountProblem ? true : undefined} aria-describedby={amountProblem ? `${problemId} ${noteId}` : noteId}/>
             <button type="button" onClick={() => step(1)} aria-label="Increase amount" className={styles.stepButton}><Plus size={16}/></button>
           </div>
         </div>
@@ -88,6 +92,7 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
           {options.map((portion, index) => <option key={`${portion.label}-${index}`} value={`portion:${index}`}>{portion.label} · {formatAmount(portion.grams)} g</option>)}
         </select></label>
       </div>
+      {amountProblem && <p id={problemId} role="alert" className={styles.warning}>{amountProblem}</p>}
       <p id={noteId} className={styles.portionNote}>
         {grams > 0 ? <>
           <span>= <strong>{formatAmount(grams)} g</strong></span>

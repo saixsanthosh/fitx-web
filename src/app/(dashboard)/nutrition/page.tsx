@@ -55,6 +55,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
+import { amountProblem } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -133,6 +134,8 @@ export default function NutritionPage() {
   const [derived, setDerived] = useState<FoodPortion | null>(null);
   const [amountPrompt, setAmountPrompt] = useState<AmountPrompt | null>(null);
   const [barcodeMiss, setBarcodeMiss] = useState<BarcodeMiss | null>(null);
+  /** Add to log was pressed with an amount that can't be logged: its problem shows next to the amount while it lasts. */
+  const [amountTried, setAmountTried] = useState(false);
   /** The meal the open Log food adds to; set each time it opens (mealForOpen). */
   const [meal, setMeal] = useState<string>("Breakfast");
   /** A meal just added from the Meals tab ("Add a meal"): the next Log food opens on it, that once. */
@@ -365,6 +368,7 @@ export default function NutritionPage() {
     setSelected(food);
     setDerived(null);
     setAmountPrompt(null);
+    setAmountTried(false);
     setNotice("");
     setPickHint("");
     setBarcodeMiss(null);
@@ -521,7 +525,12 @@ export default function NutritionPage() {
   }
 
   async function logFood(food: FoodResult) {
-    if (!Number.isFinite(grams) || grams < 1 || grams > 5000) { setError("Enter an amount that comes to between 1 and 5,000 grams."); return; }
+    if (amountProblem(grams)) {
+      // Said next to the amount, and only while it is wrong; the amount takes the focus.
+      setAmountTried(true);
+      window.setTimeout(() => document.getElementById("log-portion-amount")?.focus(), 0);
+      return;
+    }
     if (loggingFood.current) return;
     loggingFood.current = true;
     try {
@@ -661,7 +670,7 @@ export default function NutritionPage() {
         if (document.activeElement === target) return;
       }
     }, 0);
-    setSelected(null); setAmountPrompt(null); setBarcodeMiss(null); setPickHint(""); setError("");
+    setSelected(null); setAmountPrompt(null); setAmountTried(false); setBarcodeMiss(null); setPickHint(""); setError("");
     reopenLog.current = false;
   }
 
@@ -1002,7 +1011,7 @@ export default function NutritionPage() {
       prompt={amountPrompt} onAmount={(value) => { setAmount(value); setAmountPrompt(null); }} onUnit={changeUnit}
       onMeasures={() => { hideLog("log-portion-measures"); setHouseholdOpen(true); }}
       sections={sections} meal={meal} onMeal={pickMeal} onAddSection={() => { hideLog("log-portion-meal"); setNamePrompt({ kind: "section", then: "sheet" }); }}
-      mealControl="select" idPrefix="log-portion"/>;
+      mealControl="select" idPrefix="log-portion" amountProblem={amountTried ? amountProblem(grams) : null}/>;
   }
 
   const messages = <>
@@ -1096,7 +1105,7 @@ export default function NutritionPage() {
           {selected ? (
             <section className={styles.addPanel} aria-labelledby="add-title">
               <div className={styles.addHead}>
-                <button type="button" onClick={() => { setSelected(null); setAmountPrompt(null); }} className={styles.back} aria-label="Back to results"><ChevronLeft size={18} aria-hidden="true"/></button>
+                <button type="button" onClick={() => { setSelected(null); setAmountPrompt(null); setAmountTried(false); setNotice(""); }} className={styles.back} aria-label="Back to results"><ChevronLeft size={18} aria-hidden="true"/></button>
                 <h3 id="add-title" className={styles.addTitle}>Add to log</h3>
               </div>
               {detailFor(selected)}

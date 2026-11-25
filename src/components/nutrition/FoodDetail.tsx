@@ -32,6 +32,8 @@ export interface FoodDetailProps {
   mealControl: "select" | "chips";
   onClear?: () => void;
   idPrefix: string;
+  /** Why the amount can't be logged, shown next to it while it is wrong. */
+  amountProblem?: string | null;
 }
 
 /** Where the values came from, in plain words, with a link to the record when there is one. */
@@ -68,7 +70,7 @@ export function FoodDetail(props: FoodDetailProps) {
         {props.onClear && <button type="button" onClick={props.onClear} aria-label="Clear selected food" className={styles.iconButton}><X size={16}/></button>}
       </div>
       <PortionPicker food={food} amount={props.amount} unitKey={props.unitKey} options={props.options} chosen={props.chosen} grams={grams} macros={props.macros}
-        prompt={props.prompt} onAmount={props.onAmount} onUnit={props.onUnit} onMeasures={props.onMeasures} idPrefix={props.idPrefix}/>
+        prompt={props.prompt} onAmount={props.onAmount} onUnit={props.onUnit} onMeasures={props.onMeasures} idPrefix={props.idPrefix} amountProblem={props.amountProblem}/>
       {mealControl === "select"
         ? <label className="mt-3 block text-xs text-fitx-text-secondary">Meal<select id={`${props.idPrefix}-meal`} className="fitx-field mt-1.5" value={meal} onChange={(event) => (event.target.value === ADD_MEAL_VALUE ? onAddSection() : onMeal(event.target.value))}>
           {sections.map((name) => <option key={name}>{name}</option>)}
