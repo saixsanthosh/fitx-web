@@ -112,6 +112,21 @@ export function validateSettingsInput(input: {
   return { ok: true, value: { features, maintenance, site: { supportEmail, instagramUrl } } };
 }
 
+/**
+ * After a save, shows what is stored in the notice's fields while its switch is off: a save then cleared the notice,
+ * and the fieldset is disabled, so none of its fields can hold focus. With the switch on, the fields already hold what
+ * was saved and are left alone: the field the operator pressed Enter in keeps focus and caret (the fieldset is never
+ * remounted). Each field takes its defaultValue, which React has just set to the stored value. True when it wrote.
+ */
+export function showStoredWhenOff(fieldset: { disabled: boolean; elements: ArrayLike<unknown> } | null | undefined): boolean {
+  if (!fieldset?.disabled) return false;
+  for (const element of Array.from(fieldset.elements)) {
+    const field = element as { value?: unknown; defaultValue?: unknown };
+    if (typeof field.defaultValue === "string") field.value = field.defaultValue;
+  }
+  return true;
+}
+
 /** Whether a maintenance notice shows now, later, or is over. */
 export function maintenanceTiming(maintenance: Maintenance | null, now = Date.now()): "off" | "live" | "scheduled" | "ended" {
   if (!maintenance) return "off";

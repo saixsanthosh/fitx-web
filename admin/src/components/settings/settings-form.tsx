@@ -1,13 +1,13 @@
 "use client";
 
-import { useActionState, useId, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { saveSettings } from "@/app/(control)/settings/actions";
 import { Panel, consoleStyles as ui } from "@/components/console/ui";
 import { keepTyped } from "@/components/content/keep-typed";
 import { BusyButton, FormResult } from "@/components/form-kit";
 import { fieldAria } from "@/components/form-rules";
 import { IDLE } from "@/lib/content/form";
-import { FEATURE_LABELS, MAINTENANCE_LIMITS, type FeatureKey } from "./settings-rules";
+import { FEATURE_LABELS, MAINTENANCE_LIMITS, showStoredWhenOff, type FeatureKey } from "./settings-rules";
 import styles from "./settings.module.css";
 
 /** The saved settings as the form starts (times already as IST datetime-local values). */
@@ -35,6 +35,12 @@ export function SettingsForm({ defaults, manage }: { defaults: SettingsDefaults;
   const maintenanceNote = useId();
   // The notice's fields are really off while its switch is off (a save then clears the notice), not just dimmed.
   const [maintenanceOn, setMaintenanceOn] = useState(defaults.maintenance.on);
+  const maintenanceFields = useRef<HTMLFieldSetElement>(null);
+  // Each save brings the stored settings (a new updatedAt). A save that cleared the notice shows it in the (disabled)
+  // fields; otherwise they stay as typed, so a save sent with Enter keeps focus in its field.
+  useEffect(() => {
+    showStoredWhenOff(maintenanceFields.current);
+  }, [defaults.updatedAt]);
   const aria = (name: string) => fieldAria(state, name, resultId);
   return (
     <form ref={formRef} action={action} onSubmit={keepTyped(action)} className={ui.stack}>
@@ -64,8 +70,8 @@ export function SettingsForm({ defaults, manage }: { defaults: SettingsDefaults;
               <span className={styles.end}><input type="checkbox" name="maintenance_on" defaultChecked={defaults.maintenance.on} aria-describedby={maintenanceOn ? undefined : maintenanceNote} onChange={(event) => setMaintenanceOn(event.target.checked)} /><span className={styles.track} aria-hidden="true" /></span>
             </label>
             {!maintenanceOn && <p className="field-note" id={maintenanceNote}>Switch it on to write the notice. While it is off, members see no banner and nothing here is saved.</p>}
-            {/* Keyed by the save, so after a save the fields show what is stored (a save with the switch off clears them). */}
-            <fieldset key={defaults.updatedAt ?? "unsaved"} className={`${styles.maintenanceFields} stack-form`} disabled={!maintenanceOn}>
+            {/* Never keyed by the save: a remount would take focus from the field a save was sent from (D5). */}
+            <fieldset ref={maintenanceFields} className={`${styles.maintenanceFields} stack-form`} disabled={!maintenanceOn}>
               <legend className="sr-only">The notice</legend>
               <label>Title<input name="maintenance_title" maxLength={MAINTENANCE_LIMITS.title} defaultValue={defaults.maintenance.title} placeholder="Planned upgrade tonight" {...aria("maintenance_title")} /></label>
               <label>Message<textarea name="maintenance_body" maxLength={MAINTENANCE_LIMITS.body} rows={3} defaultValue={defaults.maintenance.body} {...aria("maintenance_body")} /></label>

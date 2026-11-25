@@ -13,7 +13,7 @@ test("the fields are a fieldset disabled while the switch is off, with a note ti
   const form = await readFile(new URL("../src/components/settings/settings-form.tsx", import.meta.url), "utf8");
   assert.match(form, /const \[maintenanceOn, setMaintenanceOn\] = useState\(defaults\.maintenance\.on\);/);
   assert.match(form, /name="maintenance_on" defaultChecked=\{defaults\.maintenance\.on\} aria-describedby=\{maintenanceOn \? undefined : maintenanceNote\} onChange=\{\(event\) => setMaintenanceOn\(event\.target\.checked\)\}/);
-  assert.match(form, /<fieldset key=\{defaults\.updatedAt \?\? "unsaved"\} className=\{`\$\{styles\.maintenanceFields\} stack-form`\} disabled=\{!maintenanceOn\}>/);
+  assert.match(form, /<fieldset ref=\{maintenanceFields\} className=\{`\$\{styles\.maintenanceFields\} stack-form`\} disabled=\{!maintenanceOn\}>/);
   assert.match(form, /\{!maintenanceOn && <p className="field-note" id=\{maintenanceNote\}>Switch it on to write the notice\./);
   for (const name of ["maintenance_title", "maintenance_body", "maintenance_starts", "maintenance_ends"]) {
     const field = form.indexOf(`name="${name}"`);

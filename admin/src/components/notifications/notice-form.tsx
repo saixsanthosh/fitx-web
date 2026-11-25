@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useActionState, useState, type FormEvent } from "react";
+import { startTransition, useActionState, useEffect, useRef, useState, type FormEvent } from "react";
 import { LoaderCircle, Send } from "lucide-react";
 import { sendNotification, type NoticeFormState } from "@/app/(control)/notifications/actions";
 import { ANNOUNCEMENT_LIMITS, ANNOUNCEMENT_TONE_LABELS, ANNOUNCEMENT_TONES, type AnnouncementTone } from "@/lib/announcement-input";
@@ -30,6 +30,12 @@ export function NoticeForm({ canEveryone, canUseEmails, recipients }: { canEvery
       setFormKey((key) => key + 1);
     }
   }
+  // That new form no longer has the Send button (or field) that had focus: focus moves to the result, which is read
+  // out, and Tab goes on to the empty composer (D5).
+  const sentRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (state?.sent) sentRef.current?.focus();
+  }, [state]);
 
   // Submitting through a transition keeps what was typed when the server refuses it.
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -70,7 +76,7 @@ export function NoticeForm({ canEveryone, canUseEmails, recipients }: { canEvery
         )}
         {audience === "everyone" && <label className="check-label"><input type="checkbox" name="confirm_everyone" value="yes" required />Show to every signed-in member</label>}
         {state?.error && <p role="alert" className="form-error">{state.error}</p>}
-        {state?.sent && <p role="status" className="inline-notice notice-success">{state.sent}</p>}
+        {state?.sent && <p ref={sentRef} tabIndex={-1} role="status" className="inline-notice notice-success">{state.sent}</p>}
         <button className="primary-button" type="submit" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
           {pending ? <LoaderCircle aria-hidden="true" className="spin" size={17} /> : <Send aria-hidden="true" size={16} />}
           <span>{pending ? "Sending…" : audience === "everyone" ? "Publish to everyone" : "Send notice"}</span>
