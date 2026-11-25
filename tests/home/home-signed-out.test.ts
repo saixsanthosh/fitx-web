@@ -10,7 +10,8 @@ import { homeMember, needsOwnCheck, quoteArea, type OwnCheck, type SharedMember 
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const ready: SharedMember = { status: "ready", userId: ID };
-// What UserContextProvider sets for any getUser() answer without a user: an ended session, and offline too.
+// What UserContextProvider set for any getUser() answer without a user before release 3, offline too (it now says
+// "error" for a check that failed); Home goes by its own check either way.
 const contextSignedOut: SharedMember = { status: "signed_out", userId: null };
 const signedOut: OwnCheck = { state: "signed_out", userId: null };
 const offlineWithSession: OwnCheck = { state: "unknown", userId: ID };

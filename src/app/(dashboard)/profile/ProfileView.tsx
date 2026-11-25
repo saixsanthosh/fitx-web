@@ -78,8 +78,9 @@ export function profileTargets(data: UserContextData): NutritionTargets | null {
  */
 function useProfileData() {
   const shared = useOptionalUserContext();
-  // The shared context also says "signed_out" when its own check failed (offline, say): Profile says "Sign in" only
-  // once its own check agrees, and a failed check is a load failure with Try again (session-state.ts confirmSignedOut).
+  // The shared context says "signed_out" for an ended session and "error" for a check that failed (offline, say); Profile
+  // still says "Sign in" only once its own check agrees, and a failed check is a load failure with Try again
+  // (session-state.ts confirmSignedOut).
   const sharedSignedOut = shared?.status === "signed_out";
   // Try again (and every reload) checks again; the last answer stays on screen meanwhile, so the focused Try again
   // button isn't swapped for the loading state.

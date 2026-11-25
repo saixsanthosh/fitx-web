@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
+import { checkSession, sharedStatusWithoutUser } from "@/components/account/session-state";
 import { createClient } from "@/lib/supabase/client";
 import { loadUserContext, syncProfileWeight, USER_CONTEXT_EVENT, type LoadPart, type UserContextData } from "@/lib/domain/user-context";
 
@@ -47,14 +48,17 @@ export function UserContextProvider({ children }: { children: ReactNode }) {
       return;
     }
     const ticket = ++request.current;
-    const { data: auth } = await supabase.auth.getUser();
+    // "signed_out" only for a session that has ended; a check that failed (offline, a timeout, a 5xx) is "error", so
+    // no reader says "signed out" to a member who is still signed in (bug 41; session-state.ts).
+    const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
     if (ticket !== request.current) return;
-    if (!auth.user) {
+    if (!user) {
       setData(null);
-      setStatus("signed_out");
+      setFailedPart(null);
+      setStatus(sharedStatusWithoutUser(state));
       return;
     }
-    const result = await loadUserContext(supabase, { id: auth.user.id, email: auth.user.email ?? null });
+    const result = await loadUserContext(supabase, { id: user.id, email: user.email ?? null });
     if (ticket !== request.current) return;
     if (result.error) {
       setFailedPart(result.error.part);
@@ -79,6 +83,13 @@ export function UserContextProvider({ children }: { children: ReactNode }) {
     void Promise.resolve().then(refresh);
     const onChange = () => void refresh();
     window.addEventListener(USER_CONTEXT_EVENT, onChange);
+    // A page the browser keeps whole in its back-forward cache comes back by Back or Forward without running anything
+    // again (after a Log out, say): check the session again then, so the header and sidebar never name an ended
+    // session (D2, bug 41). Pages loaded again from the HTTP cache mount afresh and check above.
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) void refresh();
+    };
+    window.addEventListener("pageshow", onPageShow);
     const supabase = createClient();
     const subscription = supabase?.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (event === "SIGNED_OUT") {
@@ -94,6 +105,7 @@ export function UserContextProvider({ children }: { children: ReactNode }) {
     }).data.subscription;
     return () => {
       window.removeEventListener(USER_CONTEXT_EVENT, onChange);
+      window.removeEventListener("pageshow", onPageShow);
       subscription?.unsubscribe();
     };
   }, [refresh]);

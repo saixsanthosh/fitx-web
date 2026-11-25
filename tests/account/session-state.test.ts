@@ -125,7 +125,7 @@ describe("checkSessionKeepingMember (Home, review home-1)", () => {
   });
 });
 
-describe("confirmSignedOut (the shared context also says signed_out when its check failed)", () => {
+describe("confirmSignedOut (a page goes by its own check, never the shared context's word alone, for a sign-out)", () => {
   test("any other status passes through", () => {
     for (const status of ["loading", "ready", "unavailable", "error"] as const) assert.equal(confirmSignedOut(status, null), status);
   });

@@ -1,10 +1,11 @@
 /**
  * Which member Home loads the quote of the day for, and what its quote area says (bug 41 on Home; review home-1).
  *
- * The shared user context (UserContextProvider) reports "signed_out" both when the session has ended and when its own
- * check failed (offline, an auth timeout, a 5xx), so Home never takes its word for a sign-out. Whenever the context gives
- * no member (no provider, a failed load, "signed_out", no client) Home asks the session itself
- * (session-state.ts checkSessionKeepingMember), and only that check's "signed_out" makes Home say "You’re signed out".
+ * The shared user context (UserContextProvider) reports "signed_out" for an ended session and "error" for a check that
+ * failed (offline, an auth timeout, a 5xx; it said "signed_out" for both before release 3), and Home never takes its
+ * word for a sign-out anyway. Whenever the context gives no member (no provider, a failed load, "signed_out", no
+ * client) Home asks the session itself (session-state.ts checkSessionKeepingMember), and only that check's
+ * "signed_out" makes Home say "You’re signed out".
  * A check that failed keeps the member this browser's session names, so the day's quote this device keeps (bug 70)
  * still shows during an outage; with no member at all the area says the quote could not be loaded, never "loading"
  * for ever and never "signed out".

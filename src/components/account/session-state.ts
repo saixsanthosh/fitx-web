@@ -82,10 +82,18 @@ export async function checkSessionKeepingMember(auth: SessionAuth | null): Promi
 }
 
 /**
- * A page's status from the shared user context's (UserContextProvider), which also reports "signed_out" when its own
- * check failed (offline, a timeout, a 5xx). The page says "signed out" only once its own check (`own`) agrees: until
- * that answer comes it is loading, and a check that failed, or that found the member signed in after all, is a load
- * failure the member can retry, never a sign-out.
+ * The shared user context's status (UserContextProvider) when its check gave no user: "signed_out" only for a session
+ * that has ended; a check that failed is "error", which no reader shows as a sign-out.
+ */
+export function sharedStatusWithoutUser(state: SessionState): "signed_out" | "error" {
+  return state === "signed_out" ? "signed_out" : "error";
+}
+
+/**
+ * A page's status from the shared user context's (UserContextProvider), which reports "signed_out" for an ended session
+ * and "error" for a check that failed (offline, a timeout, a 5xx); before release 3 it said "signed_out" for both. The
+ * page says "signed out" only once its own check (`own`) agrees: until that answer comes it is loading, and a check
+ * that failed, or that found the member signed in after all, is a load failure the member can retry, never a sign-out.
  */
 export function confirmSignedOut<S extends string>(shared: S, own: SessionState | null): S | "loading" | "error" {
   if (shared !== "signed_out") return shared;

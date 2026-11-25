@@ -49,8 +49,8 @@ export function DailyHome({ today }: { today: string }) {
   const context = useOptionalUserContext();
   const reduced = useReducedMotionSafe();
   const hour = useHour();
-  // The shared profile normally gives the member's id. When it gives none (it failed, or says "signed out", which it
-  // also says when its own check failed offline), Home asks the session itself (src/lib/home/quote-area.ts).
+  // The shared profile normally gives the member's id. When it gives none (it failed, or says "signed out"), Home asks
+  // the session itself and goes by that answer (src/lib/home/quote-area.ts).
   const shared = context ? { status: context.status, userId: context.data?.userId ?? null } : null;
   const checkNeeded = needsOwnCheck(shared);
   const [own, setOwn] = useState<OwnCheck | null>(null);
