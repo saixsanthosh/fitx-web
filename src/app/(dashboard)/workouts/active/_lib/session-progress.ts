@@ -1,12 +1,13 @@
 /**
  * Where a live workout stands: the set being performed ("Set 2 of 4"), what is left in the exercise and in the
- * session, what comes next, and the rest timer's arithmetic. Pure and free of imports, so `node --test` loads it
- * directly; the live page (../page.tsx) and its components read everything from here.
+ * session, what comes next, and the rest timer's arithmetic. Pure (its one import, set-entry.ts, is too), so
+ * `node --test` loads it directly; the live page (../page.tsx) and its components read everything from here.
  *
  * A set is done when it is ticked (completed_at set): the page only lets a set be ticked with reps or seconds,
  * the same rule the database uses when it totals the session. Sets are taken in set-number order, so the current
  * set is the first one not ticked yet.
  */
+import { plausibleWeight } from "./set-entry";
 
 export type ProgressSet = {
   id: string;
@@ -208,8 +209,9 @@ export function describeNextStep(step: NextStep, exercises: readonly DescribedEx
   }
   const set = exercise.sets.find((item) => item.id === step.set.id) ?? step.set;
   const target = setTarget(exercise, set);
-  const typed = Number((set as DescribedSet).draftWeight);
-  const weight = Number.isFinite(typed) && typed > 0 ? `${formatKg(typed)} kg` : null;
+  // A weight the set could not be saved with (over 2,000 kg, say) is not repeated back as the plan.
+  const typed = plausibleWeight((set as DescribedSet).draftWeight);
+  const weight = typed !== null ? `${formatKg(typed)} kg` : null;
   const work = target ? (target.kind === "reps" ? `${target.value} ${target.value === 1 ? "rep" : "reps"}` : `${target.value} s`) : workTarget(exercise);
   return { title: `Set ${step.position} of ${step.total}`, detail: [work, weight].filter(Boolean).join(" · ") };
 }

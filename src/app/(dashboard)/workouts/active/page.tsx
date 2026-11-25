@@ -36,6 +36,7 @@ import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMN
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { readWithOptional, recordHref, stripStats } from "../history/_lib/session-record";
 import { formatHistorySet, lastTimeForSet, summariseLastTime } from "./_lib/last-time";
+import { SET_LIMITS, readSetEntry, setEntryProblem } from "./_lib/set-entry";
 import {
   adjustRest, describeNextStep, exerciseAfterTick, exerciseProgress, formatKg, formatRest, restRemaining, sessionProgress, setHeadline, setTarget, setsLeftLabel,
   sessionTally, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, timerSecondsDone, updateSet, workTarget,
@@ -56,7 +57,7 @@ const SESSION_COLUMNS = ["id", "user_id", "plan_id", "name", "started_at", "stat
 const SESSION_EXERCISE_COLUMNS = ["id", "exercise_id", "exercise_name", "target_sets", "reps_min", "reps_max", "rest_seconds", "sort_order"] as const;
 const SET_COLUMNS = ["id", "set_number", "target_reps", "reps", "weight_kg", "completed_at"] as const;
 /** −/+ limits for the number boxes: the database's own ranges. */
-const DRAFT_LIMITS: Record<DraftField, { max: number; decimals: number }> = { draftWeight: { max: 2000, decimals: 2 }, draftReps: { max: 500, decimals: 0 }, draftDuration: { max: 86400, decimals: 0 } };
+const DRAFT_LIMITS: Record<DraftField, { max: number; decimals: number }> = { draftWeight: { max: SET_LIMITS.weightKg, decimals: 2 }, draftReps: { max: SET_LIMITS.reps, decimals: 0 }, draftDuration: { max: SET_LIMITS.seconds, decimals: 0 } };
 
 /** One calm line naming what this database cannot store yet; empty when everything is available. */
 function unavailableFieldsNotice(targetsSupported: boolean, timedSetsSupported: boolean) {
@@ -441,12 +442,13 @@ export default function ActiveWorkoutPage() {
     if (clock?.paused) return;
     // A tap: browsers allow the end-of-rest sound only after one.
     if (complete) cues.prime();
-    const weight = Number(set.draftWeight || 0); const reps = Number(set.draftReps || 0);
     // The duration field is hidden when the database cannot store it, so nothing typed is dropped.
-    const duration = timedSetsSupported ? Number(set.draftDuration || 0) : 0;
+    const { weight, reps, duration } = readSetEntry(set, timedSetsSupported);
     const exercise = exercises.find((item) => item.id === exerciseId);
     const requiresDuration = timedSetsSupported && Boolean(exercise?.target_duration_seconds);
-    if (!Number.isFinite(weight) || weight < 0 || weight > 2000 || !Number.isInteger(reps) || reps < 0 || reps > 500 || !Number.isInteger(duration) || duration < 0 || duration > 86400 || (complete && (requiresDuration ? duration === 0 : reps === 0 && duration === 0))) { setError(requiresDuration ? "Enter the completed duration before logging this timed movement." : timedSetsSupported ? "Enter a positive rep count or duration before completing a set." : "Enter a positive rep count before completing a set."); return; }
+    // Each box is checked on its own, so the message is about the box at fault (an over-limit weight, not the reps).
+    const entryProblem = setEntryProblem({ weight, reps, duration }, { complete, timed: requiresDuration });
+    if (entryProblem) { setError(entryProblem.message); return; }
     const supabase = createClient(); if (!supabase || !session) return;
     const patch = { weight_kg: weight, reps: reps > 0 ? reps : null, duration_seconds: duration > 0 ? duration : null, completed_at: complete ? new Date().toISOString() : null };
     // "camera" while the number is still the one the camera counted and the user confirmed.
