@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { BOTTOM_INSET_EVENT, BOTTOM_INSETS, bottomInset, insetValue, trackBottomInset, type InsetBox, type InsetHost } from "../../src/components/layout/bottom-inset.ts";
+import { BOTTOM_INSET_EVENT, BOTTOM_INSETS, bottomInset, fixedAreaHeight, insetValue, trackBottomInset, type InsetBox, type InsetHost } from "../../src/components/layout/bottom-inset.ts";
 
 // Bugs 12 and 79: on phones a control reached with Tab ended up behind the fixed bottom bar (html kept only
 // scroll-padding-top), and while the privacy banner was open it covered the focused control, even at the end of
@@ -24,19 +24,21 @@ test("what a bar hides: from its top edge to the bottom of the viewport, none wh
   assert.equal(insetValue(Number.NaN), null);
 });
 
-/** A page stand-in: <html>'s style, the window's events and frames, and the element's size watcher. */
-function fakePage(height: number) {
+/**
+ * A page stand-in: <html>'s style, the window's events and frames, and the element's size watcher. `clientHeight` is
+ * <html>'s, which a phone keeps at its toolbar-shown height while innerHeight grows as the URL bar hides.
+ */
+function fakePage(height: number, clientHeight = height) {
   const style = new Map<string, string>();
-  const events = new EventTarget();
   const frames: Array<() => void> = [];
   const resizers: Array<() => void> = [];
-  const view = Object.assign(events, {
+  const view = Object.assign(new EventTarget(), {
     innerHeight: height,
     requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(() => callback(0)),
     cancelAnimationFrame: () => undefined,
   });
   const host: InsetHost = {
-    root: { clientHeight: height, style: { setProperty: (name, value) => style.set(name, value), removeProperty: (name) => style.delete(name) } },
+    root: { clientHeight, style: { setProperty: (name, value) => style.set(name, value), removeProperty: (name) => style.delete(name) } },
     view: view as unknown as InsetHost["view"],
     watchSize: (_element, onResize) => {
       resizers.push(onResize);
@@ -44,7 +46,7 @@ function fakePage(height: number) {
     },
   };
   const flush = () => frames.splice(0).forEach((frame) => frame());
-  return { style, host, view: events, resizers, flush };
+  return { style, host, view, resizers, flush };
 }
 
 test("a bar keeps its variable on <html> while it is in the page, through resizes, and removes it when it goes", () => {
@@ -84,6 +86,60 @@ test("the banner above the phone's bar measures itself again when the bar comes 
   stopBar();
   stopBanner();
   assert.equal(page.style.size, 0);
+});
+
+// Review of bug 12: the bar is fixed in an area that grows when a phone's URL bar or toolbar collapses (it moves down
+// with it), but <html>'s clientHeight keeps the toolbar-shown height. Measured against that, the inset shrank by the
+// URL bar's height on every resize the collapse fires, and with it the scroll padding, so Tab again left controls
+// under the bar on a real phone (the emulated 390 x 844 re-check can't show it: there both heights are the same).
+test("a phone's URL bar hiding: the bar and the banner above it keep their whole inset", () => {
+  // The reviewer's case: the area is 900 px with the URL bar hidden, <html> still says 844, the bar's top is at 833.
+  const hidden = fakePage(900, 844);
+  const stopHidden = trackBottomInset({ getBoundingClientRect: () => ({ top: 833, width: 390, height: 67 }) }, "bar", hidden.host);
+  assert.equal(hidden.style.get(BOTTOM_INSETS.bar), "67px", "not 11 px");
+  stopHidden();
+
+  // Chrome for Android at 390 x 844: open with the URL bar shown, then a touch scroll hides it (56 px) and the
+  // window's resize measures again. The banner floats above the bar and moves down with it too.
+  const page = fakePage(844);
+  let bar: InsetBox = { top: 777, width: 390, height: 67 };
+  let banner: InsetBox = { top: 565, width: 366, height: 192 };
+  const stopBar = trackBottomInset({ getBoundingClientRect: () => bar }, "bar", page.host);
+  const stopBanner = trackBottomInset({ getBoundingClientRect: () => banner }, "consent", page.host);
+  assert.equal(page.style.get(BOTTOM_INSETS.bar), "67px");
+  assert.equal(page.style.get(BOTTOM_INSETS.consent), "279px");
+  page.view.innerHeight = 900;
+  bar = { top: 833, width: 390, height: 67 };
+  banner = { top: 621, width: 366, height: 192 };
+  page.view.dispatchEvent(new Event("resize"));
+  page.flush();
+  assert.equal(page.style.get(BOTTOM_INSETS.bar), "67px", "the bar still hides 67 px");
+  assert.equal(page.style.get(BOTTOM_INSETS.consent), "279px", "and the banner 279 px");
+  stopBanner();
+  stopBar();
+
+  // iOS-like numbers: the toolbar collapses by 81 px, more than the bar is tall. Against clientHeight the bar would
+  // hide nothing at all and its variable would go.
+  const ios = fakePage(745, 664);
+  const stopIos = trackBottomInset({ getBoundingClientRect: () => ({ top: 678, width: 390, height: 67 }) }, "bar", ios.host);
+  assert.equal(ios.style.get(BOTTOM_INSETS.bar), "67px");
+  assert.equal(bottomInset({ top: 678, width: 390, height: 67 }, 664), 0, "what the old measure gave");
+  stopIos();
+});
+
+test("the area a bar is fixed in is the larger of innerHeight and <html>'s clientHeight", () => {
+  assert.equal(fixedAreaHeight(900, 844), 900, "the URL bar or toolbar has collapsed: innerHeight");
+  assert.equal(fixedAreaHeight(520, 844), 844, "a pinch zoom or the keyboard shrinks the visual viewport; the bar stays put");
+  assert.equal(fixedAreaHeight(915, 900), 915, "a desktop's horizontal scrollbar: a slightly larger inset, harmless");
+  assert.equal(fixedAreaHeight(0, 844), 844);
+  assert.equal(fixedAreaHeight(Number.NaN, 844), 844);
+  assert.equal(fixedAreaHeight(900, 0), 900);
+  assert.equal(fixedAreaHeight(0, 0), 0);
+  // What the old measure gave with the reviewer's numbers, and what the bar really hides.
+  assert.equal(bottomInset({ top: 833, width: 390, height: 67 }, 844), 11);
+  assert.equal(bottomInset({ top: 833, width: 390, height: 67 }, fixedAreaHeight(900, 844)), 67);
+  // The tracker measures against it.
+  assert.match(source("src/components/layout/bottom-inset.ts"), /bottomInset\(element\.getBoundingClientRect\(\), fixedAreaHeight\(view\.innerHeight, root\.clientHeight\)\)/);
 });
 
 test("globals.css keeps the larger of the two clear when scrolling to a control, with room for the focus ring", () => {

@@ -32,6 +32,21 @@ export function bottomInset(box: InsetBox | null, viewportHeight: number): numbe
   return Math.ceil(Math.min(hidden, viewportHeight));
 }
 
+/**
+ * The height of the area a bar fixed to the bottom is laid out in, which its top edge is measured against. On a phone
+ * that area grows when the browser's URL bar or toolbar collapses as the member scrolls, and the bar moves down with
+ * it, while <html>'s clientHeight (the initial containing block) keeps the toolbar-shown height; innerHeight follows
+ * the visible height. Measured against clientHeight, the bar's 67 px came to about 11 px on Chrome for Android, and
+ * could come to nothing on iOS, once the URL bar hid (review of bug 12). The larger of the two, because innerHeight
+ * follows the visual viewport, which a pinch zoom or the on-screen keyboard can make smaller than that area (the bar
+ * does not move then); on a desktop with a horizontal scrollbar it only makes the inset a little larger, which does
+ * no harm.
+ */
+export function fixedAreaHeight(innerHeight: number, clientHeight: number): number {
+  const finite = (value: number) => (Number.isFinite(value) && value > 0 ? value : 0);
+  return Math.max(finite(innerHeight), finite(clientHeight));
+}
+
 /** The variable's value for an inset, or null to remove the variable (nothing hidden). */
 export function insetValue(px: number): string | null {
   return Number.isFinite(px) && px > 0 ? `${Math.ceil(px)}px` : null;
@@ -71,7 +86,7 @@ export function trackBottomInset(element: { getBoundingClientRect(): InsetBox },
   const announce = () => view.dispatchEvent(new CustomEvent(BOTTOM_INSET_EVENT, { detail: { name } }));
   const measure = () => {
     frame = 0;
-    const next = insetValue(bottomInset(element.getBoundingClientRect(), root.clientHeight || view.innerHeight));
+    const next = insetValue(bottomInset(element.getBoundingClientRect(), fixedAreaHeight(view.innerHeight, root.clientHeight)));
     if (next === current) return;
     current = next;
     if (next) root.style.setProperty(variable, next);
