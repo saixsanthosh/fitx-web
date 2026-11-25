@@ -5,25 +5,31 @@ time. It is written for the FITX owner. You do not need to know SQL. "The sessio
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **Where production stands (2026-11-24):** it has the 14 files from September 2026, the three changes applied
-  to it by hand that have no file in `supabase/migrations` (section 1.8), and all 54 files of section 2, #1 to #54
+- **Where production stands (2026-11-25):** it has the 14 files from September 2026, the three changes applied
+  to it by hand that have no file in `supabase/migrations` (section 1.8), and #1 to #54 of section 2
   (`20261115100000` to `20261124100020`), applied on 2026-11-17, 2026-11-18, 2026-11-20, 2026-11-21, 2026-11-23 and
   2026-11-24 and recorded under their own numbers: 71 rows in its history. Those 54 are done; never apply one again.
-  The 2026-11-23 sitting applied #46 to #51 (the "next level" job's wave 1) and the 2026-11-24 sitting #52 to #54
-  (wave 2: Explore part 2 core, Explore's groups and Admin's Explore section, before release 2a was deployed), both
-  with the staged, md5-checked method of section 0.1 (#52 to #54 in 26 parts): every Check gave its Expect line and
-  Final 1 to 3 passed, and on 2026-11-24 the hourly jobs `fitx-social-hourly` and `fitx-challenge-hourly` were
-  scheduled. #49 and #50 ran without their standalone `begin;` and `commit;` lines, which that method leaves out;
-  #52 to #54 have none, so they ran exactly as written. The history rows of both sittings hold each file's full text.
-- **What is pending:** nothing. Every file in `supabase/migrations` is applied in production; that folder, on
-  `master`, is the source of truth. Sections 2 and 3 still list all 54 files, so each summary, Check and Undo block
-  stays next to its file.
-- **The next sitting:** a later change to the database is always a new file, numbered after #54, never an edit to an
+  One file is pending: #55, below. The 2026-11-23 sitting applied #46 to #51 (the "next level" job's wave 1) and
+  the 2026-11-24 sitting #52 to #54 (wave 2: Explore part 2 core, Explore's groups and Admin's Explore section,
+  before release 2a was deployed), both with the staged, md5-checked method of section 0.1 (#52 to #54 in 26
+  parts): every Check gave its Expect line and Final 1 to 3 passed, and on 2026-11-24 the hourly jobs
+  `fitx-social-hourly` and `fitx-challenge-hourly` were scheduled. #49 and #50 ran without their standalone
+  `begin;` and `commit;` lines, which that method leaves out; #52 to #54 have none, so they ran exactly as written.
+  The history rows of both sittings hold each file's full text.
+- **What is pending:** the one file #55, `20261125100000` (release 2c: members still read their own Explore reports,
+  but no longer the evidence FITX stores with them), in `supabase/migrations` on `master` once release 2c is merged
+  (it was written on the branch `claude/nx2-r2db`). That folder is the source of truth. It is not applied anywhere
+  yet and needs #51 and #52. Sections 2 and 3 list all 55 files, so each summary, Check and Undo block stays next to
+  its file.
+- **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #55 (section 3), then section 6.3 and 6.1. The
+  app needs nothing from #55 (it never reads the evidence), so it may come before or after the release 2c deploy.
+  #55 schedules no job, so Start 5 is not needed. Start 6 to 10 belong to the first sitting, before #1; they are
+  kept as its record and need not be run again.
+- **Later sittings:** a later change to the database is always a new file, numbered after #55, never an edit to an
   applied one (`tests/integration/applied-migrations.test.mjs` holds each applied file's md5). It gets its row in
   section 2 and in History 1 (6.3), its section in section 3 with its md5, and its object in Start 2, which until
-  then keeps the 2026-11-24 sitting's list as its record. The sitting is then section 1 (Start 1 to 4, 1.1's backup,
-  and Start 5 when a file schedules a job: 1.5), its files in order (section 3), then section 6.3 and 6.1. Start 6
-  to 10 belong to the first sitting, before #1; they are kept as its record and need not be run again.
+  then keeps the latest sitting's list as its record. The sitting is then section 1 (Start 1 to 4, 1.1's backup,
+  and Start 5 when a file schedules a job: 1.5), its files in order (section 3), then section 6.3 and 6.1.
 - **Other runbook:** `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
 
 ## 0. How each step works
@@ -49,10 +55,13 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only pending files (none now), and only from `master`. Never #1 to #54 again: production has them, and #7 must
-  never run a second time. #51 must never run again either (except after #52's undo, section 5): it would put back
-  part 1's Explore functions and read policies over #52's. Never #42 or #43 again: they would put back the
-  21-permission role table and the five-switch settings save (#54, run again, restores both).
+- Only the pending file, #55, and only from `master` (or, before release 2c is merged, from the branch that carries
+  it). Never #1 to #54 again: production has them, and #7 must never run a second time. #51 must never run again
+  either, except as the last step of #52's undo (section 5); #55 is undone before #52, so nothing runs again after
+  #51 there. Run by mistake while #52 and #55 are in place, #51 would put back part 1's Explore functions and read
+  policies over #52's, and members' read of every column of their reports over #55's (#52 and then #55, run again
+  after it, restore both). Never #42 or #43 again: they would put back the 21-permission role table and the
+  five-switch settings save (#54, run again, restores both).
   Never a copy from another
   branch or worktree, never the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from the
   repository), and never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
@@ -62,17 +71,19 @@ For each file, in the order of section 2:
 - The Start, Before, Check, Smoke, Later and Final queries only read. The only writes are the files
   themselves and the steps marked "writes", and each of those needs your OK too.
 - Pick a quiet time. Apply a sitting's files, then deploy the app that needs them (section 6.4) the same day, as on
-  2026-11-24: #52, #53 and #54, then release 2a.
+  2026-11-24: #52, #53 and #54, then release 2a. #55 needs no deploy: the app works the same before and after it.
 - The live app keeps working throughout. On 2026-11-24, #52 added Explore part 2's tables and columns and rewrote part
   1's Explore functions and three read policies in place, under the same names and arguments, so wave 1's Explore
   (live since 2026-11-23) kept working after it; it deleted no row. #53 and #54 added only functions and two indexes
-  (and, on production, the hourly challenge job); they changed no row. The app checks for each file and works
+  (and, on production, the hourly challenge job); they changed no row. #55 takes away only members' read of two
+  columns of their reports, which the app never reads; it changes no row. The app checks for each file and works
   without the ones not applied yet.
 - #52 (149 KB), #53 (70 KB) and #54 (47 KB) were larger than the files the connector took reliably. The session sent
   each with the staged, md5-checked method it used for #42 to #51 (each part stored and compared, then the whole file
   checked against its md5, run once and recorded under its own number; section 3 gives each file's md5). A large file
   in a later sitting goes the same way, or through the SQL editor (section 0.2), recorded with the same Record query
-  as #12, with that file's number and name.
+  as #12, with that file's number and name. #55 is small (3 KB): the connector's `apply_migration` takes it whole
+  (section 0, step 3), and the session then checks its history row against the md5 in section 3 (#55).
 
 ### 0.2 The six large files: SQL editor
 
@@ -96,7 +107,7 @@ connector reliably. For each of them:
 
 ### 1.1 Take or confirm a backup
 
-Do this on the day, before the first file of the sitting (on 2026-11-24, before #52).
+Do this on the day, before the first file of the sitting (in this sitting, before #55; on 2026-11-24, before #52).
 
 - Supabase Dashboard → Database → Backups. If it lists daily backups, note the time of the newest one. If it
   lists none (the Free plan has none), make your own copy as below.
@@ -131,12 +142,10 @@ start, stop and compare them with section 2 first.
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the sitting's files that are already there. Expect (before #52, on 2026-11-24): no rows
+-- Start 2: changes from the sitting's files that are already there. Expect (before #55): no rows
 select m.file, m.object
 from (values
-  ('20261124100000', 'table', 'social_stories'),
-  ('20261124100010', 'function', 'fitx_social_send_message(uuid,text,uuid,uuid)'),
-  ('20261124100020', 'function', 'fitx_admin_explore_meter()')
+  ('20261125100000', 'revoked', 'social_reports.evidence')
 ) as m (file, kind, object)
 where case m.kind
   when 'table' then to_regclass('public.' || m.object) is not null
@@ -145,16 +154,21 @@ where case m.kind
                              and c.table_name = split_part(m.object, '.', 1) and c.column_name = split_part(m.object, '.', 2))
   when 'policy' then exists (select 1 from pg_policies p where p.schemaname = 'public'
                              and p.tablename = split_part(m.object, '.', 1) and p.policyname = split_part(m.object, '.', 2))
+  when 'revoked' then not has_column_privilege('authenticated', 'public.' || split_part(m.object, '.', 1),
+                                               split_part(m.object, '.', 2), 'SELECT')
 end
 order by m.file;
 ```
 
 Each row would mean that change is already in the database without its file being in the history: stop and
-tell the session. (Before #1, on 2026-11-17, this query listed all 45 files and showed the two that production's
-hand-applied changes had made, section 1.8; #2 and #29 were written for them.)
+tell the session. A `revoked` row is a read members no longer have: here, of the evidence column of
+`social_reports` (#55). (Before #1, on 2026-11-17, this query listed all 45 files and showed the two that
+production's hand-applied changes had made, section 1.8; #2 and #29 were written for them.)
 
-The list above is the 2026-11-24 sitting's, #52 to #54, kept as its record: run today, it lists all three, because
-they are applied. Before the next sitting the session replaces them with one object from each of that sitting's files.
+The list above is this sitting's: #55's one change. Run before #55 it gives no rows; after it (section 6.1) it lists
+that row. The 2026-11-24 sitting's list, kept as its record, was #52's table `social_stories`, #53's function
+`fitx_social_send_message(uuid,text,uuid,uuid)` and #54's function `fitx_admin_explore_meter()`, and it gave no rows
+before #52. Before a later sitting the session replaces the list with one object from each of that sitting's files.
 
 ### 1.4 What the Admin files need (Phase 10 checks)
 
@@ -396,6 +410,7 @@ again, for example after a failure, is safe. Two exceptions after a success: #7 
 | 52 | `20261124100000_fitx_social_v2_core` | Explore, part 2 core: stories (with views and likes), member sanctions, the storage trash, conversations and messages, communities and members, challenges (templates, entries, badges) and the moderation record (15 tables); moderation states on posts and comments; item-level visibility, sanctions, age bands and the Explore switch enforced in the database; report evidence; video posts; the bucket also takes `video/mp4`; the hourly clean-up job `fitx-social-hourly`; Realtime inbox pings; an index for the project's daily video plays. 25 new functions, 36 of #51's rewritten under the same names and arguments, the notification settings save from 5 to 9 parameters. | Additive (one relaxed rule: a notification may name no member) · yes | #51; #41 (date of birth), #42 (operator links), #43 (the Explore switch), #45 (its write limits); #27's pg_cron for the hourly job (skipped without the `cron` schema) | Explore part 2 (stories, video, groups, challenges, moderation) | Large (149 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore keeps working with it. Once it is applied, never run #51 again (section 0.1). It deletes no row. |
 | 53 | `20261124100010_fitx_social_v2_groups` | Explore part 2 groups: direct messages (requests, who can message you, blocks, unsend, a stop on repeated text, unread counts, Realtime pings), communities run by FITX (directory, private requests, member posts and discussions, removal by a community's moderators), challenges with values computed only from the member's own workouts and activities, opt-in leaderboards for adults, "Completed" and "Top 3" badges, templates that open a challenge each week and month, and the hourly job `fitx-challenge-hourly`. 24 new functions and one index; no table, policy or trigger. | Additive · yes | #52 (all its tables and helpers); #27's pg_cron for the job (skipped without the `cron` schema) | Explore messages, communities and challenges | Large (70 KB): section 0.1. Before the wave-2 deploy; wave 1's Explore does not call it. It changes no row. |
 | 54 | `20261124100020_fitx_admin_explore` | Admin's Explore section: the `explore.view` and `explore.moderate` permissions (the role table recreated with 23 permissions; support agents view only); the `explore` and `explore_video` switches in the settings save (a switch the form leaves out keeps its saved value); moderating reports (dismiss, take for review, limit, hide, unhide, remove, clear photo or bio, warn, suspend, lift), each closing the reports, telling the reporters, keeping evidence 90 days and writing the audit row in one transaction; FITX's communities, their moderators, challenges (closed through #53's `fitx_social_challenge_tick`), templates; the Free-plan meter. No table; one index. | Additive · yes | #52 (every table it uses); #42 and #43 (the functions it recreates); #53 (the challenge close) | Admin's Explore section; the Explore switches in Settings | Large (47 KB): section 0.1. Before the wave-2 deploy. Once it is applied, never run #42 or #43 again (section 0.1). |
+| 55 | `20261125100000_fitx_social_reports_column_privileges` | Members still read their own Explore reports (what they reported, their reason and note, the status and the dates) but no longer the evidence FITX stores with them (`evidence` and `evidence_purge_at`): a read of ten columns in place of #51's read of the whole table. Admin and the server key are unchanged. | Takes privileges away · yes | #51 (the table and its read), #52 (the evidence columns) | A reporter can no longer fetch the copy of what they reported through the API | Small (3 KB): the connector takes it whole (section 3). No deploy needs it; members notice nothing. Undone before #52 (section 5), so it does not run again after #51's file at the end of #52's undo. Only if #51's file runs by mistake while #52 and #55 are in place, run #52 and then #55 again after it (section 0.1). |
 
 ### 2.1 Allowed: the food parts last
 
@@ -1626,6 +1641,52 @@ select (select count(*) from pg_proc where pronamespace = 'public'::regnamespace
 
 Before #54 (after #53) it gives `0, 21, 5, 0, 0`.
 
+### #55 `20261125100000_fitx_social_reports_column_privileges`
+
+Explore reports (release 2c). Since #52 each report keeps a copy of the reported item, its evidence (the caption,
+comment, message, bio or community text another member wrote, with its file names), for FITX's moderators until 90
+days after review. #51 let members read every column of their own reports, so a reporter could still fetch that copy
+through the API, even after its author deleted or unsent the item. After #55 members read their own reports without
+`evidence` and `evidence_purge_at`: what they reported, their reason and note, the status and the dates, which are
+the ten columns "Download my data" reads. Nothing else moves: row level security still lets each member read only
+their own reports, signed-out visitors still read nothing, and the server key keeps every right, so Admin's Explore
+section, the hourly clean-up and reporting itself work as before. Members notice nothing: the app never reads the
+evidence. It changes no row, table, policy or function, and a second run changes nothing. #51's file runs again
+only as the last step of #52's undo (section 5), which comes after #55's undo: members then already read every
+column of their reports, as after #51, so #55 does not run again. If #51's file ever runs by mistake while #52 and
+#55 are in place, it gives members every column back: run #52 and then #55 again after it (section 0.1).
+
+md5 of the file (`md5 -q`): `16b1603f1e40c02cc21eb18cde948d88`. The session compares it with the file it sends before
+it runs it. The file is small (3 KB), so the connector's `apply_migration` takes it whole (section 0, step 3); the
+session then checks that `md5(statements[1])` of the history row the connector recorded is this md5, and History 1
+(section 6.3) gives that row #55's number. (With the staged method of section 0.1 instead, the row is recorded
+under #55's own number.) What the file runs, without its comments:
+
+```sql
+-- Statements 20261125100000: for reading only; the session applies the file itself
+do $do$ begin perform pg_catalog.set_config('lock_timeout', '5s', true); end $do$;
+revoke select on table public.social_reports from public, anon, authenticated;
+grant select (id, user_id, target_type, target_id, target_user_id, reason, details, status, created_at, reviewed_at)
+  on table public.social_reports to authenticated;
+notify pgrst, 'reload schema';
+```
+
+```sql
+-- Check 20261125100000: expect f, f, created_at,details,id,reason,reviewed_at,status,target_id,target_type,target_user_id,user_id, f, f, t, 1
+select has_column_privilege('authenticated', 'public.social_reports', 'evidence', 'SELECT') as members_read_evidence,
+       has_column_privilege('authenticated', 'public.social_reports', 'evidence_purge_at', 'SELECT') as members_read_purge_time,
+       (select string_agg(p.column_name::text, ',' order by p.column_name::text collate "C") from information_schema.column_privileges p
+        where p.table_schema = 'public' and p.table_name = 'social_reports' and p.grantee = 'authenticated'
+          and p.privilege_type = 'SELECT') as member_columns,
+       has_table_privilege('authenticated', 'public.social_reports', 'INSERT, UPDATE, DELETE') as members_write,
+       has_any_column_privilege('anon', 'public.social_reports', 'SELECT') as visitors_read,
+       has_column_privilege('service_role', 'public.social_reports', 'evidence', 'SELECT') as server_reads_evidence,
+       (select count(*) from pg_policy where polrelid = 'public.social_reports'::regclass) as policies;
+```
+
+Before #55 it gives `t, t` and `member_columns` lists every column, `evidence` and `evidence_purge_at` included; the
+last four values are the same. If `member_columns` lists a column it does not name above, tell the session.
+
 ## 4. If a migration fails part-way
 
 1. **Stop.** Do not apply the next file. The live app keeps working, and the new app waits for each file.
@@ -1676,9 +1737,10 @@ feature off in the app is usually better than an undo.
 
 | # | How to undo, or why it cannot simply be undone |
 |---|---|
+| 55 | SQL below, then remove #55's history row. Members read every column of their own reports again, the evidence included, as from #52 to #54; nothing else moves. |
 | 54 | SQL below, then remove #54's history row, then run #43's file once more (`20261121100033_fitx_admin_ops`, through the SQL editor, section 0.2 steps 1 to 3, without a Record query: #43's history row is still there): that puts back the five-switch settings save. Drops the 8 functions and the index, and puts back the 21-permission role table; Admin's Explore section then says it needs a database update. The saved `explore` and `explore_video` switches stay in `platform_settings`, where the app still reads them, but only until the next settings save: #43's save replaces all the switches with its five, and a missing `explore` reads as on (a missing `explore_video` as off). So note the Explore switch before the undo and, if it was off, set it off again after each settings save until #54 is back: `update public.platform_settings set features = features \|\| '{"explore": false}' where id = 1;` (writes). Reports, sanctions and moderation records stay. |
 | 53 | Undo #54 first (its challenge close calls #53). SQL below, then remove #53's history row. Drops the 24 functions, the index and the hourly challenge job; the tables and their rows stay (they are #52's), and posts a community moderator hid stay hidden. Explore's messages, communities and challenges then say they need the next update. |
-| 52 | Undo #54 and #53 first. First run its Before undo query: if it is not 0, the session lists those files (stories, video posts and their posters, the photos of community, challenge, limited and hidden posts, community covers, and files already waiting in the trash) and you delete them in Dashboard → Storage, or they stay in the bucket with nothing pointing at them. Then the SQL below, then remove #52's history row, then run #51's file once more through the SQL editor (section 0.2, steps 1 to 3, without its Record query: #51's history row is still there): that puts back part 1's function bodies, its three read policies, the five-parameter notification settings save and the bucket's two file types. Deletes every story, message, conversation, community, challenge, badge, sanction and moderation record, report evidence, video and text posts, every post made in a community or a challenge (photo posts too) and every limited or hidden post and comment (a post with its comments and photos, a comment with its replies: part 1's feed, profile, Discover, hashtag and search reads would otherwise show them to every follower and, for a public account, to everyone), FITX notices and notifications and reports of the new kinds; Explore works as after #51. |
+| 52 | Undo #55, #54 and #53 first. First run its Before undo query: if it is not 0, the session lists those files (stories, video posts and their posters, the photos of community, challenge, limited and hidden posts, community covers, and files already waiting in the trash) and you delete them in Dashboard → Storage, or they stay in the bucket with nothing pointing at them. Then the SQL below, then remove #52's history row, then run #51's file once more through the SQL editor (section 0.2, steps 1 to 3, without its Record query: #51's history row is still there): that puts back part 1's function bodies, its three read policies, the five-parameter notification settings save and the bucket's two file types. Deletes every story, message, conversation, community, challenge, badge, sanction and moderation record, report evidence, video and text posts, every post made in a community or a challenge (photo posts too) and every limited or hidden post and comment (a post with its comments and photos, a comment with its replies: part 1's feed, profile, Discover, hashtag and search reads would otherwise show them to every follower and, for a public account, to everyone), FITX notices and notifications and reports of the new kinds; Explore works as after #51. |
 | 51 | Undo #52 first. First empty the `social-media` bucket and then delete it in Dashboard → Storage (Storage refuses to delete a bucket that still holds files, and its files are deleted with the Storage API, not with SQL). Then the SQL below. Deletes every Explore profile, post, comment, like, save, follow, block, restriction, report and notification, its functions and its storage policies; Explore then says it needs the next update. |
 | 50 | First run its Before undo query: if it is not 0, delete those activities (or change their sport to walk, run or ride) or the last step fails. Then the SQL below. Drops every saved best effort and puts back the walk, run and ride rule; the app offers those three only again. |
 | 49 | SQL below. Drops when each member answered the Nutrition setup; the app then counts the setup as done when a diet is saved. The answers stay. |
@@ -1723,6 +1785,14 @@ feature off in the app is usually better than an undo.
 | 3 | SQL below. The app then treats every account as having seen the film. |
 | 2 | SQL below. On production the five fields came with experience 2.0 (1.8) and hold the live app's targets and set times, so it drops only #2's five range checks. |
 | 1 | SQL below. Drops the saved active time and stretch start; open workouts keep their clock in the browser again. On production `paused_at` came with experience 2.0 (1.8), so it stays, but emptied: otherwise #1, applied again later, would show each workout that was paused at the undo as paused with no time. |
+
+```sql
+-- Undo 20261125100000 (writes; then remove its history row)
+begin;
+revoke select on table public.social_reports from authenticated;
+grant select on table public.social_reports to authenticated;
+commit;
+```
 
 ```sql
 -- Undo 20261124100020 (writes; then remove its history row and run #43's file once more, as the table above says)
@@ -2346,7 +2416,8 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 Before #45 it listed experience 2.0's `get_activity_share`, which #45 locks down (section 1.8). Any row: tell the
 session.
 
-Then run Start 2 again: now it lists every object on its list (on 2026-11-24, after #54, its three rows).
+Then run Start 2 again: now it lists every object on its list (in this sitting, after #55, its one row; on
+2026-11-24, after #54, its three rows).
 
 The thirteen tables in Final 2 are reached only by database functions or the server key, which is why they have
 no policy (the last three, from #52, are Explore's challenge templates, moderation record and storage trash). Supabase Dashboard → Advisors → Security Advisor flags them as "RLS Enabled No Policy"; that is
@@ -2367,8 +2438,9 @@ numbers and no file; the queries below leave their rows alone. One of them, the 
 name as #29, `fitx_admin_control_plane`, which is why they leave those three out. Give each new row its file's
 number once, after the last file. It writes to the history table only. #1 to #54 already carry their numbers
 (History 1 ran after each earlier sitting, and the staged method recorded #42 to #54 under their own numbers), so
-run today it changes no row. In a later sitting it changes only the rows of that sitting's files that the connector
-recorded under a time, once their rows are added to its list.
+in this sitting it changes only #55's row, if the connector recorded it under a time: one row at most. In a later
+sitting it changes only the rows of that sitting's files that the connector recorded under a time, once their rows
+are added to its list.
 
 ```sql
 -- History 0: files recorded twice. Expect: no rows
@@ -2412,7 +2484,8 @@ from (values
   ('20261123100010', 'fitx_onboarding_v4'), ('20261123100020', 'fitx_workout_setup'),
   ('20261123100040', 'fitx_nutrition_v2'), ('20261123100050', 'fitx_coach_activity_v2'),
   ('20261123100060', 'fitx_social_v1'), ('20261124100000', 'fitx_social_v2_core'),
-  ('20261124100010', 'fitx_social_v2_groups'), ('20261124100020', 'fitx_admin_explore')
+  ('20261124100010', 'fitx_social_v2_groups'), ('20261124100020', 'fitx_admin_explore'),
+  ('20261125100000', 'fitx_social_reports_column_privileges')
 ) as f (version, name)
 where h.name = f.name and h.version <> f.version
   and h.version not in ('20261002172610', '20261002172706', '20261116093902')
@@ -2420,7 +2493,7 @@ where h.name = f.name and h.version <> f.version
 ```
 
 ```sql
--- History 2: expect 71 rows in version order: the 14 September ones, the three of section 1.8 and the 54 files of section 2, with their numbers and names
+-- History 2: expect 72 rows in version order: the 14 September ones, the three of section 1.8 and the 55 files of section 2, with their numbers and names
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
@@ -2443,7 +2516,8 @@ Set the variables in section 7 first. Then ship the new app (the redesign, `clau
 every sign-in. For the "next level" wave 1, apply #46 to #51 first, then deploy `claude/next` merged into `master`; the
 app checks for each of them and works without the ones not applied yet (both done on 2026-11-23). For wave 2, apply #52, #53 and #54 before
 deploying `claude/next2` (release 2a) and Admin; wave 1's app and Admin keep working with them in place (both done
-on 2026-11-24).
+on 2026-11-24). Release 2c needs nothing from #55 and #55 needs no deploy: apply it before or after the release 2c
+deploy; the app and Admin work the same with and without it.
 
 ### 6.5 First super-admin
 

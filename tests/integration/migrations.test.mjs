@@ -96,9 +96,10 @@ const PENDING = MIGRATIONS.filter((name) => name >= FIRST_PENDING);
 /**
  * The newest file production has applied since its copy was made (2026-11-24; tests/integration/applied-migrations
  * .test.mjs pins those files). The runbook's earlier sittings applied the pending files up to it and recorded them
- * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest. There is no rest now:
- * #52 to #54, wave 2's three files, were applied on 2026-11-24, so THIS_SITTING is empty and the runbook says nothing
- * is pending.
+ * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest: #55,
+ * 20261125100000 (release 2c: members' read of their reports' evidence taken away), not applied anywhere yet, so
+ * THIS_SITTING is that one file and the runbook names it as pending. With nothing pending (as from 2026-11-24 until
+ * #55 was written) THIS_SITTING is empty and the runbook says nothing is pending.
  */
 const LAST_APPLIED = "20261124100020";
 const APPLIED_SINCE = PENDING.filter((name) => name.slice(0, 14) <= LAST_APPLIED);
@@ -204,13 +205,19 @@ const KNOWN_RERUN_PROBLEMS = {
           'unfollow|update_post|upload_allowed|viewer_sees_comment|viewer_sees_post)\\([^)]*\\): definition "[0-9a-f]{32}" -> "[0-9a-f]{32}"$',
       ),
       /^changed policy public\.(social_posts|social_post_media|social_comments)\.\1_read: using "(?:[^"\\]|\\.)*" -> "(?:[^"\\]|\\.)*"$/,
+      // Its grant names the whole of social_reports, which also takes back 20261125100000's ten column reads.
+      /^changed relation public\.social_reports: acl /,
+      /^changed column public\.social_reports\.(id|user_id|target_type|target_id|target_user_id|reason|details|status|created_at|reviewed_at): acl /,
     ],
     reason:
       "run again after 20261124100000 it puts back part 1's definitions of the 36 Explore functions and the three read policies " +
       "(social_posts_read, social_post_media_read, social_comments_read) that 20261124100000 rewrites for moderation, sanctions " +
       "and item-level visibility, and adds back the five-parameter fitx_social_save_notification_prefs beside the nine-parameter " +
-      "one; production has it applied, so its history never runs it again, and it must never be pasted into the SQL editor again " +
-      "while 20261124100000 is in place (only after section 5's undo of #52); 20261124100000, run again after it, restores everything",
+      "one; run again after 20261125100000 it gives members a read of every column of their own reports again, the evidence " +
+      "included, in place of that file's ten column reads; production has it applied, so its history never runs it again, and it " +
+      "must never be pasted into the SQL editor again while 20261124100000 is in place (only as the last step of section 5's undo " +
+      "of #52, which comes after 20261125100000's undo, so nothing runs again after it there); run by mistake while both are in " +
+      "place, 20261124100000 and then 20261125100000, run again after it, restore everything",
   },
 };
 
@@ -614,8 +621,8 @@ const RUNBOOK_PINNED = {
   "Start 1": [byVersion([...PRODUCTION_ROWS, ...APPLIED_SINCE.map(historyRow)]), (rows, { cron }) =>
     // After section 5; #27's undo needs pg_cron, so without it its file keeps its row.
     byVersion([...PRODUCTION_ROWS, ...[...KEPT_BY_SECTION_5, ...(cron ? [] : [27])].map((number) => historyRow(PENDING[number - 1]))])],
-  // Before the first file of its sitting (#52, kept as the 2026-11-24 sitting's record) its Expect line holds ("no
-  // rows"); after the last file (section 6.1) it lists every row.
+  // Before the first file of its sitting (#55) its Expect line holds ("no rows"); after the last file (section 6.1) it
+  // lists every row.
   "Start 2": [undefined, START_2_LIST],
   // The local cluster's postgres is a superuser; production's is not.
   "Start 3": [[{ applying_role: "postgres", rolsuper: true, rolbypassrls: true, owner_of_existing_tables: "postgres" }]],
@@ -698,7 +705,7 @@ const APPLY_DAY = (() => {
  * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #54): the
  * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
  * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 71 rows, the
- * connector records this sitting's files under their times (none: nothing is pending), then History 0 to 2. `ask`
+ * connector records this sitting's files under their times (#55's one row), then History 0 to 2. `ask`
  * runs a runbook query and keeps its result; returns whether History 1 ran both times, and how many rows each run
  * gave their file's number.
  */
@@ -1038,6 +1045,20 @@ test("Start 2 checks one object of each file of this sitting, or with nothing pe
   assert.deepEqual(START_2_LIST.map(({ file }) => file), START_2_SITTING.map((name) => name.slice(0, 14)));
 });
 
+test("each Statements block in the runbook is exactly what its file runs, without the file's comments and blank lines", (t) => {
+  // Section 3 shows a small file's statements for the owner to read (#55); the session still applies the file itself.
+  const blocks = RUNBOOK_BLOCKS.filter((block) => /^Statements \d{14}$/.test(block.key));
+  assert.ok(blocks.length > 0, "section 3 shows #55's statements");
+  for (const block of blocks) {
+    const version = block.key.slice("Statements ".length);
+    const name = PENDING.find((file) => file.startsWith(`${version}_`));
+    assert.ok(name, `${block.id}: no migration has the version ${version}`);
+    const runs = readFileSync(path.join(MIGRATIONS_DIR, name), "utf8").split("\n").filter((line) => line.trim() && !line.trimStart().startsWith("--"));
+    assert.deepEqual(block.sql.split("\n").slice(1), runs, `${block.id} differs from ${name}: copy the file's statements again`);
+    t.diagnostic(`${block.id}: ${runs.length} lines, as in ${name}`);
+  }
+});
+
 test("the runbook says where production stands and what is pending, as LAST_APPLIED has it", () => {
   const runbook = readFileSync(RUNBOOK, "utf8");
   /** The text of the runbook's top bullet that starts "- **<label>", its continuation lines joined. */
@@ -1235,7 +1256,8 @@ describe("every pending migration on a copy of production's database", { skip },
     runbook.catalogue.today = rowDigests(pg, catalogue);
     // Section 1 on the day: the Start queries (Start 1 and 8 read the history table, which this copy only gets
     // with the history steps below), and what they and the Before queries for #1 and #2 catch, rolled back.
-    // Start 2 runs before the first file of its sitting (START_2_SITTING: with nothing pending, the latest one's, #52).
+    // Start 2 runs before the first file of its sitting (START_2_SITTING: this sitting's, #55; with nothing pending,
+    // the latest sitting's).
     for (const block of RUNBOOK_BLOCKS) if (/^Start \d+$/.test(block.key) && !["Start 1", "Start 2", "Start 8"].includes(block.key)) ask(block, "before #1");
     runbook.dayOf = whatTheDayOfQueriesCatch(pg);
     // Each file with its Before queries first and its Checks and Smoke after; the optional backup copy before #12.
@@ -1298,6 +1320,23 @@ describe("every pending migration on a copy of production's database", { skip },
     const problems = rerunProblems(t, run.status, stillDiffers);
     assert.deepEqual(stillDiffers, [], "after the second run, production's copy must be as the first run left it");
     assert.ok(problems.length === 0, problems.join("\n"));
+  });
+
+  test("what #51's file moves when it runs again by mistake, #52's and then #55's files, run again after it, put back (section 0.1)", (t) => {
+    if (run.failure) return t.skip(notChecked());
+    // In the second run #51's file runs while #52 to #55 are in place, as a mistaken run on production would. The
+    // runbook's remedy names only #52 and #55, so they must put back all of it, the reports' grants by #55.
+    const second = (version) => run.status.get(PENDING.find((name) => name.startsWith(`${version}_`)))?.second;
+    /** "changed function public.f(a integer): definition ..." -> "function public.f(a integer)" */
+    const objects = (lines) => lines.map((line) => line.replace(/^(?:added|removed|changed) /, "").split(": ")[0]);
+    const moved = objects(second("20261123100060").moved);
+    const putBack = { reports: new Set(objects(second("20261125100000").restored)), rest: new Set(objects(second("20261124100000").restored)) };
+    const onReports = (object) => /^\w+ public\.social_reports(\.|$)/.test(object);
+    assert.ok(moved.some(onReports) && moved.some((object) => object.startsWith("function ")),
+      `#51's file moves the reports' grants and part 2's functions: ${moved.join(", ")}`);
+    const left = moved.filter((object) => !putBack[onReports(object) ? "reports" : "rest"].has(object));
+    assert.deepEqual(left, [], "#55's file puts back the reports' grants and #52's everything else, so no other file needs to run again");
+    t.diagnostic(`#51's file moves ${moved.length} objects: #52's file puts back ${moved.filter((object) => !onReports(object)).length}, #55's ${moved.filter(onReports).length}`);
   });
 
   test("every public table on production's copy has row level security on and at least one policy", (t) => {
