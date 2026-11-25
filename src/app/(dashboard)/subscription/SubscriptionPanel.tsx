@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Check, LoaderCircle } from "lucide-react";
 import { BRAND } from "@/config/brand";
@@ -159,9 +160,16 @@ export function SubscriptionPanel({
   const [cancelling, setCancelling] = useState(false);
   const stopPolling = useRef<(() => void) | null>(null);
   const keepSubscriptionRef = useRef<HTMLButtonElement | null>(null);
+  // Where focus goes when the control in use goes (BRIEF-3 D5): "Cancel subscription" after Keep, and the
+  // subscription's heading once the cancellation went through (the cancel controls go then).
+  const askCancelRef = useRef<HTMLButtonElement | null>(null);
+  const subscriptionHeading = useRef<HTMLHeadingElement | null>(null);
 
   const billing = current !== null && ["authenticated", "active", "pending", "halted", "paused"].includes(current.status);
   const canSubscribe = checkoutOpen && !billing;
+  // A payment that went through but is not confirmed yet: offering the plans again invites a second one.
+  const awaitingConfirmation = phase.kind === "confirming" || phase.kind === "slow";
+  const busy = phase.kind === "starting" || phase.kind === "paying" || awaitingConfirmation;
 
   // Fetch Checkout ahead of the click, so the Razorpay window opens at once.
   useEffect(() => {
@@ -196,6 +204,9 @@ export function SubscriptionPanel({
   }
 
   async function subscribe(plan: PlanView) {
+    // Subscribe stays focusable while a checkout is under way (aria-disabled), so focus is kept and a second press does
+    // nothing: a disabled focused button drops keyboard focus to the page in Chrome.
+    if (busy) return;
     setNotice(null);
     setPhase({ kind: "starting", plan: plan.code });
     let session: CheckoutSession;
@@ -273,6 +284,8 @@ export function SubscriptionPanel({
   }
 
   async function cancel() {
+    // "Yes, cancel renewal" stays focusable while cancelling (aria-disabled), so an error is read with focus kept.
+    if (cancelling) return;
     setCancelling(true);
     setNotice(null);
     try {
@@ -287,11 +300,14 @@ export function SubscriptionPanel({
             ? `Renewal cancelled. You won’t be charged again, and Premium stays on through ${through}.`
             : "Subscription cancelled. You won’t be charged again.",
         });
+        // The question and its buttons go, and with the refresh "Cancel subscription" too: focus moves to the heading.
+        subscriptionHeading.current?.focus();
         setConfirmingCancel(false);
         // A checkout finished earlier in this visit no longer hides the plans.
         setPhase({ kind: "idle" });
         router.refresh();
       } else if (body?.error === "nothing_to_cancel") {
+        subscriptionHeading.current?.focus();
         setConfirmingCancel(false);
         router.refresh();
       } else if (body?.error === "still_billing") {
@@ -315,10 +331,6 @@ export function SubscriptionPanel({
     }
   }
 
-  // A payment that went through but is not confirmed yet: offering the plans again invites a second one.
-  const awaitingConfirmation = phase.kind === "confirming" || phase.kind === "slow";
-  const busy = phase.kind === "starting" || phase.kind === "paying" || awaitingConfirmation;
-
   return (
     <div className="space-y-5">
       {mode === "test" && (
@@ -339,9 +351,16 @@ export function SubscriptionPanel({
           setPaidPeriodOver(!isFuture(current?.paidUntil));
           setConfirmingCancel(true);
         }}
-        onKeep={() => setConfirmingCancel(false)}
+        onKeep={() => {
+          if (cancelling) return;
+          // The question goes with the pressed button: focus goes back to "Cancel subscription".
+          flushSync(() => setConfirmingCancel(false));
+          askCancelRef.current?.focus();
+        }}
         onCancel={cancel}
         keepRef={keepSubscriptionRef}
+        askRef={askCancelRef}
+        headingRef={subscriptionHeading}
       />}
 
       <div aria-live="polite" role="status">
@@ -389,9 +408,9 @@ export function SubscriptionPanel({
                   )}
                   <button
                     type="button"
-                    className="fitx-button mt-5 min-h-11 w-full"
+                    className="fitx-button mt-5 min-h-11 w-full aria-disabled:opacity-60"
                     onClick={() => void subscribe(plan)}
-                    disabled={busy}
+                    aria-disabled={busy || undefined}
                   >
                     {starting || paying ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : null}
                     {starting ? "Opening Razorpay…" : paying ? "Complete payment in Razorpay" : "Subscribe"}
@@ -425,6 +444,8 @@ function CurrentSubscription({
   onKeep,
   onCancel,
   keepRef,
+  askRef,
+  headingRef,
 }: {
   current: SubscriptionView;
   premium: boolean;
@@ -438,6 +459,8 @@ function CurrentSubscription({
   onKeep: () => void;
   onCancel: () => void;
   keepRef: RefObject<HTMLButtonElement | null>;
+  askRef: RefObject<HTMLButtonElement | null>;
+  headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   const paidThrough = formatPaidThrough(current.paidUntil);
   const chargeAt = formatBillingDate(current.chargeAt);
@@ -478,7 +501,7 @@ function CurrentSubscription({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[.18em] text-fitx-primary-text">Your subscription</p>
-          <h2 id="current-subscription" className="mt-2 text-xl font-semibold tracking-tight text-fitx-text">
+          <h2 ref={headingRef} tabIndex={-1} id="current-subscription" className="mt-2 text-xl font-semibold tracking-tight text-fitx-text">
             {current.planName ?? "FITX Premium"}
           </h2>
           {price && <p className="mt-1 text-sm text-fitx-text-secondary">{price}</p>}
@@ -503,7 +526,7 @@ function CurrentSubscription({
       {billing && canChange && (
         <div className="mt-5 border-t border-fitx-divider pt-4">
           {!confirmingCancel ? (
-            <button type="button" className="fitx-button fitx-button-quiet min-h-11" onClick={onAskCancel}>
+            <button ref={askRef} type="button" className="fitx-button fitx-button-quiet min-h-11" onClick={onAskCancel}>
               Cancel subscription
             </button>
           ) : (
@@ -515,11 +538,11 @@ function CurrentSubscription({
                 subscribe again later.
               </p>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="fitx-button fitx-button-danger min-h-11" onClick={onCancel} disabled={cancelling}>
+                <button type="button" className="fitx-button fitx-button-danger min-h-11 aria-disabled:opacity-60" onClick={onCancel} aria-disabled={cancelling || undefined}>
                   {cancelling && <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />}
                   {cancelling ? "Cancelling…" : "Yes, cancel renewal"}
                 </button>
-                <button ref={keepRef} type="button" className="fitx-button fitx-button-secondary min-h-11" onClick={onKeep} disabled={cancelling}>
+                <button ref={keepRef} type="button" className="fitx-button fitx-button-secondary min-h-11 aria-disabled:opacity-60" onClick={onKeep} aria-disabled={cancelling || undefined}>
                   Keep subscription
                 </button>
               </div>
