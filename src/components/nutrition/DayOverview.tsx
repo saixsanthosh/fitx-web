@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Droplets, SlidersHorizontal } from "lucide-react";
 import { calorieBalance, goalPercent, goalProgress, MACRO_LABEL, type DayTargets, type KnownTotals } from "@/lib/domain/nutrition";
+import { dayStatusText, type DayLoad } from "@/lib/domain/nutrition-day";
 import { SegmentRing } from "./SegmentRing";
 import styles from "./DayOverview.module.css";
 
@@ -10,6 +11,8 @@ export interface DayOverviewProps {
   /** The section's accessible name ("Nutrition summary for …") and its heading ("Today"). */
   summaryLabel: string;
   heading: string;
+  /** Whether this day's figures are in: until they are, nothing is shown as a number (no "0 kcal", no "no target"). */
+  state: DayLoad;
   totals: KnownTotals;
   target: DayTargets | null;
   /** Where the targets come from, such as "Targets you set" or "Estimate from your profile". */
@@ -23,9 +26,64 @@ export interface DayOverviewProps {
 /**
  * The top of Nutrition: calories and protein against the day's targets, large, with what is left; carbs and fat
  * small beneath; then water. Nothing unknown is shown as 0: totals leave out entries with no value and say how
- * many, and with no target there is no "left".
+ * many, with no target there is no "left", and while the day is loading (or failed to load) there are no figures.
  */
-export function DayOverview({ summaryLabel, heading, totals, target, targetSource, hasOwnTargets, estimateCount, onTargets, water }: DayOverviewProps) {
+export function DayOverview(props: DayOverviewProps) {
+  const { summaryLabel, heading, state } = props;
+  if (state !== "ready") {
+    const status = dayStatusText(state);
+    return (
+      <section className={styles.overview} aria-label={summaryLabel} aria-busy={state === "loading" || undefined}>
+        <div className={styles.head}>
+          <div className="min-w-0"><h2 className={styles.heading}>{heading}</h2></div>
+          {/* Marked unavailable, not removed or disabled: the targets aren't known yet, and focus is never lost. */}
+          <button type="button" aria-disabled="true" className={styles.targets}><SlidersHorizontal size={14} aria-hidden="true"/>Targets</button>
+        </div>
+        <div className={styles.hero}>
+          <div className={styles.meter} data-tone="energy">
+            <div role="img" aria-label={`Calories: ${status}`} className={styles.ring}>
+              <SegmentRing size="lg" segments={[{ percent: 0, tone: "energy" }]}>
+                <strong className={styles.ringNumber}>–</strong>
+                <span className={styles.ringUnit}>kcal</span>
+              </SegmentRing>
+            </div>
+            <p role="status" className={styles.noTarget}>{status}</p>
+          </div>
+          <div className={styles.meter} data-tone="protein">
+            <div role="img" aria-label={`Protein: ${status}`} className={styles.ring}>
+              <SegmentRing size="lg" segments={[{ percent: 0, tone: "protein" }]}>
+                <strong className={styles.ringNumber}>–</strong>
+                <span className={styles.ringUnit}>protein</span>
+              </SegmentRing>
+            </div>
+          </div>
+        </div>
+        <ul className={styles.macros} aria-label="Carbs and fat">
+          {MACROS.filter(([key]) => key !== "protein").map(([key, label]) => (
+            <li key={key} className={styles.macro} data-macro={key}>
+              <div className={styles.macroTop}>
+                <span className={styles.macroName}><i aria-hidden="true"/>{label}</span>
+                <span className={styles.macroValue}><strong>–</strong></span>
+              </div>
+              <div className={styles.track} aria-hidden="true"/>
+            </li>
+          ))}
+        </ul>
+        <div className={styles.water}>
+          <Droplets size={16} aria-hidden="true" className={styles.waterIcon}/>
+          <div className={styles.waterMain}><p className={styles.waterText}><strong>–</strong> water</p></div>
+          <div className={styles.waterButtons}>
+            {/* Water is added once the day's total is known, so a total read before the tap can't undo it. */}
+            {[250, 500].map((ml) => <button key={ml} type="button" aria-disabled="true" className={styles.waterButton}>+{ml} ml</button>)}
+          </div>
+        </div>
+      </section>
+    );
+  }
+  return <LoadedOverview {...props}/>;
+}
+
+function LoadedOverview({ summaryLabel, heading, totals, target, targetSource, hasOwnTargets, estimateCount, onTargets, water }: DayOverviewProps) {
   const eaten = Math.round(totals.calories);
   const goal = target?.calories ?? null;
   const progress = goal ? goalProgress(totals.calories, goal) : null;
@@ -103,7 +161,8 @@ export function DayOverview({ summaryLabel, heading, totals, target, targetSourc
             : <Link href={water.goalHref} className={styles.waterGoal}>Set a water goal</Link>}
         </div>
         <div className={styles.waterButtons}>
-          {[250, 500].map((ml) => <button key={ml} type="button" disabled={water.busy} onClick={() => water.onAdd(ml)} className={styles.waterButton}>+{ml} ml</button>)}
+          {/* While a tap is being saved the buttons are marked unavailable (not disabled), so the one pressed keeps the focus. */}
+          {[250, 500].map((ml) => <button key={ml} type="button" aria-disabled={water.busy || undefined} onClick={() => { if (!water.busy) water.onAdd(ml); }} className={styles.waterButton}>+{ml} ml</button>)}
         </div>
       </div>
     </section>

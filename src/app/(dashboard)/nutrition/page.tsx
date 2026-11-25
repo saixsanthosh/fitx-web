@@ -38,6 +38,7 @@ import { amountAfterUnitChange, amountProblemMessage, askForGramsMessage, descri
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
 import { checkSectionName, mealForTime, mealSections } from "@/lib/domain/meal-time";
 import { estimateNutritionTargets, resolveDayTargets, resolveWaterTarget, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
+import { dayLoadState } from "@/lib/domain/nutrition-day";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
 import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
@@ -164,6 +165,11 @@ export default function NutritionPage() {
   /** "Tap the one you mean": a typed amount matched more than one food. */
   const [pickHint, setPickHint] = useState("");
   const [loading, setLoading] = useState(true);
+  /** Each load's number, so a load that a newer one replaced sets nothing (load). */
+  const loadSeq = useRef(0);
+  /** The day whose meals, water and targets the page holds, and the day whose last load failed (dayLoadState). */
+  const [shownKey, setShownKey] = useState<string | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("meals");
   // Home's "Scan a barcode" link: open Log food on Barcode with the camera, then put the address back to /nutrition.
   useEffect(() => {
@@ -189,11 +195,21 @@ export default function NutritionPage() {
   const dateKey = localDateKey(date);
 
   const load = useCallback(async () => {
+    // A newer load (another day, or a reload after a save) replaces this one: a replaced load sets nothing.
+    const seq = ++loadSeq.current;
+    const current = () => seq === loadSeq.current;
+    const fail = (message: string) => {
+      if (!current()) return;
+      setError(message);
+      setFailedKey(dateKey);
+      setLoading(false);
+    };
     setLoading(true);
     const supabase = createClient();
-    if (!supabase) { setError("Nutrition tracking is not connected to Supabase."); setLoading(false); return; }
+    if (!supabase) return fail("Nutrition tracking is not connected to Supabase.");
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) { setError("Sign in to track food and water."); setLoading(false); return; }
+    if (!current()) return;
+    if (!auth.user) return fail("Sign in to track food and water.");
     const uid = auth.user.id;
     setUserId(uid);
     // Once per page view: a member who has not answered the food questions (and did not choose Later on this
@@ -204,40 +220,47 @@ export default function NutritionPage() {
         if (!state.done && !snoozed(readSnooze(uid), localDateKey())) setSetup({ open: true, mode: "first" });
       }, () => undefined);
     }
-    const caps = await detectCapabilities(supabase);
-    setCapabilities(caps);
-    const [mealResult, waterResult, profileResult, prefsResult, custom, targets, savedTemplates, goalViews, birthDate] = await Promise.all([
+    // Every read at once (one round trip): which v2 features exist only decides what the editors and routines offer.
+    const [caps, mealResult, waterResult, profileResult, prefsResult, custom, targets, savedTemplates, goalViews, birthDate] = await Promise.all([
+      detectCapabilities(supabase),
       supabase.from("meals").select(MEAL_COLUMNS).eq("user_id", uid).eq("date", dateKey).order("created_at", { ascending: true }),
       supabase.from("water_logs").select("amount_ml").eq("user_id", uid).eq("local_date", dateKey),
       supabase.from("profiles").select("age,gender,height,weight").eq("id", uid).maybeSingle(),
       loadPrefs(supabase, uid),
-      loadCustomFoods(supabase, uid, caps.customFoodsV2).then(async (rows) => ({ ...rows, savedFrom: await loadSavedFrom(supabase, rows.rows) })),
-      caps.targets ? loadTargets(supabase, uid) : Promise.resolve(null),
-      caps.templates ? loadTemplates(supabase, uid) : Promise.resolve([]),
+      loadCustomFoods(supabase, uid).then(async (rows) => ({ ...rows, savedFrom: await loadSavedFrom(supabase, rows.rows) })),
+      // Both read nothing (null, []) when their table is missing.
+      loadTargets(supabase, uid),
+      loadTemplates(supabase, uid),
       // Daily calorie and protein goals come first, as on Home, so both pages show the same "kcal left".
       loadGoals(supabase, uid, dateKey).then((result) => result.goals).catch(() => null),
       // The stored age is only refreshed when the profile is saved; the birth date keeps it right after a birthday.
       loadBirthDate(supabase, uid),
     ]);
+    if (!current()) return;
+    setCapabilities(caps);
     const failure = [mealResult.error, waterResult.error, profileResult.error, prefsResult.error].find(Boolean) ?? (custom.error ? new Error("custom foods") : null);
-    if (failure) setError("Your nutrition data could not be loaded. Please try again.");
-    else {
-      setEntries((mealResult.data || []) as MealEntry[]);
-      setWaterMl(((waterResult.data || []) as Array<{ amount_ml: number }>).reduce((sum: number, row) => sum + Number(row.amount_ml || 0), 0));
-      const prefs = prefsResult.data as Prefs | null;
-      setWaterGoal(prefs?.daily_water_goal_ml && prefs.daily_water_goal_ml > 0 ? prefs.daily_water_goal_ml : null);
-      const profile = (profileResult.data || {}) as Profile;
-      setEstimated(estimateNutritionTargets({ ...profile, age: profileAge({ age: profile.age, date_of_birth: birthDate }) }, prefs?.activity_level, prefs?.primary_goal, prefs?.nutrition_focus ?? null));
-      if (!dietFilterSet.current) { dietFilterSet.current = true; setDietFilter(dietFilterFor(prefs?.dietary_preferences)); }
-      setCustomRows(custom.rows);
-      setSavedFrom(custom.savedFrom);
-      if (caps.customFoodsV2) setPhotoUrls(await signedPhotoUrls(supabase, custom.rows.map((row) => row.image_path ?? "")));
-      setManualTargets(targets);
-      setDailyGoals(goalViews);
-      setTemplates(savedTemplates);
-      setError("");
-    }
+    if (failure) return fail("Your nutrition data could not be loaded. Please try again.");
+    setEntries((mealResult.data || []) as MealEntry[]);
+    setWaterMl(((waterResult.data || []) as Array<{ amount_ml: number }>).reduce((sum: number, row) => sum + Number(row.amount_ml || 0), 0));
+    const prefs = prefsResult.data as Prefs | null;
+    setWaterGoal(prefs?.daily_water_goal_ml && prefs.daily_water_goal_ml > 0 ? prefs.daily_water_goal_ml : null);
+    const profile = (profileResult.data || {}) as Profile;
+    setEstimated(estimateNutritionTargets({ ...profile, age: profileAge({ age: profile.age, date_of_birth: birthDate }) }, prefs?.activity_level, prefs?.primary_goal, prefs?.nutrition_focus ?? null));
+    if (!dietFilterSet.current) { dietFilterSet.current = true; setDietFilter(dietFilterFor(prefs?.dietary_preferences)); }
+    setCustomRows(custom.rows);
+    setSavedFrom(custom.savedFrom);
+    setManualTargets(caps.targets ? targets : null);
+    setDailyGoals(goalViews);
+    setTemplates(caps.templates ? savedTemplates : []);
+    // This day's figures are in: the overview and meals may show them now.
+    setShownKey(dateKey);
+    setFailedKey(null);
+    setError("");
     setLoading(false);
+    // Photo links don't hold up the day: signed afterwards.
+    if (caps.customFoodsV2) {
+      void signedPhotoUrls(supabase, custom.rows.map((row) => row.image_path ?? "")).then((urls) => { if (current()) setPhotoUrls(urls); }, () => undefined);
+    }
   }, [dateKey]);
 
   const refreshRecent = useCallback(async () => {
@@ -262,7 +285,11 @@ export default function NutritionPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  const totals = useMemo(() => sumKnown(entries), [entries]);
+  /** Whether the day shown at the top has its own figures yet; until then the overview and meals say they are loading. */
+  const dayState = dayLoadState(shownKey, failedKey, dateKey);
+  /** This day's entries: none until they have loaded, so another day's never show under this day's date. */
+  const dayEntries = useMemo(() => (dayState === "ready" ? entries : []), [dayState, entries]);
+  const totals = useMemo(() => sumKnown(dayEntries), [dayEntries]);
   // Same order as Home (todayTargets): a daily calorie or protein goal for this day, then the targets the
   // member set, then the estimate from the profile. A daily goal counts on its own too.
   const dayTargets = resolveDayTargets(
@@ -672,7 +699,8 @@ export default function NutritionPage() {
   }
 
   async function addWater(amountMl: number) {
-    if (loggingWater.current) return;
+    // Only once the day's water total is known, so a total read before the tap can't hide it.
+    if (loggingWater.current || dayState !== "ready") return;
     loggingWater.current = true;
     try {
       const supabase = createClient();
@@ -895,7 +923,7 @@ export default function NutritionPage() {
   }
 
   const visibleSources = sources.filter((source) => source.status !== "not_used");
-  const estimateCount = entries.filter(isEstimateSnapshot).length;
+  const estimateCount = dayEntries.filter(isEstimateSnapshot).length;
   const showBrowse = searchMode === "browse";
   const tabs: Array<[Tab, string]> = [["meals", "Meals"], ["foods", "My foods"], ["routines", "Routines"], ["history", "History"]];
   const dayLabels = nutritionDayLabels(hydrated ? date : null);
@@ -957,7 +985,7 @@ export default function NutritionPage() {
       }/>
 
       <div className={styles.top}>
-        <DayOverview summaryLabel={dayLabels.summary} heading={dayLabels.heading} totals={totals} target={target} targetSource={targetSourceText}
+        <DayOverview summaryLabel={dayLabels.summary} heading={dayLabels.heading} state={dayState} totals={totals} target={target} targetSource={targetSourceText}
           hasOwnTargets={Boolean(manualTargets)} estimateCount={estimateCount} onTargets={() => setTargetsOpen(true)}
           water={{ ml: waterMl, target: waterTarget, busy, goalHref: WATER_GOAL_HREF, onAdd: (ml) => void addWater(ml) }}/>
 
@@ -983,7 +1011,7 @@ export default function NutritionPage() {
       {!logOpen && messages}
 
       <div className={styles.panel}>
-        {tab === "meals" && <MealLog entries={entries} title={dayLabels.diary} loading={loading} busy={busy} templatesReady={capabilities.templates} sections={sections}
+        {tab === "meals" && <MealLog entries={dayEntries} title={dayLabels.diary} state={dayState} busy={busy} templatesReady={capabilities.templates} sections={sections}
           onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
           onAddSection={() => setNamePrompt({ kind: "section", then: "none" })}
           onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}

@@ -1,15 +1,18 @@
 import { Bookmark, CalendarDays, Copy, Pencil, Plus, X } from "lucide-react";
 import { formatAmount } from "@/lib/domain/food-query";
 import { MACRO_LABEL, sumKnown } from "@/lib/domain/nutrition";
+import { mealsStatusText, type DayLoad } from "@/lib/domain/nutrition-day";
 import { entryBasis, entryMissing, isEstimateSnapshot, sameMeal, type MealEntry } from "@/lib/food/client-data";
 import { BasisBadge, PortionEstimateBadge } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
 import diary from "./MealLog.module.css";
 
 interface MealLogProps {
+  /** This day's entries; empty until the day has loaded. */
   entries: MealEntry[];
   title: string;
-  loading: boolean;
+  /** Whether this day's meals are in (another day's are never shown under this day's date). */
+  state: DayLoad;
   busy: boolean;
   /** Saved meals and routines need the nutrition v2 database update. */
   templatesReady: boolean;
@@ -35,7 +38,7 @@ export function isEstimateEntry(entry: MealEntry): boolean {
  * The day's diary: each meal with its total and a quiet add button, the entries as plain rows. Totals leave out
  * unknown values (they are never counted as 0 g) and say so.
  */
-export function MealLog({ entries, title, loading, busy, templatesReady, sections, onEdit, onDelete, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
+export function MealLog({ entries, title, state, busy, templatesReady, sections, onEdit, onDelete, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
   const unknown = sumKnown(entries).unknown;
   const lacking = (["protein", "carbs", "fat"] as const).filter((key) => unknown[key] > 0);
   return (
@@ -53,7 +56,7 @@ export function MealLog({ entries, title, loading, busy, templatesReady, section
       {lacking.length > 0 && <p className={diary.note}>
         {lacking.length > 0 && `${lacking.map((key) => `${unknown[key]} without ${MACRO_LABEL[key]}`).join(", ")}: left out of totals, not counted as 0 g.`}
       </p>}
-      {loading && !entries.length ? <p className={styles.muted}>Loading meals…</p> : entries.length === 0 ? (
+      {state !== "ready" ? <p role="status" className={styles.muted}>{mealsStatusText(state)}</p> : entries.length === 0 ? (
         <div className={diary.empty}>
           <p className={diary.emptyTitle}>Nothing logged yet</p>
           <div className={styles.toolbar}>

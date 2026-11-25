@@ -368,9 +368,21 @@ export interface CustomFoodRow {
 const CUSTOM_V1 = "id,name,brand,serving_size,serving_grams,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g";
 const CUSTOM_V2 = `${CUSTOM_V1},barcode,origin,value_basis,image_path,image_url,image_attribution,source_ref,archived_at`;
 
-export async function loadCustomFoods(supabase: SupabaseClient, userId: string, v2: boolean): Promise<{ rows: CustomFoodRow[]; error: boolean }> {
-  const query = supabase.from("custom_foods").select(v2 ? CUSTOM_V2 : CUSTOM_V1).eq("user_id", userId).order("name").limit(300);
-  const { data, error } = v2 ? await query.is("archived_at", null) : await query;
+/**
+ * The member's own foods. `v2` says whether the Nutrition v2 columns exist; left out, the v2 read is tried first and,
+ * only if those columns are missing, the older one, so the read needn't wait for detectCapabilities.
+ */
+export async function loadCustomFoods(supabase: SupabaseClient, userId: string, v2?: boolean): Promise<{ rows: CustomFoodRow[]; error: boolean }> {
+  const read = async (newer: boolean) => {
+    const query = supabase.from("custom_foods").select(newer ? CUSTOM_V2 : CUSTOM_V1).eq("user_id", userId).order("name").limit(300);
+    return newer ? await query.is("archived_at", null) : await query;
+  };
+  if (v2 !== false) {
+    const { data, error } = await read(true);
+    if (!error) return { rows: (data ?? []) as unknown as CustomFoodRow[], error: false };
+    if (v2 === true || !isMissingSchema(error)) return { rows: [], error: true };
+  }
+  const { data, error } = await read(false);
   return { rows: (data ?? []) as unknown as CustomFoodRow[], error: Boolean(error) };
 }
 

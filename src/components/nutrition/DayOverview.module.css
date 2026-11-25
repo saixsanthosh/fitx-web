@@ -51,7 +51,9 @@
 .waterButtons { display: flex; gap: .4rem; }
 .waterButton { min-height: 2.75rem; border: 1px solid var(--fitx-border); border-radius: 999px; background: var(--fitx-surface); padding: 0 .9rem; color: var(--fitx-text); font-size: .8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .waterButton:hover { background: var(--fitx-hover); }
-.waterButton:disabled { opacity: .55; }
+.waterButton:disabled, .waterButton[aria-disabled="true"], .targets[aria-disabled="true"] { opacity: .55; cursor: default; }
+.waterButton[aria-disabled="true"]:hover { background: var(--fitx-surface); }
+.targets[aria-disabled="true"]:hover { border-color: var(--fitx-border); color: var(--fitx-text-secondary); }
 
 @media (min-width: 640px) {
   .ring { --ring-size: 9.5rem; }
