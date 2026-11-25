@@ -348,12 +348,27 @@ export default function NutritionPage() {
     return url ? { ...food, image: url, imageCredit: "Your photo" } : food;
   }, [customRows, photoFor]);
 
-  function shiftDate(offset: number) {
-    setDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + offset));
-    // Undo for a removed food, and what the last action said, last until the member moves on to another day.
+  /**
+   * Moves to another day: Previous day, Next day, or a day opened from History. Undo for a removed food, and what the
+   * last action said, last until the member moves on to another day.
+   */
+  function goToDay(next: Date | ((current: Date) => Date)) {
+    setDate(next);
     setRemoved([]);
     setNotice("");
     setError("");
+  }
+
+  function shiftDate(offset: number) {
+    goToDay((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + offset));
+  }
+
+  /** A day opened from History: Meals on that day. Its "Open this day" goes with History, so the Meals heading takes the focus. */
+  function openDay(key: string) {
+    const [year, month, day] = key.split("-").map(Number);
+    goToDay(new Date(year, month - 1, day));
+    setTab("meals");
+    window.setTimeout(() => { if (focusFellToPage(document.activeElement, document.body)) document.getElementById("meals-title")?.focus(); }, 0);
   }
 
   /**
@@ -1220,7 +1235,7 @@ export default function NutritionPage() {
         {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
           onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
         {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={`${targetSourceText}.`}
-          onOpenDay={(key) => { const [year, month, day] = key.split("-").map(Number); setDate(new Date(year, month - 1, day)); setTab("meals"); }}/>}
+          onOpenDay={openDay}/>}
       </div>
 
       <Sheet open={logOpen} onClose={closeLog} title="Log food" description={<>To <strong className="font-semibold text-fitx-text">{meal}</strong> · {dayLabels.picker}</>}>

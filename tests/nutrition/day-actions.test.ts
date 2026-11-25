@@ -34,6 +34,11 @@ test("the meal log takes its words from the page, which clears its messages when
   assert.doesNotMatch(log, /Save today as a routine/);
   const page = read("src/app/(dashboard)/nutrition/page.tsx");
   assert.match(page, /<MealLog [^\n]*labels=\{actionLabels\}/);
-  const shift = page.slice(page.indexOf("function shiftDate("), page.indexOf("function changeUnit("));
-  assert.match(shift, /setNotice\(""\);/);
+  const day = page.slice(page.indexOf("function goToDay("), page.indexOf("function changeUnit("));
+  assert.match(day, /setDate\(next\);\s*setRemoved\(\[\]\);\s*setNotice\(""\);\s*setError\(""\);/);
+  assert.match(day, /function shiftDate\(offset: number\) \{\s*goToDay\(/, "Previous day and Next day");
+  // Review N8: a day opened from History cleared nothing, so "Nothing was logged on …" stayed above its meals.
+  assert.match(day, /function openDay\(key: string\) \{[^}]*goToDay\(new Date\(year, month - 1, day\)\);\s*setTab\("meals"\);/, "a day opened from History");
+  assert.match(page, /<NutritionHistory [^\n]*\n?\s*onOpenDay=\{openDay\}\/>/);
+  assert.match(day, /if \(focusFellToPage\(document\.activeElement, document\.body\)\) document\.getElementById\("meals-title"\)\?\.focus\(\);/, "its button goes with History: the Meals heading takes the focus");
 });
