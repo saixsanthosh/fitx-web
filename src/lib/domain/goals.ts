@@ -434,7 +434,11 @@ export const GOAL_TEMPLATES: ReadonlyArray<{ key: GoalTemplateKey; label: string
 const round = (value: number, step = 1) => Math.round(value / step) * step;
 const asText = (value: number | null) => (value === null || !Number.isFinite(value) ? "" : String(Number(value.toFixed(2))));
 
-/** The title a template suggests for a target, e.g. "Eat 130 g of protein a day". */
+/**
+ * The title a template suggests for a target, e.g. "Eat 130 g of protein a day". It always says the period the
+ * goal measures ("a day", "a week", "in total"), whatever the template's usual one: a weekly calorie limit adds
+ * up the whole week's food, so it is "Stay under 13,000 kcal a week", never "… a day".
+ */
 export function templateTitle(draft: Pick<GoalDraft, "template" | "target" | "direction" | "metric" | "period" | "unit">): string {
   const target = Number(draft.target);
   const has = draft.target.trim() !== "" && Number.isFinite(target) && target > 0;
@@ -442,17 +446,17 @@ export function templateTitle(draft: Pick<GoalDraft, "template" | "target" | "di
   const per = draft.period === "daily" ? "a day" : draft.period === "weekly" ? "a week" : "in total";
   switch (draft.template) {
     case "workouts_week":
-      return `Work out ${n()} ${has && target === 1 ? "time" : "times"} a week`;
+      return `Work out ${n()} ${has && target === 1 ? "time" : "times"} ${per}`;
     case "distance_week":
       return `Cover ${n(1)} km ${per}`;
     case "active_week":
       return `Be active for ${n()} minutes ${per}`;
     case "protein_day":
-      return `Eat ${n()} g of protein a day`;
+      return `Eat ${n()} g of protein ${per}`;
     case "calories_day":
-      return draft.direction === "limit" ? `Stay under ${n()} kcal a day` : `Eat ${n()} kcal a day`;
+      return draft.direction === "limit" ? `Stay under ${n()} kcal ${per}` : `Eat ${n()} kcal ${per}`;
     case "water_day":
-      return `Drink ${has ? (target / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 }) : "…"} L of water a day`;
+      return `Drink ${has ? (target / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 }) : "…"} L of water ${per}`;
     case "weight":
       return `Reach ${n(1)} kg`;
     case "checklist":
@@ -573,8 +577,10 @@ export function validateGoalDraft(draft: GoalDraft): { ok: true; value: GoalInpu
 
 /** The edit form for an existing goal. */
 export function draftFromGoal(goal: GoalView): GoalDraft {
+  // The workouts template covers every period (its title follows the period), so a daily or long-term workouts
+  // goal edits as one too, not as a custom goal.
   const template: GoalTemplateKey =
-    goal.metric === "workouts_completed" && goal.period === "weekly" ? "workouts_week"
+    goal.metric === "workouts_completed" ? "workouts_week"
       : goal.metric === "activity_distance_km" ? "distance_week"
       : goal.metric === "active_minutes" ? "active_week"
       : goal.metric === "protein_g" ? "protein_day"
