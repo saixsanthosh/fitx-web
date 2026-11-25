@@ -41,7 +41,8 @@ export function MealLog({ entries, title, loading, busy, templatesReady, section
   return (
     <section className={diary.diary} aria-labelledby="meals-title">
       <div className={diary.head}>
-        <h2 id="meals-title" className={diary.title}>Meals <span>{title}</span></h2>
+        {/* Focusable from script only: focus comes here when the control that had it leaves the day. */}
+        <h2 id="meals-title" tabIndex={-1} className={diary.title}>Meals <span>{title}</span></h2>
         <div className={diary.tools}>
           {entries.length > 0 && <button type="button" className={styles.textButton} disabled={busy} onClick={onCopyYesterday}><Copy size={13} className="mr-1 inline" aria-hidden="true"/>Copy yesterday</button>}
           {templatesReady && entries.length > 0 && <button type="button" className={styles.textButton} disabled={busy} onClick={onSaveDay}><CalendarDays size={13} className="mr-1 inline" aria-hidden="true"/>Save today as a routine</button>}
@@ -101,8 +102,8 @@ function EntryRow({ entry, onEdit, onDelete }: { entry: MealEntry; onEdit: (entr
         <p className={styles.rowMacros}>{macro("P", "protein")} · {macro("C", "carbs")} · {macro("F", "fat")}</p>
       </div>
       <span className={diary.rowKcal}>{Math.round(Number(entry.calories))}<small>kcal</small></span>
-      <button type="button" onClick={() => onEdit(entry)} aria-label={`Edit ${entry.food_name}`} className={styles.iconButton}><Pencil size={15} aria-hidden="true"/></button>
-      <button type="button" onClick={() => onDelete(entry)} aria-label={`Remove ${entry.food_name}`} className={styles.iconButton}><X size={15} aria-hidden="true"/></button>
+      <button type="button" data-entry-edit={entry.id} onClick={() => onEdit(entry)} aria-label={`Edit ${entry.food_name}`} className={styles.iconButton}><Pencil size={15} aria-hidden="true"/></button>
+      <button type="button" data-entry-remove={entry.id} onClick={() => onDelete(entry)} aria-label={`Remove ${entry.food_name}`} className={styles.iconButton}><X size={15} aria-hidden="true"/></button>
     </li>
   );
 }

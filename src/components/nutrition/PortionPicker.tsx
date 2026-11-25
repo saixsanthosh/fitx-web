@@ -106,7 +106,7 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
               : `USDA average for ${chosen.label}: ${formatAmount(chosen.grams)} g.`} Real pieces and cups vary; weigh it for an exact log.
       </p>}
       {!hasVolume && <p className={styles.portionSource}>No ml, cup or katori: the source has no volume measure for this food.</p>}
-      {hasVessel && onMeasures && <button type="button" className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}
+      {hasVessel && onMeasures && <button type="button" id={`${idPrefix}-measures`} className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}
       {prompt && <div className={styles.prompt} role="status">
         <p>{prompt.message}</p>
         {prompt.actions.length > 0 && <div className={styles.promptActions}>

@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Sheet } from "@/components/ui/Sheet";
 import styles from "./FoodUi.module.css";
 
-/** Asks for a name, for saving a meal or a day's routine. */
+/**
+ * Asks for a name, for saving a meal or a day's routine, or for a new meal section. A modal Sheet (native dialog):
+ * focus starts on the name, stays inside, Escape closes, and focus goes back to the button that opened it.
+ */
 export function NameDialog({ title, description, initial, busy, label = "Name", maxLength = 80, validate, onCancel, onSave }: {
   title: string;
   description: string;
@@ -21,36 +24,29 @@ export function NameDialog({ title, description, initial, busy, label = "Name", 
   const [name, setName] = useState(initial);
   const [problem, setProblem] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  // The dialog is open by now (Sheet opens it in a layout effect): the name is ready to type over.
   useEffect(() => {
+    input.current?.focus();
     input.current?.select();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  }, []);
   return (
-    <div className={styles.dialogBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
-      <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="name-dialog-title">
-        <div className={styles.dialogHeader}>
-          <div>
-            <h2 id="name-dialog-title">{title}</h2>
-            <p className={styles.muted}>{description}</p>
-          </div>
-          <button type="button" onClick={onCancel} aria-label="Close" className={styles.iconButton}><X size={16}/></button>
+    <Sheet open onClose={onCancel} side="center" title={title} description={description}>
+      <form className={styles.form} noValidate onSubmit={(event) => {
+        event.preventDefault();
+        // Saving: a second press does nothing, and the button keeps the focus (it is never disabled under it).
+        if (busy) return;
+        const reason = validate?.(name) ?? (name.trim() ? null : `Enter a ${label.toLowerCase()}.`);
+        if (reason) { setProblem(reason); input.current?.focus(); return; }
+        onSave(name.trim());
+      }}>
+        <label className={styles.wide}>{label}<input ref={input} className="fitx-field" required maxLength={maxLength} value={name} aria-invalid={problem ? true : undefined}
+          aria-describedby={problem ? "name-dialog-problem" : undefined} onChange={(event) => { setName(event.target.value); setProblem(""); }}/></label>
+        {problem && <p id="name-dialog-problem" role="alert" className={`${styles.warning} ${styles.wide}`}>{problem}</p>}
+        <div className={`${styles.dialogActions} ${styles.wide}`}>
+          <button type="button" onClick={onCancel} className="fitx-button fitx-button-secondary">Cancel</button>
+          <button type="submit" aria-disabled={busy || !name.trim() || undefined} className="fitx-button">{busy ? "Saving…" : "Save"}</button>
         </div>
-        <form className={styles.form} onSubmit={(event) => {
-          event.preventDefault();
-          const reason = validate?.(name) ?? null;
-          if (reason) { setProblem(reason); return; }
-          if (name.trim()) onSave(name.trim());
-        }}>
-          <label className={styles.wide}>{label}<input ref={input} className="fitx-field" required maxLength={maxLength} value={name} onChange={(event) => { setName(event.target.value); setProblem(""); }}/></label>
-          {problem && <p role="alert" className={`${styles.warning} ${styles.wide}`}>{problem}</p>}
-          <div className={`${styles.dialogActions} ${styles.wide}`}>
-            <button type="button" onClick={onCancel} className="fitx-button fitx-button-secondary">Cancel</button>
-            <button type="submit" disabled={busy || !name.trim()} className="fitx-button">{busy ? "Saving…" : "Save"}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Sheet>
   );
 }

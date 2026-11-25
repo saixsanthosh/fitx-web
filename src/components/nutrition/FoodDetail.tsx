@@ -70,7 +70,7 @@ export function FoodDetail(props: FoodDetailProps) {
       <PortionPicker food={food} amount={props.amount} unitKey={props.unitKey} options={props.options} chosen={props.chosen} grams={grams} macros={props.macros}
         prompt={props.prompt} onAmount={props.onAmount} onUnit={props.onUnit} onMeasures={props.onMeasures} idPrefix={props.idPrefix}/>
       {mealControl === "select"
-        ? <label className="mt-3 block text-xs text-fitx-text-secondary">Meal<select className="fitx-field mt-1.5" value={meal} onChange={(event) => (event.target.value === ADD_MEAL_VALUE ? onAddSection() : onMeal(event.target.value))}>
+        ? <label className="mt-3 block text-xs text-fitx-text-secondary">Meal<select id={`${props.idPrefix}-meal`} className="fitx-field mt-1.5" value={meal} onChange={(event) => (event.target.value === ADD_MEAL_VALUE ? onAddSection() : onMeal(event.target.value))}>
           {sections.map((name) => <option key={name}>{name}</option>)}
           <option value={ADD_MEAL_VALUE}>Add a meal…</option>
         </select></label>

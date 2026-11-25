@@ -149,6 +149,14 @@ export default function NutritionPage() {
   const barcodeInput = useRef<HTMLInputElement>(null);
   /** Another dialog was opened from the Log food sheet, so the sheet comes back when that one closes. */
   const reopenLog = useRef(false);
+  /** The control in Log food that opened that dialog (its id), and, once the sheet is back, the one to focus again. */
+  const returnFocus = useRef<string | null>(null);
+  const [logFocus, setLogFocus] = useState<string | null>(null);
+  /** Where focus goes once the day has reloaded, when the control that had it was replaced or removed. */
+  const pendingFocus = useRef<string | null>(null);
+  /** What opened Log food, and the Log food button: where the focus goes back when the sheet closes. */
+  const logOpener = useRef<HTMLElement | null>(null);
+  const logButton = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -583,6 +591,7 @@ export default function NutritionPage() {
 
   /** Opens Log food, optionally on a meal (a meal's + in the diary) or on Barcode. */
   function openLog(options: { meal?: string; mode?: LogMode; quiet?: boolean } = {}) {
+    if (!logOpen && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) logOpener.current = document.activeElement;
     if (options.meal) pickMeal(options.meal);
     setLogMode(options.mode ?? "search");
     setError(""); setNotice("");
@@ -594,13 +603,28 @@ export default function NutritionPage() {
   /** The member closed Log food: the next one starts fresh. */
   function closeLog() {
     setLogOpen(false);
+    // The sheet gives the focus back to what opened it; if that is gone (a toast's button) or was the sheet's own
+    // way back from another dialog, the control that opened Log food, else the Log food button, takes it.
+    const back = logOpener.current;
+    window.setTimeout(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      for (const target of [back, logButton.current]) {
+        if (!target?.isConnected) continue;
+        target.focus();
+        if (document.activeElement === target) return;
+      }
+    }, 0);
     setSelected(null); setAmountPrompt(null); setBarcodeMiss(null); setPickHint(""); setError("");
     reopenLog.current = false;
   }
 
-  /** Steps out of Log food for another dialog (measures, a meal name, a new food) and remembers to come back. */
-  function hideLog() {
+  /**
+   * Steps out of Log food for another dialog (measures, a meal name, a new food) and remembers to come back, with the
+   * focus on `returnTo`, the control that opened it (the sheet's content is new when it comes back).
+   */
+  function hideLog(returnTo: string | null = null) {
     reopenLog.current = logOpen;
+    returnFocus.current = logOpen ? returnTo : null;
     setLogOpen(false);
   }
 
@@ -608,7 +632,22 @@ export default function NutritionPage() {
     if (!reopenLog.current) return;
     reopenLog.current = false;
     setLogOpen(true);
+    setLogFocus(returnFocus.current);
+    returnFocus.current = null;
   }
+  // Once the sheet is open again (and has put the focus on its first control), back to the control that stepped out.
+  useEffect(() => {
+    if (!logOpen || !logFocus) return;
+    const timer = window.setTimeout(() => { document.getElementById(logFocus)?.focus(); setLogFocus(null); }, 80);
+    return () => window.clearTimeout(timer);
+  }, [logOpen, logFocus]);
+  // After the day reloads, focus what replaced the control that had it (an entry moved to another meal is a new row).
+  useEffect(() => {
+    const selector = pendingFocus.current;
+    if (!selector) return;
+    pendingFocus.current = null;
+    document.querySelector<HTMLElement>(selector)?.focus();
+  }, [entries]);
 
   /** "Type the number" from the scanner: the barcode field, ready to type in. */
   function typeBarcode() {
@@ -664,6 +703,8 @@ export default function NutritionPage() {
     if (result.error) { setError("That entry could not be changed. Please try again."); return; }
     setEditingEntry(null);
     setNotice(change.date !== entry.date ? `Moved ${entry.food_name} to ${readableDate(new Date(`${change.date}T00:00:00`))}.` : `Updated ${entry.food_name}.`);
+    // Its pencil again (a new one when it moved to another meal), or the day's heading when it left this day.
+    pendingFocus.current = change.date === entry.date ? `[data-entry-edit="${entry.id}"]` : "#meals-title";
     await load();
   }
 
@@ -703,7 +744,7 @@ export default function NutritionPage() {
     if (editing) { setNotice(`Saved changes to “${row.name}”.${photoProblem}`); return; }
     // Saved, not logged: the toast offers to log it now.
     const saved = customFoodResult(row, photoUrl, sourceOf(row, savedFrom) ?? foodForm?.source ?? null);
-    toast.success(`Saved “${row.name}” to My foods.${photoProblem}`, { action: { label: "Log it", onClick: () => { chooseFood(saved); setLogMode("search"); setLogOpen(true); } }, duration: 8000 });
+    toast.success(`Saved “${row.name}” to My foods.${photoProblem}`, { action: { label: "Log it", onClick: () => { logOpener.current = null; chooseFood(saved); setLogMode("search"); setLogOpen(true); } }, duration: 8000 });
   }
 
   async function removeFood(row: CustomFoodRow) {
@@ -803,7 +844,7 @@ export default function NutritionPage() {
     // The measure in use (3 idli: "1 item", 38 g) becomes the saved serving; the copy remembers the catalogue food it
     // came from (source_ref), so it keeps that food's other measures and diet label while its values are unchanged.
     const serving = servingToSave(food, chosenPortion);
-    hideLog();
+    hideLog("log-save-food");
     setFoodForm({
       editing: null,
       source: food,
@@ -863,8 +904,8 @@ export default function NutritionPage() {
   function detailFor(food: FoodResult) {
     return <FoodDetail food={food} amount={amount} unitKey={unitKey} options={portionOptions} chosen={chosenPortion} grams={grams} macros={selectedMacros}
       prompt={amountPrompt} onAmount={(value) => { setAmount(value); setAmountPrompt(null); }} onUnit={changeUnit}
-      onMeasures={() => { hideLog(); setHouseholdOpen(true); }}
-      sections={sections} meal={meal} onMeal={pickMeal} onAddSection={() => { hideLog(); setNamePrompt({ kind: "section", then: "sheet" }); }}
+      onMeasures={() => { hideLog("log-portion-measures"); setHouseholdOpen(true); }}
+      sections={sections} meal={meal} onMeal={pickMeal} onAddSection={() => { hideLog("log-portion-meal"); setNamePrompt({ kind: "section", then: "sheet" }); }}
       mealControl="select" idPrefix="log-portion"/>;
   }
 
@@ -880,7 +921,7 @@ export default function NutritionPage() {
           <p><strong>{unsourced.label}</strong> has no sourced values in FITX yet, so nothing is guessed.{shownResults.length > 0 ? " These only contain the word." : ""}</p>
           <div className={ui.toolbar}>
             <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => void runFoodSearch(lastSearch, true)}>Search packaged</button>
-            <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => { hideLog(); setFoodForm({ editing: null, prefill: { name: parseFoodQuery(lastSearch).text.replace(/^./, (letter) => letter.toUpperCase()) } }); }}>Create a food</button>
+            <button type="button" id="log-create-food" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => { hideLog("log-create-food"); setFoodForm({ editing: null, prefill: { name: parseFoodQuery(lastSearch).text.replace(/^./, (letter) => letter.toUpperCase()) } }); }}>Create a food</button>
           </div>
         </div>}
         {showBrowse && frequent.length > 0 && <FrequentFoods items={frequent} meal={meal} busy={busy} onAdd={(item) => void addUsual(item)} onChoose={chooseFrequent}/>}
@@ -918,12 +959,13 @@ export default function NutritionPage() {
           water={{ ml: waterMl, target: waterTarget, busy, goalHref: WATER_GOAL_HREF, onAdd: (ml) => void addWater(ml) }}/>
 
         <div className={styles.actions}>
-          <button type="button" onClick={() => openLog()} className={`fitx-button ${styles.logButton}`}><Plus size={19} aria-hidden="true"/>Log food</button>
-          {!logOpen && <form onSubmit={(event) => void quickSearch(event)} className={styles.quick} role="search" aria-label="Quick add">
+          <button ref={logButton} type="button" onClick={() => openLog()} className={`fitx-button ${styles.logButton}`}><Plus size={19} aria-hidden="true"/>Log food</button>
+          {/* Hidden, not removed, while Log food is open: it opened the sheet, so the focus can come back to it. */}
+          <form hidden={logOpen} onSubmit={(event) => void quickSearch(event)} className={styles.quick} role="search" aria-label="Quick add">
             <Search size={18} aria-hidden="true" className={styles.quickIcon}/>
             <input className={styles.quickInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="3 idli, 150 g rice, 200 ml milk" aria-label="Search foods" enterKeyHint="search"/>
             <button type="submit" className={styles.quickGo} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
-          </form>}
+          </form>
           <div className={styles.shortcuts}>
             <button type="button" className={styles.shortcut} onClick={() => { openLog({ mode: "barcode" }); setScannerOpen(true); }} aria-label="Scan a barcode"><ScanBarcode size={18} aria-hidden="true"/><span>Scan</span></button>
             <button type="button" className={styles.shortcut} onClick={() => openLog({ quiet: true })}><BookOpen size={18} aria-hidden="true"/><span>Food database</span></button>
@@ -964,7 +1006,7 @@ export default function NutritionPage() {
               {detailFor(selected)}
               <div className={styles.addActions}>
                 <button type="button" onClick={() => void logFood(selected)} disabled={busy} className="fitx-button w-full">{busy ? "Saving…" : "Add to log"}</button>
-                {selected.kind !== "custom" && <button type="button" onClick={() => saveSelectedAsFood(selected)} className={ui.textButton}>Save to My foods</button>}
+                {selected.kind !== "custom" && <button type="button" id="log-save-food" onClick={() => saveSelectedAsFood(selected)} className={ui.textButton}>Save to My foods</button>}
               </div>
             </section>
           ) : <>
@@ -992,7 +1034,7 @@ export default function NutritionPage() {
               {foodList}
               {visibleSources.length > 0 && !showBrowse && <p className={styles.sources} aria-label="Sources for these results">{visibleSources.map((source) => <span key={source.id} className={source.status === "ok" || source.status === "no_results" ? styles.sourceChip : styles.sourceChipDown}>{sourceText(source)}</span>)}</p>}
               <div className={styles.sheetFoot}>
-                <button type="button" onClick={() => { hideLog(); setFoodForm({ editing: null, prefill: null }); }} className={ui.textButton}><Plus size={13} className="mr-1 inline" aria-hidden="true"/>Add your own food</button>
+                <button type="button" id="log-add-food" onClick={() => { hideLog("log-add-food"); setFoodForm({ editing: null, prefill: null }); }} className={ui.textButton}><Plus size={13} className="mr-1 inline" aria-hidden="true"/>Add your own food</button>
                 <Link href="/nutrition/sources" className={ui.textButton}><BookOpen size={13} className="mr-1 inline" aria-hidden="true"/>Sources</Link>
               </div>
             </> : <div className={styles.barcode}>
@@ -1012,7 +1054,7 @@ export default function NutritionPage() {
                   ? `Open Food Facts knows ${barcodeMiss.code}${barcodeMiss.name ? ` (“${barcodeMiss.name}”)` : ""} but has no nutrition label for it.`
                   : `No product with barcode ${barcodeMiss.code} on Open Food Facts.`} Nothing was guessed.</p>
                 <div className={ui.toolbar}>
-                  <button type="button" className="fitx-button min-h-11 px-3 text-xs" onClick={() => { hideLog(); setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } }); }}>Create a food</button>
+                  <button type="button" id="log-barcode-create" className="fitx-button min-h-11 px-3 text-xs" onClick={() => { hideLog("log-barcode-create"); setFoodForm({ editing: null, prefill: { barcode: barcodeMiss.code, name: barcodeMiss.name ?? "", origin: "barcode", sourceRef: barcodeMiss.code } }); }}>Create a food</button>
                   <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-xs" onClick={() => { setBarcodeMiss(null); setLogMode("search"); window.setTimeout(() => searchInput.current?.focus(), 60); }}>Search by name</button>
                   <a className={ui.textButton} href={`https://world.openfoodfacts.org/product/${barcodeMiss.code}`} target="_blank" rel="noopener noreferrer">Add to Open Food Facts</a>
                 </div>

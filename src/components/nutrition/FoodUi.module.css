@@ -76,11 +76,10 @@
 .form label.check input { width: 1.1rem; height: 1.1rem; accent-color: var(--fitx-primary); }
 .hint { color: var(--fitx-text-disabled); font-size: .68rem; line-height: 1.45; }
 .warning { color: var(--fitx-warning); font-size: .72rem; line-height: 1.45; }
-.dialogBackdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: color-mix(in srgb, var(--fitx-scrim) 55%, transparent); padding: 1rem; }
-.dialog { width: min(32rem, 100%); max-height: calc(100dvh - 2rem); overflow: auto; border: 1px solid var(--fitx-border); border-radius: 1rem; background: var(--fitx-elevated); padding: 1.1rem; color: var(--fitx-text); box-shadow: 0 24px 60px color-mix(in srgb, var(--fitx-scrim) 30%, transparent); }
-.dialogHeader { display: flex; align-items: start; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; }
-.dialogHeader h2 { font-size: 1rem; font-weight: 600; }
+/* The dialogs are Sheets (src/components/ui/Sheet.tsx); these are their actions. */
 .dialogActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+/* A button that can't act yet (saving, or nothing to save) stays focusable and says so (aria-disabled), so focus is never lost. */
+.dialogActions :global(.fitx-button)[aria-disabled="true"], .actionBusy[aria-disabled="true"] { opacity: .58; cursor: default; }
 
 @media(max-width: 520px) {
   .form { grid-template-columns: minmax(0,1fr); }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { X } from "lucide-react";
+import { Sheet } from "@/components/ui/Sheet";
 import { formatAmount } from "@/lib/domain/food-query";
 import { checkBarcode, barcodeProblem } from "@/lib/food/barcode";
 import { customFoodWarning, savedFoodSource, type CustomFoodInput, type CustomFoodRow } from "@/lib/food/client-data";
@@ -48,7 +48,8 @@ const perServing = (per100: number | null | undefined, grams: number) => (per100
 /**
  * Create or edit one of your own foods. Values are for one serving, as printed on most labels. An edit that leaves
  * the serving and values alone keeps where the values came from (a typical recipe the AI coach saved stays one);
- * changing them makes them your entry, or a package label when that box is ticked.
+ * changing them makes them your entry, or a package label when that box is ticked. A modal Sheet (native dialog):
+ * focus starts on the name, stays inside, Escape closes, and focus goes back to the button that opened it.
  */
 export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, onCancel, onSave }: CustomFoodFormProps) {
   const [form, setForm] = useState(() => {
@@ -99,14 +100,12 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
     setProblem("");
   }
 
-  useEffect(() => {
-    first.current?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  // The dialog is open by now (Sheet opens it in a layout effect).
+  useEffect(() => { first.current?.focus(); }, []);
 
   function submit() {
+    // Saving: a second press does nothing, and the button keeps the focus (it is never disabled under it).
+    if (busy) return;
     const { grams, calories, protein, carbs, fat } = numbers;
     const typed = customFoodProblem(form.name, numbers);
     if (typed) return setProblem(typed);
@@ -145,48 +144,39 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
   );
 
   return (
-    <div className={styles.dialogBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
-      <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="custom-food-title">
-        <div className={styles.dialogHeader}>
-          <div>
-            <h2 id="custom-food-title">{editing ? "Edit your food" : "Add your own food"}</h2>
-            <p className={styles.muted}>Saving adds it to My foods. It is not logged until you add it to a meal.</p>
-          </div>
-          <button type="button" onClick={onCancel} aria-label="Close" className={styles.iconButton}><X size={16}/></button>
+    <Sheet open onClose={onCancel} side="center" title={editing ? "Edit your food" : "Add your own food"} description="Saving adds it to My foods. It is not logged until you add it to a meal.">
+      {shownPhoto && <div className={styles.photo}>
+        <Image src={shownPhoto} alt="" width={72} height={72} unoptimized/>
+        <p className={styles.credit}>{shownCredit}</p>
+        {canRemovePhoto && <button type="button" className={styles.textButton} onClick={() => setRemovePhoto(true)}>Remove photo</button>}
+      </div>}
+      {removePhoto && !preview && <p className={styles.hint}>The photo is removed when you save. <button type="button" className={styles.textButton} onClick={() => setRemovePhoto(false)}>Keep it</button></p>}
+      <form className={styles.form} onSubmit={(event) => { event.preventDefault(); submit(); }}>
+        <label className={styles.wide}>Name<input ref={first} className="fitx-field" required maxLength={160} value={form.name} onChange={(event) => set("name", event.target.value)}/></label>
+        <label className={styles.wide}>Brand (optional)<input className="fitx-field" maxLength={160} value={form.brand} onChange={(event) => set("brand", event.target.value)}/></label>
+        <label>Serving (optional)<input className="fitx-field" maxLength={60} placeholder="e.g. 1 bowl, 2 biscuits" value={form.servingLabel} onChange={(event) => set("servingLabel", event.target.value)}/></label>
+        {field("grams", "Serving weight (g)", "1")}
+        {field("calories", "Calories per serving")}
+        {field("protein", "Protein (g)")}
+        {field("carbs", "Carbs (g)")}
+        {field("fat", "Fat (g)")}
+        {v2 && <label className={styles.wide}>Barcode (optional)<input className="fitx-field" inputMode="numeric" maxLength={14} placeholder="8, 12 or 13 digits" value={form.barcode} onChange={(event) => set("barcode", event.target.value)}/></label>}
+        {v2 && <label className={styles.wide}>Photo (optional)<input className="fitx-field" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => choosePhoto(event.target.files?.[0] ?? null)}/>
+          <span className={styles.hint}>Private to you. FITX shrinks it on this device before uploading.</span></label>}
+        {v2 && <label className={`${styles.wide} ${styles.check}`}>
+          <input type="checkbox" checked={form.fromLabel} onChange={(event) => set("fromLabel", event.target.checked)}/>
+          <span>These values are copied from the package label</span>
+        </label>}
+        {!editing && prefill?.missing?.length ? <p className={`${styles.hint} ${styles.wide}`}>The source doesn&apos;t list {prefill.missing.join(", ")}. Enter {prefill.missing.length > 1 ? "them" : "it"} if you know, or 0 if there is none; FITX won&apos;t guess.</p> : null}
+        {unknownNote && <p className={`${styles.hint} ${styles.wide}`}>{unknownNote}</p>}
+        {warning && <p className={`${styles.warning} ${styles.wide}`}>{warning}</p>}
+        {!v2 && <p className={`${styles.hint} ${styles.wide}`}>Barcodes and labels for your foods arrive with the next database update.</p>}
+        {problem && <p role="alert" className={`${styles.warning} ${styles.wide}`}>{problem}</p>}
+        <div className={`${styles.dialogActions} ${styles.wide}`}>
+          <button type="button" onClick={onCancel} className="fitx-button fitx-button-secondary">Cancel</button>
+          <button type="submit" aria-disabled={busy || undefined} className="fitx-button">{busy ? "Saving…" : editing ? "Save changes" : "Save food"}</button>
         </div>
-        {shownPhoto && <div className={styles.photo}>
-          <Image src={shownPhoto} alt="" width={72} height={72} unoptimized/>
-          <p className={styles.credit}>{shownCredit}</p>
-          {canRemovePhoto && <button type="button" className={styles.textButton} onClick={() => setRemovePhoto(true)}>Remove photo</button>}
-        </div>}
-        {removePhoto && !preview && <p className={styles.hint}>The photo is removed when you save. <button type="button" className={styles.textButton} onClick={() => setRemovePhoto(false)}>Keep it</button></p>}
-        <form className={styles.form} onSubmit={(event) => { event.preventDefault(); submit(); }}>
-          <label className={styles.wide}>Name<input ref={first} className="fitx-field" required maxLength={160} value={form.name} onChange={(event) => set("name", event.target.value)}/></label>
-          <label className={styles.wide}>Brand (optional)<input className="fitx-field" maxLength={160} value={form.brand} onChange={(event) => set("brand", event.target.value)}/></label>
-          <label>Serving (optional)<input className="fitx-field" maxLength={60} placeholder="e.g. 1 bowl, 2 biscuits" value={form.servingLabel} onChange={(event) => set("servingLabel", event.target.value)}/></label>
-          {field("grams", "Serving weight (g)", "1")}
-          {field("calories", "Calories per serving")}
-          {field("protein", "Protein (g)")}
-          {field("carbs", "Carbs (g)")}
-          {field("fat", "Fat (g)")}
-          {v2 && <label className={styles.wide}>Barcode (optional)<input className="fitx-field" inputMode="numeric" maxLength={14} placeholder="8, 12 or 13 digits" value={form.barcode} onChange={(event) => set("barcode", event.target.value)}/></label>}
-          {v2 && <label className={styles.wide}>Photo (optional)<input className="fitx-field" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => choosePhoto(event.target.files?.[0] ?? null)}/>
-            <span className={styles.hint}>Private to you. FITX shrinks it on this device before uploading.</span></label>}
-          {v2 && <label className={`${styles.wide} ${styles.check}`}>
-            <input type="checkbox" checked={form.fromLabel} onChange={(event) => set("fromLabel", event.target.checked)}/>
-            <span>These values are copied from the package label</span>
-          </label>}
-          {!editing && prefill?.missing?.length ? <p className={`${styles.hint} ${styles.wide}`}>The source doesn&apos;t list {prefill.missing.join(", ")}. Enter {prefill.missing.length > 1 ? "them" : "it"} if you know, or 0 if there is none; FITX won&apos;t guess.</p> : null}
-          {unknownNote && <p className={`${styles.hint} ${styles.wide}`}>{unknownNote}</p>}
-          {warning && <p className={`${styles.warning} ${styles.wide}`}>{warning}</p>}
-          {!v2 && <p className={`${styles.hint} ${styles.wide}`}>Barcodes and labels for your foods arrive with the next database update.</p>}
-          {problem && <p role="alert" className={`${styles.warning} ${styles.wide}`}>{problem}</p>}
-          <div className={`${styles.dialogActions} ${styles.wide}`}>
-            <button type="button" onClick={onCancel} className="fitx-button fitx-button-secondary">Cancel</button>
-            <button type="submit" disabled={busy} className="fitx-button">{busy ? "Saving…" : editing ? "Save changes" : "Save food"}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Sheet>
   );
 }
