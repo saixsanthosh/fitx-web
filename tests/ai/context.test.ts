@@ -5,6 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 
 const { buildCoachContext, localDate } = await import("@/lib/ai/context");
 const { chatSystemPrompt, mealPlanSystemPrompt, memberTurn } = await import("@/lib/ai/prompts");
+const { bodyMeasureProblems } = await import("@/app/(dashboard)/profile/body-checks");
 
 const NOW = new Date("2026-11-16T18:30:00Z"); // 00:00 on 17 November in India
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -674,11 +675,14 @@ describe("privacy page", () => {
 
     // Profile can empty these fields and lists, and always keeps a goal and an activity level.
     const profile = read("app/(dashboard)/profile/ProfileSections.tsx");
-    for (const [guard, field] of [["typedAge", "age"], ["draft.heightCm", "heightCm"], ["draft.targetWeightKg", "targetWeightKg"], ["budget", "monthlyBudget"]]) {
+    for (const [guard, field] of [["typedAge", "age"], ["budget", "monthlyBudget"]]) {
       assert.match(profile, new RegExp(`if \\(${guard.replace(".", "\\.")} !== null && [^\\n]*found\\.${field} = [^;]*or leave it empty`), `${field} may be left empty`);
     }
+    // Height and target weight are checked in the unit shown (body-checks.ts, release 3's bug 32): both may be empty.
+    assert.match(profile, /Object\.assign\(found, bodyMeasureProblems\(draft\)\);/);
+    assert.deepEqual(bodyMeasureProblems({ heightCm: null, heightUnit: "cm", weightKg: 70, weightUnit: "kg", targetWeightKg: null }), {}, "height and target weight may be left empty");
     // Once the birth date column exists, age comes from the date of birth, which may be cleared too (clearing it clears the age).
-    assert.match(profile, /<BirthDateField [^\n]*required=\{false\} \/>/, "the date of birth may be left empty");
+    assert.match(profile, /<BirthDateField [^\n]*required=\{false\}[^\n]*\/>/, "the date of birth may be left empty");
     assert.match(profile, /onClear=\{\(\) => set\("diet", null\)\} clearLabel="Clear your diet"/);
     assert.match(profile, /onClear=\{\(\) => set\("budgetLevel", null\)\} clearLabel="Clear your budget level"/);
     for (const legend of ["Food allergies or intolerances", "Cuisines you enjoy", "Injuries or areas to go easy on", "Food rules you follow"]) assert.match(profile, new RegExp(`<ChipGroup legend="${legend}"`), legend);
