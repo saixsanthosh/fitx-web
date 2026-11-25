@@ -668,6 +668,13 @@ export default function WorkoutsPage() {
     setSplit(areas.length === 1 && areas[0] === "full_body" ? "full_body" : "custom");
   }
 
+  /** Opens the builder with its live region quiet (nothing from an earlier visit is read out again). */
+  function showBuilder() {
+    setBuilderNotice("");
+    setBuilderProblem(null);
+    setCreatorOpen(true);
+  }
+
   function openCreator(nextMode: BuilderMode, target: TrainingContext = context, areas: readonly FocusArea[] = []) {
     setBuilderMode(nextMode);
     setEditingPlanId(null); setEditingProgrammeDay(false);
@@ -747,13 +754,6 @@ export default function WorkoutsPage() {
     setSwapIndex(null);
     if (from) setBuilderNotice(swapNotice(from, replacement.name));
     setBuilderFocus((current) => ({ target: focusAfterSwap(index), seq: (current?.seq ?? 0) + 1 }));
-  }
-
-  /** Opens the builder with its live region quiet (nothing from an earlier visit is read out again). */
-  function showBuilder() {
-    setBuilderNotice("");
-    setBuilderProblem(null);
-    setCreatorOpen(true);
   }
 
   /** Removes a row; focus moves to the row that takes its place (or the list's heading), and the change is announced. */
