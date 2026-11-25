@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { initialOnboardingForm, validatePage, type OnboardingSource } from "@/lib/onboarding/form";
 import { normalizePreferences } from "@/lib/domain/user-context";
-import { AGE_RANGE, OLDEST_SHOWN_AGE, ageFromBirthDate, birthDateEdit, normalizeBirthDate, shownAge } from "@/lib/domain/profile-options";
+import { AGE_RANGE, OLDEST_SHOWN_AGE, ageFromBirthDate, birthDateEdit, normalizeBirthDate, profileAge, shownAge } from "@/lib/domain/profile-options";
 
 // Bug 34 (onboarding-8): Date.UTC read the years 0 to 99 as 1900 to 1999, so 0001-01-01 was "not a real date", and the
 // stage's Age readout had no cap, so 0100-06-15 read "Age 1926 yrs".
@@ -32,6 +32,12 @@ describe("birth years below 100 are read as written", () => {
 
   test("Profile's birth date check reads them the same way", () => {
     assert.match(birthDateEdit({ age: null, date_of_birth: null }, "0001-01-01", TODAY).error ?? "", /ages 13 to 100/);
+  });
+
+  test("a day key is read with its year as written too (the same mistake in profileAge)", () => {
+    assert.equal(profileAge({ age: null, date_of_birth: "0010-01-01" }, "0050-06-01"), 40);
+    assert.equal(profileAge({ age: 17, date_of_birth: "2008-11-20" }, "2026-11-20"), 18);
+    assert.equal(profileAge({ age: null, date_of_birth: "2000-02-29" }, "2028-02-29"), 28, "a leap-day key");
   });
 
   test("dates that don't exist are still refused as not real", () => {

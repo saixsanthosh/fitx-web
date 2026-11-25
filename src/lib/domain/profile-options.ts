@@ -457,6 +457,14 @@ function dateParts(value: unknown): [number, number, number] | null {
   return [year, month, day];
 }
 
+/** Local midnight of a calendar date, the year as written (new Date(y, m, d) would read 0 to 99 as 1900 to 1999). */
+function localDay([year, month, day]: [number, number, number]): Date {
+  const date = new Date(0);
+  date.setFullYear(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
 /** A stored or typed birth date as YYYY-MM-DD, or null when it is missing or not a real date. */
 export function normalizeBirthDate(value: unknown): string | null {
   const parts = dateParts(value);
@@ -491,7 +499,7 @@ export function shownAge(birthDate: unknown, today: Date = new Date()): number |
 export function profileAge(row: { age?: unknown; date_of_birth?: unknown } | null | undefined, today: Date | string = new Date()): number | null {
   if (!row) return null;
   const parts = typeof today === "string" ? dateParts(today) : null;
-  const day = typeof today === "string" ? (parts ? new Date(parts[0], parts[1] - 1, parts[2]) : null) : today;
+  const day = typeof today === "string" ? (parts ? localDay(parts) : null) : today;
   const fromBirthDate = day ? ageFromBirthDate(row.date_of_birth, day) : null;
   if (fromBirthDate !== null) return fromBirthDate;
   if (row.age === null || row.age === undefined || row.age === "") return null;
