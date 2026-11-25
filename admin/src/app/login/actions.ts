@@ -15,7 +15,7 @@ import {
   waitOutFailure,
 } from "@/lib/login-guard";
 import { MAX_PASSWORD_LENGTH, verifyPassword } from "@/lib/password";
-import { isConsolePath } from "@/lib/roles";
+import { safeNextPath } from "@/lib/next-path";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { normaliseUsername } from "@/lib/username";
 
@@ -134,7 +134,7 @@ export async function signIn(_previous: LoginState, formData: FormData): Promise
   }
   await recordLoginResult(username, ipKey, true);
   await logAdminEvent({ actor: { id: operatorId }, action: "admin_login_succeeded", resourceType: "admin_session", resourceId: session.sessionId, details: { root: candidate.isRoot } });
-  redirect(candidate.mustChangePassword ? "/account" : isConsolePath(next) ? next : "/overview");
+  redirect(candidate.mustChangePassword ? "/account" : (safeNextPath(next) ?? "/overview"));
 }
 
 /** Ends this browser's Admin session, removes the cookie and goes to /login. */

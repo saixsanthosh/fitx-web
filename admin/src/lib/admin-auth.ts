@@ -1,7 +1,9 @@
 import "server-only";
 import { cache } from "react";
+import { headers } from "next/headers";
 import { forbidden, redirect } from "next/navigation";
 import { readSessionOperator } from "@/lib/admin-session";
+import { ADMIN_PATH_HEADER, signInPath } from "@/lib/next-path";
 import { permissionsFor, type AdminRole, type Permission } from "@/lib/roles";
 
 /** The signed-in Admin operator, as every page, data helper, Server Action and Route Handler sees it. */
@@ -43,13 +45,14 @@ export function hasPermission(operator: Pick<AdminOperator, "permissions">, perm
 }
 
 /**
- * The server-side gate. No valid session: to /login. With a permission: an operator who must change a
+ * The server-side gate. No valid session: to /login, with ?next= naming the console page being opened (the proxy
+ * passes it in ADMIN_PATH_HEADER), so sign-in comes back to it. With a permission: an operator who must change a
  * temporary password goes to /account, and a role without the permission gets the 403 page
  * (forbidden(), src/app/forbidden.tsx). The layout is never the only guard: call this first everywhere.
  */
 export async function requireAdmin(permission?: Permission): Promise<AdminOperator> {
   const operator = await loadOperator();
-  if (!operator) redirect("/login");
+  if (!operator) redirect(signInPath((await headers()).get(ADMIN_PATH_HEADER)));
   if (permission) {
     if (operator.mustChangePassword) redirect("/account");
     if (!hasPermission(operator, permission)) forbidden();

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { FitxMark } from "@/components/fitx-mark";
 import { getAdminOperator } from "@/lib/admin-auth";
-import { isConsolePath } from "@/lib/roles";
+import { safeNextPath } from "@/lib/next-path";
 import { firstParam } from "@/lib/search-params";
 import { LoginForm } from "./login-form";
 import { LoginStage } from "./login-stage";
@@ -12,8 +12,8 @@ export const metadata: Metadata = { title: "Sign in" };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
-  const raw = firstParam(params.next);
-  const next = isConsolePath(raw) ? raw : "";
+  // A console page this sign-in returns to (a teammate's link to a member, a request or a report); "" for anything else.
+  const next = safeNextPath(firstParam(params.next)) ?? "";
   const operator = await getAdminOperator();
   if (operator) redirect(operator.mustChangePassword ? "/account" : next || "/overview");
 

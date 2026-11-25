@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { canonicalRedirectUrl } from "@/lib/canonical-host";
 import { buildAdminCsp, createNonce, originOf } from "@/lib/csp";
-import { isConsolePath } from "@/lib/roles";
+import { ADMIN_PATH_HEADER, safeNextPath } from "@/lib/next-path";
 import { ADMIN_SESSION_COOKIE } from "@/lib/session-policy";
 
 function isHttps(request: NextRequest) {
@@ -26,10 +26,12 @@ export async function proxy(request: NextRequest) {
 
   // A page request without the session cookie goes straight to /login. This only saves a render:
   // every page checks the session itself (requireAdmin), and the proxy does no database work.
+  // The page asked for (a member, a help request, the Users filters) comes back after sign-in.
   const { pathname } = request.nextUrl;
+  const page = safeNextPath(`${pathname}${request.nextUrl.search}`);
   if ((request.method === "GET" || request.method === "HEAD") && !PUBLIC_PATHS.has(pathname) && !request.cookies.has(ADMIN_SESSION_COOKIE)) {
     const login = new URL("/login", request.url);
-    if (isConsolePath(pathname)) login.searchParams.set("next", pathname);
+    if (page) login.searchParams.set("next", page);
     return NextResponse.redirect(login, 307);
   }
 
@@ -47,6 +49,10 @@ export async function proxy(request: NextRequest) {
   const headers = new Headers(request.headers);
   headers.set("x-nonce", nonce);
   headers.set("Content-Security-Policy", csp);
+  // For requireAdmin: a session that has ended (idle, revoked) still sends its cookie, so the page itself sends
+  // the operator to sign in, and says where they were. Only the proxy sets this header.
+  if (page) headers.set(ADMIN_PATH_HEADER, page);
+  else headers.delete(ADMIN_PATH_HEADER);
   const response = NextResponse.next({ request: { headers } });
   response.headers.set(responseHeader, csp);
   return response;
