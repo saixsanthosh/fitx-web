@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tabs } from "@/components/ui/Tabs";
-import { fullDate, relativeTime, socialApi, type DmPolicy, type SocialAuthor } from "@/lib/social";
+import { fullDate, relativeTime, socialApi, type DmPolicy, type FollowState, type SocialAuthor } from "@/lib/social";
 import { GROUP_LIMITS } from "@/lib/social/group-limits";
 import { DM_POLICY_OPTIONS, messageErrorText, messagesApi, previewText, type ConversationSummary, type InboxBox } from "@/lib/social/messages";
 import { unreadLabel, useInboxRefresh, useUnreadCounts } from "@/lib/social/realtime";
@@ -35,6 +35,7 @@ export function MessagesView() {
   const [composing, setComposing] = useState(false);
   const [settings, setSettings] = useState(() => params?.get("settings") === "1");
   const [initial, setInitial] = useState<SocialAuthor | null>(null);
+  const [initialFollowing, setInitialFollowing] = useState<FollowState | null>(null);
   const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((value) => value + 1), []);
   useInboxRefresh(me.age_band === "adult" ? userId : null, bump, GROUP_LIMITS.unreadPollMs);
@@ -54,6 +55,7 @@ export function MessagesView() {
       void socialApi.profile(db, to).then((page) => {
         if (!live || !page || page.relation.is_self) return;
         setInitial(page.profile);
+        setInitialFollowing(page.relation.following);
         setComposing(true);
       }).catch(() => undefined);
     }
@@ -114,7 +116,7 @@ export function MessagesView() {
       />
       <p className={styles.privacy}>Messages are private between you and the other member, but they are not end-to-end encrypted.</p>
 
-      <NewMessageSheet db={db} userId={userId} open={composing} initial={initial} onClose={() => { setComposing(false); clearParams(); }} />
+      <NewMessageSheet db={db} userId={userId} open={composing} initial={initial} following={initial ? initialFollowing : null} onClose={() => { setComposing(false); clearParams(); }} />
       <Sheet open={sharing !== null} onClose={clearParams} title="Share post">
         {sharing && <SendTo postId={sharing} onDone={clearParams} />}
       </Sheet>

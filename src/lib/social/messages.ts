@@ -4,7 +4,7 @@
  */
 import { SocialError, toSocialError, socialErrorMessage } from "./errors";
 import type { Db } from "./api";
-import type { DmPolicy, SocialAuthor, SocialPost } from "./types";
+import type { DmPolicy, FollowState, SocialAuthor, SocialPost } from "./types";
 import { GROUP_LIMITS } from "./group-limits";
 
 export type ConversationStatus = "request" | "accepted";
@@ -81,16 +81,43 @@ export const DM_POLICY_OPTIONS: readonly { value: DmPolicy; label: string; hint:
   { value: "off", label: "No one", hint: "Conversations you already have carry on." },
 ];
 
-/** What the member reads when a message action fails: the groups' own cases first, then Explore's. */
-export function messageErrorText(error: unknown): string {
+/**
+ * What the sender knows about the other member when a message fails: their username, and whether the sender follows
+ * them (from the profile they came from), or null when the sheet cannot know (a person picked from search).
+ */
+export type MessageContext = { username?: string | null; following?: FollowState | null };
+
+/**
+ * The New message sheet's line before anything is sent. It never promises Requests (bug 19): whether a member takes a
+ * first message is their own setting (and FITX keeps messages between adults), and the sender can see neither.
+ */
+export function firstMessageNote(username: string): string {
+  return `If @${username} takes messages from you, it goes to their inbox, or to their requests if they do not follow you.`;
+}
+
+/**
+ * What the member reads when a message action fails: the groups' own cases first, then Explore's. A first message the
+ * other member does not take (the database's hint "policy", their setting, or "age", FITX's adults-only rule) reads
+ * the same either way, so the words never reveal the other member's age or settings; they say what the sender can do.
+ */
+export function messageErrorText(error: unknown, context: MessageContext = {}): string {
   const failure = toSocialError(error);
   if (failure.key === "social_suspended" && failure.hint === "dm") return "FITX has paused your messages for now.";
   if (failure.key === "social_dm_not_allowed") {
     if (failure.hint === "pending") return "Your message request is waiting for an answer.";
     if (failure.hint === "blocked") return "You cannot message this account.";
+    return notTakingText(context);
   }
   // A SocialError already carries Explore's own wording for its key; anything else is read as Explore reads it.
   return error instanceof SocialError ? error.message : socialErrorMessage(error);
+}
+
+function notTakingText({ username, following = null }: MessageContext): string {
+  const who = username ? `@${username}` : "This member";
+  if (following === "accepted") return `${who} is not taking messages from you right now.`;
+  if (following === "pending") return `${who} is not taking messages from you. Once they accept your follow request, you can try again.`;
+  if (following === "none") return `${who} is not taking messages from you. If you follow them first, you can try again.`;
+  return `${who} is not taking messages from you. If you do not follow them yet, follow them first, then try again.`;
 }
 
 /** One line for a conversation in the inbox. */

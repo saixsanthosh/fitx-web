@@ -31,7 +31,7 @@ export function SendTo({ postId, onDone }: ShareTargetsProps) {
       refreshUnreadCounts();
       toast.success(`Sent to @${username}`);
     } catch (failure) {
-      toast.error(messageErrorText(failure));
+      toast.error(messageErrorText(failure, { username }));
     } finally {
       setBusy(null);
     }

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { MessageCircle } from "lucide-react";
-import { socialApi, type SocialAuthor } from "@/lib/social";
+import { socialApi, type FollowState, type SocialAuthor } from "@/lib/social";
 import type { ProfileActionsProps } from "@/lib/social/slots";
 import { messagesApi } from "@/lib/social/messages";
 import { useReadyExplore } from "../ExploreContext";
@@ -13,12 +13,16 @@ import exploreStyles from "../Explore.module.css";
 /**
  * The PROFILE_ACTIONS slot: "Message" on another member's profile. It opens the conversation when there is one, or a
  * first message otherwise. Shown to adults only (O1 a); the database decides whether the other member takes messages.
+ * It is shown on every adult's view of a profile, a teen's included: the page is never told the other member's age
+ * band or message setting (so nothing an adult sees gives a teen away), and a first message a teen cannot take is
+ * refused in the same words as one the member's own setting refuses.
  */
 export function MessageButton({ userId, username }: ProfileActionsProps) {
   const { db, userId: self, me } = useReadyExplore();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [person, setPerson] = useState<SocialAuthor | null>(null);
+  const [following, setFollowing] = useState<FollowState | null>(null);
   if (userId === self || me.age_band !== "adult") return null;
 
   async function open() {
@@ -36,6 +40,7 @@ export function MessageButton({ userId, username }: ProfileActionsProps) {
       setBusy(false);
     }
     const page = await socialApi.profile(db, username).catch(() => null);
+    setFollowing(page?.relation.following ?? null);
     setPerson(page?.profile ?? { id: userId, username, display_name: username, avatar_path: null, is_private: false });
   }
 
@@ -44,7 +49,7 @@ export function MessageButton({ userId, username }: ProfileActionsProps) {
       <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} disabled={busy} onClick={() => void open()}>
         <MessageCircle size={16} aria-hidden="true" />Message
       </button>
-      <NewMessageSheet db={db} userId={self} open={person !== null} initial={person} onClose={() => setPerson(null)} />
+      <NewMessageSheet db={db} userId={self} open={person !== null} initial={person} following={following} onClose={() => setPerson(null)} />
     </>
   );
 }
