@@ -90,7 +90,7 @@ export function deviceKcalMethod(parsed: ParsedImport): string {
  */
 export function checkStartTime(parsed: Pick<ParsedImport, "startedAt">, now: number): void {
   if (startsInFuture(parsed.startedAt, now)) {
-    throw new ImportError("future-start", `This activity starts in the future: ${formatActivityDate(parsed.startedAt)}. The watch or app that recorded it may have had the wrong date or time.`);
+    throw new ImportError("future-start", `This activity starts in the future: ${formatActivityDate(parsed.startedAt, now)}. The watch or app that recorded it may have had the wrong date or time.`);
   }
 }
 

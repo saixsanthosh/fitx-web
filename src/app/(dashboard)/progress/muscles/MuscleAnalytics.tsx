@@ -12,6 +12,7 @@ import { Tabs } from "@/components/ui/Tabs";
 import { shareLabel } from "@/components/widgets/MusclesWidget";
 import { useOptionalResource, useResource, useToday } from "@/components/widgets/useHomeData";
 import { WidgetError } from "@/components/widgets/WidgetCard";
+import { inOtherYear } from "@/lib/activity/format";
 import { keyToLocalDate } from "@/lib/domain/day-keys";
 import { BODY_REGIONS, REGIONS, listRegions, regionInView, type RegionKey } from "@/lib/training/anatomy";
 import {
@@ -25,8 +26,10 @@ type History = { sessions: LoggedSession[]; truncated: boolean };
 
 const VIEWS: ReadonlyArray<[View, string]> = [["front", "Front"], ["back", "Back"], ["both", "Both"]];
 const EMPTY_PERIOD: Record<MusclePeriod, string> = { today: "today", week: "this week", four_weeks: "in the last 4 weeks", all: "yet" };
-const dateLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-const dayLabel = (key: string) => keyToLocalDate(key).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+/** "Tue, 24 Nov"; a date in another year says its year ("Sun, 3 Mar 2024"). */
+const dateOptions = (date: Date): Intl.DateTimeFormatOptions => ({ weekday: "short", day: "numeric", month: "short", ...(inOtherYear(date.getTime()) ? { year: "numeric" } : {}) });
+const dateLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, dateOptions(new Date(iso)));
+const dayLabel = (key: string) => keyToLocalDate(key).toLocaleDateString(undefined, dateOptions(keyToLocalDate(key)));
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 async function loadHistory(since: Date | null): Promise<History> {

@@ -91,11 +91,20 @@ export function localDateKey(ms: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** "Mon 16 Nov, 6:42 am" in the viewer's time zone. */
-export function formatActivityDate(iso: string | number | Date): string {
+/** True when `ms` is in another calendar year than `now` (the viewer's calendar): its date then needs the year. */
+export function inOtherYear(ms: number, now: number = Date.now()): boolean {
+  return new Date(ms).getFullYear() !== new Date(now).getFullYear();
+}
+
+/**
+ * "Mon, 16 Nov, 6:42 am" in the viewer's time zone. A date in another year says its year, "Sun, 3 Mar 2024,
+ * 7:30 am", so last year's March never reads as this one.
+ */
+export function formatActivityDate(iso: string | number | Date, now: number = Date.now()): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   const day = date.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+  const year = inOtherYear(date.getTime(), now) ? ` ${date.getFullYear()}` : "";
   const time = date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
-  return `${day}, ${time}`;
+  return `${day}${year}, ${time}`;
 }

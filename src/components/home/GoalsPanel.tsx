@@ -12,6 +12,7 @@ import type { GoalsData, Resource } from "@/components/widgets/useHomeData";
 import { WidgetError } from "@/components/widgets/WidgetCard";
 import { addGoalEntry, deleteGoal, deleteGoalEntry, listGoalEntries, setGoalStatus, type GoalEntry, type GoalsSchema } from "@/lib/data/goals";
 import type { SummaryResult } from "@/lib/data/today";
+import { inOtherYear } from "@/lib/activity/format";
 import {
   checkProgressAmount, entryCounts, entryRemovalProblem, evaluateView, formatGoalValue, periodLabel, progressSummary, remainingLabel, sortGoals,
   type GoalContext, type GoalPeriod, type GoalTemplateKey, type GoalView,
@@ -223,7 +224,7 @@ function GoalRow({ goal, today, onEdit, onStatus, onDelete, onHistory, onLog }: 
   const fill = over ? "var(--fitx-warning)" : evaluation.achieved ? "var(--fitx-success)" : "var(--fitx-primary)";
   const left = remainingLabel(goal, evaluation);
   const when = completed && goal.completedAt
-    ? `Done ${new Date(goal.completedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
+    ? `Done ${new Date(goal.completedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", ...(Number(today.slice(0, 4)) !== new Date(goal.completedAt).getFullYear() ? { year: "numeric" } : {}) })}`
     : goal.period === "long_term" ? periodLabel(goal, today) : null;
 
   return (
@@ -400,7 +401,7 @@ function HistorySheet({ goal, schema, onClose, onChanged }: { goal: GoalView; sc
                   <li key={entry.id}>
                     <div>
                       <strong>{entry.amount > 0 ? "+" : "−"}{formatGoalValue(Math.abs(entry.amount), goal.metric, goal.unit)}</strong>
-                      <span>{new Date(entry.loggedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}{entry.note ? ` · ${entry.note}` : ""}</span>
+                      <span>{new Date(entry.loggedAt).toLocaleString(undefined, { day: "numeric", month: "short", ...(inOtherYear(Date.parse(entry.loggedAt)) ? { year: "numeric" } : {}), hour: "numeric", minute: "2-digit" })}{entry.note ? ` · ${entry.note}` : ""}</span>
                     </div>
                     <button
                       type="button"

@@ -56,7 +56,9 @@ export function periodFor(kind: PeriodKind, today: string, offset = 0): Period {
     from = addDays(mondayOf(today), 7 * step);
     to = addDays(from, 6);
     const sameMonth = from.slice(0, 7) === to.slice(0, 7);
-    label = step === 0 ? "This week" : step === -1 ? "Last week" : `${fmt(from, sameMonth ? { day: "numeric" } : { day: "numeric", month: "short" })} – ${fmt(to, { day: "numeric", month: "short" })}`;
+    // A week of another year says the year ("22 – 28 Dec 2025"), so it never reads as this year's.
+    const year = to.slice(0, 4) !== today.slice(0, 4) ? { year: "numeric" as const } : {};
+    label = step === 0 ? "This week" : step === -1 ? "Last week" : `${fmt(from, sameMonth ? { day: "numeric" } : { day: "numeric", month: "short" })} – ${fmt(to, { day: "numeric", month: "short", ...year })}`;
   } else if (kind === "month") {
     const index = year * 12 + (month - 1) + step;
     const y = Math.floor(index / 12);

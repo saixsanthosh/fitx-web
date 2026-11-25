@@ -11,7 +11,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { InsightList } from "@/components/widgets/InsightList";
 import { useGoalsData, useResource, useTodaySummary } from "@/components/widgets/useHomeData";
 import { WidgetError } from "@/components/widgets/WidgetCard";
-import { formatDurationWords } from "@/lib/activity/format";
+import { formatDurationWords, inOtherYear } from "@/lib/activity/format";
 import { firstTrackedDay, loadAllTimeTotals, loadBodyRows, loadProgressRows, loadRecentWorkouts, type BodyMetricRow } from "@/lib/data/progress";
 import { addDays, keyToLocalDate } from "@/lib/domain/day-keys";
 import { GOAL_TEMPLATES, type GoalTemplateKey } from "@/lib/domain/goals";
@@ -282,7 +282,7 @@ export function ProgressAnalytics({ today }: { today: string }) {
                     <Link href={`/workouts/history/${workout.id}`} className={styles.recentRow}>
                       <span className={styles.recentText}>
                         <strong>{workout.name}</strong>
-                        <span>{new Date(workout.startedAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}{workout.trainingSeconds !== null ? ` · ${workout.trainingSeconds < 60 ? "under 1 min" : formatDurationWords(workout.trainingSeconds)}` : ""}</span>
+                        <span>{new Date(workout.startedAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", ...(inOtherYear(Date.parse(workout.startedAt)) ? { year: "numeric" } : {}) })}{workout.trainingSeconds !== null ? ` · ${workout.trainingSeconds < 60 ? "under 1 min" : formatDurationWords(workout.trainingSeconds)}` : ""}</span>
                       </span>
                       <span className={styles.recentVolume}>{workout.volumeKg === null ? <span aria-label="No weighted sets">—</span> : `${num(workout.volumeKg)} kg`}</span>
                       <ChevronRight size={16} aria-hidden="true" className={styles.muted} />

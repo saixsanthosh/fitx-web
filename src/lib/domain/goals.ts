@@ -294,18 +294,20 @@ export function remainingLabel(goal: GoalView, evaluation = evaluateView(goal)):
   return `${formatGoalValue(evaluation.remaining, goal.metric, goal.unit)} to go`;
 }
 
-const monthDay = (key: string) => {
+/** "31 Dec", with the year when it isn't `today`'s ("31 Dec 2027"), so next year's date never reads as this year's. */
+const monthDay = (key: string, today: string) => {
   const [year, month, day] = key.split("-").map(Number);
-  return new Date(year, month - 1, day, 12).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const options: Intl.DateTimeFormatOptions = key.slice(0, 4) === today.slice(0, 4) ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" };
+  return new Date(year, month - 1, day, 12).toLocaleDateString(undefined, options);
 };
 
-/** When the goal's progress applies: "Today", "This week", "Due 31 Dec", "Ended 31 Dec", "Ongoing". */
+/** When the goal's progress applies: "Today", "This week", "Due 31 Dec", "Ended 31 Dec 2025", "Ongoing". */
 export function periodLabel(goal: Pick<GoalView, "period" | "dueOn" | "startsOn">, today: string): string {
   if (goal.period === "daily") return "Today";
   if (goal.period === "weekly") return "This week";
-  if (goal.startsOn && goal.startsOn > today) return `Starts ${monthDay(goal.startsOn)}`;
+  if (goal.startsOn && goal.startsOn > today) return `Starts ${monthDay(goal.startsOn, today)}`;
   if (!goal.dueOn) return "Ongoing";
-  return goal.dueOn < today ? `Ended ${monthDay(goal.dueOn)}` : `Due ${monthDay(goal.dueOn)}`;
+  return goal.dueOn < today ? `Ended ${monthDay(goal.dueOn, today)}` : `Due ${monthDay(goal.dueOn, today)}`;
 }
 
 /** True when a daily or weekly goal applies today (active, started, not past its end date). */
