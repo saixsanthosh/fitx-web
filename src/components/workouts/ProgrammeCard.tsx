@@ -48,7 +48,7 @@ function SessionsRingMark({ done, target }: { done: number; target: number | nul
  * (rest days shown as planned recovery). Choosing a day shows it in one row; its workout opens in the plan preview.
  * One visible action besides the journey link (Pause or Resume); planning ahead and leaving sit in a "more" menu.
  */
-export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false, todayKey, busy, planning = false, activeSession = false, onPreview, onPlanAhead, onLeave, onPause, onResume, onFinish }: {
+export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false, todayKey, busy, planning = false, activeSession = false, note = "", onPreview, onPlanAhead, onLeave, onPause, onResume, onFinish }: {
   programme: Programme;
   enrolment: Enrolment;
   /** The enrolment's plans from a week back on. */
@@ -61,6 +61,8 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
   planning?: boolean;
   /** A workout is in progress (pausing waits for it). */
   activeSession?: boolean;
+  /** A line about the programme's days, for example days re-planned for a changed equipment list (bug 17). */
+  note?: string;
   onPreview: (planId: string) => void;
   onPlanAhead: () => void;
   onLeave: () => void;
@@ -98,6 +100,7 @@ export function ProgrammeCard({ programme, enrolment, plans, plansFailed = false
         <ActionsMenu label="More programme actions" items={more} className={styles.more} />
       </div>
       <p className={styles.where}><span className="font-semibold text-fitx-text">{whereYouAre(status, upNext, paused)}</span><span aria-hidden="true"> · </span><span className="sr-only">. </span><span className="whitespace-nowrap">{weekLine}</span></p>
+      <p role="status" className={note ? "mt-2 rounded-lg bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary" : "sr-only"}>{note}</p>
 
       {status.complete && !paused && (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-fitx-success-border bg-fitx-success-bg p-3 text-sm">

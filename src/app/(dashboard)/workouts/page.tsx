@@ -46,6 +46,7 @@ import { initialMode, modeDirection, readStoredMode, writeStoredMode, type Worko
 import { contextForLocation, planSummary } from "@/lib/training/plan-summary";
 import type { Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
+import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
@@ -54,13 +55,14 @@ import { BUILDER_FIELD_IDS, builderSaveProblem, type BuilderProblem } from "./_l
 import { builderSplit } from "./_lib/split-source";
 import { MAX_PLAN_EXERCISES, focusAfterRemove, focusAfterSwap, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
+import { equipmentGapMessage, equipmentGaps } from "./_lib/today-equipment";
 import { pickToday } from "./_lib/today-pick";
 import { fetchUpcomingScheduled, joinScheduledToPlans, type ScheduledItem } from "./_lib/scheduled";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
 import styles from "./Workouts.module.css";
 
 /** `last_done_key`: local day of the plan's latest finished session, or null when none is known. */
-type PlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; last_done_key: string | null };
+type PlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; workout_location: string | null; last_done_key: string | null };
 type PlanListRow = Omit<PlanRow, "last_done_key"> & { workout_sessions?: Array<{ started_at: string }> | null };
 /** A plan opened in the builder; `programme_enrolment_id` is read once the programme migrations are applied. */
 type EditedPlanRow = { id: string; title: string; planned_for: string | null; status: string; split: string; notes: string | null; workout_location: string | null; programme_enrolment_id?: string | null };
@@ -73,7 +75,8 @@ type BuilderMode = "focus" | "auto" | "custom";
 
 const PLAN_PAGE_SIZE = 30;
 const PLAN_LIST_STATUSES = ["draft", "scheduled"];
-const PLAN_LIST_COLUMNS = "id,title,planned_for,status,split";
+// workout_location: which equipment list the Today card checks a plan against (bug 17).
+const PLAN_LIST_COLUMNS = "id,title,planned_for,status,split,workout_location";
 // Each plan's latest finished session, for the "Done" label: one embedded row per plan.
 const PLAN_LAST_DONE_EMBED = "workout_sessions(started_at)";
 const HISTORY_LIMIT = 6;
@@ -108,8 +111,19 @@ function toPlannedExercise(row: PlanExerciseRow, exercise: CatalogExercise): Pla
 }
 function toPlanRow(row: PlanListRow): PlanRow {
   const lastDone = row.workout_sessions?.[0]?.started_at;
-  return { id: row.id, title: row.title, planned_for: row.planned_for, status: row.status, split: row.split, last_done_key: lastDone ? localDateKey(new Date(lastDone)) : null };
+  return { id: row.id, title: row.title, planned_for: row.planned_for, status: row.status, split: row.split, workout_location: row.workout_location ?? null, last_done_key: lastDone ? localDateKey(new Date(lastDone)) : null };
 }
+/**
+ * Checks the followed programme's days ahead against the member's list for its place, re-planning those with
+ * exercises the list no longer allows (bug 17), and reads the days again when any changed (`plans`: null otherwise).
+ */
+async function replanProgrammeDays(supabase: SupabaseBrowserClient, input: Parameters<typeof replanUpcomingProgrammeDays>[1] & { plansFrom: string }) {
+  const { plansFrom, ...check } = input;
+  const outcome = await replanUpcomingProgrammeDays(supabase, check);
+  const fresh = outcome.replanned.length ? await loadEnrolmentPlans(supabase, check.userId, check.enrolment.id, plansFrom) : null;
+  return { outcome, plans: fresh && !fresh.error ? fresh.plans : null };
+}
+
 function asLevel(value: string | undefined): Level {
   return (LEVELS as readonly string[]).includes(value ?? "") ? (value as Level) : "beginner";
 }
@@ -262,6 +276,13 @@ export default function WorkoutsPage() {
   const [programmeLoadFailed, setProgrammeLoadFailed] = useState(false);
   const [equipmentEditor, setEquipmentEditor] = useState<{ context: TrainingContext; keys: string[] } | null>(null);
   const [equipmentSaving, setEquipmentSaving] = useState(false);
+  // Why the list could not be saved, inside its sheet (D6); and, on the card, what saving it did to the programme.
+  const [equipmentError, setEquipmentError] = useState("");
+  const [equipmentNote, setEquipmentNote] = useState<{ context: TrainingContext; text: string } | null>(null);
+  // The programme card's own line: days re-planned for a changed equipment list (bug 17).
+  const [programmeNote, setProgrammeNote] = useState("");
+  // The Today card's "Re-plan this day": the day, whether it runs, and how it went.
+  const [todayReplan, setTodayReplan] = useState<{ planId: string; busy: boolean; note: string } | null>(null);
   const [swapIndex, setSwapIndex] = useState<number | null>(null);
   // After a swap or a remove takes the focused button away, the control that takes focus (seq: once per action), and
   // what the builder's live region says about it (bug 14).
@@ -399,12 +420,22 @@ export default function WorkoutsPage() {
     // exercises fit what the member has).
     const followed = followedProgramme(programmeResult.programmes, currentEnrolment);
     if (!currentEnrolment || currentEnrolment.status !== "active" || !followed || enrolmentPlans.error || profileResult.error || !catalogResult.exercises.length) return;
+    const programmeOwned = expandOwnedEquipment(equipmentFor(profileResult.profiles, currentEnrolment.context, prefs.equipment).keys);
+    // Days planned before the member's list changed (here, in the library, in setup or on another device) are checked
+    // against it: exercises it no longer allows are swapped for the planner's own picks (bug 17).
+    const checked = await replanProgrammeDays(supabase, {
+      userId: uid, enrolment: currentEnrolment, programme: followed, catalog: catalogResult.exercises, owned: programmeOwned,
+      level: asLevel(prefs.fitness_level), recentDays: recent, todayKey, includeTargets: !targetsMissing, plansFrom,
+    });
+    if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
+    const replanned = replanMessage(checked.outcome, currentEnrolment.context);
+    if (replanned) setProgrammeNote(replanned);
     const target = targetSessions(currentEnrolment.started_on, currentEnrolment.weekdays, programmeMeta(followed.id)?.lengthDays);
     if (!topUpWindow({ enrolment: currentEnrolment, plans: enrolmentPlans.plans, todayKey, target, dayCount: followed.days.length })) return;
     setPlanningAhead(true);
     const planned = await topUpProgrammeDays(supabase, {
       userId: uid, enrolment: currentEnrolment, programme: followed, catalog: catalogResult.exercises,
-      owned: expandOwnedEquipment(equipmentFor(profileResult.profiles, currentEnrolment.context, prefs.equipment).keys),
+      owned: programmeOwned,
       level: asLevel(prefs.fitness_level), recentDays: recent, includeTargets: !targetsMissing, plans: enrolmentPlans.plans, todayKey, target,
     });
     setPlanningAhead(false);
@@ -733,15 +764,49 @@ export default function WorkoutsPage() {
 
   async function saveEquipment() {
     const supabase = createClient();
-    if (!supabase || !userId || !equipmentEditor || equipmentLoadFailed) return;
-    setEquipmentSaving(true);
-    const result = await saveEquipmentProfile(supabase, userId, equipmentEditor.context, equipmentEditor.keys);
-    setEquipmentSaving(false);
-    if (result.error) return setError("Your equipment list couldn’t be saved. Check your connection and try again.");
-    setProfiles((current) => ({ ...current, [equipmentEditor.context]: equipmentEditor.keys }));
+    if (!supabase || !userId || !equipmentEditor || equipmentLoadFailed || equipmentSaving) return;
+    const saved = equipmentEditor;
+    setEquipmentSaving(true); setEquipmentError(""); setEquipmentNote(null);
+    const result = await saveEquipmentProfile(supabase, userId, saved.context, saved.keys);
+    if (result.error) { setEquipmentSaving(false); return setEquipmentError("Your equipment list couldn’t be saved. Check your connection and try again."); }
+    setProfiles((current) => ({ ...current, [saved.context]: saved.keys }));
     // A saved list counts as setup done (brief 3.4), so the first-visit setup steps aside.
-    setSetup((current) => current ? { ...current, profiles: { ...current.profiles, [equipmentEditor.context]: equipmentEditor.keys }, done: true } : current);
+    setSetup((current) => current ? { ...current, profiles: { ...current.profiles, [saved.context]: saved.keys }, done: true } : current);
+    // The followed programme's days ahead follow the new list (bug 17): what that changed is said on the list's card.
+    const programme = followedProgramme(programmes, enrolment);
+    let note = "List saved.";
+    if (enrolment && enrolment.status === "active" && enrolment.context === saved.context && programme && catalog.length && !programmeLoadFailed) {
+      const todayKey = localDateKey();
+      const checked = await replanProgrammeDays(supabase, {
+        userId, enrolment, programme, catalog, owned: expandOwnedEquipment(saved.keys), level, recentDays, todayKey,
+        includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey,
+      });
+      if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
+      note = checked.outcome.error
+        ? "List saved, but your programme’s days ahead couldn’t be checked against it. Reload Workouts to try again."
+        : [note, replanMessage(checked.outcome, saved.context)].filter(Boolean).join(" ");
+    }
+    setEquipmentSaving(false);
+    setEquipmentNote({ context: saved.context, text: note });
     setEquipmentEditor(null);
+  }
+
+  /** The Today card's "Re-plan this day": the planner's rules again, for this day and the member's current list. */
+  async function replanToday(planId: string) {
+    const supabase = createClient();
+    const programme = followedProgramme(programmes, enrolment);
+    if (!supabase || !userId || !enrolment || !programme || todayReplan?.busy) return;
+    setTodayReplan({ planId, busy: true, note: "" });
+    const todayKey = localDateKey();
+    const checked = await replanProgrammeDays(supabase, {
+      userId, enrolment, programme, catalog, owned: ownedFor(enrolment.context), level, recentDays, todayKey,
+      includeTargets: targetsSupported !== false, plansFrom: stripRange(todayKey, enrolment.started_on).fromKey, onlyPlanId: planId,
+    });
+    if (checked.plans) { setProgrammePlans(checked.plans); setLoadVersion((value) => value + 1); }
+    setTodayReplan({
+      planId, busy: false,
+      note: checked.outcome.error ? "This day couldn’t be re-planned. Check your connection and try again." : replanMessage(checked.outcome, enrolment.context) || "Nothing to change: this day has started, or every exercise fits your list.",
+    });
   }
 
   async function enrol(programme: Programme, weekdays: number[], startTime: string): Promise<string | null> {
@@ -788,11 +853,13 @@ export default function WorkoutsPage() {
     // Not while the next days are being planned: they would be created after the removal (see topUpProgrammeDays).
     if (!supabase || !userId || !enrolment || planningAhead) return;
     if (!window.confirm(`Stop following ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner. Finished workouts stay in your history.`)) return;
-    setProgrammeBusy(true);
+    // The last status line was about this programme (for example days just planned): it goes with it.
+    setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote("");
     const result = await leaveProgramme(supabase, { userId, enrolmentId: enrolment.id, todayKey: localDateKey() });
     setProgrammeBusy(false);
     if (result.error) return setError("The programme couldn’t be left. Check your connection and try again.");
     await load();
+    setNotice(`You no longer follow ${programme ? programmeShortTitle(programme) : "the programme"}. Its upcoming days are removed; finished workouts stay in your history.`);
   }
 
   async function pause() {
@@ -1146,6 +1213,17 @@ export default function WorkoutsPage() {
     programme: today.programme && enrolledProgramme ? programmeEyebrow(today.plan.title, today.plan.programme_day_index ?? null, enrolledProgramme) : null,
   };
   const loadedToday = todayCard && todayRows?.planId === todayCard.id ? todayRows : null;
+  // The card checks its exercises against the list for where the workout happens (bug 17): a programme day its
+  // programme's place, the member's own plan its own. A programme day the list rules out can be re-planned here.
+  const todayContext: TrainingContext = today.kind !== "none" && today.programme && enrolment ? enrolment.context : contextForLocation(today.kind === "none" ? null : today.plan.workout_location);
+  const todayGaps = todayCard && loadedToday?.rows ? equipmentGaps(loadedToday.rows, catalogById, ownedFor(todayContext)) : null;
+  const todayReplanHere = todayCard && todayReplan?.planId === todayCard.id ? todayReplan : null;
+  const todayGap = todayCard && (todayGaps?.count || todayReplanHere?.note) ? {
+    message: todayGaps?.count ? equipmentGapMessage(todayGaps, todayContext, equipmentLabel) : "",
+    onReplan: todayGaps?.count && today.kind !== "none" && today.programme && enrolment?.status === "active" ? () => void replanToday(todayCard.id) : null,
+    replanning: Boolean(todayReplanHere?.busy),
+    note: todayReplanHere?.note ?? "",
+  } : null;
   const doneToday = sessions.find((session) => localDateKey(new Date(session.started_at)) === todayKey) ?? null;
   const hiddenEquipment = Math.max(0, gymEquipment.keys.length - EQUIPMENT_SHOWN);
   const homeEquipment = equipmentFor(profiles, "home", preferences.equipment);
@@ -1197,7 +1275,7 @@ export default function WorkoutsPage() {
       <div className={styles.topGrid}>
         <Section title={today.kind === "next" ? "Up next" : "Today"} id="today" className={styles.todaySection}>
           {todayCard
-            ? <TodayWorkout plan={todayCard} rows={loadedToday?.rows ?? null} failed={Boolean(loadedToday?.failed)} catalog={catalogById} starting={starting === todayCard.id} startError={todayStartError} active={activeSession ? { id: activeSession.id, name: activeSession.name, planId: activeSession.plan_id ?? null } : null}
+            ? <TodayWorkout plan={todayCard} rows={loadedToday?.rows ?? null} failed={Boolean(loadedToday?.failed)} catalog={catalogById} starting={starting === todayCard.id} startError={todayStartError} active={activeSession ? { id: activeSession.id, name: activeSession.name, planId: activeSession.plan_id ?? null } : null} gap={todayGap}
                 onStart={() => void startToday(todayCard.id)} onDetails={() => setPreviewPlanId(todayCard.id)} onInfo={setInfoExercise} onRetry={() => setLoadVersion((value) => value + 1)} />
             : <TodayEmpty title={doneToday ? "Done for today" : "Nothing planned today"} record={doneToday ? { id: doneToday.id, name: doneToday.name } : null}>
                 <button type="button" className="fitx-button" onClick={() => openCreator("auto")}><Sparkles size={16} aria-hidden="true" />Plan today</button>
@@ -1247,7 +1325,7 @@ export default function WorkoutsPage() {
         <Section title="Programme" id="programme">
           {enrolment
             ? enrolledProgramme
-              ? <ProgrammeCard programme={enrolledProgramme} enrolment={enrolment} plans={programmePlans} plansFailed={programmeLoadFailed} todayKey={todayKey} busy={programmeBusy || Boolean(starting)} planning={planningAhead} activeSession={Boolean(activeSession)}
+              ? <ProgrammeCard programme={enrolledProgramme} enrolment={enrolment} plans={programmePlans} plansFailed={programmeLoadFailed} todayKey={todayKey} busy={programmeBusy || Boolean(starting)} planning={planningAhead} activeSession={Boolean(activeSession)} note={programmeNote}
                   onPreview={(planId) => setPreviewPlanId(planId)} onPlanAhead={() => void planAhead()} onLeave={() => void leave()} onPause={() => void pause()} onResume={() => void resume()} onFinish={() => void finish()} />
               : <section aria-label="Your programme" className={styles.quietEmpty}>
                   <p className="font-medium">This programme is no longer available</p>
@@ -1313,6 +1391,8 @@ export default function WorkoutsPage() {
               <p className="text-xs text-fitx-text-secondary">{gymEquipment.saved ? `${gymEquipment.keys.length} items` : "A full gym until you edit it"}{!catalogCurated ? " · matching is approximate" : ""}</p>
               <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-3 text-sm" onClick={() => setEquipmentEditor({ context: "gym", keys: gymEquipment.keys })}><Pencil size={14} aria-hidden="true" />Edit equipment</button>
             </div>
+            {/* What saving the list did, beside the button that opened it (D6): the programme's days ahead follow it (bug 17). */}
+            <p role="status" className={equipmentNote?.context === "gym" ? "m-0 mt-3 text-xs text-fitx-text-secondary" : "sr-only"}>{equipmentNote?.context === "gym" ? equipmentNote.text : ""}</p>
           </div>
         </Section>
       </div>
@@ -1399,9 +1479,14 @@ export default function WorkoutsPage() {
       {setupOpen && setup && <Sheet title="Workout setup" size="lg" onClose={() => setSetupOpen(false)}>
         <WorkoutSetupFlow setup={{ ...setup, profiles }} userId={userId} legacyWords={preferences.equipment} variant="sheet" onSaved={setupSaved} />
       </Sheet>}
-      {equipmentEditor && <Sheet title={equipmentEditor.context === "home" ? "Your home equipment" : "Your gym equipment"} size="lg" onClose={() => setEquipmentEditor(null)}
+      {equipmentEditor && <Sheet title={equipmentEditor.context === "home" ? "Your home equipment" : "Your gym equipment"} size="lg" onClose={() => { setEquipmentEditor(null); setEquipmentError(""); }}
         description={equipmentEditor.context === "home" ? "Workouts and swaps use only what you pick." : "Remove anything your gym lacks."}
-        footer={<><button type="button" onClick={() => setEquipmentEditor(null)} className="fitx-button fitx-button-quiet">Cancel</button><button type="button" disabled={equipmentSaving || !profiles.available || equipmentLoadFailed} onClick={() => void saveEquipment()} className="fitx-button">{equipmentSaving ? "Saving…" : "Save list"}</button></>}>
+        footer={<>
+          <button type="button" onClick={() => { setEquipmentEditor(null); setEquipmentError(""); }} className="fitx-button fitx-button-quiet">Cancel</button>
+          {/* Busy without being disabled, so focus stays on it; a failed save says why right here, above the buttons (D6). */}
+          <button type="button" disabled={!profiles.available || equipmentLoadFailed} aria-disabled={equipmentSaving || undefined} onClick={() => void saveEquipment()} className="fitx-button aria-disabled:opacity-60">{equipmentSaving ? "Saving…" : "Save list"}</button>
+          {equipmentError && <p role="alert" className="fitx-alert fitx-alert-danger m-0 px-3 py-2 text-sm sm:order-first sm:basis-full">{equipmentError}</p>}
+        </>}>
         {!profiles.available && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Saving lists arrives with the next FITX update.</p>}
         {profiles.available && equipmentLoadFailed && <p role="status" className="mb-4 rounded-lg border border-fitx-border bg-fitx-surface-variant p-3 text-xs text-fitx-text-secondary">Your saved list couldn’t be loaded, so saving is off. Close this and choose Try again.</p>}
         <EquipmentPicker value={equipmentEditor.keys} context={equipmentEditor.context} onChange={(keys) => setEquipmentEditor({ context: equipmentEditor.context, keys })} />

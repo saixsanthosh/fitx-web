@@ -28,7 +28,7 @@ export type TodayWorkoutPlan = {
  * The workout the page leads with, laid out like a gym log: the plan's name and size, each exercise as a row with
  * its photo and sets × reps, and one Start button. A row opens the exercise's details. `rows` is null while loading.
  */
-export function TodayWorkout({ plan, rows, failed, catalog, starting, startError, active, onStart, onDetails, onInfo, onRetry }: {
+export function TodayWorkout({ plan, rows, failed, catalog, starting, startError, active, gap = null, onStart, onDetails, onInfo, onRetry }: {
   plan: TodayWorkoutPlan;
   rows: readonly PlanExerciseRow[] | null;
   failed: boolean;
@@ -37,6 +37,12 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
   startError: string;
   /** The workout in progress, if any: Start opens it instead, and the card says which one it is (bug 30). */
   active: ActiveWorkout | null;
+  /**
+   * Exercises the member's list does not allow (bug 17): what to say, and for a programme day a way to re-plan it with
+   * the planner's rules (`note`: how that went). Null when every exercise fits.
+   */
+  gap?: { message: string; onReplan: (() => void) | null; replanning: boolean; note: string } | null;
+  /* `message` is "" once a re-plan has fixed the day: only its note is left. */
   onStart: () => void;
   onDetails: () => void;
   onInfo: (exercise: CatalogExercise) => void;
@@ -91,6 +97,16 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
         </ol>
       )}
       {more > 0 && <p className={styles.more}>and {more} more</p>}
+      {gap && (
+        <div className="mx-4 mt-3 rounded-lg border border-fitx-warning/50 bg-fitx-surface px-3 py-2.5 text-sm sm:mx-5">
+          {gap.message && <p className="m-0 text-fitx-text">{gap.message}{gap.onReplan ? "" : " Open Details to swap them."}</p>}
+          {gap.onReplan && (
+            <button type="button" onClick={() => { if (!gap.replanning) gap.onReplan?.(); }} aria-disabled={gap.replanning || undefined}
+              className="fitx-button fitx-button-secondary mt-2 min-h-11 px-3 text-sm aria-disabled:opacity-60">{gap.replanning ? "Re-planning…" : "Re-plan this day"}</button>
+          )}
+          <p role="status" className={gap.note ? "m-0 mt-1 text-xs text-fitx-text-secondary" : "sr-only"}>{gap.note}</p>
+        </div>
+      )}
 
       <footer className={styles.foot}>
         {startError && <p role="alert" className="fitx-alert fitx-alert-danger w-full">{startError}</p>}
