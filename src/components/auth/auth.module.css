@@ -339,6 +339,9 @@
 .error .inlineLink { color: inherit; }
 .inlineLink:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; border-radius: 3px; }
 .notice { margin: 0; color: var(--fitx-text-secondary); font-size: 0.8rem; line-height: 1.45; }
+/* A status line kept on the page while it has nothing to say, so what it says next is announced (bug 81). Out of the
+   flow while empty, so the form's gap doesn't grow; still in the accessibility tree (not display: none). */
+.notice:empty { position: absolute; }
 .config { margin: 0; color: var(--fitx-warning); font-size: 0.76rem; line-height: 1.45; }
 
 /* The account links ("Create an account", "Sign in", "Back to sign in") are 44 px touch targets like every other

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { Apple, Eye, EyeOff, LockKeyhole, Mail, Plus } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
@@ -18,6 +18,7 @@ import { addressError, addressNotice, withoutAddressMessages } from "@/lib/auth/
 import { passwordSignInProblem } from "@/lib/auth/email-code";
 import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { fieldIds, fieldInvalid, signInFormProblem, type AuthField, type FieldProblem } from "@/lib/auth/form-problems";
+import { focusAfterStep, type SignInStep } from "@/lib/auth/step-focus";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -71,6 +72,13 @@ export default function SignInForm() {
   const notice = addressDismissed ? "" : locationNotice;
   const pageError = providerError || (addressDismissed ? "" : locationError);
   const loading = pending !== null || codeFlow.sending;
+
+  // Back from the code step ("Change email"): focus goes to the email field, not to the page (bug 81).
+  const shownStep = useRef<SignInStep>(codeFlow.step);
+  useEffect(() => {
+    if (focusAfterStep(shownStep.current, codeFlow.step) === "email") emailInput.current?.focus({ preventScroll: true });
+    shownStep.current = codeFlow.step;
+  }, [codeFlow.step]);
 
   /**
    * The member is acting on the page, so what the address said happened (an expired link, a sign-out) is the past: it

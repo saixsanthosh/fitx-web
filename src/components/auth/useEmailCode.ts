@@ -105,10 +105,12 @@ export function useEmailCode(next: () => string | null) {
     }
   }
 
-  async function resend() {
-    if (resendIn > 0) return;
+  /** Sends a new code to the same address; true once the code step is showing for it (so its field can take focus). */
+  async function resend(): Promise<boolean> {
+    if (resendIn > 0) return false;
     const problem = await send(email, { again: true });
     if (problem) setError(problem);
+    return problem === null;
   }
 
   async function verify(value: string) {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { Apple, LockKeyhole, Mail, Plus, UserRound } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
@@ -18,6 +18,7 @@ import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { signUpProblem } from "@/lib/auth/email-code";
 import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { fieldIds, fieldInvalid, signUpFormProblem, type AuthField, type FieldProblem } from "@/lib/auth/form-problems";
+import { focusAfterStep, type SignInStep } from "@/lib/auth/step-focus";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { authCallbackUrl } from "@/lib/site-url";
@@ -154,6 +155,12 @@ export default function SignUpForm() {
   const view = sent ? "sent" : codeFlow.step;
   // The button pressed is gone once the confirmation email is on its way: focus goes to what the page now says.
   useFocusWhen(sentHeading, view === "sent");
+  // Back from the code step ("Change email"): focus goes to the email field, not to the page (bug 81).
+  const shownView = useRef<SignInStep>(view);
+  useEffect(() => {
+    if (focusAfterStep(shownView.current, view) === "email") emailInput.current?.focus({ preventScroll: true });
+    shownView.current = view;
+  }, [view]);
 
   return (
     <AuthScreen footer={view === "email" && <p className={s.account}>Already use FITX? <Link href="/signin">Sign in</Link></p>}>
