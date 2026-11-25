@@ -213,3 +213,38 @@ test("the letterbox leaves nothing on the screen's edges: its bars slide a whole
   assert.match(css, /\.barsOut \.barTop \{ animation: bar-top-out [^;]* both; \}/);
   assert.match(css, /\.barsOut \.barBottom \{ animation: bar-bottom-out [^;]* both; \}/);
 });
+
+test("the title scrim keeps to the picture: measured on the graphics' box, the width it had wherever there is no matte", () => {
+  const css = source(FILES.graphics).replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = (name: string) => css.match(new RegExp(String.raw`^\.${name} \{([^}]*)\}`, "m"))?.[1] ?? "";
+  // Its containing block is the graphics' box: .film > .titleBlock > .scrimExit > .titleScrim, each filling the one above.
+  assert.match(rule("film"), /position: absolute;\s*inset: 0;/);
+  assert.match(rule("titleBlock"), /position: absolute;[^]*inset: 0;/);
+  assert.match(rule("scrimExit"), /position: absolute;\s*inset: 0;/);
+  const scrim = rule("titleScrim");
+  assert.match(scrim, /position: absolute;\s*left: 0;\s*bottom: var\(--bar\);\s*width: min\(100%, 1500px\);/);
+  assert.doesNotMatch(scrim, /vw/, "nothing in it is measured on the screen");
+  assert.doesNotMatch(BLOCKS.graphics[0].body, /titleScrim/, "so the matte needs no rule of its own for it");
+  const overlay = source("src/components/brand/IntroFilmOverlay.tsx");
+  assert.match(overlay, /<div ref=\{rootRef\} className=\{styles\.film\}/);
+  assert.match(overlay, /className=\{styles\.titleBlock\}[\s\S]{0,700}<span className=\{styles\.scrimExit\}>\s*<span className=\{styles\.titleScrim\} \/>\s*<\/span>/);
+  // Without the matte the graphics' box is the stage: fixed to the viewport, and the root does not scroll while the intro
+  // plays, so no scrollbar takes width from it and 100% of it is 100vw.
+  assert.match(source(FILES.intro), /^\.intro \{[^}]*position: fixed;[^}]*inset: 0;/m);
+  assert.match(source(FILES.intro), /:global\(:root\[data-fitx-intro="pending"\]\),\s*:global\(:root\[data-fitx-intro="active"\]\) \{ overflow: hidden; \}/);
+  // Where it lies on a W × H screen (px from the screen's left), now and as it was (min(100vw, 1500px)).
+  const span = (width: number, height: number) => {
+    const { frame, bar } = drawn(width, height, pickComposition(width, height));
+    return { box: [bar, bar + frame], now: [bar, bar + Math.min(frame, 1500)], before: [bar, bar + Math.min(width, 1500)] };
+  };
+  const screens = [[852, 349], [2201, 1000], [2400, 1000], [2560, 1080], [3440, 1290], [2200, 1000], [1920, 947], [1440, 900], [1280, 720], [1180, 820], [820, 1180], [390, 844]] as const;
+  for (const [width, height] of screens) {
+    const { box, now, before } = span(width, height);
+    assert.ok(now[0] >= box[0] && now[1] <= box[1] + 1e-9, `${width}×${height}: the scrim ends inside the picture`);
+    if (box[0] === 0) assert.deepEqual(now, before, `${width}×${height}: no matte, the scrim is as wide as before`);
+  }
+  // A phone held in landscape (852 × 349, the films check of 2b): it reached 894.1 px, past the box's edge at 809.9.
+  const phone = span(852, 349);
+  const tenths = ([a, b]: number[]) => [Math.round(a * 10) / 10, Math.round(b * 10) / 10];
+  assert.deepEqual([tenths(phone.box), tenths(phone.before), tenths(phone.now)], [[42.1, 809.9], [42.1, 894.1], [42.1, 809.9]]);
+});
