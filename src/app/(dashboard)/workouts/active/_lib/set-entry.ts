@@ -50,3 +50,13 @@ export function plausibleWeight(typed: string | undefined): number | null {
   const value = Number(typed);
   return typed !== undefined && typed.trim() !== "" && Number.isFinite(value) && value > 0 && value <= SET_LIMITS.weightKg ? value : null;
 }
+
+/** The id of a set's number box, so a problem can mark it and move focus to it. */
+export function setInputId(setId: string, field: SetField): string {
+  return `set-${setId}-${field === "draftWeight" ? "weight" : field === "draftReps" ? "reps" : "seconds"}`;
+}
+
+/** The id of a set's problem message, which its boxes and Complete button point to (aria-describedby). */
+export function setProblemId(setId: string): string {
+  return `set-${setId}-problem`;
+}
