@@ -214,6 +214,9 @@ export function customRowToFood(row: Row, recentCount = 0): RankableFood {
   const origin = row.origin === "barcode" || row.origin === "ai_coach" || row.origin === "user" ? (row.origin as CustomFoodOrigin) : "user";
   const valueBasis = customValueBasis(origin, text(row.value_basis));
   const image = text(row.image_url);
+  // Protein, carbs or fat the member left blank is NULL (migration 20261126100000): unknown, listed in `missing`.
+  const macros = { protein: num(row.protein_per_100g), carbs: num(row.carbs_per_100g), fat: num(row.fat_per_100g) };
+  const missing = (["protein", "carbs", "fat"] as const).filter((key) => macros[key] === null);
   return {
     id: String(row.id),
     kind: "custom",
@@ -223,9 +226,10 @@ export function customRowToFood(row: Row, recentCount = 0): RankableFood {
     imageCredit: image ? text(row.image_attribution) : null,
     sourceUrl: null,
     calories: num(row.calories_per_100g) ?? 0,
-    protein: num(row.protein_per_100g) ?? 0,
-    carbs: num(row.carbs_per_100g) ?? 0,
-    fat: num(row.fat_per_100g) ?? 0,
+    protein: macros.protein ?? 0,
+    carbs: macros.carbs ?? 0,
+    fat: macros.fat ?? 0,
+    missing,
     fiber: null,
     sugar: null,
     sodiumMg: null,

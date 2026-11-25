@@ -318,9 +318,10 @@ export interface CustomFoodRow {
   serving_size: string | null;
   serving_grams: number | null;
   calories_per_100g: number;
-  protein_per_100g: number;
-  carbs_per_100g: number;
-  fat_per_100g: number;
+  /** null: not known (left blank, or not on the label), never 0. Allowed from migration 20261126100000. */
+  protein_per_100g: number | null;
+  carbs_per_100g: number | null;
+  fat_per_100g: number | null;
   barcode?: string | null;
   origin?: CustomFoodOrigin | null;
   value_basis?: ValueBasis | null;
@@ -349,9 +350,10 @@ export interface CustomFoodInput {
   servingLabel: string;
   servingGrams: number;
   calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
+  /** null: left blank, so not known. It is saved as NULL and shown as unknown, never as 0 g. */
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
   barcode: string | null;
   /** user_entered or label for typed values; an edit that leaves the values alone keeps the food's own basis. */
   valueBasis: ValueBasis;
@@ -380,7 +382,7 @@ export function savedFoodSource(
 }
 
 export function customFoodRowValues(input: CustomFoodInput, v2: boolean) {
-  const per100 = (value: number) => Math.round((value * 100 / input.servingGrams) * 100) / 100;
+  const per100 = <T extends number | null>(value: T): T => (value === null ? value : Math.round((value * 100 / input.servingGrams) * 100) / 100) as T;
   const base = {
     name: input.name.trim(),
     brand: input.brand.trim() || null,
@@ -452,10 +454,8 @@ export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = n
     imageCredit: photoUrl ? "Your photo" : row.image_url ? row.image_attribution ?? null : null,
     sourceUrl: null,
     calories: Number(row.calories_per_100g),
-    protein: Number(row.protein_per_100g),
-    carbs: Number(row.carbs_per_100g),
-    fat: Number(row.fat_per_100g),
-    missing: [],
+    // A value the member left blank is unknown: listed in `missing` (0 here only so sums work) and logged as NULL.
+    ...customMacros(row),
     fiber: extra.fiber,
     sugar: extra.sugar,
     saturatedFat: extra.saturatedFat,
@@ -658,8 +658,25 @@ export function targetProblem(targets: ManualTargets): { error: string | null; w
   return { error: null, warning };
 }
 
-/** A typed custom food's energy against 4/4/9 kcal per gram; a warning when they disagree a lot. */
-export function customFoodWarning(calories: number, protein: number, carbs: number, fat: number): string | null {
+/**
+ * Protein, carbs and fat of a custom_foods row (per 100 g) as a result has them: a NULL column is unknown, so it is
+ * listed in `missing` and its number is 0 only so sums work.
+ */
+export function customMacros(row: Pick<CustomFoodRow, "protein_per_100g" | "carbs_per_100g" | "fat_per_100g">): Pick<FoodResult, "protein" | "carbs" | "fat"> & { missing: MacroKey[] } {
+  const value = (raw: number | null | undefined) => (raw === null || raw === undefined || String(raw).trim() === "" || !Number.isFinite(Number(raw)) ? null : Number(raw));
+  const protein = value(row.protein_per_100g);
+  const carbs = value(row.carbs_per_100g);
+  const fat = value(row.fat_per_100g);
+  const missing = MACRO_KEYS.filter((key) => ({ protein, carbs, fat })[key] === null);
+  return { protein: protein ?? 0, carbs: carbs ?? 0, fat: fat ?? 0, missing };
+}
+
+/**
+ * A typed custom food's energy against 4/4/9 kcal per gram; a warning when they disagree a lot. Nothing to compare
+ * while protein, carbs or fat is unknown.
+ */
+export function customFoodWarning(calories: number, protein: number | null, carbs: number | null, fat: number | null): string | null {
+  if (protein === null || carbs === null || fat === null || ![calories, protein, carbs, fat].every(Number.isFinite)) return null;
   const fromMacros = protein * 4 + carbs * 4 + fat * 9;
   if (fromMacros < 20 && calories < 20) return null;
   const gap = Math.abs(fromMacros - calories);

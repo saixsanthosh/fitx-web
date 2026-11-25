@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { formatAmount } from "@/lib/domain/food-query";
 import { checkBarcode, barcodeProblem } from "@/lib/food/barcode";
 import { customFoodWarning, savedFoodSource, type CustomFoodInput, type CustomFoodRow } from "@/lib/food/client-data";
+import { customFoodProblem, numbersChanged, readCustomFoodNumbers, unknownMacrosNote } from "@/lib/food/custom-food-form";
 import type { CustomFoodOrigin, ValueBasis } from "@/lib/food/types";
 import styles from "./FoodUi.module.css";
 
@@ -17,12 +18,12 @@ export interface CustomFoodPrefill {
   servingLabel?: string;
   servingGrams?: number;
   /** Per 100 g, from a package label. */
-  per100g?: { calories: number; protein: number; carbs: number; fat: number };
+  per100g?: { calories: number; protein: number | null; carbs: number | null; fat: number | null };
   imageUrl?: string | null;
   imageAttribution?: string | null;
   origin?: CustomFoodOrigin;
   sourceRef?: string | null;
-  /** Protein, carbs or fat the source does not list: left blank in the form, because a saved food cannot hold an unknown value. */
+  /** Protein, carbs or fat the source does not list: left blank in the form, and saved as unknown unless the member enters it. */
   missing?: Array<"protein" | "carbs" | "fat">;
   /** When copying a food from the catalogue: how its values were obtained, kept while the values are not changed. */
   valueBasis?: ValueBasis;
@@ -41,7 +42,8 @@ interface CustomFoodFormProps {
   onSave: (input: CustomFoodInput, photo: File | null, removePhoto: boolean) => void;
 }
 
-const perServing = (per100: number, grams: number) => formatAmount(Math.round(per100 * grams) / 100);
+/** A per-100 g value as the amount in one serving; blank when it is not known. */
+const perServing = (per100: number | null | undefined, grams: number) => (per100 === null || per100 === undefined || !Number.isFinite(Number(per100)) ? "" : formatAmount(Math.round(Number(per100) * grams) / 100));
 
 /**
  * Create or edit one of your own foods. Values are for one serving, as printed on most labels. An edit that leaves
@@ -51,8 +53,10 @@ const perServing = (per100: number, grams: number) => formatAmount(Math.round(pe
 export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, onCancel, onSave }: CustomFoodFormProps) {
   const [form, setForm] = useState(() => {
     const grams = editing ? Number(editing.serving_grams) || 100 : prefill?.servingGrams ?? 100;
+    // An unknown protein, carbs or fat (NULL in the database) opens blank, as it was left.
+    const known = (value: number | null) => (value === null || value === undefined ? null : Number(value));
     const per100 = editing
-      ? { calories: Number(editing.calories_per_100g), protein: Number(editing.protein_per_100g), carbs: Number(editing.carbs_per_100g), fat: Number(editing.fat_per_100g) }
+      ? { calories: Number(editing.calories_per_100g), protein: known(editing.protein_per_100g), carbs: known(editing.carbs_per_100g), fat: known(editing.fat_per_100g) }
       : prefill?.per100g ?? null;
     const label = editing?.serving_size && !/^\d+(\.\d+)?\s*g$/i.test(editing.serving_size) ? editing.serving_size : prefill?.servingLabel ?? "";
     return {
@@ -76,8 +80,10 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
   const [removePhoto, setRemovePhoto] = useState(false);
   const first = useRef<HTMLInputElement>(null);
   const set = (key: keyof typeof form, value: string | boolean) => { setForm((old) => ({ ...old, [key]: value })); setProblem(""); };
-  const numbers = [form.grams, form.calories, form.protein, form.carbs, form.fat].map((value) => (value.trim() === "" ? 0 : Number(value)));
-  const warning = numbers.every(Number.isFinite) ? customFoodWarning(numbers[1], numbers[2], numbers[3], numbers[4]) : null;
+  // A blank protein, carbs or fat is unknown (null), never 0.
+  const numbers = readCustomFoodNumbers(form);
+  const warning = customFoodWarning(numbers.calories, numbers.protein, numbers.carbs, numbers.fat);
+  const unknownNote = unknownMacrosNote(numbers);
   const image = editing?.image_url ?? prefill?.imageUrl ?? null;
   const imageCredit = editing?.image_attribution ?? prefill?.imageAttribution ?? null;
   const shownPhoto = preview ?? (removePhoto ? null : photoUrl ?? image);
@@ -101,22 +107,17 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
   }, [onCancel]);
 
   function submit() {
-    const [grams, calories, protein, carbs, fat] = numbers;
-    if (!form.name.trim()) return setProblem("Give the food a name.");
-    if (!Number.isFinite(grams) || grams <= 0 || grams > 5000) return setProblem("The serving size must be between 1 and 5,000 grams.");
-    if ([calories, protein, carbs, fat].some((value) => !Number.isFinite(value) || value < 0)) return setProblem("Enter calories, protein, carbs and fat as numbers (0 if none).");
-    if (form.calories.trim() === "") return setProblem("Enter the calories in one serving.");
-    if ((protein + carbs + fat) > grams * 1.01) return setProblem("Protein, carbs and fat can't weigh more than the serving itself.");
-    if (calories * 100 / grams > 950) return setProblem("That is more than 950 kcal per 100 g, which no food has. Check whether the label gives kJ (divide by 4.184).");
+    const { grams, calories, protein, carbs, fat } = numbers;
+    const typed = customFoodProblem(form.name, numbers);
+    if (typed) return setProblem(typed);
     let barcode: string | null = null;
     if (v2 && form.barcode.trim()) {
       const checked = checkBarcode(form.barcode);
       if (!checked.ok) return setProblem(barcodeProblem(checked.reason));
       barcode = checked.code;
     }
-    const asNumber = (value: string) => (value.trim() === "" ? 0 : Number(value));
-    const valueKeys = ["grams", "calories", "protein", "carbs", "fat"] as const;
-    const changed = valueKeys.some((key) => asNumber(form[key]) !== asNumber(start[key])) || form.fromLabel !== start.fromLabel;
+    // Blank and 0 are different answers: filling in an unknown value (or clearing one) is a change.
+    const changed = numbersChanged(numbers, readCustomFoodNumbers(start)) || form.fromLabel !== start.fromLabel;
     const typedSource = savedFoodSource(editing, changed, form.fromLabel, prefill?.origin ?? (barcode ? "barcode" : "user"));
     // A catalogue food copied as it is keeps where its values came from (USDA lab analysis, a typical recipe...).
     const keepsBasis = !editing && !changed && prefill?.valueBasis !== undefined;
@@ -140,7 +141,7 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
   }
 
   const field = (key: "grams" | "calories" | "protein" | "carbs" | "fat", label: string, min = "0") => (
-    <label>{label}<input className="fitx-field" type="number" inputMode="decimal" min={min} step="any" required={key === "grams" || key === "calories" || Boolean(!editing && (key === "protein" || key === "carbs" || key === "fat") && prefill?.missing?.includes(key))} value={form[key]} onChange={(event) => set(key, event.target.value)}/></label>
+    <label>{label}<input className="fitx-field" type="number" inputMode="decimal" min={min} step="any" required={key === "grams" || key === "calories"} value={form[key]} onChange={(event) => set(key, event.target.value)}/></label>
   );
 
   return (
@@ -176,6 +177,7 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
             <span>These values are copied from the package label</span>
           </label>}
           {!editing && prefill?.missing?.length ? <p className={`${styles.hint} ${styles.wide}`}>The source doesn&apos;t list {prefill.missing.join(", ")}. Enter {prefill.missing.length > 1 ? "them" : "it"} if you know, or 0 if there is none; FITX won&apos;t guess.</p> : null}
+          {unknownNote && <p className={`${styles.hint} ${styles.wide}`}>{unknownNote}</p>}
           {warning && <p className={`${styles.warning} ${styles.wide}`}>{warning}</p>}
           {!v2 && <p className={`${styles.hint} ${styles.wide}`}>Barcodes and labels for your foods arrive with the next database update.</p>}
           {problem && <p role="alert" className={`${styles.warning} ${styles.wide}`}>{problem}</p>}
