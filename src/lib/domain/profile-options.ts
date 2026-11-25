@@ -508,6 +508,11 @@ export function profileAge(row: { age?: unknown; date_of_birth?: unknown } | nul
  * YYYY-MM-DD, or "" when empty. `age` is the age after the save.
  */
 export const BIRTH_DATE_SAVED_ERROR = "Your date of birth is already saved. To change it, ask FITX support.";
+/**
+ * Said beside the date field before a date of birth is first saved, wherever that happens (setup's first step, Profile
+ * > Body and Explore settings use these words): a typo in the year, which decides the teen rules, needs FITX support.
+ */
+export const BIRTH_DATE_ONCE_NOTE = "You can add it once. To change it later, ask FITX support.";
 
 /** True for the database's refusal to change or clear a saved date of birth (birth_date_locked, 20261124100000). */
 export function isBirthDateLocked(error: { message?: string | null } | null | undefined): boolean {

@@ -26,6 +26,7 @@ import {
   SEX_OPTIONS,
   activityBand,
   activityForBand,
+  BIRTH_DATE_ONCE_NOTE,
   BIRTH_DATE_SAVED_ERROR,
   formatHeight,
   formatWeight,
@@ -351,9 +352,11 @@ export function OnboardingFlow() {
                 {page === "you" && <>
                   <TextField label="Name" value={form.name} onChange={(value) => update("name", value)} error={errors.name} autoComplete="name" maxLength={NAME_MAX_LENGTH} required />
                   <ChoiceTiles legend="Gender" options={SEX_TILES} value={form.gender} onChange={(value) => update("gender", value)} columns="grid-cols-3" variant="tile" error={errors.gender} />
+                  {/* Continue saves the date of birth for good (the database refuses a member's change), so the field
+                      says so before then, as Profile and Explore settings do. */}
                   {savedBirthDate
                     ? <SavedBirthDate value={savedBirthDate} helpHref="/help?from=%2Fonboarding" />
-                    : <BirthDateField value={form.birthDate} onChange={(value) => update("birthDate", value)} error={errors.birthDate} />}
+                    : <BirthDateField value={form.birthDate} onChange={(value) => update("birthDate", value)} error={errors.birthDate} note={BIRTH_DATE_ONCE_NOTE} />}
                 </>}
 
                 {page === "body" && <>

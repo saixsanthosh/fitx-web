@@ -512,11 +512,19 @@ export function SavedBirthDate({ value, helpHref = "/help" }: { value: string; h
   );
 }
 
-export function BirthDateField({ label = "Date of birth", value, onChange, error, required = true }: { label?: string; value: string; onChange: (value: string) => void; error?: string | null; required?: boolean }) {
+export function BirthDateField({ label = "Date of birth", value, onChange, error, required = true, note }: {
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string | null;
+  required?: boolean;
+  /** A line under the field that screen readers hear with it, such as BIRTH_DATE_ONCE_NOTE before the first save. */
+  note?: string;
+}) {
   const id = useId();
   const bounds = useMemo(() => birthDateBounds(), []);
   const age = shownAge(value);
-  const describedBy = [`${id}-age`, error ? `${id}-error` : null].filter(Boolean).join(" ");
+  const describedBy = [`${id}-age`, error ? `${id}-error` : null, note ? `${id}-note` : null].filter(Boolean).join(" ");
   return (
     <div>
       <label htmlFor={id} className="block text-sm font-medium text-fitx-text">{label}{!required && <span className="font-normal text-fitx-text-secondary"> (optional)</span>}</label>
@@ -537,6 +545,7 @@ export function BirthDateField({ label = "Date of birth", value, onChange, error
         <span id={`${id}-age`} className="text-sm text-fitx-text-secondary" aria-live="polite">{age !== null ? `${age} years` : ""}</span>
       </div>
       <FieldError id={`${id}-error`} message={error} />
+      {note && <p id={`${id}-note`} className="mt-1.5 text-xs leading-5 text-fitx-text-secondary">{note}</p>}
     </div>
   );
 }
