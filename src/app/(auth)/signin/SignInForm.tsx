@@ -10,6 +10,7 @@ import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
 import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
+import { useBringIntoView } from "@/components/auth/useBringIntoView";
 import { useEmailCode } from "@/components/auth/useEmailCode";
 import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
@@ -54,6 +55,8 @@ export default function SignInForm() {
   const emailInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
+  /** The failure under whichever button shows ("Email me a code", or the panel's own). */
+  const failureText = useRef<HTMLParagraphElement>(null);
   const baseId = useId();
   const ids = fieldIds(baseId);
   // Whatever was typed (or opened) before the page's scripts ran stays: the render right after hydration would wipe it.
@@ -72,6 +75,8 @@ export default function SignInForm() {
   const notice = addressDismissed ? "" : locationNotice;
   const pageError = providerError || (addressDismissed ? "" : locationError);
   const loading = pending !== null || codeFlow.sending;
+  // The failure sits under the button, which keeps focus: it scrolls into view, clear of the privacy banner (bug 43).
+  useBringIntoView(failureText, error);
 
   // Back from the code step ("Change email"): focus goes to the email field, not to the page (bug 81).
   const shownStep = useRef<SignInStep>(codeFlow.step);
@@ -193,7 +198,7 @@ export default function SignInForm() {
                   <button type="submit" aria-disabled={loading || undefined} className={`fitx-button ${s.primary}`}>
                     {codeFlow.sending ? "Sending code…" : "Email me a code"}
                   </button>
-                  {error && <p role="alert" className={s.error}>{error}</p>}
+                  {error && <p ref={failureText} role="alert" className={s.error}>{error}</p>}
                 </>
               )}
               <details
@@ -231,7 +236,7 @@ export default function SignInForm() {
                       <button type="submit" aria-disabled={loading || undefined} className={`fitx-button ${s.primary}`}>
                         {pending === "password" ? "Signing in…" : "Sign in with email"}
                       </button>
-                      {error && <p role="alert" className={s.error}>{error}</p>}
+                      {error && <p ref={failureText} role="alert" className={s.error}>{error}</p>}
                     </>
                   )}
                   <div className={s.row}>

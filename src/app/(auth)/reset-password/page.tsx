@@ -5,6 +5,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import { LockKeyhole } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { useEarlySubmit } from "@/components/auth/early-submit";
+import { useBringIntoView } from "@/components/auth/useBringIntoView";
 import { useFocusWhen } from "@/components/auth/useFocusWhen";
 import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
@@ -26,6 +27,7 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const confirmInput = useRef<HTMLInputElement>(null);
+  const failureText = useRef<HTMLParagraphElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const baseId = useId();
   const ids = fieldIds(baseId);
@@ -38,6 +40,8 @@ export default function ResetPasswordPage() {
   const replayEarlySubmit = useEarlySubmit(formRef);
   // The button pressed is gone once the password is saved: focus goes to "Password updated", then Open FITX.
   useFocusWhen(heading, saved);
+  // A failure sits under the button, which keeps focus: it scrolls into view, clear of the privacy banner (bug 43).
+  useBringIntoView(failureText, error);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -109,7 +113,7 @@ export default function ResetPasswordPage() {
               <FieldProblemText problem={fieldProblem} field="confirm" ids={ids} />
             </div>
             <button type="submit" className={`fitx-button ${s.primary}`} aria-disabled={loading || undefined}>{loading ? "Saving…" : "Update password"}</button>
-            {error && <p role="alert" className={s.error}>{error}</p>}
+            {error && <p ref={failureText} role="alert" className={s.error}>{error}</p>}
             <Link href="/forgot-password" className={s.link}>Need a new link?</Link>
           </form>
         )}

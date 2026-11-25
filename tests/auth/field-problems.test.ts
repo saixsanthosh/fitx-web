@@ -100,13 +100,13 @@ test("the field at fault takes focus, so keyboard and screen-reader users land o
 test("a request's failure sits under the button that sent it, and Google's under Google's button", () => {
   for (const file of ["src/app/(auth)/signin/SignInForm.tsx", "src/app/(auth)/signup/SignUpForm.tsx"]) {
     const text = read(file);
-    assert.match(text, /\{codeFlow\.sending \? "Sending code…" : "Email me a code"\}\s*<\/button>\s*\{error && <p role="alert" className=\{s\.error\}>\{error\}<\/p>\}/, `${file}: under Email me a code`);
-    assert.match(text, /(Sign in with email|Create account with email)"\}\s*<\/button>\s*\{error && \(?\s*<p role="alert" className=\{s\.error\}>\s*\{error\}/, `${file}: under the panel's own button`);
+    assert.match(text, /\{codeFlow\.sending \? "Sending code…" : "Email me a code"\}\s*<\/button>\s*\{error && <p ref=\{failureText\} role="alert" className=\{s\.error\}>\{error\}<\/p>\}/, `${file}: under Email me a code`);
+    assert.match(text, /(Sign in with email|Create account with email)"\}\s*<\/button>\s*\{error && \(?\s*<p ref=\{failureText\} role="alert" className=\{s\.error\}>\s*\{error\}/, `${file}: under the panel's own button`);
     assert.match(text, /onError=\{setProviderError\}/, `${file}: Google's own failures`);
     assert.doesNotMatch(text, /<\/details>\s*\{(error|visibleError) &&/, `${file}: no message left at the bottom of the form`);
   }
   for (const file of ["src/app/(auth)/forgot-password/page.tsx", "src/app/(auth)/reset-password/page.tsx"]) {
-    assert.match(read(file), /<\/button>\s*\{error && <p role="alert" className=\{s\.error\}>\{error\}<\/p>\}/, `${file}: under its button`);
+    assert.match(read(file), /<\/button>\s*\{error && <p ref=\{failureText\} role="alert" className=\{s\.error\}>\{error\}<\/p>\}/, `${file}: under its button`);
   }
 });
 

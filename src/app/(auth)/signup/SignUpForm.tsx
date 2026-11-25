@@ -10,6 +10,7 @@ import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
 import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
+import { useBringIntoView } from "@/components/auth/useBringIntoView";
 import { useEmailCode } from "@/components/auth/useEmailCode";
 import { useFocusWhen } from "@/components/auth/useFocusWhen";
 import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
@@ -52,6 +53,8 @@ export default function SignUpForm() {
   const passwordInput = useRef<HTMLInputElement>(null);
   const confirmInput = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
+  /** The failure under whichever button shows ("Email me a code", or the panel's own). */
+  const failureText = useRef<HTMLParagraphElement>(null);
   const sentHeading = useRef<HTMLHeadingElement>(null);
   const baseId = useId();
   const ids = fieldIds(baseId);
@@ -68,6 +71,8 @@ export default function SignUpForm() {
   const reduced = useReducedMotionSafe();
   const codeFlow = useEmailCode(noNext);
   const loading = pending !== null || codeFlow.sending;
+  // The failure sits under the button, which keeps focus: it scrolls into view, clear of the privacy banner (bug 43).
+  useBringIntoView(failureText, error);
 
   /** Shows a problem under its field, and takes the member there to fix it (bug 80: not left on the button). */
   function showProblem(found: FieldProblem) {
@@ -208,7 +213,7 @@ export default function SignUpForm() {
                   <button type="submit" aria-disabled={loading || undefined} className={`fitx-button ${s.primary}`}>
                     {codeFlow.sending ? "Sending code…" : "Email me a code"}
                   </button>
-                  {error && <p role="alert" className={s.error}>{error}</p>}
+                  {error && <p ref={failureText} role="alert" className={s.error}>{error}</p>}
                 </>
               )}
               <details
@@ -258,7 +263,7 @@ export default function SignUpForm() {
                         {pending === "password" ? "Creating account…" : "Create account with email"}
                       </button>
                       {error && (
-                        <p role="alert" className={s.error}>
+                        <p ref={failureText} role="alert" className={s.error}>
                           {error}
                           {failure?.existingAccount && (
                             <>

@@ -5,6 +5,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Mail } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { useEarlySubmit } from "@/components/auth/early-submit";
+import { useBringIntoView } from "@/components/auth/useBringIntoView";
 import { useFocusWhen } from "@/components/auth/useFocusWhen";
 import { FieldProblemText } from "@/components/auth/FieldProblem";
 import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
@@ -25,6 +26,7 @@ export default function ForgotPasswordPage() {
   /** Why the last request failed, under the button. */
   const [error, setError] = useState("");
   const emailInput = useRef<HTMLInputElement>(null);
+  const failureText = useRef<HTMLParagraphElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const baseId = useId();
   const ids = fieldIds(baseId);
@@ -36,6 +38,8 @@ export default function ForgotPasswordPage() {
   const replayEarlySubmit = useEarlySubmit(formRef);
   // The button pressed is gone once the link is on its way: focus goes to what the page now says.
   useFocusWhen(heading, sent);
+  // A failure sits under the button, which keeps focus: it scrolls into view, clear of the privacy banner (bug 43).
+  useBringIntoView(failureText, error);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -100,7 +104,7 @@ export default function ForgotPasswordPage() {
               <FieldProblemText problem={fieldProblem} field="email" ids={ids} />
             </div>
             <button type="submit" className={`fitx-button ${s.primary}`} aria-disabled={loading || undefined}>{loading ? "Sending…" : "Send reset link"}</button>
-            {error && <p role="alert" className={s.error}>{error}</p>}
+            {error && <p ref={failureText} role="alert" className={s.error}>{error}</p>}
           </form>
         )}
       </div>
