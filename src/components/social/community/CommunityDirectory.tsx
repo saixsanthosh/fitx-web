@@ -51,7 +51,7 @@ export function CommunityDirectory() {
       <section className={styles.section} aria-labelledby="community-challenges">
         <div className={exploreStyles.sectionHead}>
           <h2 id="community-challenges" className={styles.sectionTitle}>Challenges</h2>
-          <Link href="/explore/challenges" className={`${exploreStyles.linkQuiet} inline-flex items-center gap-1`}>All challenges<ArrowRight size={15} aria-hidden="true" /></Link>
+          <Link href="/explore/challenges" className={`${exploreStyles.linkQuiet} ${styles.allChallenges} inline-flex items-center gap-1`}>All challenges<ArrowRight size={15} aria-hidden="true" /></Link>
         </div>
         {challenges === null ? (
           <div className={exploreStyles.skeleton} style={{ height: 150 }} aria-busy="true" aria-label="Loading challenges" />

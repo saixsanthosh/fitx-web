@@ -34,7 +34,8 @@ test("the section and its All challenges link are drawn whether or not a challen
   assert.ok(section > 0, "the section is found");
   // Nothing conditional wraps the section: the line before it is the comment, not `shown.length > 0 && (`.
   assert.doesNotMatch(directory.slice(Math.max(0, section - 220), section), /shown\.length > 0 &&|\) : shown/);
-  assert.match(directory, /<Link href="\/explore\/challenges" [^>]*>All challenges/);
+  assert.match(directory, /<Link href="\/explore\/challenges" className=\{`\$\{exploreStyles\.linkQuiet\} \$\{styles\.allChallenges\} [^`]*`\}>All challenges/);
+  assert.match(source("src/components/social/community/Community.module.css"), /\.section \.allChallenges \{ min-height: 44px; \}/, "always shown, so a 44 px target");
   assert.match(directory, /href="\/explore\/challenges\?box=closed"/, "a direct way to the Finished tab");
   assert.match(directory, /\.catch\(\(\) => \{ if \(live\) setChallenges\("failed"\); \}\)/, "a failed load is kept apart from an empty list");
   // The Challenges page itself keeps its Open and Finished tabs, which ?box=closed opens.
