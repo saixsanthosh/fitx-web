@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RESEND_SECONDS, isCompleteCode, sendCodeProblem, verifyCodeProblem } from "@/lib/auth/email-code";
-import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
+import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
@@ -16,6 +17,8 @@ const CODE_SENT_MOMENTS_AGO = "A code was sent a moment ago. Use that one, or wa
  * first use, which onboarding then sets up); `verify` checks it, after which the server sets the session
  * and hint cookies and says where to go (finishPasswordSignIn, the same route as a password sign-in).
  * The e-mail also carries a link to /auth/callback on the canonical origin, for anyone who taps it instead.
+ * Both requests have a time limit (src/lib/auth/time-limit.ts): one that hangs ends with a plain message and the
+ * buttons work again, never "Sending code…" for ever.
  */
 export function useEmailCode(next: () => string | null) {
   const [step, setStep] = useState<"email" | "code">("email");
@@ -68,10 +71,17 @@ export function useEmailCode(next: () => string | null) {
     setError("");
     setNotice("");
     try {
-      const { error: authError } = await supabase.auth.signInWithOtp({
-        email: address,
-        options: { shouldCreateUser: true, emailRedirectTo: authCallbackUrl(next()) },
-      });
+      const { error: authError } = await withTimeLimit(
+        supabase.auth.signInWithOtp({
+          email: address,
+          options: { shouldCreateUser: true, emailRedirectTo: authCallbackUrl(next()) },
+        }),
+        TIME_LIMIT_MS.email,
+        // Sent after all: it counts for this browser's email limit, so asking again shows the code step for it.
+        ({ error: late }) => {
+          if (!late) browserEmailCooldown().record(address);
+        },
+      );
       if (authError) {
         const problem = sendCodeProblem(authError);
         if (problem.retryAfter === null) return problem.message;
@@ -87,8 +97,8 @@ export function useEmailCode(next: () => string | null) {
       setCode("");
       setStep("code");
       return null;
-    } catch {
-      return OFFLINE;
+    } catch (problem) {
+      return isTimeLimit(problem) ? TIMED_OUT.sendCode : OFFLINE;
     } finally {
       busy.current = false;
       setSending(false);
@@ -110,7 +120,16 @@ export function useEmailCode(next: () => string | null) {
     setError("");
     setNotice("");
     try {
-      const { error: authError } = await supabase.auth.verifyOtp({ email, token: value, type: "email" });
+      const { error: authError } = await withTimeLimit(
+        supabase.auth.verifyOtp({ email, token: value, type: "email" }),
+        TIME_LIMIT_MS.check,
+        // The code went through after all: the session is there, so finish signing in.
+        ({ error: late }) => {
+          if (late) return;
+          setSigningIn(true);
+          finishLateSignIn(next());
+        },
+      );
       if (authError) {
         setError(verifyCodeProblem(authError));
         setVerifying(false);
@@ -119,8 +138,8 @@ export function useEmailCode(next: () => string | null) {
       }
       setSigningIn(true);
       window.location.assign(await finishPasswordSignIn(next()));
-    } catch {
-      setError(OFFLINE);
+    } catch (problem) {
+      setError(isTimeLimit(problem) ? TIMED_OUT.verifyCode : OFFLINE);
       setVerifying(false);
       busy.current = false;
     }

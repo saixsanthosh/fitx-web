@@ -8,6 +8,7 @@ import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedVa
 import s from "@/components/auth/auth.module.css";
 import { isEmailAddress, sendCodeProblem } from "@/lib/auth/email-code";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
+import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
@@ -33,7 +34,16 @@ export default function ForgotPasswordPage() {
     if (wait > 0) return setError(cooldownMessage(wait));
     setLoading(true);
     try {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(address, { redirectTo: authCallbackUrl("/reset-password") });
+      const { error: resetError } = await withTimeLimit(
+        supabase.auth.resetPasswordForEmail(address, { redirectTo: authCallbackUrl("/reset-password") }),
+        TIME_LIMIT_MS.email,
+        // Sent after all: it counts for this browser's email limit, and the page says it is on its way.
+        ({ error: late }) => {
+          if (late) return;
+          browserEmailCooldown().record(address);
+          setSent(true);
+        },
+      );
       if (resetError) {
         return setError(sendCodeProblem(resetError).retryAfter !== null || resetError.status === 429
           ? "A link was sent a moment ago. Wait a minute, then try again."
@@ -41,8 +51,8 @@ export default function ForgotPasswordPage() {
       }
       browserEmailCooldown().record(address);
       setSent(true);
-    } catch {
-      setError("We couldn’t connect to FITX. Check your connection and try again.");
+    } catch (problem) {
+      setError(isTimeLimit(problem) ? TIMED_OUT.resetLink : "We couldn’t connect to FITX. Check your connection and try again.");
     } finally {
       setLoading(false);
     }

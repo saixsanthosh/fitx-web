@@ -13,7 +13,8 @@ import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/a
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { isEmailAddress, passwordSignInProblem } from "@/lib/auth/email-code";
-import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { SUSPENDED_MESSAGE } from "@/lib/platform/account-status";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -91,15 +92,22 @@ export default function SignInForm() {
     if (!supabase) return setError("Account access is temporarily unavailable. Please try again later.");
     setPending("password");
     try {
-      const { error: authError } = await supabase.auth.signInWithPassword({ email: address, password });
+      // A sign-in that hangs ends at its time limit with a plain message, and the button works again.
+      const { error: authError } = await withTimeLimit(
+        supabase.auth.signInWithPassword({ email: address, password }),
+        TIME_LIMIT_MS.check,
+        ({ error: late }) => {
+          if (!late) finishLateSignIn(requestedNext());
+        },
+      );
       if (authError) {
         setError(passwordSignInProblem(authError));
         setPending(null);
         return;
       }
       window.location.assign(await finishPasswordSignIn(requestedNext()));
-    } catch {
-      setError("We couldn’t connect to FITX. Check your connection and try again.");
+    } catch (problem) {
+      setError(isTimeLimit(problem) ? TIMED_OUT.signIn : "We couldn’t connect to FITX. Check your connection and try again.");
       setPending(null);
     }
   }

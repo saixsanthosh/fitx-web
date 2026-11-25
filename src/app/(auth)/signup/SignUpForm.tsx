@@ -13,8 +13,9 @@ import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/a
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { isEmailAddress } from "@/lib/auth/email-code";
-import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
+import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { authCallbackUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 
@@ -74,11 +75,21 @@ export default function SignUpForm() {
     if (wait > 0) return setError(cooldownMessage(wait));
     setPending("password");
     try {
-      const { data, error: authError } = await supabase.auth.signUp({
-        email: address,
-        password,
-        options: { data: { name: name.trim() }, emailRedirectTo: authCallbackUrl("/onboarding") },
-      });
+      const { data, error: authError } = await withTimeLimit(
+        supabase.auth.signUp({
+          email: address,
+          password,
+          options: { data: { name: name.trim() }, emailRedirectTo: authCallbackUrl("/onboarding") },
+        }),
+        TIME_LIMIT_MS.email,
+        // Created after all: carry on as if it had answered in time.
+        ({ data: late, error: lateError }) => {
+          if (lateError) return;
+          if (late.session) return finishLateSignIn("/onboarding");
+          browserEmailCooldown().record(address);
+          setSent(true);
+        },
+      );
       if (authError) {
         setError("We couldn’t create your account. Check your details and try again.");
         setPending(null);
@@ -91,8 +102,8 @@ export default function SignUpForm() {
         setSent(true);
         setPending(null);
       }
-    } catch {
-      setError("We couldn’t connect to FITX. Check your connection and try again.");
+    } catch (problem) {
+      setError(isTimeLimit(problem) ? TIMED_OUT.signUp : "We couldn’t connect to FITX. Check your connection and try again.");
       setPending(null);
     }
   }

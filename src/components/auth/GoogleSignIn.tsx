@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
 import { configuredGoogleClientId, createNonce, idTokenProblem, loadGoogleIdentity, type GoogleId } from "@/lib/auth/google-identity";
+import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { isSuspendedError, SUSPENDED_MESSAGE } from "@/lib/platform/account-status";
 import { createClient } from "@/lib/supabase/client";
 import { GoogleButton } from "./GoogleButton";
@@ -109,7 +110,13 @@ export function GoogleSignIn({ context, next, disabled, redirectPending, onRedir
       callbacks.current.onBusy?.(true);
       callbacks.current.onError("");
       try {
-        const { error } = await supabase.auth.signInWithIdToken({ provider: "google", token, nonce: raw });
+        const { error } = await withTimeLimit(
+          supabase.auth.signInWithIdToken({ provider: "google", token, nonce: raw }),
+          TIME_LIMIT_MS.check,
+          ({ error: late }) => {
+            if (!late) finishLateSignIn(callbacks.current.next());
+          },
+        );
         if (error) {
           const problem = idTokenProblem(error);
           callbacks.current.onError(isSuspendedError(error) ? SUSPENDED_MESSAGE : problem.message);
@@ -120,8 +127,8 @@ export function GoogleSignIn({ context, next, disabled, redirectPending, onRedir
           return;
         }
         window.location.assign(await finishPasswordSignIn(callbacks.current.next()));
-      } catch {
-        callbacks.current.onError("We couldn’t connect to FITX. Check your connection and try again.");
+      } catch (problem) {
+        callbacks.current.onError(isTimeLimit(problem) ? TIMED_OUT.google : "We couldn’t connect to FITX. Check your connection and try again.");
         setBusy(false);
         callbacks.current.onBusy?.(false);
         setAttempt((n) => n + 1);

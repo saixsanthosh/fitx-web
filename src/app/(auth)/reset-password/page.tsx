@@ -7,6 +7,7 @@ import { AuthScreen } from "@/components/auth/AuthScreen";
 import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { stampSessionCookies } from "@/lib/auth/session-stamp";
+import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ResetPasswordPage() {
@@ -32,7 +33,16 @@ export default function ResetPasswordPage() {
     if (!supabase) return setError("Password reset is temporarily unavailable.");
     setLoading(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password });
+      const { error: updateError } = await withTimeLimit(
+        supabase.auth.updateUser({ password }),
+        TIME_LIMIT_MS.check,
+        // Saved after all: say so.
+        ({ error: late }) => {
+          if (late) return;
+          void stampSessionCookies();
+          setSaved(true);
+        },
+      );
       if (updateError) {
         return setError(/session|jwt|not authenticated/i.test(updateError.message)
           ? "This reset link has expired. Ask for a new one."
@@ -42,8 +52,8 @@ export default function ResetPasswordPage() {
       }
       void stampSessionCookies();
       setSaved(true);
-    } catch {
-      setError("We couldn’t connect to FITX. Check your connection and try again.");
+    } catch (problem) {
+      setError(isTimeLimit(problem) ? TIMED_OUT.newPassword : "We couldn’t connect to FITX. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
