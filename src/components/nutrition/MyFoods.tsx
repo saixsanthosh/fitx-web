@@ -10,6 +10,7 @@ import styles from "./FoodUi.module.css";
 
 interface MyFoodsProps {
   rows: CustomFoodRow[];
+  /** The foods are being read. Until the first answer the list says so; a reload after a save keeps the rows shown. */
   loading: boolean;
   busy: boolean;
   /** A signed link to the food's photo, when it has one. */
@@ -35,7 +36,8 @@ export function MyFoods({ rows, loading, busy, photoFor, onUse, onAdd, onEdit, o
         <button type="button" data-food-add onClick={onAdd} className="fitx-button"><Plus size={15}/>Add a food</button>
       </div>
       {rows.length > 6 && <input className="fitx-field mb-3" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Find one of your foods" aria-label="Find one of your foods"/>}
-      {loading ? <p className={styles.muted}>Loading your foods…</p> : rows.length === 0 ? (
+      {/* Only before the first answer: a reload keeps the rows, so the pencil or button pressed keeps the focus. */}
+      {loading && rows.length === 0 ? <p className={styles.muted}>Loading your foods…</p> : rows.length === 0 ? (
         <div className={styles.callout}>
           <p>You haven&apos;t saved any foods yet. Add a home recipe or a packaged food from its label, or scan a barcode that FITX can&apos;t find.</p>
         </div>

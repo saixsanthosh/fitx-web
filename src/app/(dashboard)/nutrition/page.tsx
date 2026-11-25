@@ -55,6 +55,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
+import { focusFellToPage, reloadFocusTargets } from "@/lib/food/reload-focus";
 import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, focusAfterRetry, listedFoods, noSearchReason, openingPortion, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
@@ -165,6 +166,8 @@ export default function NutritionPage() {
   const [logFocus, setLogFocus] = useState<string | null>(null);
   /** Where focus goes once the day has reloaded, when the control that had it was replaced or removed: the first found. */
   const pendingFocus = useRef<string[] | null>(null);
+  /** Where it goes once the day has reloaded only if it fell to the page (an empty day's buttons go once it has food). */
+  const focusIfLost = useRef<string[] | null>(null);
   /** Foods removed from the day, each with an Undo in its place; and which "Added …" toast can still take back what. */
   const [removed, setRemoved] = useState<RemovedEntry[]>([]);
   const addedUndo = useRef(addedUndoRegistry());
@@ -687,6 +690,8 @@ export default function NutritionPage() {
     // Back to the day, which now shows it; the toast can take it back. The next Log food starts afresh.
     setLogOpen(false); resetLogSheet();
     const ids = ((inserted.data ?? []) as Array<{ id: string }>).map((row) => row.id);
+    // Logged from an empty day's "Log a food": that button goes once the day has food, so its new entry's pencil.
+    focusIfLost.current = [...(ids[0] ? [`[data-entry-edit="${ids[0]}"]`] : []), "#meals-title"];
     announceAdded(ids, food.name, meal);
     void browseFoods();
     await load(); void refreshRecent();
@@ -706,7 +711,10 @@ export default function NutritionPage() {
       if (inserted.error) { setError("That could not be added. Please try again."); return; }
       // Back to the day, as Add to log does: a toast raised under the open sheet (a modal dialog) can't be seen or undone.
       setLogOpen(false); resetLogSheet();
-      announceAdded(((inserted.data ?? []) as Array<{ id: string }>).map((row) => row.id), item.name, target);
+      const ids = ((inserted.data ?? []) as Array<{ id: string }>).map((row) => row.id);
+      // As Add to log: from an empty day's "Log a food", which goes once the day has food, to the new entry's pencil.
+      focusIfLost.current = [...(ids[0] ? [`[data-entry-edit="${ids[0]}"]`] : []), "#meals-title"];
+      announceAdded(ids, item.name, target);
       await load(); void refreshRecent();
     } finally {
       loggingFood.current = false;
@@ -787,17 +795,18 @@ export default function NutritionPage() {
     const timer = window.setTimeout(() => { document.getElementById(logFocus)?.focus(); setLogFocus(null); }, 80);
     return () => window.clearTimeout(timer);
   }, [logOpen, logFocus]);
-  // After the day reloads, focus what replaced the control that had it (an entry moved to another meal is a new row,
-  // a removed one leaves its Undo), or the next choice when that is not there.
+  // After the day (or My foods, or Routines) reloads, focus what replaced the control that had it (an entry moved to
+  // another meal is a new row, a removed one leaves its Undo), or the next choice when that is not there; or, when the
+  // control that had it went with the reload, where it is now sensible (reloadFocusTargets).
   useEffect(() => {
-    const selectors = pendingFocus.current;
-    if (!selectors) return;
+    const targets = reloadFocusTargets(pendingFocus.current, focusIfLost.current, focusFellToPage(document.activeElement, document.body));
     pendingFocus.current = null;
-    for (const selector of selectors) {
+    focusIfLost.current = null;
+    for (const selector of targets) {
       const target = document.querySelector<HTMLElement>(selector);
       if (target) { target.focus(); return; }
     }
-  }, [entries]);
+  }, [entries, customRows, templates]);
 
   /** "Type the number" from the scanner: the barcode field, ready to type in. */
   function typeBarcode() {
@@ -945,9 +954,11 @@ export default function NutritionPage() {
     setBusy(false);
     if (result.error) { setError("That food could not be deleted. Please try again."); return; }
     setNotice(`Deleted “${row.name}”.`);
-    // Its row is gone: the next food's Use (or the one before), else Add a food.
+    // Its row is gone: the next food's Use (or the one before), else Add a food. The list keeps its rows while it
+    // reloads, so the deleted one leaves now.
     const next = neighbourAfterRemoval(customRows.map((item) => item.id), row.id);
     pendingFocus.current = [...(next ? [`[data-food-use="${next}"]`] : []), "[data-food-add]"];
+    setCustomRows((list) => list.filter((item) => item.id !== row.id));
     await load();
   }
 
@@ -1008,9 +1019,11 @@ export default function NutritionPage() {
     setBusy(false);
     if (result.error) { setError("That could not be deleted. Please try again."); return; }
     setNotice(`Deleted “${template.name}”.`);
-    // Its row is gone: the next one's Add (or the one before), else the section's heading.
+    // Its row is gone: the next one's Add (or the one before), else the section's heading. The list keeps its rows
+    // while it reloads, so the deleted one leaves now.
     const next = neighbourAfterRemoval(templates.map((item) => item.id), template.id);
     pendingFocus.current = [...(next ? [`[data-routine-add="${next}"]`] : []), "#routines-title"];
+    setTemplates((list) => list.filter((item) => item.id !== template.id));
     await load();
   }
 
@@ -1030,6 +1043,8 @@ export default function NutritionPage() {
     setBusy(false);
     if (result.error) { setError(says.copyFailed); return; }
     setNotice(says.copied(rows.length));
+    // Pressed on an empty day, the button goes once the day has its copied meals: their heading instead.
+    focusIfLost.current = ["#meals-title"];
     await load();
   }
 
