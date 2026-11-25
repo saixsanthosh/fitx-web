@@ -224,10 +224,10 @@ describe("the limits a message names are the limits accepted, in the unit typed 
 });
 
 describe("setup's dial uses these helpers", () => {
-  test("the dial shows measureText, reads measureValue and steps with dialStep", () => {
+  test("the dial shows measureText, reads what is typed with measure-field and steps with dialStep", () => {
     const dial = readFileSync(new URL("../../src/components/onboarding/MeasureDial.tsx", import.meta.url), "utf8");
     assert.match(dial, /measureText\(kind, unit, props\.value\)/);
-    assert.match(dial, /report\(measureValue\(kind, unit, next\)\)/);
+    assert.match(dial, /measureRead\(kind, unit, next, showUnits\)/);
     assert.match(dial, /slide\(dialStep\(kind, unit, shown, -1\)\)/);
     assert.match(dial, /slide\(dialStep\(kind, unit, shown, 1\)\)/);
     assert.doesNotMatch(dial, /Math\.round/, "nothing is rounded in the component itself");

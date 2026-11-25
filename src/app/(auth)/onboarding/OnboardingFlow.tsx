@@ -165,6 +165,31 @@ export function OnboardingFlow() {
     });
   }, []);
 
+  /** A height or weight that can't be saved is said as soon as its field is left; an empty one waits for Continue. */
+  function checkTyped(key: "heightCm" | "weightKg" | "targetWeightKg") {
+    if (!form || form[key] === null) return;
+    const message = validatePage("body", form, schema)[key];
+    if (message) setErrors((current) => (current[key] === message ? current : { ...current, [key]: message }));
+  }
+
+  /** A new unit; messages already shown for its fields are said again in that unit (their limits are in it). */
+  function changeUnit<K extends "heightUnit" | "weightUnit">(key: K, value: OnboardingForm[K]) {
+    setForm((current) => (current ? { ...current, [key]: value } : current));
+    setSaveError("");
+    if (!form) return;
+    const found = validatePage("body", { ...form, [key]: value }, schema);
+    const fields = key === "heightUnit" ? (["heightCm"] as const) : (["weightKg", "targetWeightKg"] as const);
+    setErrors((current) => {
+      const next = { ...current };
+      for (const field of fields) {
+        if (!current[field]) continue;
+        if (found[field]) next[field] = found[field];
+        else delete next[field];
+      }
+      return next;
+    });
+  }
+
   // The readouts follow the date as it is typed, so only an age somebody could have shows (never "1926 yrs").
   const age = form ? shownAge(form.birthDate) : null;
   const targets = useMemo(() => {
@@ -362,9 +387,9 @@ export function OnboardingFlow() {
                 </>}
 
                 {page === "body" && <>
-                  <MeasureDial kind="height" label="Height" value={form.heightCm} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => update("heightUnit", unit)} error={errors.heightCm} showUnits={schema.preferencesV2} />
-                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.weightKg} showUnits={schema.preferencesV2} />
-                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => update("weightUnit", unit)} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="height" label="Height" value={form.heightCm} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => changeUnit("heightUnit", unit)} onCommit={() => checkTyped("heightCm")} error={errors.heightCm} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => changeUnit("weightUnit", unit)} onCommit={() => checkTyped("weightKg")} error={errors.weightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => changeUnit("weightUnit", unit)} onCommit={() => checkTyped("targetWeightKg")} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
                 </>}
 
                 {page === "goal" && <>

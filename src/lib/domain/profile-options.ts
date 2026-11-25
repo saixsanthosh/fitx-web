@@ -682,22 +682,67 @@ export function weightLimitsText(unit: WeightUnit): string {
   return `${grouped(min)} and ${grouped(max)} ${unit}`;
 }
 
+const UNIT_NAMES: Readonly<Record<HeightUnit | WeightUnit, string>> = { cm: "centimetres", ft_in: "feet and inches", kg: "kilograms", lb: "pounds" };
+
 /**
- * Why a height (stored, in cm) can't be saved, in the unit shown, or null when it can. An empty height is the caller's
- * to judge (setup asks for one, Profile doesn't); `optional` adds "or leave it empty" to the message.
+ * Why a height (stored, in cm; NaN when what is typed is not a number) can't be saved, in the unit shown, or null
+ * when it can. An empty height is the caller's to judge (setup asks for one, Profile doesn't); `optional` adds "or
+ * leave it empty" to the message.
  */
 export function heightError(cm: number | null, unit: HeightUnit, { optional = false }: { optional?: boolean } = {}): string | null {
   if (cm === null || heightInLimits(cm, unit)) return null;
-  return `Enter a height between ${heightLimitsText(unit)}${optional ? ", or leave it empty" : ""}.`;
+  const empty = optional ? ", or leave it empty" : "";
+  if (Number.isNaN(cm)) return `Enter your height in ${UNIT_NAMES[unit]}, for example ${unit === "ft_in" ? "5 ft 9 in" : "175"}${empty}.`;
+  return `Enter a height between ${heightLimitsText(unit)}${empty}.`;
 }
 
 /**
- * Why a weight (stored, in kg) can't be saved, in the unit shown, or null when it can. An empty weight is the caller's
- * to judge; a `target` weight may always be left empty, and its message says so.
+ * Why a weight (stored, in kg; NaN when what is typed is not a number) can't be saved, in the unit shown, or null when
+ * it can. An empty weight is the caller's to judge; a `target` weight may always be left empty, and its message says so.
  */
 export function weightError(kg: number | null, unit: WeightUnit, { target = false }: { target?: boolean } = {}): string | null {
   if (kg === null || weightInLimits(kg, unit)) return null;
+  if (Number.isNaN(kg)) {
+    return target
+      ? `Enter your target in ${UNIT_NAMES[unit]}, for example ${unit === "lb" ? "145" : "65"}, or leave it empty.`
+      : `Enter your weight in ${UNIT_NAMES[unit]}, for example ${unit === "lb" ? "155" : "70.5"}.`;
+  }
   return target ? `Enter a target between ${weightLimitsText(unit)}, or leave it empty.` : `Enter a weight between ${weightLimitsText(unit)}.`;
+}
+
+// ─── Reading what is typed in a height or weight field ───────────────────────────────────────────
+
+/** The units a height or weight field's text can name: centimetres, feet, inches, kilograms and pounds. */
+export type MeasureTextUnit = "cm" | "ft" | "in" | "kg" | "lb";
+
+const UNIT_WORDS: Readonly<Record<MeasureTextUnit, readonly string[]>> = {
+  cm: ["cm", "cms", "centimetre", "centimetres", "centimeter", "centimeters"],
+  ft: ["ft", "feet", "foot", "'", "’", "′"],
+  in: ["in", "ins", "inch", "inches", "\"", "”", "″"],
+  kg: ["kg", "kgs", "kilo", "kilos", "kilogram", "kilograms", "kilogramme", "kilogrammes"],
+  lb: ["lb", "lbs", "pound", "pounds"],
+};
+
+// A number ("65", "65.5", "65,5", "65." while typing, ".5", "1,102"), then perhaps a unit and a full stop ("lbs.").
+const MEASURE_TEXT = /^(-?)(\d{1,3}(?:,\d{3})+|\d+(?:[.,]\d*)?|[.,]\d+)\s*([a-z'"’”′″]*)\.?$/i;
+
+/**
+ * A number typed in a height or weight field, with or without a unit after it ("65", "65kg", "70 kg", "5 ft",
+ * "1,102 lb"), and which of `units` it names (null when none is typed). The value is null when the text is empty and
+ * NaN when it is not a number, or names a unit not in `units`. The start of a unit's name counts ("65 k"), so the value
+ * never disappears while the unit is being typed; "1,102" is 1102 (the way messages write it), "72,5" is 72.5.
+ */
+export function readMeasureText(text: string, units: readonly MeasureTextUnit[]): { value: number | null; unit: MeasureTextUnit | null } {
+  const trimmed = text.trim();
+  if (!trimmed) return { value: null, unit: null };
+  const match = MEASURE_TEXT.exec(trimmed);
+  if (!match) return { value: Number.NaN, unit: null };
+  const word = match[3].toLowerCase();
+  const unit = word ? units.find((candidate) => UNIT_WORDS[candidate].some((name) => name.startsWith(word))) ?? null : null;
+  if (word && !unit) return { value: Number.NaN, unit: null };
+  const digits = /^\d{1,3}(?:,\d{3})+$/.test(match[2]) ? match[2].replace(/,/g, "") : match[2].replace(",", ".");
+  const value = Number(`${match[1]}${digits}`);
+  return { value: Number.isFinite(value) ? value : Number.NaN, unit };
 }
 
 /** A number typed into a field ("72,5" counts as 72.5), null when empty, NaN when not a number. */
