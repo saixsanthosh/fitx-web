@@ -28,13 +28,18 @@
   background: transparent center / cover no-repeat;
 }
 
-/* The scope matte (BRIEF-2 3.1): wider than 2.20:1 on desktop, frame 0 keeps the picture's centred 2.20:1 box. */
+/*
+ * The scope matte (BRIEF-2 3.1): wider than 2.20:1 on desktop, frame 0 keeps the picture's centred 2.20:1 box, and the
+ * top line keeps the place it has on the picture at 2.20:1, 4% of the picture's width (8.8cqh) inside its right edge,
+ * as the intro's top line does (CinematicIntro.module.css says why), so neither control reaches into the side bar.
+ */
 @container (min-aspect-ratio: 11 / 5) {
   :global(:root[data-fitx-film-cut="desktop"]) .poster {
     left: calc(50% - 110cqh);
     right: auto;
     width: 220cqh;
   }
+  :global(:root[data-fitx-film-cut="desktop"]) .topline { right: max(calc(50cqw - 110cqh + 8.8cqh), calc(24px + env(safe-area-inset-right))); }
 }
 
 /* LogoReveal positions itself fixed over the screen; this keeps it above the picture and under the controls. */

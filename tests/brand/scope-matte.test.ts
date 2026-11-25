@@ -220,13 +220,54 @@ function declarations(body: string): Record<string, string> {
   return Object.fromEntries(lines.map((line) => [line.slice(0, line.indexOf(":")).trim(), line.slice(line.indexOf(":") + 1).trim()]));
 }
 
+/** A CSS function's arguments, split at its own commas only (not at those of a call inside it). */
+function cssArgs(list: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let at = 0; at < list.length; at += 1) {
+    if (list[at] === "(") depth += 1;
+    else if (list[at] === ")") depth -= 1;
+    else if (list[at] === "," && depth === 0) {
+      parts.push(list.slice(start, at).trim());
+      start = at + 1;
+    }
+  }
+  return [...parts, list.slice(start).trim()];
+}
+
 /**
- * A CSS length in px: `0`, px, a unit `per100` gives (what 100 of it measures), or min() or max() of those. Any other
- * form throws, so a rule written another way fails until this reads it, instead of passing unread.
+ * A CSS length in px: `0`, px, a unit `per100` gives (what 100 of it measures), an env() value `env` gives, calc() of
+ * those added and taken away, or min() or max() of any of them. Any other form throws (a product in calc(), an env()
+ * with no value given, another unit or function), so a rule written another way fails until this reads it, instead of
+ * passing unread.
  */
-function cssLength(value: string | undefined, per100: Readonly<Record<string, number>>): number {
-  const call = value?.match(/^(min|max)\((.*)\)$/);
-  if (call) return Math[call[1] as "min" | "max"](...call[2].split(",").map((part) => cssLength(part.trim(), per100)));
+function cssLength(value: string | undefined, per100: Readonly<Record<string, number>>, env: Readonly<Record<string, number>> = {}): number {
+  const call = value?.match(/^(min|max|calc|env)\((.*)\)$/);
+  if (call && (call[1] === "min" || call[1] === "max")) return Math[call[1]](...cssArgs(call[2]).map((part) => cssLength(part, per100, env)));
+  if (call && call[1] === "env") {
+    if (!(call[2] in env)) throw new Error(`an env() this test does not read: ${value}`);
+    return env[call[2]];
+  }
+  if (call && call[1] === "calc") {
+    // Terms added or taken away: CSS needs a space either side of + and -, so " + " and " - " outside any call split it.
+    const sum = call[2];
+    let total = 0;
+    let sign = 1;
+    let depth = 0;
+    let start = 0;
+    for (let at = 0; at <= sum.length; at += 1) {
+      if (sum[at] === "(") depth += 1;
+      else if (sum[at] === ")") depth -= 1;
+      else if (at === sum.length || (depth === 0 && (sum.startsWith(" + ", at) || sum.startsWith(" - ", at)))) {
+        total += sign * cssLength(sum.slice(start, at).trim(), per100, env);
+        sign = sum[at + 1] === "-" ? -1 : 1;
+        start = at + 3;
+        at += 2;
+      }
+    }
+    return total;
+  }
   if (value === "0") return 0;
   const length = value?.match(/^(-?\d*\.?\d+)([a-z%]+)$/);
   if (length?.[2] === "px") return Number(length[1]);
@@ -276,4 +317,82 @@ test("the title scrim keeps to the picture: measured on the graphics' box, the w
   assert.deepEqual([tenths(phone.now.box), tenths(phone.before.at), tenths(phone.now.at)], [[42.1, 809.9], [42.1, 894.1], [42.1, 809.9]]);
   assert.equal(inside(phone.before), false, "the old rule fails the check above");
   assert.doesNotMatch(body, /vw/, "nothing in it is measured on the screen");
+});
+
+test("the controls keep to the picture: on a wider screen the top line sits where it sits on the picture at 2.20:1", () => {
+  // Sound and Skip share one top line on each film's stage (CinematicIntro's .intro, WelcomeFilm's .stage). The stage is
+  // fixed over the whole screen and the top line is absolute in it, so its right is measured from the screen's edge.
+  const strip = (file: string) => source(file).replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(strip(FILES.intro), /^\.intro \{[^}]*position: fixed;[^}]*inset: 0;/m);
+  assert.match(strip(FILES.welcome), /^\.stage \{[^}]*position: fixed;[^}]*inset: 0;/m);
+  assert.match(strip(FILES.intro), /^\.topline,\s*\.staticBrand \{\s*position: absolute;/m);
+  assert.match(strip(FILES.welcome), /^\.topline \{\s*position: absolute;/m);
+  // The rule that places each top line on its stage, and the one the matte puts over it on the desktop composition.
+  const placed = (key: "intro" | "welcome") => {
+    const own = [...strip(FILES[key]).matchAll(/^\.topline \{([^}]*)\}/gm)].map((match) => declarations(match[1])).filter((rule) => "right" in rule);
+    const matte = BLOCKS[key][0].body.match(/^\s*:global\(:root\[data-fitx-film-cut="desktop"\]\) \.topline \{([^}]*)\}/m)?.[1];
+    assert.equal(own.length, 1, `${key}: one rule places the top line on the stage`);
+    assert.ok(matte, `${key}: the matte places it too`);
+    return { own: own[0].right, matte: declarations(matte) };
+  };
+  const intro = placed("intro");
+  const welcome = placed("welcome");
+  // Where there is no matte it is where it was: 4vw from the screen's edge, never nearer than the safe area allows (the
+  // matte's rule is only in the container query, for the desktop composition: the first test holds its selector).
+  assert.equal(intro.own, "max(4vw, calc(24px + env(safe-area-inset-right)))");
+  // The matte moves it across and nothing else, and the welcome film's top line is where the intro's is: the intro's
+  // says "Skip welcome film" until that film starts with its own top line, so the two must not differ.
+  assert.deepEqual(Object.keys(intro.matte), ["right"]);
+  assert.deepEqual([welcome.own, welcome.matte], [intro.own, intro.matte]);
+
+  // Where the top line ends on a W × H screen with a safe area of `inset` px on the right, in px from the screen's left.
+  // The matte's rule applies once its query matches on the desktop composition (from 2.20:1, where the bars are still
+  // 0 wide); its selector outranks the stage's own rule and the narrow screens' rule in @media. vw and cqw are the
+  // screen's width (the stage fills it), cqh its height.
+  const at = (width: number, height: number, inset: number, rule?: string) => {
+    const comp = pickComposition(width, height);
+    const query = comp === "desktop" && width * DEN >= height * NUM;
+    const right = cssLength(rule ?? (query ? intro.matte.right : intro.own), { vw: width, cqw: width, cqh: height }, { "safe-area-inset-right": inset });
+    const { frame, bar } = drawn(width, height, comp);
+    return { end: width - right, right, edge: bar + frame, frame, query };
+  };
+  const tenth = (n: number) => Math.round(n * 10) / 10;
+  // What the films check of 2c measured with the stage's rule alone (its phone is emulated, so env() is 0 there): Skip
+  // ended at 817.9 px on a phone held in landscape, past the picture's edge at 809.9, and at 2304 px at 2400 × 1000,
+  // past 2300. The same working gives both numbers, and it ran into the side bar from 2.392:1, where the bar is wider
+  // than 4vw.
+  const before = (width: number, height: number) => at(width, height, 0, intro.own);
+  assert.deepEqual([tenth(before(852, 349).end), tenth(before(852, 349).edge)], [817.9, 809.9]);
+  assert.deepEqual([tenth(before(2400, 1000).end), tenth(before(2400, 1000).edge)], [2304, 2300]);
+  assert.equal(Array.from({ length: 400 }, (_, step) => 2200 + step).find((width) => before(width, 1000).end > before(width, 1000).edge), 2392);
+  // Now it ends 4% of the picture's width inside the picture's edge, as at 2.20:1: at 779.2 and 2212 px.
+  assert.deepEqual([tenth(at(852, 349, 0).end), tenth(at(2400, 1000, 0).end)], [779.2, 2212]);
+  // At exactly 2.20:1 (the query matches, the bars are 0) both rules give the same place, so nothing jumps where the
+  // bars begin: 88 px from the edge at 2200 × 1000, which is 4vw.
+  for (const inset of [0, 47, 59]) assert.ok(Math.abs(at(2200, 1000, inset).right - at(2200, 1000, inset, intro.own).right) < 1e-9, String(inset));
+  assert.equal(tenth(at(2200, 1000, 0).right), 88);
+
+  // On every screen, with no safe area and with a phone's in landscape (47 or 59 px): the top line ends at least 4% of
+  // the picture's width inside the picture, and never nearer the screen's edge than the safe area allows; under the
+  // matte exactly 4% wherever the safe area asks for less, as at 2.20:1.
+  const screens = [[852, 349], [915, 360], [2201, 1000], [2400, 1000], [2560, 1080], [2560, 950], [3440, 1290], [3840, 1100], [2200, 1000], [1920, 947], [1440, 900], [1280, 720], [1180, 820], [820, 1180]] as const;
+  for (const inset of [0, 47, 59]) {
+    for (const [width, height] of screens) {
+      const now = at(width, height, inset);
+      const label = `${width}×${height}, safe area ${inset} px: the top line ends at ${tenth(now.end)}, the picture at ${tenth(now.edge)}`;
+      assert.ok(now.edge - now.end >= 0.04 * now.frame - 1e-6, `${label}: at least 4% of the picture inside its edge`);
+      assert.ok(now.right >= 24 + inset - 1e-9, `${label}: clear of the safe area`);
+      if (now.query && width - now.edge + 0.04 * now.frame >= 24 + inset) {
+        assert.ok(Math.abs(now.edge - now.end - 0.04 * now.frame) < 1e-6, `${label}: 4% of the picture inside its edge, as at 2.20:1`);
+      }
+    }
+  }
+  // And on any wider screen, the bars growing from 0 px: always inside the picture, never in a side bar.
+  for (const height of [349, 360, 720, 1000, 1440]) {
+    for (let step = 0; step <= 140; step += 1) {
+      const width = Math.round((2.2 + step / 100) * height);
+      const now = at(width, height, 0);
+      assert.ok(now.edge - now.end >= 0.04 * now.frame - 1e-6, `${width}×${height}: ends at ${tenth(now.end)}, the picture at ${tenth(now.edge)}`);
+    }
+  }
 });

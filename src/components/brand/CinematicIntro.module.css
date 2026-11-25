@@ -98,6 +98,12 @@
  * theme's edge is the page colour) while the letterbox above it stays dark, a seam where the two meet. Before and
  * after that it is full screen again: cut to the box, its edge would show on the page colour at the end card and
  * behind the static mark.
+ * The top line (Sound and Skip) keeps the place it has on the picture at 2.20:1, where 4vw is 4% of the picture's
+ * width (8.8cqh): that far inside the picture's right edge, so the side bar's width (50cqw - 110cqh) plus 8.8cqh from
+ * the screen's, and never nearer the screen's edge than its safe area allows. Placed on the screen (4vw) it ran into
+ * the side bar wherever the bar is wider than 4vw, from about 2.39:1: Skip ended 8 px past the picture on a phone held
+ * in landscape (852 × 349) and 4 px past it at 2400 × 1000. The welcome film's top line does the same
+ * (WelcomeFilm.module.css), so the two are in one place when one film hands over to the other.
  */
 @container (min-aspect-ratio: 11 / 5) {
   :global(:root[data-fitx-film-cut="desktop"]) .poster,
@@ -106,6 +112,7 @@
     right: auto;
     width: 220cqh;
   }
+  :global(:root[data-fitx-film-cut="desktop"]) .topline { right: max(calc(50cqw - 110cqh + 8.8cqh), calc(24px + env(safe-area-inset-right))); }
 }
 
 /* Skip's label follows the film the head script claimed, before the app starts it. */
