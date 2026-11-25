@@ -20,7 +20,14 @@ export interface EntryChange {
  * Edits a logged entry: amount (grams or the portion it was logged with), meal and date. A modal Sheet (native
  * dialog): focus starts on the amount, stays inside, Escape closes, and focus goes back to the entry's pencil.
  */
-export function EntryEditor({ entry, busy, sections, onCancel, onSave }: { entry: MealEntry; busy: boolean; sections: readonly string[]; onCancel: () => void; onSave: (change: EntryChange) => void }) {
+export function EntryEditor({ entry, busy, sections, onCancel, onSave }: {
+  entry: MealEntry;
+  busy: boolean;
+  sections: readonly string[];
+  onCancel: () => void;
+  /** Resolves to why the change was refused, shown here in the dialog, or null. */
+  onSave: (change: EntryChange) => Promise<string | null>;
+}) {
   const logged = entry.nutrition_snapshot?.portion;
   const portion: FoodPortion | null = logged?.label && logged.unit && Number(logged.grams_each) > 0
     ? { label: logged.label, unit: logged.unit, grams: Number(logged.grams_each), estimate: logged.estimate !== false }
@@ -47,30 +54,30 @@ export function EntryEditor({ entry, busy, sections, onCancel, onSave }: { entry
     setUnit(next);
   }
 
-  function save() {
+  async function save() {
     // Saving: a second press does nothing, and the button keeps the focus (it is never disabled under it).
     if (busy) return;
     // Older entries without per-100 g values keep their amount; only the meal and date change.
     const amountGrams = per100 ? grams : startGrams;
     if (!Number.isFinite(amountGrams) || amountGrams < 1 || amountGrams > 5000) { setProblem("Enter an amount that comes to between 1 and 5,000 grams."); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { setProblem("Choose a date."); return; }
-    if (!per100) {
-      onSave({ grams: amountGrams, servingSize: entry.serving_size ?? `${formatAmount(amountGrams)} g`, portion: logged ?? null, meal, date });
-      return;
-    }
-    const usesPortion = unit === "portion" && portion !== null;
-    onSave({
-      grams: amountGrams,
-      servingSize: usesPortion ? describePortion(count, portion, amountGrams) : `${formatAmount(amountGrams)} g`,
-      portion: usesPortion && logged ? { ...logged, count } : null,
-      meal,
-      date,
-    });
+    const usesPortion = per100 !== null && unit === "portion" && portion !== null;
+    const refused = await onSave(!per100
+      ? { grams: amountGrams, servingSize: entry.serving_size ?? `${formatAmount(amountGrams)} g`, portion: logged ?? null, meal, date }
+      : {
+        grams: amountGrams,
+        servingSize: usesPortion && portion ? describePortion(count, portion, amountGrams) : `${formatAmount(amountGrams)} g`,
+        portion: usesPortion && logged ? { ...logged, count } : null,
+        meal,
+        date,
+      });
+    // Refused: said here, inside the dialog, next to Save.
+    if (refused) setProblem(refused);
   }
 
   return (
     <Sheet open onClose={onCancel} side="center" title="Edit entry" description={`${entry.food_name}${entry.brand ? ` · ${entry.brand}` : ""}`}>
-      <form className={styles.form} onSubmit={(event) => { event.preventDefault(); save(); }}>
+      <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <label>Amount<input ref={first} className="fitx-field" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={!per100} onChange={(event) => { setAmount(event.target.value); setProblem(""); }}/></label>
         <label>Unit<select className="fitx-field" value={unit} disabled={!per100 || !portion} onChange={(event) => changeUnit(event.target.value === "portion" ? "portion" : "g")}>
           <option value="g">grams (g)</option>

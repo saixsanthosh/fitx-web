@@ -640,6 +640,8 @@ export default function NutritionPage() {
       const target = meal;
       const inserted = await insertEntries(supabase, rowsFromItems(userId, dateKey, [item.entry], target));
       if (inserted.error) { setError("That could not be added. Please try again."); return; }
+      // Back to the day, as Add to log does: a toast raised under the open sheet (a modal dialog) can't be seen or undone.
+      setLogOpen(false); setQuery(""); showStart();
       announceAdded(((inserted.data ?? []) as Array<{ id: string }>).map((row) => row.id), item.name, target);
       await load(); void refreshRecent();
     } finally {
@@ -810,18 +812,20 @@ export default function NutritionPage() {
     void refreshRecent();
   }
 
-  async function saveEntry(entry: MealEntry, change: EntryChange) {
+  /** Saves an edited entry. A refusal is returned to the dialog, which stays open and shows it (the page's messages are behind it). */
+  async function saveEntry(entry: MealEntry, change: EntryChange): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return;
+    if (!supabase || !userId) return "Sign in to change your entries.";
     setBusy(true); setError("");
     const result = await supabase.from("meals").update(entryUpdate(entry, change)).eq("id", entry.id).eq("user_id", userId);
     setBusy(false);
-    if (result.error) { setError("That entry could not be changed. Please try again."); return; }
+    if (result.error) return "That entry could not be changed. Please try again.";
     setEditingEntry(null);
     setNotice(change.date !== entry.date ? `Moved ${entry.food_name} to ${readableDate(new Date(`${change.date}T00:00:00`))}.` : `Updated ${entry.food_name}.`);
     // Its pencil again (a new one when it moved to another meal), or the day's heading when it left this day.
     pendingFocus.current = change.date === entry.date ? [`[data-entry-edit="${entry.id}"]`, "#meals-title"] : ["#meals-title"];
     await load();
+    return null;
   }
 
   /**
@@ -896,19 +900,21 @@ export default function NutritionPage() {
     setNotice(existing ? `The next food you log goes to “${chosen}”.` : `Added “${chosen}”. The next food you log goes to it, and it stays once you log something in it.`);
   }
 
-  async function saveNamed(name: string) {
+  /** Saves a meal or routine under the name given (or adds a meal section). A refusal is returned to the name dialog. */
+  async function saveNamed(name: string): Promise<string | null> {
     const prompt = namePrompt;
     const supabase = createClient();
-    if (prompt?.kind === "section") { addSection(name, prompt.then); return; }
-    if (!prompt || !supabase || !userId) return;
+    if (prompt?.kind === "section") { addSection(name, prompt.then); return null; }
+    if (!prompt || !supabase || !userId) return "Sign in to save meals and routines.";
     const items = prompt.kind === "meal" ? entries.filter((entry) => sameMeal(entry.meal, prompt.slot)) : entries;
     setBusy(true); setError("");
     const result = await saveTemplate(supabase, userId, name, prompt.kind, items, prompt.kind === "meal" ? prompt.slot : null);
     setBusy(false);
-    if (result.error) { setError("That could not be saved. Please try again."); return; }
+    if (result.error) return "That could not be saved. Please try again.";
     setNamePrompt(null);
     setNotice(prompt.kind === "meal" ? `Saved “${name}”. Add it to any day from Routines.` : `Saved “${name}” as a routine. Add it to any day from Routines.`);
     await load();
+    return null;
   }
 
   async function applyTemplate(template: MealTemplate, slot: string | null) {
@@ -951,16 +957,18 @@ export default function NutritionPage() {
     await load();
   }
 
-  async function updateTargets(next: ManualTargets | null) {
+  /** Saves the member's targets, or goes back to the estimate. A refusal is returned to the targets dialog. */
+  async function updateTargets(next: ManualTargets | null): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return;
+    if (!supabase || !userId) return "Sign in to set your targets.";
     setBusy(true); setError("");
     const result = next ? await saveTargets(supabase, userId, next) : await clearTargets(supabase, userId);
     setBusy(false);
-    if (result.error) { setError("Your targets could not be saved. Please try again."); return; }
+    if (result.error) return next ? "Your targets could not be saved. Please try again." : "Your targets could not be cleared. Please try again.";
     setTargetsOpen(false);
     setNotice(next ? "Saved your daily targets." : "Using the estimate from your profile again.");
     await load();
+    return null;
   }
 
   /**
@@ -1199,20 +1207,20 @@ export default function NutritionPage() {
       </Sheet>
       <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onDetected={onBarcodeDetected} onManual={typeBarcode}/>
 
-      {editingEntry && <EntryEditor entry={editingEntry} busy={busy} sections={sections} onCancel={() => setEditingEntry(null)} onSave={(change) => void saveEntry(editingEntry, change)}/>}
+      {editingEntry && <EntryEditor entry={editingEntry} busy={busy} sections={sections} onCancel={() => setEditingEntry(null)} onSave={(change) => saveEntry(editingEntry, change)}/>}
       {foodForm && <CustomFoodForm editing={foodForm.editing} prefill={foodForm.prefill} photoUrl={photoFor(foodForm.editing ?? undefined)} v2={capabilities.customFoodsV2} busy={busy} onCancel={() => { setFoodForm(null); restoreLog(); }} onSave={saveFood}/>}
       {namePrompt && <NameDialog title={namePrompt.kind === "section" ? "Add a meal" : namePrompt.kind === "meal" ? `Save ${namePrompt.slot.toLowerCase()} as a meal` : "Save this day as a routine"}
         description={namePrompt.kind === "section" ? "Such as Pre-workout or Evening tea." : namePrompt.kind === "meal" ? "Its foods and amounts are copied for any day." : "Every meal of this day, to add again in one tap."}
         label={namePrompt.kind === "section" ? "Meal name" : "Name"} maxLength={namePrompt.kind === "section" ? 40 : 80}
         validate={namePrompt.kind === "section" ? (value) => { const checked = checkSectionName(value); return checked.ok ? null : checked.reason; } : undefined}
-        initial={namePrompt.kind === "section" ? "" : namePrompt.initial} busy={busy} onCancel={() => { setNamePrompt(null); restoreLog(); }} onSave={(name) => void saveNamed(name)}/>}
+        initial={namePrompt.kind === "section" ? "" : namePrompt.initial} busy={busy} onCancel={() => { setNamePrompt(null); restoreLog(); }} onSave={saveNamed}/>}
       {householdOpen && <HouseholdMeasures sizes={household} onCancel={() => { setHouseholdOpen(false); restoreLog(); }}
         onSave={(sizes) => { saveHousehold(sizes); setHousehold(sizes); setHouseholdOpen(false); restoreLog(); }}/>}
       <NutritionSetup open={setup.open} mode={setup.mode} busy={setupBusy} error={setupError}
         initial={initialSetupAnswers(context?.hasPreferences ? context.preferences : null)}
         onSave={(answers) => void finishSetup(answers)} onLater={laterSetup} onClose={() => setSetup((current) => ({ ...current, open: false }))}/>
       {targetsOpen && <TargetsEditor estimated={estimated} manual={manualTargets} ready={capabilities.targets} busy={busy} onClose={() => setTargetsOpen(false)}
-        onSave={(next) => void updateTargets(next)} onReset={() => void updateTargets(null)}/>}
+        onSave={(next) => updateTargets(next)} onReset={() => updateTargets(null)}/>}
     </div>
   );
 }
