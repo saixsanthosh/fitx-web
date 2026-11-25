@@ -1,8 +1,9 @@
 // Admin's notices come only from Admin's own actions (BUGS.md 1, admin-1; BRIEF-3 D9). A Server Action seals its
 // result (a code, and a count it made itself) for the operator who acted (src/lib/notice.ts); a page shows its own
 // fixed words for a result only from such a token, made in the last 10 minutes. Text, numbers and codes typed into a
-// link show nothing. Refused forms (Explore's challenge, template and community forms, Settings) answer beside their
-// button and keep what was typed (BUGS.md 63, admin-2), so their refusals never travel in the address either.
+// link show nothing. Refused forms (Explore's challenge, template and community forms, its reversible moderation
+// actions and Add moderator, Settings) answer beside their button and keep what was typed (BUGS.md 63, admin-2), so
+// their refusals never travel in the address either.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
@@ -214,7 +215,10 @@ test("no page reads words, numbers or plain codes from the address, and no actio
   }
   assert.ok(pages >= 20, `${pages} pages read sealed results`);
   // The forms that keep what was typed: client forms on useActionState, submitting through keepTyped.
-  for (const file of ["components/explore/challenge-forms.tsx", "components/explore/community-form.tsx", "components/settings/settings-form.tsx"]) {
+  for (const file of [
+    "components/explore/challenge-forms.tsx", "components/explore/community-form.tsx", "components/explore/reversible-actions-form.tsx",
+    "components/explore/add-moderator-form.tsx", "components/settings/settings-form.tsx",
+  ]) {
     const source = await readFile(new URL(file, root), "utf8");
     assert.match(source, /useActionState\(/, file);
     assert.match(source, /onSubmit=\{keepTyped\(action\)\}/, file);

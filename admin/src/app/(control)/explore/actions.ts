@@ -73,31 +73,34 @@ async function removeFiles(admin: NonNullable<ReturnType<typeof createAdminSupab
   return true;
 }
 
+/** What a moderation or a moderator change came to: the page it goes back to and a result code; `done` when it happened. */
+type Outcome = { back: string; code: string; done: boolean };
+
 /**
  * One moderation action from a report page (reportId) or the account record (userId, member actions only). The
  * database checks explore.moderate again, closes the reports, tells the reporters and audits, in one transaction.
  */
-export async function moderate(formData: FormData) {
-  const actor = await requireAdmin("explore.moderate");
+async function runModeration(actorId: string, formData: FormData): Promise<Outcome> {
   const reportId = field(formData, "reportId");
   const userId = field(formData, "userId");
-  const action = field(formData, "action");
-  const back = isUuid(reportId) ? `/explore/reports/${reportId.toLowerCase()}` : isUuid(userId) ? `/explore/accounts/${userId.toLowerCase()}` : "/explore";
   if (!isUuid(reportId) && !isUuid(userId)) redirect("/explore");
-  if (!isAction(action)) go(actor.id, back, "invalid_action");
+  const back = isUuid(reportId) ? `/explore/reports/${reportId.toLowerCase()}` : `/explore/accounts/${userId.toLowerCase()}`;
+  const refuse = (code: string): Outcome => ({ back, code, done: false });
+  const action = field(formData, "action");
+  if (!isAction(action)) return refuse("invalid_action");
   const reason = field(formData, "reason");
-  if (reason && !isReason(reason)) go(actor.id, back, "invalid_reason");
-  if (NEEDS_REASON.includes(action) && !reason) go(actor.id, back, "reason_required");
+  if (reason && !isReason(reason)) return refuse("invalid_reason");
+  if (NEEDS_REASON.includes(action) && !reason) return refuse("reason_required");
   const note = field(formData, "note").slice(0, 1000);
   const sanction = field(formData, "sanction") || "explore";
-  if (!isSanctionKind(sanction)) go(actor.id, back, "invalid_sanction");
+  if (!isSanctionKind(sanction)) return refuse("invalid_sanction");
   const length = field(formData, "length") || "7d";
-  if (action === "suspend" && !isSuspensionLength(length)) go(actor.id, back, "invalid_until");
+  if (action === "suspend" && !isSuspensionLength(length)) return refuse("invalid_until");
 
   const admin = createAdminSupabase();
-  if (!admin) go(actor.id, back, "configuration");
+  if (!admin) return refuse("configuration");
   const { data, error } = await admin.rpc("fitx_admin_op_moderate", {
-    p_operator_id: actor.id,
+    p_operator_id: actorId,
     p_report_id: isUuid(reportId) ? reportId.toLowerCase() : null,
     p_action: action,
     p_reason_code: reason || null,
@@ -106,11 +109,30 @@ export async function moderate(formData: FormData) {
     p_sanction: sanction,
     p_user: isUuid(reportId) ? null : userId.toLowerCase(),
   });
-  if (error) failure(actor.id, back, "explore.moderate", error);
+  if (error) return refuse(refusalCode("explore.moderate", error));
   const removed = await removeFiles(admin, (data as { paths?: unknown } | null)?.paths);
   revalidatePath("/explore");
   revalidatePath(back);
-  go(actor.id, back, removed ? `done_${action}` : "files_pending");
+  return { back, code: removed ? `done_${action}` : "files_pending", done: true };
+}
+
+/** A moderation from a form with nothing typed in it (the irreversible actions, suspend, lift): every result goes back sealed. */
+export async function moderate(formData: FormData) {
+  const actor = await requireAdmin("explore.moderate");
+  const outcome = await runModeration(actor.id, formData);
+  go(actor.id, outcome.back, outcome.code);
+}
+
+/**
+ * The reversible actions, with their reason and note, for useActionState: a refusal (the report was closed by someone
+ * else, the content is gone, a failure) comes back beside the buttons and the form keeps the reason and the note as
+ * typed (BUGS.md 63); an action that happened goes back with a sealed result.
+ */
+export async function moderateKept(_previous: FormState, formData: FormData): Promise<FormState> {
+  const actor = await requireAdmin("explore.moderate");
+  const outcome = await runModeration(actor.id, formData);
+  if (!outcome.done) return refused(outcome.code);
+  go(actor.id, outcome.back, outcome.code);
 }
 
 /**
@@ -163,23 +185,43 @@ export async function saveCommunity(_previous: FormState, formData: FormData): P
   go(actor.id, `/explore/communities/${id}`, "saved");
 }
 
-/** Appoints a member (by Explore username) as a moderator, or makes a moderator a member again. */
-export async function setCommunityRole(formData: FormData) {
-  const actor = await requireAdmin("explore.moderate");
+/** Makes a member (by Explore username, or a listed moderator by ID) a moderator, or a moderator a member again. */
+async function runCommunityRole(actorId: string, formData: FormData, role: string): Promise<Outcome> {
   const community = field(formData, "communityId");
   if (!isUuid(community)) redirect("/explore/communities");
   const back = `/explore/communities/${community.toLowerCase()}`;
-  const role = field(formData, "role");
-  if (role !== "moderator" && role !== "member") go(actor.id, back, "invalid_role");
+  const refuse = (code: string): Outcome => ({ back, code, done: false });
+  if (role !== "moderator" && role !== "member") return refuse("invalid_role");
+  const admin = createAdminSupabase();
+  if (!admin) return refuse("configuration");
   const given = field(formData, "userId");
   const userId = isUuid(given) ? given.toLowerCase() : await userIdForUsername(field(formData, "username"));
-  if (!userId) go(actor.id, back, "unknown_username");
-  const admin = createAdminSupabase();
-  if (!admin) go(actor.id, back, "configuration");
-  const { error } = await admin.rpc("fitx_admin_op_set_community_role", { p_operator_id: actor.id, p_community: community.toLowerCase(), p_user: userId, p_role: role });
-  if (error) failure(actor.id, back, "explore.community_role", error);
+  // Not looked up (logged): that says nothing about the username, so the form does not mark it.
+  if (userId === undefined) return refuse("failed");
+  if (!userId) return refuse("unknown_username");
+  const { error } = await admin.rpc("fitx_admin_op_set_community_role", { p_operator_id: actorId, p_community: community.toLowerCase(), p_user: userId, p_role: role });
+  if (error) return refuse(refusalCode("explore.community_role", error));
   revalidatePath(back);
-  go(actor.id, back, role === "moderator" ? "moderator_added" : "moderator_removed");
+  return { back, code: role === "moderator" ? "moderator_added" : "moderator_removed", done: true };
+}
+
+/** The moderator list's Remove buttons (role and member in hidden fields): every result goes back sealed. */
+export async function setCommunityRole(formData: FormData) {
+  const actor = await requireAdmin("explore.moderate");
+  const outcome = await runCommunityRole(actor.id, formData, field(formData, "role"));
+  go(actor.id, outcome.back, outcome.code);
+}
+
+/**
+ * Add moderator, for useActionState: a refusal (no Explore profile has that username, not an accepted adult member, a
+ * failure) comes back beside the button with the username kept, and marked when it is about the username (BUGS.md
+ * 63); an appointment goes back with a sealed result.
+ */
+export async function addModerator(_previous: FormState, formData: FormData): Promise<FormState> {
+  const actor = await requireAdmin("explore.moderate");
+  const outcome = await runCommunityRole(actor.id, formData, "moderator");
+  if (!outcome.done) return refused(outcome.code);
+  go(actor.id, outcome.back, outcome.code);
 }
 
 /**

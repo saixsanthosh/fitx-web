@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Notice, Panel, consoleStyles as ui } from "@/components/console/ui";
+import { AddModeratorForm } from "@/components/explore/add-moderator-form";
 import { CommunityForm } from "@/components/explore/community-form";
 import styles from "@/components/explore/explore.module.css";
 import { exploreNotice } from "@/components/explore/notices";
@@ -79,14 +80,7 @@ export default async function CommunityPage({ params, searchParams }: { params: 
               ))}
             </ul>
           ) : <p className={styles.subtle}>No moderators yet.</p>}
-          {moderator && (
-            <form action={setCommunityRole} className={`stack-form ${styles.inline}`}>
-              <input type="hidden" name="communityId" value={community.id} />
-              <input type="hidden" name="role" value="moderator" />
-              <label>Explore username<input name="username" required autoComplete="off" placeholder="name.surname" /></label>
-              <PendingButton className="quiet-button" pendingLabel="Adding…">Add moderator</PendingButton>
-            </form>
-          )}
+          {moderator && <AddModeratorForm communityId={community.id} />}
         </Panel>
       )}
     </div>

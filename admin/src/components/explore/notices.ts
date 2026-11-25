@@ -77,11 +77,14 @@ export function exploreNotice(code: string | null | undefined): ExploreNotice | 
   return Object.hasOwn(ERRORS, code) ? { tone: "error", text: ERRORS[code] } : null;
 }
 
-/** The form field a database refusal is about (its input's name), so the form can mark it; null for none. */
+/** The form field a refusal is about (its input's name), so the form can mark it; null for none. */
 const REFUSAL_FIELDS: Record<string, string> = {
   invalid_slug: "slug", slug_taken: "slug", invalid_name: "name", invalid_description: "description", invalid_visibility: "visibility",
   invalid_kind: "kind", invalid_title: "title",
   invalid_metric: "metric", invalid_sport: "sport", invalid_target: "target", invalid_window: "day", community_not_found: "community",
+  // The reversible moderation actions' reason and note, and Add moderator's username.
+  invalid_reason: "reason", reason_required: "reason", invalid_note: "note",
+  unknown_username: "username", not_member: "username", not_adult: "username",
 };
 export function refusalField(code: string): string | null {
   return Object.hasOwn(REFUSAL_FIELDS, code) ? REFUSAL_FIELDS[code] : null;

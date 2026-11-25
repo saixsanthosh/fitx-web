@@ -6,3 +6,14 @@ import type { FormState } from "@/lib/content/form";
 export function fieldAria(state: FormState, name: string, resultId: string): { "aria-invalid"?: true; "aria-describedby"?: string } {
   return state.status === "error" && state.fieldErrors?.[name] ? { "aria-invalid": true, "aria-describedby": resultId } : {};
 }
+
+/**
+ * A form's data with the pressed button's name and value, as the browser sends them on a submit: `new FormData(form)`
+ * leaves the button out, and a form with one button per action (Explore's moderation) reads which one it was. Nothing
+ * is added for a button without a name, or when no button was pressed.
+ */
+export function withSubmitter(data: FormData, submitter: unknown): FormData {
+  const button = submitter as { name?: unknown; value?: unknown } | null | undefined;
+  if (button && typeof button.name === "string" && button.name && typeof button.value === "string") data.append(button.name, button.value);
+  return data;
+}

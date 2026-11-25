@@ -70,8 +70,9 @@ test("the Explore screens set no inline styles and use only Admin's colour varia
 });
 
 test("buttons and targets: every Explore action button is a real 44 px button with a name", async () => {
+  const reversible = await readFile(new URL("components/explore/reversible-actions-form.tsx", SRC), "utf8");
+  assert.match(reversible, /name="action"\s+value=\{value\}\s+className=\{value === "hide" \? "primary-button" : "quiet-button"\}/);
   const forms = await readFile(new URL("components/explore/moderation-forms.tsx", SRC), "utf8");
-  assert.match(forms, /name="action" value=\{action\} className=\{action === "hide" \? "primary-button" : "quiet-button"\}/);
   assert.match(forms, /Suspend from Explore/);
   assert.match(forms, /Lift suspension/);
   const css = await readFile(new URL("components/explore/explore.module.css", SRC), "utf8");
