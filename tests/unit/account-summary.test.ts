@@ -30,3 +30,12 @@ test("a removed photo shows no photo, and an empty name falls back to the fetche
   assert.equal(result?.name, "Old name");
   assert.equal(preferSharedAccount(null, shared("", null, null))?.name, "");
 });
+
+test("an ended session names no one: the sidebar and header drop the name and email they fetched before (bug 41)", () => {
+  assert.equal(preferSharedAccount(fetched, { status: "signed_out", data: null, avatarUrl: null }), null);
+  assert.equal(preferSharedAccount(null, { status: "signed_out", data: null, avatarUrl: null }), null);
+  // A check that failed (offline: the context's "error") or one still loading keeps the name shown.
+  assert.equal(preferSharedAccount(fetched, { status: "error", data: null, avatarUrl: null }), fetched);
+  assert.equal(preferSharedAccount(fetched, { status: "loading", data: null, avatarUrl: null }), fetched);
+  assert.equal(preferSharedAccount(fetched, { status: "ready", ...shared("New name", null, null) })?.name, "New name");
+});
