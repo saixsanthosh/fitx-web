@@ -52,11 +52,25 @@ describe("when the next message can go", () => {
 
 describe("what the Help page says", () => {
   test("the real limit and the time, in India Standard Time as the page shows times", () => {
+    // Free at 02:12:03 IST: shown as 2:13, the first whole minute at which a message goes through.
     const at = NOW - 60_000 + 3_600_000;
-    assert.equal(plain(supportTimeText(at, NOW)), "at 2:12 am IST");
-    assert.equal(plain(supportLimitMessage("request", "hour", at, NOW)), "You can send up to 3 messages an hour. Your next one can go at 2:12 am IST.");
+    assert.equal(plain(supportTimeText(at, NOW)), "at 2:13 am IST");
+    assert.equal(plain(supportLimitMessage("request", "hour", at, NOW)), "You can send up to 3 messages an hour. Your next one can go at 2:13 am IST.");
     assert.equal(plain(supportLimitMessage("request", "day", Date.parse("2026-11-26T23:00:00Z"), NOW)), "You can send up to 10 messages a day. Your next one can go on 27 Nov at 4:30 am IST.");
-    assert.equal(plain(supportLimitMessage("reply", "hour", at, NOW)), "You can send up to 10 replies an hour. Your next one can go at 2:12 am IST.");
+    assert.equal(plain(supportLimitMessage("reply", "hour", at, NOW)), "You can send up to 10 replies an hour. Your next one can go at 2:13 am IST.");
+  });
+
+  test("the time shown is never early: seconds round up to the next minute, and a retry at that minute goes through", () => {
+    assert.equal(plain(supportTimeText(Date.parse("2026-11-25T20:42:59Z"), NOW)), "at 2:13 am IST", "02:12:59 IST");
+    assert.equal(plain(supportTimeText(Date.parse("2026-11-25T20:42:00.001Z"), NOW)), "at 2:13 am IST", "a millisecond past the minute");
+    assert.equal(plain(supportTimeText(Date.parse("2026-11-25T20:42:00Z"), NOW)), "at 2:12 am IST", "exactly on the minute stays");
+    // 23:59:30 IST is shown as midnight, on the next day.
+    assert.equal(plain(supportTimeText(Date.parse("2026-11-26T18:29:30Z"), NOW)), "on 27 Nov at 12:00 am IST");
+    // Three requests, the oldest at 01:12:03 IST: refused until 02:12:03, so at 2:12 (the old wording) still refused, at 2:13 not.
+    const times = [ago(1), ago(0.4), ago(0.2)];
+    assert.equal(supportWait("request", times, NOW).at, Date.parse("2026-11-25T20:42:03Z"));
+    assert.notEqual(supportWait("request", times, Date.parse("2026-11-25T20:42:00Z")).at, null, "2:12 is too early");
+    assert.equal(supportWait("request", times, Date.parse("2026-11-25T20:43:00Z")).at, null, "2:13, the time shown, is free");
   });
 
   test("the route's own burst limit says seconds; an unknown time says within an hour or a day", () => {
@@ -71,7 +85,7 @@ describe("what the Help page says", () => {
     const body = supportLimitBody("request", "hour", NOW + 600_000, NOW);
     assert.deepEqual({ ...body, message: plain(body.message) }, {
       error: "rate_limited", window: "hour", retryAt: new Date(NOW + 600_000).toISOString(),
-      message: "You can send up to 3 messages an hour. Your next one can go at 1:23 am IST.",
+      message: "You can send up to 3 messages an hour. Your next one can go at 1:24 am IST.",
     });
     assert.equal(supportLimitBody("reply", "hour", null, NOW).retryAt, null);
   });
@@ -84,6 +98,8 @@ describe("what the Help page says", () => {
       assert.doesNotMatch(route, /NextResponse\.json\(\{ error: "rate_limited" \}/, file);
     }
     const limit = read("src/app/api/support/limit.ts");
+    // Retry-After in whole seconds rounded up (rateLimitedResponse rounds to the nearest).
+    assert.match(limit, /rateLimitedResponse\(Math\.ceil\(\(wait\.at - now\) \/ 1000\), body\)/);
     assert.match(limit, /from\("support_requests"\)\.select\("created_at"\)/);
     assert.match(limit, /from\("support_messages"\)\.select\("created_at"\)\.eq\("author_kind", "user"\)/);
     for (const file of ["src/components/support/SupportForm.tsx", "src/components/support/SupportThreads.tsx"]) {

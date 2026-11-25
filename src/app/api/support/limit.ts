@@ -18,7 +18,8 @@ export async function supportLimitResponse(supabase: Supabase, kind: SupportSend
   const times = await ownRecentTimes(supabase, kind, now).catch(() => []);
   const wait = supportWait(kind, times, now, detail === "day" ? "day" : "hour");
   const body = supportLimitBody(kind, wait.window, wait.at, now);
-  return wait.at !== null ? rateLimitedResponse((wait.at - now) / 1000, body) : NextResponse.json(body, { status: 429, headers: { "Cache-Control": "private, no-store" } });
+  // Whole seconds, rounded up: rateLimitedResponse rounds to the nearest, which could ask for a retry half a second early.
+  return wait.at !== null ? rateLimitedResponse(Math.ceil((wait.at - now) / 1000), body) : NextResponse.json(body, { status: 429, headers: { "Cache-Control": "private, no-store" } });
 }
 
 async function ownRecentTimes(supabase: Supabase, kind: SupportSendKind, now: number): Promise<string[]> {

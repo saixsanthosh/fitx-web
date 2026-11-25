@@ -147,11 +147,16 @@ export function supportWait(kind: SupportSendKind, times: readonly string[], now
   return { window: reported, at: null };
 }
 
-/** "at 2:32 pm IST", or "on 27 Nov at 9:15 am IST" on another day: India Standard Time, as the Help page shows times. */
+/**
+ * "at 2:32 pm IST", or "on 27 Nov at 9:15 am IST" on another day: India Standard Time, as the Help page shows times.
+ * `at` is rounded up to the next whole minute (for the day too), because the time shown has no seconds: 2:12:03 is
+ * shown as 2:13, never as 2:12, when a message sent at 2:12 would still be refused.
+ */
 export function supportTimeText(at: number, now: number): string {
-  const time = new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(at);
+  const shown = Math.ceil(at / 60_000) * 60_000;
+  const time = new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(shown);
   const day = (value: number) => new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" }).format(value);
-  return day(at) === day(now) ? `at ${time} IST` : `on ${day(at)} at ${time} IST`;
+  return day(shown) === day(now) ? `at ${time} IST` : `on ${day(shown)} at ${time} IST`;
 }
 
 /** What the Help page says when a limit stops a message: the real limit and when the next one can go. */
