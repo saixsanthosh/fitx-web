@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Mail } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
+import { useEarlySubmit } from "@/components/auth/early-submit";
 import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { isEmailAddress, sendCodeProblem } from "@/lib/auth/email-code";
@@ -21,6 +22,9 @@ export default function ForgotPasswordPage() {
   // An address typed before the page's scripts ran stays (src/components/auth/useKeepTypedValue.ts).
   useKeepTypedValue(emailInput, email, setEmail);
   const hydrated = useHydrated();
+  // A press of Enter or of the button before the page is ready is held, then sent once it is (early-submit.ts).
+  const formRef = useRef<HTMLFormElement>(null);
+  const replayEarlySubmit = useEarlySubmit(formRef);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,7 +69,7 @@ export default function ForgotPasswordPage() {
         {sent ? (
           <p role="status" className={s.lead}>If an account uses <strong>{email.trim()}</strong>, a reset link is on its way.</p>
         ) : (
-          <form onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
+          <form ref={formRef} action={replayEarlySubmit} onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
             <label className={s.field}>Email address
               <span className={s.inputWrap}>
                 <Mail size={16} aria-hidden="true" />

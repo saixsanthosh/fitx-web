@@ -5,6 +5,7 @@ import { useId, useRef, useState, useSyncExternalStore, type FormEvent } from "r
 import { AnimatePresence, m } from "framer-motion";
 import { Apple, Eye, EyeOff, LockKeyhole, Mail, Plus } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
+import { useEarlySubmit } from "@/components/auth/early-submit";
 import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
@@ -66,6 +67,9 @@ export default function SignInForm() {
   useKeepTypedValue(passwordInput, password, setPassword);
   useKeepOpenState(options, open, setOpen);
   const hydrated = useHydrated();
+  // A press of Enter or of the button before the page is ready is held, then sent once it is (early-submit.ts).
+  const formRef = useRef<HTMLFormElement>(null);
+  const replayEarlySubmit = useEarlySubmit(formRef);
   const reduced = useReducedMotionSafe();
   const codeFlow = useEmailCode(requestedNext);
   const locationError = useSyncExternalStore(subscribeLocation, getLocationError, () => "");
@@ -150,7 +154,7 @@ export default function SignInForm() {
             {notice && !visibleError && <p role="status" className={s.notice}>{notice}</p>}
             {!isSupabaseConfigured && <p role="status" className={s.config}>Supabase environment values are missing here.</p>}
             <div className={s.divider}>or</div>
-            <form onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
+            <form ref={formRef} action={replayEarlySubmit} onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
               <label className={s.field}>Email address
                 <span className={s.inputWrap}>
                   <Mail size={16} aria-hidden="true" />

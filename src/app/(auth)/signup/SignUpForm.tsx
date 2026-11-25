@@ -5,6 +5,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { Apple, LockKeyhole, Mail, Plus, UserRound } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
+import { useEarlySubmit } from "@/components/auth/early-submit";
 import { EmailCodeStep } from "@/components/auth/EmailCodeStep";
 import { startOAuth, type OAuthProvider } from "@/components/auth/GoogleButton";
 import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
@@ -47,6 +48,9 @@ export default function SignUpForm() {
   useKeepTypedValue(confirmInput, confirm, setConfirm);
   useKeepOpenState(options, open, setOpen);
   const hydrated = useHydrated();
+  // A press of Enter or of the button before the page is ready is held, then sent once it is (early-submit.ts).
+  const formRef = useRef<HTMLFormElement>(null);
+  const replayEarlySubmit = useEarlySubmit(formRef);
   const reduced = useReducedMotionSafe();
   const codeFlow = useEmailCode(noNext);
   const loading = pending !== null || codeFlow.sending;
@@ -150,7 +154,7 @@ export default function SignUpForm() {
               onBusy={(busy) => setPending(busy ? "google" : null)}
             />
             <div className={s.divider}>or</div>
-            <form onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
+            <form ref={formRef} action={replayEarlySubmit} onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
               <label className={s.field}>Email address
                 <span className={s.inputWrap}>
                   <Mail size={16} aria-hidden="true" />

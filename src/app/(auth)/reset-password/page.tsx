@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { LockKeyhole } from "lucide-react";
 import { AuthScreen } from "@/components/auth/AuthScreen";
+import { useEarlySubmit } from "@/components/auth/early-submit";
 import { useHydrated, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { stampSessionCookies } from "@/lib/auth/session-stamp";
@@ -22,6 +23,9 @@ export default function ResetPasswordPage() {
   useKeepTypedValue(passwordInput, password, setPassword);
   useKeepTypedValue(confirmInput, confirm, setConfirm);
   const hydrated = useHydrated();
+  // A press of Enter or of the button before the page is ready is held, then sent once it is (early-submit.ts).
+  const formRef = useRef<HTMLFormElement>(null);
+  const replayEarlySubmit = useEarlySubmit(formRef);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -66,7 +70,7 @@ export default function ResetPasswordPage() {
         {saved ? (
           <Link href="/dashboard" className={`fitx-button ${s.primary}`}>Open FITX</Link>
         ) : (
-          <form onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
+          <form ref={formRef} action={replayEarlySubmit} onSubmit={submit} className={s.form} noValidate data-hydrated={hydrated || undefined}>
             <label className={s.field}>New password
               <span className={s.inputWrap}>
                 <LockKeyhole size={16} aria-hidden="true" />
