@@ -145,7 +145,7 @@ export default function BrowseByMusclePage() {
             <div role="group" aria-label="Side of the body" className="grid grid-cols-2 gap-1 rounded-lg border border-fitx-border bg-fitx-surface-variant p-1 md:hidden">
               {(["front", "back"] as const).map((side) => (
                 <button key={side} type="button" aria-pressed={view === side} onClick={() => setParams({ view: side })}
-                  className={`min-h-10 rounded-md px-4 text-sm font-medium transition-colors motion-reduce:transition-none ${view === side ? "bg-fitx-card text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>
+                  className={`min-h-11 min-w-11 rounded-md px-4 text-sm font-medium transition-colors motion-reduce:transition-none ${view === side ? "bg-fitx-card text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>
                   {side === "front" ? "Front" : "Back"}
                 </button>
               ))}

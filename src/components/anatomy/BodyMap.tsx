@@ -36,10 +36,11 @@
  *
  * Colours come from theme tokens (BodyMap.module.css), so the map follows the light, dark and inverse themes.
  */
-import { useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import { BODY_REGIONS, REGIONS, listRegions, regionInView, type RegionKey } from "@/lib/training/anatomy";
 import { BODY_ART, BODY_VIEWBOX_ATTR, type BodyView } from "./body-paths";
+import { pickerHitAreas } from "./hit-areas";
 import styles from "./BodyMap.module.css";
 
 export type BodyMapProps = {
@@ -75,6 +76,22 @@ export function BodyMap({
   const [focused, setFocused] = useState<RegionKey | null>(null);
   const interactive = typeof onSelect === "function";
   const views: BodyView[] = view === "both" ? ["front", "back"] : [view];
+  // Picker only: the width one figure is drawn at, once measured (null before, and while the map is hidden), which
+  // sizes each small muscle's invisible 44 × 44 px hit area (hit-areas.ts, bug 77).
+  const figureRef = useRef<SVGSVGElement>(null);
+  const [figurePx, setFigurePx] = useState<number | null>(null);
+  useEffect(() => {
+    const svg = figureRef.current;
+    if (!interactive || !svg || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width ?? 0;
+      setFigurePx((current) => (width < 1 ? null : current !== null && Math.abs(current - width) < 2 ? current : width));
+    });
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, [interactive]);
+  const hitAreas = useMemo(() => (interactive && figurePx ? { front: pickerHitAreas("front", figurePx), back: pickerHitAreas("back", figurePx) } : null), [interactive, figurePx]);
+  const clipPrefix = `bm${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
   const visible = (key: RegionKey) => views.some((side) => regionInView(key, side));
 
   const primarySet = new Set<RegionKey>(primary ?? []);
@@ -128,10 +145,21 @@ export function BodyMap({
       style: Object.keys(vars).length ? (vars as CSSProperties) : undefined,
     };
     const plates = paths.map((d, index) => <path key={index} className={styles.plate} d={d} />);
+    // A small muscle's invisible hit areas, under its plates, each clipped to leave out the other muscles' plates.
+    const hits = interactive ? hitAreas?.[side][key] ?? [] : [];
+    const hitShapes = hits.map((hit, index) => {
+      const clipId = `${clipPrefix}-${side}-${key}-${index}`;
+      return (
+        <g key={`hit-${index}`}>
+          {hit.clip && <clipPath id={clipId}><path d={hit.clip} clipRule="evenodd" /></clipPath>}
+          <rect className={styles.hit} data-hit-area="" x={hit.x} y={hit.y} width={hit.width} height={hit.height} clipPath={hit.clip ? `url(#${clipId})` : undefined} />
+        </g>
+      );
+    });
     const hover = { onPointerEnter: () => setHovered(key), onPointerLeave: () => leave(key) };
     if (!interactive) return <g key={key} {...shared} {...(labelled ? hover : {})}>{plates}</g>;
     const pointer = { onClick: () => onSelect?.(key), ...hover };
-    if (tabView.get(key) !== side) return <g key={key} {...shared} {...pointer} aria-hidden="true">{plates}</g>;
+    if (tabView.get(key) !== side) return <g key={key} {...shared} {...pointer} aria-hidden="true">{hitShapes}{plates}</g>;
     return (
       <g
         key={key}
@@ -145,6 +173,7 @@ export function BodyMap({
         onFocus={() => setFocused(key)}
         onBlur={() => setFocused((current) => (current === key ? null : current))}
       >
+        {hitShapes}
         {plates}
       </g>
     );
@@ -155,7 +184,7 @@ export function BodyMap({
     const svgRole = interactive ? { role: "group", "aria-label": VIEW_NAMES[side] } : { "aria-hidden": true as const };
     return (
       <div key={side} className={styles.figure}>
-        <svg className={styles.svg} viewBox={BODY_VIEWBOX_ATTR} xmlns="http://www.w3.org/2000/svg" {...svgRole}>
+        <svg ref={side === views[0] ? figureRef : undefined} className={styles.svg} viewBox={BODY_VIEWBOX_ATTR} xmlns="http://www.w3.org/2000/svg" {...svgRole}>
           <path className={styles.silhouette} d={art.silhouette} />
           {art.details.map((d, index) => <path key={`detail-${index}`} className={styles.plate} d={d} />)}
           {BODY_REGIONS.map((key) => region(side, key))}

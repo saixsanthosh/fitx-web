@@ -15,6 +15,9 @@ export function isTimedPlanned(item: PlannedExercise): boolean {
   return item.target_duration_seconds != null || item.exercise.prescription_type === "time";
 }
 
+/** The move buttons: small to keep the row compact, with an invisible 44 × 44 px hit area (bug 77's rule). */
+const MOVE_BUTTON = "relative grid h-8 w-9 place-items-center rounded border border-fitx-border before:absolute before:-inset-x-1 before:-inset-y-1.5 before:content-[''] disabled:opacity-35";
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="grid gap-1 text-[11px] text-fitx-text-secondary">{label}{children}</label>;
 }
@@ -49,9 +52,10 @@ export function BuilderRow({ item, index, count, owned, listName, showTargets, l
     <li data-builder-row={index} className="rounded-xl border border-fitx-border bg-fitx-surface p-3">
       <div className="flex items-start gap-3">
         <div className="flex shrink-0 flex-col items-center gap-1">
-          <button type="button" onClick={() => onMove(-1)} disabled={index === 0} aria-label={`Move ${name} earlier`} className="grid h-8 w-9 place-items-center rounded border border-fitx-border disabled:opacity-35"><ArrowUp size={14} aria-hidden="true" /></button>
+          {/* 32 × 36 px drawn, 44 × 44 px to touch: the ::before reaches past the edges into the gap and the number. */}
+          <button type="button" onClick={() => onMove(-1)} disabled={index === 0} aria-label={`Move ${name} earlier`} className={MOVE_BUTTON}><ArrowUp size={14} aria-hidden="true" /></button>
           <span className="text-xs font-semibold tabular-nums text-fitx-text-secondary">{String(index + 1).padStart(2, "0")}</span>
-          <button type="button" onClick={() => onMove(1)} disabled={index === count - 1} aria-label={`Move ${name} later`} className="grid h-8 w-9 place-items-center rounded border border-fitx-border disabled:opacity-35"><ArrowDown size={14} aria-hidden="true" /></button>
+          <button type="button" onClick={() => onMove(1)} disabled={index === count - 1} aria-label={`Move ${name} later`} className={MOVE_BUTTON}><ArrowDown size={14} aria-hidden="true" /></button>
         </div>
         {/* The photo opens the details too; the name button is the one keyboard stop for it. */}
         <button type="button" onClick={onInfo} tabIndex={-1} aria-hidden="true" className="shrink-0 rounded-xl">

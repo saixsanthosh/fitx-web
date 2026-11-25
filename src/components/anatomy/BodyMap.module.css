@@ -68,6 +68,9 @@
 .region[data-state="selected"] { --bm-fill: var(--bm-accent); }
 .region .plate { fill: var(--bm-fill); }
 
+/* Picker: a small muscle's invisible hit area (hit-areas.ts): it takes taps, never paints. */
+.hit { fill: transparent; stroke: none; pointer-events: all; }
+
 /* Picker: hover and focus. A hovered region moves toward the text colour (darker in light themes, lighter in
    dark ones); an idle one takes a light accent tint. The focus ring follows the plate edges. */
 .interactive .region { cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; }
