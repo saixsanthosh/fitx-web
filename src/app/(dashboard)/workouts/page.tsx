@@ -32,6 +32,7 @@ import { programmeMeta } from "@/data/programmes/meta";
 import { createClient } from "@/lib/supabase/client";
 import { isUuidString } from "@/lib/security/body";
 import { localDateKey, readableDate } from "@/lib/domain/dates";
+import { notifyUserContextChanged } from "@/lib/domain/user-context";
 import { columnList, hasValuesIn, isMissingColumnError, isMissingFunctionError, isMissingRelationshipError, payloadFor, withOptionalColumns } from "@/lib/domain/schema-fallback";
 import { timedItemDay } from "@/lib/domain/todo";
 import type { CatalogExercise } from "@/lib/training/catalog";
@@ -496,6 +497,8 @@ export default function WorkoutsPage() {
     setPreferences((current) => ({ ...current, workout_location: next.location, fitness_level: next.level, equipment: next.profiles.home ?? current.equipment }));
     setSetupOpen(false);
     setNotice(SETUP_SAVED);
+    // Profile, Progress and the coach read the answers from the shared context: it reloads now, not on the next visit.
+    notifyUserContextChanged();
     if (firstTime) changeMode(modeForLocation(next.location));
     const keys = enrolment ? next.profiles[enrolment.context] : null;
     if (programmeList && listChanged(programmeList, keys)) void replanAfterSetup(next, keys!);
