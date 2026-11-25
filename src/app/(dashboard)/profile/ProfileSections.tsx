@@ -15,7 +15,6 @@ import {
   FOOD_RULE_OPTIONS,
   FOOD_SOURCE_OPTIONS,
   GOAL_OPTIONS,
-  HEIGHT_RANGE_CM,
   LIMITATION_OPTIONS,
   LOCATION_OPTIONS,
   MAX_CUSTOM_LIMITATIONS,
@@ -30,7 +29,6 @@ import {
   SEX_OPTIONS,
   SPLIT_OPTIONS,
   WATER_RANGE_ML,
-  WEIGHT_RANGE_KG,
   BIRTH_DATE_SAVED_ERROR,
   birthDateEdit,
   isBirthDateLocked,
@@ -71,6 +69,7 @@ import { changedFields, loadBirthDate, logWeighIn, markNutritionSetupAnswered, m
 import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
 import { equipmentLabel } from "@/lib/training/equipment";
+import { bodyMeasureProblems } from "./body-checks";
 import { ChipList, Detail, DetailList, EditActions, NotSet, SectionCard, type SectionNotice } from "./ProfileParts";
 import { foodAnswersKnown, foodSaveMarksSetup, foodSaveProblem, goalAnswers, homeEquipmentKnown, mealsText, sessionAnswer } from "./profile-answers";
 
@@ -157,9 +156,9 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
     const age = v3 ? birth.age : typedAge;
     if (v3 && birth.error) found.birthDate = birth.error;
     if (typedAge !== null && !v3 && (!Number.isInteger(typedAge) || !inRange(typedAge, AGE_RANGE))) found.age = `Enter a whole number from ${AGE_RANGE.min} to ${AGE_RANGE.max}, or leave it empty.`;
-    if (draft.heightCm !== null && !inRange(draft.heightCm, HEIGHT_RANGE_CM)) found.heightCm = "Enter a height between 90 and 250 cm (2 ft 11 in to 8 ft 2 in), or leave it empty.";
-    if (!inRange(draft.weightKg, WEIGHT_RANGE_KG)) found.weightKg = "Enter a weight between 30 and 500 kg (66 to 1,102 lb).";
-    if (draft.targetWeightKg !== null && !inRange(draft.targetWeightKg, WEIGHT_RANGE_KG)) found.targetWeightKg = "Enter a target between 30 and 500 kg, or leave it empty.";
+    // Height and weights are checked in the unit each is shown in, so a message names limits that are accepted as
+    // typed (bug 32: 2 ft 11 in and 66 lb are under the metric minimums), and text that isn't a number says so (bug 8).
+    Object.assign(found, bodyMeasureProblems(draft));
     setErrors(found);
     if (Object.keys(found).length) {
       focusFirstInvalid(formRef.current);
