@@ -38,6 +38,7 @@ export function CoachSettings({
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
   const askId = useId();
+  const shareTextId = useId();
   const deleteButton = useRef<HTMLButtonElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
 
@@ -62,8 +63,9 @@ export function CoachSettings({
   }, [open]);
 
   async function toggleSharing() {
-    // The switch stays focusable while saving (aria-disabled): a disabled control drops keyboard focus in Chrome.
-    if (saving) return;
+    // The switch stays focusable while saving, or once it can't be used (aria-disabled): a disabled control drops
+    // keyboard focus in Chrome.
+    if (saving || !mayShare) return;
     setSaving(true);
     setError("");
     try {
@@ -110,14 +112,16 @@ export function CoachSettings({
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 id="coach-share-title" className="text-sm font-semibold">Use my FITX data</h3>
-              <p className="mt-1 text-sm leading-6 text-fitx-text-secondary">
+              <p id={shareTextId} className="mt-1 text-sm leading-6 text-fitx-text-secondary">
                 {minor
                   ? "Off for under-18 accounts: the coach answers general questions only."
                   : ageMissing
                     ? "Off until you add your age in Profile: FITX shares your data with the coach only for accounts of people 18 or over."
                     : shareData
                       ? "On: the coach reads a short summary of your profile, logs and goals. Never your name, email, photos or account ID."
-                      : "Off: the coach answers general questions only, and meal and workout plans are off."}
+                      : canTurnOn
+                        ? "Off: the coach answers general questions only, and meal and workout plans are off."
+                        : "Off: the coach answers general questions only, and meal and workout plans are off. You can switch it on again when the coach is back."}
               </p>
             </div>
             <button
@@ -125,8 +129,12 @@ export function CoachSettings({
               role="switch"
               aria-checked={on}
               aria-labelledby="coach-share-title"
-              disabled={!mayShare}
-              aria-disabled={saving || undefined}
+              aria-describedby={shareTextId}
+              // Under 18 or without an age it can never be used here. Otherwise it stays focusable (aria-disabled) while
+              // saving and once it can't be used: while the coach is paused, switching sharing off leaves it unusable, and
+              // a focused control that turns disabled drops keyboard focus in Chrome (BRIEF-3 D5).
+              disabled={minor || ageMissing}
+              aria-disabled={saving || !mayShare || undefined}
               onClick={toggleSharing}
               className="relative mt-0.5 inline-flex h-11 w-14 shrink-0 items-center justify-center disabled:opacity-50 aria-disabled:opacity-50"
             >

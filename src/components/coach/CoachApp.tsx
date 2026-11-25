@@ -544,7 +544,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
             {problem && (
               <div role="alert" className="fitx-alert fitx-alert-danger flex items-start justify-between gap-3">
                 <span>{problem.message}</span>
-                <button type="button" onClick={() => setProblem(null)} aria-label="Dismiss" className="-m-2 grid h-11 w-11 shrink-0 place-items-center rounded-lg hover:bg-fitx-hover"><X size={16} aria-hidden="true" /></button>
+                {/* The alert goes with its Dismiss button: focus moves to the message box, which holds the words again. */}
+                <button type="button" onClick={() => { setProblem(null); setFocusKey((key) => key + 1); }} aria-label="Dismiss" className="-m-2 grid h-11 w-11 shrink-0 place-items-center rounded-lg hover:bg-fitx-hover"><X size={16} aria-hidden="true" /></button>
               </div>
             )}
             {/* Clears the sticky composer when scrolled to. */}

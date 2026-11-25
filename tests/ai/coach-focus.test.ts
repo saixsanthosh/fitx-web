@@ -84,7 +84,48 @@ describe("the same mistake elsewhere in the coach", () => {
     assert.doesNotMatch(source("Composer.tsx"), /disabled=\{!canSend\}/);
     const voice = source("CoachVoice.tsx");
     assert.match(voice, /aria-disabled=\{disabled \|\| undefined\}/);
-    assert.match(voice, /const press = \(\) => \{\n\s+if \(disabled\) return;/);
+    assert.match(voice, /const press = \(fromKeyboard = false\) => \{\n\s+if \(disabled\) return;/);
+  });
+
+  test("the voice explainer and the voice problem note give focus back to the microphone when they go (review round)", () => {
+    const voice = source("CoachVoice.tsx");
+    assert.match(voice, /<button\n\s+ref=\{mic\}\n\s+type="button"/);
+    assert.match(voice, /const closeExplain = \(\) => \{\n\s+mic\.current\?\.focus\(\);\n\s+setExplain\(false\);/);
+    assert.match(voice, /const clearProblem = \(\) => \{\n\s+mic\.current\?\.focus\(\);\n\s+setProblem\(null\);/);
+    assert.match(voice, /write\(VOICE_OK_KEY, "yes"\);\n\s+closeExplain\(\);/, "Turn on voice");
+    assert.match(voice, /onClick=\{closeExplain\}>Not now<\/button>/);
+    assert.match(voice, /onClick=\{clearProblem\} className=\{styles\.link\}>OK<\/button>/);
+    assert.doesNotMatch(voice, /=> set(Explain\(false\)|Problem\(null\))/, "no button in them removes itself without moving focus");
+    // Escape closes the explainer like "Not now" (inside the AI Coach panel it closes only the explainer, not the panel).
+    assert.match(voice, /if \(event\.key !== "Escape"\) return;\n\s+event\.preventDefault\(\);\n\s+closeExplain\(\);/);
+  });
+
+  test("opened from the keyboard, the voice explainer takes focus on its title, so it is announced and Space can't press a button", () => {
+    const voice = source("CoachVoice.tsx");
+    assert.match(voice, /event\.preventDefault\(\);\n\s+press\(true\);/, "the microphone's keys say so");
+    assert.match(voice, /onPointerDown=[\s\S]*?\n\s+press\(\);\n/, "a pointer press leaves focus where the browser puts it");
+    assert.match(voice, /flushSync\(\(\) => setExplain\(true\)\);\n\s+explainTitle\.current\?\.focus\(\);/);
+    assert.match(voice, /<h3 ref=\{explainTitle\} tabIndex=\{-1\} id="coach-voice-title"/);
+    assert.match(voice, /aria-labelledby="coach-voice-title"\n\s+aria-describedby="coach-voice-text"/);
+    assert.match(voice, /<p id="coach-voice-text" className=\{styles\.explainText\}>\{VOICE_PRIVACY\}<\/p>/);
+  });
+
+  test("Dismiss on the coach's error alert moves focus to the message box (review round)", () => {
+    const app = source("CoachApp.tsx");
+    assert.match(app, /onClick=\{\(\) => \{ setProblem\(null\); setFocusKey\(\(key\) => key \+ 1\); \}\} aria-label="Dismiss"/);
+    assert.doesNotMatch(app, /onClick=\{\(\) => setProblem\(null\)\}/);
+  });
+
+  test("the sharing switch stays focusable once it can't be used, and says when it can be used again (review round)", () => {
+    // On the paused page (canTurnOn false) switching sharing off made the focused switch disabled.
+    assert.match(source("CoachPausedControls.tsx"), /canTurnOn=\{false\}/);
+    const settings = source("CoachSettings.tsx");
+    assert.match(settings, /const mayShare = !minor && !ageMissing && \(canTurnOn \|\| shareData\);/);
+    assert.match(settings, /disabled=\{minor \|\| ageMissing\}\n\s+aria-disabled=\{saving \|\| !mayShare \|\| undefined\}/);
+    assert.doesNotMatch(settings, /disabled=\{!mayShare\}/);
+    assert.match(settings, /if \(saving \|\| !mayShare\) return;/);
+    assert.match(settings, /aria-describedby=\{shareTextId\}/);
+    assert.match(settings, /: canTurnOn\n\s+\? "Off: the coach answers general questions only, and meal and workout plans are off\."\n\s+: "Off: [^"]*You can switch it on again when the coach is back\."/);
   });
 
   test("the consent update prompt, swaps and Add to My Food Plan don't leave focus on nothing", () => {
