@@ -6,8 +6,9 @@ import type { FormState } from "@/lib/content/form";
 import styles from "./content.module.css";
 
 /**
- * The sticky save bar of a content form: the submit button (off while saving, so nothing is sent twice)
- * and the result, announced to screen readers. After an error, focus moves to the first invalid field.
+ * The sticky save bar of a content form: the submit button (off while saving, so nothing is sent twice; it
+ * stays focusable, aria-disabled, since a disabled button drops keyboard focus to the page) and the result,
+ * announced to screen readers. After an error, focus moves to the first invalid field.
  */
 export function FormFooter({ state, pending, label, pendingLabel = "Saving", formRef, children }: {
   state: FormState;
@@ -25,7 +26,7 @@ export function FormFooter({ state, pending, label, pendingLabel = "Saving", for
   }, [state, formRef]);
   return (
     <div className={styles.formFoot}>
-      <button className={styles.button} type="submit" disabled={pending} aria-disabled={pending}>
+      <button className={styles.button} type="submit" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
         {pending && <LoaderCircle aria-hidden="true" className="spin" size={16} />}
         {pending ? pendingLabel : label}
       </button>

@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-auth";
-import { FEATURE_KEYS, LEGACY_FEATURE_KEYS, validateSettingsInput } from "@/components/settings/settings-rules";
-import { savePlatformSettings } from "@/lib/data/platform";
+import { ADMIN_OPS_MIGRATION, FEATURE_KEYS, LEGACY_FEATURE_KEYS, validateSettingsInput } from "@/components/settings/settings-rules";
+import type { FormState } from "@/lib/content/form";
+import { savePlatformSettings, type SaveSettingsResult } from "@/lib/data/platform";
 import { istInputToIso } from "@/lib/time";
 
 function time(formData: FormData, name: string): string | null | undefined {
@@ -13,8 +13,21 @@ function time(formData: FormData, name: string): string | null | undefined {
   return istInputToIso(raw) ?? undefined;
 }
 
-/** Saves feature switches, the maintenance notice and website information together (settings.manage). */
-export async function saveSettings(formData: FormData) {
+/** What the save bar says when the database refuses a save. */
+const REFUSED: Record<Extract<SaveSettingsResult, { ok: false }>["error"], string> = {
+  changed: "Someone saved these settings after you opened them. Reload the page to see their changes, then make yours again.",
+  forbidden: "Only a super-admin can change settings.",
+  invalid: "The database refused these values. Check them and save again.",
+  migration: `Settings need migration ${ADMIN_OPS_MIGRATION}.`,
+  configuration: "Server data access is not configured.",
+  failed: "Not saved. The server log has the details.",
+};
+
+/**
+ * Saves feature switches, the maintenance notice and website information together (settings.manage); for
+ * useActionState. The result comes back to the form's save bar, never through the address.
+ */
+export async function saveSettings(_previous: FormState, formData: FormData): Promise<FormState> {
   const actor = await requireAdmin("settings.manage");
   const checked = validateSettingsInput({
     features: Object.fromEntries(FEATURE_KEYS.map((key) => [key, formData.get(`feature_${key}`) === "on"])),
@@ -26,11 +39,12 @@ export async function saveSettings(formData: FormData) {
     supportEmail: formData.get("support_email"),
     instagramUrl: formData.get("instagram_url"),
   });
-  if (!checked.ok) redirect(`/settings?state=invalid&message=${encodeURIComponent(checked.error)}`);
+  if (!checked.ok) return { status: "error", message: checked.error, fieldErrors: { [checked.field]: checked.error } };
   const seen = formData.get("updated_at");
   // The form shows the Explore switches only once 20261124100020 is applied (the older save refuses their keys).
   const keys = formData.get("explore_keys") === "1" ? FEATURE_KEYS : LEGACY_FEATURE_KEYS;
   const result = await savePlatformSettings(actor, checked.value, typeof seen === "string" && seen && !Number.isNaN(Date.parse(seen)) ? seen : null, keys);
+  if (!result.ok) return { status: "error", message: REFUSED[result.error] };
   revalidatePath("/settings");
-  redirect(`/settings?state=${result.ok ? "saved" : result.error}`);
+  return { status: "saved", message: "Saved. The app picks it up within a minute." };
 }

@@ -28,10 +28,11 @@ export function ConfirmSubmit({ label, confirmLabel, tone = "danger", small }: {
         key="ask"
         type="button"
         className={className}
-        disabled={pending}
+        aria-disabled={pending}
         onClick={(event) => {
           // The asking press never sends: the confirm button is a new element, and this click is cancelled.
           event.preventDefault();
+          if (pending) return;
           setAsking(true);
           timer.current = setTimeout(() => setAsking(false), 6000);
         }}
@@ -41,18 +42,18 @@ export function ConfirmSubmit({ label, confirmLabel, tone = "danger", small }: {
     );
   }
   return (
-    <button key="confirm" type="submit" className={`${styles.buttonDanger} ${small ? styles.small : ""}`} disabled={pending} aria-live="polite" onBlur={() => !pending && setAsking(false)} ref={confirmRef}>
+    <button key="confirm" type="submit" className={`${styles.buttonDanger} ${small ? styles.small : ""}`} aria-disabled={pending} aria-live="polite" onClick={(event) => { if (pending) event.preventDefault(); }} onBlur={() => !pending && setAsking(false)} ref={confirmRef}>
       {pending && <LoaderCircle aria-hidden="true" className="spin" size={15} />}
       {confirmLabel}
     </button>
   );
 }
 
-/** A plain submit button that switches off while its form is sending. */
+/** A plain submit button that switches off while its form is sending (aria-disabled: it keeps keyboard focus). */
 export function SubmitButton({ children, quiet, small }: { children: React.ReactNode; quiet?: boolean; small?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" className={`${quiet ? styles.buttonQuiet : styles.button} ${small ? styles.small : ""}`} disabled={pending} aria-disabled={pending}>
+    <button type="submit" className={`${quiet ? styles.buttonQuiet : styles.button} ${small ? styles.small : ""}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
       {pending && <LoaderCircle aria-hidden="true" className="spin" size={15} />}
       {children}
     </button>

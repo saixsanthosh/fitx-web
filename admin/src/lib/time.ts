@@ -62,10 +62,20 @@ export function istDateToIso(value: unknown, { endOfDay = false }: { endOfDay?: 
   return new Date(start.valueOf() + (endOfDay ? 24 * 60 * 60 * 1000 : 0)).toISOString();
 }
 
-/** A calendar day ("2026-11-18") formatted for chart labels, for example "18 Nov". */
-export function formatShortDay(day: string): string {
+/** A calendar day ("2026-11-18") formatted for chart labels, for example "18 Nov", or "18 Nov 2026" with the year. */
+export function formatShortDay(day: string, withYear = false): string {
   const date = new Date(`${day}T12:00:00+05:30`);
   return Number.isNaN(date.valueOf())
     ? day
-    : new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: ADMIN_TIME_ZONE }).format(date);
+    : new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", ...(withYear ? { year: "numeric" as const } : {}), timeZone: ADMIN_TIME_ZONE }).format(date);
+}
+
+/** Whether two calendar days ("YYYY-MM-DD") fall in different years, so short day labels need the year to be read right. */
+export function crossesYear(first: string | null | undefined, last: string | null | undefined): boolean {
+  return Boolean(first && last && /^\d{4}-/.test(first) && /^\d{4}-/.test(last) && first.slice(0, 4) !== last.slice(0, 4));
+}
+
+/** A range of calendar days with its year: "27 Oct to 26 Nov 2026", or "27 Nov 2025 to 26 Nov 2026" across a year. */
+export function formatDayRange(from: string, to: string): string {
+  return `${formatShortDay(from, crossesYear(from, to))} to ${formatShortDay(to, true)}`;
 }

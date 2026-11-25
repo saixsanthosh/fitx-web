@@ -23,6 +23,7 @@ import { SelectAll, SelectionCount } from "@/components/users/select-all";
 import styles from "@/components/users/users.module.css";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { isSuspended, searchPeopleFiltered } from "@/lib/data/people";
+import { noticeWords, pageNotice } from "@/lib/notice";
 import { openPeopleSearch, PEOPLE_SEARCH_PARAM } from "@/lib/people-search";
 import { ROLE_LABELS } from "@/lib/roles";
 import { MIGRATIONS } from "@/lib/schema";
@@ -32,16 +33,23 @@ import { noticeSelected, searchUsers, suspendSelected } from "./actions";
 
 export const metadata: Metadata = { title: "Users" };
 
-const NOTICES: Record<string, { tone: "success" | "error"; text: (count: string) => string }> = {
+/** "1 account", "3 accounts". */
+const accounts = (count: number) => `${count.toLocaleString("en-IN")} ${count === 1 ? "account" : "accounts"}`;
+
+/**
+ * The page's words for a bulk action's result. The count comes sealed with it from the action itself (lib/notice.ts),
+ * never from the address; a result without its count (it cannot happen from this page's actions) leaves the number out.
+ */
+const NOTICES: Record<string, { tone: "success" | "error"; text: (count: number | null) => string }> = {
   deleted: { tone: "success", text: () => "Account deleted and recorded in the audit log." },
-  bulk_suspended: { tone: "success", text: (count) => `${count} accounts suspended and signed out everywhere.` },
-  bulk_partial: { tone: "error", text: (count) => `${count} accounts suspended; Supabase refused the rest. The audit log lists each one.` },
+  bulk_suspended: { tone: "success", text: (count) => (count === null ? "Accounts suspended and signed out everywhere." : `${accounts(count)} suspended and signed out everywhere.`) },
+  bulk_partial: { tone: "error", text: (count) => `${count === null ? "Some accounts" : accounts(count)} suspended; Supabase refused the rest. The audit log lists each one.` },
   none_selected: { tone: "error", text: () => "Select at least one account." },
   too_many: { tone: "error", text: () => `Select at most ${BULK_SUSPEND_MAX} accounts at a time.` },
   reason_required: { tone: "error", text: () => "Give a reason of 3 to 200 characters." },
   confirm_needed: { tone: "error", text: () => "Tick the confirmation box first." },
-  audit_migration: { tone: "error", text: (count) => `Stopped after ${count}: the audit log needs migration ${MIGRATIONS.adminV2}.` },
-  audit_failed: { tone: "error", text: (count) => `Stopped after ${count}: the audit log could not record the next one.` },
+  audit_migration: { tone: "error", text: (count) => `Stopped${count === null ? "" : ` after ${accounts(count)}`}: the audit log needs migration ${MIGRATIONS.adminV2}.` },
+  audit_failed: { tone: "error", text: (count) => `Stopped${count === null ? "" : ` after ${accounts(count)}`}: the audit log could not record the next one.` },
   configuration: { tone: "error", text: () => "Server data access is not configured." },
 };
 
@@ -57,7 +65,8 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
   const query = searchToken ? openPeopleSearch(searchToken, actor.id) : null;
   const filters = parsePeopleFilters(params, query ?? "");
   const result = await searchPeopleFiltered(filters);
-  const notice = NOTICES[firstParam(params.notice)];
+  const opened = pageNotice(params.notice, actor.id);
+  const notice = noticeWords(NOTICES, opened);
   const canSuspend = hasPermission(actor, "people.suspend");
   const canNotify = hasPermission(actor, "notifications.send");
   const bulk = canSuspend || canNotify;
@@ -70,7 +79,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         title="Accounts"
         meta={result.state === "ready" && result.total !== null ? `${result.total.toLocaleString("en-IN")} ${hasFilters(filters) ? "matching" : "accounts"}` : undefined}
       />
-      {notice && <Notice tone={notice.tone}>{notice.text(firstParam(params.count) || "0")}</Notice>}
+      {notice && <Notice tone={notice.tone}>{notice.text(opened?.count ?? null)}</Notice>}
       {searchToken && query === null && <Notice tone="error">That search has expired. Search again.</Notice>}
 
       {result.state === "ready" ? (

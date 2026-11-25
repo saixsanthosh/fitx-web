@@ -10,7 +10,13 @@ import type { FormState } from "@/lib/content/form";
 import { checkDeclaredFile, EXERCISE_MEDIA_BUCKET, isMediaPathFor, type MediaKind } from "@/lib/content/media-rules";
 import { checkUploadedFile, createSignedUpload, removeFiles } from "@/lib/content/storage";
 import { logServerError } from "@/lib/log";
+import { noticeHref } from "@/lib/notice";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+
+/** To `path` with the result sealed for the operator who acted (lib/notice.ts); the page shows its own words for it. */
+function to(actorId: string, path: string, state: string): never {
+  redirect(noticeHref(path, state, actorId, { param: "state" }));
+}
 
 const PROGRAMME_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const MEDIA_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -27,18 +33,18 @@ export async function setExerciseActive(formData: FormData) {
   const active = formData.get("active");
   const back = formData.get("back") === "detail" && typeof exerciseId === "string" ? `/training/exercises/${exerciseId}` : "/training";
   if (typeof exerciseId !== "string" || !EXERCISE_ID.test(exerciseId) || !["true", "false"].includes(String(active))) {
-    redirect("/training?state=invalid");
+    to(actor.id, "/training", "invalid");
   }
   const supabase = createAdminSupabase();
-  if (!supabase) redirect(`${back}?state=configuration`);
+  if (!supabase) to(actor.id, back, "configuration");
   const { error } = await supabase.rpc("fitx_admin_op_set_exercise_active", {
     p_operator_id: actor.id,
     p_exercise_id: exerciseId,
     p_is_active: active === "true",
   });
-  if (error) redirect(`${back}?state=${error.code === "42501" ? "forbidden" : "save_failed"}`);
+  if (error) to(actor.id, back, error.code === "42501" ? "forbidden" : "save_failed");
   refreshTraining(exerciseId);
-  redirect(`${back}?state=${active === "true" ? "shown" : "hidden"}`);
+  to(actor.id, back, active === "true" ? "shown" : "hidden");
 }
 
 /** Adds an exercise (no id) or saves one; for useActionState. A new exercise opens its page. */
@@ -56,7 +62,7 @@ export async function saveExercise(exerciseId: string | null, _previous: FormSta
   }
   const id = typeof data === "string" ? data : exerciseId;
   refreshTraining(id ?? undefined);
-  if (exerciseId === null && id) redirect(`/training/exercises/${id}?state=created`);
+  if (exerciseId === null && id) to(actor.id, `/training/exercises/${id}`, "created");
   return { status: "saved", message: "Saved. Members see it the next time the page loads." };
 }
 
@@ -64,18 +70,18 @@ export async function saveExercise(exerciseId: string | null, _previous: FormSta
 export async function deleteExercise(formData: FormData) {
   const actor = await requireAdmin("content.manage");
   const exerciseId = formData.get("exerciseId");
-  if (typeof exerciseId !== "string" || !EXERCISE_ID.test(exerciseId)) redirect("/training?state=invalid");
+  if (typeof exerciseId !== "string" || !EXERCISE_ID.test(exerciseId)) to(actor.id, "/training", "invalid");
   const supabase = createAdminSupabase();
-  if (!supabase) redirect(`/training/exercises/${exerciseId}?state=configuration`);
+  if (!supabase) to(actor.id, `/training/exercises/${exerciseId}`, "configuration");
   const { data, error } = await supabase.rpc("fitx_admin_op_delete_exercise", { p_operator_id: actor.id, p_exercise_id: exerciseId });
   if (error) {
     const state = error.code === "FXC01" ? "in_use" : error.code === "FXC02" ? "catalogue" : error.code === "42501" ? "forbidden" : "delete_failed";
     if (state === "delete_failed") logServerError("training.delete_exercise", error);
-    redirect(`/training/exercises/${exerciseId}?state=${state}`);
+    to(actor.id, `/training/exercises/${exerciseId}`, state);
   }
   await removeFiles(EXERCISE_MEDIA_BUCKET, Array.isArray(data) ? data.filter((path): path is string => typeof path === "string") : []);
   refreshTraining();
-  redirect("/training?state=deleted");
+  to(actor.id, "/training", "deleted");
 }
 
 type UploadKind = Extract<MediaKind, "still" | "video_loop">;
@@ -131,31 +137,31 @@ export async function removeExerciseMedia(formData: FormData) {
   const actor = await requireAdmin("content.manage");
   const exerciseId = formData.get("exerciseId");
   const mediaId = formData.get("mediaId");
-  if (typeof exerciseId !== "string" || !EXERCISE_ID.test(exerciseId) || typeof mediaId !== "string" || !MEDIA_ID.test(mediaId)) redirect("/training?state=invalid");
+  if (typeof exerciseId !== "string" || !EXERCISE_ID.test(exerciseId) || typeof mediaId !== "string" || !MEDIA_ID.test(mediaId)) to(actor.id, "/training", "invalid");
   const supabase = createAdminSupabase();
-  if (!supabase) redirect(`/training/exercises/${exerciseId}?state=configuration`);
+  if (!supabase) to(actor.id, `/training/exercises/${exerciseId}`, "configuration");
   const { data, error } = await supabase.rpc("fitx_admin_op_remove_exercise_media", { p_operator_id: actor.id, p_media_id: mediaId });
   if (error) {
     logServerError("training.remove_media", error);
-    redirect(`/training/exercises/${exerciseId}?state=${error.code === "42501" ? "forbidden" : "save_failed"}`);
+    to(actor.id, `/training/exercises/${exerciseId}`, error.code === "42501" ? "forbidden" : "save_failed");
   }
   if (typeof data === "string") await removeFiles(EXERCISE_MEDIA_BUCKET, [data]);
   refreshTraining(exerciseId);
-  redirect(`/training/exercises/${exerciseId}?state=media_removed`);
+  to(actor.id, `/training/exercises/${exerciseId}`, "media_removed");
 }
 
 export async function setProgrammeStatus(formData: FormData) {
   const actor = await requireAdmin("content.manage");
   const programmeId = formData.get("programmeId");
   const status = formData.get("status");
-  if (typeof programmeId !== "string" || !PROGRAMME_ID.test(programmeId) || (status !== "draft" && status !== "published")) redirect("/training?tab=programmes&state=invalid");
+  if (typeof programmeId !== "string" || !PROGRAMME_ID.test(programmeId) || (status !== "draft" && status !== "published")) to(actor.id, "/training?tab=programmes", "invalid");
   const supabase = createAdminSupabase();
-  if (!supabase) redirect("/training?tab=programmes&state=configuration");
+  if (!supabase) to(actor.id, "/training?tab=programmes", "configuration");
   const { error } = await supabase.rpc("fitx_admin_op_set_programme_status", { p_operator_id: actor.id, p_programme_id: programmeId, p_status: status });
   if (error) {
     logServerError("training.programme_status", error);
-    redirect(`/training?tab=programmes&state=${error.code === "42501" ? "forbidden" : "save_failed"}`);
+    to(actor.id, "/training?tab=programmes", error.code === "42501" ? "forbidden" : "save_failed");
   }
   revalidatePath("/training");
-  redirect(`/training?tab=programmes&state=${status === "published" ? "programme_published" : "programme_draft"}#${programmeId}`);
+  to(actor.id, `/training?tab=programmes#${programmeId}`, status === "published" ? "programme_published" : "programme_draft");
 }

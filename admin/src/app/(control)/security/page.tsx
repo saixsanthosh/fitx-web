@@ -8,7 +8,7 @@ import { AUDIT_ACTIONS, auditActionLabel, summariseAuditDetails } from "@/lib/au
 import { recentAuditEvents } from "@/lib/data/audit";
 import { getSecurityOverview } from "@/lib/data/security";
 import { LOGIN_LIMITS } from "@/lib/login-guard";
-import { firstParam } from "@/lib/search-params";
+import { noticeWords, pageNotice } from "@/lib/notice";
 import { formatIstDateTime, formatShortDay } from "@/lib/time";
 import { endOperatorSessions, endSession } from "./actions";
 
@@ -41,7 +41,7 @@ function minutesLeft(until: string): number {
 
 export default async function SecurityPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const actor = await requireAdmin("security.view");
-  const notice = NOTICES[firstParam((await searchParams).state)];
+  const notice = noticeWords(NOTICES, pageNotice((await searchParams).state, actor.id));
   const manage = hasPermission(actor, "access.manage");
   const [overview, sessions, history] = await Promise.all([
     getSecurityOverview(),

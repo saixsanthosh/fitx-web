@@ -11,7 +11,7 @@ import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { getAccountRecord } from "@/lib/data/explore";
 import { signedLink } from "@/lib/data/explore-evidence";
 import { ACTION_LABELS, EXPLORE_MIGRATION, REASON_LABELS, SANCTION_LABELS, STATUS_LABELS, TARGET_LABELS, isAction, type ModerationAction } from "@/lib/explore-rules";
-import { firstParam } from "@/lib/search-params";
+import { pageNotice } from "@/lib/notice";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { formatIstDate, formatIstDateTime } from "@/lib/time";
 
@@ -30,7 +30,7 @@ export default async function ExploreAccountPage({ params, searchParams }: { par
   const account = result.account;
   const admin = createAdminSupabase();
   const avatar = admin && account.profile?.avatarPath ? await signedLink(admin, account.profile.avatarPath) : null;
-  const notice = exploreNotice(firstParam(query.notice));
+  const notice = exploreNotice(pageNotice(query.notice, actor.id)?.code);
   const moderator = hasPermission(actor, "explore.moderate");
   const active = account.sanctions.filter((sanction) => sanction.active);
   const memberActions: ModerationAction[] = account.profile ? ["warn", ...(account.profile.avatarPath ? (["clear_avatar"] as const) : []), ...(account.profile.bio ? (["clear_bio"] as const) : [])] : ["warn"];

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { FitxMark } from "@/components/fitx-mark";
 import { getAdminOperator } from "@/lib/admin-auth";
-import { isConsolePath } from "@/lib/roles";
+import { safeNextPath } from "@/lib/next-path";
+import { pageNotice, SIGN_IN_NOTICE } from "@/lib/notice";
 import { firstParam } from "@/lib/search-params";
 import { LoginForm } from "./login-form";
 import { LoginStage } from "./login-stage";
@@ -12,8 +13,8 @@ export const metadata: Metadata = { title: "Sign in" };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
-  const raw = firstParam(params.next);
-  const next = isConsolePath(raw) ? raw : "";
+  // A console page this sign-in returns to (a teammate's link to a member, a request or a report); "" for anything else.
+  const next = safeNextPath(firstParam(params.next)) ?? "";
   const operator = await getAdminOperator();
   if (operator) redirect(operator.mustChangePassword ? "/account" : next || "/overview");
 
@@ -24,7 +25,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <div className={styles.card}>
           <div className={styles.cardBrand}><FitxMark size={28} /><span>FITX <em>ADMIN</em></span></div>
           <h1 id="login-title" className={styles.title}>Sign in</h1>
-          {firstParam(params.state) === "password_changed" && <p className={styles.notice} role="status">Password changed. Sign in with the new one.</p>}
+          {pageNotice(params.state, SIGN_IN_NOTICE)?.code === "password_changed" && <p className={styles.notice} role="status">Password changed. Sign in with the new one.</p>}
           <LoginForm next={next} />
           <p className={styles.note}>Private console. Every sign-in is recorded.</p>
         </div>

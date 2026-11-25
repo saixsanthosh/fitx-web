@@ -7,6 +7,7 @@ import { logAdminEvent } from "@/lib/audit";
 import { BULK_SUSPEND_MAX, confirmsDeletion, normalisePeopleQuery, parsePeopleFilters, peopleHref, selectedIds } from "@/components/users/people-filters";
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
+import { noticeHref } from "@/lib/notice";
 import { sealPeopleSearch } from "@/lib/people-search";
 import { removeSocialMediaFiles } from "@/lib/social-media-storage";
 import { isMissingFunction, isMissingTable, isPermissionError } from "@/lib/schema";
@@ -23,8 +24,9 @@ type AdminClient = NonNullable<ReturnType<typeof createAdminSupabase>>;
 /** The target's Admin team membership, if it ever had one. */
 type Membership = { isActive: boolean } | null;
 
-function back(id: string, notice: string): never {
-  redirect(`/users/${id}?notice=${notice}`);
+/** Back to the member's page with the result sealed for the operator who acted (lib/notice.ts). */
+function back(actorId: string, id: string, notice: string): never {
+  redirect(noticeHref(`/users/${id}`, notice, actorId));
 }
 
 function readId(formData: FormData): string {
@@ -52,13 +54,13 @@ function customerSiteUrl(): string {
  * no "yourself" or Admin team rule any more; an old Google-era Admin membership (fitx_admin_members) is
  * still read so a deletion can say whether the account had one.
  */
-async function checkTarget(id: string): Promise<{ admin: AdminClient; membership: Membership }> {
+async function checkTarget(actorId: string, id: string): Promise<{ admin: AdminClient; membership: Membership }> {
   const admin = createAdminSupabase();
-  if (!admin) back(id, "configuration");
+  if (!admin) back(actorId, id, "configuration");
   const { data, error } = await admin.from("fitx_admin_members").select("is_active").eq("user_id", id).maybeSingle();
   if (error && !isMissingTable(error)) {
     logServerError("people.check_target", error);
-    back(id, "failed");
+    back(actorId, id, "failed");
   }
   return { admin, membership: data ? { isActive: Boolean(data.is_active) } : null };
 }
@@ -103,22 +105,22 @@ async function listMediaFiles(admin: AdminClient, id: string): Promise<{ paths: 
 /** Writes the "requested" audit row; the action does not run if it cannot be recorded. */
 async function recordIntent(actor: AdminOperator, id: string, action: "user_suspend_requested" | "user_unsuspend_requested" | "user_password_reset_requested" | "user_delete_requested", details: Record<string, unknown>) {
   const intent = await logAdminEvent({ actor, action, resourceType: "user", resourceId: id, details });
-  if (!intent.ok) back(id, intent.reason === "migration_pending" ? "audit_migration" : "audit_failed");
+  if (!intent.ok) back(actor.id, id, intent.reason === "migration_pending" ? "audit_migration" : "audit_failed");
 }
 
 export async function suspendAccount(formData: FormData) {
   const actor = await requireAdmin("people.suspend");
   const id = readId(formData);
   const reason = readReason(formData);
-  if (!reason) back(id, "reason_required");
-  const { admin } = await checkTarget(id);
+  if (!reason) back(actor.id, id, "reason_required");
+  const { admin } = await checkTarget(actor.id, id);
   await recordIntent(actor, id, "user_suspend_requested", { reason });
 
   const { error } = await admin.auth.admin.updateUserById(id, { ban_duration: SUSPEND_DURATION });
   if (error) {
     logServerError("people.suspend", error);
     await logAdminEvent({ actor, action: "user_suspend_failed", resourceType: "user", resourceId: id, details: { reason, error: error.code ?? error.status ?? null } });
-    back(id, "failed");
+    back(actor.id, id, "failed");
   }
   // End existing sessions too, so the suspension applies now rather than at the next token refresh.
   const revoked = await admin.rpc("fitx_admin_op_revoke_user_sessions", { p_operator_id: actor.id, p_user_id: id, p_reason: `Suspended: ${reason}` });
@@ -132,61 +134,61 @@ export async function suspendAccount(formData: FormData) {
     details: { reason, sessions_revoked: revoked.error ? null : revoked.data },
   });
   revalidatePath(`/users/${id}`);
-  back(id, !revoked.error ? "suspended" : sessionsPending ? "suspended_sessions_pending" : "suspended_sessions_failed");
+  back(actor.id, id, !revoked.error ? "suspended" : sessionsPending ? "suspended_sessions_pending" : "suspended_sessions_failed");
 }
 
 export async function unsuspendAccount(formData: FormData) {
   const actor = await requireAdmin("people.suspend");
   const id = readId(formData);
   const reason = readReason(formData);
-  if (!reason) back(id, "reason_required");
-  const { admin } = await checkTarget(id);
+  if (!reason) back(actor.id, id, "reason_required");
+  const { admin } = await checkTarget(actor.id, id);
   await recordIntent(actor, id, "user_unsuspend_requested", { reason });
 
   const { error } = await admin.auth.admin.updateUserById(id, { ban_duration: "none" });
   if (error) {
     logServerError("people.unsuspend", error);
     await logAdminEvent({ actor, action: "user_unsuspend_failed", resourceType: "user", resourceId: id, details: { reason, error: error.code ?? error.status ?? null } });
-    back(id, "failed");
+    back(actor.id, id, "failed");
   }
   await logAdminEvent({ actor, action: "user_unsuspended", resourceType: "user", resourceId: id, details: { reason } });
   revalidatePath(`/users/${id}`);
-  back(id, "unsuspended");
+  back(actor.id, id, "unsuspended");
 }
 
 export async function revokeSessions(formData: FormData) {
   const actor = await requireAdmin("people.support");
   const id = readId(formData);
   const reason = readReason(formData);
-  if (!reason) back(id, "reason_required");
-  const { admin } = await checkTarget(id);
+  if (!reason) back(actor.id, id, "reason_required");
+  const { admin } = await checkTarget(actor.id, id);
 
   // The database function signs the account out everywhere and writes the audit row in one transaction.
   const { error } = await admin.rpc("fitx_admin_op_revoke_user_sessions", { p_operator_id: actor.id, p_user_id: id, p_reason: reason });
   if (error) {
-    if (isMissingFunction(error)) back(id, "people_migration");
+    if (isMissingFunction(error)) back(actor.id, id, "people_migration");
     if (isPermissionError(error)) {
       // Either the role check or Postgres refusing to touch auth.sessions; the log says which.
       logServerError("people.revoke_sessions", error);
-      back(id, "revoke_refused");
+      back(actor.id, id, "revoke_refused");
     }
     logServerError("people.revoke_sessions", error);
-    back(id, "failed");
+    back(actor.id, id, "failed");
   }
-  back(id, "sessions_revoked");
+  back(actor.id, id, "sessions_revoked");
 }
 
 export async function sendPasswordReset(formData: FormData) {
   const actor = await requireAdmin("people.support");
   const id = readId(formData);
-  if (process.env.FITX_ADMIN_PASSWORD_RESET_EMAILS !== "on") back(id, "reset_disabled");
-  const { admin } = await checkTarget(id);
+  if (process.env.FITX_ADMIN_PASSWORD_RESET_EMAILS !== "on") back(actor.id, id, "reset_disabled");
+  const { admin } = await checkTarget(actor.id, id);
 
   const { data, error: lookupError } = await admin.auth.admin.getUserById(id);
   const user = data?.user;
-  if (lookupError || !user?.email) back(id, lookupError ? "failed" : "no_email");
+  if (lookupError || !user?.email) back(actor.id, id, lookupError ? "failed" : "no_email");
   const providers = (user.identities ?? []).map((identity) => identity.provider);
-  if (!providers.includes("email")) back(id, "no_password");
+  if (!providers.includes("email")) back(actor.id, id, "no_password");
 
   await recordIntent(actor, id, "user_password_reset_requested", {});
   const { error } = await admin.auth.resetPasswordForEmail(user.email, {
@@ -195,28 +197,28 @@ export async function sendPasswordReset(formData: FormData) {
   if (error) {
     logServerError("people.password_reset", error);
     await logAdminEvent({ actor, action: "user_password_reset_failed", resourceType: "user", resourceId: id, details: { error: error.code ?? error.status ?? null } });
-    back(id, "reset_failed");
+    back(actor.id, id, "reset_failed");
   }
   await logAdminEvent({ actor, action: "user_password_reset_sent", resourceType: "user", resourceId: id });
-  back(id, "reset_sent");
+  back(actor.id, id, "reset_sent");
 }
 
 export async function deleteAccount(formData: FormData) {
   const actor = await requireAdmin("people.delete");
   const id = readId(formData);
   const reason = readReason(formData);
-  if (!reason) back(id, "reason_required");
-  const { admin, membership } = await checkTarget(id);
+  if (!reason) back(actor.id, id, "reason_required");
+  const { admin, membership } = await checkTarget(actor.id, id);
 
   const { data, error: lookupError } = await admin.auth.admin.getUserById(id);
-  if (lookupError || !data?.user) back(id, "failed");
+  if (lookupError || !data?.user) back(actor.id, id, "failed");
   // The email; for an account without one, its phone number, or else the start of its account ID.
-  if (!confirmsDeletion(formData.get("confirmEmail"), { id, email: data.user.email, phone: data.user.phone })) back(id, "confirm_mismatch");
+  if (!confirmsDeletion(formData.get("confirmEmail"), { id, email: data.user.email, phone: data.user.phone })) back(actor.id, id, "confirm_mismatch");
   // A Google-era Admin membership goes with the account (on delete cascade); it no longer signs anyone in.
   // Razorpay would keep charging a deleted account, so a subscription it still bills is cancelled first.
   const billed = await hasBilledSubscription(admin, id);
-  if (billed === null) back(id, "failed");
-  if (billed) back(id, "billing_active");
+  if (billed === null) back(actor.id, id, "failed");
+  if (billed) back(actor.id, id, "billing_active");
 
   await recordIntent(actor, id, "user_delete_requested", { reason, was_admin_member: Boolean(membership) });
 
@@ -225,7 +227,7 @@ export async function deleteAccount(formData: FormData) {
   if (files.error) {
     logServerError("people.delete_storage_list", files.error);
     await logAdminEvent({ actor, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "storage" } });
-    back(id, "delete_failed");
+    back(actor.id, id, "delete_failed");
   }
   let filesRemoved = 0;
   for (let start = 0; start < files.paths.length; start += STORAGE_PAGE) {
@@ -234,7 +236,7 @@ export async function deleteAccount(formData: FormData) {
     if (removed.error) {
       logServerError("people.delete_storage_remove", removed.error);
       await logAdminEvent({ actor, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "storage", files_removed: filesRemoved } });
-      back(id, "delete_failed");
+      back(actor.id, id, "delete_failed");
     }
     filesRemoved += removed.data?.length ?? batch.length;
   }
@@ -244,18 +246,18 @@ export async function deleteAccount(formData: FormData) {
   if (social.error) {
     logServerError("people.delete_social_storage", social.error);
     await logAdminEvent({ actor, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "social_storage", files_removed: filesRemoved } });
-    back(id, "delete_failed");
+    back(actor.id, id, "delete_failed");
   }
 
   const { error } = await admin.auth.admin.deleteUser(id);
   if (error) {
     logServerError("people.delete", error);
     await logAdminEvent({ actor, action: "user_delete_failed", resourceType: "user", resourceId: id, details: { reason, step: "account", error: error.code ?? error.status ?? null } });
-    back(id, "delete_failed");
+    back(actor.id, id, "delete_failed");
   }
   await logAdminEvent({ actor, action: "user_deleted", resourceType: "user", resourceId: id, details: { reason, files_removed: filesRemoved } });
   revalidatePath("/users");
-  redirect("/users?notice=deleted");
+  redirect(noticeHref("/users", "deleted", actor.id));
 }
 
 /** Where a bulk action returns: the Users list with the filters it had. */
@@ -264,11 +266,9 @@ function listReturn(formData: FormData): string {
   return typeof value === "string" && /^\/users(\?[^\s]*)?$/.test(value) && !value.startsWith("//") ? value : "/users";
 }
 
-function withNotice(path: string, notice: string, extra: Record<string, string> = {}): string {
-  const url = new URL(path, "https://admin.invalid");
-  url.searchParams.set("notice", notice);
-  for (const [key, value] of Object.entries(extra)) url.searchParams.set(key, value);
-  return `${url.pathname}${url.search}`;
+/** The list with its filters and the result sealed for the operator who acted; a count comes from this action only. */
+function withNotice(actorId: string, path: string, notice: string, count: number | null = null): string {
+  return noticeHref(path, notice, actorId, { count });
 }
 
 /**
@@ -279,19 +279,19 @@ export async function suspendSelected(formData: FormData) {
   const actor = await requireAdmin("people.suspend");
   const back = listReturn(formData);
   const ids = selectedIds(formData.getAll("ids"));
-  if (!ids.length) redirect(withNotice(back, "none_selected"));
-  if (ids.length > BULK_SUSPEND_MAX) redirect(withNotice(back, "too_many"));
+  if (!ids.length) redirect(withNotice(actor.id, back, "none_selected"));
+  if (ids.length > BULK_SUSPEND_MAX) redirect(withNotice(actor.id, back, "too_many"));
   const reason = readReason(formData);
-  if (!reason) redirect(withNotice(back, "reason_required"));
-  if (formData.get("confirm") !== "yes") redirect(withNotice(back, "confirm_needed"));
+  if (!reason) redirect(withNotice(actor.id, back, "reason_required"));
+  if (formData.get("confirm") !== "yes") redirect(withNotice(actor.id, back, "confirm_needed"));
   const admin = createAdminSupabase();
-  if (!admin) redirect(withNotice(back, "configuration"));
+  if (!admin) redirect(withNotice(actor.id, back, "configuration"));
 
   let suspended = 0;
   let failed = 0;
   for (const id of ids) {
     const intent = await logAdminEvent({ actor, action: "user_suspend_requested", resourceType: "user", resourceId: id, details: { reason, bulk: true } });
-    if (!intent.ok) redirect(withNotice(back, intent.reason === "migration_pending" ? "audit_migration" : "audit_failed", { count: String(suspended) }));
+    if (!intent.ok) redirect(withNotice(actor.id, back, intent.reason === "migration_pending" ? "audit_migration" : "audit_failed", suspended));
     const { error } = await admin.auth.admin.updateUserById(id, { ban_duration: SUSPEND_DURATION });
     if (error) {
       failed += 1;
@@ -306,14 +306,14 @@ export async function suspendSelected(formData: FormData) {
   }
   await logAdminEvent({ actor, action: "users_bulk_suspended", resourceType: "user", details: { reason, selected: ids.length, suspended, failed } });
   revalidatePath("/users");
-  redirect(withNotice(back, failed ? "bulk_partial" : "bulk_suspended", { count: String(suspended) }));
+  redirect(withNotice(actor.id, back, failed ? "bulk_partial" : "bulk_suspended", suspended));
 }
 
 /** Opens Notifications with the selected accounts as recipients. */
 export async function noticeSelected(formData: FormData) {
-  await requireAdmin("notifications.send");
+  const actor = await requireAdmin("notifications.send");
   const ids = selectedIds(formData.getAll("ids")).slice(0, 500);
-  if (!ids.length) redirect(withNotice(listReturn(formData), "none_selected"));
+  if (!ids.length) redirect(withNotice(actor.id, listReturn(formData), "none_selected"));
   redirect(`/notifications?to=${ids.join(",")}`);
 }
 
@@ -329,6 +329,6 @@ export async function searchUsers(formData: FormData) {
   };
   const filters = parsePeopleFilters({ status: field("status"), method: field("method"), plan: field("plan") }, normalisePeopleQuery(formData.get("q")));
   const token = filters.q ? sealPeopleSearch(filters.q, actor.id) : null;
-  if (filters.q && !token) redirect("/users?notice=configuration");
+  if (filters.q && !token) redirect(noticeHref("/users", "configuration", actor.id));
   redirect(peopleHref(filters, { page: 1 }, token));
 }

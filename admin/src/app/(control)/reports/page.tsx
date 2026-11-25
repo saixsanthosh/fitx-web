@@ -18,7 +18,7 @@ import {
   type Report,
 } from "@/lib/content/report";
 import { getReport } from "@/lib/data/reports";
-import { formatShortDay } from "@/lib/time";
+import { crossesYear, formatDayRange, formatShortDay } from "@/lib/time";
 import { formatInr, formatSignedInr, monthLabel, subscriptionLabel } from "../billing/format";
 
 export const metadata: Metadata = { title: "Reports" };
@@ -40,9 +40,13 @@ function Exports({ days }: { days: number }) {
   );
 }
 
-const weekLabel = (week: string) => `w/c ${formatShortDay(week)}`;
+/** Day labels carry the year when the range crosses one (a 12-month range starts and ends on the same day and month). */
+const withYear = (report: Report) => crossesYear(report.daily[0]?.day, report.daily.at(-1)?.day);
+const weekLabel = (week: string, year: boolean) => `w/c ${formatShortDay(week, year)}`;
+const workoutsText = (n: number) => `${n.toLocaleString("en-IN")} ${n === 1 ? "workout" : "workouts"}`;
 
 function Growth({ report }: { report: Report }) {
+  const year = withYear(report);
   const totals = cumulativeAccounts(report);
   const added = total(report.daily, "new_accounts");
   const change = percentChange(report.accountsBefore, report.accountsTotal);
@@ -56,10 +60,10 @@ function Growth({ report }: { report: Report }) {
       </Stats>
       <div className={`${styles.split} ${styles.splitEven}`}>
         <div className={`${styles.panel} ${styles.panelPad}`}>
-          <LineChart label="Accounts at the end of each day" labels={report.daily.map((day) => formatShortDay(day.day))} series={[{ key: "accounts", label: "Accounts", values: totals, tone: 1 }]} />
+          <LineChart label="Accounts at the end of each day" labels={report.daily.map((day) => formatShortDay(day.day, year))} series={[{ key: "accounts", label: "Accounts", values: totals, tone: 1 }]} />
         </div>
         <div className={`${styles.panel} ${styles.panelPad}`}>
-          <BarChart label="New accounts each week" points={weekly(report.daily, "new_accounts").map((week) => ({ label: weekLabel(week.week), value: week.value }))} />
+          <BarChart label="New accounts each week" points={weekly(report.daily, "new_accounts").map((week) => ({ label: weekLabel(week.week, year), value: week.value }))} />
         </div>
       </div>
     </Section>
@@ -79,7 +83,7 @@ function ActiveUsers({ report }: { report: Report }) {
       <div className={`${styles.panel} ${styles.panelPad}`}>
         <LineChart
           label="Daily, weekly and monthly active members"
-          labels={report.daily.map((day) => formatShortDay(day.day))}
+          labels={report.daily.map((day) => formatShortDay(day.day, withYear(report)))}
           series={[
             { key: "mau", label: "30 days", values: report.daily.map((day) => day.mau), tone: 1 },
             { key: "wau", label: "7 days", values: report.daily.map((day) => day.wau), tone: 2 },
@@ -105,12 +109,18 @@ function Workouts({ report }: { report: Report }) {
       </Stats>
       <div className={`${styles.split} ${styles.splitEven}`}>
         <div className={`${styles.panel} ${styles.panelPad}`}>
-          <BarChart label="Workouts completed each week" tone="accent" points={weekly(report.daily, "workouts_completed").map((week) => ({ label: weekLabel(week.week), value: week.value }))} />
+          <BarChart label="Workouts completed each week" tone="accent" points={weekly(report.daily, "workouts_completed").map((week) => ({ label: weekLabel(week.week, withYear(report)), value: week.value }))} />
         </div>
         <div className={`${styles.panel} ${styles.panelPad}`}>
           <h3 className={styles.dayTitle}>Most trained exercises</h3>
+          {/* A workout has several exercises, so each share is of the completed workouts, said so. With workouts but no
+              exercise rows (a finished workout with nothing logged), the empty state says that, not "no workouts". */}
           {w.topExercises.length ? (
-            <Meters items={w.topExercises.map((row) => ({ label: row.name, value: row.sessions }))} total={w.completed} format={(n) => `${n.toLocaleString("en-IN")} workouts`} />
+            <Meters items={w.topExercises.map((row) => ({ label: row.name, value: row.sessions }))} total={w.completed} of="completed workouts" format={workoutsText} />
+          ) : w.completed > 0 ? (
+            <Empty title="No exercises logged">
+              <p>{`${workoutsText(w.completed)} completed in the range, ${w.completed === 1 ? "with no exercise" : "none with an exercise"} from the library logged.`}</p>
+            </Empty>
           ) : (
             <Empty title="No completed workouts yet" />
           )}
@@ -137,7 +147,7 @@ function Nutrition({ report }: { report: Report }) {
       </Stats>
       <div className={`${styles.split} ${styles.splitEven}`}>
         <div className={`${styles.panel} ${styles.panelPad}`}>
-          <BarChart label="Meals logged each week" tone="good" points={weekly(report.daily, "meals_logged").map((week) => ({ label: weekLabel(week.week), value: week.value }))} />
+          <BarChart label="Meals logged each week" tone="good" points={weekly(report.daily, "meals_logged").map((week) => ({ label: weekLabel(week.week, withYear(report)), value: week.value }))} />
         </div>
         <div className={`${styles.panel} ${styles.panelPad}`}>
           <h3 className={styles.dayTitle}>Where logged food came from</h3>
@@ -173,7 +183,7 @@ function Revenue({ report }: { report: Report }) {
       </Stats>
       <div className={`${styles.split} ${styles.splitEven}`}>
         <div className={`${styles.panel} ${styles.panelPad}`}>
-          <BarChart label="Captured revenue by month" tone="accent" format={formatInr} points={report.monthly.map((m) => ({ label: monthLabel(m.month), value: m.captured_paise }))} />
+          <BarChart label="Captured revenue by month" tone="accent" unit="paise" format={formatInr} points={report.monthly.map((m) => ({ label: monthLabel(m.month), value: m.captured_paise }))} />
         </div>
         <div className={`${styles.panel} ${styles.panelPad}`}>
           <h3 className={styles.dayTitle}>Subscriptions by status</h3>
@@ -226,7 +236,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <ContentHeader
         eyebrow="08 Reports"
         title="Reports"
-        meta={result.state === "ready" ? `${formatShortDay(result.report.from)} to ${formatShortDay(result.report.to)} · IST days · counts, never estimates` : undefined}
+        meta={result.state === "ready" ? `${formatDayRange(result.report.from, result.report.to)} · IST days · counts, never estimates` : undefined}
         actions={result.state === "ready" ? <Exports days={days} /> : undefined}
       />
       <ContentTabs label="Time range" items={REPORT_RANGES.map((range) => ({ href: `/reports?days=${range}`, label: range === 365 ? "12 months" : `${range} days`, current: range === days }))} />

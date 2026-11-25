@@ -9,7 +9,7 @@ import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getExploreMeter, listReports } from "@/lib/data/explore";
 import { EXPLORE_MIGRATION, REASON_LABELS, REPORT_STATUSES, STATUS_LABELS, TARGET_LABELS, TARGET_TYPES, parseQueueFilters, queueHref, type TargetType } from "@/lib/explore-rules";
-import { firstParam } from "@/lib/search-params";
+import { pageNotice } from "@/lib/notice";
 import { formatIstDateTime } from "@/lib/time";
 
 export const metadata: Metadata = { title: "Explore" };
@@ -21,11 +21,11 @@ function statusTone(status: string) {
 }
 
 export default async function ExploreQueuePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireAdmin("explore.view");
+  const actor = await requireAdmin("explore.view");
   const params = await searchParams;
   const filters = parseQueueFilters(params);
   const [result, meter] = await Promise.all([listReports(filters), getExploreMeter()]);
-  const notice = exploreNotice(firstParam(params.notice));
+  const notice = exploreNotice(pageNotice(params.notice, actor.id)?.code);
   // A count that could not be read is null and shows as "Not known", never as 0.
   const waiting = result.state === "ready" && result.counts.open !== null && result.counts.reviewing !== null
     ? result.counts.open + result.counts.reviewing

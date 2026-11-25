@@ -291,6 +291,8 @@ button:disabled, button[aria-disabled="true"] { cursor: not-allowed; opacity: .5
 :is(.stack-form, .filter-bar, .filter-grid, .member-form, .inline-member-form, .table-search) :is(input, select, textarea):focus-visible {
   border-color: var(--coral); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral) 22%, transparent);
 }
+/* The field a refusal is about (FormResult focuses it; its message describes it) stays marked, focused or not. */
+.stack-form :is(input, select, textarea)[aria-invalid="true"] { border-color: var(--red); }
 .stack-form button, .stack-form .primary-button { justify-self: start; }
 .form-row { display: grid; gap: 14px; }
 .check-label { display: inline-flex !important; min-height: 44px; align-items: center; gap: 8px !important; color: var(--ink-soft); font-size: 13px; font-weight: 600; white-space: nowrap; }
@@ -298,6 +300,7 @@ button:disabled, button[aria-disabled="true"] { cursor: not-allowed; opacity: .5
 .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .field-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .form-error { margin: 0; color: var(--red); font-size: 13px; font-weight: 600; line-height: 1.5; }
+.form-saved { margin: 0; color: var(--green); font-size: 13px; font-weight: 600; line-height: 1.5; }
 
 .filter-tabs { position: relative; display: flex; gap: 6px; overflow-x: auto; padding: 12px 14px; border-bottom: 1px solid var(--line); scrollbar-width: none; }
 .filter-tabs::-webkit-scrollbar { display: none; }

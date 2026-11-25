@@ -5,6 +5,7 @@ import { ModuleState } from "@/components/module-state";
 import styles from "@/components/support/support.module.css";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listSupportRequests, parseSupportFilters, type SupportFilters } from "@/lib/data/support";
+import { pageNotice } from "@/lib/notice";
 import { MIGRATIONS } from "@/lib/schema";
 import {
   SUPPORT_CATEGORIES,
@@ -51,7 +52,7 @@ function statusTone(status: string) {
 }
 
 export default async function SupportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireAdmin("support.view");
+  const actor = await requireAdmin("support.view");
   const params = await searchParams;
   const filters = parseSupportFilters(params);
   const result = await listSupportRequests(filters);
@@ -67,7 +68,7 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
         title="Inbox"
         meta={meta || undefined}
       />
-      {params.notice === "not_found" && <Notice tone="error">That request no longer exists.</Notice>}
+      {pageNotice(params.notice, actor.id)?.code === "not_found" && <Notice tone="error">That request no longer exists.</Notice>}
       {result.state === "ready" ? (
         <section className="table-panel" aria-label="Support inbox">
           <nav className={styles.tabs} aria-label="Category">

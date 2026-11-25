@@ -93,23 +93,38 @@ export function validateSettingsInput(input: {
   endsAt: string | null | undefined;
   supportEmail: unknown;
   instagramUrl: unknown;
-}): { ok: true; value: PlatformSettingsValue } | { ok: false; error: string } {
+}): { ok: true; value: PlatformSettingsValue } | { ok: false; error: string; field: string } {
   const features = Object.fromEntries(FEATURE_KEYS.map((key) => [key, input.features[key] === true])) as Record<FeatureKey, boolean>;
   let maintenance: Maintenance | null = null;
   if (input.maintenanceOn) {
     const title = text(input.maintenanceTitle);
     const body = text(input.maintenanceBody);
-    if (Array.from(title).length < 3 || Array.from(title).length > MAINTENANCE_LIMITS.title) return { ok: false, error: `The notice title needs 3 to ${MAINTENANCE_LIMITS.title} characters.` };
-    if (!body || Array.from(body).length > MAINTENANCE_LIMITS.body) return { ok: false, error: `The notice needs 1 to ${MAINTENANCE_LIMITS.body} characters.` };
-    if (input.startsAt === undefined || input.endsAt === undefined) return { ok: false, error: "Enter the times as a date and time (IST), or leave them empty." };
-    if (input.startsAt && input.endsAt && Date.parse(input.endsAt) <= Date.parse(input.startsAt)) return { ok: false, error: "The end must be after the start." };
+    if (Array.from(title).length < 3 || Array.from(title).length > MAINTENANCE_LIMITS.title) return { ok: false, error: `The notice title needs 3 to ${MAINTENANCE_LIMITS.title} characters.`, field: "maintenance_title" };
+    if (!body || Array.from(body).length > MAINTENANCE_LIMITS.body) return { ok: false, error: `The notice needs 1 to ${MAINTENANCE_LIMITS.body} characters.`, field: "maintenance_body" };
+    if (input.startsAt === undefined || input.endsAt === undefined) return { ok: false, error: "Enter the times as a date and time (IST), or leave them empty.", field: input.startsAt === undefined ? "maintenance_starts" : "maintenance_ends" };
+    if (input.startsAt && input.endsAt && Date.parse(input.endsAt) <= Date.parse(input.startsAt)) return { ok: false, error: "The end must be after the start.", field: "maintenance_ends" };
     maintenance = { title, body, startsAt: input.startsAt, endsAt: input.endsAt };
   }
   const supportEmail = text(input.supportEmail);
   const instagramUrl = text(input.instagramUrl);
-  if (!EMAIL.test(supportEmail) || supportEmail.length > 254) return { ok: false, error: "Enter a support email address." };
-  if (!INSTAGRAM.test(instagramUrl)) return { ok: false, error: "Use an Instagram address such as https://www.instagram.com/name/." };
+  if (!EMAIL.test(supportEmail) || supportEmail.length > 254) return { ok: false, error: "Enter a support email address.", field: "support_email" };
+  if (!INSTAGRAM.test(instagramUrl)) return { ok: false, error: "Use an Instagram address such as https://www.instagram.com/name/.", field: "instagram_url" };
   return { ok: true, value: { features, maintenance, site: { supportEmail, instagramUrl } } };
+}
+
+/**
+ * After a save, shows what is stored in the notice's fields while its switch is off: a save then cleared the notice,
+ * and the fieldset is disabled, so none of its fields can hold focus. With the switch on, the fields already hold what
+ * was saved and are left alone: the field the operator pressed Enter in keeps focus and caret (the fieldset is never
+ * remounted). Each field takes its defaultValue, which React has just set to the stored value. True when it wrote.
+ */
+export function showStoredWhenOff(fieldset: { disabled: boolean; elements: ArrayLike<unknown> } | null | undefined): boolean {
+  if (!fieldset?.disabled) return false;
+  for (const element of Array.from(fieldset.elements)) {
+    const field = element as { value?: unknown; defaultValue?: unknown };
+    if (typeof field.defaultValue === "string") field.value = field.defaultValue;
+  }
+  return true;
 }
 
 /** Whether a maintenance notice shows now, later, or is over. */

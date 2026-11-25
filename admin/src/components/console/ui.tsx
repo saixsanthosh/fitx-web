@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { CountUp } from "@/components/motion/count-up";
-import { barLayout, percent, shares, sparkPath } from "./chart-math";
+import { barLayout, percent, shares, sharesOfTotal, sparkPath } from "./chart-math";
 import styles from "./console.module.css";
 
 export { styles as consoleStyles };
@@ -122,6 +122,34 @@ export function SplitBar({ label, segments, empty = "None yet" }: { label: strin
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * Parts that may overlap, each with its own meter and its share of a whole ("Email 20 · 100% of accounts", "Google 2 ·
+ * 10% of accounts"): not a split bar, whose parts would have to add up to the whole. Without the whole, counts only.
+ */
+export function ShareList({ label, segments, total, of, empty = "None yet" }: { label: string; segments: ReadonlyArray<{ key: string; label: string; value: number }>; total: number | null; of: string; empty?: string }) {
+  const parts = sharesOfTotal(segments, total);
+  const classes = [styles.seg0, styles.seg1, styles.seg2, styles.seg3, styles.seg4];
+  if (!parts.length) return <p className={styles.kpiHint}>{empty}</p>;
+  return (
+    <ul className={styles.shareList} aria-label={label}>
+      {parts.map((part, index) => (
+        <li key={part.key}>
+          <span className={styles.shareTop}>
+            <span>{part.label}</span>
+            <span><strong>{part.value.toLocaleString("en-IN")}</strong>{part.share !== null && <em> · {percent(part.share)} of {of}</em>}</span>
+          </span>
+          {part.share !== null && (
+            <svg className={styles.shareTrack} viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+              <rect className={styles.shareRest} x={0} y={0} width={100} height={6} rx={3} />
+              <rect className={classes[Math.min(index, 4)]} x={0} y={0} width={Math.max(part.share * 100, 1.5)} height={6} rx={3} />
+            </svg>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

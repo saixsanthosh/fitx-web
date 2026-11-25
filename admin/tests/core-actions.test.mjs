@@ -160,9 +160,10 @@ test("a Users search token that was altered, made up or sealed under another key
   assert.equal(peopleSearch.sealPeopleSearch("ben@example.test", OTHER_ID), null);
 });
 
-test("without the server key the Users search says so instead of putting the text in the URL", async () => {
+test("without the server key the Users search never puts the text in the URL (the list then says the key is missing)", async () => {
   delete process.env.SUPABASE_SECRET_KEY;
-  assert.equal(await redirectOf(userActions.searchUsers(form([["q", "ben@example.test"]]))), "/users?notice=configuration");
+  // Without the key neither the search nor a notice can be sealed: the list itself shows that data access is not configured.
+  assert.equal(await redirectOf(userActions.searchUsers(form([["q", "ben@example.test"]]))), "/users");
   fake.operator = null;
   await assert.rejects(userActions.searchUsers(form([["q", "ben@example.test"]])), /no operator/);
 });

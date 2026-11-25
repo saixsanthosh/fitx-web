@@ -1,5 +1,6 @@
 import "server-only";
 import { requireAdmin } from "@/lib/admin-auth";
+import { evidenceFacts, type EvidenceFact } from "@/lib/explore-evidence-facts";
 import type { ContentState, TargetType } from "@/lib/explore-rules";
 import { logServerError } from "@/lib/log";
 import type { createAdminSupabase } from "@/lib/supabase/admin";
@@ -20,8 +21,8 @@ export type EvidenceMedia = { kind: "image" | "video"; url: string | null; poste
 export type Evidence = {
   /** The text the snapshot holds (a caption, a comment or message body, a bio or a description). */
   text: string | null;
-  /** Named facts as Admin shows them, in order. */
-  facts: Array<{ label: string; value: string }>;
+  /** Named facts in Admin's own words (evidenceFacts), in order. */
+  facts: EvidenceFact[];
   media: EvidenceMedia[];
   /** True once the hourly clean-up purged the snapshot (90 days after review). */
   purged: boolean;
@@ -44,19 +45,12 @@ export async function signedLink(admin: AdminClient, path: unknown): Promise<str
 export async function readEvidence(admin: AdminClient, targetType: TargetType, snapshot: Record<string, unknown> | null): Promise<Evidence> {
   await requireAdmin("explore.view");
   if (!snapshot) return { text: null, facts: [], media: [], purged: true };
-  const facts: Evidence["facts"] = [];
-  const push = (label: string, value: unknown) => {
-    const shown = str(value, 300);
-    if (shown) facts.push({ label, value: shown });
-  };
+  const facts = evidenceFacts(targetType, snapshot);
   let body: string | null = null;
   const media: EvidenceMedia[] = [];
   switch (targetType) {
     case "post": {
       body = str(snapshot.caption);
-      push("Author", snapshot.author ? `@${snapshot.author}` : null);
-      push("Place", snapshot.location);
-      if (snapshot.kind === "video" || snapshot.kind === "text") push("Kind", snapshot.kind === "video" ? "Video post" : "Discussion");
       const items = Array.isArray(snapshot.media) ? snapshot.media.slice(0, 10) : [];
       for (const item of items as Array<Record<string, unknown>>) {
         const video = item.kind === "video";
@@ -66,38 +60,26 @@ export async function readEvidence(admin: AdminClient, targetType: TargetType, s
     }
     case "comment":
       body = str(snapshot.body);
-      push("Author", snapshot.author ? `@${snapshot.author}` : null);
       break;
     case "story": {
       body = str(snapshot.caption);
-      push("Author", snapshot.author ? `@${snapshot.author}` : null);
       const video = snapshot.kind === "video";
       media.push({ kind: video ? "video" : "image", url: await signedLink(admin, snapshot.path), posterUrl: video ? await signedLink(admin, snapshot.poster_path) : null });
       break;
     }
     case "message":
       body = str(snapshot.body);
-      push("Sender", snapshot.sender ? `@${snapshot.sender}` : null);
-      push("Sent", snapshot.created_at);
       break;
     case "account": {
       body = str(snapshot.bio);
-      push("Username", snapshot.username ? `@${snapshot.username}` : null);
-      push("Name", snapshot.display_name);
       const avatar = await signedLink(admin, snapshot.avatar_path);
       if (avatar) media.push({ kind: "image", url: avatar, posterUrl: null });
       break;
     }
     case "community":
       body = str(snapshot.description);
-      push("Name", snapshot.name);
-      push("Address", snapshot.slug ? `/explore/c/${snapshot.slug}` : null);
-      push("Visibility", snapshot.visibility);
       break;
     case "challenge":
-      push("Title", snapshot.title);
-      push("Kind", snapshot.kind);
-      push("Counts", snapshot.metric);
       break;
   }
   return { text: body, facts, media, purged: false };

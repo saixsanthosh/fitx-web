@@ -12,7 +12,7 @@ import { logAdminEvent } from "@/lib/audit";
 import { getReport } from "@/lib/data/explore";
 import { EVIDENCE_LINK_SECONDS, messageStateOf, readEvidence } from "@/lib/data/explore-evidence";
 import { ACTION_LABELS, EXPLORE_MIGRATION, REASON_LABELS, SANCTION_LABELS, STATUS_LABELS, TARGET_LABELS, contentActionsFor, isAction, type ModerationAction } from "@/lib/explore-rules";
-import { firstParam } from "@/lib/search-params";
+import { pageNotice } from "@/lib/notice";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { formatIstDate, formatIstDateTime } from "@/lib/time";
 
@@ -34,7 +34,7 @@ export default async function ExploreReportPage({ params, searchParams }: { para
   // Every look at a report's evidence is on the audit log (ids only).
   await logAdminEvent({ actor, action: "explore_report_viewed", resourceType: "social_report", resourceId: report.id, details: { target_type: report.targetType, status: report.status } });
 
-  const notice = exploreNotice(firstParam(query.notice));
+  const notice = exploreNotice(pageNotice(query.notice, actor.id)?.code);
   const moderator = hasPermission(actor, "explore.moderate");
   const waiting = report.status === "open" || report.status === "reviewing";
   const contentActions = contentActionsFor(report.targetType, report.contentState);

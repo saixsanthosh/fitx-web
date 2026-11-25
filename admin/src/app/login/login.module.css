@@ -204,7 +204,8 @@
 .form { display: grid; gap: 16px; }
 
 .field { display: grid; gap: 8px; }
-.field > span:first-child {
+.field > span:first-child,
+.field > label:first-child {
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 700;
@@ -276,7 +277,7 @@
 .submit:hover { background: var(--coral-deep); border-color: var(--coral-deep); }
 .submit:active { transform: scale(0.985); }
 .submit:focus-visible { outline: 3px solid color-mix(in srgb, var(--coral) 45%, transparent); outline-offset: 2px; }
-.submit[disabled] { cursor: progress; opacity: 0.78; }
+.submit[aria-disabled="true"] { cursor: progress; opacity: 0.78; }
 
 .spin { animation: spin 900ms linear infinite; }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

@@ -102,7 +102,7 @@ export function allowedPages(role: AdminRole): ConsolePath[] {
   return (Object.keys(PAGE_PERMISSIONS) as ConsolePath[]).filter((path) => can(role, PAGE_PERMISSIONS[path]));
 }
 
-/** True for a console page path (the sign-in form's `next` must be one). */
+/** True for a top-level console page path. (Sign-in's `next` is checked by safeNextPath in next-path.ts, which also takes the pages below these.) */
 export function isConsolePath(value: unknown): value is ConsolePath {
   return typeof value === "string" && Object.hasOwn(PAGE_PERMISSIONS, value);
 }

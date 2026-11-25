@@ -33,7 +33,8 @@ test("every Explore page needs explore.view and every Explore action explore.mod
     for (const fn of source.matchAll(/export async function (\w+)\(/g)) {
       if (!name.endsWith("actions.ts")) continue;
       const body = source.slice(fn.index, source.indexOf("\n}\n", fn.index));
-      assert.match(body, /^export async function \w+\(formData: FormData\) \{\n  const actor = await requireAdmin\("explore\.moderate"\);/, `${name}: ${fn[1]}`);
+      // A plain form action, or one for useActionState (the forms that keep what was typed when refused).
+      assert.match(body, /^export async function \w+\((?:_previous: FormState, )?formData: FormData\)(?:: Promise<FormState>)? \{\n  const actor = await requireAdmin\("explore\.moderate"\);/, `${name}: ${fn[1]}`);
     }
   }
   const data = await readFile(new URL("lib/data/explore.ts", SRC), "utf8");
@@ -69,8 +70,9 @@ test("the Explore screens set no inline styles and use only Admin's colour varia
 });
 
 test("buttons and targets: every Explore action button is a real 44 px button with a name", async () => {
+  const reversible = await readFile(new URL("components/explore/reversible-actions-form.tsx", SRC), "utf8");
+  assert.match(reversible, /name="action"\s+value=\{value\}\s+className=\{value === "hide" \? "primary-button" : "quiet-button"\}/);
   const forms = await readFile(new URL("components/explore/moderation-forms.tsx", SRC), "utf8");
-  assert.match(forms, /name="action" value=\{action\} className=\{action === "hide" \? "primary-button" : "quiet-button"\}/);
   assert.match(forms, /Suspend from Explore/);
   assert.match(forms, /Lift suspension/);
   const css = await readFile(new URL("components/explore/explore.module.css", SRC), "utf8");

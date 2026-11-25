@@ -29,9 +29,13 @@ function oneOf<T extends string>(list: readonly T[], value: string): T | null {
   return (list as readonly string[]).includes(value) ? (value as T) : null;
 }
 
-/** Search text as the list uses it: trimmed, at most 120 characters. */
+/**
+ * Search text as the list uses it: every run of spaces (tabs, line breaks, non-breaking spaces) is one space, the ends
+ * are trimmed, at most 120 characters. The database matches the text as one piece, so "Asha  Local" pasted with two
+ * spaces must still find Asha Local.
+ */
 export function normalisePeopleQuery(value: unknown): string {
-  return typeof value === "string" ? value.trim().slice(0, 120) : "";
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 120).trim() : "";
 }
 
 /**

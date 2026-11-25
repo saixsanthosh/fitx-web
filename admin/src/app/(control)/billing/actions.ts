@@ -7,6 +7,7 @@ import { contentErrorMessage } from "@/lib/content/errors";
 import type { FormState } from "@/lib/content/form";
 import { PLAN_CODE, parsePlanForm } from "@/lib/content/plan-input";
 import { logServerError } from "@/lib/log";
+import { noticeHref } from "@/lib/notice";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { loadPlan } from "@/lib/data/billing";
 
@@ -38,6 +39,6 @@ export async function savePlan(code: string | null, _previous: FormState, formDa
     return { status: "error", message: contentErrorMessage(error) };
   }
   revalidatePath("/billing");
-  if (code === null) redirect(`/billing/plans/${parsed.code}?state=created`);
+  if (code === null) redirect(noticeHref(`/billing/plans/${parsed.code}`, "created", actor.id, { param: "state" }));
   return { status: "saved", message: "Plan saved. The FITX subscription page shows it from the next visit." };
 }

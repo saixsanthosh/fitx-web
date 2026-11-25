@@ -53,7 +53,7 @@ export function AnnouncementForm({ defaults = {}, submitLabel, status }: { defau
         <p className="field-note">Saving never publishes. People see an announcement only after you publish it, and only between these times.</p>
       )}
       {state?.error && <p role="alert" className="form-error">{state.error}</p>}
-      <button className="primary-button" disabled={pending} type="submit">
+      <button className="primary-button" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }} type="submit">
         {pending && <LoaderCircle aria-hidden="true" className="spin" size={17} />}
         <span>{pending ? "Saving…" : submitLabel}</span>
       </button>

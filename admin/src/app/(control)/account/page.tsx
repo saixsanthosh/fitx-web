@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { Notice, PageHead, Panel } from "@/components/console/ui";
 import { PendingButton } from "@/components/pending-button";
 import { requireAdmin } from "@/lib/admin-auth";
+import { noticeWords, pageNotice } from "@/lib/notice";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { ROLE_LABELS } from "@/lib/roles";
-import { firstParam } from "@/lib/search-params";
 import { changePassword } from "./actions";
 
 export const metadata: Metadata = { title: "Your account" };
@@ -24,8 +24,7 @@ const notices: Record<string, { tone: "success" | "error"; text: string }> = {
 // The minimal own-password page the sign-in contract needs; the admin-core stream owns its look.
 export default async function AccountPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const operator = await requireAdmin();
-  const state = firstParam((await searchParams).state);
-  const notice = state ? notices[state] : undefined;
+  const notice = noticeWords(notices, pageNotice((await searchParams).state, operator.id));
   return <div className="page-stack narrow-stack">
     <PageHead eyebrow={ROLE_LABELS[operator.role]} title={operator.username} meta="Your account" />
     {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}

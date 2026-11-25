@@ -26,8 +26,8 @@ export default async function AnnouncementsPage() {
                 <td><Link className="row-link" href={`/announcements/${row.id}`}><strong>{row.title}</strong><small className="table-subline">{ANNOUNCEMENT_TONE_LABELS[row.tone]}</small></Link></td>
                 <td><span className={`status-pill ${status.tone}`}><i />{status.text}</span></td>
                 <td>{row.startsAt ? formatIstDateTime(row.startsAt) : "When published"}{" → "}{row.endsAt ? formatIstDateTime(row.endsAt) : "until archived"}</td>
-                <td>{row.dismissals === null ? "—" : `${row.dismissals.toLocaleString("en-IN")} accounts`}</td>
-                <td>{row.createdByEmail ?? "—"}</td>
+                <td>{row.dismissals === null ? <span aria-label="Not known">—</span> : `${row.dismissals.toLocaleString("en-IN")} ${row.dismissals === 1 ? "account" : "accounts"}`}</td>
+                <td>{row.createdBy ?? <span aria-label="Not known">—</span>}</td>
               </tr>;
             })}
           </tbody></table></div> : <div className="empty-state"><h3>No announcements yet</h3><p>Write one, check the preview, then publish.</p></div>}

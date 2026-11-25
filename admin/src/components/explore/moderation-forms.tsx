@@ -14,6 +14,7 @@ import {
   type SanctionKind,
 } from "@/lib/explore-rules";
 import { moderate } from "@/app/(control)/explore/actions";
+import { ReversibleActionsForm } from "./reversible-actions-form";
 import styles from "./explore.module.css";
 
 type Target = { reportId?: string; userId?: string };
@@ -39,8 +40,9 @@ function ReasonField({ defaultReason, label = "Reason (the member and the audit 
 }
 
 /**
- * The actions on a report or an account: reversible ones in one form (each its own submit button), the ones that
- * cannot be undone each in a form whose button asks twice, and the suspension with its kind and length.
+ * The actions on a report or an account: reversible ones in one form (each its own submit button) that keeps its
+ * reason and note when refused, the ones that cannot be undone each in a form whose button asks twice, and the
+ * suspension with its kind and length. Only the first has anything typed in it; the others go back with a sealed result.
  */
 export function ModerationForms({ target, actions, defaultReason, allowSuspend, activeSanctions, allowDismiss, allowClaim }: {
   target: Target;
@@ -56,18 +58,7 @@ export function ModerationForms({ target, actions, defaultReason, allowSuspend, 
   return (
     <div className={styles.stack}>
       {(soft.length > 0 || allowDismiss || allowClaim) && (
-        <form action={moderate} className={`stack-form ${styles.compact}`}>
-          <Hidden target={target} />
-          {soft.some((action) => action !== "unhide") && <ReasonField defaultReason={defaultReason} />}
-          <label>Note for moderators (optional, never shown to the member)<textarea name="note" maxLength={1000} rows={2} /></label>
-          <div className={styles.buttons}>
-            {soft.map((action) => (
-              <button key={action} type="submit" name="action" value={action} className={action === "hide" ? "primary-button" : "quiet-button"}>{ACTION_LABELS[action]}</button>
-            ))}
-            {allowClaim && <button type="submit" name="action" value="claim" className="quiet-button">{ACTION_LABELS.claim}</button>}
-            {allowDismiss && <button type="submit" name="action" value="dismiss" className="quiet-button">{ACTION_LABELS.dismiss}</button>}
-          </div>
-        </form>
+        <ReversibleActionsForm target={target} actions={soft} defaultReason={defaultReason} allowClaim={allowClaim} allowDismiss={allowDismiss} />
       )}
       {hard.length > 0 && (
         <div className={styles.buttons}>

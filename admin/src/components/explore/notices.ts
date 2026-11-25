@@ -1,5 +1,6 @@
-// What the Explore screens say after an action (the ?notice= value the Server Actions redirect with). Imports only
-// explore-rules, so tests can load it.
+// What the Explore screens say after an action, in Admin's own fixed words: the result sealed into ?notice= by the
+// Server Action that redirects (lib/notice.ts), or the refusal a form shows beside its button. Never text from the
+// address. Imports only explore-rules, so tests can load it.
 
 import { EXPLORE_MIGRATION } from "@/lib/explore-rules";
 
@@ -45,7 +46,6 @@ const ERRORS: Record<string, string> = {
   invalid_note: "The note can have at most 1,000 characters.",
   invalid_sanction: "Choose what to suspend.",
   invalid_until: "Choose 7 days, 30 days or until lifted.",
-  invalid_input: "Check the form and save again.",
   invalid_slug: "The address needs 3 to 40 lower-case letters, digits or dashes.",
   invalid_name: "The name needs 1 to 60 characters.",
   invalid_description: "The description can have at most 500 characters.",
@@ -70,12 +70,24 @@ const ERRORS: Record<string, string> = {
   challenge_not_found: "That challenge no longer exists.",
 };
 
-/** The notice for a ?notice= value (and ?message= for form errors), or null. */
-export function exploreNotice(notice: string | undefined, message?: string): ExploreNotice | null {
-  if (!notice) return null;
-  if (DONE[notice]) return { tone: "success", text: DONE[notice] };
-  if (notice === "invalid_input" && message) return { tone: "error", text: message.slice(0, 200) };
-  return ERRORS[notice] ? { tone: "error", text: ERRORS[notice] } : null;
+/** The words for a result code, or null for no code or one Explore does not have. */
+export function exploreNotice(code: string | null | undefined): ExploreNotice | null {
+  if (!code) return null;
+  if (Object.hasOwn(DONE, code)) return { tone: "success", text: DONE[code] };
+  return Object.hasOwn(ERRORS, code) ? { tone: "error", text: ERRORS[code] } : null;
+}
+
+/** The form field a refusal is about (its input's name), so the form can mark it; null for none. */
+const REFUSAL_FIELDS: Record<string, string> = {
+  invalid_slug: "slug", slug_taken: "slug", invalid_name: "name", invalid_description: "description", invalid_visibility: "visibility",
+  invalid_kind: "kind", invalid_title: "title",
+  invalid_metric: "metric", invalid_sport: "sport", invalid_target: "target", invalid_window: "day", community_not_found: "community",
+  // The reversible moderation actions' reason and note, and Add moderator's username.
+  invalid_reason: "reason", reason_required: "reason", invalid_note: "note",
+  unknown_username: "username", not_member: "username", not_adult: "username",
+};
+export function refusalField(code: string): string | null {
+  return Object.hasOwn(REFUSAL_FIELDS, code) ? REFUSAL_FIELDS[code] : null;
 }
 
 export const NOTICE_KEYS = { done: Object.keys(DONE), errors: Object.keys(ERRORS) } as const;

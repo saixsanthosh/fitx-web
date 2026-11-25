@@ -9,6 +9,7 @@ import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getPerson, isSuspended } from "@/lib/data/people";
 import { can, ROLE_LABELS } from "@/lib/roles";
+import { noticeWords, pageNotice } from "@/lib/notice";
 import { MIGRATIONS } from "@/lib/schema";
 import { formatIstDate, formatIstDateTime } from "@/lib/time";
 import { deleteAccount, revokeSessions, sendPasswordReset, suspendAccount, unsuspendAccount } from "../actions";
@@ -75,7 +76,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
   const person = result.person;
   const suspended = isSuspended(person.bannedUntil);
   const resetEnabled = process.env.FITX_ADMIN_PASSWORD_RESET_EMAILS === "on";
-  const message = notice ? notices[notice] : undefined;
+  const message = noticeWords(notices, pageNotice(notice, actor.id));
   const title = person.email ?? formatPhone(person.phone) ?? "No email or phone";
   const deleteCheck = deleteConfirmation(person);
   const plan = subscriptionLabel(person.subscriptionStatus, person.premium);

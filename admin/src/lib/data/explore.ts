@@ -463,16 +463,20 @@ export async function getCommunity(id: string): Promise<{ state: "ready"; commun
   };
 }
 
-/** The account id of an Explore username, for appointing a moderator; null when nobody has it. */
-export async function userIdForUsername(username: string): Promise<string | null> {
+/**
+ * The account an Explore username (with or without its @) names, for appointing a moderator: its ID, null when no
+ * profile has it, or undefined when it could not be looked up (logged), which says nothing about the username.
+ */
+export async function userIdForUsername(username: string): Promise<string | null | undefined> {
   await requireAdmin("explore.moderate");
-  const admin = createAdminSupabase();
   const name = username.trim().replace(/^@/, "").toLowerCase();
-  if (!admin || !/^[a-z0-9._]{3,30}$/.test(name)) return null;
+  if (!/^[a-z0-9._]{3,30}$/.test(name)) return null;
+  const admin = createAdminSupabase();
+  if (!admin) return undefined;
   const { data, error } = await admin.from("social_profiles").select("user_id").eq("username", name).maybeSingle();
   if (error) {
     logServerError("data.explore_username", error);
-    return null;
+    return undefined;
   }
   return data ? String((data as Row).user_id) : null;
 }

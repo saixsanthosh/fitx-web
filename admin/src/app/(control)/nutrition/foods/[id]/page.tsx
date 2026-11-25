@@ -10,7 +10,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { FOOD_ID } from "@/lib/content/food-input";
 import { VALUE_BASIS_LABELS, type ValueBasis } from "@/lib/content/vocabulary";
 import { getFood, getFoodCategories } from "@/lib/data/foods";
-import { firstParam } from "@/lib/search-params";
+import { pageNotice } from "@/lib/notice";
 import { formatIstDate } from "@/lib/time";
 import { finishFoodImageUpload, prepareFoodImageUpload, removeFoodImage, saveFood, saveFoodPortions, setFoodActive } from "../../actions";
 
@@ -27,7 +27,7 @@ const NOTICES = {
 };
 
 export default async function FoodPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireAdmin("nutrition.manage");
+  const actor = await requireAdmin("nutrition.manage");
   const { id: raw } = await params;
   const id = decodeURIComponent(raw);
   if (!FOOD_ID.test(id)) notFound();
@@ -67,7 +67,7 @@ export default async function FoodPage({ params, searchParams }: { params: Promi
           </>
         }
       />
-      <StateNotice state={firstParam(query.state)} messages={NOTICES} />
+      <StateNotice code={pageNotice(query.state, actor.id)?.code} messages={NOTICES} />
       <MacroBar protein={food.protein_g} carbs={food.carbs_g} fat={food.fat_g} />
 
       <div className={styles.split}>

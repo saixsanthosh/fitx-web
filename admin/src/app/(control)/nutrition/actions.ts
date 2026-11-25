@@ -10,7 +10,13 @@ import { text, type FormState } from "@/lib/content/form";
 import { checkDeclaredFile, FOOD_MEDIA_BUCKET, isMediaPathFor, objectPathFromUrl, type MediaKind } from "@/lib/content/media-rules";
 import { checkUploadedFile, createSignedUpload, removeFiles, supabaseProjectUrl } from "@/lib/content/storage";
 import { logServerError } from "@/lib/log";
+import { noticeHref } from "@/lib/notice";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+
+/** To `path` with the result sealed for the operator who acted (lib/notice.ts); the page shows its own words for it. */
+function to(actorId: string, path: string, state: string): never {
+  redirect(noticeHref(path, state, actorId, { param: "state" }));
+}
 
 function refreshNutrition(foodId?: string) {
   revalidatePath("/nutrition");
@@ -32,7 +38,7 @@ export async function saveFood(foodId: string | null, _previous: FormState, form
   }
   const id = typeof data === "string" ? data : foodId;
   refreshNutrition(id ?? undefined);
-  if (foodId === null && id) redirect(`/nutrition/foods/${id}?state=created`);
+  if (foodId === null && id) to(actor.id, `/nutrition/foods/${id}`, "created");
   return { status: "saved", message: "Saved. Food search shows it from the next search." };
 }
 
@@ -41,16 +47,16 @@ export async function setFoodActive(formData: FormData) {
   const foodId = formData.get("foodId");
   const active = formData.get("active");
   const back = formData.get("back") === "detail" && typeof foodId === "string" ? `/nutrition/foods/${foodId}` : "/nutrition";
-  if (typeof foodId !== "string" || !FOOD_ID.test(foodId) || !["true", "false"].includes(String(active))) redirect("/nutrition?state=invalid");
+  if (typeof foodId !== "string" || !FOOD_ID.test(foodId) || !["true", "false"].includes(String(active))) to(actor.id, "/nutrition", "invalid");
   const supabase = createAdminSupabase();
-  if (!supabase) redirect(`${back}?state=configuration`);
+  if (!supabase) to(actor.id, back, "configuration");
   const { error } = await supabase.rpc("fitx_admin_op_set_food_active", { p_operator_id: actor.id, p_food_id: foodId, p_is_active: active === "true" });
   if (error) {
     logServerError("nutrition.food_active", error);
-    redirect(`${back}?state=${error.code === "42501" ? "forbidden" : "save_failed"}`);
+    to(actor.id, back, error.code === "42501" ? "forbidden" : "save_failed");
   }
   refreshNutrition(foodId);
-  redirect(`${back}?state=${active === "true" ? "shown" : "hidden"}`);
+  to(actor.id, back, active === "true" ? "shown" : "hidden");
 }
 
 export async function saveFoodPortions(foodId: string, _previous: FormState, formData: FormData): Promise<FormState> {
@@ -118,17 +124,17 @@ async function removeOldPhoto(previousUrl: unknown) {
 export async function removeFoodImage(formData: FormData) {
   const actor = await requireAdmin("nutrition.manage");
   const foodId = formData.get("foodId");
-  if (typeof foodId !== "string" || !FOOD_ID.test(foodId)) redirect("/nutrition?state=invalid");
+  if (typeof foodId !== "string" || !FOOD_ID.test(foodId)) to(actor.id, "/nutrition", "invalid");
   const supabase = createAdminSupabase();
-  if (!supabase) redirect(`/nutrition/foods/${foodId}?state=configuration`);
+  if (!supabase) to(actor.id, `/nutrition/foods/${foodId}`, "configuration");
   const { data, error } = await supabase.rpc("fitx_admin_op_set_food_image", { p_operator_id: actor.id, p_food_id: foodId, p_image_url: null, p_license: null, p_attribution: null });
   if (error) {
     logServerError("nutrition.remove_image", error);
-    redirect(`/nutrition/foods/${foodId}?state=${error.code === "42501" ? "forbidden" : "save_failed"}`);
+    to(actor.id, `/nutrition/foods/${foodId}`, error.code === "42501" ? "forbidden" : "save_failed");
   }
   await removeOldPhoto(data);
   refreshNutrition(foodId);
-  redirect(`/nutrition/foods/${foodId}?state=photo_removed`);
+  to(actor.id, `/nutrition/foods/${foodId}`, "photo_removed");
 }
 
 export async function renameFoodCategory(_previous: FormState, formData: FormData): Promise<FormState> {

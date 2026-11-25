@@ -97,7 +97,10 @@ export function MediaUploader({ ownerId, kind, prepare, finish, defaultAlt = "",
   };
 
   const upload = async (form: HTMLFormElement) => {
-    if (!file || !preview) return;
+    if (!file || !preview) {
+      setPhase({ step: "idle", progress: 0, message: isVideo ? "Choose a video first." : "Choose a photo first." });
+      return;
+    }
     const data = new FormData(form);
     const alt = String(data.get("alt") ?? "").trim();
     const attribution = String(data.get("attribution") ?? "").trim();
@@ -126,7 +129,7 @@ export function MediaUploader({ ownerId, kind, prepare, finish, defaultAlt = "",
       className={styles.form}
       onSubmit={(event) => {
         event.preventDefault();
-        void upload(event.currentTarget);
+        if (!busy) void upload(event.currentTarget);
       }}
     >
       <label
@@ -185,7 +188,8 @@ export function MediaUploader({ ownerId, kind, prepare, finish, defaultAlt = "",
       )}
 
       <div className={styles.actions}>
-        <button className={styles.button} type="submit" disabled={!file || busy}>
+        {/* aria-disabled, never disabled: the button keeps keyboard focus while it uploads and after (D5). */}
+        <button className={styles.button} type="submit" aria-disabled={!file || busy}>
           {busy && <LoaderCircle aria-hidden="true" className="spin" size={16} />}
           {phase.step === "checking" ? "Checking" : phase.step === "uploading" ? "Uploading" : "Upload"}
         </button>
