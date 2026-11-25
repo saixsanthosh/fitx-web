@@ -46,6 +46,7 @@ import {
   legacyDietaryPreferences,
   optionLabel,
   parseRupees,
+  sameWeightKg,
   splitAllergies,
   splitLimitations,
   type ActivityLevel,
@@ -92,7 +93,6 @@ const NO_CHANGES: SectionNotice = { tone: "saved", text: "No changes" };
 const labelsFor = <V extends string>(options: readonly { value: V; label: string }[], values: readonly string[]) =>
   values.map((value) => optionLabel(options, value) ?? value);
 
-const sameWeight = (a: number | null, b: number | null) => (a === null || b === null ? a === b : Math.abs(a - b) < 0.05);
 const sameKeys = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].sort().every((key, index) => key === [...b].sort()[index]);
 const dateText = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
@@ -177,7 +177,8 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
       ...(v3 ? birth.patch : changedFields({ age: profile?.age ?? null }, { age: typedAge })),
     };
     const prefsPatch = changedFields({ height_unit: prefs.height_unit, weight_unit: prefs.weight_unit }, { height_unit: draft.heightUnit, weight_unit: draft.weightUnit });
-    const weightChanged = !sameWeight(draft.weightKg, data.currentWeightKg);
+    // Weights are stored to 0.01 kg, so 0.1 lb (0.045 kg) typed here is a change and is saved (bug 6).
+    const weightChanged = !sameWeightKg(draft.weightKg, data.currentWeightKg);
     if (!Object.keys(profilePatch).length && !Object.keys(prefsPatch).length && !weightChanged) {
       onClose();
       return void onSaved(NO_CHANGES);
