@@ -8,8 +8,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  follow, idleDrift, LIFT_TIMES, liveSceneRequested, STILL_DRIFT_SECONDS, STILL_SECONDS, STILL_SWING, liftTimeAt, LOOP_SECONDS, lookWeightAt, medianFrame, pointerLook,
-  sceneVerdict, SLOW_FRAME, stillDriftKeyframes, stillShift, tiltLook, TILT_RANGE_DEGREES,
+  createFrameGuard, follow, FRAME_GUARD, type FrameGuard, type FrameVerdict, idleDrift, LIFT_TIMES, liveSceneRequested, STILL_DRIFT_SECONDS, STILL_SECONDS, STILL_SWING, liftTimeAt,
+  LOOP_SECONDS, lookWeightAt, medianFrame, pointerLook, sceneVerdict, SLOW_FRAME, stillDriftKeyframes, stillShift, tiltLook, TILT_RANGE_DEGREES,
 } from "@/components/auth/scene/scene-math";
 import { JOBS } from "../../scripts/brand/films/lib/plan.mjs";
 
@@ -278,4 +278,69 @@ test("the films' still render opens the live scene on purpose", () => {
   assert.equal(page, "/signin?scene=live");
   assert.equal(liveSceneRequested(new URL(page, "http://fitx-lab.localhost").search), true);
   assert.match(source("scripts/brand/films/render.mjs"), /\$\{def\.page\}/, "render.mjs opens the plan's page");
+});
+
+// ------------------------------------------------------------------------- hotfix 2d: slow frames count in the guard
+
+/** Feeds `count` frames of `seconds` each; returns the frame numbers (1-based) of each verdict other than "keep". */
+function feed(guard: FrameGuard, seconds: number, count: number, visible = true) {
+  const said: [number, FrameVerdict][] = [];
+  for (let index = 1; index <= count; index += 1) {
+    const verdict = guard.frame(seconds, visible);
+    if (verdict !== "keep") said.push([index, verdict]);
+  }
+  return said;
+}
+
+test("the frame-rate guard counts slow frames, so a scene that runs slowly gives way to the still frame", () => {
+  // 10 fps: frames of 0.1 s, which the old guard left out as stalls (dt >= 0.095), so the scene ran on for ever.
+  for (const seconds of [0.1, 0.095, 0.25]) {
+    const said = feed(createFrameGuard(), seconds, 200);
+    assert.deepEqual(said.map(([, verdict]) => verdict).slice(0, 2), ["downgrade", "stop"], `${seconds} s frames step down, then stop (${JSON.stringify(said)})`);
+    const stopAt = said[1][0];
+    // The warm-up, then twice two seconds of frames (each judgement may overrun by a frame).
+    assert.ok(stopAt * seconds <= FRAME_GUARD.warmup + seconds + 2 * (FRAME_GUARD.seconds + seconds) + 0.01, `within seconds of frames, not minutes (stops at frame ${stopAt})`);
+  }
+  // One frame in two seconds (a weak GPU): out of the warm-up, five frames to step down, five more to stop.
+  assert.deepEqual(feed(createFrameGuard(), 2, 11), [[6, "downgrade"], [11, "stop"]]);
+  // A healthy scene never hears anything; 25 fps steps down once and carries on at the lower quality.
+  assert.deepEqual(feed(createFrameGuard(), 1 / 60, 2000), []);
+  assert.deepEqual(feed(createFrameGuard(), 1 / 30, 2000), []);
+  const at25 = feed(createFrameGuard(), 1 / 25, 2000);
+  assert.deepEqual(at25.map(([, verdict]) => verdict), ["downgrade"], "1/25 s is past the step-down line but not the stop line");
+  assert.ok(1 / 25 > SLOW_FRAME.downgrade && 1 / 25 < SLOW_FRAME.stop);
+});
+
+test("the guard leaves out hidden frames and the warm-up, and a stray long frame decides nothing", () => {
+  const hidden = createFrameGuard();
+  assert.deepEqual(feed(hidden, 0.5, 100, false), [], "a background tab says nothing about the GPU");
+  assert.deepEqual(feed(hidden, 1 / 60, 100), [], "and its frames did not count towards anything");
+  for (const seconds of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(createFrameGuard().frame(seconds, true), "keep", String(seconds));
+  // The first uploads and compiles: slow, but inside the warm-up.
+  const warming = createFrameGuard();
+  assert.deepEqual(feed(warming, 0.3, 3), []);
+  assert.deepEqual(feed(warming, 1 / 60, 500), [], "a slow start alone does not stop a fast scene");
+  // A fast scene with a long frame now and then (a garbage collection, a resize): the median holds.
+  const stray = createFrameGuard();
+  const said: FrameVerdict[] = [];
+  for (let index = 0; index < 1000; index += 1) said.push(stray.frame(index % 9 === 0 ? 0.6 : 1 / 60, true));
+  assert.ok(said.every((verdict) => verdict === "keep"), "stray long frames never step it down");
+  // Paused and started again: the frames before are dropped, the step down is kept.
+  const resumed = createFrameGuard();
+  assert.deepEqual(feed(resumed, 0.1, 40).map(([, verdict]) => verdict), ["downgrade"], "stepped down");
+  resumed.restart();
+  assert.deepEqual(feed(resumed, 1 / 60, 500), [], "fast after a restart: carries on");
+  const again = feed(resumed, 0.1, 40).map(([, verdict]) => verdict);
+  assert.equal(again[0], "stop", `slow again: no second step down, it stops (${again.join(", ")})`);
+  assert.ok(!again.includes("downgrade"));
+});
+
+test("the scene feeds the guard each frame's real length, not the animation's capped step", () => {
+  const scene = source("src/components/auth/scene/login-scene.ts");
+  assert.doesNotMatch(scene, /0\.095/, "no frame is left out for being slow");
+  assert.match(scene, /const elapsed = last \? \(now - last\) \/ 1000 : 0;\s*const dt = Math\.min\(0\.1, elapsed\);/);
+  assert.match(scene, /guard\(elapsed\);/);
+  assert.match(scene, /frames\.frame\(seconds, document\.visibilityState === "visible"\)/);
+  assert.match(scene, /if \(verdict === "downgrade"\) \{[\s\S]*?downgradeQuality\(quality\)[\s\S]*?\} else if \(verdict === "stop"\) \{\s*fail\("frame rate"\);/);
+  assert.match(scene, /last = 0;\s*frames\.restart\(\);/, "starting the loop again drops the frames before");
 });

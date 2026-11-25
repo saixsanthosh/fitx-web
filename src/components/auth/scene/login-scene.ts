@@ -21,7 +21,7 @@ import { applyLightingPreset, createLightRig, type LightRig } from "@/components
 import { applyBreath, applyHeadLook, blinkAmount, poseLift } from "@/components/brand/intro/motion";
 import { createBarbell, createGymSet, type BarbellProp, type IntroSet } from "@/components/brand/intro/sets";
 import type { Theme } from "@/components/brand/intro/types";
-import { follow, idleDrift, liftTimeAt, lookWeightAt, medianFrame, SLOW_FRAME, STILL_SECONDS, type Look } from "./scene-math";
+import { createFrameGuard, follow, idleDrift, liftTimeAt, lookWeightAt, STILL_SECONDS, type Look } from "./scene-math";
 
 export type LoginSceneCallbacks = {
   /** The first frame is on the canvas. */
@@ -60,12 +60,10 @@ export function createLoginScene(host: HTMLElement, initialTheme: Theme, callbac
   let last = 0;
   // Start on the still frame's moment so the fade from the still to the live scene shows no jump.
   let clock = STILL_SECONDS;
-  /** Seconds actually rendered live (the frame-rate guard waits out the first one). */
-  let liveSeconds = 0;
   let look: Look | null = null;
   const eased = { x: 0, y: 0 };
-  let samples: number[] = [];
-  let downgraded = false;
+  /** A sustained low frame rate steps the quality down once, then gives way to the still frame (scene-math.ts). */
+  const frames = createFrameGuard();
 
   let renderer: THREE.WebGLRenderer | null = null;
   let quality: QualitySettings | null = null;
@@ -146,23 +144,18 @@ export function createLoginScene(host: HTMLElement, initialTheme: Theme, callbac
     post.render(dt, clock);
   };
 
-  const guard = (dt: number) => {
-    // Stalled or throttled frames (a background tab, a hidden pane, the dt cap) say nothing about the GPU.
-    if (!quality || liveSeconds < 1.2 || dt <= 0 || dt >= 0.095 || document.visibilityState !== "visible") return;
-    samples.push(dt);
-    if (samples.length > 45) samples.shift();
-    if (samples.length < 30) return;
-    const median = medianFrame(samples);
-    if (!downgraded && median > SLOW_FRAME.downgrade) {
+  const guard = (seconds: number) => {
+    if (!quality) return;
+    // Every frame at its real length, slow ones included; frames of a hidden page say nothing about the GPU.
+    const verdict = frames.frame(seconds, document.visibilityState === "visible");
+    if (verdict === "downgrade") {
       const next = downgradeQuality(quality);
-      downgraded = true;
-      samples = [];
       if (!next || !post) return fail("frame rate");
       quality = next;
       post.applyQuality(next);
       const { width, height } = size();
       post.setSize(width, height, next.dpr);
-    } else if (downgraded && median > SLOW_FRAME.stop) {
+    } else if (verdict === "stop") {
       fail("frame rate");
     }
   };
@@ -170,17 +163,18 @@ export function createLoginScene(host: HTMLElement, initialTheme: Theme, callbac
   const tick = (now: number) => {
     raf = 0;
     if (!running || disposed || failed) return;
-    const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+    // The animation steps at most 0.1 s, so a stall never makes it jump; the guard gets the frame's real length.
+    const elapsed = last ? (now - last) / 1000 : 0;
+    const dt = Math.min(0.1, elapsed);
     last = now;
     clock += dt;
-    liveSeconds += dt;
     try {
       frame(dt);
     } catch (error) {
       fail(error instanceof Error ? error.message : "frame error");
       return;
     }
-    guard(dt);
+    guard(elapsed);
     if (!failed) raf = requestAnimationFrame(tick);
   };
 
@@ -323,7 +317,7 @@ export function createLoginScene(host: HTMLElement, initialTheme: Theme, callbac
       }
       if (ready && !raf && !failed && !disposed) {
         last = 0;
-        samples = [];
+        frames.restart();
         raf = requestAnimationFrame(tick);
       }
     },

@@ -200,3 +200,60 @@ export function medianFrame(samples: readonly number[]): number {
 
 /** Frame times that make the scene step down once, then give way to the still frame. */
 export const SLOW_FRAME = { downgrade: 1 / 28, stop: 1 / 22 } as const;
+
+/**
+ * How the frame-rate guard collects frames: it waits out the first `warmup` seconds (the first uploads and
+ * compiles), then judges the median of the last `window` frames once it has `frames` of them, or sooner once at least
+ * `minimum` frames add up to `seconds` (a slow scene takes long to collect 30 frames, and it should not take long to
+ * give way).
+ */
+export const FRAME_GUARD = { warmup: 1.2, frames: 30, window: 45, minimum: 5, seconds: 2 } as const;
+
+/** What the frame-rate guard says after a frame: carry on, step the quality down once, or give way to the still. */
+export type FrameVerdict = "keep" | "downgrade" | "stop";
+
+export type FrameGuard = {
+  /** One drawn frame: its real length in seconds (not the animation's capped step), and whether the page showed. */
+  frame(seconds: number, visible: boolean): FrameVerdict;
+  /** The loop stopped and starts again (paused, hidden, off screen): the frames before say nothing about now. */
+  restart(): void;
+};
+
+/**
+ * The live scene's frame-rate guard. Every frame counts at its real length, however slow: a scene drawing at 10 fps,
+ * or a frame in two seconds, steps its quality down once and then gives way to the still frame. (It used to leave
+ * out frames of 0.095 s or more as stalls, so the slowest scenes were never stopped.) Frames while the page is hidden
+ * are left out: a background tab says nothing about the GPU. A stray long frame does not decide it: the median does.
+ */
+export function createFrameGuard(): FrameGuard {
+  let warm = 0;
+  let samples: number[] = [];
+  let total = 0;
+  let downgraded = false;
+  return {
+    frame(seconds, visible) {
+      if (!visible || !Number.isFinite(seconds) || seconds <= 0) return "keep";
+      if (warm < FRAME_GUARD.warmup) {
+        warm += seconds;
+        return "keep";
+      }
+      samples.push(seconds);
+      total += seconds;
+      if (samples.length > FRAME_GUARD.window) total -= samples.shift() ?? 0;
+      const enough = samples.length >= FRAME_GUARD.frames || (samples.length >= FRAME_GUARD.minimum && total >= FRAME_GUARD.seconds);
+      if (!enough) return "keep";
+      const median = medianFrame(samples);
+      if (!downgraded && median > SLOW_FRAME.downgrade) {
+        downgraded = true;
+        samples = [];
+        total = 0;
+        return "downgrade";
+      }
+      return downgraded && median > SLOW_FRAME.stop ? "stop" : "keep";
+    },
+    restart() {
+      samples = [];
+      total = 0;
+    },
+  };
+}
