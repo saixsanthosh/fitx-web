@@ -164,7 +164,8 @@ describe("Settings and Profile use it", () => {
     assert.match(profile, /if \(event\.persisted\) void reload\(\);/);
     // With the shared context: its "signed_out" is checked before Profile says "Sign in to see your profile." (home-1).
     assert.match(profile, /const sharedSignedOut = shared\?\.status === "signed_out";/);
-    assert.match(profile, /const status = confirmSignedOut\(shared\.status, own && own\.attempt === attempt \? own\.state : null\);/);
+    assert.match(profile, /const status = confirmSignedOut\(shared\.status, own\);/);
+    assert.match(profile, /\}, \[sharedSignedOut, attempt\]\);/, "checked again on each reload while the context says signed out");
     assert.match(profile, /setAttempt\(\(count\) => count \+ 1\);\s*await refreshShared\?\.\(\);/, "Try again checks the session again too");
   });
 

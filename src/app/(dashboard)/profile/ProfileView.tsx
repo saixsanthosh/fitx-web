@@ -81,15 +81,17 @@ function useProfileData() {
   // The shared context also says "signed_out" when its own check failed (offline, say): Profile says "Sign in" only
   // once its own check agrees, and a failed check is a load failure with Try again (session-state.ts confirmSignedOut).
   const sharedSignedOut = shared?.status === "signed_out";
+  // Try again (and every reload) checks again; the last answer stays on screen meanwhile, so the focused Try again
+  // button isn't swapped for the loading state.
   const [attempt, setAttempt] = useState(0);
-  const [own, setOwn] = useState<{ attempt: number; state: SessionState } | null>(null);
+  const [own, setOwn] = useState<SessionState | null>(null);
   useEffect(() => {
     if (!sharedSignedOut) return;
     let live = true;
     const supabase = createClient();
     const check: Promise<{ state: SessionState }> = supabase ? checkSession<User>(() => supabase.auth.getUser()) : Promise.resolve({ state: "unknown" });
     void check.then(({ state }) => {
-      if (live) setOwn({ attempt, state });
+      if (live) setOwn(state);
     });
     return () => {
       live = false;
@@ -120,7 +122,7 @@ function useProfileData() {
     void Promise.resolve().then(loadLocal);
   }, [shared, loadLocal]);
   if (shared) {
-    const status = confirmSignedOut(shared.status, own && own.attempt === attempt ? own.state : null);
+    const status = confirmSignedOut(shared.status, own);
     return { status, data: shared.data, avatarUrl: shared.avatarUrl, reload: reloadShared };
   }
   return { ...local, reload: loadLocal };
