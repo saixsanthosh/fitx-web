@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { CloudOff, Play } from "lucide-react";
+import { CalendarClock, CloudOff, Play } from "lucide-react";
 import { Reveal } from "@/components/motion";
 import { SPORT_NOUN, usesPace } from "@/lib/activity/config";
 import { formatActivityDate, formatDuration, kmValue, paceValue, speedValue } from "@/lib/activity/format";
+import { FUTURE_DATE_MARK, startsInFuture } from "@/lib/activity/future";
 import { decodeRoute } from "@/lib/activity/polyline";
 import type { ActivityView } from "@/lib/activity/repository";
 import type { TimelineEntry } from "@/lib/activity/timeline";
@@ -20,18 +21,22 @@ function Figure({ label, value, unit }: { label: string; value: string; unit?: s
     <div className="min-w-0">
       <dt className="text-[11px] text-fitx-text-secondary">{label}</dt>
       <dd className="mt-0.5 truncate font-heading text-lg font-bold tabular-nums tracking-[-.02em] text-fitx-text sm:text-xl">
-        {value}{unit && value !== "–" && <span className="ml-0.5 font-body text-xs font-medium text-fitx-text-secondary">{unit}</span>}
+        {value}{unit && value !== "–" && <span className="font-body text-xs font-medium text-fitx-text-secondary">{`\u00a0${unit}`}</span>}
       </dd>
     </div>
   );
 }
 
-/** One walk, run or ride in the feed: who-when line, title, the sport's figures and the route. */
-export function ActivityCard({ activity }: { activity: ActivityView }) {
+/**
+ * One walk, run or ride in the feed: who-when line, title, the sport's figures and the route. One dated after
+ * now says so: weekly, monthly and yearly totals leave it out until then (all time and bests count it).
+ */
+export function ActivityCard({ activity, now }: { activity: ActivityView; now: number | null }) {
   const href = activity.local ? `/activity/local-${activity.clientId}` : `/activity/${activity.id}`;
   const route = decodeRoute(activity.routePolyline);
   const hasRoute = route.some((segment) => segment.length > 1);
   const pace = usesPace(activity.sport);
+  const future = now !== null && startsInFuture(activity.startedAt, now);
   return (
     <li>
       <Link
@@ -44,6 +49,7 @@ export function ActivityCard({ activity }: { activity: ActivityView }) {
             <p className="flex flex-wrap items-center gap-x-2 text-xs text-fitx-text-secondary">
               <span>{formatActivityDate(activity.startedAt)}</span>
               {activity.local && <span className="inline-flex items-center gap-1 text-fitx-warning"><CloudOff size={12} aria-hidden="true" />On this device</span>}
+              {future && <span className="inline-flex items-center gap-1 text-fitx-warning"><CalendarClock size={12} aria-hidden="true" className="shrink-0" />{FUTURE_DATE_MARK}</span>}
             </p>
             <p className="mt-0.5 truncate font-heading text-[17px] font-bold tracking-[-.02em] text-fitx-text group-hover:text-fitx-primary-text">{activity.title}</p>
             <ActivitySourceBadge info={activity} className="mt-1 max-w-full" />
@@ -116,7 +122,7 @@ export function FeedList({ entries, now, sport, loading, ready, more, loadingMor
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-[.14em] text-fitx-text-secondary">{label}</h3>
             <ul className="grid gap-3 lg:grid-cols-2">
               {group.items.map((entry) => (entry.kind === "activity"
-                ? <ActivityCard key={entry.key} activity={entry.activity} />
+                ? <ActivityCard key={entry.key} activity={entry.activity} now={now} />
                 : <StrengthRow key={entry.key} session={entry.session} />))}
             </ul>
           </section>

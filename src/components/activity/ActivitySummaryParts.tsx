@@ -31,7 +31,7 @@ export function ActivityStatsPanel({ view, kcal, showWeightLink = true }: { view
     <section aria-label="Activity statistics" className="space-y-3">
       <div className="fitx-panel p-4 sm:p-5">
         <p className="text-[10px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Distance</p>
-        <p className="mt-1 text-[52px] font-semibold leading-none tabular-nums tracking-tight text-fitx-text">{kmValue(view.distanceM)}<span className="ml-1.5 text-xl font-medium text-fitx-text-secondary">km</span></p>
+        <p className="mt-1 text-[52px] font-semibold leading-none tabular-nums tracking-tight text-fitx-text">{kmValue(view.distanceM)}<span className="text-xl font-medium text-fitx-text-secondary">{"\u00a0km"}</span></p>
         {imported && <p className="mt-2 text-[11px] leading-4 text-fitx-text-secondary">Worked out by FITX from the file’s GPS points.</p>}
       </div>
       <div className="grid grid-cols-2 gap-3">

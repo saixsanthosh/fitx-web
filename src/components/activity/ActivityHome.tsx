@@ -144,7 +144,7 @@ export function ActivityHome() {
                   <span className="mt-3 block">
                     <span className="block font-heading text-base font-bold tracking-[-.02em] text-fitx-text sm:text-lg">{SPORT_LABEL[sport]}</span>
                     <span className="block text-xs leading-4 tabular-nums text-fitx-text-secondary">
-                      {sportWeek && sportWeek[sport] > 0 ? <>{formatDistance(sportWeek[sport])}<span className="block sm:ml-1 sm:inline">this week</span></> : "Start"}
+                      {sportWeek && sportWeek[sport] > 0 ? <>{formatDistance(sportWeek[sport])}{" "}<span className="block sm:inline">this week</span></> : "Start"}
                     </span>
                   </span>
                 </Link>

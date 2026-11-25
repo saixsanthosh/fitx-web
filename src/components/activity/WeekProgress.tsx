@@ -5,7 +5,7 @@ import { Dumbbell, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { CountUp, EASE } from "@/components/motion";
 import { SPORT_LABEL } from "@/lib/activity/config";
 import { barScale, recentWeeks, weekDays, type SportFilter } from "@/lib/activity/feed";
-import { formatDistance, formatDuration, formatDurationWords, kmValue } from "@/lib/activity/format";
+import { formatDistance, formatDuration, formatDurationWords, inOtherYear, kmValue } from "@/lib/activity/format";
 import type { ActivitySummary, PeriodTotals } from "@/lib/activity/repository";
 import type { WeekChange } from "@/lib/activity/stats";
 import { SPORTS } from "@/lib/activity/types";
@@ -14,6 +14,7 @@ import { SPORT_TONE } from "./sports";
 
 const DAY = new Intl.DateTimeFormat("en-GB", { weekday: "short" });
 const SHORT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const SHORT_YEAR = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
 function ChangeLine({ change }: { change: WeekChange }) {
   const Icon = change.direction === "up" ? TrendingUp : change.direction === "down" ? TrendingDown : Minus;
@@ -107,7 +108,7 @@ export function WeekProgress({ rows, week, change, now, strength, filter = "all"
             <ul className="mt-2 grid h-12 grid-cols-12 items-end gap-1" aria-label="Distance per week, last 12 weeks">
               {weeks.map((item, i) => (
                 <li key={item.weekStart} className="flex h-full items-end">
-                  <span className="sr-only">Week of {SHORT.format(item.weekStart)}: {item.count ? formatDistance(item.distanceM) : "nothing recorded"}</span>
+                  <span className="sr-only">Week of {(inOtherYear(item.weekStart, now) ? SHORT_YEAR : SHORT).format(item.weekStart)}: {item.count ? formatDistance(item.distanceM) : "nothing recorded"}</span>
                   <m.span
                     aria-hidden="true"
                     className={cn("block w-full origin-bottom rounded-sm", i === weeks.length - 1 ? "bg-fitx-primary" : item.distanceM > 0 ? "bg-fitx-text-secondary/45" : "bg-fitx-surface-variant")}

@@ -64,6 +64,8 @@ export class ImportError extends Error {
 }
 
 export type ImportErrorCode =
+  /** Nothing in the file (0 bytes, or only spaces and line breaks). */
+  | "empty"
   | "too-large"
   | "unknown-format"
   | "damaged"
@@ -72,7 +74,9 @@ export type ImportErrorCode =
   | "no-times"
   | "too-long"
   | "too-far"
-  | "unsupported-sport";
+  | "unsupported-sport"
+  /** The activity starts after now: the recording device's clock was wrong. */
+  | "future-start";
 
 /** Limits that keep a file's work bounded on a phone. */
 export const IMPORT_LIMITS = {

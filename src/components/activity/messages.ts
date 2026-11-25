@@ -1,5 +1,5 @@
 import { formatDistance, formatDuration } from "@/lib/activity/format";
-import type { LocationIssue, SignalQuality, WakeLockState } from "@/lib/activity/recorder";
+import type { LocationIssue, RecorderSnapshot, SignalQuality, WakeLockState } from "@/lib/activity/recorder";
 import type { Gap } from "@/lib/activity/types";
 
 /** Plain-language help for each location problem, with the exact settings to change. */
@@ -41,6 +41,46 @@ export const SIGNAL_TEXT: Record<SignalQuality, string> = {
   weak: "Weak GPS",
   coarse: "Approximate location",
 };
+
+/** What the corner chip says for each location problem: the same answer as the banner under it. */
+export const ISSUE_CHIP_TEXT: Record<Exclude<LocationIssue, "coarse">, string> = {
+  unsupported: "No location",
+  insecure: "No location",
+  denied: "Location blocked",
+  unavailable: "No GPS",
+  timeout: "No GPS",
+  searching: "GPS lost",
+};
+
+export type SignalChip = {
+  text: string;
+  /** Filled bars, 0 to 3. */
+  bars: 0 | 1 | 2 | 3;
+  tone: "good" | "fair" | "weak" | "bad" | "off";
+  /** True only while FITX is waiting for a first position: the bars pulse. */
+  searching: boolean;
+  /** Shown beside the text ("± 6 m"), only with a current position. */
+  accuracyM: number | null;
+};
+
+/**
+ * The GPS chip in the Record screen's corner: one clear answer, the same as the banner below it. A location
+ * problem (blocked, unsupported, lost, not found) is named, never "GPS good" from a position that stopped
+ * arriving; "Finding GPS…" is said only while FITX is really looking, never before location is allowed or
+ * after it stopped.
+ */
+export function signalChip(snapshot: Pick<RecorderSnapshot, "issue" | "signal" | "accuracyM" | "phase">): SignalChip {
+  const { issue, signal } = snapshot;
+  if (issue && issue !== "coarse") return { text: ISSUE_CHIP_TEXT[issue], bars: 0, tone: issue === "searching" || issue === "timeout" || issue === "unavailable" ? "bad" : "off", searching: false, accuracyM: null };
+  if (signal === "none") {
+    // Location isn't being read: not allowed yet (or not asked), or the activity is finished.
+    if (snapshot.phase === "idle" || snapshot.phase === "finished") return { text: "Location off", bars: 0, tone: "off", searching: false, accuracyM: null };
+    return { text: SIGNAL_TEXT.none, bars: 0, tone: "off", searching: true, accuracyM: null };
+  }
+  const bars = signal === "good" ? 3 : signal === "fair" ? 2 : 1;
+  const tone = signal === "good" ? "good" : signal === "fair" ? "fair" : signal === "weak" ? "weak" : "bad";
+  return { text: SIGNAL_TEXT[signal], bars, tone, searching: false, accuracyM: snapshot.accuracyM };
+}
 
 export const WAKE_LOCK_TEXT: Record<WakeLockState, string | null> = {
   off: null,

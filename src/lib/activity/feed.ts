@@ -1,3 +1,4 @@
+import { startsInFuture } from "./future";
 import type { ActivitySummary } from "./repository";
 import { personalBests, type SportBests } from "./stats";
 import { isSport, SPORTS, type Sport } from "./types";
@@ -7,7 +8,8 @@ import { startOfWeek } from "./weeks";
  * Figures for the Activity feed and the per-sport pages: distance per day of this week, distance per
  * week for the last few weeks, and one sport's totals. Every figure is a sum of real activities; a
  * day or week without any is 0 km because nothing was recorded, and an average without moving time
- * is null (shown as a dash), never 0.
+ * is null (shown as a dash), never 0. A day, week or "this week" figure counts only activities that
+ * have started by now: one dated later (a device clock set wrong) waits for its day (future.ts).
  */
 
 export type SportFilter = Sport | "all";
@@ -55,7 +57,7 @@ export function weekDays(rows: readonly ActivitySummary[], now: number, filter: 
   const days: DayBar[] = Array.from({ length: 7 }, (_, i) => ({ dayStart: addDays(monday, i), distanceM: 0, movingSeconds: 0, count: 0, bySport: emptyBySport() }));
   const end = addDays(monday, 7);
   for (const row of rows) {
-    if (!matchesFilter(row, filter) || row.startedAt < monday || row.startedAt >= end) continue;
+    if (!matchesFilter(row, filter) || row.startedAt < monday || row.startedAt >= end || startsInFuture(row.startedAt, now)) continue;
     let index = 6;
     while (index > 0 && row.startedAt < days[index].dayStart) index -= 1;
     const day = days[index];
@@ -76,7 +78,7 @@ export function recentWeeks(rows: readonly ActivitySummary[], now: number, weeks
   const first = bars[0].weekStart;
   const end = addDays(thisWeek, 7);
   for (const row of rows) {
-    if (!matchesFilter(row, filter) || row.startedAt < first || row.startedAt >= end) continue;
+    if (!matchesFilter(row, filter) || row.startedAt < first || row.startedAt >= end || startsInFuture(row.startedAt, now)) continue;
     const week = startOfWeek(row.startedAt);
     const bar = bars.find((item) => item.weekStart === week);
     if (!bar) continue;
@@ -98,7 +100,7 @@ export type SportSummary = {
   count: number;
   distanceM: number;
   movingSeconds: number;
-  /** This week only. */
+  /** This week only, from the activities that have started by now. */
   weekDistanceM: number;
   weekCount: number;
   /** Over all activities with moving time: total distance over total moving time. Null without any. */
@@ -107,7 +109,11 @@ export type SportSummary = {
   bests: SportBests;
 };
 
-/** One sport's totals, averages and bests from its saved (and device-only) activities. */
+/**
+ * One sport's totals, averages and bests from its saved (and device-only) activities. This week counts only the
+ * ones that have started; all time, the averages and the bests count every stored activity, one dated ahead too,
+ * which is why its history card names only the weekly, monthly and yearly totals (FUTURE_DATE_MARK).
+ */
 export function sportSummary(rows: readonly ActivitySummary[], sport: Sport, now: number): SportSummary {
   const mine = rows.filter((row) => row.sport === sport);
   const monday = startOfWeek(now);
@@ -117,7 +123,7 @@ export function sportSummary(rows: readonly ActivitySummary[], sport: Sport, now
     distanceM += row.distanceM;
     movingSeconds += row.movingSeconds;
     if (row.movingSeconds > 0) timedDistance += row.distanceM;
-    if (row.startedAt >= monday && row.startedAt < end) {
+    if (row.startedAt >= monday && row.startedAt < end && !startsInFuture(row.startedAt, now)) {
       weekDistanceM += row.distanceM;
       weekCount += 1;
     }
@@ -132,6 +138,6 @@ export function weekBySport(rows: readonly ActivitySummary[], now: number): Reco
   const monday = startOfWeek(now);
   const end = addDays(monday, 7);
   const result = emptyBySport();
-  for (const row of rows) if (row.startedAt >= monday && row.startedAt < end) result[row.sport] += row.distanceM;
+  for (const row of rows) if (row.startedAt >= monday && row.startedAt < end && !startsInFuture(row.startedAt, now)) result[row.sport] += row.distanceM;
   return result;
 }

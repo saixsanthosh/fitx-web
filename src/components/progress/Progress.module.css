@@ -80,15 +80,15 @@ g[data-tone="plan"] .ringArc { stroke: var(--fitx-gold); }
 .legend [data-tone="plan"] i { background: var(--fitx-gold); }
 .legend span { color: var(--fitx-text-secondary); font-size: .78rem; font-weight: 600; }
 .legend strong { grid-column: 2; color: var(--fitx-text); font-size: .95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.legend strong small { margin-left: 3px; color: var(--fitx-text-secondary); font-size: .75rem; font-weight: 600; }
+.legend strong small { color: var(--fitx-text-secondary); font-size: .75rem; font-weight: 600; }
 
 .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0; overflow: hidden; border: 1px solid var(--fitx-divider); border-radius: 18px; background: var(--fitx-divider); }
 .stat { display: grid; min-width: 0; align-content: start; gap: 4px; background: var(--fitx-card-bg); padding: 14px; }
 .stat dt { display: flex; align-items: center; gap: 6px; color: var(--fitx-text-secondary); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .stat dd { display: grid; gap: 4px; margin: 0; }
 .statValue { color: var(--fitx-text); font-family: var(--font-heading); font-size: 1.65rem; font-weight: 800; letter-spacing: -.035em; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.statUnit { margin-left: 4px; color: var(--fitx-text-secondary); font-family: var(--font-body, inherit); font-size: .8rem; font-weight: 650; letter-spacing: 0; }
-.statEstimate { display: inline-block; margin-left: 6px; border-radius: 999px; background: var(--fitx-surface-variant); padding: 1px 7px; color: var(--fitx-text-secondary); font-family: var(--font-body, inherit); font-size: .65rem; font-weight: 700; letter-spacing: .02em; vertical-align: middle; }
+.statUnit { color: var(--fitx-text-secondary); font-family: var(--font-body, inherit); font-size: .8rem; font-weight: 650; letter-spacing: 0; }
+.statEstimate { display: inline-block; border-radius: 999px; background: var(--fitx-surface-variant); padding: 1px 7px; color: var(--fitx-text-secondary); font-family: var(--font-body, inherit); font-size: .65rem; font-weight: 700; letter-spacing: .02em; vertical-align: middle; }
 .delta { color: var(--fitx-text-secondary); font-size: .74rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .delta[data-direction="up"] { color: var(--fitx-success); }
 .delta[data-direction="down"] { color: var(--fitx-text-secondary); }
@@ -173,7 +173,7 @@ g[data-tone="plan"] .ringArc { stroke: var(--fitx-gold); }
 /* ---------------------------------------------------------------- weight */
 .weightHead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
 .weightNow { color: var(--fitx-text); font-family: var(--font-heading); font-size: 2.2rem; font-weight: 800; letter-spacing: -.045em; line-height: 1; font-variant-numeric: tabular-nums; }
-.weightNow small { margin-left: 4px; color: var(--fitx-text-secondary); font-family: var(--font-body, inherit); font-size: .9rem; font-weight: 650; letter-spacing: 0; }
+.weightNow small { color: var(--fitx-text-secondary); font-family: var(--font-body, inherit); font-size: .9rem; font-weight: 650; letter-spacing: 0; }
 .weightMeta { color: var(--fitx-text-secondary); font-size: .8rem; }
 .change { color: var(--fitx-text); font-weight: 750; font-variant-numeric: tabular-nums; }
 .weightChart { display: grid; gap: 8px; margin: 0; min-width: 0; }
@@ -201,7 +201,7 @@ g[data-tone="plan"] .ringArc { stroke: var(--fitx-gold); }
 .pair div { display: grid; gap: 4px; border-radius: 16px; background: var(--fitx-surface); padding: 12px 14px; }
 .pair dt { color: var(--fitx-text-secondary); font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .pair dd { margin: 0; color: var(--fitx-text); font-family: var(--font-heading); font-size: 1.35rem; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
-.pair dd small { margin-left: 3px; color: var(--fitx-text-secondary); font-family: var(--font-body, inherit); font-size: .78rem; font-weight: 600; letter-spacing: 0; }
+.pair dd small { color: var(--fitx-text-secondary); font-family: var(--font-body, inherit); font-size: .78rem; font-weight: 600; letter-spacing: 0; }
 .pair p { color: var(--fitx-text-disabled); font-size: .7rem; line-height: 1.4; }
 .meter { height: 6px; overflow: hidden; border-radius: 999px; background: var(--fitx-track); }
 .meter span { display: block; height: 100%; border-radius: inherit; background: var(--fitx-macro-protein); transform-origin: left; transition: transform .8s cubic-bezier(.22, 1, .36, 1); }

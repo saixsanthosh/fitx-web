@@ -255,7 +255,7 @@ export default function ActivityMap({ segments, version = 0, current = null, fol
   return (
     <div className={`${styles.frame} ${className ?? ""}`}>
       <div ref={containerRef} className={styles.map} role="region" aria-label={label} />
-      {tilesFailed && <p className={styles.notice}>Map tiles couldn’t load. Your route is still being recorded.</p>}
+      {tilesFailed && <p className={`${styles.notice} ${styles.clearOfZoom}`}>Map tiles couldn’t load. Your route is still being recorded.</p>}
       {follow && !following && current && (
         <button type="button" className={styles.recenter} onClick={() => setFollowing(true)} aria-label="Centre the map on your position">
           <LocateFixed size={18} aria-hidden="true" />

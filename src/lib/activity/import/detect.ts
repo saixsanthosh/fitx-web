@@ -51,6 +51,17 @@ export function decodeText(bytes: Uint8Array): string {
   return new TextDecoder("utf-8").decode(bytes);
 }
 
+/** Files at most this size are checked for being blank (spaces and line breaks only) when no format is found. */
+const BLANK_CHECK_BYTES = 64 * 1024;
+
+/** Nothing in it: no bytes, or only whitespace (a byte-order mark aside). */
+export function isBlank(bytes: Uint8Array): boolean {
+  if (!bytes.byteLength) return true;
+  return bytes.byteLength <= BLANK_CHECK_BYTES && decodeText(bytes).replace(/^\uFEFF/, "").trim() === "";
+}
+
+const emptyFile = () => new ImportError("empty", "This file is empty. Export the activity again, then choose the new file.");
+
 /** Which reader a file needs, from its first bytes (not its name, which can be wrong). */
 export function sniffFormat(bytes: Uint8Array): "fit" | "gpx" | "tcx" | "gzip" | "zip" | null {
   if (looksLikeFit(bytes)) return "fit";
@@ -63,21 +74,28 @@ export function sniffFormat(bytes: Uint8Array): "fit" | "gpx" | "tcx" | "gzip" |
 }
 
 /**
- * Reads an activity file into the import shape, or throws ImportError with a reason to show. The
- * whole activity must fit FITX's limits: at most 48 hours long.
+ * Reads an activity file into the import shape, or throws ImportError with a reason to show. An empty file is
+ * called empty (not "not a GPX file"); a file with a single point is refused at once, since one point is no
+ * route (the sport is never asked for it). The whole activity must fit FITX's limits: at most 48 hours long.
  */
 export async function readActivityFile(input: Uint8Array): Promise<ParsedImport> {
   if (input.byteLength > IMPORT_LIMITS.maxFileBytes) throw new ImportError("too-large", "This file is too large to import (the limit is 30 MB).");
+  if (!input.byteLength) throw emptyFile();
   let bytes = input;
   let format = sniffFormat(bytes);
   if (format === "gzip") {
     bytes = await gunzip(bytes);
+    if (!bytes.byteLength) throw emptyFile();
     format = sniffFormat(bytes);
     if (format === "gzip") throw new ImportError("unknown-format", "This file is packed twice. Unpack it, then choose the file inside.");
   }
   if (format === "zip") throw new ImportError("unknown-format", "This is a zip archive. Unpack it, then choose the .fit, .gpx or .tcx file inside.");
+  if (!format && isBlank(bytes)) throw emptyFile();
   if (!format) throw new ImportError("unknown-format", "FITX can read GPX, TCX and FIT files. This file isn’t one of them.");
   const parsed = format === "fit" ? readFit(bytes) : format === "gpx" ? readGpx(decodeText(bytes)) : readTcx(decodeText(bytes));
+  if (parsed.segments.reduce((count, segment) => count + segment.length, 0) < 2) {
+    throw new ImportError("no-points", "This file has only one GPS point, so there’s no route to import.");
+  }
   if (parsed.endedAt - parsed.startedAt > 48 * 3600 * 1000) {
     throw new ImportError("too-long", "This activity is longer than 48 hours, the most FITX keeps for one activity.");
   }

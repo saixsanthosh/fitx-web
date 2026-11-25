@@ -316,6 +316,20 @@ export const V2_COLUMNS = ["best_efforts"] as const;
 
 const CHUNK_BATCH = 6;
 
+/** The activity_track_chunks rows for some of an activity's chunks. */
+function chunkRows(id: string, userId: string, chunks: readonly TrackChunk[]): Row[] {
+  return chunks.map((chunk) => ({
+    activity_id: id,
+    user_id: userId,
+    seq: chunk.seq,
+    started_at: new Date(chunk.startedAt).toISOString(),
+    ended_at: new Date(chunk.endedAt).toISOString(),
+    point_count: chunk.pointCount,
+    encoding: 1,
+    points: chunk.points,
+  }));
+}
+
 /**
  * Saves the row and then its chunks. `created` is the id when this call inserted the row (it did not
  * exist before), so a caller can take it back out when the chunks then fail. With `keepChunks`, chunks
@@ -339,16 +353,7 @@ async function saveRowAndChunks(client: SupabaseLike, userId: string, record: Ac
     if (!id) return { result: { status: "error", message: "The activity was not saved", offline: false }, created };
     const chunks = record.chunks;
     for (let i = 0; i < chunks.length; i += CHUNK_BATCH) {
-      const rows = chunks.slice(i, i + CHUNK_BATCH).map((chunk: TrackChunk) => ({
-        activity_id: id,
-        user_id: userId,
-        seq: chunk.seq,
-        started_at: new Date(chunk.startedAt).toISOString(),
-        ended_at: new Date(chunk.endedAt).toISOString(),
-        point_count: chunk.pointCount,
-        encoding: 1,
-        points: chunk.points,
-      }));
+      const rows = chunkRows(id, userId, chunks.slice(i, i + CHUNK_BATCH));
       const saved = await table(client, "activity_track_chunks").upsert(rows, keepChunks ? { onConflict: "activity_id,seq", ignoreDuplicates: true } : { onConflict: "activity_id,seq" });
       if (saved.error) return { result: failure(saved.error), created };
     }
@@ -374,6 +379,35 @@ export async function saveImportedActivity(client: SupabaseLike, userId: string,
   const { result, created } = await saveRowAndChunks(client, userId, record, true);
   if (result.status !== "ok" && created) await deleteActivity(client, userId, created);
   return result;
+}
+
+/**
+ * Replaces a saved import with a fuller export of the same session (same device id, `record.clientId`), in
+ * place, so its id, links and everything else on the row stay. In this order: its old GPS points are deleted,
+ * the row takes the new file's numbers, then the new points are added. Stopped part way, the old file's points
+ * are never mixed with the new numbers: at worst the row has the new numbers and only some of its points, and
+ * importing the same file again adds the rest (the "incomplete" path). The caller passes the saved name and
+ * sport in `record`, so the member's own choices are kept.
+ */
+export async function replaceImportedActivity(client: SupabaseLike, userId: string, id: string, record: ActivityRecord): Promise<DbResult<{ id: string }>> {
+  try {
+    const removed = await table(client, "activity_track_chunks").delete().eq("user_id", userId).eq("activity_id", id);
+    if (removed.error) return failure(removed.error);
+    const fields = rowFromRecord(record, userId);
+    delete fields.user_id;
+    delete fields.client_id;
+    const { result: updated } = await withOptionalColumns(V2_COLUMNS, (withV2) => table(client, "activities")
+      .update(withV2 ? fields : omitColumns(fields, V2_COLUMNS)).eq("user_id", userId).eq("id", id).eq("client_id", record.clientId).select("id"));
+    if (updated.error) return failure(updated.error);
+    if (!Array.isArray(updated.data) || !updated.data.length) return { status: "error", message: "The saved activity was not found", offline: false };
+    for (let i = 0; i < record.chunks.length; i += CHUNK_BATCH) {
+      const saved = await table(client, "activity_track_chunks").upsert(chunkRows(id, userId, record.chunks.slice(i, i + CHUNK_BATCH)), { onConflict: "activity_id,seq" });
+      if (saved.error) return failure(saved.error);
+    }
+    return { status: "ok", data: { id } };
+  } catch (error) {
+    return failure(error);
+  }
 }
 
 /** A page of activities, newest first; `sport` limits it to walks, runs or rides. */

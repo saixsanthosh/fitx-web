@@ -115,6 +115,12 @@ export type GoalView = {
    * read as 0); null when not checked.
    */
   missingEntries: number | null;
+  /**
+   * The total fitx_goal_progress reports when logged corrections add up to less than zero (made before the app
+   * refused that), while the goal shows 0. Progress history counts from it, so deleting minus entries is seen to
+   * bring the total back up from there, not from 0.
+   */
+  negativeTotal?: number;
 };
 
 const num = (value: unknown): number | null => {
@@ -126,12 +132,18 @@ const str = (value: unknown): string | null => (typeof value === "string" && val
 const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
   typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 
-/** One row of fitx_goal_progress, or a plain goals row from a database without goals v2. */
+/**
+ * One row of fitx_goal_progress, or a plain goals row from a database without goals v2. A total is never below
+ * zero: fitx_goal_progress adds a manual goal's entries without a floor, so corrections larger than what was
+ * logged (made before the app refused them) would read "-35 of 20 lengths"; like the stored total, which a
+ * trigger keeps at zero or above, it reads 0.
+ */
 export function parseGoalRow(raw: Record<string, unknown>): GoalView {
   const stored = isGoalMetric(raw.metric) && !isClientMetric(raw.metric) ? raw.metric : "manual";
   const client = stored === "manual" ? clientMetricForUnit(raw.unit) : null;
   const metric: GoalMetric = client ?? stored;
   const legacy = raw.period === undefined;
+  const measured = client ? null : num(raw.current_value) ?? (legacy ? 0 : null);
   return {
     id: String(raw.id),
     title: String(raw.title ?? ""),
@@ -153,12 +165,13 @@ export function parseGoalRow(raw: Record<string, unknown>): GoalView {
     periodEnd: str(raw.period_end),
     // A database without goals v2 has only the browser-kept manual total. A client-measured goal has no value
     // until the app measures it (src/lib/data/goals.ts): the stored manual total is not its progress.
-    currentValue: client ? null : num(raw.current_value) ?? (legacy ? 0 : null),
+    currentValue: measured === null ? null : Math.max(0, measured),
     valueAsOf: str(raw.value_as_of),
     startValue: client ? null : num(raw.start_value) ?? num(raw.baseline_value),
     linkedTodos: num(raw.linked_todos) ?? 0,
     linkedTodosDone: num(raw.linked_todos_done) ?? 0,
     missingEntries: null,
+    ...(measured !== null && measured < 0 ? { negativeTotal: measured } : {}),
   };
 }
 
@@ -285,18 +298,20 @@ export function remainingLabel(goal: GoalView, evaluation = evaluateView(goal)):
   return `${formatGoalValue(evaluation.remaining, goal.metric, goal.unit)} to go`;
 }
 
-const monthDay = (key: string) => {
+/** "31 Dec", with the year when it isn't `today`'s ("31 Dec 2027"), so next year's date never reads as this year's. */
+const monthDay = (key: string, today: string) => {
   const [year, month, day] = key.split("-").map(Number);
-  return new Date(year, month - 1, day, 12).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const options: Intl.DateTimeFormatOptions = key.slice(0, 4) === today.slice(0, 4) ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" };
+  return new Date(year, month - 1, day, 12).toLocaleDateString(undefined, options);
 };
 
-/** When the goal's progress applies: "Today", "This week", "Due 31 Dec", "Ended 31 Dec", "Ongoing". */
+/** When the goal's progress applies: "Today", "This week", "Due 31 Dec", "Ended 31 Dec 2025", "Ongoing". */
 export function periodLabel(goal: Pick<GoalView, "period" | "dueOn" | "startsOn">, today: string): string {
   if (goal.period === "daily") return "Today";
   if (goal.period === "weekly") return "This week";
-  if (goal.startsOn && goal.startsOn > today) return `Starts ${monthDay(goal.startsOn)}`;
+  if (goal.startsOn && goal.startsOn > today) return `Starts ${monthDay(goal.startsOn, today)}`;
   if (!goal.dueOn) return "Ongoing";
-  return goal.dueOn < today ? `Ended ${monthDay(goal.dueOn)}` : `Due ${monthDay(goal.dueOn)}`;
+  return goal.dueOn < today ? `Ended ${monthDay(goal.dueOn, today)}` : `Due ${monthDay(goal.dueOn, today)}`;
 }
 
 /** True when a daily or weekly goal applies today (active, started, not past its end date). */
@@ -425,7 +440,11 @@ export const GOAL_TEMPLATES: ReadonlyArray<{ key: GoalTemplateKey; label: string
 const round = (value: number, step = 1) => Math.round(value / step) * step;
 const asText = (value: number | null) => (value === null || !Number.isFinite(value) ? "" : String(Number(value.toFixed(2))));
 
-/** The title a template suggests for a target, e.g. "Eat 130 g of protein a day". */
+/**
+ * The title a template suggests for a target, e.g. "Eat 130 g of protein a day". It always says the period the
+ * goal measures ("a day", "a week", "in total"), whatever the template's usual one: a weekly calorie limit adds
+ * up the whole week's food, so it is "Stay under 13,000 kcal a week", never "… a day".
+ */
 export function templateTitle(draft: Pick<GoalDraft, "template" | "target" | "direction" | "metric" | "period" | "unit">): string {
   const target = Number(draft.target);
   const has = draft.target.trim() !== "" && Number.isFinite(target) && target > 0;
@@ -433,17 +452,17 @@ export function templateTitle(draft: Pick<GoalDraft, "template" | "target" | "di
   const per = draft.period === "daily" ? "a day" : draft.period === "weekly" ? "a week" : "in total";
   switch (draft.template) {
     case "workouts_week":
-      return `Work out ${n()} ${has && target === 1 ? "time" : "times"} a week`;
+      return `Work out ${n()} ${has && target === 1 ? "time" : "times"} ${per}`;
     case "distance_week":
       return `Cover ${n(1)} km ${per}`;
     case "active_week":
       return `Be active for ${n()} minutes ${per}`;
     case "protein_day":
-      return `Eat ${n()} g of protein a day`;
+      return `Eat ${n()} g of protein ${per}`;
     case "calories_day":
-      return draft.direction === "limit" ? `Stay under ${n()} kcal a day` : `Eat ${n()} kcal a day`;
+      return draft.direction === "limit" ? `Stay under ${n()} kcal ${per}` : `Eat ${n()} kcal ${per}`;
     case "water_day":
-      return `Drink ${has ? (target / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 }) : "…"} L of water a day`;
+      return `Drink ${has ? (target / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 }) : "…"} L of water ${per}`;
     case "weight":
       return `Reach ${n(1)} kg`;
     case "checklist":
@@ -564,8 +583,10 @@ export function validateGoalDraft(draft: GoalDraft): { ok: true; value: GoalInpu
 
 /** The edit form for an existing goal. */
 export function draftFromGoal(goal: GoalView): GoalDraft {
+  // The workouts template covers every period (its title follows the period), so a daily or long-term workouts
+  // goal edits as one too, not as a custom goal.
   const template: GoalTemplateKey =
-    goal.metric === "workouts_completed" && goal.period === "weekly" ? "workouts_week"
+    goal.metric === "workouts_completed" ? "workouts_week"
       : goal.metric === "activity_distance_km" ? "distance_week"
       : goal.metric === "active_minutes" ? "active_week"
       : goal.metric === "protein_g" ? "protein_day"
@@ -592,4 +613,71 @@ export function parseProgressAmount(text: string): number | null {
   if (!/^[-+]?(\d+\.?\d*|\.\d+)$/.test(value)) return null;
   const amount = Number(value);
   return Number.isFinite(amount) && amount !== 0 ? amount : null;
+}
+
+/**
+ * Why taking `amount` off would be refused, or null: a correction can take the total down to zero, never below
+ * ("-35 of 20 lengths \u00b7 55 to go" was possible). The total is this period's (today, this week) or, long-term,
+ * all of it, as the goal shows it.
+ */
+export function correctionProblem(goal: Pick<GoalView, "currentValue" | "metric" | "unit">, amount: number): string | null {
+  if (!(amount < 0)) return null;
+  const total = Math.max(0, goal.currentValue ?? 0);
+  if (tidy(total + amount) >= 0) return null;
+  return total > 0 ? `You can take off at most ${formatGoalValue(total, goal.metric, goal.unit)}.` : "There\u2019s nothing logged to take off yet.";
+}
+
+/** The amount to log from the Log progress field, or the message to show beside it. */
+export function checkProgressAmount(
+  text: string,
+  goal: Pick<GoalView, "currentValue" | "metric" | "unit">,
+  schema: "v1" | "v2",
+): { ok: true; amount: number } | { ok: false; error: string } {
+  const amount = parseProgressAmount(text);
+  if (amount === null) return { ok: false, error: "Enter a number, for example 2 or 1.5." };
+  if (amount < 0 && schema === "v1") return { ok: false, error: "To take progress off, delete the entry in Progress history." };
+  const problem = correctionProblem(goal, amount);
+  return problem ? { ok: false, error: problem } : { ok: true, amount };
+}
+
+/**
+ * Whether a logged entry counts in the goal's current total: every entry for a long-term goal, else only those
+ * logged on the days of this period (as fitx_goal_progress counts them, by the local day).
+ */
+export function entryCounts(goal: Pick<GoalView, "period" | "periodStart" | "periodEnd">, loggedAt: string): boolean {
+  if (goal.period === "long_term" || !goal.periodStart || !goal.periodEnd) return true;
+  const day = localDay(loggedAt);
+  return day !== null && day >= goal.periodStart && day <= goal.periodEnd;
+}
+
+/** Why deleting a logged entry would be refused (the total would go below zero), or null. */
+export function entryRemovalProblem(goal: Pick<GoalView, "currentValue" | "period" | "periodStart" | "periodEnd">, entry: { amount: number; loggedAt: string }): string | null {
+  if (!(entry.amount > 0) || !entryCounts(goal, entry.loggedAt)) return null;
+  return tidy(Math.max(0, goal.currentValue ?? 0) - entry.amount) < 0 ? "Deleting this would take the total below zero. Delete the minus entries first." : null;
+}
+
+/**
+ * The goal as deleting `entry` leaves it: the entry no longer counts in its total (an entry of an earlier day or
+ * week never did). A total that older corrections took below zero is counted on from its real value, and still
+ * shows as 0 while it stays below zero.
+ */
+export function goalWithoutEntry(goal: GoalView, entry: { amount: number; loggedAt: string }): GoalView {
+  if (!entryCounts(goal, entry.loggedAt)) return goal;
+  const total = tidy((goal.negativeTotal ?? goal.currentValue ?? 0) - entry.amount);
+  const next: GoalView = { ...goal, currentValue: Math.max(0, total) };
+  if (total < 0) next.negativeTotal = total;
+  else delete next.negativeTotal;
+  return next;
+}
+
+/**
+ * Progress history after the entry `id` is deleted: the entries left, and where keyboard focus goes (D5): the next
+ * entry's Delete button, else the one before it, else "empty" (the empty message). An entry that isn't listed any
+ * more leaves the list as it is and focus where it is (null).
+ */
+export function afterEntryRemoved<T extends { id: string }>(list: readonly T[], id: string): { rest: T[]; focus: string | null } {
+  const index = list.findIndex((item) => item.id === id);
+  if (index < 0) return { rest: [...list], focus: null };
+  const rest = list.filter((item) => item.id !== id);
+  return { rest, focus: (rest[index] ?? rest[index - 1])?.id ?? "empty" };
 }

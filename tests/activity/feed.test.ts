@@ -39,14 +39,18 @@ test("this week's days run Monday to Sunday and add up each day's activities by 
     row("run", at(2026, 10, 15, 23), 9000, 2700), // last week's Sunday: left out
     row("run", at(2026, 10, 23, 0), 9000, 2700), // next Monday: left out
   ];
-  const days = weekDays(rows, NOW);
+  // Seen at the very end of the week, every one of its activities has happened.
+  const sundayNight = new Date(2026, 10, 22, 23, 59).getTime();
+  const days = weekDays(rows, sundayNight);
   assert.equal(days.length, 7);
   assert.equal(days[0].dayStart, new Date(2026, 10, 16).getTime());
   assert.equal(days[6].dayStart, new Date(2026, 10, 22).getTime());
   assert.deepEqual(days.map((day) => day.distanceM), [5000, 0, 14000, 0, 0, 0, 3000]);
   assert.deepEqual(days[2].bySport, { ...NONE, walk: 2000, ride: 12000 });
   assert.equal(days[2].count, 2);
-  assert.deepEqual(weekDays(rows, NOW, "ride").map((day) => day.distanceM), [0, 0, 12000, 0, 0, 0, 0]);
+  assert.deepEqual(weekDays(rows, sundayNight, "ride").map((day) => day.distanceM), [0, 0, 12000, 0, 0, 0, 0]);
+  // On Wednesday afternoon, the evening ride and Sunday's run are dated after now (bug 7): not counted yet.
+  assert.deepEqual(weekDays(rows, NOW).map((day) => day.distanceM), [5000, 0, 2000, 0, 0, 0, 0]);
 });
 
 test("recent weeks are oldest first, end with this week, and only count real activities", () => {

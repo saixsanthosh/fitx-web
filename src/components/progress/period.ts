@@ -56,7 +56,9 @@ export function periodFor(kind: PeriodKind, today: string, offset = 0): Period {
     from = addDays(mondayOf(today), 7 * step);
     to = addDays(from, 6);
     const sameMonth = from.slice(0, 7) === to.slice(0, 7);
-    label = step === 0 ? "This week" : step === -1 ? "Last week" : `${fmt(from, sameMonth ? { day: "numeric" } : { day: "numeric", month: "short" })} – ${fmt(to, { day: "numeric", month: "short" })}`;
+    // A week of another year says the year ("22 – 28 Dec 2025"), so it never reads as this year's.
+    const year = to.slice(0, 4) !== today.slice(0, 4) ? { year: "numeric" as const } : {};
+    label = step === 0 ? "This week" : step === -1 ? "Last week" : `${fmt(from, sameMonth ? { day: "numeric" } : { day: "numeric", month: "short" })} – ${fmt(to, { day: "numeric", month: "short", ...year })}`;
   } else if (kind === "month") {
     const index = year * 12 + (month - 1) + step;
     const y = Math.floor(index / 12);
@@ -321,6 +323,20 @@ export function delta(current: number | null, previous: number | null | undefine
   return { difference, direction: difference > 0 ? "up" : difference < 0 ? "down" : "same" };
 }
 
+/** The training days the member planned for the period (their days a week, over the weeks that have happened). */
+export function planTarget(plan: number, period: Period): number {
+  const weeks = period.kind === "week" ? 1 : (Math.max(0, Math.round((keyToLocalDate(period.end).getTime() - keyToLocalDate(period.from).getTime()) / 86_400_000)) + 1) / 7;
+  return Math.max(1, Math.round(plan * weeks));
+}
+
+/** What the period's rings show, for screen readers: "3 active of 7 days, food logged on 1 day, 1 training day of 4 planned". */
+export function ringsLabel(current: Pick<PeriodSummary, "activeDays" | "days" | "loggedDays" | "trainingDays">, plan: number | null, period: Period): string {
+  const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+  const parts = [`${current.activeDays} active of ${days(current.days)}`, `food logged on ${days(current.loggedDays)}`];
+  if (plan !== null) parts.push(`${current.trainingDays} training ${current.trainingDays === 1 ? "day" : "days"} of ${planTarget(plan, period)} planned`);
+  return parts.join(", ");
+}
+
 // ---------------------------------------------------------------- chart series
 
 export const TRAINING_METRICS = ["workouts", "volume", "distance"] as const;
@@ -372,13 +388,15 @@ export type CalendarDay = {
 export function calendarDays(period: Period, index: ReadonlyMap<string, DayFacts>, foodDays: ReadonlyMap<string, MealTotals>, calorieTarget: number | null): Array<CalendarDay | null> {
   if (period.kind === "year") return [];
   const days = daysOf(period.from, period.to).map((key): CalendarDay => {
-    const facts = index.get(key);
+    const future = key > period.today;
+    // A day still ahead is never drawn as trained, whatever a wrong device clock dated on it.
+    const facts = future ? undefined : index.get(key);
     const food = foodDays.get(key);
     const eaten = food ? knownTotal(food.calories) : null;
     return {
       key,
       day: Number(key.slice(8)),
-      future: key > period.today,
+      future,
       today: key === period.today,
       active: isActive(facts),
       workouts: facts?.workouts ?? 0,
