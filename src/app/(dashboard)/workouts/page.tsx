@@ -35,7 +35,7 @@ import { columnList, hasValuesIn, isMissingColumnError, isMissingFunctionError, 
 import { timedItemDay } from "@/lib/domain/todo";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { equipmentFor, loadCatalog, loadEquipmentProfiles, loadProgrammes, saveEquipmentProfile, type EquipmentProfiles } from "@/lib/training/data";
-import { enrolInProgramme, finishProgramme, leaveProgramme, loadCurrentEnrolment, loadEnrolmentPlans, pauseProgramme, plansChangedByTopUp, programmeShortTitle, resumeProgramme, scheduleProgrammeDays, topUpProgrammeDays, topUpWindow, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
+import { enrolInProgramme, finishProgramme, leaveProgramme, loadCurrentEnrolment, loadEnrolmentPlans, ownProgrammeItems, pauseProgramme, plansChangedByTopUp, programmeShortTitle, resumeProgramme, scheduleProgrammeDays, topUpProgrammeDays, topUpWindow, type Enrolment, type ProgrammePlan } from "@/lib/training/enrolment";
 import { equipmentLabel, expandOwnedEquipment } from "@/lib/training/equipment";
 import { bestSet, formatBestSet, loadExerciseHistory, previousPerformance } from "@/lib/training/exercise-history";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
@@ -1015,6 +1015,15 @@ export default function WorkoutsPage() {
     if (!window.confirm(`Delete “${plan.title}” and its saved exercise order? Completed workout sessions will remain in your history.`)) return;
     const supabase = createClient();
     if (!supabase || !userId) return;
+    // The planner item FITX scheduled for the plan's date goes with it (it stayed under Scheduled with no plan: bug 48,
+    // Also seen). A To-Do item the member linked to the plan stays, unlinked, as when a programme is left.
+    if (plan.planned_for) {
+      const linked = await withOptionalColumns(PLANNER_DAY_COLUMNS, (include) =>
+        supabase.from("planner_events").select(columnList(["id", "workout_plan_id", "starts_at"], PLANNER_DAY_COLUMNS, include))
+          .eq("user_id", userId).eq("event_type", "workout").eq("status", "scheduled").eq("workout_plan_id", plan.id));
+      const own = linked.result.error ? [] : ownProgrammeItems((linked.result.data ?? []) as unknown as Parameters<typeof ownProgrammeItems>[0], [{ id: plan.id, planned_for: plan.planned_for }]);
+      if (own.length) await supabase.from("planner_events").update({ status: "cancelled" }).eq("user_id", userId).eq("status", "scheduled").in("id", own);
+    }
     const result = await supabase.from("workout_plans").delete().eq("id", plan.id).eq("user_id", userId);
     if (result.error) setError("That workout could not be deleted."); else await load();
   }
