@@ -55,8 +55,12 @@
 
 .composerDock { position: sticky; bottom: calc(env(safe-area-inset-bottom) + 76px); z-index: 20; padding: 12px 0 4px; background: linear-gradient(to top, var(--fitx-bg) 72%, transparent); }
 /* The end of the conversation: scrolled to, it clears the sticky composer (its height measured by CoachApp) and the
-   phone's bottom bar under it, so a reply's or an error's last line is never behind them. */
-.end { scroll-margin-bottom: calc(var(--coach-dock-height, 180px) + env(safe-area-inset-bottom) + 88px); }
+   phone's bottom bar under it, so a reply's or an error's last line is never behind them. The page already keeps
+   --fitx-scroll-room-bottom clear (html's scroll-padding-bottom, globals.css: the phone's bar, or the privacy banner
+   while it is open, plus 12px) and a scroll adds the two, so the marker asks only for the rest, and for nothing when
+   the page's own room is more: the end then clears the banner. Counted twice, the end stopped some 80px above the
+   composer on phones. */
+.end { scroll-margin-bottom: max(0px, calc(var(--coach-dock-height, 180px) + env(safe-area-inset-bottom) + 88px - var(--fitx-scroll-room-bottom, 0px))); }
 
 /* Rail (desktop) */
 .railInner { position: sticky; top: 92px; display: grid; max-height: calc(100dvh - 120px); grid-template-rows: minmax(0, 1fr) auto; gap: 16px; }
@@ -72,7 +76,7 @@
   .layout { grid-template-columns: 248px minmax(0, 1fr); gap: 40px; }
   .rail { display: block; }
   .composerDock { bottom: 16px; }
-  .end { scroll-margin-bottom: calc(var(--coach-dock-height, 180px) + 28px); }
+  .end { scroll-margin-bottom: max(0px, calc(var(--coach-dock-height, 180px) + 28px - var(--fitx-scroll-room-bottom, 0px))); }
 }
 @media (prefers-reduced-motion: reduce) {
   .caret { animation: none; }
