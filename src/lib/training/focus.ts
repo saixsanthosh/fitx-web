@@ -266,6 +266,12 @@ export function focusAreasForRegion(region: RegionKey): FocusArea[] {
   return FOCUS_AREAS.filter((area) => area !== "full_body" && FOCUS_AREA_INFO[area].regions.includes(region));
 }
 
+/**
+ * The one line both Workouts and the Exercise library show beside their area counts, so "you can do" reads the same
+ * on both (bug 52): main muscle only, with the equipment for that place.
+ */
+export const FOCUS_COUNT_NOTE = "Counts include only exercises that work the area as their main muscle.";
+
 export type FocusCount = {
   /** Active catalogue exercises that train the area as their primary muscle (full body: the rule). */
   total: number;

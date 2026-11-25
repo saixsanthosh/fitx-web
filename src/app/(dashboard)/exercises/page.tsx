@@ -16,11 +16,11 @@ import { ModePanel, ModeTabs } from "@/components/workouts/ModeTabs";
 import { clearRecentSearches, forgetSearch, readRecentExercises, readRecentSearches, rememberSearch } from "@/lib/domain/exercise-preferences";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
-import { focusAreaCounts, loadCatalogThumbnails, queryCatalog, relaxSuggestions, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
+import { focusAreaCounts, loadCatalogThumbnails, queryCatalog, relaxSuggestions, resultCountLine, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
 import { equipmentFor, saveEquipmentProfile } from "@/lib/training/data";
 import { expandOwnedEquipment, sortEquipmentKeys } from "@/lib/training/equipment";
 import { survivingExerciseIds } from "@/lib/training/exercise-merges";
-import { FOCUS_AREAS } from "@/lib/training/focus";
+import { FOCUS_AREAS, FOCUS_COUNT_NOTE } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
@@ -239,7 +239,8 @@ export default function ExerciseLibraryPage() {
   }
 
   const resultsTitle = !result ? (catalogue.status === "error" ? "Exercises unavailable" : "Loading exercises") : `${result.items.length.toLocaleString()} ${result.items.length === 1 ? "exercise" : "exercises"}`;
-  const directCount = result && view.focus.length ? result.items.filter((item) => item.focusTier === 0).length : null;
+  // Main-muscle results, what the member can do of those, and the ones that only assist (the same "you can do" as Workouts).
+  const countLine = result && result.items.length ? resultCountLine(result.items, { focused: view.focus.length > 0, doableOnly: view.doable, ownedKnown: owned !== null }) : null;
   const levelChoice = quickLevel(state);
 
   const renderCard = (item: RankedExercise, index = 0) => (
@@ -335,6 +336,7 @@ export default function ExerciseLibraryPage() {
         <section aria-labelledby="focus-title" className="grid gap-3">
           <h2 id="focus-title" className="m-0 font-heading text-lg font-semibold tracking-[-.02em]">Target muscles</h2>
           <MuscleRail value={state.focus} onChange={(focus) => update({ focus })} details={focusDetails} label="Focus areas" />
+          {focusDetails && <p className="m-0 text-xs text-fitx-text-secondary">{FOCUS_COUNT_NOTE}</p>}
         </section>
       )}
 
@@ -398,13 +400,7 @@ export default function ExerciseLibraryPage() {
           <div className="min-w-0">
             <p className="m-0 text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-primary-text">{searching ? "Results" : CONTEXT_TITLES[state.context]}</p>
             <h2 id="exercise-results" className="m-0 mt-1 font-heading text-xl font-semibold tracking-[-.02em]">{resultsTitle}</h2>
-            {result && result.items.length > 0 && (directCount !== null || result.doableCount !== null) && (
-              <p className="m-0 mt-0.5 text-xs text-fitx-text-secondary">
-                {directCount !== null && `${directCount.toLocaleString()} main-muscle`}
-                {directCount !== null && result.doableCount !== null && " · "}
-                {result.doableCount !== null && `${result.doableCount.toLocaleString()} you can do`}
-              </p>
-            )}
+            {countLine && <p className="m-0 mt-0.5 text-xs text-fitx-text-secondary">{countLine}</p>}
           </div>
           <label className="flex items-center gap-2 text-xs font-medium text-fitx-text-secondary">
             <span className="sr-only sm:not-sr-only">Sort</span>

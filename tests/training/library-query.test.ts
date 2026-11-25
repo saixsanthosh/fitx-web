@@ -149,22 +149,27 @@ describe("filters: OR within a kind, AND across kinds", () => {
   });
 });
 
-describe("focus tile counts match the results each tile opens", () => {
+describe("focus tile counts match the main-muscle results each tile opens", () => {
+  // Bug 52: a tile counts the exercises that train the area as their main muscle (the results above "Assisting
+  // muscle"), and "you can do" counts those the equipment allows, the same way Workouts counts.
   const check = (query: Partial<CatalogQuery>, owned: readonly string[] | null) => {
     const full: CatalogQuery = { ...EMPTY_QUERY, ...query };
     const context = { owned: owned ? expandOwnedEquipment(owned) : null };
     const counts = focusAreaCounts(catalog, full, context);
     for (const area of FOCUS_AREAS) {
       const result = queryCatalog(catalog, { ...full, focus: [area] }, context);
-      assert.deepEqual(counts[area], { total: result.items.length, doable: result.doableCount }, area);
+      const main = result.items.filter((item) => item.focusTier === 0);
+      assert.deepEqual(counts[area], { total: main.length, doable: owned ? main.filter((item) => item.doable).length : null }, area);
     }
     return counts;
   };
 
-  test("at the gym, assisting exercises count as the results list them", () => {
+  test("at the gym, the tiles count exactly what Workouts' builder counts (main muscle, the gym list)", () => {
     const counts = check({}, DEFAULT_GYM_EQUIPMENT);
-    const mainOnly = focusCounts(catalog, expandOwnedEquipment(DEFAULT_GYM_EQUIPMENT));
-    assert.ok(counts.shoulders.total > mainOnly.shoulders.total, "main and assisting, like the results header");
+    const workouts = focusCounts(catalog, expandOwnedEquipment(DEFAULT_GYM_EQUIPMENT));
+    for (const area of FOCUS_AREAS) assert.deepEqual(counts[area], workouts[area], area);
+    const assisting = queryCatalog(catalog, { ...EMPTY_QUERY, focus: ["shoulders"] }, { owned: null }).items.filter((item) => item.focusTier === 1).length;
+    assert.ok(assisting > 0, "exercises that only assist are still listed, after the main-muscle ones");
   });
 
   test("at home, the Home rule applies to the tiles too", () => {

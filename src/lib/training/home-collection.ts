@@ -2,10 +2,11 @@
  * Workouts' Home mode (phase 7): the home exercise collection, personalised by the member's home equipment and
  * level. Pure, so the rules are tested without a browser. Everything comes from the catalogue it is given.
  *
- * An exercise is in the collection when it is a home exercise (its derived locations include "home") the member
- * can do with their home list, and it is not an olympic or strongman lift. With an area chosen, only exercises
- * that train it as their main muscle (the full-body rule for Full body) are listed. Order: the staples of each
- * muscle group first, then exercises at or below the member's level, then by name.
+ * An exercise is in the collection when the member's home list allows it: the same "you can do at home" as the
+ * Exercise library's Home tab (catalog-search.ts), so both screens give the same counts (bug 52). With an area
+ * chosen, only exercises that train it as their main muscle (the full-body rule for Full body) are listed, as the
+ * library's main-muscle tier. Order: the staples of each muscle group first, then exercises at or below the
+ * member's level, then by name.
  */
 import type { CatalogExercise } from "./catalog";
 import { isDoableWith } from "./equipment";
@@ -13,10 +14,9 @@ import { FOCUS_AREAS, exerciseMatchesFocus, type FocusArea } from "./focus";
 import { stapleRank } from "./staples";
 import { levelRank, type Level } from "./taxonomy";
 
-const LEFT_OUT = new Set(["olympic", "strongman"]);
-
-export function isHomeExercise(exercise: Pick<CatalogExercise, "locations" | "category" | "required_equipment">, owned: ReadonlySet<string>): boolean {
-  return exercise.locations.includes("home") && !LEFT_OUT.has(exercise.category) && isDoableWith(exercise.required_equipment, owned);
+/** An exercise the member can do at home: everything it needs is on their home list (the library's Home rule). */
+export function isHomeExercise(exercise: Pick<CatalogExercise, "required_equipment">, owned: ReadonlySet<string>): boolean {
+  return isDoableWith(exercise.required_equipment, owned);
 }
 
 export function homeCollection(catalog: readonly CatalogExercise[], options: { owned: ReadonlySet<string>; area?: FocusArea | null; level?: Level | null }): CatalogExercise[] {

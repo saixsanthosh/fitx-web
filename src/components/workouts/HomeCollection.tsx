@@ -17,7 +17,7 @@ import { SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { equipmentLabel } from "@/lib/training/equipment";
 import { muscleWords } from "@/lib/training/exercise-guide";
-import { FOCUS_AREA_INFO, type FocusArea } from "@/lib/training/focus";
+import { FOCUS_AREA_INFO, FOCUS_COUNT_NOTE, type FocusArea } from "@/lib/training/focus";
 import { homeAreaCounts, homeCollection } from "@/lib/training/home-collection";
 import { isOptimizableImageUrl, resolveExerciseMedia, withDemoMedia, type DemoModelKey } from "@/lib/training/media";
 import { useDemoIndexData, useDemoModel } from "@/lib/training/use-demo-model";
@@ -88,7 +88,8 @@ export function HomeCollection({ catalog, owned, level, model, onPlan, equipment
   const [open, setOpen] = useState<CatalogExercise | null>(null);
   const counts = useMemo(() => homeAreaCounts(catalog, owned), [catalog, owned]);
   const items = useMemo(() => homeCollection(catalog, { owned, area, level }), [catalog, owned, area, level]);
-  const details = Object.fromEntries(HOME_AREAS.map((key) => [key, `${counts[key].toLocaleString()}`])) as Partial<Record<FocusArea, string>>;
+  // "N you can do", main muscle only: the Exercise library's Home tab counts the same way (bug 52).
+  const details = Object.fromEntries(HOME_AREAS.map((key) => [key, `${counts[key].toLocaleString()} you can do`])) as Partial<Record<FocusArea, string>>;
   const shown = items.slice(0, limit);
 
   return (
@@ -109,6 +110,7 @@ export function HomeCollection({ catalog, owned, level, model, onPlan, equipment
         </div>
         <MuscleRail mode="single" bleed={false} label="Home body areas" areas={HOME_AREAS} value={area ? [area] : []} details={details}
           onChange={(next) => { setArea(next[0] ?? null); setLimit(PAGE); }} />
+        <p className="m-0 text-xs text-fitx-text-secondary">{FOCUS_COUNT_NOTE}</p>
       </section>
 
       <section aria-labelledby="home-collection-title" className="grid grid-cols-1 gap-3">
