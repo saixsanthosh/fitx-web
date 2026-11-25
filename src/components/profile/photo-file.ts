@@ -54,6 +54,77 @@ export function isOwnPhoto(path: string | null | undefined, userId: string): pat
   return typeof path === "string" && path.startsWith(`${userId}/`);
 }
 
+/**
+ * How long the stored copy may go without a single new byte arriving (or, at first, without an answer) before the
+ * check gives up on it.
+ */
+export const STALL_LIMIT_MS = 15_000;
+
+/** setTimeout and clearTimeout, which tests replace. */
+export type Timers = { set(run: () => void, ms: number): unknown; clear(handle: unknown): void };
+const SYSTEM_TIMERS: Timers = {
+  set: (run, ms) => setTimeout(run, ms),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+/**
+ * Downloads the stored copy of a new photo to the end (review home-2). A photo of up to 5 MB on a slow connection
+ * can take a minute or more and still be fine, so there is no limit on the whole download: it gives up only on an
+ * error, a refused answer, more than `maxBytes`, or `stallMs` with nothing new arriving. Returns the bytes, typed as
+ * the server sent them, or null. `start` makes the request with the signal it is given (ProfileView uses fetch).
+ */
+export async function downloadUnlessStalled(
+  start: (signal: AbortSignal) => PromiseLike<Response>,
+  { stallMs = STALL_LIMIT_MS, maxBytes = PHOTO_MAX_BYTES, timers = SYSTEM_TIMERS }: { stallMs?: number; maxBytes?: number; timers?: Timers } = {},
+): Promise<Blob | null> {
+  const controller = new AbortController();
+  // Rejects when the stall timer fires, so a request or a read that never settles can't hold the check.
+  const stalled = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener("abort", () => reject(new Error("stalled")), { once: true });
+  });
+  stalled.catch(() => undefined);
+  let timer: unknown = null;
+  const restartTimer = () => {
+    if (timer !== null) timers.clear(timer);
+    timer = timers.set(() => controller.abort(), stallMs);
+  };
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let complete = false;
+  try {
+    restartTimer();
+    const response = await Promise.race([start(controller.signal), stalled]);
+    if (!response.ok) return null;
+    const type = response.headers.get("content-type") ?? "";
+    // A browser without readable response bodies: the whole file is the one step the timer watches.
+    if (!response.body) {
+      const blob = await Promise.race([response.blob(), stalled]);
+      complete = blob.size <= maxBytes;
+      return complete ? blob : null;
+    }
+    reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      restartTimer();
+      const { done, value } = await Promise.race([reader.read(), stalled]);
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) return null;
+      chunks.push(value);
+    }
+    complete = true;
+    return new Blob(chunks as BlobPart[], { type });
+  } catch {
+    return null;
+  } finally {
+    if (timer !== null) timers.clear(timer);
+    if (!complete) {
+      controller.abort();
+      reader?.cancel().catch(() => undefined);
+    }
+  }
+}
+
 /** A new name each time, so no cached copy of the old photo is ever shown. */
 export function photoPath(userId: string, type: PhotoType, now: number): string {
   return `${userId}/avatar-${now}.${PHOTO_EXTENSIONS[type]}`;

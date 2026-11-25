@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { checkSession, confirmSignedOut, type SessionState } from "@/components/account/session-state";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { CountUp } from "@/components/motion";
-import { PHOTO_HEADER_BYTES, PHOTO_NOT_AN_IMAGE, checkPhotoFile, isOwnPhoto, replacePhoto } from "@/components/profile/photo-file";
+import { PHOTO_HEADER_BYTES, PHOTO_NOT_AN_IMAGE, checkPhotoFile, downloadUnlessStalled, isOwnPhoto, replacePhoto } from "@/components/profile/photo-file";
 import type { NutritionTargets } from "@/lib/domain/nutrition";
 import { NAME_MAX_LENGTH, formatWeight } from "@/lib/domain/profile-options";
 import { targetReason } from "@/lib/domain/target-reason";
@@ -20,7 +20,10 @@ import { BodySection, FoodSection, GoalSection, LimitsSection, TrainingSection, 
 import { profileHeadline } from "./profile-answers";
 
 const MEDIA_BUCKET = "fitx-user-media";
-/** How long a picture may take to open before it counts as one that doesn't. */
+/**
+ * How long a picture already in the browser (the picked file, or the stored copy once downloaded) may take to open
+ * before it counts as one that doesn't. Only local decoding is timed here: the download has its own stall check.
+ */
 const OPEN_LIMIT_MS = 15_000;
 
 /** Whether the browser can open `src` as a picture (it loads and has a size). */
@@ -301,9 +304,14 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     const outcome = await replacePhoto({
       // A Blob of the real type: storage takes the stored type from the Blob, not from the contentType option.
       upload: (path, type) => bucket.upload(path, file.slice(0, file.size, type), { contentType: type, upsert: false }),
+      // The stored copy comes back in full however slow the connection (only a stalled download gives up), must be
+      // exactly the picked file's size, and must open as a picture here.
       opens: async (path) => {
         const signed = await bucket.createSignedUrl(path, 120);
-        return signed.data?.signedUrl ? imageOpens(signed.data.signedUrl) : false;
+        const url = signed.data?.signedUrl;
+        if (!url) return false;
+        const stored = await downloadUnlessStalled((signal) => fetch(url, { signal, cache: "no-store" }));
+        return stored !== null && stored.size === file.size && fileOpens(stored);
       },
       save: (path) => updateProfileRow(supabase, data.userId, { avatar: path }),
       remove: (paths) => bucket.remove(paths),
