@@ -6,6 +6,8 @@ import { LEGAL_NAV, PUBLIC_NAV } from "./publicNav";
 import styles from "./PublicFooter.module.css";
 
 const links = [...PUBLIC_NAV, ...LEGAL_NAV];
+/** The legal pages are rarely opened from here: they load when pressed instead of whenever the footer shows (bug 95). */
+const LEGAL = new Set<string>(LEGAL_NAV.map(({ href }) => href));
 
 /** The public pages' footer: the mark, the site and legal links, and the owner's contact links when set. */
 export async function PublicFooter() {
@@ -18,7 +20,7 @@ export async function PublicFooter() {
           <p className="text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-text-secondary">Train smart. Live fit.</p>
         </div>
         <nav aria-label="Footer navigation" className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm text-fitx-text-secondary sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
-          {links.map(({ label, href }) => <Link key={href} href={href} className={styles.footerLink}>{label}</Link>)}
+          {links.map(({ label, href }) => <Link key={href} href={href} prefetch={LEGAL.has(href) ? false : undefined} className={styles.footerLink}>{label}</Link>)}
         </nav>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-fitx-divider pt-4 text-[11px] text-fitx-text-disabled md:col-span-2">
           <p>© {new Date().getFullYear()} FITX. Not medical advice.</p>

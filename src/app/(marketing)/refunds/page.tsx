@@ -28,7 +28,7 @@ export default async function RefundsPage() {
       <h2>Premium subscriptions</h2>
       {!open && <p>New Premium subscriptions are not on sale right now. If you already pay for Premium, this policy applies to your payments.</p>}
       <ul className="mt-3 space-y-3">
-        <li><strong>Cancelling is not a refund.</strong> Cancelling on the <Link href="/subscription">Subscription page</Link> stops every future charge at once. The current period is not refunded automatically; you keep Premium until it ends.</li>
+        <li><strong>Cancelling is not a refund.</strong> Cancelling on the <Link href="/subscription" prefetch={false}>Subscription page</Link> stops every future charge at once. The current period is not refunded automatically; you keep Premium until it ends.</li>
         <li><strong>Asking for a refund.</strong> If you were charged in a way you did not expect, for example twice for the same period or for a renewal you had meant to cancel, email {support ? <a href={`mailto:${support}`}>{support}</a> : "FITX support"} with the date and amount of the charge and the email address of your FITX account. FITX checks the payment in its Razorpay records and replies to you.
           <ToConfirm>which charges are refundable and within how many days of the charge, whether a partly used period is refunded in part, and how quickly FITX replies to requests.</ToConfirm></li>
         <li><strong>How refunds are paid.</strong> Approved refunds are issued through Razorpay to the original payment method, such as the same card, UPI account or bank account. They cannot be paid in cash or to another account. After FITX issues a refund, your bank or card issuer decides how long it takes to appear, usually several working days.</li>
