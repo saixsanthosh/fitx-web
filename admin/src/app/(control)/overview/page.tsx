@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import { BarChart, Feed, Kpi, PageHead, Panel, SplitBar, consoleStyles as ui } from "@/components/console/ui";
+import { BarChart, Feed, Kpi, PageHead, Panel, ShareList, SplitBar, consoleStyles as ui } from "@/components/console/ui";
 import { dailyAverageHint } from "@/components/console/chart-math";
 import { ModuleState } from "@/components/module-state";
 import { CountUp } from "@/components/motion/count-up";
@@ -152,9 +152,15 @@ export default async function OverviewPage() {
             ) : extras.state !== "ready" ? <ModuleState state={extras.state} migration={ADMIN_OPS_MIGRATION} /> : null}
           </Panel>
 
-          <Panel title="Sign-in methods" hint="Accounts per method" className={ui.onScroll}>
+          {/* An account can have several methods (email and Google), so each is a share of all accounts, never of the methods' sum. */}
+          <Panel title="Sign-in methods" hint={metrics ? "Share of accounts · an account can have more than one" : "Accounts per method"} className={ui.onScroll}>
             {more ? (
-              <SplitBar label="Sign-in methods" segments={Object.entries(more.methods).sort((a, b) => b[1] - a[1]).map(([method, value]) => ({ key: method, label: METHOD_LABELS[method] ?? method, value }))} />
+              <ShareList
+                label="Sign-in methods, as a share of accounts"
+                of="accounts"
+                total={metrics ? metrics.accounts : null}
+                segments={Object.entries(more.methods).map(([method, value]) => ({ key: method, label: METHOD_LABELS[method] ?? method, value }))}
+              />
             ) : <p className="metric-definition">Needs migration <code>{ADMIN_OPS_MIGRATION}</code>.</p>}
           </Panel>
 

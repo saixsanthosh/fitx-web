@@ -56,6 +56,20 @@ export function shares(segments: ReadonlyArray<{ key: string; label: string; val
   return { total, parts };
 }
 
+export type TotalShare = { key: string; label: string; value: number; share: number | null };
+
+/**
+ * Each part as a share of a whole the parts may overlap, such as accounts per sign-in method (an account with email and
+ * Google counts in both): value / total, at most 1, largest first. The share is null when the total is unknown or 0.
+ * Use shares() instead for parts that split a whole.
+ */
+export function sharesOfTotal(segments: ReadonlyArray<{ key: string; label: string; value: number }>, total: number | null): TotalShare[] {
+  return segments
+    .filter((segment) => Number.isFinite(segment.value) && segment.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .map((segment) => ({ ...segment, share: total !== null && Number.isFinite(total) && total > 0 ? Math.min(1, segment.value / total) : null }));
+}
+
 /** "12%" for a share; under 1% but above 0 reads "<1%". */
 export function percent(share: number): string {
   if (!Number.isFinite(share) || share <= 0) return "0%";
