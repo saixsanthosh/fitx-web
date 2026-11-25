@@ -45,6 +45,7 @@ import {
   ONBOARDING_PAGES,
   firstName,
   initialOnboardingForm,
+  messagesAfterUnitChange,
   pageSave,
   unavailableGoals,
   validatePage,
@@ -184,22 +185,16 @@ export function OnboardingFlow() {
     if (message) setErrors((current) => (current[key] === message ? current : { ...current, [key]: message }));
   }
 
-  /** A new unit; messages already shown for its fields are said again in that unit (their limits are in it). */
-  function changeUnit<K extends "heightUnit" | "weightUnit">(key: K, value: OnboardingForm[K]) {
-    setForm((current) => (current ? { ...current, [key]: value } : current));
+  /**
+   * A new unit, with what the dial that changed it holds in that unit (its kept text read again there). Messages
+   * already shown for the unit's fields are said again for what they hold now, in the new unit (their limits are in it).
+   */
+  function changeUnit<K extends "heightUnit" | "weightUnit">(key: K, unit: OnboardingForm[K], values: Partial<Pick<OnboardingForm, MeasureKey>>) {
+    setForm((current) => (current ? { ...current, ...values, [key]: unit } : current));
     setSaveError("");
     if (!form) return;
-    const found = validatePage("body", { ...form, [key]: value }, schema);
-    const fields = key === "heightUnit" ? (["heightCm"] as const) : (["weightKg", "targetWeightKg"] as const);
-    setErrors((current) => {
-      const next = { ...current };
-      for (const field of fields) {
-        if (!current[field]) continue;
-        if (found[field]) next[field] = found[field];
-        else delete next[field];
-      }
-      return next;
-    });
+    const next = { ...form, ...values, [key]: unit };
+    setErrors((current) => messagesAfterUnitChange(current, next, key, schema));
   }
 
   // The readouts follow the date as it is typed, so only an age somebody could have shows (never "1926 yrs").
@@ -399,9 +394,9 @@ export function OnboardingFlow() {
                 </>}
 
                 {page === "body" && <>
-                  <MeasureDial kind="height" label="Height" value={form.heightCm} draft={drafts.heightCm} onDraftChange={(draft) => changeDraft("heightCm", draft)} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => changeUnit("heightUnit", unit)} onCommit={() => checkTyped("heightCm")} error={errors.heightCm} showUnits={schema.preferencesV2} />
-                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} draft={drafts.weightKg} onDraftChange={(draft) => changeDraft("weightKg", draft)} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => changeUnit("weightUnit", unit)} onCommit={() => checkTyped("weightKg")} error={errors.weightKg} showUnits={schema.preferencesV2} />
-                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} draft={drafts.targetWeightKg} onDraftChange={(draft) => changeDraft("targetWeightKg", draft)} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => changeUnit("weightUnit", unit)} onCommit={() => checkTyped("targetWeightKg")} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="height" label="Height" value={form.heightCm} draft={drafts.heightCm} onDraftChange={(draft) => changeDraft("heightCm", draft)} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit, cm) => changeUnit("heightUnit", unit, { heightCm: cm })} onCommit={() => checkTyped("heightCm")} error={errors.heightCm} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} draft={drafts.weightKg} onDraftChange={(draft) => changeDraft("weightKg", draft)} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit, kg) => changeUnit("weightUnit", unit, { weightKg: kg })} onCommit={() => checkTyped("weightKg")} error={errors.weightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} draft={drafts.targetWeightKg} onDraftChange={(draft) => changeDraft("targetWeightKg", draft)} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit, kg) => changeUnit("weightUnit", unit, { targetWeightKg: kg })} onCommit={() => checkTyped("targetWeightKg")} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
                 </>}
 
                 {page === "goal" && <>

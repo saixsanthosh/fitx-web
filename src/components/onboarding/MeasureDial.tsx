@@ -5,7 +5,7 @@ import { Minus, Plus } from "lucide-react";
 import { FieldError, UnitToggle } from "@/components/profile/ProfileControls";
 import { HEIGHT_UNIT_OPTIONS, WEIGHT_UNIT_OPTIONS, cmToFeetInches, type HeightUnit, type WeightUnit } from "@/lib/domain/profile-options";
 import { dialScale, dialStep } from "@/lib/onboarding/dial";
-import { keptDraft, measureFromShown, measureRead, measureShown, measureText, measureValue, type MeasureText } from "@/lib/onboarding/measure-field";
+import { keptDraft, measureFromShown, measureRead, measureShown, measureSwitch, measureText, type MeasureText } from "@/lib/onboarding/measure-field";
 import styles from "./MeasureDial.module.css";
 
 type Props = {
@@ -24,8 +24,9 @@ type Props = {
   /** Called when the member leaves the typed value (not when moving between the feet and inches boxes). */
   onCommit?: () => void;
 } & (
-  | { kind: "height"; value: number | null; unit: HeightUnit; onChange: (cm: number | null) => void; onUnitChange: (unit: HeightUnit) => void }
-  | { kind: "weight"; value: number | null; unit: WeightUnit; onChange: (kg: number | null) => void; onUnitChange: (unit: WeightUnit) => void }
+  // onUnitChange: a unit chosen with the toggle or typed after the number, and what the field holds in it.
+  | { kind: "height"; value: number | null; unit: HeightUnit; onChange: (cm: number | null) => void; onUnitChange: (unit: HeightUnit, cm: number | null) => void }
+  | { kind: "weight"; value: number | null; unit: WeightUnit; onChange: (kg: number | null) => void; onUnitChange: (unit: WeightUnit, kg: number | null) => void }
 );
 
 /**
@@ -46,7 +47,7 @@ export function MeasureDial(props: Props) {
   const shown = measureShown(kind, unit, props.value);
   const numbers = useRef<HTMLDivElement>(null);
   const report = (value: number | null) => (props.onChange as (value: number | null) => void)(value);
-  const changeUnit = (next: HeightUnit | WeightUnit) => (props.onUnitChange as (unit: HeightUnit | WeightUnit) => void)(next);
+  const changeUnit = (next: HeightUnit | WeightUnit, value: number | null) => (props.onUnitChange as (unit: HeightUnit | WeightUnit, value: number | null) => void)(next, value);
 
   const imperialHeight = kind === "height" && unit === "ft_in";
   const parts = imperialHeight && shown !== null ? cmToFeetInches(props.value as number) : null;
@@ -55,7 +56,7 @@ export function MeasureDial(props: Props) {
   function typed(next: MeasureText) {
     onDraftChange(next);
     const read = measureRead(kind, unit, next, showUnits);
-    if (read.unit !== unit) changeUnit(read.unit);
+    if (read.unit !== unit) changeUnit(read.unit, read.value);
     report(read.value);
   }
 
@@ -73,13 +74,12 @@ export function MeasureDial(props: Props) {
   }
 
   function switchUnit(next: HeightUnit | WeightUnit) {
-    // Text kept because it is not a number is read again in the new unit (the feet box becomes the centimetre box).
-    if (draft) {
-      const value = measureValue(kind, next, draft);
-      report(value);
-      onDraftChange(Number.isNaN(value) ? draft : null);
-    }
-    changeUnit(next);
+    // Kept text is read again in the new unit (the feet box becomes the centimetre box). The value goes with the unit,
+    // not through onChange, which would clear the field's message as a typed change does: a message already shown is
+    // said again for what the field holds, in the new unit.
+    const switched = measureSwitch(kind, next, draft, props.value);
+    if (switched.draft !== draft) onDraftChange(switched.draft);
+    changeUnit(next, switched.value);
   }
 
   const position = shown === null ? scale.start : Math.min(scale.max, Math.max(scale.min, shown));

@@ -90,3 +90,16 @@ export function measureValue(kind: MeasureKind, unit: string, text: MeasureText)
 export function keptDraft(kind: MeasureKind, unit: string, draft: MeasureText | null): MeasureText | null {
   return draft && Number.isNaN(measureValue(kind, unit, draft)) ? draft : null;
 }
+
+/**
+ * What a field holds once its unit is switched to `next`, from its draft and its stored `value` before the switch.
+ * A draft (text kept because it is not a number, or still being typed) is read again in the new unit, the feet box
+ * becoming the centimetre box, and stays as typed while it is still not a number. With no draft the stored value stays
+ * as it is and is shown in the new unit. The caller passes the value on with the unit, not as a change of its own, so
+ * a message already shown can be said again for it.
+ */
+export function measureSwitch(kind: MeasureKind, next: string, draft: MeasureText | null, value: number | null): { value: number | null; draft: MeasureText | null } {
+  if (!draft) return { value, draft: null };
+  const read = measureValue(kind, next, draft);
+  return { value: read, draft: Number.isNaN(read) ? draft : null };
+}

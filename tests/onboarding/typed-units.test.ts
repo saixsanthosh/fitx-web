@@ -109,14 +109,15 @@ describe("setup's dial and Profile's fields keep what was typed", () => {
   test("leaving the dial keeps text that is not a number, and says what is wrong straight away", () => {
     assert.match(dial, /onDraftChange\(keptDraft\(kind, unit, draft\)\);\s*onCommit\?\.\(\);/);
     assert.doesNotMatch(dial, /onBlur=\{\(\) => (setDraft|onDraftChange)\(null\)\}/);
-    assert.match(dial, /const read = measureRead\(kind, unit, next, showUnits\);\s*if \(read\.unit !== unit\) changeUnit\(read\.unit\);\s*report\(read\.value\);/);
+    assert.match(dial, /const read = measureRead\(kind, unit, next, showUnits\);\s*if \(read\.unit !== unit\) changeUnit\(read\.unit, read\.value\);\s*report\(read\.value\);/);
     for (const key of ["heightCm", "weightKg", "targetWeightKg"]) assert.match(flow, new RegExp(`onCommit=\\{\\(\\) => checkTyped\\("${key}"\\)\\}`), key);
     assert.match(flow, /function checkTyped\(key: MeasureKey\) \{\s*if \(!form \|\| form\[key\] === null\) return;/);
   });
 
-  test("a unit change says the shown messages again in the new unit", () => {
-    assert.match(flow, /onUnitChange=\{\(unit\) => changeUnit\("heightUnit", unit\)\}/);
-    assert.equal(flow.match(/onUnitChange=\{\(unit\) => changeUnit\("weightUnit", unit\)\}/g)?.length, 2);
+  test("a unit change says the shown messages again in the new unit (unit-switch-messages.test.ts has the rest)", () => {
+    assert.match(flow, /onUnitChange=\{\(unit, cm\) => changeUnit\("heightUnit", unit, \{ heightCm: cm \}\)\}/);
+    assert.match(flow, /onUnitChange=\{\(unit, kg\) => changeUnit\("weightUnit", unit, \{ weightKg: kg \}\)\}/);
+    assert.match(flow, /onUnitChange=\{\(unit, kg\) => changeUnit\("weightUnit", unit, \{ targetWeightKg: kg \}\)\}/);
   });
 
   test("Profile's fields read units the same way and never blank text that is not a number", () => {

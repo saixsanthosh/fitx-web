@@ -130,6 +130,29 @@ export function validatePage(page: OnboardingPage, form: OnboardingForm, schema:
   return errors;
 }
 
+/** The step 2 answers measured in each unit. */
+export const MEASURED_IN: Readonly<Record<"heightUnit" | "weightUnit", readonly MeasureKey[]>> = {
+  heightUnit: ["heightCm"],
+  weightUnit: ["weightKg", "targetWeightKg"],
+};
+
+/**
+ * The messages once a unit changes. `form` has the new unit and the value the switch left in each field (kept text
+ * read again in it). A message already shown for one of that unit's answers is said again for what the answer holds
+ * now, in the new unit, whose limits it names, and goes if that is fine; an answer showing no message gets none. So a
+ * unit switch never hides a problem, and never raises one the member wasn't shown.
+ */
+export function messagesAfterUnitChange(shown: OnboardingErrors, form: OnboardingForm, key: "heightUnit" | "weightUnit", schema: OnboardingSchema): OnboardingErrors {
+  const found = validatePage("body", form, schema);
+  const next = { ...shown };
+  for (const field of MEASURED_IN[key]) {
+    if (!shown[field]) continue;
+    if (found[field]) next[field] = found[field];
+    else delete next[field];
+  }
+  return next;
+}
+
 export type Row = Record<string, unknown>;
 
 /** What one page writes: profile fields (or null) and preference fields (possibly none). */
