@@ -44,13 +44,14 @@ import { generateDay, generateFocusDay } from "@/lib/training/generator";
 import { loadWorkoutSetup, modeForLocation, resolveDemoModel, type WorkoutSetup } from "@/lib/training/setup";
 import { initialMode, modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
 import { contextForLocation, planSummary } from "@/lib/training/plan-summary";
-import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
+import type { Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
 import { BUILDER_FIELD_IDS, builderSaveProblem, type BuilderProblem } from "./_lib/builder-save";
+import { builderSplit } from "./_lib/split-source";
 import { MAX_PLAN_EXERCISES, focusAfterRemove, focusAfterSwap, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
 import { pickToday } from "./_lib/today-pick";
@@ -580,10 +581,19 @@ export default function WorkoutsPage() {
     return details;
   }, [creatorOpen, builderMode, catalog, builderOwned]);
 
-  /** The authored days an Auto plan draws from: the user's split at the gym, a home track at home. */
+  /**
+   * Where "Your split" takes its days from (bug 51): the programme the member follows when it is for this place, else
+   * the Profile's training split at the gym, a home track at home (see _lib/split-source.ts).
+   */
+  function autoSplit(target: TrainingContext) {
+    const followed = followedProgramme(programmes, enrolment);
+    return builderSplit({
+      target, followed: followed && enrolment ? { programme: followed, nextDayIndex: enrolment.next_day_index } : null,
+      split: preferences.workout_split, programmes, hasDumbbells: ownedFor(target).has("dumbbell"),
+    });
+  }
   function autoProgramme(target: TrainingContext): Programme | undefined {
-    const id = splitProgrammeId(preferences.workout_split, target, ownedFor(target).has("dumbbell"));
-    return programmes.find((programme) => programme.id === id) ?? programmes.find((programme) => programme.context === target);
+    return autoSplit(target)?.programme;
   }
 
   function generateAuto(target: TrainingContext, dayIndex: number, seed: number) {
@@ -635,10 +645,12 @@ export default function WorkoutsPage() {
     setPlanLocation(target === "home" ? "home" : "gym");
     setPlannedFor(localDateKey());
     setTime("18:00");
-    setAutoDay(0); setAutoSeed(0); setAutoNote("");
+    // A followed programme opens on the day the member is on.
+    const startDay = nextMode === "auto" ? autoSplit(target)?.startDay ?? 0 : 0;
+    setAutoDay(startDay); setAutoSeed(0); setAutoNote("");
     setFocusAreas([...areas]);
     setFocusPickerOpen(areas.length === 0);
-    if (nextMode === "auto") applyAuto(target, 0, 0);
+    if (nextMode === "auto") applyAuto(target, startDay, 0);
     else if (nextMode === "focus") applyFocus(target, areas, 0);
     else setPreview([]);
     showBuilder();
@@ -651,7 +663,13 @@ export default function WorkoutsPage() {
     if (next === builderMode) return;
     setBuilderMode(next);
     const target = contextForLocation(planLocation);
-    if (next === "auto") applyAuto(target, autoDay, autoSeed);
+    if (next === "auto") {
+      // A followed programme opens on the day the member is on (bug 51); otherwise the day chosen before, if any.
+      const split = autoSplit(target);
+      const day = split?.source === "programme" ? split.startDay : autoDay;
+      setAutoDay(day);
+      applyAuto(target, day, autoSeed);
+    }
     else if (next === "focus" && focusAreas.length) applyFocus(target, focusAreas, autoSeed);
     else setAutoNote("");
   }
@@ -1114,7 +1132,8 @@ export default function WorkoutsPage() {
   const gymEquipment = equipmentFor(profiles, "gym", preferences.equipment);
   const gymProgrammes = programmes.filter((programme) => programme.context === "gym");
   const enrolledProgramme = followedProgramme(programmes, enrolment);
-  const builderProgramme = builderMode === "auto" && !editingPlanId ? autoProgramme(builderContext) : undefined;
+  const builderSplitSource = builderMode === "auto" && !editingPlanId ? autoSplit(builderContext) : null;
+  const builderProgramme = builderSplitSource?.programme;
   const rowToSwap = swapIndex !== null ? preview[swapIndex] : undefined;
   const builderSummary = planSummary(preview);
   const previewProgramme = enrolment && enrolledProgramme
@@ -1305,7 +1324,7 @@ export default function WorkoutsPage() {
 
       {creatorOpen && <div className="fixed inset-0 z-50 flex items-end justify-center bg-fitx-scrim/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="builder-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreatorOpen(false); }}><div ref={builderRef} className="max-h-[94dvh] w-full max-w-4xl overflow-y-auto rounded-t-[22px] border border-fitx-border bg-fitx-elevated shadow-2xl sm:max-h-[90dvh] sm:rounded-[22px]">
         <div className="p-4 sm:p-6">
-          <div className="mb-5 flex items-start justify-between gap-3"><div className="min-w-0"><h2 id="builder-title" className="font-heading text-2xl font-bold tracking-[-.03em]">{editingPlanId ? "Edit workout plan" : builderMode === "auto" ? "Build from your split" : builderMode === "focus" ? "Build by body area" : "Create a workout"}</h2>{builderProgramme && <p className="mt-1 text-sm text-fitx-text-secondary">From {builderProgramme.title}</p>}</div><button type="button" onClick={() => setCreatorOpen(false)} aria-label="Close workout builder" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18} aria-hidden="true"/></button></div>
+          <div className="mb-5 flex items-start justify-between gap-3"><div className="min-w-0"><h2 id="builder-title" className="font-heading text-2xl font-bold tracking-[-.03em]">{editingPlanId ? "Edit workout plan" : builderMode === "auto" ? "Build from your split" : builderMode === "focus" ? "Build by body area" : "Create a workout"}</h2>{builderSplitSource && <p className="mt-1 text-sm text-fitx-text-secondary">{builderSplitSource.label}</p>}</div><button type="button" onClick={() => setCreatorOpen(false)} aria-label="Close workout builder" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-fitx-border text-fitx-text-secondary hover:text-fitx-text"><X size={18} aria-hidden="true"/></button></div>
           {!editingPlanId && <div role="group" aria-label="Start from" className="mb-5 grid grid-cols-3 gap-1 rounded-xl border border-fitx-border bg-fitx-surface-variant p-1 sm:inline-grid">
             {BUILDER_MODES.map(([value, label]) => <button key={value} type="button" aria-pressed={builderMode === value} onClick={() => switchMode(value)} className={`min-h-11 rounded-lg px-3 text-sm font-semibold ${builderMode === value ? "bg-fitx-surface text-fitx-text shadow-sm" : "text-fitx-text-secondary hover:text-fitx-text"}`}>{label}</button>)}
           </div>}
