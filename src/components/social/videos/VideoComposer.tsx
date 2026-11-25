@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { CirclePause } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { posterPath, SOCIAL_BUCKET, SOCIAL_LIMITS, socialApi, toSocialError, type CommentPolicy } from "@/lib/social";
+import { shareBlock, shareBlockText } from "@/lib/social/compose";
 import { createClient } from "@/lib/supabase/client";
 import { COMMENT_POLICY_OPTIONS } from "../EditPostSheet";
 import { useReadyExplore } from "../ExploreContext";
@@ -32,6 +33,9 @@ export function VideoComposer() {
   const [alt, setAlt] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** How often Share video was pressed while it could not go (the reason is announced each time). */
+  const [nudged, setNudged] = useState(0);
+  const chooseVideo = useCallback((next: PreparedVideo | null) => { setVideo(next); setNudged(0); }, []);
 
   if (me.videos !== true) {
     return (
@@ -78,11 +82,13 @@ export function VideoComposer() {
   }
 
   const busy = progress !== null;
+  const block = shareBlock({ media: video ? 1 : 0, posting: busy });
+  const reason = shareBlockText(block, "video");
   return (
     <div className={`${exploreStyles.narrow} flex flex-col gap-6`}>
       <PageHeader title="New video" />
       <section aria-label="Video">
-        <VideoPicker target="post" onChange={setVideo} disabled={busy} />
+        <VideoPicker target="post" onChange={chooseVideo} disabled={busy} />
       </section>
       <div className={exploreStyles.form}>
         {video && (
@@ -113,7 +119,21 @@ export function VideoComposer() {
             <div className={exploreStyles.progressBar} style={{ transform: `scaleX(${progress ?? 0})` }} />
           </div>
         )}
-        <button type="button" className="fitx-button" disabled={!video || busy} onClick={() => void publish()}>{busy ? "Posting…" : "Share video"}</button>
+        {/* Not disabled: the button stays reachable and says why it cannot go yet (as the photo composer, bug 61). */}
+        <button
+          type="button"
+          className="fitx-button aria-disabled:opacity-60"
+          aria-disabled={block !== null || undefined}
+          aria-describedby={reason ? "share-video-reason" : undefined}
+          onClick={() => {
+            if (block === "posting") return;
+            if (block) { setNudged((count) => count + 1); return; }
+            void publish();
+          }}
+        >
+          {busy ? "Posting…" : "Share video"}
+        </button>
+        {reason && <p id="share-video-reason" key={nudged} role={nudged ? "alert" : undefined} className={nudged ? exploreStyles.hintBad : exploreStyles.hint}>{reason}</p>}
       </div>
     </div>
   );
