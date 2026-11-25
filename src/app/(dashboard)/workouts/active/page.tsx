@@ -166,6 +166,10 @@ export default function ActiveWorkoutPage() {
   const exercisesRef = useRef(exercises);
   useEffect(() => { exercisesRef.current = exercises; }, [exercises]);
   const chipsRef = useRef<HTMLElement>(null);
+  // The clock's Pause/Resume button: where focus goes when the paused banner's "Resume workout" goes away (bug 84).
+  const clockButtonRef = useRef<HTMLButtonElement>(null);
+  const [focusClock, setFocusClock] = useState(0);
+  useEffect(() => { if (focusClock) clockButtonRef.current?.focus(); }, [focusClock]);
   const restCueRef = useRef<{ endsAt: number | null; cued: boolean }>({ endsAt: null, cued: true });
   useEffect(() => { timerRef.current = setTimer; }, [setTimer]);
   useEffect(() => { restCueRef.current = { endsAt: restEndsAt, cued: restEndsAt === null || restEndsAt <= Date.now() }; }, [restEndsAt]);
@@ -453,6 +457,9 @@ export default function ActiveWorkoutPage() {
       setClock({ elapsedSeconds: clock.elapsedSeconds, segmentStartedAt: Date.now(), paused: false });
       if (restHeldSeconds > 0) setRestEndsAt(Date.now() + restHeldSeconds * 1000);
       setRestHeldSeconds(0);
+      setTimerNotice("Workout resumed.");
+      // The banner and its button go: focus moves to the clock's button, now Pause session. The clock's own button stays.
+      if (from === "banner") setFocusClock((value) => value + 1);
       return;
     }
     const elapsed = elapsedSeconds;
@@ -468,6 +475,7 @@ export default function ActiveWorkoutPage() {
     setClock({ elapsedSeconds: elapsed, segmentStartedAt: null, paused: true });
     setRestHeldSeconds(restLeft);
     setRestEndsAt(null);
+    setTimerNotice("Workout paused. Your training timer and rest are held.");
   }
 
   async function saveSet(exerciseId: string, set: LiveSet, complete: boolean) {
@@ -726,7 +734,8 @@ export default function ActiveWorkoutPage() {
         <p className="text-[11px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Elapsed training time</p>
         <p className="mt-1 font-mono text-2xl font-semibold tabular-nums tracking-tight sm:text-[28px]">{formatClock(elapsedSeconds)}</p>
       </div>
-      <button type="button" onClick={() => void togglePause()} disabled={clockSaving} className="fitx-button fitx-button-secondary min-h-11 px-4 sm:col-start-3">{paused ? <Play size={15} aria-hidden="true" /> : <Pause size={15} aria-hidden="true" />}{clockSaving ? "Saving…" : paused ? "Resume" : <span>Pause<span className="sr-only sm:not-sr-only"> session</span></span>}</button>
+      {/* Not disabled while the pause or resume saves (Chrome would drop focus): togglePause ignores a press meanwhile. */}
+      <button ref={clockButtonRef} type="button" onClick={() => void togglePause()} aria-disabled={clockSaving || undefined} className="fitx-button fitx-button-secondary min-h-11 px-4 aria-disabled:opacity-60 sm:col-start-3">{paused ? <Play size={15} aria-hidden="true" /> : <Pause size={15} aria-hidden="true" />}{clockSaving ? "Saving…" : paused ? "Resume" : <span>Pause<span className="sr-only sm:not-sr-only"> session</span></span>}</button>
       <div className="col-span-2 min-w-0 sm:col-span-1 sm:col-start-2 sm:row-start-1">
         <div className="flex items-baseline justify-between gap-3 text-xs text-fitx-text-secondary"><span><span className="font-semibold text-fitx-text">{progress.setsDone}</span> of {progress.setsTotal} sets done</span><span>{progress.setsLeft ? `${progress.setsLeft} to go` : progress.setsTotal ? "All sets done" : ""}</span></div>
         <div className="fitx-progress-track mt-2 h-2" role="progressbar" aria-label="Workout sets completed" aria-valuemin={0} aria-valuemax={Math.max(1, progress.setsTotal)} aria-valuenow={progress.setsDone}><div className="fitx-progress-fill motion-reduce:transition-none" style={{ width: `${progress.setsTotal ? Math.min(100, progress.setsDone / progress.setsTotal * 100) : 0}%` }} /></div>
@@ -734,7 +743,7 @@ export default function ActiveWorkoutPage() {
       {problem?.at === "clock" && <p role="alert" className={`col-span-2 sm:col-span-3 ${PROBLEM_CLASS}`}>{problem.message}</p>}
     </section>
 
-    {paused && <section role="status" className="flex flex-col gap-3 rounded-lg border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Session paused</p><p className="mt-1 text-xs text-fitx-text-secondary">Your training timer and rest are held. Resume when you’re ready.</p></div><button type="button" onClick={() => void togglePause("banner")} disabled={clockSaving} className="fitx-button min-h-11">{clockSaving ? "Saving…" : "Resume workout"}<Play size={14} aria-hidden="true" /></button></section>}
+    {paused && <section role="status" className="flex flex-col gap-3 rounded-lg border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Session paused</p><p className="mt-1 text-xs text-fitx-text-secondary">Your training timer and rest are held. Resume when you’re ready.</p></div><button type="button" onClick={() => void togglePause("banner")} aria-disabled={clockSaving || undefined} className="fitx-button min-h-11 aria-disabled:opacity-60">{clockSaving ? "Saving…" : "Resume workout"}<Play size={14} aria-hidden="true" /></button></section>}
     {paused && problem?.at === "banner" && <p role="alert" className={PROBLEM_CLASS}>{problem.message}</p>}
 
     {exercises.length > 0 && <nav ref={chipsRef} aria-label="Workout exercises" className="relative -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{exercises.map((exercise, index) => {
