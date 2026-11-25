@@ -151,18 +151,24 @@ describe("diet, allergies, rules and lists", () => {
 });
 
 describe("units and numbers", () => {
-  test("converts heights between centimetres and feet and inches", () => {
-    assert.deepEqual(cmToFeetInches(175), { feet: 5, inches: 9 });
-    assert.deepEqual(cmToFeetInches(182.6), { feet: 6, inches: 0 });
+  test("converts heights between centimetres and feet and inches, the inches to 0.1", () => {
+    assert.deepEqual(cmToFeetInches(175.3), { feet: 5, inches: 9 });
+    assert.deepEqual(cmToFeetInches(175), { feet: 5, inches: 8.9 }, "175 cm is 68.9 in, not a whole 5 ft 9 in");
+    assert.deepEqual(cmToFeetInches(182.8), { feet: 6, inches: 0 }, "71.97 in rounds to 72.0 in: 6 ft 0 in");
+    assert.deepEqual(cmToFeetInches(182.6), { feet: 5, inches: 11.9 });
     assert.equal(feetInchesToCm(5, 9), 175.3);
-    assert.equal(formatHeight(175, "ft_in"), "5 ft 9 in");
+    assert.equal(feetInchesToCm(5, 9.5), 176.5);
+    assert.equal(formatHeight(175.3, "ft_in"), "5 ft 9 in");
+    assert.equal(formatHeight(176.5, "ft_in"), "5 ft 9.5 in");
     assert.equal(formatHeight(175.25, "cm"), "175.3 cm");
     assert.equal(formatHeight(null), null);
   });
 
-  test("converts weights between kilograms and pounds", () => {
+  test("converts weights between kilograms and pounds, pounds kept to 0.01 kg", () => {
     assert.equal(kgToLb(72.5), 159.8);
-    assert.equal(lbToKg(159.8), 72.5);
+    assert.equal(lbToKg(159.8), 72.48);
+    assert.equal(lbToKg(150), 68.04, "at 0.1 kg it was 68.0 kg, which shows as 149.9 lb");
+    assert.equal(kgToLb(lbToKg(150)), 150);
     assert.equal(formatWeight(72.5, "lb"), "159.8 lb");
     assert.equal(formatWeight(72.46), "72.5 kg");
   });

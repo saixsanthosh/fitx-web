@@ -11,13 +11,13 @@
 
 import {
   AGE_RANGE,
-  HEIGHT_RANGE_CM,
   NAME_MAX_LENGTH,
-  WEIGHT_RANGE_KG,
   ageFromBirthDate,
   goalsAwaitingMigration,
+  heightError,
   inRange,
   normalizeBirthDate,
+  weightError,
   ONBOARDING_GOALS,
   type ActivityLevel,
   type Goal,
@@ -105,11 +105,13 @@ export function validatePage(page: OnboardingPage, form: OnboardingForm, schema:
     if (!form.gender) errors.gender = "Choose one. It shapes your calorie estimate and the AI coach’s advice.";
   }
   if (page === "body") {
-    if (form.heightCm === null) errors.heightCm = "Add your height.";
-    else if (!inRange(form.heightCm, HEIGHT_RANGE_CM)) errors.heightCm = "Enter a height between 90 and 250 cm (2 ft 11 in to 8 ft 2 in).";
-    if (form.weightKg === null) errors.weightKg = "Add your current weight.";
-    else if (!inRange(form.weightKg, WEIGHT_RANGE_KG)) errors.weightKg = "Enter a weight between 30 and 500 kg (66 to 1,102 lb).";
-    if (form.targetWeightKg !== null && !inRange(form.targetWeightKg, WEIGHT_RANGE_KG)) errors.targetWeightKg = "Enter a target between 30 and 500 kg, or leave it empty.";
+    // Checked in the unit shown, so a message names limits that are accepted as typed (2 ft 11 in is under 90 cm).
+    const height = form.heightCm === null ? "Add your height." : heightError(form.heightCm, form.heightUnit);
+    if (height) errors.heightCm = height;
+    const weight = form.weightKg === null ? "Add your current weight." : weightError(form.weightKg, form.weightUnit);
+    if (weight) errors.weightKg = weight;
+    const target = weightError(form.targetWeightKg, form.weightUnit, { target: true });
+    if (target) errors.targetWeightKg = target;
   }
   if (page === "goal" && unavailableGoals(schema).includes(form.goal)) errors.goal = "This goal arrives with the next FITX update. Choose another for now.";
   return errors;

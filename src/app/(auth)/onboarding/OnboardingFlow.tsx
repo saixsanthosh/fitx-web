@@ -33,6 +33,7 @@ import {
   isBirthDateLocked,
   normalizeBirthDate,
   optionLabel,
+  sameWeightKg,
   shownAge,
   type ActivityBand,
   type Goal,
@@ -224,7 +225,8 @@ export function OnboardingFlow() {
     const prior = await supabase.from("body_metrics").select("weight").eq("user_id", context.userId).not("weight", "is", null)
       .order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle();
     const latest = prior.data ? Number((prior.data as { weight: unknown }).weight) : null;
-    if (!prior.error && values.weightKg !== null && (latest === null || Math.abs(latest - values.weightKg) >= 0.05)) {
+    // Compared at the stored 0.01 kg: a change of 0.1 lb (0.045 kg) is a new weight.
+    if (!prior.error && values.weightKg !== null && (latest === null || !sameWeightKg(latest, values.weightKg))) {
       await logWeighIn(supabase, context.userId, values.weightKg, latest === null ? "Starting weight" : "Onboarding update");
     }
     return null;

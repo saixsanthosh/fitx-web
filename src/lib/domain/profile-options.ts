@@ -569,23 +569,59 @@ const CM_PER_INCH = 2.54;
 const KG_PER_LB = 0.45359237;
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/*
+ * Precision. A height or weight is typed, shown and checked to 0.1 in the member's own unit (cm, inches, kg or lb) and
+ * stored in centimetres to 0.1 and kilograms to 0.01. That is fine enough for every height typed to 0.1 in and every
+ * weight typed to 0.1 lb to come back exactly as typed: 150 lb is stored as 68.04 kg and shows as 150 lb again (at
+ * 0.1 kg it was 68.0 kg, which shows as 149.9 lb). Between units nothing is rounded twice.
+ */
+
+/** A height in the unit shown, to 0.1: centimetres, or inches in all for feet and inches. */
+export function heightInUnit(cm: number, unit: HeightUnit): number {
+  return unit === "ft_in" ? round1(cm / CM_PER_INCH) : round1(cm);
+}
+
+/** Centimetres, as stored, for a height typed in the unit shown (inches in all for feet and inches), read to 0.1. */
+export function heightFromUnit(value: number, unit: HeightUnit): number {
+  return unit === "ft_in" ? round1(round1(value) * CM_PER_INCH) : round1(value);
+}
+
+/** A weight in the unit shown, to 0.1 kg or 0.1 lb. */
+export function weightInUnit(kg: number, unit: WeightUnit): number {
+  return unit === "lb" ? kgToLb(kg) : round1(kg);
+}
+
+/** Kilograms, as stored, for a weight typed in the unit shown, read to 0.1. */
+export function weightFromUnit(value: number, unit: WeightUnit): number {
+  return unit === "lb" ? lbToKg(round1(value)) : round1(value);
+}
 
 export function feetInchesToCm(feet: number, inches: number) {
-  return round1((feet * 12 + inches) * CM_PER_INCH);
+  return heightFromUnit(feet * 12 + inches, "ft_in");
 }
 
-/** Whole feet and inches rounded to the nearest inch (5 ft 11.6 in becomes 6 ft 0 in). */
+/** Whole feet and the inches left, to 0.1 in (175 cm is 5 ft 8.9 in; 182.8 cm rounds to 72.0 in, 6 ft 0 in). */
 export function cmToFeetInches(cm: number) {
-  const totalInches = Math.round(cm / CM_PER_INCH);
-  return { feet: Math.floor(totalInches / 12), inches: totalInches % 12 };
+  const totalInches = heightInUnit(cm, "ft_in");
+  const feet = Math.floor(totalInches / 12);
+  return { feet, inches: round1(totalInches - feet * 12) };
 }
 
+/** Kilograms to 0.01 (the stored precision), so pounds typed to 0.1 come back unchanged. */
 export function lbToKg(lb: number) {
-  return round1(lb * KG_PER_LB);
+  return round2(lb * KG_PER_LB);
 }
 
+/** Pounds to 0.1, as shown. */
 export function kgToLb(kg: number) {
   return round1(kg / KG_PER_LB);
+}
+
+/** Two stored weights that are the same to the stored 0.01 kg: 0.1 lb (0.045 kg) is a change. */
+export function sameWeightKg(a: number | null, b: number | null): boolean {
+  return a === null || b === null ? a === b : Math.abs(a - b) < 0.005;
 }
 
 export function formatHeight(cm: number | null | undefined, unit: HeightUnit = DEFAULT_HEIGHT_UNIT) {
@@ -599,7 +635,69 @@ export function formatHeight(cm: number | null | undefined, unit: HeightUnit = D
 
 export function formatWeight(kg: number | null | undefined, unit: WeightUnit = DEFAULT_WEIGHT_UNIT) {
   if (kg == null || !Number.isFinite(kg)) return null;
-  return unit === "lb" ? `${kgToLb(kg)} lb` : `${round1(kg)} kg`;
+  return `${weightInUnit(kg, unit)} ${unit}`;
+}
+
+// ─── Limits a height or weight must keep, in the unit the member types ───────────────────────────
+
+type Limits = { readonly min: number; readonly max: number };
+
+/**
+ * The heights and weights FITX takes, in each unit the member can type them in: the metric ranges, and the whole
+ * imperial values inside them, in inches in all and pounds. Every limit a message names is one FITX accepts: 2 ft 11 in
+ * (88.9 cm) and 66 lb (29.94 kg) are below the minimums, so the imperial ones are 3 ft 0 in and 67 lb. A value is
+ * checked as it is shown, in its own unit and to 0.1, so the field never shows a number other than the one checked.
+ */
+export const HEIGHT_LIMITS: Readonly<Record<HeightUnit, Limits>> = {
+  cm: HEIGHT_RANGE_CM,
+  ft_in: { min: Math.ceil(HEIGHT_RANGE_CM.min / CM_PER_INCH), max: Math.floor(HEIGHT_RANGE_CM.max / CM_PER_INCH) },
+};
+export const WEIGHT_LIMITS: Readonly<Record<WeightUnit, Limits>> = {
+  kg: WEIGHT_RANGE_KG,
+  lb: { min: Math.ceil(WEIGHT_RANGE_KG.min / KG_PER_LB), max: Math.floor(WEIGHT_RANGE_KG.max / KG_PER_LB) },
+};
+
+/** True for a height (stored, in cm) that is a number inside the limits of the unit shown. */
+export function heightInLimits(cm: number | null, unit: HeightUnit): boolean {
+  return cm !== null && Number.isFinite(cm) && inRange(heightInUnit(cm, unit), HEIGHT_LIMITS[unit]);
+}
+
+/** True for a weight (stored, in kg) that is a number inside the limits of the unit shown. */
+export function weightInLimits(kg: number | null, unit: WeightUnit): boolean {
+  return kg !== null && Number.isFinite(kg) && inRange(weightInUnit(kg, unit), WEIGHT_LIMITS[unit]);
+}
+
+const grouped = (value: number) => value.toLocaleString("en-GB", { maximumFractionDigits: 1 });
+const feetAndInches = (totalInches: number) => `${Math.floor(totalInches / 12)} ft ${round1(totalInches % 12)} in`;
+
+/** "90 and 250 cm" or "3 ft 0 in and 8 ft 2 in", for messages. */
+export function heightLimitsText(unit: HeightUnit): string {
+  const { min, max } = HEIGHT_LIMITS[unit];
+  return unit === "ft_in" ? `${feetAndInches(min)} and ${feetAndInches(max)}` : `${grouped(min)} and ${grouped(max)} cm`;
+}
+
+/** "30 and 500 kg" or "67 and 1,102 lb", for messages. */
+export function weightLimitsText(unit: WeightUnit): string {
+  const { min, max } = WEIGHT_LIMITS[unit];
+  return `${grouped(min)} and ${grouped(max)} ${unit}`;
+}
+
+/**
+ * Why a height (stored, in cm) can't be saved, in the unit shown, or null when it can. An empty height is the caller's
+ * to judge (setup asks for one, Profile doesn't); `optional` adds "or leave it empty" to the message.
+ */
+export function heightError(cm: number | null, unit: HeightUnit, { optional = false }: { optional?: boolean } = {}): string | null {
+  if (cm === null || heightInLimits(cm, unit)) return null;
+  return `Enter a height between ${heightLimitsText(unit)}${optional ? ", or leave it empty" : ""}.`;
+}
+
+/**
+ * Why a weight (stored, in kg) can't be saved, in the unit shown, or null when it can. An empty weight is the caller's
+ * to judge; a `target` weight may always be left empty, and its message says so.
+ */
+export function weightError(kg: number | null, unit: WeightUnit, { target = false }: { target?: boolean } = {}): string | null {
+  if (kg === null || weightInLimits(kg, unit)) return null;
+  return target ? `Enter a target between ${weightLimitsText(unit)}, or leave it empty.` : `Enter a weight between ${weightLimitsText(unit)}.`;
 }
 
 /** A number typed into a field ("72,5" counts as 72.5), null when empty, NaN when not a number. */

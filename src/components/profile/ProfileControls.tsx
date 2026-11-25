@@ -6,21 +6,17 @@ import { Check, Plus, X } from "lucide-react";
 import {
   ageFromBirthDate,
   birthDateBounds,
-  cmToFeetInches,
-  feetInchesToCm,
   HEIGHT_UNIT_OPTIONS,
-  kgToLb,
-  lbToKg,
   MAX_CUSTOM_ENTRIES,
   MAX_CUSTOM_LENGTH,
   commitDraft,
-  parseDecimal,
   shownAge,
   WEIGHT_UNIT_OPTIONS,
   type HeightUnit,
   type Option,
   type WeightUnit,
 } from "@/lib/domain/profile-options";
+import { measureText, measureValue } from "@/lib/onboarding/measure-field";
 
 /**
  * Form controls shared by onboarding and Profile. Choices are native radio and checkbox inputs (so the
@@ -346,14 +342,13 @@ export function TextField({
 }
 
 const heightText = (cm: number | null, unit: HeightUnit) => {
-  if (cm === null || !Number.isFinite(cm)) return { cm: "", feet: "", inches: "" };
-  const { feet, inches } = cmToFeetInches(cm);
-  return { cm: unit === "cm" ? String(Math.round(cm * 10) / 10) : "", feet: String(feet), inches: String(inches) };
+  const shown = measureText("height", unit, cm);
+  return unit === "cm" ? { cm: shown.main, feet: "", inches: "" } : { cm: "", feet: shown.main, inches: shown.inches };
 };
 
 /**
  * Height in centimetres or feet and inches; always reports centimetres (null when empty, NaN when the
- * text is not a number).
+ * text is not a number). Shown and read to 0.1 in the unit shown, like setup's dial (measure-field.ts).
  */
 export function HeightField({
   label = "Height",
@@ -384,12 +379,7 @@ export function HeightField({
   }
   const report = (next: typeof text, currentUnit: HeightUnit) => {
     setText(next);
-    if (currentUnit === "cm") return onChange(parseDecimal(next.cm));
-    const feet = parseDecimal(next.feet);
-    const inches = parseDecimal(next.inches);
-    if (feet === null && inches === null) return onChange(null);
-    if (Number.isNaN(feet) || Number.isNaN(inches)) return onChange(Number.NaN);
-    onChange(feetInchesToCm(feet ?? 0, inches ?? 0));
+    onChange(measureValue("height", currentUnit, currentUnit === "cm" ? { main: next.cm, inches: "" } : { main: next.feet, inches: next.inches }));
   };
   const switchUnit = (next: HeightUnit) => {
     onUnitChange(next);
@@ -425,7 +415,10 @@ export function HeightField({
   );
 }
 
-/** Weight in kilograms or pounds; always reports kilograms (null when empty, NaN when not a number). */
+/**
+ * Weight in kilograms or pounds; always reports kilograms (null when empty, NaN when not a number). Shown and read to
+ * 0.1 in the unit shown, and pounds are kept to 0.01 kg, so 150 lb stays 150 lb (measure-field.ts).
+ */
 export function WeightField({
   label,
   kg,
@@ -449,7 +442,7 @@ export function WeightField({
   showUnits?: boolean;
 }) {
   const id = useId();
-  const shown = (value: number | null, inUnit: WeightUnit) => (value === null || !Number.isFinite(value) ? "" : String(inUnit === "lb" ? kgToLb(value) : Math.round(value * 10) / 10));
+  const shown = (value: number | null, inUnit: WeightUnit) => measureText("weight", inUnit, value).main;
   const [text, setText] = useState(() => shown(kg, unit));
   // Two weight fields share one unit: when the other field switches it, show this value in the new unit too.
   const [textUnit, setTextUnit] = useState(unit);
@@ -459,8 +452,7 @@ export function WeightField({
   }
   const report = (value: string, inUnit: WeightUnit) => {
     setText(value);
-    const parsed = parseDecimal(value);
-    onChange(parsed === null || Number.isNaN(parsed) ? parsed : inUnit === "lb" ? lbToKg(parsed) : parsed);
+    onChange(measureValue("weight", inUnit, { main: value, inches: "" }));
   };
   const switchUnit = (next: WeightUnit) => {
     onUnitChange(next);

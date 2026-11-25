@@ -3,18 +3,9 @@
 import { useId, useState, type CSSProperties } from "react";
 import { Minus, Plus } from "lucide-react";
 import { FieldError, UnitToggle } from "@/components/profile/ProfileControls";
-import {
-  HEIGHT_UNIT_OPTIONS,
-  WEIGHT_UNIT_OPTIONS,
-  cmToFeetInches,
-  feetInchesToCm,
-  kgToLb,
-  lbToKg,
-  parseDecimal,
-  type HeightUnit,
-  type WeightUnit,
-} from "@/lib/domain/profile-options";
-import { dialScale, type DialKind } from "@/lib/onboarding/dial";
+import { HEIGHT_UNIT_OPTIONS, WEIGHT_UNIT_OPTIONS, cmToFeetInches, type HeightUnit, type WeightUnit } from "@/lib/domain/profile-options";
+import { dialScale, dialStep } from "@/lib/onboarding/dial";
+import { measureFromShown, measureShown, measureText, measureValue, type MeasureText } from "@/lib/onboarding/measure-field";
 import styles from "./MeasureDial.module.css";
 
 type Props = {
@@ -28,55 +19,35 @@ type Props = {
   | { kind: "weight"; value: number | null; unit: WeightUnit; onChange: (kg: number | null) => void; onUnitChange: (unit: WeightUnit) => void }
 );
 
-/** The value in display units (inches for ft + in, pounds for lb), or null. */
-function toDisplay(kind: DialKind, unit: string, value: number | null): number | null {
-  if (value === null || !Number.isFinite(value)) return null;
-  if (kind === "height") return unit === "ft_in" ? Math.round(value / 2.54) : Math.round(value);
-  return unit === "lb" ? kgToLb(value) : Math.round(value * 10) / 10;
-}
-
-function fromDisplay(kind: DialKind, unit: string, value: number): number {
-  if (kind === "height") return unit === "ft_in" ? feetInchesToCm(0, value) : value;
-  return unit === "lb" ? lbToKg(value) : Math.round(value * 10) / 10;
-}
-
 /**
  * A height or weight as a dial: a large readout you can type into, a ruler slider for the thumb, and steppers
  * for fine tuning. Always reports centimetres or kilograms (null when empty, NaN when what is typed is not a
  * number), whatever unit is shown. The readout textbox carries the label, so forms and tests find it by name.
+ * It shows the stored value in the unit shown to 0.1, exactly as typed (175.5 cm stays 175.5, 150 lb stays 150),
+ * and the steppers move from that value by one whole step.
  */
 export function MeasureDial(props: Props) {
   const { label, error, optional = false, showUnits = true, kind } = props;
   const id = useId();
   const unit: string = props.unit;
   const scale = dialScale(kind, unit);
-  const shown = toDisplay(kind, unit, props.value);
-  const [draft, setDraft] = useState<{ main: string; inches: string } | null>(null);
+  const shown = measureShown(kind, unit, props.value);
+  const [draft, setDraft] = useState<MeasureText | null>(null);
   const report = (value: number | null) => (props.onChange as (value: number | null) => void)(value);
 
   const imperialHeight = kind === "height" && unit === "ft_in";
   const parts = imperialHeight && shown !== null ? cmToFeetInches(props.value as number) : null;
-  const text = draft ?? {
-    main: shown === null ? "" : imperialHeight ? String(parts!.feet) : String(shown),
-    inches: imperialHeight && parts ? String(parts.inches) : "",
-  };
+  const text = draft ?? measureText(kind, unit, props.value);
 
-  function typed(next: { main: string; inches: string }) {
+  function typed(next: MeasureText) {
     setDraft(next);
-    if (imperialHeight) {
-      const feet = parseDecimal(next.main);
-      const inches = parseDecimal(next.inches);
-      if (feet === null && inches === null) return report(null);
-      if (Number.isNaN(feet) || Number.isNaN(inches)) return report(Number.NaN);
-      return report(feetInchesToCm(feet ?? 0, inches ?? 0));
-    }
-    const parsed = parseDecimal(next.main);
-    report(parsed === null || Number.isNaN(parsed) ? parsed : fromDisplay(kind, unit, parsed));
+    report(measureValue(kind, unit, next));
   }
 
+  /** The slider and the steppers give a value in the unit shown. */
   function slide(display: number) {
     setDraft(null);
-    report(fromDisplay(kind, unit, display));
+    report(measureFromShown(kind, unit, display));
   }
 
   const position = shown === null ? scale.start : Math.min(scale.max, Math.max(scale.min, shown));
@@ -96,7 +67,7 @@ export function MeasureDial(props: Props) {
       </div>
 
       <div className={styles.readout}>
-        <button type="button" className={styles.step} aria-label={`Less ${label.toLowerCase()}`} onClick={() => slide(Math.max(scale.min, position - scale.step))}><Minus size={18} aria-hidden="true" /></button>
+        <button type="button" className={styles.step} aria-label={`Less ${label.toLowerCase()}`} onClick={() => slide(dialStep(kind, unit, shown, -1))}><Minus size={18} aria-hidden="true" /></button>
         <div className={styles.numbers}>
           <span className={styles.field}>
             <input id={id} className={styles.input} inputMode="decimal" placeholder="–" value={text.main} aria-invalid={invalid} aria-describedby={describedBy}
@@ -112,7 +83,7 @@ export function MeasureDial(props: Props) {
             </span>
           )}
         </div>
-        <button type="button" className={styles.step} aria-label={`More ${label.toLowerCase()}`} onClick={() => slide(Math.min(scale.max, position + scale.step))}><Plus size={18} aria-hidden="true" /></button>
+        <button type="button" className={styles.step} aria-label={`More ${label.toLowerCase()}`} onClick={() => slide(dialStep(kind, unit, shown, 1))}><Plus size={18} aria-hidden="true" /></button>
       </div>
 
       <input
