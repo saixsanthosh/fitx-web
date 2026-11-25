@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type CSSProperties, type FocusEvent } from "react";
+import { useId, useRef, type CSSProperties, type FocusEvent } from "react";
 import { Minus, Plus } from "lucide-react";
 import { FieldError, UnitToggle } from "@/components/profile/ProfileControls";
 import { HEIGHT_UNIT_OPTIONS, WEIGHT_UNIT_OPTIONS, cmToFeetInches, type HeightUnit, type WeightUnit } from "@/lib/domain/profile-options";
@@ -14,6 +14,13 @@ type Props = {
   optional?: boolean;
   /** False while the unit can't be saved (before the profile v2 migration). */
   showUnits?: boolean;
+  /**
+   * The text shown in place of the value: what is being typed, then text kept because it is not a number (null: the
+   * value's own text shows). The parent holds it, so it outlives the dial: setup's pages unmount their fields on Back,
+   * and a field holding NaN must come back showing the text that gave it, never an empty box.
+   */
+  draft: MeasureText | null;
+  onDraftChange: (draft: MeasureText | null) => void;
   /** Called when the member leaves the typed value (not when moving between the feet and inches boxes). */
   onCommit?: () => void;
 } & (
@@ -28,15 +35,15 @@ type Props = {
  * It shows the stored value in the unit shown to 0.1, exactly as typed (175.5 cm stays 175.5, 150 lb stays 150),
  * and the steppers move from that value by one whole step. A unit typed after the number is understood ("65kg";
  * "150 lb" in kilograms switches the unit to lb), and text that is not a number stays as typed when the member
- * moves on, so the field never looks empty while it holds something that can't be saved (measure-field.ts).
+ * moves on, so the field never looks empty while it holds something that can't be saved (measure-field.ts). That
+ * text is the parent's `draft`, so it is still there when the dial is mounted again.
  */
 export function MeasureDial(props: Props) {
-  const { label, error, optional = false, showUnits = true, kind, onCommit } = props;
+  const { label, error, optional = false, showUnits = true, kind, draft, onDraftChange, onCommit } = props;
   const id = useId();
   const unit: string = props.unit;
   const scale = dialScale(kind, unit);
   const shown = measureShown(kind, unit, props.value);
-  const [draft, setDraft] = useState<MeasureText | null>(null);
   const numbers = useRef<HTMLDivElement>(null);
   const report = (value: number | null) => (props.onChange as (value: number | null) => void)(value);
   const changeUnit = (next: HeightUnit | WeightUnit) => (props.onUnitChange as (unit: HeightUnit | WeightUnit) => void)(next);
@@ -46,7 +53,7 @@ export function MeasureDial(props: Props) {
   const text = draft ?? measureText(kind, unit, props.value);
 
   function typed(next: MeasureText) {
-    setDraft(next);
+    onDraftChange(next);
     const read = measureRead(kind, unit, next, showUnits);
     if (read.unit !== unit) changeUnit(read.unit);
     report(read.value);
@@ -54,14 +61,14 @@ export function MeasureDial(props: Props) {
 
   /** The slider and the steppers give a value in the unit shown. */
   function slide(display: number) {
-    setDraft(null);
+    onDraftChange(null);
     report(measureFromShown(kind, unit, display));
   }
 
   function leave(event: FocusEvent<HTMLInputElement>) {
     // Moving between the feet and inches boxes is still the same answer.
     if (event.relatedTarget instanceof Node && numbers.current?.contains(event.relatedTarget)) return;
-    setDraft((current) => keptDraft(kind, unit, current));
+    onDraftChange(keptDraft(kind, unit, draft));
     onCommit?.();
   }
 
@@ -70,7 +77,7 @@ export function MeasureDial(props: Props) {
     if (draft) {
       const value = measureValue(kind, next, draft);
       report(value);
-      setDraft(Number.isNaN(value) ? draft : null);
+      onDraftChange(Number.isNaN(value) ? draft : null);
     }
     changeUnit(next);
   }

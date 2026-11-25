@@ -41,16 +41,20 @@ import {
 } from "@/lib/domain/profile-options";
 import { ensureProfileRow, loadBirthDate, loadUserContext, logWeighIn, savePreferences, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
 import {
+  NO_DRAFTS,
   ONBOARDING_PAGES,
   firstName,
   initialOnboardingForm,
   pageSave,
   unavailableGoals,
   validatePage,
+  type MeasureDrafts,
+  type MeasureKey,
   type OnboardingErrors,
   type OnboardingForm,
   type OnboardingPage,
 } from "@/lib/onboarding/form";
+import type { MeasureText } from "@/lib/onboarding/measure-field";
 import { createClient } from "@/lib/supabase/client";
 
 const GOAL_PHOTOS: Readonly<Record<string, keyof typeof ONBOARDING_MEDIA>> = {
@@ -93,6 +97,9 @@ export function OnboardingFlow() {
   const [phase, setPhase] = useState<"loading" | "ready" | "load_failed" | "unavailable" | "welcome">("loading");
   const [context, setContext] = useState<UserContextData | null>(null);
   const [form, setForm] = useState<OnboardingForm | null>(null);
+  // What step 2's dials show in place of their values (text being typed, or kept because it is not a number). Held
+  // here with the answers: Back unmounts the dials, and a NaN answer must come back with the text that gave it.
+  const [drafts, setDrafts] = useState<MeasureDrafts>(NO_DRAFTS);
   // Once saved, the date of birth is shown, not edited: changing it is a FITX support request (the database refuses it).
   const [savedBirthDate, setSavedBirthDate] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
@@ -141,6 +148,7 @@ export function OnboardingFlow() {
       setContext(result.data);
       setSavedBirthDate(result.data.schema.onboardingV3 ? normalizeBirthDate(result.data.profile?.date_of_birth) : null);
       setForm(initialOnboardingForm(result.data, metadataName));
+      setDrafts(NO_DRAFTS);
       setPhase("ready");
     })();
     return () => {
@@ -165,8 +173,12 @@ export function OnboardingFlow() {
     });
   }, []);
 
+  const changeDraft = useCallback((key: MeasureKey, draft: MeasureText | null) => {
+    setDrafts((current) => (current[key] === draft ? current : { ...current, [key]: draft }));
+  }, []);
+
   /** A height or weight that can't be saved is said as soon as its field is left; an empty one waits for Continue. */
-  function checkTyped(key: "heightCm" | "weightKg" | "targetWeightKg") {
+  function checkTyped(key: MeasureKey) {
     if (!form || form[key] === null) return;
     const message = validatePage("body", form, schema)[key];
     if (message) setErrors((current) => (current[key] === message ? current : { ...current, [key]: message }));
@@ -387,9 +399,9 @@ export function OnboardingFlow() {
                 </>}
 
                 {page === "body" && <>
-                  <MeasureDial kind="height" label="Height" value={form.heightCm} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => changeUnit("heightUnit", unit)} onCommit={() => checkTyped("heightCm")} error={errors.heightCm} showUnits={schema.preferencesV2} />
-                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => changeUnit("weightUnit", unit)} onCommit={() => checkTyped("weightKg")} error={errors.weightKg} showUnits={schema.preferencesV2} />
-                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => changeUnit("weightUnit", unit)} onCommit={() => checkTyped("targetWeightKg")} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="height" label="Height" value={form.heightCm} draft={drafts.heightCm} onDraftChange={(draft) => changeDraft("heightCm", draft)} unit={form.heightUnit} onChange={(cm) => update("heightCm", cm)} onUnitChange={(unit) => changeUnit("heightUnit", unit)} onCommit={() => checkTyped("heightCm")} error={errors.heightCm} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Current weight" value={form.weightKg} draft={drafts.weightKg} onDraftChange={(draft) => changeDraft("weightKg", draft)} unit={form.weightUnit} onChange={(kg) => update("weightKg", kg)} onUnitChange={(unit) => changeUnit("weightUnit", unit)} onCommit={() => checkTyped("weightKg")} error={errors.weightKg} showUnits={schema.preferencesV2} />
+                  <MeasureDial kind="weight" label="Target weight" optional value={form.targetWeightKg} draft={drafts.targetWeightKg} onDraftChange={(draft) => changeDraft("targetWeightKg", draft)} unit={form.weightUnit} onChange={(kg) => update("targetWeightKg", kg)} onUnitChange={(unit) => changeUnit("weightUnit", unit)} onCommit={() => checkTyped("targetWeightKg")} error={errors.targetWeightKg} showUnits={schema.preferencesV2} />
                 </>}
 
                 {page === "goal" && <>

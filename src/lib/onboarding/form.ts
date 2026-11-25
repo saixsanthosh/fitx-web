@@ -25,6 +25,7 @@ import {
   type Sex,
   type WeightUnit,
 } from "@/lib/domain/profile-options";
+import type { MeasureText } from "@/lib/onboarding/measure-field";
 
 export const ONBOARDING_PAGES = [
   { id: "you", label: "You", title: "About you" },
@@ -47,6 +48,18 @@ export type OnboardingForm = {
   goal: Goal;
   activity: ActivityLevel;
 };
+
+/** The step 2 answers typed into a height or weight dial (MeasureDial). */
+export type MeasureKey = "heightCm" | "weightKg" | "targetWeightKg";
+
+/**
+ * What each of those dials shows in place of its value: the text while it is typed, then text kept because it is not
+ * a number (null: the value's own text shows). Setup holds it beside the answers, not in the dial, because Back
+ * unmounts step 2's dials: a new dial must show the text that gave a NaN answer, never an empty box that Continue
+ * refuses (bug 8).
+ */
+export type MeasureDrafts = Record<MeasureKey, MeasureText | null>;
+export const NO_DRAFTS: MeasureDrafts = { heightCm: null, weightKg: null, targetWeightKg: null };
 
 /** What the form starts from: the parts of UserContextData it reads. */
 export type OnboardingSource = {
