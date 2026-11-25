@@ -45,7 +45,9 @@ export function isEstimateEntry(entry: MealEntry): boolean {
  * The day's diary: each meal with its total and a quiet add button, the entries as plain rows. Totals leave out
  * unknown values (they are never counted as 0 g) and say so.
  */
-export function MealLog({ entries, title, labels, state, busy, templatesReady, sections, onEdit, onDelete, removed, onUndoRemove, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
+export function MealLog({ entries, title, labels, state, busy, templatesReady, sections, onEdit, onDelete, removed: removedFoods, onUndoRemove, onSaveMeal, onSaveDay, onCopyYesterday, onLogFood, onAddTo, onAddSection }: MealLogProps) {
+  // A removed food's Undo shows once its row is gone (the day has reloaded), and goes once it is back.
+  const removed = removedFoods.filter((item) => !entries.some((entry) => entry.id === item.id));
   const unknown = sumKnown(entries).unknown;
   /** Removed foods whose meal is no longer listed (a member's own section whose last food went) show above the meals. */
   const orphans = removed.filter((item) => !sections.some((slot) => sameMeal(item.meal, slot)));

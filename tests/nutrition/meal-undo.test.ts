@@ -41,5 +41,6 @@ test("the page removes with a way back and keeps the focus, and the meal log sho
   assert.match(undoAdded, /\.select\("id"\)/, "it reports only what it deleted");
   const log = read("src/components/nutrition/MealLog.tsx");
   assert.match(log, /data-undo=\{entry\.id\}/);
+  assert.match(log, /const removed = removedFoods\.filter\(\(item\) => !entries\.some\(\(entry\) => entry\.id === item\.id\)\);/, "never the row and its Undo at once");
   assert.match(log, /aria-label=\{`Undo removing \$\{entry\.name\}`\}/);
 });
