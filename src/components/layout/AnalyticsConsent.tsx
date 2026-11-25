@@ -3,27 +3,27 @@
 import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Analytics } from "@vercel/analytics/next";
+import { CONSENT_EVENT, bannerChoice, browserStorage, readChoice, saveChoice, type ConsentChoice } from "@/lib/home/cookie-choice";
 import { useBottomInsetRef } from "./useBottomInsetRef";
-
-const CONSENT_KEY = "fitx-cookie-consent";
 
 /**
  * Page analytics (only with consent) and the privacy banner until a choice is made. The banner floats at the bottom
  * (above the phone's bar, .fitx-consent in globals.css) and, while open, sets --fitx-inset-consent: the page keeps
  * that much clear when a control is scrolled into view and gets that much room at its end, so no control reached
- * with Tab stays under the banner.
+ * with Tab stays under the banner. The choice is read and saved with the cookie page's own helpers
+ * (lib/home/cookie-choice.ts: one key, one event), so the banner and the page's box always agree.
  */
 export function AnalyticsConsent() {
   const choice = useSyncExternalStore(subscribe, getSnapshot, () => null);
   const banner = useBottomInsetRef("consent");
-  function choose(value: "all" | "essential") {
-    try { window.localStorage.setItem(CONSENT_KEY, value); } catch { return; }
-    window.dispatchEvent(new Event("fitx-cookie-consent-change"));
+  function choose(value: ConsentChoice) {
+    if (!saveChoice(browserStorage(), value)) return;
+    window.dispatchEvent(new Event(CONSENT_EVENT));
   }
   return <>
     <Analytics beforeSend={(event) => {
       try {
-        if (window.localStorage.getItem(CONSENT_KEY) !== "all") return null;
+        if (readChoice(browserStorage()) !== "all") return null;
         const url = new URL(event.url);
         event.url = `${url.origin}${url.pathname}`;
         return event;
@@ -37,17 +37,15 @@ export function AnalyticsConsent() {
 }
 
 function subscribe(onChange: () => void) {
-  window.addEventListener("fitx-cookie-consent-change", onChange);
+  window.addEventListener(CONSENT_EVENT, onChange);
   window.addEventListener("storage", onChange);
   return () => {
-    window.removeEventListener("fitx-cookie-consent-change", onChange);
+    window.removeEventListener(CONSENT_EVENT, onChange);
     window.removeEventListener("storage", onChange);
   };
 }
 
-function getSnapshot(): "all" | "essential" | null {
-  try {
-    const saved = window.localStorage.getItem(CONSENT_KEY);
-    return saved === "all" || saved === "essential" ? saved : null;
-  } catch { return "essential"; }
+/** The saved choice, or null to ask; storage that refuses counts as Essential only (cookie-choice.ts bannerChoice). */
+function getSnapshot(): ConsentChoice | null {
+  return bannerChoice(readChoice(browserStorage()));
 }

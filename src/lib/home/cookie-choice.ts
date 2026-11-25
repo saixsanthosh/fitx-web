@@ -19,6 +19,15 @@ export const CHOICES: readonly { value: ConsentChoice; label: string }[] = [
   { value: "all", label: "Allow analytics" },
 ];
 
+/** This browser's local storage, or null where even reading it throws (blocked site data, some private modes). */
+export function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 /** The choice this browser holds. Storage that is missing or throws (some private modes) counts as blocked. */
 export function readChoice(storage: Pick<Storage, "getItem"> | null): Exclude<StoredChoice, "pending"> {
   if (!storage) return "blocked";
@@ -28,6 +37,16 @@ export function readChoice(storage: Pick<Storage, "getItem"> | null): Exclude<St
   } catch {
     return "blocked";
   }
+}
+
+/**
+ * What the privacy banner goes by: the saved choice, or null while there is none (the banner asks). A browser whose
+ * storage refuses FITX could never keep an answer, so it is not asked on every page: it counts as Essential only, and
+ * analytics stay off.
+ */
+export function bannerChoice(stored: Exclude<StoredChoice, "pending">): ConsentChoice | null {
+  if (stored === "blocked") return "essential";
+  return stored === "none" ? null : stored;
 }
 
 /** Saves the choice; false when the browser refuses (nothing changes then, and analytics stay off). */

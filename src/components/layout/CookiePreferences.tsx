@@ -2,15 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { Check } from "lucide-react";
-import { CHOICES, CONSENT_EVENT, confirmationFor, currentChoiceText, isPressed, readChoice, saveChoice, type ConsentChoice, type StoredChoice } from "@/lib/home/cookie-choice";
-
-function browserStorage(): Storage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
+import { CHOICES, CONSENT_EVENT, browserStorage, confirmationFor, currentChoiceText, isPressed, readChoice, saveChoice, type ConsentChoice, type StoredChoice } from "@/lib/home/cookie-choice";
 
 function subscribe(onChange: () => void) {
   window.addEventListener(CONSENT_EVENT, onChange);
