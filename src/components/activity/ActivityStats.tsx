@@ -20,7 +20,7 @@ function PeriodCard({ title, totals }: { title: string; totals: PeriodTotals }) 
   return (
     <div className="rounded-2xl border border-fitx-border bg-fitx-card p-4 sm:p-5">
       <h3 className="text-xs font-medium text-fitx-text-secondary">{title}</h3>
-      <p className="mt-2 font-heading text-[28px] font-bold leading-none tracking-[-.03em] tabular-nums text-fitx-text">{kmValue(totals.distanceM)}<span className="ml-1 font-body text-sm font-medium tracking-normal text-fitx-text-secondary">km</span></p>
+      <p className="mt-2 font-heading text-[28px] font-bold leading-none tracking-[-.03em] tabular-nums text-fitx-text">{kmValue(totals.distanceM)}<span className="font-body text-sm font-medium tracking-normal text-fitx-text-secondary">{"\u00a0km"}</span></p>
       <p className="mt-2 text-xs tabular-nums text-fitx-text-secondary">
         {totals.count} {totals.count === 1 ? "activity" : "activities"} · {formatDuration(totals.movingSeconds)}
       </p>

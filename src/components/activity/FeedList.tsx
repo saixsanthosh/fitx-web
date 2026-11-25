@@ -21,7 +21,7 @@ function Figure({ label, value, unit }: { label: string; value: string; unit?: s
     <div className="min-w-0">
       <dt className="text-[11px] text-fitx-text-secondary">{label}</dt>
       <dd className="mt-0.5 truncate font-heading text-lg font-bold tabular-nums tracking-[-.02em] text-fitx-text sm:text-xl">
-        {value}{unit && value !== "–" && <span className="ml-0.5 font-body text-xs font-medium text-fitx-text-secondary">{unit}</span>}
+        {value}{unit && value !== "–" && <span className="font-body text-xs font-medium text-fitx-text-secondary">{`\u00a0${unit}`}</span>}
       </dd>
     </div>
   );

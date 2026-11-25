@@ -80,7 +80,7 @@ export function BodySection({ rows, error, onReload, period }: {
             <>
               {shownLatest ? (
                 <div className={styles.weightHead}>
-                  <p className={styles.weightNow}>{weightText(shownLatest.kg, unit)}<small>{unit}</small></p>
+                  <p className={styles.weightNow}>{weightText(shownLatest.kg, unit)}<small>{`\u00a0${unit}`}</small></p>
                   <p className={styles.weightMeta}>
                     {weight.changeKg !== null
                       ? <><span className={styles.change}>{signed(weightIn(weight.changeKg, unit))} {unit}</span> {sinceLabel(weight.points[0].date, period.today)}</>

@@ -88,7 +88,7 @@ function Stat({ label, value, unit, size = "small", className }: { label: string
         size === "hero" ? "text-[72px] leading-[.9] tracking-[-.05em] sm:text-[88px]" : size === "large" ? "text-[36px] leading-none tracking-[-.04em] sm:text-[40px]" : "text-xl leading-tight tracking-[-.02em]",
       )}>
         {value}
-        {unit && value !== "–" && <span className={cn("ml-1 font-body font-medium tracking-normal text-fitx-text-secondary", size === "hero" ? "text-xl" : "text-sm")}>{unit}</span>}
+        {unit && value !== "–" && <span className={cn("font-body font-medium tracking-normal text-fitx-text-secondary", size === "hero" ? "text-xl" : "text-sm")}>{`\u00a0${unit}`}</span>}
       </p>
     </div>
   );

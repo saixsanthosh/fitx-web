@@ -25,7 +25,7 @@ export function StrengthRow({ session }: { session: StrengthSession }) {
           {session.volumeKg !== null && (
             <div className="col-span-2">
               <dt className="text-[11px] text-fitx-text-secondary">Lifted</dt>
-              <dd className="mt-0.5 font-heading text-lg font-bold tabular-nums text-fitx-text sm:text-xl">{kg.format(session.volumeKg)}<span className="ml-0.5 font-body text-xs font-medium text-fitx-text-secondary">kg</span></dd>
+              <dd className="mt-0.5 font-heading text-lg font-bold tabular-nums text-fitx-text sm:text-xl">{kg.format(session.volumeKg)}<span className="font-body text-xs font-medium text-fitx-text-secondary">{"\u00a0kg"}</span></dd>
             </div>
           )}
         </dl>

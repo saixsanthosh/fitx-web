@@ -22,7 +22,7 @@ import { BodySection } from "@/app/(dashboard)/progress/BodySection";
 import { MuscleMapLink, RecordsSection } from "@/app/(dashboard)/progress/ProgressCards";
 import {
   MAX_BACK, PERIOD_KINDS, PERIOD_LABELS, calendarDays, comparisonLabel, currentStreak, delta, highlights, indexDays, noHistory,
-  nutritionSeries, periodFor, periodSummary, previousPeriod, previousSummary, strengthGains, trainingDaysAnswered, trainingSeries, yearMonths,
+  nutritionSeries, periodFor, periodSummary, planTarget, previousPeriod, previousSummary, ringsLabel, strengthGains, trainingDaysAnswered, trainingSeries, yearMonths,
   type Delta, type Period, type PeriodKind, type TrainingMetric,
 } from "./period";
 import { ConcentricRings, DayRing, type Ring } from "./Rings";
@@ -189,9 +189,9 @@ export function ProgressAnalytics({ today }: { today: string }) {
               <span className={styles.ringUnit}>{view.current.activeDays === 1 ? "active day" : "active days"}</span>
             </ConcentricRings>
             <ul className={styles.legend} aria-label="Rings">
-              <li data-tone="train"><i /><span>Active</span><strong>{view.current.activeDays}<small>of {view.current.days} {view.current.days === 1 ? "day" : "days"}</small></strong></li>
-              <li data-tone="food"><i /><span>Food logged</span><strong>{view.current.loggedDays}<small>{view.current.loggedDays === 1 ? "day" : "days"}</small></strong></li>
-              {plan !== null ? <li data-tone="plan"><i /><span>Training days</span><strong>{view.current.trainingDays}<small>of {planTarget(plan, period)}</small></strong></li> : null}
+              <li data-tone="train"><i /><span>Active</span><strong>{view.current.activeDays} <small>of {view.current.days} {view.current.days === 1 ? "day" : "days"}</small></strong></li>
+              <li data-tone="food"><i /><span>Food logged</span><strong>{view.current.loggedDays} <small>{view.current.loggedDays === 1 ? "day" : "days"}</small></strong></li>
+              {plan !== null ? <li data-tone="plan"><i /><span>Training days</span><strong>{view.current.trainingDays} <small>of {planTarget(plan, period)}</small></strong></li> : null}
             </ul>
           </div>
           <dl className={styles.stats}>
@@ -366,11 +366,6 @@ export function ProgressAnalytics({ today }: { today: string }) {
   );
 }
 
-function planTarget(plan: number, period: Period): number {
-  const weeks = period.kind === "week" ? 1 : (Math.max(0, Math.round((keyToLocalDate(period.end).getTime() - keyToLocalDate(period.from).getTime()) / 86_400_000)) + 1) / 7;
-  return Math.max(1, Math.round(plan * weeks));
-}
-
 function heroRings(current: ReturnType<typeof periodSummary>, period: Period, plan: number | null): Ring[] {
   const days = Math.max(1, current.days);
   const rings: Ring[] = [
@@ -379,13 +374,6 @@ function heroRings(current: ReturnType<typeof periodSummary>, period: Period, pl
   ];
   if (plan !== null) rings.push({ value: current.trainingDays, max: planTarget(plan, period), tone: "plan" });
   return rings;
-}
-
-function ringsLabel(current: ReturnType<typeof periodSummary>, plan: number | null, period: Period): string {
-  const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
-  const parts = [`${current.activeDays} active of ${days(current.days)}`, `food logged on ${days(current.loggedDays)}`];
-  if (plan !== null) parts.push(`${current.trainingDays} training days of ${planTarget(plan, period)} planned`);
-  return parts.join(", ");
 }
 
 function dayText(day: { key: string; future: boolean; active: boolean; workouts: number; activities: number; foodPercent: number | null; foodLogged: boolean }): string {
@@ -420,8 +408,8 @@ function Stat({ label, value, text, unit, digits = 0, change, against, good = fa
         <span className={styles.statValue}>
           {text !== undefined ? (text ?? <><span aria-hidden="true">—</span><span className="sr-only">Not known</span></>)
             : <CountUp value={value ?? null} format={(number) => num(number, digits)} />}
-          {known && unit ? <span className={styles.statUnit}>{unit}</span> : null}
-          {known && estimate ? <span className={styles.statEstimate}>est.</span> : null}
+          {known && unit ? <span className={styles.statUnit}>{`\u00a0${unit}`}</span> : null}
+          {known && estimate ? <> <span className={styles.statEstimate}>est.</span></> : null}
         </span>
         {change && against ? (
           <span className={styles.delta} data-direction={good ? change.direction : "same"}>
@@ -438,7 +426,7 @@ function FoodAverage({ label, unit, average, target, days, tone }: { label: stri
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{average === null ? <><span aria-hidden="true">—</span><span className="sr-only">Not known</span></> : <>{num(average)}<small>{unit} a day</small></>}</dd>
+      <dd>{average === null ? <><span aria-hidden="true">—</span><span className="sr-only">Not known</span></> : <>{num(average)}<small>{`\u00a0${unit} a day`}</small></>}</dd>
       {target ? <span className={styles.meter} data-tone={tone} role="img" aria-label={average === null ? `No ${label.toLowerCase()} logged` : `${Math.round((average / target) * 100)}% of your ${num(target)} ${unit} target`}><span style={{ transform: `scaleX(${share})` }} /></span> : null}
       <p>{average === null ? "Nothing logged" : `${days} logged ${days === 1 ? "day" : "days"}${target ? ` · target ${num(target)} ${unit}` : ""}`}</p>
     </div>

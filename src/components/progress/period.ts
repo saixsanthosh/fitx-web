@@ -323,6 +323,20 @@ export function delta(current: number | null, previous: number | null | undefine
   return { difference, direction: difference > 0 ? "up" : difference < 0 ? "down" : "same" };
 }
 
+/** The training days the member planned for the period (their days a week, over the weeks that have happened). */
+export function planTarget(plan: number, period: Period): number {
+  const weeks = period.kind === "week" ? 1 : (Math.max(0, Math.round((keyToLocalDate(period.end).getTime() - keyToLocalDate(period.from).getTime()) / 86_400_000)) + 1) / 7;
+  return Math.max(1, Math.round(plan * weeks));
+}
+
+/** What the period's rings show, for screen readers: "3 active of 7 days, food logged on 1 day, 1 training day of 4 planned". */
+export function ringsLabel(current: Pick<PeriodSummary, "activeDays" | "days" | "loggedDays" | "trainingDays">, plan: number | null, period: Period): string {
+  const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+  const parts = [`${current.activeDays} active of ${days(current.days)}`, `food logged on ${days(current.loggedDays)}`];
+  if (plan !== null) parts.push(`${current.trainingDays} training ${current.trainingDays === 1 ? "day" : "days"} of ${planTarget(plan, period)} planned`);
+  return parts.join(", ");
+}
+
 // ---------------------------------------------------------------- chart series
 
 export const TRAINING_METRICS = ["workouts", "volume", "distance"] as const;
