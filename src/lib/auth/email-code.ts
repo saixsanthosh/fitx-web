@@ -49,7 +49,7 @@ export function formatCountdown(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-type AuthErrorLike = { code?: string | null; status?: number | null; message?: string | null } | null | undefined;
+type AuthErrorLike = { code?: string | null; status?: number | null; message?: string | null; reasons?: unknown } | null | undefined;
 
 export type SendCodeProblem = { message: string; retryAfter: number | null };
 
@@ -98,4 +98,46 @@ export function passwordSignInProblem(error: AuthErrorLike): string {
   if (/email not confirmed/i.test(message)) return "Confirm your email address first, or sign in with a code.";
   if (/invalid login credentials/i.test(message)) return "That email and password don’t match. Try again, or use a code.";
   return "We couldn’t sign you in. Please try again.";
+}
+
+export type SignUpProblem = {
+  message: string;
+  /** The field the problem is about (shown under it), or null for the form's own message under its button. */
+  field: "email" | "password" | null;
+  /** The address already has an account: the page offers sign-in and a password reset beside the message. */
+  existingAccount: boolean;
+};
+
+/**
+ * What to tell someone whose sign-up with a password was refused (bug 43): what happened and what to do next, never a
+ * "check your details" that a retry can't fix. An address that already has an account (Supabase answers 422
+ * user_already_exists where it confirms addresses itself) is told it may have one, with sign-in and a reset beside it;
+ * where Supabase sends confirmation emails it reveals nothing, and the "Check your email" view says the same for
+ * everyone (SignUpForm), so the page never tells more than Supabase's own answer does.
+ */
+export function signUpProblem(error: AuthErrorLike): SignUpProblem {
+  const code = error?.code ?? "";
+  const message = error?.message ?? "";
+  const plain = (text: string, field: SignUpProblem["field"] = null): SignUpProblem => ({ message: text, field, existingAccount: false });
+  if (isSuspendedError(error)) return plain(SUSPENDED_MESSAGE);
+  if (code === "user_already_exists" || code === "email_exists" || /already (been )?registered|already exists/i.test(message)) {
+    return { message: "That email may already have a FITX account.", field: null, existingAccount: true };
+  }
+  if (code === "weak_password" || /weak password|password should/i.test(message)) {
+    const reasons: unknown[] = Array.isArray(error?.reasons) ? (error?.reasons as unknown[]) : [];
+    if (reasons.includes("pwned")) return plain("That password has appeared in a data breach elsewhere. Choose a different one.", "password");
+    if (reasons.includes("characters")) return plain("Choose a stronger password, with a mix of letters, numbers and symbols.", "password");
+    return plain("Choose a longer password.", "password");
+  }
+  if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit" || error?.status === 429 || /rate limit|too many/i.test(message)) {
+    return plain("Too many sign-up attempts. Wait a few minutes, then try again.");
+  }
+  if (code === "email_address_invalid" || code === "validation_failed" || /invalid format|email address.*invalid/i.test(message)) {
+    return plain("Check the email address and try again.", "email");
+  }
+  if (code === "signup_disabled" || /signups? not allowed/i.test(message)) return plain("New accounts can’t be created right now. Please try again later.");
+  if (code === "email_provider_disabled" || /email (logins|signups) are disabled|provider is not enabled/i.test(message)) {
+    return plain("Email sign-up is turned off for FITX right now. Use Google.");
+  }
+  return plain("We couldn’t create your account. Please try again.");
 }

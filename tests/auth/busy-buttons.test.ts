@@ -83,7 +83,7 @@ test("when a form gives way to what happened next, focus goes to its heading, no
     assert.match(text, new RegExp(`<h1 ref=\\{${ref}\\} tabIndex=\\{-1\\} className=\\{s\\.title\\}`), `${file}: the heading can take focus`);
   }
   // What the page now says is read with the heading.
-  assert.match(read("src/app/(auth)/signup/SignUpForm.tsx"), /aria-describedby=\{`\$\{baseId\}-sent`\}>Check your email<\/h1>\s*<p id=\{`\$\{baseId\}-sent`\}/);
+  assert.match(read("src/app/(auth)/signup/SignUpForm.tsx"), /aria-describedby=\{`\$\{baseId\}-sent`\}>Check your email<\/h1>[\s\S]{0,400}?<p id=\{`\$\{baseId\}-sent`\}/);
   assert.match(read("src/app/(auth)/forgot-password/page.tsx"), /aria-describedby=\{sent \? `\$\{baseId\}-sent` : undefined\}/);
   assert.match(read("src/components/auth/auth.module.css"), /\.title\[tabindex="-1"\]:focus \{ outline: none; \}/);
 });

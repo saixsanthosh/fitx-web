@@ -334,6 +334,10 @@
   font-size: 0.8rem;
   line-height: 1.45;
 }
+/* A link inside a sentence (a message's way on): it reads as part of the text, underlined. */
+.inlineLink { color: var(--fitx-primary-text); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.error .inlineLink { color: inherit; }
+.inlineLink:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; border-radius: 3px; }
 .notice { margin: 0; color: var(--fitx-text-secondary); font-size: 0.8rem; line-height: 1.45; }
 .config { margin: 0; color: var(--fitx-warning); font-size: 0.76rem; line-height: 1.45; }
 

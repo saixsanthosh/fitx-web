@@ -15,6 +15,7 @@ import { useFocusWhen } from "@/components/auth/useFocusWhen";
 import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
+import { signUpProblem } from "@/lib/auth/email-code";
 import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { fieldIds, fieldInvalid, signUpFormProblem, type AuthField, type FieldProblem } from "@/lib/auth/form-problems";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
@@ -39,8 +40,10 @@ export default function SignUpForm() {
   const [sent, setSent] = useState(false);
   /** A problem with one field, under that field (bug 45). */
   const [fieldProblem, setFieldProblem] = useState<FieldProblem | null>(null);
-  /** Why the last code or sign-up failed, under the button that is showing. */
-  const [error, setError] = useState("");
+  /** Why the last code or sign-up failed, under the button that is showing; an existing account also gets its way on. */
+  const [failure, setFailure] = useState<{ message: string; existingAccount: boolean } | null>(null);
+  const error = failure?.message ?? "";
+  const setError = (message: string) => setFailure(message ? { message, existingAccount: false } : null);
   /** Why Google (or Apple) sign-up failed, under the Google button. */
   const [providerError, setProviderError] = useState("");
   const emailInput = useRef<HTMLInputElement>(null);
@@ -113,7 +116,10 @@ export default function SignUpForm() {
         },
       );
       if (authError) {
-        setError("We couldn’t create your account. Check your details and try again.");
+        // What happened and what to do next (bug 43): a problem with a field goes under it, the rest under the button.
+        const refused = signUpProblem(authError);
+        if (refused.field) showProblem({ field: refused.field, message: refused.message });
+        else setFailure({ message: refused.message, existingAccount: refused.existingAccount });
         setPending(null);
         return;
       }
@@ -155,7 +161,12 @@ export default function SignUpForm() {
         {view === "sent" ? (
           <m.div key="sent" className={s.body} {...slide}>
             <h1 ref={sentHeading} tabIndex={-1} className={s.title} aria-describedby={`${baseId}-sent`}>Check your email</h1>
-            <p id={`${baseId}-sent`} className={s.lead}>Open the link we sent to <strong>{email.trim()}</strong> to finish.</p>
+            {/* Where Supabase sends confirmation emails, an address that already has an account gets no email and no
+                error (it reveals nothing): so this says, to everyone, what to do then (bug 43). */}
+            <p id={`${baseId}-sent`} className={s.lead}>
+              If <strong>{email.trim()}</strong> is new to FITX, a link to finish is on its way. If it already has a FITX account, sign in
+              instead, or <Link href="/forgot-password" className={s.inlineLink}>reset your password</Link>.
+            </p>
             <Link href="/signin" className={s.link}>Back to sign in</Link>
           </m.div>
         ) : view === "code" ? (
@@ -239,7 +250,17 @@ export default function SignUpForm() {
                       <button type="submit" aria-disabled={loading || undefined} className={`fitx-button ${s.primary}`}>
                         {pending === "password" ? "Creating account…" : "Create account with email"}
                       </button>
-                      {error && <p role="alert" className={s.error}>{error}</p>}
+                      {error && (
+                        <p role="alert" className={s.error}>
+                          {error}
+                          {failure?.existingAccount && (
+                            <>
+                              {" "}<Link href="/signin" className={s.inlineLink}>Sign in</Link> instead, or{" "}
+                              <Link href="/forgot-password" className={s.inlineLink}>reset your password</Link>.
+                            </>
+                          )}
+                        </p>
+                      )}
                     </>
                   )}
                   {appleEnabled && (
