@@ -52,6 +52,7 @@ import {
   type MealTemplate, type NutritionCapabilities, type SavedFrom,
 } from "@/lib/food/client-data";
 import { servingToSave } from "@/lib/food/saved-foods";
+import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -708,18 +709,19 @@ export default function NutritionPage() {
     await load();
   }
 
-  /** Saves a food to My foods only; logging it is a separate step. */
-  async function saveFood(input: CustomFoodInput, photo: File | null, removePhoto: boolean) {
+  /**
+   * Saves a food to My foods only; logging it is a separate step. A refusal is returned to the form, which stays open
+   * and shows it there (the page's own messages are behind the dialog).
+   */
+  async function saveFood(input: CustomFoodInput, photo: File | null, removePhoto: boolean): Promise<CustomFoodSaveProblem | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return setError("Sign in to save your own foods.");
+    if (!supabase || !userId) return { field: null, message: "Sign in to save your own foods." };
     const editing = foodForm?.editing ?? null;
     setBusy(true); setError("");
     const { row, error: saveError } = await saveCustomFood(supabase, userId, input, capabilities.customFoodsV2, editing?.id);
     if (saveError || !row) {
       setBusy(false);
-      const duplicate = (saveError as { code?: string } | null)?.code === "23505";
-      setError(duplicate ? "One of your foods already has that barcode." : "Your food could not be saved. Please try again.");
-      return;
+      return customFoodSaveProblem(saveError);
     }
     let photoProblem = "";
     let photoUrl: string | null = null;
@@ -741,10 +743,11 @@ export default function NutritionPage() {
     setFoodForm(null);
     await load();
     reopenLog.current = false;
-    if (editing) { setNotice(`Saved changes to “${row.name}”.${photoProblem}`); return; }
+    if (editing) { setNotice(`Saved changes to “${row.name}”.${photoProblem}`); return null; }
     // Saved, not logged: the toast offers to log it now.
     const saved = customFoodResult(row, photoUrl, sourceOf(row, savedFrom) ?? foodForm?.source ?? null);
     toast.success(`Saved “${row.name}” to My foods.${photoProblem}`, { action: { label: "Log it", onClick: () => { logOpener.current = null; chooseFood(saved); setLogMode("search"); setLogOpen(true); } }, duration: 8000 });
+    return null;
   }
 
   async function removeFood(row: CustomFoodRow) {
@@ -1066,7 +1069,7 @@ export default function NutritionPage() {
       <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onDetected={onBarcodeDetected} onManual={typeBarcode}/>
 
       {editingEntry && <EntryEditor entry={editingEntry} busy={busy} sections={sections} onCancel={() => setEditingEntry(null)} onSave={(change) => void saveEntry(editingEntry, change)}/>}
-      {foodForm && <CustomFoodForm editing={foodForm.editing} prefill={foodForm.prefill} photoUrl={photoFor(foodForm.editing ?? undefined)} v2={capabilities.customFoodsV2} busy={busy} onCancel={() => { setFoodForm(null); restoreLog(); }} onSave={(input, photo, removePhoto) => void saveFood(input, photo, removePhoto)}/>}
+      {foodForm && <CustomFoodForm editing={foodForm.editing} prefill={foodForm.prefill} photoUrl={photoFor(foodForm.editing ?? undefined)} v2={capabilities.customFoodsV2} busy={busy} onCancel={() => { setFoodForm(null); restoreLog(); }} onSave={saveFood}/>}
       {namePrompt && <NameDialog title={namePrompt.kind === "section" ? "Add a meal" : namePrompt.kind === "meal" ? `Save ${namePrompt.slot.toLowerCase()} as a meal` : "Save this day as a routine"}
         description={namePrompt.kind === "section" ? "Such as Pre-workout or Evening tea." : namePrompt.kind === "meal" ? "Its foods and amounts are copied for any day." : "Every meal of this day, to add again in one tap."}
         label={namePrompt.kind === "section" ? "Meal name" : "Name"} maxLength={namePrompt.kind === "section" ? 40 : 80}
