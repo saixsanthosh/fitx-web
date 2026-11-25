@@ -14,7 +14,7 @@ import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/a
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { isEmailAddress } from "@/lib/auth/email-code";
-import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { authCallbackUrl } from "@/lib/site-url";
@@ -99,7 +99,7 @@ export default function SignUpForm() {
         setPending(null);
         return;
       }
-      if (data.session) window.location.assign(await finishPasswordSignIn("/onboarding"));
+      if (data.session) leaveSignInPage(await finishPasswordSignIn("/onboarding"));
       else {
         // A confirmation email is on its way.
         browserEmailCooldown().record(address);

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RESEND_SECONDS, isCompleteCode, sendCodeProblem, verifyCodeProblem } from "@/lib/auth/email-code";
-import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { browserEmailCooldown, cooldownMessage } from "@/lib/auth/send-cooldown";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { authCallbackUrl } from "@/lib/site-url";
@@ -137,7 +137,7 @@ export function useEmailCode(next: () => string | null) {
         return;
       }
       setSigningIn(true);
-      window.location.assign(await finishPasswordSignIn(next()));
+      leaveSignInPage(await finishPasswordSignIn(next()));
     } catch (problem) {
       setError(isTimeLimit(problem) ? TIMED_OUT.verifyCode : OFFLINE);
       setVerifying(false);

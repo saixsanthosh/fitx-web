@@ -14,7 +14,7 @@ import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/a
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
 import { isEmailAddress, passwordSignInProblem } from "@/lib/auth/email-code";
-import { finishLateSignIn, finishPasswordSignIn } from "@/lib/auth/finish-sign-in";
+import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
 import { SUSPENDED_MESSAGE } from "@/lib/platform/account-status";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
@@ -110,7 +110,7 @@ export default function SignInForm() {
         setPending(null);
         return;
       }
-      window.location.assign(await finishPasswordSignIn(requestedNext()));
+      leaveSignInPage(await finishPasswordSignIn(requestedNext()));
     } catch (problem) {
       setError(isTimeLimit(problem) ? TIMED_OUT.signIn : "We couldn’t connect to FITX. Check your connection and try again.");
       setPending(null);
