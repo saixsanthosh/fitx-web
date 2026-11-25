@@ -40,8 +40,9 @@ export function ProgrammeDayDetails({ day, next, busy, onPreview }: {
         <p className="mt-0.5 text-xs text-fitx-text-secondary">{[focus, message].filter(Boolean).join(" · ")}</p>
       </div>
       {day.planId && (
-        <button type="button" aria-haspopup="dialog" disabled={busy} onClick={() => onPreview(day.planId!)}
-          className={`fitx-button min-h-11 shrink-0 px-4 text-sm ${day.state === "today" ? "" : "fitx-button-secondary"}`}>
+        // Busy (a workout starting, a programme action saving) without being disabled, so focus stays on it (D5).
+        <button type="button" aria-haspopup="dialog" aria-disabled={busy || undefined} onClick={() => { if (!busy) onPreview(day.planId!); }}
+          className={`fitx-button min-h-11 shrink-0 px-4 text-sm aria-disabled:opacity-60 ${day.state === "today" ? "" : "fitx-button-secondary"}`}>
           {label}{day.state === "today" ? <ArrowRight size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
         </button>
       )}

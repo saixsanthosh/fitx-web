@@ -9,6 +9,7 @@ import { HISTORY_PAGE_SIZE, groupByMonth, loadHistoryPage, loadInProgressSession
 import { createClient } from "@/lib/supabase/client";
 import { regionLabel } from "@/lib/training/anatomy";
 import { formatClock } from "@/lib/training/session-stats";
+import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 
 type State =
   | { status: "loading" }
@@ -46,6 +47,11 @@ export function WorkoutHistoryScreen() {
   const [state, setState] = useState<State>({ status: "loading" });
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState("");
+  // Once the last page is shown "Show 20 more" goes: the first workout it brought takes focus (D5).
+  const [rowFocus, setRowFocus] = useState<{ id: string; seq: number } | null>(null);
+  useEffect(() => {
+    if (rowFocus) document.querySelector<HTMLElement>(`[data-history-row="${rowFocus.id}"]`)?.focus();
+  }, [rowFocus]);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -77,6 +83,10 @@ export function WorkoutHistoryScreen() {
       const seen = new Set(current.rows.map((row) => row.id));
       return { ...current, rows: [...current.rows, ...page.page.rows.filter((row) => !seen.has(row.id))], nextOffset: page.page.nextOffset };
     });
+    // The button keeps focus while there are more (it is never disabled while loading); once it goes, focus moves on.
+    const shown = state.rows.map((row) => row.id);
+    const target = focusAfterShowMore({ more: page.page.nextOffset !== null, shown, added: addedIds(shown, page.page.rows.map((row) => row.id)) });
+    if (target && target !== "button") setRowFocus((current) => ({ id: target, seq: (current?.seq ?? 0) + 1 }));
   }
 
   const heading = (
@@ -112,7 +122,7 @@ export function WorkoutHistoryScreen() {
                   const badge = statusBadge(row.status);
                   return (
                     <li key={row.id}>
-                      <Link href={recordHref(row.id)} className="fitx-panel group flex items-center gap-3 p-4 transition-colors hover:border-fitx-primary/40 sm:px-5">
+                      <Link href={recordHref(row.id)} data-history-row={row.id} className="fitx-panel group flex items-center gap-3 p-4 transition-colors hover:border-fitx-primary/40 sm:px-5">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span className="truncate font-semibold text-fitx-text">{row.name}</span>
@@ -132,7 +142,7 @@ export function WorkoutHistoryScreen() {
           ))}
           {state.nextOffset !== null && (
             <div className="flex flex-col items-center gap-2">
-              <button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="fitx-button fitx-button-secondary min-h-11 px-5">{loadingMore ? "Loading…" : `Show ${HISTORY_PAGE_SIZE} more`}</button>
+              <button type="button" onClick={() => void loadMore()} aria-disabled={loadingMore || undefined} className="fitx-button fitx-button-secondary min-h-11 px-5 aria-disabled:opacity-60">{loadingMore ? "Loading…" : `Show ${HISTORY_PAGE_SIZE} more`}</button>
               {moreError && <p role="alert" className="m-0 text-sm text-fitx-danger">{moreError}</p>}
             </div>
           )}

@@ -74,11 +74,13 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
   }
 
   function keepNote() {
+    if (busy) return;
     backToDelete.current = true;
     setConfirmDelete(false);
   }
 
   function stopEditing() {
+    if (busy) return;
     returnFocus.current = true;
     backToDelete.current = false;
     setEditing(false);
@@ -179,22 +181,23 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
             <div role="group" aria-labelledby={`${fieldId}-delete`} className="mt-2 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-3">
               <p id={`${fieldId}-delete`} className="m-0 text-sm text-fitx-text">Delete this note?</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                <button ref={confirmDeleteButton} type="button" onClick={() => void remove()} disabled={busy !== null} className="fitx-button fitx-button-danger">
+                {/* Busy, never disabled while it works (a disabled button drops keyboard focus, D5): a press then is ignored. */}
+                <button ref={confirmDeleteButton} type="button" onClick={() => void remove()} aria-disabled={busy !== null || undefined} className="fitx-button fitx-button-danger aria-disabled:opacity-60">
                   {busy === "delete" ? <LoaderCircle size={15} aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <Trash2 size={15} aria-hidden="true" />}
                   {busy === "delete" ? "Deleting…" : "Delete note"}
                 </button>
-                <button type="button" onClick={keepNote} disabled={busy !== null} className="fitx-button fitx-button-quiet">Keep it</button>
+                <button type="button" onClick={keepNote} aria-disabled={busy !== null || undefined} className="fitx-button fitx-button-quiet aria-disabled:opacity-60">Keep it</button>
               </div>
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <button type="submit" disabled={busy !== null || over || unchanged} className="fitx-button">
+              <button type="submit" disabled={over || unchanged} aria-disabled={busy !== null || undefined} className="fitx-button aria-disabled:opacity-60">
                 {busy === "save" && <LoaderCircle size={15} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />}
                 {busy === "save" ? "Saving…" : "Save note"}
               </button>
-              <button type="button" onClick={stopEditing} disabled={busy !== null} className="fitx-button fitx-button-quiet">Cancel</button>
+              <button type="button" onClick={stopEditing} aria-disabled={busy !== null || undefined} className="fitx-button fitx-button-quiet aria-disabled:opacity-60">Cancel</button>
               {note && (
-                <button ref={askDelete} type="button" onClick={() => setConfirmDelete(true)} disabled={busy !== null} className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-semibold text-fitx-danger hover:underline">
+                <button ref={askDelete} type="button" onClick={() => { if (!busy) setConfirmDelete(true); }} aria-disabled={busy !== null || undefined} className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-semibold text-fitx-danger hover:underline aria-disabled:opacity-60">
                   <Trash2 size={14} aria-hidden="true" />Delete
                 </button>
               )}

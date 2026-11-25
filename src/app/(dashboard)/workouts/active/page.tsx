@@ -706,6 +706,8 @@ export default function ActiveWorkoutPage() {
   const swapTarget = currentExercise?.exercise_id ? catalog.find((exercise) => exercise.id === currentExercise.exercise_id) : undefined;
   const swapMissing = swapTarget ? missingEquipment(swapTarget.required_equipment, owned) : [];
   const currentProgress = currentExercise ? exerciseProgress(currentExercise) : null;
+  const atFirst = currentExerciseIndex === 0;
+  const atLast = currentExerciseIndex >= exercises.length - 1;
   // Only the exercise on screen's own Swap and Add set problems show under its buttons.
   const swapProblem = exerciseProblem(problem, "swap", currentExercise?.id);
   const addSetProblem = exerciseProblem(problem, "add-set", currentExercise?.id);
@@ -788,8 +790,10 @@ export default function ActiveWorkoutPage() {
             <button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button>
             {survivor && <Link href={`/exercises/${encodeURIComponent(survivor)}`} target="_blank" rel="noopener noreferrer" className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><Info size={14} aria-hidden="true" />About<span className="sr-only"> {currentExercise.name} (opens in a new tab)</span></Link>}
             <span className="ml-auto flex items-center gap-2">
-              <button type="button" onClick={() => showExercise((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} aria-label="Previous exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronLeft size={18} aria-hidden="true" /></button>
-              <button type="button" onClick={() => showExercise((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} aria-label="Next exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border disabled:opacity-40"><ChevronRight size={18} aria-hidden="true" /></button>
+              {/* At the first or last exercise these stay focusable (aria-disabled): pressing Next onto the last exercise used to
+                  disable the button in the member's hand, and Chrome then drops focus to the page (D5). */}
+              <button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} aria-label="Previous exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border aria-disabled:opacity-40"><ChevronLeft size={18} aria-hidden="true" /></button>
+              <button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} aria-label="Next exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border aria-disabled:opacity-40"><ChevronRight size={18} aria-hidden="true" /></button>
             </span>
           </div>
           {swapProblem && <p role="alert" className={PROBLEM_CLASS}>{swapProblem}</p>}
@@ -854,7 +858,7 @@ export default function ActiveWorkoutPage() {
     </div>
 
     {resting && <RestDock remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
-    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+.75rem)] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => showExercise((index) => Math.max(0, index - 1))} disabled={currentExerciseIndex === 0} className="fitx-button fitx-button-secondary min-h-12"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => showExercise((index) => Math.min(exercises.length - 1, index + 1))} disabled={currentExerciseIndex >= exercises.length - 1} className="fitx-button min-h-12">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
+    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+.75rem)] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} className="fitx-button fitx-button-secondary min-h-12 aria-disabled:opacity-60"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} className="fitx-button min-h-12 aria-disabled:opacity-60">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
     {swapOpen && swapTarget && <SwapSheet target={swapTarget} catalog={catalog} owned={owned} level={level} exclude={new Set(exercises.flatMap((exercise) => (exercise.exercise_id ? [exercise.exercise_id] : [])))} contextLabel={ownedContext} onPick={(exercise) => void swapExercise(exercise)} onClose={() => setSwapOpen(false)} />}
   </div>;
 }

@@ -78,9 +78,10 @@ export function swapRow(rows: readonly PlannedExercise[], index: number, replace
 /**
  * Where keyboard focus goes after an action removes the focused control (bug 14): after a swap, the Swap button of
  * the same row (the row is rebuilt for the new movement); after a remove, the Remove button of the row that takes the
- * removed one's place, else of the new last row, else the list's heading when no row is left.
+ * removed one's place, else of the new last row, else the list's heading when no row is left; after a move, the same
+ * move button in the row's new place (the row is moved in the page, which drops focus in Chrome; review round, D5).
  */
-export type BuilderFocus = { row: number; control: "swap" | "remove" } | { heading: true };
+export type BuilderFocus = { row: number; control: "swap" | "remove" | "earlier" | "later" } | { heading: true };
 
 export function focusAfterSwap(index: number): BuilderFocus {
   return { row: index, control: "swap" };
@@ -92,11 +93,19 @@ export function focusAfterRemove(countBefore: number, removedIndex: number): Bui
   return { row: Math.max(0, Math.min(removedIndex, left - 1)), control: "remove" };
 }
 
-/** What screen readers hear after a swap or a remove (the builder's live region). */
+export function focusAfterMove(index: number, direction: -1 | 1, count: number): BuilderFocus {
+  return { row: Math.max(0, Math.min(count - 1, index + direction)), control: direction < 0 ? "earlier" : "later" };
+}
+
+/** What screen readers hear after a swap, a remove or a move (the builder's live region). */
 export function swapNotice(from: string, to: string): string {
   return `Swapped ${from} for ${to}.`;
 }
 
 export function removeNotice(name: string, left: number): string {
   return `Removed ${name}. ${left === 0 ? "No exercises left." : `${left} ${left === 1 ? "exercise" : "exercises"} left.`}`;
+}
+
+export function moveNotice(name: string, position: number, count: number): string {
+  return `${name} is now ${position} of ${count}.`;
 }

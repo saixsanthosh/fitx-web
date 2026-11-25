@@ -49,13 +49,14 @@ import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
 import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import { loadRecentExerciseDays } from "@/lib/training/recent-days";
+import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
 import { BUILDER_FIELD_IDS, builderSaveProblem, type BuilderProblem } from "./_lib/builder-save";
 import { builderSplit } from "./_lib/split-source";
-import { MAX_PLAN_EXERCISES, focusAfterRemove, focusAfterSwap, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
+import { MAX_PLAN_EXERCISES, focusAfterMove, focusAfterRemove, focusAfterSwap, moveNotice, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
 import { focusAfterPlanDelete, historyNote, moreNote, planCardNote, plansLineNote, type ListNote } from "./_lib/list-notes";
 import { deletePlanAndItsItem, itemLeftMessage } from "./_lib/plan-delete";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
@@ -271,6 +272,15 @@ export default function WorkoutsPage() {
   const [programmePlans, setProgrammePlans] = useState<ProgrammePlan[]>([]);
   const [recentDays, setRecentDays] = useState<Map<string, number>>(() => new Map());
   const [programmeBusy, setProgrammeBusy] = useState(false);
+  // Leaving or finishing replaces the programme card, and the control that held focus with it: focus moves to the
+  // section's heading, under which the result is said (D5).
+  const [programmeFocus, setProgrammeFocus] = useState(0);
+  useEffect(() => {
+    const heading = programmeFocus ? document.getElementById("programme-title") : null;
+    if (!heading) return;
+    heading.tabIndex = -1;
+    heading.focus();
+  }, [programmeFocus]);
   // The next programme days are being planned in the background (see topUpProgrammeDays).
   const [planningAhead, setPlanningAhead] = useState(false);
   // A list that failed to load is not shown as empty: saving the equipment list, following a programme
@@ -885,7 +895,7 @@ export default function WorkoutsPage() {
     const supabase = createClient();
     const programme = followedProgramme(programmes, enrolment);
     // Not while the next days are being planned: they would be created after the removal (see topUpProgrammeDays).
-    if (!supabase || !userId || !enrolment || planningAhead) return;
+    if (!supabase || !userId || !enrolment || planningAhead || programmeBusy) return;
     if (!window.confirm(`Stop following ${programme?.title ?? "this programme"}? Its upcoming days are removed from your plans and planner. Finished workouts stay in your history.`)) return;
     // The last status line was about this programme (for example days just planned): it goes with it.
     setProgrammeBusy(true); setError(""); setNotice(""); setProgrammeNote(null);
@@ -893,8 +903,9 @@ export default function WorkoutsPage() {
     setProgrammeBusy(false);
     if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be left. Check your connection and try again." });
     await load();
-    // Said in the Programme section, where the card was (D6).
+    // Said in the Programme section, where the card was (D6), and focus goes there (D5).
     setProgrammeNote({ tone: "info", text: `You no longer follow ${programme ? programmeShortTitle(programme) : "the programme"}. Its upcoming days are removed; finished workouts stay in your history.` });
+    setProgrammeFocus((value) => value + 1);
   }
 
   async function pause() {
@@ -931,6 +942,7 @@ export default function WorkoutsPage() {
     if (result.error) return setProgrammeNote({ tone: "error", text: "The programme couldn’t be finished. Check your connection and try again." });
     await load();
     setProgrammeNote({ tone: "info", text: "Programme finished. Choose your next one below; your workouts stay in your history." });
+    setProgrammeFocus((value) => value + 1);
   }
 
   /** Start on the Today card: straight into the session (its exercises are on the card already). */
@@ -979,8 +991,13 @@ export default function WorkoutsPage() {
     } : row));
   }
 
+  /** Moves a row; focus follows it to its new place (the page moves the row, which drops focus), and the place is said. */
   function movePreview(index: number, direction: -1 | 1) {
+    const moved = preview[index];
+    if (!moved || index + direction < 0 || index + direction >= preview.length) return;
     setPreview((rows) => moveRow(rows, index, direction));
+    setBuilderNotice(moveNotice(moved.exercise.name, index + direction + 1, preview.length));
+    setBuilderFocus((current) => ({ target: focusAfterMove(index, direction, preview.length), seq: (current?.seq ?? 0) + 1 }));
   }
 
   /**
@@ -1060,6 +1077,10 @@ export default function WorkoutsPage() {
     if (page.error) return setListNote({ at: "more", text: "More plans couldn’t be loaded. Check your connection and try again." });
     setPlans((current) => mergePlansById(current, page.rows));
     setPlanCursor(page.next);
+    // The button keeps focus while there are more; once it goes, the first plan it brought takes focus (D5).
+    const shown = plans.map((plan) => plan.id);
+    const target = focusAfterShowMore({ more: Boolean(page.next), shown, added: addedIds(shown, page.rows.map((plan) => plan.id)) });
+    if (target !== "button") setPlanFocus((current) => ({ planId: target, seq: (current?.seq ?? 0) + 1 }));
   }
 
   async function deletePlan(plan: PlanRow) {
@@ -1366,7 +1387,7 @@ export default function WorkoutsPage() {
                         </span>
                       </span>
                     </Link>
-                    <button type="button" disabled={saving} onClick={() => void repeatSession(session)} aria-label={`Repeat ${session.name}`} title="Repeat" className={styles.iconButton}><RotateCcw size={16} aria-hidden="true" /></button>
+                    <button type="button" aria-disabled={saving || undefined} onClick={() => void repeatSession(session)} aria-label={`Repeat ${session.name}`} title="Repeat" className={styles.iconButton}><RotateCcw size={16} aria-hidden="true" /></button>
                     {/* Why Repeat did not work, in this row beside the button (D6). */}
                     {historyNote(listNote, session.id) && <p role="alert" className={styles.rowNote}>{historyNote(listNote, session.id)}</p>}
                   </li>
@@ -1394,7 +1415,7 @@ export default function WorkoutsPage() {
               : <section aria-label="Your programme" className={styles.quietEmpty}>
                   <p className="font-medium">This programme is no longer available</p>
                   <p className="text-sm text-fitx-text-secondary">Your workouts stay in your history.</p>
-                  <button type="button" onClick={() => void leave()} disabled={programmeBusy} className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start text-sm">Leave programme</button>
+                  <button type="button" onClick={() => void leave()} aria-disabled={programmeBusy || undefined} className="fitx-button fitx-button-secondary mt-2 min-h-11 self-start text-sm aria-disabled:opacity-60">Leave programme</button>
                   {/* Why Leave did not work, beside it (D6): ProgrammeCard shows the same note for a programme it can show. */}
                   <ActionNote note={programmeNote} live className="mt-2" />
                 </section>
@@ -1429,8 +1450,8 @@ export default function WorkoutsPage() {
                     <h3 className={styles.itemTitle}>{plan.title}</h3>
                     <p className={styles.itemMeta}><CalendarDays size={13} aria-hidden="true" />{plan.planned_for ? whenLabel(plan.planned_for, todayKey) : "No date"}{time ? `, ${time}` : ""}<PlanStatusChip status={planCardStatus(plan.planned_for, todayKey, plan.last_done_key)} /></p>
                   </div>
-                  <button type="button" data-plan-start aria-haspopup="dialog" disabled={Boolean(starting)} className={`fitx-button ${styles.planStart}`}
-                    onClick={() => (event?.startHref ? startScheduled(plan.id, event.id) : setPreviewPlanId(plan.id))}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
+                  <button type="button" data-plan-start aria-haspopup="dialog" aria-disabled={Boolean(starting) || undefined} className={`fitx-button ${styles.planStart} aria-disabled:opacity-60`}
+                    onClick={() => { if (starting) return; if (event?.startHref) startScheduled(plan.id, event.id); else setPreviewPlanId(plan.id); }}>{starting === plan.id ? "Starting…" : "Start"}<ArrowRight size={15} aria-hidden="true" /></button>
                   {/* One visible action per row (phase 7.4); editing, copying and deleting sit in its menu. */}
                   <ActionsMenu label={`More actions for ${plan.title}`} items={[
                     { label: "Edit", name: `Edit ${plan.title}`, icon: Pencil, onSelect: () => void editPlan(plan.id).then((message) => sayOnPlan(plan.id, message)), disabled: saving },
@@ -1445,7 +1466,7 @@ export default function WorkoutsPage() {
               {(planCursor || (counts.plans !== null && counts.plans > plans.length)) && (
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <p className="text-xs text-fitx-text-secondary">{plans.length.toLocaleString()}{counts.plans !== null && counts.plans >= plans.length ? ` of ${counts.plans.toLocaleString()}` : ""} plans</p>
-                  {planCursor && <button type="button" onClick={() => void loadMorePlans()} disabled={loadingMorePlans} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}
+                  {planCursor && <button type="button" onClick={() => void loadMorePlans()} aria-disabled={loadingMorePlans || undefined} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm aria-disabled:opacity-60">{loadingMorePlans ? "Loading…" : "Show more plans"}</button>}
                   {/* Why more plans did not load, beside the button at the bottom of the list (D6). */}
                   {moreNote(listNote) && <p role="alert" className="m-0 basis-full text-sm text-fitx-danger">{moreNote(listNote)}</p>}
                 </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { Check, LoaderCircle, Save, X } from "lucide-react";
 import { ExerciseThumb } from "@/components/form-check/ExerciseThumb";
 import type { LoggedSet } from "@/lib/home-workout/log";
@@ -21,6 +22,15 @@ interface TodaySetsProps {
 
 /** Today's sets on this device, with their form, until they are saved to workout history. */
 export function TodaySets({ sets, save, onSave, onRemove }: TodaySetsProps) {
+  // Save workout stays focusable while it saves (D5); once saved, the panel that replaces it hands focus to View workout.
+  const viewWorkout = useRef<HTMLAnchorElement>(null);
+  const wasSaving = useRef(false);
+  useEffect(() => {
+    if (save.status === "saving") { wasSaving.current = true; return; }
+    if (wasSaving.current && save.status === "saved") viewWorkout.current?.focus();
+    wasSaving.current = false;
+  }, [save.status]);
+
   if (save.status === "saved" && sets.length === 0) {
     return (
       <section aria-label="Today" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-fitx-success-border bg-fitx-success-bg px-5 py-4">
@@ -28,7 +38,7 @@ export function TodaySets({ sets, save, onSave, onRemove }: TodaySetsProps) {
           <Check size={17} className="text-fitx-success" aria-hidden="true" />
           Saved to workout history
         </p>
-        <Link href={save.href} className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-fitx-primary-text hover:underline">View workout</Link>
+        <Link ref={viewWorkout} href={save.href} className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-fitx-primary-text hover:underline">View workout</Link>
       </section>
     );
   }
@@ -50,7 +60,7 @@ export function TodaySets({ sets, save, onSave, onRemove }: TodaySetsProps) {
           <h2 id="today-sets-title" className="font-heading text-lg font-bold tracking-tight text-fitx-text">Today</h2>
           <p className="text-sm text-fitx-text-secondary">{summary}</p>
         </div>
-        <button type="button" onClick={onSave} disabled={save.status === "saving"} className="fitx-button">
+        <button type="button" onClick={() => { if (save.status !== "saving") onSave(); }} aria-disabled={save.status === "saving" || undefined} className="fitx-button aria-disabled:opacity-60">
           {save.status === "saving" ? <LoaderCircle size={17} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Save size={17} aria-hidden="true" />}
           {save.status === "saving" ? "Saving" : "Save workout"}
         </button>

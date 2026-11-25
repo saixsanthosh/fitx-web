@@ -3,7 +3,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { focusAfterRemove, focusAfterSwap, removeNotice, swapNotice } from "@/app/(dashboard)/workouts/_lib/builder-rows";
+import { focusAfterMove, focusAfterRemove, focusAfterSwap, moveNotice, removeNotice, swapNotice } from "@/app/(dashboard)/workouts/_lib/builder-rows";
 
 describe("where focus goes", () => {
   test("after a swap: the same row's Swap button", () => {
@@ -15,6 +15,13 @@ describe("where focus goes", () => {
     assert.deepEqual(focusAfterRemove(5, 4), { row: 3, control: "remove" }, "the last row: the one before it");
     assert.deepEqual(focusAfterRemove(2, 0), { row: 0, control: "remove" });
     assert.deepEqual(focusAfterRemove(1, 0), { heading: true }, "nothing left: the Exercise order heading");
+  });
+
+  test("after a move: the same move button in the row's new place (review round: the moved row and an end button dropped focus)", () => {
+    assert.deepEqual(focusAfterMove(2, -1, 5), { row: 1, control: "earlier" });
+    assert.deepEqual(focusAfterMove(3, 1, 5), { row: 4, control: "later" }, "now the last row: its Move later stays focusable");
+    assert.deepEqual(focusAfterMove(0, -1, 5), { row: 0, control: "earlier" });
+    assert.equal(moveNotice("Push-Up", 2, 6), "Push-Up is now 2 of 6.");
   });
 
   test("what the live region says", () => {
@@ -42,6 +49,8 @@ describe("the builder (JSX, read from the source)", () => {
     assert.match(page, /setBuilderFocus\(\(current\) => \(\{ target: focusAfterRemove\(preview\.length, index\)/);
     assert.match(page, /\[data-builder-row="\$\{builderFocus\.target\.row\}"\] \[data-builder-control="\$\{builderFocus\.target\.control\}"\]/);
     assert.match(page, /onRemove=\{\(\) => removePreview\(index, item\)\}/);
+    assert.match(page, /setBuilderFocus\(\(current\) => \(\{ target: focusAfterMove\(index, direction, preview\.length\)/);
+    assert.match(page, /setBuilderNotice\(moveNotice\(moved\.exercise\.name, index \+ direction \+ 1, preview\.length\)\);/);
     assert.match(page, /<p role="status" className="sr-only">\{builderNotice\}<\/p>/);
   });
 

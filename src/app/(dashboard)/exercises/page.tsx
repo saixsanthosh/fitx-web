@@ -99,6 +99,10 @@ export default function ExerciseLibraryPage() {
   const requestedThumbs = useRef(new Set<string>());
   const [listNote, setListNote] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [savingList, setSavingList] = useState(false);
+  // Once saved, "Save as my … list" goes (the search's list is the saved one): Edit list, beside it, takes focus (D5).
+  const editListLink = useRef<HTMLAnchorElement>(null);
+  const [listSaved, setListSaved] = useState(0);
+  useEffect(() => { if (listSaved) editListLink.current?.focus(); }, [listSaved]);
 
   // Links from earlier versions (?equipment=, ?location=, a single ?muscle=full_body) are rewritten once.
   useEffect(() => {
@@ -239,6 +243,7 @@ export default function ExerciseLibraryPage() {
     if (error) { setListNote({ tone: "error", text: `Your ${contextName} list could not be saved. Check your connection and try again.` }); return; }
     await reloadProfiles({ context, keys });
     navigate({ ...state, have: null });
+    setListSaved((value) => value + 1);
     const saved = `Saved as your ${contextName} list. Workouts uses it too.`;
     setListNote({ tone: "info", text: saved });
     // The programme the member follows plans its days ahead from this list: they follow it now (bug 17), as when the
@@ -374,7 +379,7 @@ export default function ExerciseLibraryPage() {
                 )}
                 {state.have && <button type="button" onClick={() => update({ have: null })} className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-fitx-primary-text underline underline-offset-4">{list?.saved ? "Use my saved list" : "Use the starting list"}</button>}
                 {!state.have && account.status === "ready" && account.profiles.available && (
-                  <Link href={`/workouts?equipment=${state.context}`} className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-fitx-primary-text underline underline-offset-4">Edit list</Link>
+                  <Link ref={editListLink} href={`/workouts?equipment=${state.context}`} className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-fitx-primary-text underline underline-offset-4">Edit list</Link>
                 )}
               </div>
             </div>

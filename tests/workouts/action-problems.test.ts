@@ -86,7 +86,7 @@ describe("Swap and Add set problems belong to their exercise (review round, work
     assert.equal((page.match(/setProblem\(\{ at: "swap", exerciseId: exercise\.id,/g) ?? []).length, 2);
     assert.equal((page.match(/setProblem\(\{ at: "add-set", exerciseId: exercise\.id,/g) ?? []).length, 2);
     assert.match(page, /function showExercise\(next: number \| \(\(index: number\) => number\)\) \{\s+setExerciseIndex\(next\);\s+setProblem\(problemAfterExerciseChange\);/);
-    assert.equal((page.match(/onClick=\{\(\) => showExercise\(/g) ?? []).length, 5, "the chips, Previous and Next (the clock row's and the phone bar's)");
+    assert.equal((page.match(/onClick=\{\(\) => (?:\{ if \(!at(?:First|Last)\) )?showExercise\(/g) ?? []).length, 5, "the chips, Previous and Next (the clock row's and the phone bar's)");
     assert.doesNotMatch(page, /onClick=\{\(\) => setExerciseIndex\(/);
     assert.match(page, /const swapProblem = exerciseProblem\(problem, "swap", currentExercise\?\.id\);/);
     assert.match(page, /const addSetProblem = exerciseProblem\(problem, "add-set", currentExercise\?\.id\);/);

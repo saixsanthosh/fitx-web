@@ -211,7 +211,8 @@ function SessionNote({ record, userId, editable }: { record: SessionRecord; user
 
   async function save() {
     const supabase = createClient();
-    if (!supabase) return;
+    // Pressed while saving, or with nothing new to save: ignored (the button stays focusable, D5).
+    if (!supabase || state === "saving" || !changed) return;
     setState("saving");
     const result = await saveSessionNote(supabase, userId, record.session.id, draft);
     if (result.error) { setState("failed"); return; }
@@ -231,7 +232,8 @@ function SessionNote({ record, userId, editable }: { record: SessionRecord; user
             <span className="text-xs tabular-nums text-fitx-text-secondary">{draft.length}/{NOTE_MAX_LENGTH}</span>
             <div className="flex items-center gap-3">
               <span role="status" className="text-xs text-fitx-text-secondary">{state === "saved" ? <span className="inline-flex items-center gap-1"><Check size={13} aria-hidden="true" />Saved</span> : state === "failed" ? "The note couldn’t be saved. Try again." : ""}</span>
-              <button type="submit" disabled={!changed || state === "saving"} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm">{state === "saving" ? "Saving…" : "Save note"}</button>
+              {/* Never disabled: a disabled button drops focus, and it would be, on the button just pressed, once saved. */}
+              <button type="submit" aria-disabled={!changed || state === "saving" || undefined} className="fitx-button fitx-button-secondary min-h-11 px-4 text-sm aria-disabled:opacity-60">{state === "saving" ? "Saving…" : "Save note"}</button>
             </div>
           </div>
         </form>

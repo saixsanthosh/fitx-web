@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { sessionVolumeKg, type ExerciseSession } from "@/lib/training/exercise-history";
 import { HISTORY_PAGE_SIZE, formatKg, historyBasis, pagesAfterLoadMore, setResult, topSetOf } from "@/lib/training/exercise-progress";
+import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { addToWorkoutHref, workoutRecordHref } from "./detail-text";
 import { TextLink } from "./TextLink";
 import type { ExerciseHistoryView } from "./useExerciseHistory";
@@ -46,7 +47,7 @@ function SessionCard({ session }: { session: ExerciseSession }) {
   const top = topSetOf(session);
   const volume = sessionVolumeKg(session);
   return (
-    <li className="fitx-panel p-4">
+    <li className="fitx-panel p-4" data-history-session={session.sessionId}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="m-0 text-sm font-semibold text-fitx-text">{sessionDay(session.startedAt)}</h3>
@@ -75,9 +76,30 @@ function SessionCard({ session }: { session: ExerciseSession }) {
 /** Completed sessions with this exercise, newest first, ten at a time. */
 export function HistoryPanel({ history, exerciseId, exerciseName }: HistoryPanelProps) {
   const [pages, setPages] = useState(1);
+  const ready = history.status === "ready" ? history : null;
+  const sessions = ready?.sessions ?? [];
+  const shownCount = Math.min(sessions.length, pages * HISTORY_PAGE_SIZE);
+  const moreHere = shownCount < sessions.length;
+  // One "Show older sessions" button, for the sessions loaded and for those still to read (D5): it is never disabled
+  // while it loads, keeps focus while there are more, and once it goes the first session it brought takes focus.
+  const canShowMore = moreHere || Boolean(ready?.loadMore);
+  const shownIds = sessions.slice(0, shownCount).map((session) => session.sessionId).join(",");
+  const pressed = useRef<{ shown: string[] } | null>(null);
+  const list = useRef<HTMLOListElement>(null);
+  const loadingMore = Boolean(ready?.loadingMore);
+  useEffect(() => {
+    const press = pressed.current;
+    if (!press || loadingMore) return;
+    const added = addedIds(press.shown, shownIds ? shownIds.split(",") : []);
+    // Still waiting for what the press brings (the button stays, and keeps focus).
+    if (canShowMore && !added.length) return;
+    pressed.current = null;
+    const target = focusAfterShowMore({ more: canShowMore, shown: press.shown, added });
+    if (target && target !== "button") list.current?.querySelector<HTMLElement>(`[data-history-session="${target}"] a`)?.focus();
+  }, [shownIds, canShowMore, loadingMore]);
+
   if (history.status === "idle" || history.status === "loading") return <HistoryLoading label="Loading your history" />;
   if (history.status !== "ready") return <HistoryProblem history={history} />;
-  const { sessions } = history;
   if (!sessions.length) {
     return (
       <EmptyState
@@ -87,26 +109,29 @@ export function HistoryPanel({ history, exerciseId, exerciseName }: HistoryPanel
       />
     );
   }
-  const shownCount = Math.min(sessions.length, pages * HISTORY_PAGE_SIZE);
-  const moreHere = shownCount < sessions.length;
   const basis = historyBasis(sessions.length, history.limit, history.truncated);
+  function showOlder() {
+    if (history.status !== "ready" || history.loadingMore) return;
+    pressed.current = { shown: sessions.slice(0, shownCount).map((session) => session.sessionId) };
+    if (moreHere) { setPages((value) => value + 1); return; }
+    const retrying = history.moreFailed;
+    history.loadMore?.();
+    setPages((value) => pagesAfterLoadMore(value, retrying));
+  }
   return (
     <section aria-labelledby="exercise-history-heading">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="exercise-history-heading" className="text-base font-semibold text-fitx-text">Your sessions</h2>
         <p className="m-0 text-xs text-fitx-text-secondary">Completed workouts only. Showing {shownCount} of {basis.capped ? "your latest " : ""}{sessions.length}.</p>
       </div>
-      <ol className="m-0 mt-3 grid list-none grid-cols-1 gap-3 p-0 lg:grid-cols-2">
+      <ol ref={list} className="m-0 mt-3 grid list-none grid-cols-1 gap-3 p-0 lg:grid-cols-2">
         {sessions.slice(0, shownCount).map((session) => <SessionCard key={session.sessionId} session={session} />)}
       </ol>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        {moreHere && (
-          <button type="button" onClick={() => setPages((value) => value + 1)} className="fitx-button fitx-button-secondary">Show older sessions</button>
-        )}
-        {!moreHere && history.loadMore && (
-          <button type="button" onClick={() => { const retrying = history.moreFailed; history.loadMore?.(); setPages((value) => pagesAfterLoadMore(value, retrying)); }} disabled={history.loadingMore} className="fitx-button fitx-button-secondary">
+        {canShowMore && (
+          <button type="button" onClick={showOlder} aria-disabled={history.loadingMore || undefined} className="fitx-button fitx-button-secondary aria-disabled:opacity-60">
             {history.loadingMore && <LoaderCircle size={15} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />}
-            {history.loadingMore ? "Loading older sessions…" : history.moreFailed ? "Try loading older sessions again" : "Show older sessions"}
+            {history.loadingMore ? "Loading older sessions…" : !moreHere && history.moreFailed ? "Try loading older sessions again" : "Show older sessions"}
           </button>
         )}
         {history.moreFailed && <p role="alert" className="m-0 text-xs text-fitx-danger">Older sessions couldn’t be loaded.</p>}

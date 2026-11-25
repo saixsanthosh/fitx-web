@@ -64,7 +64,7 @@ export function ProgrammeJourney({ weeks, startedOn, selected, onSelect, busy, o
         const headingId = `${base}-week-${week.weekStart}`;
         const panelId = `${base}-panel-${week.weekStart}`;
         return (
-          <li key={week.weekStart} aria-labelledby={headingId}>
+          <li key={week.weekStart} aria-labelledby={headingId} data-journey-week={week.weekStart}>
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <h2 id={headingId} className="text-sm font-semibold">{number >= 1 ? `Week ${number}` : "Before you started"} <span className="font-normal text-fitx-text-secondary">· {weekRange(week.weekStart)}</span></h2>
               {inside.length > 0 && <p className="text-xs text-fitx-text-secondary">{training.length ? `${done} of ${training.length} done` : "No training days"}{rest ? ` · ${rest} rest day${rest === 1 ? "" : "s"}` : ""}</p>}

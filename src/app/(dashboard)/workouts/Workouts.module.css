@@ -103,8 +103,10 @@
   color: var(--fitx-text-secondary);
 }
 
-.iconButton:hover:not(:disabled) { background: var(--fitx-hover); color: var(--fitx-text); }
-.iconButton:disabled { opacity: 0.45; }
+.iconButton:hover:not(:disabled, [aria-disabled="true"]) { background: var(--fitx-hover); color: var(--fitx-text); }
+/* Busy buttons stay focusable (aria-disabled): a disabled one drops keyboard focus in Chrome (D5). */
+.iconButton:disabled,
+.iconButton[aria-disabled="true"] { opacity: 0.45; }
 
 .quietEmpty {
   display: flex;

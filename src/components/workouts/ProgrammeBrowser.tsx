@@ -61,7 +61,7 @@ export function ProgrammeBrowser({ programmes, enrolAvailable, busy, onEnrol, di
                 </div>
                 <div className={styles.cardActions}>
                   <button type="button" aria-haspopup="dialog" onClick={() => setDaysOf(programme)} className="fitx-button fitx-button-quiet min-h-11 flex-1 px-3 text-sm"><ListOrdered size={15} aria-hidden="true" />Days</button>
-                  <button type="button" aria-haspopup="dialog" disabled={!enrolAvailable || busy} onClick={() => setEnrolling(programme)} className="fitx-button min-h-11 flex-1 px-4 text-sm">Follow</button>
+                  <button type="button" aria-haspopup="dialog" disabled={!enrolAvailable} aria-disabled={busy || undefined} onClick={() => { if (!busy) setEnrolling(programme); }} className="fitx-button min-h-11 flex-1 px-4 text-sm aria-disabled:opacity-60">Follow</button>
                 </div>
               </article>
             </li>
