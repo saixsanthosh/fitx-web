@@ -36,7 +36,7 @@ import { loadBirthDate, notifyUserContextChanged } from "@/lib/domain/user-conte
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { amountAfterUnitChange, amountProblemMessage, askForGramsMessage, describePortion, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
-import { checkSectionName, mealForTime, mealSections } from "@/lib/domain/meal-time";
+import { checkSectionName, mealForOpen, mealSections } from "@/lib/domain/meal-time";
 import { estimateNutritionTargets, resolveDayTargets, resolveWaterTarget, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
 import { dayLoadState } from "@/lib/domain/nutrition-day";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
@@ -71,7 +71,7 @@ async function loadPrefs(supabase: NonNullable<ReturnType<typeof createClient>>,
 }
 type Tab = "meals" | "foods" | "routines" | "history";
 type LogMode = "search" | "barcode";
-type NamePrompt = { kind: "meal"; slot: string; initial: string } | { kind: "day"; initial: string } | { kind: "section"; then: "log" | "sheet" | "none" };
+type NamePrompt = { kind: "meal"; slot: string; initial: string } | { kind: "day"; initial: string } | { kind: "section"; then: "sheet" | "none" };
 type BarcodeMiss = { code: string; name: string | null; noLabel: boolean };
 
 const EXAMPLES = ["3 idli", "2 roti", "150 g rice", "1 cup dal", "2 eggs"];
@@ -133,9 +133,10 @@ export default function NutritionPage() {
   const [derived, setDerived] = useState<FoodPortion | null>(null);
   const [amountPrompt, setAmountPrompt] = useState<AmountPrompt | null>(null);
   const [barcodeMiss, setBarcodeMiss] = useState<BarcodeMiss | null>(null);
+  /** The meal the open Log food adds to; set each time it opens (mealForOpen). */
   const [meal, setMeal] = useState<string>("Breakfast");
-  /** Once the member picks a meal, the time of day stops choosing it for them. */
-  const mealPicked = useRef(false);
+  /** A meal just added from the Meals tab ("Add a meal"): the next Log food opens on it, that once. */
+  const pendingMeal = useRef<string | null>(null);
   const [recentMeals, setRecentMeals] = useState<MealEntry[]>([]);
   const [frequent, setFrequent] = useState<FrequentFood[]>([]);
   /** Meal sections added on this page that no entry uses yet. */
@@ -180,6 +181,7 @@ export default function NutritionPage() {
     if (new URLSearchParams(window.location.search).get("scan") !== "1") return;
     void Promise.resolve().then(() => {
       setLogMode("barcode");
+      setMeal(mealForOpen(null, null, new Date()));
       setLogOpen(true);
       setScannerOpen(true);
       window.history.replaceState(null, "", "/nutrition");
@@ -280,12 +282,9 @@ export default function NutritionPage() {
 
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
   useEffect(() => { void Promise.resolve().then(refreshRecent); }, [refreshRecent]);
-  // The meal that suits the time of day and the member's own measures, read once in the browser (never on the server).
+  // The member's own katori and bowl sizes, read once in the browser (never on the server).
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (!mealPicked.current) setMeal(mealForTime(new Date()));
-      setHousehold(loadHousehold());
-    }, 0);
+    const timer = window.setTimeout(() => setHousehold(loadHousehold()), 0);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -624,15 +623,21 @@ export default function NutritionPage() {
     if (usual) { setAmount(formatAmount(usual.amount)); setUnitKey(usual.unitKey); }
   }
 
+  /** A meal chosen in the open sheet: it lasts for this Log food only. */
   function pickMeal(next: string) {
-    mealPicked.current = true;
     setMeal(next);
   }
 
-  /** Opens Log food, optionally on a meal (a meal's + in the diary) or on Barcode. */
+  /**
+   * Opens Log food, optionally on a meal (a meal's + in the diary) or on Barcode. Each time it opens it is on that meal,
+   * or one just added from the Meals tab, or the one that suits the time of day now: an earlier + never sticks.
+   */
   function openLog(options: { meal?: string; mode?: LogMode; quiet?: boolean } = {}) {
     if (!logOpen && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) logOpener.current = document.activeElement;
-    if (options.meal) pickMeal(options.meal);
+    if (!logOpen) {
+      setMeal(mealForOpen(options.meal, pendingMeal.current, new Date()));
+      pendingMeal.current = null;
+    } else if (options.meal) setMeal(options.meal);
     setLogMode(options.mode ?? "search");
     setError(""); setNotice("");
     setLogOpen(true);
@@ -820,7 +825,7 @@ export default function NutritionPage() {
     if (editing) { setNotice(`Saved changes to “${row.name}”.${photoProblem}`); return null; }
     // Saved, not logged: the toast offers to log it now.
     const saved = customFoodResult(row, photoUrl, sourceOf(row, savedFrom) ?? foodForm?.source ?? null);
-    toast.success(`Saved “${row.name}” to My foods.${photoProblem}`, { action: { label: "Log it", onClick: () => { logOpener.current = null; chooseFood(saved); setLogMode("search"); setLogOpen(true); } }, duration: 8000 });
+    toast.success(`Saved “${row.name}” to My foods.${photoProblem}`, { action: { label: "Log it", onClick: () => { logOpener.current = null; chooseFood(saved); setLogMode("search"); setMeal(mealForOpen(null, null, new Date())); setLogOpen(true); } }, duration: 8000 });
     return null;
   }
 
@@ -836,16 +841,23 @@ export default function NutritionPage() {
   }
 
   /** Adds a named meal section to the lists. It is stored with the first entry logged in it (the meal's name is the entry's meal text). */
-  function addSection(name: string, then: "log" | "sheet" | "none") {
+  function addSection(name: string, then: "sheet" | "none") {
     const checked = checkSectionName(name);
     if (!checked.ok) return;
     const existing = sections.find((item) => item.toLowerCase() === checked.name.toLowerCase());
     const chosen = existing ?? checked.name;
     if (!existing) setAddedSections((old) => [...old, chosen]);
-    pickMeal(chosen);
     setNamePrompt(null);
-    setNotice(existing ? `“${chosen}” is selected.` : `Added “${chosen}”. It stays once you log something in it.`);
-    if (then === "sheet") restoreLog();
+    if (then === "sheet") {
+      // Chosen in the open Log food: for this log.
+      pickMeal(chosen);
+      setNotice(existing ? `“${chosen}” is selected.` : `Added “${chosen}”. It stays once you log something in it.`);
+      restoreLog();
+      return;
+    }
+    // From the Meals tab: the next Log food opens on it, that once.
+    pendingMeal.current = chosen;
+    setNotice(existing ? `The next food you log goes to “${chosen}”.` : `Added “${chosen}”. The next food you log goes to it, and it stays once you log something in it.`);
   }
 
   async function saveNamed(name: string) {
