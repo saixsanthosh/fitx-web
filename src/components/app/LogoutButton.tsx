@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { forgetAccountInBrowser } from "@/lib/account/device-cleanup";
+import { signedOutAddress } from "@/lib/auth/address-messages";
 import { AUTH_HINT_COOKIE } from "@/lib/auth/cookies";
 import { signOutWithDeviceActivity } from "@/lib/auth/device-sign-out";
 import { createClient } from "@/lib/supabase/client";
@@ -42,7 +43,8 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
     }
     forgetAccountInBrowser();
     document.cookie = `${AUTH_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
-    window.location.replace("/signin?signed_out=1");
+    // The sign-in page says which: "signed out on this device", or "signed out everywhere" (bug 42).
+    window.location.replace(signedOutAddress(scope));
   }
 
   const text = label ?? (everywhere ? "Sign out everywhere" : "Log out");

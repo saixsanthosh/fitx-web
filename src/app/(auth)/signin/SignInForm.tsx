@@ -13,10 +13,10 @@ import { useEmailCode } from "@/components/auth/useEmailCode";
 import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
+import { addressError, addressNotice } from "@/lib/auth/address-messages";
 import { isEmailAddress, passwordSignInProblem } from "@/lib/auth/email-code";
 import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { isTimeLimit, TIMED_OUT, TIME_LIMIT_MS, withTimeLimit } from "@/lib/auth/time-limit";
-import { SUSPENDED_MESSAGE } from "@/lib/platform/account-status";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 const appleEnabled = process.env.NEXT_PUBLIC_APPLE_OAUTH_ENABLED === "true";
@@ -26,25 +26,9 @@ function subscribeLocation(onChange: () => void) {
   return () => window.removeEventListener("popstate", onChange);
 }
 
-const LOCATION_ERRORS: Record<string, string> = {
-  cancelled: "Google sign-in was cancelled. Try again whenever you’re ready.",
-  provider: "Google sign-in is not turned on for FITX yet. Use your email instead.",
-  callback: "We couldn’t complete sign-in. Please try again.",
-  browser: "That link was opened in a different browser or app. Sign in again here.",
-  expired: "That link has expired or was already used. Sign in again, or ask for a new code.",
-  suspended: SUSPENDED_MESSAGE,
-};
-
-function getLocationError() {
-  const query = new URLSearchParams(window.location.search);
-  const code = query.get("error");
-  if (code && LOCATION_ERRORS[code]) return LOCATION_ERRORS[code];
-  return query.has("setup") ? "Account access is not configured in this environment yet." : "";
-}
-
-function getLocationNotice() {
-  return new URLSearchParams(window.location.search).has("signed_out") ? "You’re signed out on this device." : "";
-}
+/** What the address says happened (src/lib/auth/address-messages.ts): a sign-in that came back, or signing out. */
+const getLocationError = () => addressError(window.location.search);
+const getLocationNotice = () => addressNotice(window.location.search);
 
 /** The page the visitor was heading to; every consumer cleans it with safeNext. */
 const requestedNext = () => new URLSearchParams(window.location.search).get("next");
