@@ -83,8 +83,9 @@ export const WELCOME_REVEAL_AT = WELCOME_STAGE_START[WELCOME_STAGE.ignite];
 /**
  * The beats each shot plays on, all on measured hits of score #5 (above), so the picture and the mix share one clock
  * (the mix, `scripts/brand/films/audio/welcome.cues.mjs`, puts the plate sounds on each `plateSeat`: #3's clang for
- * Maya and Leo, #3's slide into #4's lock for Dre). PROVISIONAL until gate A has passed and the owner has
- * approved the D5 animatic: the shots read every time from here, so a retime is one edit.
+ * Maya and Leo, #3's slide into #4's lock for Dre). They are final: gate A passed (BRIEF-2 D10) and the D5 animatic
+ * was approved (D11). The shots read every time from here, so a retime is one edit, but it reaches members only with
+ * the next final render and mix.
  *
  * - `flicker`: the strip light stutters on three times in the dark (the score's three opening hits); `lightOn` it holds.
  * - `plateSeat`: plates 1 to 3 seat against the stack (Maya on the cymbal crash, Leo, then Dre in slow motion).
