@@ -27,6 +27,7 @@ import { FOCUS_AREAS, FOCUS_COUNT_NOTE } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
+import { useRetryFocus, type ReloadPhase } from "@/lib/workouts/retry-focus";
 import styles from "@/components/exercises/discovery/Library.module.css";
 import { buildVocabulary, highlightRanges, suggestSpelling } from "@/lib/training/search-terms";
 import { rankSubstitutes } from "@/lib/training/substitutions";
@@ -59,6 +60,11 @@ const SECTIONS_KEY = "fitx:exercise:v1:library-sections";
 const CONTEXT_TITLES: Record<TrainingContext, string> = { home: "Home", gym: "Gym" };
 const LEVEL_LABELS: Record<Level, string> = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" };
 const SORT_LABELS: Record<LibrarySort, string> = { best: "Best match", name: "Name, A to Z", difficulty: "Easiest first" };
+/** The page's h1 and the results heading, where focus goes after a Try again, and those Try again buttons (D5). */
+const LIBRARY_TITLE = "exercise-library-title";
+const RESULTS_TITLE = "exercise-results";
+const ACCOUNT_FOCUS = { heading: LIBRARY_TITLE, retry: "library-account-retry" };
+const CATALOGUE_FOCUS = { heading: RESULTS_TITLE, retry: "library-catalogue-retry" };
 
 type Sections = { focus: boolean; equipment: boolean };
 
@@ -262,6 +268,13 @@ export default function ExerciseLibraryPage() {
   // Main-muscle results, what the member can do of those, and the ones that only assist (the same "you can do" as Workouts).
   const countLine = result && result.items.length ? resultCountLine(result.items, { focused: view.focus.length > 0, doableOnly: view.doable, ownedKnown: owned !== null }) : null;
   const levelChoice = quickLevel(state);
+  // Try again swaps its alert for loading, taking the button with it (D5). Once the member's details have loaded the
+  // page's h1 takes focus; once the library has, the results heading (when the results are worked out). When it failed
+  // again, the new Try again does. The page stays where it is for touch.
+  const accountPhase: ReloadPhase = account.status === "loading" ? "loading" : account.status === "error" ? "failed" : "ready";
+  const retryingAccount = useRetryFocus(accountPhase, ACCOUNT_FOCUS, { keepScroll: true });
+  const cataloguePhase: ReloadPhase = catalogue.status === "error" ? "failed" : catalogue.status === "ready" && result ? "ready" : "loading";
+  const retryingCatalogue = useRetryFocus(cataloguePhase, CATALOGUE_FOCUS, { keepScroll: true });
 
   const renderCard = (item: RankedExercise, index = 0) => (
     <ExerciseResultCard
@@ -283,6 +296,7 @@ export default function ExerciseLibraryPage() {
     <div>
       <PageHeader
         title="Exercise library"
+        titleId={LIBRARY_TITLE}
         meta={exercises ? `${exercises.length.toLocaleString()} exercises` : undefined}
         actions={<>
           <Link href={browseByMuscleHref(state)} className="fitx-button fitx-button-secondary min-h-11 px-3.5 text-sm"><PersonStanding size={16} aria-hidden="true" />Browse by muscle</Link>
@@ -340,8 +354,8 @@ export default function ExerciseLibraryPage() {
         {catalogue.status === "ready" && !catalogue.curated && <p className="m-0 text-xs text-fitx-text-secondary">Some filters are approximate until the catalogue update is applied.</p>}
         {account.status === "error" && (
           <p role="alert" className="fitx-alert fitx-alert-danger m-0">
-            Your equipment and saved exercises could not be loaded.
-            <button type="button" className="fitx-alert-action" onClick={retryAccount}>Try again</button>
+            <span id="library-account-problem">Your equipment and saved exercises could not be loaded.</span>
+            <button id={ACCOUNT_FOCUS.retry} type="button" aria-describedby="library-account-problem" className="fitx-alert-action" onClick={() => { retryingAccount(); retryAccount(); }}>Try again</button>
           </p>
         )}
         {saved.problem && <p role="alert" className="fitx-alert fitx-alert-danger m-0">{saved.problem}</p>}
@@ -419,7 +433,7 @@ export default function ExerciseLibraryPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
             <p className="m-0 text-[11px] font-semibold uppercase tracking-[.16em] text-fitx-primary-text">{searching ? "Results" : CONTEXT_TITLES[state.context]}</p>
-            <h2 id="exercise-results" className="m-0 mt-1 font-heading text-xl font-semibold tracking-[-.02em]">{resultsTitle}</h2>
+            <h2 id={RESULTS_TITLE} className="m-0 mt-1 font-heading text-xl font-semibold tracking-[-.02em]">{resultsTitle}</h2>
             {countLine && <p className="m-0 mt-0.5 text-xs text-fitx-text-secondary">{countLine}</p>}
           </div>
           <label className="flex items-center gap-2 text-xs font-medium text-fitx-text-secondary">
@@ -433,8 +447,8 @@ export default function ExerciseLibraryPage() {
 
         {catalogue.status === "error" ? (
           <div role="alert" className="fitx-alert fitx-alert-danger">
-            The library could not be loaded.
-            <button type="button" className="fitx-alert-action" onClick={retry}>Try again</button>
+            <span id="library-catalogue-problem">The library could not be loaded.</span>
+            <button id={CATALOGUE_FOCUS.retry} type="button" aria-describedby="library-catalogue-problem" className="fitx-alert-action" onClick={() => { retryingCatalogue(); retry(); }}>Try again</button>
           </div>
         ) : !result ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4" role="status" aria-label="Loading exercises">

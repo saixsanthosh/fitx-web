@@ -39,19 +39,19 @@ describe("every state has one h1", () => {
     assert.equal(states.length, 3, states.join("\n"));
     for (const line of states) assert.match(line, /\{back\}\{heading\}/);
     assert.match(page, /<EmptyState headingLevel=\{2\} title="You’re not following a programme"/);
-    assert.match(page, /<PageHeading title=\{programme\.title\}/, "a followed programme's h1 is its name");
+    assert.match(page, /<PageHeader title=\{programme\.title\} meta=/, "a followed programme's h1 is its name");
   });
 
   test("/workouts: the h1 is there while loading and when the page can't load", () => {
     const page = source("src/app/(dashboard)/workouts/page.tsx");
     const loading = page.slice(page.indexOf("  if (loading) return ("), page.indexOf("  // Hidden only once the database"));
-    assert.equal(loading.match(/<PageHeader title="Workouts" \/>/g)?.length, 2, "loading and unavailable");
+    assert.equal(loading.match(/<PageHeader title="Workouts" titleId=\{WORKOUTS_FOCUS\.heading\} \/>/g)?.length, 2, "loading and unavailable");
     assert.match(loading, /<EmptyState headingLevel=\{2\} title="Workouts unavailable"/);
   });
 
   test("/workouts/history/[id]: loading, missing, unavailable and still running show 'Workout record'", () => {
     const screen = source("src/components/session/SessionRecordScreen.tsx");
-    assert.match(screen, /<PageHeader title="Workout record" \/>/);
+    assert.match(screen, /<PageHeader title="Workout record" titleId=\{RECORD_FOCUS\.heading\} \/>/);
     assert.match(screen, /if \(!current\) return <RecordState>/);
     assert.equal(screen.match(/return <RecordState><EmptyState headingLevel=\{2\}/g)?.length, 2);
   });

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ArrowLeft, Camera, Check, Info, Play, RotateCcw, Trophy } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
-import { PageHeading } from "@/components/app/PageHeading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ExerciseThumb } from "@/components/exercises/ExerciseThumb";
 import { StatStrip } from "@/components/training/StatStrip";
@@ -17,9 +16,13 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { regionLabel, exerciseRegions } from "@/lib/training/anatomy";
 import { createPlanRecord } from "@/lib/training/plans";
+import { useRetryFocus } from "@/lib/workouts/retry-focus";
 import { SessionMuscles } from "./SessionMuscles";
 
 type Loaded = { id: string; userId: string; record: SessionRecord } | { id: string; error: "missing" | "failed" | "signed-out" | "offline" };
+
+/** The page's h1 in every state ("Workout record", or the workout's own name), and the unavailable state's Try again. */
+const RECORD_FOCUS = { heading: "workout-record-title", retry: "workout-record-retry" };
 
 const dateLine = (startedAt: string, completedAt: string | null) => {
   const start = new Date(startedAt);
@@ -40,7 +43,7 @@ const setText = (set: RecordSet, timed: boolean) => formatHistorySet({ setNumber
  */
 /** A state without a record to show (loading, missing, unavailable, still running): the page's h1, then the state. */
 function RecordState({ children }: { children: ReactNode }) {
-  return <div className="mx-auto max-w-4xl"><PageHeader title="Workout record" />{children}</div>;
+  return <div className="mx-auto max-w-4xl"><PageHeader title="Workout record" titleId={RECORD_FOCUS.heading} />{children}</div>;
 }
 
 export function SessionRecordScreen({ id }: { id: string }) {
@@ -61,6 +64,9 @@ export function SessionRecordScreen({ id }: { id: string }) {
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
   const current = loaded?.id === id ? loaded : null;
+  // Try again swaps "Workout record unavailable" for loading, taking the button with it: once the record has loaded (or
+  // the address turned out to name none), the page's h1 takes focus, or the new Try again when it failed again (D5).
+  const retrying = useRetryFocus(!current ? "loading" : "error" in current && current.error === "failed" ? "failed" : "ready", RECORD_FOCUS, { keepScroll: true });
   // Every state has one main heading (bug 94): "Workout record" until the workout's own name can be shown.
   if (!current) return <RecordState><div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary motion-reduce:animate-none">Loading the workout record…</div></RecordState>;
   if ("error" in current) {
@@ -70,8 +76,8 @@ export function SessionRecordScreen({ id }: { id: string }) {
       "signed-out": { title: "Sign in to see this workout", description: "Workout records are private to your account." },
       offline: { title: "Workout record unavailable", description: "FITX is not connected to its database in this environment." },
     }[current.error];
-    return <RecordState><EmptyState headingLevel={2} title={copy.title} description={copy.description} action={<div className="flex flex-wrap justify-center gap-2">
-      {current.error === "failed" && <button type="button" onClick={() => { setLoaded(null); void load(); }} className="fitx-button">Try again</button>}
+    return <RecordState><EmptyState headingLevel={2} title={copy.title} description={copy.description} descriptionId="workout-record-problem" action={<div className="flex flex-wrap justify-center gap-2">
+      {current.error === "failed" && <button id={RECORD_FOCUS.retry} type="button" aria-describedby="workout-record-problem" onClick={() => { retrying(); setLoaded(null); void load(); }} className="fitx-button">Try again</button>}
       <Link href="/workouts/history" className="fitx-button fitx-button-secondary"><ArrowLeft size={15} aria-hidden="true" />Workout history</Link>
     </div>} /></RecordState>;
   }
@@ -111,9 +117,10 @@ export function SessionRecordScreen({ id }: { id: string }) {
   return (
     <div className="mx-auto max-w-5xl space-y-5 sm:space-y-6">
       <Link href="/workouts/history" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workout history</Link>
-      <PageHeading
+      <PageHeader
         title={session.name}
-        description={<>{dateLine(session.started_at, session.completed_at)}{badge && <span className="ml-2 inline-flex rounded-full border border-fitx-border bg-fitx-surface-variant px-2.5 py-0.5 align-middle text-xs font-semibold text-fitx-text">{badge}</span>}</>}
+        titleId={RECORD_FOCUS.heading}
+        meta={<>{dateLine(session.started_at, session.completed_at)}{badge && <span className="ml-2 inline-flex rounded-full border border-fitx-border bg-fitx-surface-variant px-2.5 py-0.5 align-middle text-xs font-semibold text-fitx-text">{badge}</span>}</>}
         actions={<button type="button" onClick={() => { if (!repeating) void repeat(); }} aria-disabled={repeating || undefined} className="fitx-button min-h-11 aria-disabled:opacity-60"><RotateCcw size={15} aria-hidden="true" />{repeating ? "Copying…" : "Repeat this workout"}</button>}
       />
       {repeatError && <p role="alert" className="fitx-alert fitx-alert-danger">{repeatError}</p>}

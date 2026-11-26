@@ -7,12 +7,16 @@ import { BarSeries } from "@/components/charts/BarSeries";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { progressSeries, type ProgressPoint, type ProgressSeries } from "@/lib/training/exercise-history";
 import { VOLUME_BARS, bestSetText, formatDuration, formatKg, historyBasis, latestPoints, overallBest, volumeSeries } from "@/lib/training/exercise-progress";
+import { useRetryFocus } from "@/lib/workouts/retry-focus";
 import { addToWorkoutHref } from "./detail-text";
-import { HistoryLoading, HistoryProblem, sessionDay } from "./HistoryPanel";
+import { HistoryLoading, HistoryProblem, historyPhase, sessionDay } from "./HistoryPanel";
 import { TextLink } from "./TextLink";
 import type { ExerciseHistoryView } from "./useExerciseHistory";
 
 type ProgressPanelProps = { history: ExerciseHistoryView; exerciseId: string; exerciseName: string };
+
+/** The tab's heading ("Your progress", or "No progress yet"), and Try again when the history couldn't be loaded. */
+const PROGRESS_FOCUS = { heading: "exercise-progress-heading", retry: "exercise-progress-retry" };
 
 function shortDay(iso: string): string {
   const date = new Date(iso);
@@ -114,14 +118,18 @@ function VolumeCard({ points }: { points: readonly ProgressPoint[] }) {
 
 /** Best set, the trend that fits the exercise (estimated one-rep max, reps or time) and volume, from logged sets only. */
 export function ProgressPanel({ history, exerciseId, exerciseName }: ProgressPanelProps) {
+  // As in History (both tabs share the history, and each keeps its own Try again): once a reload Try again started has
+  // ended, this tab's heading takes focus, or the new Try again when it failed again (D5).
+  const retryingHistory = useRetryFocus(historyPhase(history), PROGRESS_FOCUS, { keepScroll: true });
   if (history.status === "idle" || history.status === "loading") return <HistoryLoading label="Loading your progress" />;
-  if (history.status !== "ready") return <HistoryProblem history={history} />;
+  if (history.status !== "ready") return <HistoryProblem history={history} retryId={PROGRESS_FOCUS.retry} onRetry={retryingHistory} />;
   const { sessions } = history;
   const best = overallBest(sessions);
   if (!sessions.length || !best) {
     return (
       <EmptyState
         title="No progress yet"
+        headingId={PROGRESS_FOCUS.heading}
         description={`Complete a workout with ${exerciseName} and your best set and trends show here.`}
         action={<Link href={addToWorkoutHref(exerciseId)} className="fitx-button fitx-button-secondary">Add to a workout</Link>}
       />
@@ -133,9 +141,9 @@ export function ProgressPanel({ history, exerciseId, exerciseName }: ProgressPan
   const basis = historyBasis(sessions.length, history.limit, history.truncated);
   const latest = sessions[0];
   return (
-    <section aria-labelledby="exercise-progress-heading" className="space-y-4">
+    <section aria-labelledby={PROGRESS_FOCUS.heading} className="space-y-4">
       <div>
-        <h2 id="exercise-progress-heading" className="text-base font-semibold text-fitx-text">Your progress</h2>
+        <h2 id={PROGRESS_FOCUS.heading} className="text-base font-semibold text-fitx-text">Your progress</h2>
         <p className="m-0 mt-1 text-xs text-fitx-text-secondary">{basis.text}</p>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

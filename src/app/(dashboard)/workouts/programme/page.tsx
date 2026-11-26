@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Check, CircleDashed, Dumbbell, Minus, Moon } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
-import { PageHeading } from "@/components/app/PageHeading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatStrip } from "@/components/training/StatStrip";
 import { PlanPreviewSheet } from "@/components/workouts/PlanPreviewSheet";
@@ -22,6 +21,7 @@ import { addDays, groupByWeek, mondayOf, programmeCalendar, programmeStatus, ses
 import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import type { Programme } from "@/lib/training/programmes";
 import { loadRecentExerciseDays } from "@/lib/training/recent-days";
+import { useRetryFocus, type ReloadPhase } from "@/lib/workouts/retry-focus";
 import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 
@@ -41,6 +41,8 @@ type Loaded = {
 };
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** The page's h1 in every state ("Programme", or the programme's own name), and the unavailable state's Try again. */
+const PROGRAMME_FOCUS = { heading: "programme-page-title", retry: "programme-retry" };
 /** Weeks loaded at a time, back from today. */
 const WEEKS_BACK = 4;
 
@@ -147,6 +149,10 @@ export default function ProgrammeJourneyPage() {
     heading.tabIndex = -1;
     heading.focus();
   }, [weekFocus, view, loaded]);
+  // Try again replaces the unavailable state with loading, taking the button with it: once the load ends, the page's h1
+  // takes focus, or the new Try again when it failed again (D5).
+  const reloadPhase: ReloadPhase = state === "loading" ? "loading" : state === "error" ? "failed" : "ready";
+  const retrying = useRetryFocus(reloadPhase, PROGRAMME_FOCUS, { keepScroll: true });
 
   async function begin(planId: string, title: string): Promise<string | null> {
     const supabase = createClient();
@@ -170,9 +176,9 @@ export default function ProgrammeJourneyPage() {
 
   const back = <Link href="/workouts" className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workouts</Link>;
   // Every state has one main heading (bug 94): "Programme" until the programme's own name can be shown.
-  const heading = <PageHeader title="Programme" className="mb-0 sm:mb-0" />;
+  const heading = <PageHeader title="Programme" className="mb-0 sm:mb-0" titleId={PROGRAMME_FOCUS.heading} />;
   if (state === "loading") return <div className="space-y-4">{back}{heading}<div role="status" aria-label="Loading your programme" className="space-y-4"><div className="h-24 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /><div className="h-40 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /></div></div>;
-  if (state === "error") return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="Programme unavailable" description={message} action={<button type="button" className="fitx-button fitx-button-secondary" onClick={() => { setState("loading"); void load(); }}>Try again</button>} /></div>;
+  if (state === "error") return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="Programme unavailable" description={message} descriptionId="programme-load-problem" action={<button id={PROGRAMME_FOCUS.retry} type="button" aria-describedby="programme-load-problem" className="fitx-button fitx-button-secondary" onClick={() => { retrying(); setState("loading"); void load(); }}>Try again</button>} /></div>;
   if (state === "none" || !loaded || !view) return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="You’re not following a programme" description="Pick a programme on the Workouts page. FITX plans your training days on the weekdays you choose, with rest days in between." action={<Link href="/workouts" className="fitx-button">Choose a programme</Link>} /></div>;
 
   const { enrolment, programme } = loaded;
@@ -184,7 +190,7 @@ export default function ProgrammeJourneyPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       {back}
-      <PageHeading title={programme.title} description={view.meta?.objective ?? programme.summary} />
+      <PageHeader title={programme.title} meta={view.meta?.objective ?? programme.summary} titleId={PROGRAMME_FOCUS.heading} />
       {paused && <p role="status" className="fitx-alert">This programme is paused: no days are planned and your place is kept. Resume it from your programme card on the Workouts page.</p>}
       {/* Days ahead checked against the equipment list as the page opened (bug 17): what changed, above the days. */}
       <p role="status" className={loaded.replanNote ? "fitx-alert" : "sr-only"}>{loaded.replanNote}</p>

@@ -6,12 +6,22 @@ import { ArrowRight, LoaderCircle } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { sessionVolumeKg, type ExerciseSession } from "@/lib/training/exercise-history";
 import { HISTORY_PAGE_SIZE, formatKg, historyBasis, pagesAfterLoadMore, setResult, topSetOf } from "@/lib/training/exercise-progress";
+import { useRetryFocus, type ReloadPhase } from "@/lib/workouts/retry-focus";
 import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { addToWorkoutHref, workoutRecordHref } from "./detail-text";
 import { TextLink } from "./TextLink";
 import type { ExerciseHistoryView } from "./useExerciseHistory";
 
 type HistoryPanelProps = { history: ExerciseHistoryView; exerciseId: string; exerciseName: string };
+
+/** The tab's heading ("Your sessions", or "No sessions yet"), and Try again when the history couldn't be loaded. */
+const HISTORY_FOCUS = { heading: "exercise-history-heading", retry: "exercise-history-retry" };
+
+/** Where the member's history stands, for focus after Try again (useRetryFocus): not yet asked for counts as loading. */
+export function historyPhase(history: ExerciseHistoryView): ReloadPhase {
+  if (history.status === "idle" || history.status === "loading") return "loading";
+  return history.status === "error" ? "failed" : "ready";
+}
 
 export function sessionDay(iso: string): string {
   const date = new Date(iso);
@@ -27,15 +37,19 @@ export function HistoryLoading({ label }: { label: string }) {
   );
 }
 
-export function HistoryProblem({ history }: { history: ExerciseHistoryView }) {
+/**
+ * Why the history isn't shown: signed out, or it couldn't be loaded. Try again calls `onRetry` (useRetryFocus's mark)
+ * before it reloads, and carries the message for screen readers once focus comes back to it.
+ */
+export function HistoryProblem({ history, retryId, onRetry }: { history: ExerciseHistoryView; retryId: string; onRetry: () => void }) {
   if (history.status === "signed-out") {
     return <EmptyState title="Sign in to see your history" description="Your logged sets for this exercise show here when you are signed in." action={<Link href="/signin" className="fitx-button fitx-button-secondary">Sign in</Link>} />;
   }
   if (history.status === "error") {
     return (
       <div className="rounded-xl border border-fitx-border p-4 text-sm text-fitx-text-secondary">
-        <p className="m-0">Your history couldn’t be loaded. Check your connection and try again.</p>
-        <button type="button" onClick={history.retry} className="mt-1 inline-flex min-h-11 items-center rounded-md px-1 font-semibold text-fitx-primary-text hover:underline">Try again</button>
+        <p id={`${retryId}-problem`} className="m-0">Your history couldn’t be loaded. Check your connection and try again.</p>
+        <button id={retryId} type="button" aria-describedby={`${retryId}-problem`} onClick={() => { onRetry(); history.retry(); }} className="mt-1 inline-flex min-h-11 items-center rounded-md px-1 font-semibold text-fitx-primary-text hover:underline">Try again</button>
       </div>
     );
   }
@@ -97,13 +111,17 @@ export function HistoryPanel({ history, exerciseId, exerciseName }: HistoryPanel
     const target = focusAfterShowMore({ more: canShowMore, shown: press.shown, added });
     if (target && target !== "button") list.current?.querySelector<HTMLElement>(`[data-history-session="${target}"] a`)?.focus();
   }, [shownIds, canShowMore, loadingMore]);
+  // Try again swaps the message for loading, taking the button with it: once the history has loaded, this tab's heading
+  // takes focus, or the new Try again when it failed again (D5). The page stays where it is for touch.
+  const retryingHistory = useRetryFocus(historyPhase(history), HISTORY_FOCUS, { keepScroll: true });
 
   if (history.status === "idle" || history.status === "loading") return <HistoryLoading label="Loading your history" />;
-  if (history.status !== "ready") return <HistoryProblem history={history} />;
+  if (history.status !== "ready") return <HistoryProblem history={history} retryId={HISTORY_FOCUS.retry} onRetry={retryingHistory} />;
   if (!sessions.length) {
     return (
       <EmptyState
         title="No sessions yet"
+        headingId={HISTORY_FOCUS.heading}
         description={`Complete a workout with ${exerciseName} and every set you tick off shows here.`}
         action={<Link href={addToWorkoutHref(exerciseId)} className="fitx-button fitx-button-secondary">Add to a workout</Link>}
       />
@@ -119,9 +137,9 @@ export function HistoryPanel({ history, exerciseId, exerciseName }: HistoryPanel
     setPages((value) => pagesAfterLoadMore(value, retrying));
   }
   return (
-    <section aria-labelledby="exercise-history-heading">
+    <section aria-labelledby={HISTORY_FOCUS.heading}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="exercise-history-heading" className="text-base font-semibold text-fitx-text">Your sessions</h2>
+        <h2 id={HISTORY_FOCUS.heading} className="text-base font-semibold text-fitx-text">Your sessions</h2>
         <p className="m-0 text-xs text-fitx-text-secondary">Completed workouts only. Showing {shownCount} of {basis.capped ? "your latest " : ""}{sessions.length}.</p>
       </div>
       <ol ref={list} className="m-0 mt-3 grid list-none grid-cols-1 gap-3 p-0 lg:grid-cols-2">

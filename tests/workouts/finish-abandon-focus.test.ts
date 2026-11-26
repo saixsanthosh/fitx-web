@@ -125,7 +125,7 @@ describe("PageHeader and EmptyState name their heading only when asked (additive
 
   test("EmptyState's heading takes headingId; its level rule is unchanged", () => {
     const empty = source("src/components/app/EmptyState.tsx");
-    assert.match(empty, /headingLevel = 3, headingId \}: \{ title: string; description: string; action\?: ReactNode; headingLevel\?: 2 \| 3; headingId\?: string \}/);
+    assert.match(empty, /headingLevel = 3, headingId, descriptionId \}: \{ title: string; description: string; action\?: ReactNode; headingLevel\?: 2 \| 3; headingId\?: string; descriptionId\?: string \}/);
     assert.match(empty, /<Heading id=\{headingId\} className=/);
     assert.match(empty, /const Heading = headingLevel === 2 \? "h2" : "h3";/);
   });

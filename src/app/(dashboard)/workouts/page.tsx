@@ -51,6 +51,7 @@ import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExer
 import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import { loadRecentExerciseDays } from "@/lib/training/recent-days";
 import { focusLost } from "@/lib/workouts/focus-heading";
+import { useRetryFocus, type ReloadPhase } from "@/lib/workouts/retry-focus";
 import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
@@ -92,6 +93,8 @@ const EQUIPMENT_SHOWN = 9;
 const TARGETS_UNAVAILABLE_NOTICE = "Weight and time targets arrive with the next FITX update. Everything else saves.";
 const SETUP_SAVED = "Setup saved. Workouts now follows your answers.";
 const BUILDER_MODES: ReadonlyArray<[BuilderMode, string]> = [["focus", "Body areas"], ["auto", "Your split"], ["custom", "Blank"]];
+/** The page's h1 in every state, and the Try again of Workouts unavailable or of the lists' alert (never both). */
+const WORKOUTS_FOCUS = { heading: "workouts-title", retry: "workouts-retry" };
 
 /** "Done" in the success colour; the other statuses stay neutral. */
 function PlanStatusChip({ status }: { status: ReturnType<typeof planCardStatus> }) {
@@ -478,6 +481,10 @@ export default function WorkoutsPage() {
   }, []);
 
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  // Try again (Workouts unavailable, or the lists' alert) reloads the whole page, taking the button with it: once the
+  // reload ends, focus goes to the page's h1, or to the new Try again when something still could not load (D5).
+  const reloadPhase: ReloadPhase = loading ? "loading" : error || equipmentLoadFailed || programmeLoadFailed ? "failed" : "ready";
+  const retrying = useRetryFocus(reloadPhase, WORKOUTS_FOCUS, { keepScroll: true });
 
   // "Later" on the first-time setup holds on this device until the member opens the setup themselves.
   useEffect(() => {
@@ -1310,11 +1317,11 @@ export default function WorkoutsPage() {
   // The page's h1 is there in every state (bug 94), loading and unavailable included.
   if (loading) return (
     <div className={styles.page}>
-      <PageHeader title="Workouts" />
+      <PageHeader title="Workouts" titleId={WORKOUTS_FOCUS.heading} />
       <div className={styles.topGrid} aria-busy="true" aria-label="Loading workouts"><div className={`${styles.skeleton} h-96`} /><div className={`${styles.skeleton} hidden h-96 lg:block`} /></div>
     </div>
   );
-  if (error && !userId) return <div className={styles.page}><PageHeader title="Workouts" /><EmptyState headingLevel={2} title="Workouts unavailable" description={error} action={<button className="fitx-button fitx-button-secondary" onClick={() => { setLoading(true); void load(); }}>Try again</button>} /></div>;
+  if (error && !userId) return <div className={styles.page}><PageHeader title="Workouts" titleId={WORKOUTS_FOCUS.heading} /><EmptyState headingLevel={2} title="Workouts unavailable" description={error} descriptionId="workouts-load-problem" action={<button id={WORKOUTS_FOCUS.retry} type="button" aria-describedby="workouts-load-problem" className="fitx-button fitx-button-secondary" onClick={() => { retrying(); setLoading(true); void load(); }}>Try again</button>} /></div>;
   // Hidden only once the database has said it lacks the target columns, so nothing typed is lost on save.
   const showTargets = targetsSupported !== false;
   const gymEquipment = equipmentFor(profiles, "gym", preferences.equipment);
@@ -1356,7 +1363,7 @@ export default function WorkoutsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.stack}>
-      <PageHeader title="Workouts"
+      <PageHeader title="Workouts" titleId={WORKOUTS_FOCUS.heading}
         meta={counts.completed !== null && counts.completed > 0 ? `${counts.completed.toLocaleString()} workout${counts.completed === 1 ? "" : "s"} done` : undefined}
         actions={<>
           {setup && <button ref={setupButtonRef} type="button" className={`fitx-button fitx-button-secondary ${styles.headerAction}`} onClick={() => setSetupOpen(true)} aria-haspopup="dialog"><Settings2 size={17} aria-hidden="true" />Workout setup</button>}
@@ -1365,10 +1372,10 @@ export default function WorkoutsPage() {
       {error && <p role="alert" className="fitx-alert fitx-alert-danger px-3 py-2 text-sm">{error}</p>}
       {notice && <p role="status" className={styles.notice}><Info size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info"/><span>{notice}</span></p>}
       {(equipmentLoadFailed || programmeLoadFailed) && <p role="status" className="fitx-alert">
-        {equipmentLoadFailed && programmeLoadFailed ? "Your equipment and programme couldn’t be loaded. Saving and planning wait until they do."
+        <span id="workouts-lists-problem">{equipmentLoadFailed && programmeLoadFailed ? "Your equipment and programme couldn’t be loaded. Saving and planning wait until they do."
           : equipmentLoadFailed ? "Your saved equipment couldn’t be loaded. Saving a list waits until it does."
-          : "Your programme couldn’t be loaded. Planning waits until it does, so no week is planned twice."}
-        <button type="button" onClick={() => { setLoading(true); void load(); }} className="fitx-alert-action">Try again</button>
+          : "Your programme couldn’t be loaded. Planning waits until it does, so no week is planned twice."}</span>
+        <button id={WORKOUTS_FOCUS.retry} type="button" aria-describedby="workouts-lists-problem" onClick={() => { retrying(); setLoading(true); void load(); }} className="fitx-alert-action">Try again</button>
       </p>}
       {activeSession && <div className={styles.activeSession}><span className={styles.livePulse} aria-hidden="true" /><div className="min-w-0 flex-1"><p className="text-sm font-semibold">Workout in progress</p><p className="truncate text-xs text-fitx-text-secondary">{activeSession.name} · started {readableDate(new Date(activeSession.started_at), { hour: "numeric", minute: "2-digit" })}</p></div><Link className="fitx-button min-h-11 shrink-0" href={"/workouts/active?session=" + activeSession.id}>Continue<ArrowRight size={16} aria-hidden="true"/></Link></div>}
 

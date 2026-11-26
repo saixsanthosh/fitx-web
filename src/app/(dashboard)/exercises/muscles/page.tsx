@@ -12,6 +12,7 @@ import { equipmentFor, loadProgrammes } from "@/lib/training/data";
 import { expandOwnedEquipment } from "@/lib/training/equipment";
 import { loadMuscleHistory, summariseMusclePeriods, type MusclePeriod, type MuscleSummary } from "@/lib/training/muscle-history";
 import type { Programme } from "@/lib/training/programmes";
+import { useRetryFocus } from "@/lib/workouts/retry-focus";
 import { DEFAULT_LIBRARY_STATE, readLibraryState, writeLibraryState } from "../_lib/library-state";
 import { replaceSearch, useCatalogue, useLibraryAccount, useUrlSearch } from "../_lib/use-library";
 import { MuscleDetail, type TrainingFigures, type WorkoutLists } from "./_components/MuscleDetail";
@@ -21,6 +22,10 @@ import { loadSavedPlans, plansTraining, programmesTraining, type SavedPlan, type
 
 /** Newest completed sessions read for "Your training" (enough for this week, 4 weeks and "last trained"). */
 const HISTORY_SESSIONS = 400;
+/** The details' heading: the chosen muscle's name (MuscleDetail), else "Choose a muscle". */
+const DETAIL_TITLE = "muscle-detail-title";
+const CHOOSE_TITLE = "muscle-choose-title";
+const CATALOGUE_RETRY = "muscles-catalogue-retry";
 
 type History = { status: "idle" | "loading" | "error" } | { status: "ready"; periods: Record<MusclePeriod, MuscleSummary>; truncated: boolean };
 type Workouts = { status: "loading" | "error" } | { status: "ready"; plans: SavedPlan[]; exercises: SavedPlanExercise[]; plansFailed: boolean; programmes: Programme[] };
@@ -43,6 +48,9 @@ export default function BrowseByMusclePage() {
   const userId = account.status === "ready" ? account.userId : "";
   const [history, setHistory] = useState<History>({ status: "idle" });
   const [workouts, setWorkouts] = useState<Workouts>({ status: "loading" });
+  // Try again swaps the library's alert for loading, taking the button with it: once the library has loaded, the
+  // details' heading takes focus, or the new Try again when it failed again (D5). The page stays where it is for touch.
+  const retryingCatalogue = useRetryFocus(catalogue.status === "error" ? "failed" : catalogue.status, { heading: region ? DETAIL_TITLE : CHOOSE_TITLE, retry: CATALOGUE_RETRY }, { keepScroll: true });
 
   useEffect(() => {
     if (!userId) return;
@@ -165,12 +173,12 @@ export default function BrowseByMusclePage() {
           ) : (
             <div className="grid justify-items-center gap-2 py-10 text-center">
               <PersonStanding size={28} aria-hidden="true" className="text-fitx-text-secondary" />
-              <h2 className="m-0 text-base font-semibold">Choose a muscle</h2>
+              <h2 id={CHOOSE_TITLE} className="m-0 text-base font-semibold">Choose a muscle</h2>
               <p className="m-0 max-w-sm text-sm leading-6 text-fitx-text-secondary">Tap the map or the list.</p>
             </div>
           )}
           {catalogue.status === "error" && (
-            <p role="alert" className="fitx-alert fitx-alert-danger mt-4">The exercise library could not be loaded.<button type="button" className="fitx-alert-action" onClick={retry}>Try again</button></p>
+            <p role="alert" className="fitx-alert fitx-alert-danger mt-4"><span id="muscles-catalogue-problem">The exercise library could not be loaded.</span><button id={CATALOGUE_RETRY} type="button" aria-describedby="muscles-catalogue-problem" className="fitx-alert-action" onClick={() => { retryingCatalogue(); retry(); }}>Try again</button></p>
           )}
         </section>
 

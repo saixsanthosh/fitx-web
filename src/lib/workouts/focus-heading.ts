@@ -6,13 +6,15 @@
  * page it is given (tests pass a plain object).
  */
 export type FocusState = { activeElement: unknown; body: unknown };
-type FocusableHeading = {
-  tabIndex: number;
+type Focusable = {
   focus(options?: { preventScroll?: boolean }): void;
   matches(selector: string): boolean;
   scrollIntoView(options?: { block?: "nearest" }): void;
 };
+type FocusableHeading = Focusable & { tabIndex: number };
 export type HeadingLookup = FocusState & { getElementById(id: string): FocusableHeading | null };
+export type ControlLookup = FocusState & { getElementById(id: string): Focusable | null };
+export type FocusOptions = { keepScroll?: boolean };
 
 /** True when nothing but the page itself has focus: the control that had it went away (or nothing had it). */
 export function focusLost(page: FocusState): boolean {
@@ -26,18 +28,34 @@ export function focusLost(page: FocusState): boolean {
  * view only when the browser shows focus (after a key press). False (nothing moves) when focus is elsewhere or there
  * is no such heading.
  */
-export function focusHeading(page: HeadingLookup, id: string, options: { keepScroll?: boolean } = {}): boolean {
+export function focusHeading(page: HeadingLookup, id: string, options: FocusOptions = {}): boolean {
   if (!focusLost(page)) return false;
   const heading = page.getElementById(id);
   if (!heading) return false;
   heading.tabIndex = -1;
-  if (!options.keepScroll) {
-    heading.focus();
-    return true;
-  }
-  heading.focus({ preventScroll: true });
-  if (focusShows(heading)) heading.scrollIntoView({ block: "nearest" });
+  moveFocus(heading, options);
   return true;
+}
+
+/**
+ * The same for a control that takes focus by itself (a button or a link, such as a new Try again): its tabIndex is
+ * left as it is, so it stays a Tab stop.
+ */
+export function focusControl(page: ControlLookup, id: string, options: FocusOptions = {}): boolean {
+  if (!focusLost(page)) return false;
+  const control = page.getElementById(id);
+  if (!control) return false;
+  moveFocus(control, options);
+  return true;
+}
+
+function moveFocus(element: Focusable, options: FocusOptions) {
+  if (!options.keepScroll) {
+    element.focus();
+    return;
+  }
+  element.focus({ preventScroll: true });
+  if (focusShows(element)) element.scrollIntoView({ block: "nearest" });
 }
 
 /** Whether the browser shows focus on the element (:focus-visible), as after a key press; a browser without it: yes. */
