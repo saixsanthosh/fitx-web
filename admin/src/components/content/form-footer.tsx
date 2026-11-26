@@ -2,13 +2,15 @@
 
 import { useEffect, useRef } from "react";
 import { LoaderCircle } from "lucide-react";
+import { resultText } from "@/components/form-rules";
 import type { FormState } from "@/lib/content/form";
 import styles from "./content.module.css";
 
 /**
  * The sticky save bar of a content form: the submit button (off while saving, so nothing is sent twice; it
  * stays focusable, aria-disabled, since a disabled button drops keyboard focus to the page) and the result,
- * announced to screen readers. After an error, focus moves to the first invalid field.
+ * announced to screen readers (empty while saving, so a second "Saved." or the same refusal is read out again).
+ * After an error, focus moves to the first invalid field.
  */
 export function FormFooter({ state, pending, label, pendingLabel = "Saving", formRef, children }: {
   state: FormState;
@@ -32,7 +34,7 @@ export function FormFooter({ state, pending, label, pendingLabel = "Saving", for
       </button>
       {children}
       <p className={styles.formStatus} ref={statusRef} tabIndex={-1} role="status" aria-live="polite">
-        {state.status === "saved" ? state.message ?? "Saved." : state.status === "error" ? state.message ?? "Check the fields marked in red." : ""}
+        {resultText(state, pending, { saved: "Saved.", error: "Check the fields marked in red." })}
       </p>
     </div>
   );

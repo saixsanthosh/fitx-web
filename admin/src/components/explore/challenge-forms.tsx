@@ -48,7 +48,7 @@ export function ChallengeForm({ row, day, communities }: { row?: ChallengeDefaul
         <label>Community (optional)<select name="community" defaultValue={row?.communityId ?? ""} {...fieldAria(state, "community", resultId)}><option value="">All of Explore</option>{communities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
       </div>
       <BusyButton pending={pending} className="primary-button" pendingLabel="Saving…">Save challenge</BusyButton>
-      <FormResult id={resultId} state={state} formRef={formRef} />
+      <FormResult id={resultId} state={state} pending={pending} formRef={formRef} />
     </form>
   );
 }
@@ -64,7 +64,7 @@ export function TemplateForm({ row }: { row?: TemplateDefaults }) {
       <CommonFields row={row} state={state} resultId={resultId} />
       <label className="check-label"><input type="checkbox" name="active" defaultChecked={row?.active ?? true} />Open a new challenge from it every week or month</label>
       <BusyButton pending={pending} className="quiet-button" pendingLabel="Saving…">Save template</BusyButton>
-      <FormResult id={resultId} state={state} formRef={formRef} />
+      <FormResult id={resultId} state={state} pending={pending} formRef={formRef} />
     </form>
   );
 }

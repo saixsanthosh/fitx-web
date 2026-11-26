@@ -77,7 +77,7 @@ test("the eleven sections link every admin-core screen, each behind its own perm
   const actions = await readFile(new URL("../src/app/(control)/settings/actions.ts", import.meta.url), "utf8");
   assert.match(actions, /requireAdmin\("settings\.manage"\)/);
   const users = await readFile(new URL("../src/app/(control)/users/actions.ts", import.meta.url), "utf8");
-  assert.match(users, /export async function suspendSelected\(formData: FormData\) \{\n  const actor = await requireAdmin\("people\.suspend"\);/);
+  assert.match(users, /export async function suspendSelected\(_previous: FormState, formData: FormData\): Promise<FormState> \{\n  const actor = await requireAdmin\("people\.suspend"\);/);
   assert.match(users, /if \(formData\.get\("confirm"\) !== "yes"\)/);
   assert.match(users, /ids\.length > BULK_SUSPEND_MAX/);
   assert.match(users, /export async function searchUsers\(formData: FormData\) \{\n  const actor = await requireAdmin\("people\.view"\);/);

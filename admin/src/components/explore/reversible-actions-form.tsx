@@ -61,7 +61,7 @@ export function ReversibleActionsForm({ target, actions, defaultReason, allowCla
           </button>
         ))}
       </div>
-      <FormResult id={resultId} state={state} formRef={formRef} />
+      <FormResult id={resultId} state={state} pending={pending} formRef={formRef} />
     </form>
   );
 }

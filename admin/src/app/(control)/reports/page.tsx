@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Download } from "lucide-react";
+import { percentFigure } from "@/components/console/chart-math";
 import { BarChart, LineChart, Meters } from "@/components/content/charts";
 import { ContentHeader, ContentTabs, DataState, Empty, Section, Stat, Stats, contentStyles as styles, formatCount } from "@/components/content/kit";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -78,7 +79,7 @@ function ActiveUsers({ report }: { report: Report }) {
         <Stat label="Today" value={latest(report.daily, "dau")} />
         <Stat label="Last 7 days" value={latest(report.daily, "wau")} />
         <Stat label="Last 30 days" value={latest(report.daily, "mau")} />
-        <Stat label="Daily of monthly" value={sticky} unit="%" hint="Today against the last 30 days" />
+        <Stat label="Daily of monthly" value={sticky} display={sticky === null ? undefined : percentFigure(sticky)} unit="%" hint="Today against the last 30 days" />
       </Stats>
       <div className={`${styles.panel} ${styles.panelPad}`}>
         <LineChart

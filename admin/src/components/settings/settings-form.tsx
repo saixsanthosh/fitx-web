@@ -93,7 +93,7 @@ export function SettingsForm({ defaults, manage }: { defaults: SettingsDefaults;
       <div className={styles.saveBar}>
         <div className={styles.saveText}>
           <span>{manage ? "Every save is in the audit log." : "Only a super-admin can change these."}</span>
-          <FormResult id={resultId} state={state} formRef={formRef} />
+          <FormResult id={resultId} state={state} pending={pending} formRef={formRef} />
         </div>
         {manage && <BusyButton pending={pending} className="primary-button" pendingLabel="Saving…">Save settings</BusyButton>}
       </div>

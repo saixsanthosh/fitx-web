@@ -19,7 +19,9 @@ import {
   subscriptionLabel,
   formatPhone,
 } from "@/components/users/people-filters";
-import { SelectAll, SelectionCount } from "@/components/users/select-all";
+import { BulkUsersForm } from "@/components/users/bulk-users-form";
+import { LIST_NOTICES } from "@/components/users/people-notices";
+import { SelectAll } from "@/components/users/select-all";
 import styles from "@/components/users/users.module.css";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
 import { isSuspended, searchPeopleFiltered } from "@/lib/data/people";
@@ -29,29 +31,9 @@ import { ROLE_LABELS } from "@/lib/roles";
 import { MIGRATIONS } from "@/lib/schema";
 import { firstParam } from "@/lib/search-params";
 import { formatIstDate } from "@/lib/time";
-import { noticeSelected, searchUsers, suspendSelected } from "./actions";
+import { searchUsers } from "./actions";
 
 export const metadata: Metadata = { title: "Users" };
-
-/** "1 account", "3 accounts". */
-const accounts = (count: number) => `${count.toLocaleString("en-IN")} ${count === 1 ? "account" : "accounts"}`;
-
-/**
- * The page's words for a bulk action's result. The count comes sealed with it from the action itself (lib/notice.ts),
- * never from the address; a result without its count (it cannot happen from this page's actions) leaves the number out.
- */
-const NOTICES: Record<string, { tone: "success" | "error"; text: (count: number | null) => string }> = {
-  deleted: { tone: "success", text: () => "Account deleted and recorded in the audit log." },
-  bulk_suspended: { tone: "success", text: (count) => (count === null ? "Accounts suspended and signed out everywhere." : `${accounts(count)} suspended and signed out everywhere.`) },
-  bulk_partial: { tone: "error", text: (count) => `${count === null ? "Some accounts" : accounts(count)} suspended; Supabase refused the rest. The audit log lists each one.` },
-  none_selected: { tone: "error", text: () => "Select at least one account." },
-  too_many: { tone: "error", text: () => `Select at most ${BULK_SUSPEND_MAX} accounts at a time.` },
-  reason_required: { tone: "error", text: () => "Give a reason of 3 to 200 characters." },
-  confirm_needed: { tone: "error", text: () => "Tick the confirmation box first." },
-  audit_migration: { tone: "error", text: (count) => `Stopped${count === null ? "" : ` after ${accounts(count)}`}: the audit log needs migration ${MIGRATIONS.adminV2}.` },
-  audit_failed: { tone: "error", text: (count) => `Stopped${count === null ? "" : ` after ${accounts(count)}`}: the audit log could not record the next one.` },
-  configuration: { tone: "error", text: () => "Server data access is not configured." },
-};
 
 function dateLabel(value: string | null | undefined, empty: string) {
   if (!value) return empty;
@@ -66,7 +48,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
   const filters = parsePeopleFilters(params, query ?? "");
   const result = await searchPeopleFiltered(filters);
   const opened = pageNotice(params.notice, actor.id);
-  const notice = noticeWords(NOTICES, opened);
+  const notice = noticeWords(LIST_NOTICES, opened);
   const canSuspend = hasPermission(actor, "people.suspend");
   const canNotify = hasPermission(actor, "notifications.send");
   const bulk = canSuspend || canNotify;
@@ -151,20 +133,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
             <div className="empty-state"><h3>No accounts found</h3><p>{hasFilters(filters) ? "Nothing matches these filters." : "No accounts yet."}</p></div>
           )}
 
-          {bulk && result.people.length > 0 && (
-            <form id="bulk-users" className={styles.bulk} action={suspendSelected} aria-label="Selected accounts">
-              <input type="hidden" name="return" value={here} />
-              <div className={styles.bulkHead}><SelectionCount form="bulk-users" max={BULK_SUSPEND_MAX} /></div>
-              {canSuspend && (
-                <div className={styles.bulkRow}>
-                  <input type="text" name="reason" required minLength={3} maxLength={200} placeholder="Reason, kept in the audit log" aria-label="Reason for suspending" />
-                  <label className="check-label"><input type="checkbox" name="confirm" value="yes" required />Suspend and sign out</label>
-                  <div className={styles.bulkButtons}><button className="danger-button" type="submit">Suspend selected</button></div>
-                </div>
-              )}
-              {canNotify && <div className={styles.bulkButtons}><button className="quiet-button" type="submit" formAction={noticeSelected} formNoValidate>Send notice to selected</button></div>}
-            </form>
-          )}
+          {bulk && result.people.length > 0 && <BulkUsersForm here={here} canSuspend={canSuspend} canNotify={canNotify} max={BULK_SUSPEND_MAX} />}
 
           <div className="table-footer">
             <span>{result.total !== null ? `Page ${result.page} of ${Math.max(1, Math.ceil(result.total / 25)).toLocaleString("en-IN")}` : `Page ${result.page}`}</span>

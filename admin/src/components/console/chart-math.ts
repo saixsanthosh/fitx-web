@@ -70,11 +70,22 @@ export function sharesOfTotal(segments: ReadonlyArray<{ key: string; label: stri
     .map((segment) => ({ ...segment, share: total !== null && Number.isFinite(total) && total > 0 ? Math.min(1, segment.value / total) : null }));
 }
 
-/** "12%" for a share; under 1% but above 0 reads "<1%". */
+/**
+ * "12%" for a share of a whole. Rounding never reaches either end: above 0 but under 1% reads "<1%", and above 99% but
+ * under the whole reads ">99%", so "0%" means none and "100%" means all (BUGS.md 65: 199 of 200 accounts with email is
+ * not every account, though 99.5% rounds to 100).
+ */
 export function percent(share: number): string {
-  if (!Number.isFinite(share) || share <= 0) return "0%";
-  if (share < 0.01) return "<1%";
-  return `${Math.round(share * 100)}%`;
+  return `${percentFigure(share)}%`;
+}
+
+/** percent() without its "%", for a figure whose unit is drawn apart: "12", "<1", ">99", "100", "0". */
+export function percentFigure(share: number): string {
+  if (!Number.isFinite(share) || share <= 0) return "0";
+  if (share < 0.01) return "<1";
+  if (share >= 1) return "100";
+  if (share > 0.99) return ">99";
+  return String(Math.round(share * 100));
 }
 
 /** The change between the two halves of a series (newer half minus older half), or null when too short. */

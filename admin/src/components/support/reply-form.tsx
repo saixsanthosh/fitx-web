@@ -24,7 +24,7 @@ export function ReplyForm({ requestId }: { requestId: string }) {
         <label>Then set the status to<select name="status" defaultValue="waiting_on_user" {...fieldAria(state, "status", resultId)}>{SUPPORT_STATUSES.map((status) => <option key={status} value={status}>{SUPPORT_STATUS_LABELS[status]}</option>)}</select></label>
         <BusyButton pending={pending} className="primary-button" pendingLabel="Sending…">Send reply</BusyButton>
       </div>
-      <FormResult id={resultId} state={state} formRef={formRef} />
+      <FormResult id={resultId} state={state} pending={pending} formRef={formRef} />
     </form>
   );
 }

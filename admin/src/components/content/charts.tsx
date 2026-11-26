@@ -3,6 +3,7 @@
 // chart also has a table or list with the same numbers. Bars grow and lines fade in, and nothing moves
 // with reduced motion (content.module.css). The picture is named for screen readers with its stretch of
 // time; the scale and axis words beside it are for the eye only (the table reads the numbers).
+import { percent } from "@/components/console/chart-math";
 import { chartName, chartTop } from "./chart-scale";
 import styles from "./content.module.css";
 
@@ -83,7 +84,7 @@ export function LineChart({ series, labels, label, height = 200 }: { series: Lin
 
 /**
  * Shares of a total as labelled meters, largest first. `of` names the whole when the items overlap (a workout has
- * several exercises): "3% of completed workouts".
+ * several exercises): "3% of completed workouts". percent() words the share, so "0%" is none and "100%" is all.
  */
 export function Meters({ items, total, of, format = (n: number) => n.toLocaleString("en-IN") }: { items: Array<{ label: string; value: number }>; total: number; of?: string; format?: (n: number) => string }) {
   return (
@@ -96,7 +97,7 @@ export function Meters({ items, total, of, format = (n: number) => n.toLocaleStr
               <span>{item.label}</span>
               <span>
                 {format(item.value)}
-                {total > 0 && ` · ${Math.round(share * 100)}%${of ? ` of ${of}` : ""}`}
+                {total > 0 && ` · ${percent(share)}${of ? ` of ${of}` : ""}`}
               </span>
             </div>
             <svg className={styles.meterTrack} viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false">

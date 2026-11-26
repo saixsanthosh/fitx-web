@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Check, Minus } from "lucide-react";
 import { Notice, PageHead, Panel, consoleStyles as ui } from "@/components/console/ui";
+import { AddOperatorForm } from "@/components/security/add-operator-form";
+import { OPERATOR_NOTICES } from "@/components/security/operator-notices";
 import { PERMISSION_LABELS } from "@/components/security/permission-labels";
 import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -9,29 +11,9 @@ import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { noticeWords, pageNotice } from "@/lib/notice";
 import { ADMIN_ROLES, can, PERMISSIONS, ROLE_DESCRIPTIONS, ROLE_LABELS, type AdminRole } from "@/lib/roles";
 import { formatIstDate } from "@/lib/time";
-import { addOperator, changeOperator, resetPassword } from "./actions";
+import { changeOperator, resetPassword } from "./actions";
 
 export const metadata: Metadata = { title: "Access control" };
-
-const notices: Record<string, { tone: "success" | "error"; text: string }> = {
-  created: { tone: "success", text: "Operator added. They choose their own password at first sign-in." },
-  saved: { tone: "success", text: "Operator updated and recorded in the audit log." },
-  password_reset: { tone: "success", text: "Temporary password set. Their open sessions have ended." },
-  forbidden: { tone: "error", text: "Only a super-admin can change operators." },
-  invalid: { tone: "error", text: "Check the details and try again." },
-  invalid_username: { tone: "error", text: "Usernames are 3 to 32 characters: a to z, 0 to 9, dot, dash or underscore." },
-  reserved_username: { tone: "error", text: "That username is reserved." },
-  username_taken: { tone: "error", text: "That username is taken." },
-  invalid_role: { tone: "error", text: "Choose a role." },
-  weak_password: { tone: "error", text: `Passwords need at least ${MIN_PASSWORD_LENGTH} characters.` },
-  same_password: { tone: "error", text: "Choose a different password." },
-  not_found: { tone: "error", text: "That operator no longer exists." },
-  root_protected: { tone: "error", text: "The owner account cannot be changed here." },
-  self: { tone: "error", text: "You cannot change your own access here." },
-  confirm_needed: { tone: "error", text: "Tick the confirmation box first." },
-  unavailable: { tone: "error", text: "Server data access is not ready." },
-  failed: { tone: "error", text: "The change did not complete. The server log has the details." },
-};
 
 function RoleSelect({ defaultValue, label }: { defaultValue: AdminRole; label?: string }) {
   return <select aria-label={label} name="role" defaultValue={defaultValue}>{ADMIN_ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select>;
@@ -42,7 +24,7 @@ export default async function AccessControlPage({ searchParams }: { searchParams
   const params = await searchParams;
   const result = await listOperators();
   const manage = can(actor.role, "access.manage");
-  const notice = noticeWords(notices, pageNotice(params.state, actor.id));
+  const notice = noticeWords(OPERATOR_NOTICES, pageNotice(params.state, actor.id));
 
   return <div className="page-stack">
     <PageHead eyebrow="Admin and security" title="Operators" meta={result.ok ? `${result.value.filter((operator) => operator.isActive).length} active · ${ADMIN_ROLES.length} roles` : undefined} />
@@ -50,12 +32,7 @@ export default async function AccessControlPage({ searchParams }: { searchParams
     {!result.ok ? <ModuleState state={result.error === "unavailable" ? "migration_pending" : "query_failed"} /> : <>
       {manage && <section className="table-panel">
         <div className="table-heading"><div><h2>Add operator</h2><p>They change this temporary password at first sign-in.</p></div><span className="permission-chip">Super-admin only</span></div>
-        <form action={addOperator} className="member-form">
-          <label>Username<input autoComplete="off" name="username" required minLength={3} maxLength={32} pattern="[a-zA-Z0-9][a-zA-Z0-9._\-]{2,31}" /></label>
-          <label>Role<RoleSelect defaultValue="support_agent" /></label>
-          <label>Temporary password<input autoComplete="new-password" name="password" required minLength={MIN_PASSWORD_LENGTH} maxLength={256} type="password" /></label>
-          <button className="primary-button" type="submit">Add operator</button>
-        </form>
+        <AddOperatorForm minPasswordLength={MIN_PASSWORD_LENGTH} />
       </section>}
 
       <section className="table-panel">
