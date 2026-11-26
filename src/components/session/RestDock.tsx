@@ -13,12 +13,14 @@ type RestDockProps = {
 
 /**
  * The rest countdown while resting: docked above the phone's exercise bar (bottom of the window from `sm`), so it
- * stays in reach wherever the page is scrolled. A role="timer" region: screen readers are not interrupted every
- * second; the page announces when the rest starts and ends.
+ * stays in reach wherever the page is scrolled. While the privacy banner is open, the exercise bar rises 8 px above
+ * it and the dock with it, 4.5rem higher (--fitx-inset-consent: from the banner's top to the window's bottom).
+ * A role="timer" region: screen readers are not interrupted every second; the page announces when the rest starts
+ * and ends.
  */
 export function RestDock({ remaining, total, upNext, onAdjust, onSkip }: RestDockProps) {
   return (
-    <section role="timer" aria-label="Rest timer" className="fitx-panel fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] z-40 mx-auto max-w-md border-fitx-primary/40 bg-fitx-elevated p-3 shadow-xl sm:bottom-4 sm:p-4">
+    <section role="timer" aria-label="Rest timer" className="fitx-panel fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+5.25rem),calc(var(--fitx-inset-consent,0px)+8px+4.5rem))] z-40 mx-auto max-w-md border-fitx-primary/40 bg-fitx-elevated p-3 shadow-xl sm:bottom-[max(1rem,calc(var(--fitx-inset-consent,0px)+8px))] sm:p-4">
       <div className="flex items-center gap-3">
         <SessionRing fraction={remaining / Math.max(1, total)} motion="tick" thickness={10} className="w-16">
           <span className="font-heading text-base font-extrabold tabular-nums text-fitx-text">{formatCountdown(remaining)}</span>

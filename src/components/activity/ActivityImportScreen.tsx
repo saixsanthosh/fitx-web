@@ -636,8 +636,10 @@ export function ActivityImportScreen() {
               />
             ))}
           </ul>
+          {/* Floats above the phone's bar (from 768 px, near the window's foot), and 8 px above the privacy banner while
+              that is open (--fitx-inset-consent), so Import stays in reach on a long list. */}
           {open && settled && (
-            <div data-coach-avoid="" className="sticky bottom-20 z-10 rounded-xl border border-fitx-border bg-fitx-elevated p-3 shadow-lg md:bottom-4">
+            <div data-coach-avoid="" className="sticky bottom-[max(5rem,calc(var(--fitx-inset-consent,0px)+8px))] z-10 rounded-xl border border-fitx-border bg-fitx-elevated p-3 shadow-lg md:bottom-[max(1rem,calc(var(--fitx-inset-consent,0px)+8px))]">
               <button type="button" onClick={() => void importAll()} aria-disabled={importing || reading || toImport.length === 0 || undefined} className="fitx-button min-h-12 w-full aria-disabled:cursor-not-allowed aria-disabled:opacity-60">
                 {importing ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Importing…</> : toImport.length ? `Import ${toImport.length} ${toImport.length === 1 ? "activity" : "activities"}` : "Nothing to import yet"}
               </button>

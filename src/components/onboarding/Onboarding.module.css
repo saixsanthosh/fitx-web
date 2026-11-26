@@ -89,9 +89,12 @@
   flex-shrink: 0;
 }
 
+/* Back and Continue stick to the bottom of the window on a long step. While the privacy banner is open they stick to
+   its top edge instead (--fitx-inset-consent: from the banner's top to the window's bottom; unset, so 0, otherwise),
+   since scroll padding cannot move a sticky bar out from under it (tests/shell/sticky-bars-clear-banner.test.ts). */
 .actions {
   position: sticky;
-  bottom: 0;
+  bottom: var(--fitx-inset-consent, 0px);
   z-index: 20;
   border-top: 1px solid var(--fitx-border);
   background: color-mix(in srgb, var(--fitx-bg) 94%, transparent);
