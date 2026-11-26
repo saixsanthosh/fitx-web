@@ -1,6 +1,7 @@
 import "server-only";
 import { inferFoodState, rankFoods } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodState } from "@/lib/domain/food-query";
+import type { MacroKey } from "@/lib/domain/nutrition";
 import { FITX_CATALOGUE_SOURCE, type RankableFood } from "@/lib/food/catalog-search";
 import type { ValueBasis } from "@/lib/food/types";
 
@@ -33,6 +34,12 @@ export type CatalogueFood = {
   aliases?: string[];
   /** Set for a FITX catalogue food: what its values are (a USDA food's follow from its data type). */
   valueBasis?: ValueBasis;
+  /**
+   * Protein, carbs or fat a live lookup's source left blank (an Open Food Facts label, a USDA record without the
+   * nutrient): unknown, held as 0 above only so the type stays numeric. Grounding never plans with such a food
+   * (grounding.ts). FITX's own catalogue foods have every value, so theirs is never set.
+   */
+  missing?: readonly MacroKey[];
 };
 
 type StapleFile = {
