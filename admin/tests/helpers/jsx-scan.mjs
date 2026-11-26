@@ -8,26 +8,47 @@ export function parseTsx(source, fileName = "file.tsx") {
   return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
 }
 
-/** An element's attributes as written: name → the text of its {expression}, the value of its "string", or true. */
+/** An expression without the wrapping that does not change its value: (…), as, !, satisfies, await. */
+export function unwrap(node) {
+  while (node && (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node) || ts.isAwaitExpression(node))) node = node.expression;
+  return node;
+}
+
+/**
+ * An element's attributes as written: name → the text of its {expression}, the value of its "string", or true, in
+ * order, so a later one wins. An object written in place in a spread ({...{ disabled: pending }}) gives its properties
+ * the same way; any other spread ({...props}, {...busyProps()}) could set anything, so its text is listed in `spreads`.
+ */
 function attributesOf(element, file) {
   const attributes = {};
-  let spread = false;
+  const spreads = [];
   for (const property of element.attributes.properties) {
     if (ts.isJsxSpreadAttribute(property)) {
-      spread = true;
+      const object = unwrap(property.expression);
+      if (!ts.isObjectLiteralExpression(object)) {
+        spreads.push(property.expression.getText(file));
+        continue;
+      }
+      for (const entry of object.properties) {
+        if (ts.isPropertyAssignment(entry) && (ts.isIdentifier(entry.name) || ts.isStringLiteral(entry.name))) {
+          const value = unwrap(entry.initializer);
+          attributes[entry.name.text] = ts.isStringLiteral(value) ? value.text : entry.initializer.getText(file);
+        } else if (ts.isShorthandPropertyAssignment(entry)) attributes[entry.name.text] = entry.name.text;
+        else spreads.push(entry.getText(file));
+      }
       continue;
     }
     const value = property.initializer;
     attributes[property.name.getText(file)] = !value ? true : ts.isJsxExpression(value) ? (value.expression?.getText(file) ?? "") : value.text;
   }
-  return { attributes, spread };
+  return { attributes, spreads };
 }
 
 const lineOf = (node, file) => file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
 
 /**
- * Every JSX element with one of these tags, with its attributes as written (attributesOf). `spread` says whether
- * {...props} could add more.
+ * Every JSX element with one of these tags, with its attributes as written (attributesOf). `spreads` lists the
+ * spreads it cannot read, which could add more.
  */
 export function jsxElements(source, tags, fileName = "file.tsx") {
   const wanted = new Set(Array.isArray(tags) ? tags : [tags]);
