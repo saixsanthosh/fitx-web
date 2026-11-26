@@ -11,7 +11,7 @@ export type RecordSwap =
   | "locked"
   /** The hold finished: "Hold to unlock" gave way to Lock, Pause and Finish. */
   | "unlocked"
-  /** "Allow location" was pressed: it gave way to Start. */
+  /** "Allow location" went (location was asked for): Start took its place. */
   | "allowed"
   /** Location became blocked (or can't be used) while Start had focus: Start can't be pressed any more. */
   | "blocked";

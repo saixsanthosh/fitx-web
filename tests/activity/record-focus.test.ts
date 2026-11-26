@@ -72,9 +72,10 @@ describe("the Record screen", () => {
     assert.match(read("src/components/activity/RecordingExtras.tsx"), /export function UnlockButton\(\{ onUnlock, buttonRef \}[\s\S]*?<button\s+type="button"\s+ref=\{buttonRef\}\s+aria-label="Hold to unlock controls"/);
   });
 
-  test("Allow location marks the press; Start takes focus once it replaces it", () => {
-    assert.match(screen, /onClick=\{\(\) => \{ allowPressed\.current = true; recorder\?\.warmUp\(\); \}\}[^\n]*>Allow location<\/button>/);
-    assert.match(screen, /if \(!allowPressed\.current \|\| needsPermission\) return;\s+allowPressed\.current = false;\s+if \(!focusDropped\(document\)\) return;[\s\S]*?controlFor\(focusAfterSwap\("allowed", state\)/);
+  test("Allow location: once it goes (focus dropped with it), Start takes focus in its place", () => {
+    // The click itself is unchanged (the privacy page's test reads it): the swap is seen when Allow location goes.
+    assert.match(screen, /onClick=\{\(\) => recorder\?\.warmUp\(\)\}[^>]*>Allow location<\/button>/);
+    assert.match(screen, /const asked = askedForLocation\.current;\s+askedForLocation\.current = needsPermission;\s+if \(!asked \|\| needsPermission \|\| !focusDropped\(document\)\) return;[\s\S]*?const target = focusAfterSwap\("allowed", state\);\s+controlFor\(target, [^\n]*\)\?\.focus\(\{ preventScroll: target === "start" \}\);\s+\}, \[needsPermission,/);
     assert.match(screen, /<button type="button" ref=\{startRef\} disabled=\{blocking \|\| !recorder \|\| snapshot\.elsewhere\}[^\n]*onKeyDown=\{ignoreHeldKey\}/);
     // The notes Start can hand focus to when it can't be pressed.
     assert.match(screen, /<div ref=\{issueRef\} tabIndex=\{-1\} role=\{blocking \? "alert" : "status"\}/);

@@ -155,7 +155,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   const issueRef = useRef<HTMLDivElement | null>(null);
   const elsewhereRef = useRef<HTMLParagraphElement | null>(null);
   const lockPressed = useRef(false);
-  const allowPressed = useRef(false);
+  const askedForLocation = useRef(false);
   const wasBlocking = useRef<boolean | null>(null);
   const [error, setError] = useState("");
   // An upload that finishes after the member has left this screen must not pull them back to the
@@ -269,12 +269,16 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
     const state: RecordScreenState = { phase, locked, needsPermission, startUsable, reasonShown };
     controlFor(focusAfterSwap(locked ? "locked" : "unlocked", state), { unlock: unlockRef, lock: lockRef, main: mainControlRef, start: startRef, reason: blocking ? issueRef : elsewhereRef })?.focus();
   }, [locked, phase, needsPermission, startUsable, reasonShown, blocking]);
+  // "Allow location" goes once location is asked for (its press, or the browser's own setting changing): if it had
+  // focus, focus was dropped with it. Start takes its place, so it takes focus (where Allow location was: no scroll),
+  // or, when Start can't be pressed, the note that says why (brought into view).
   useEffect(() => {
-    if (!allowPressed.current || needsPermission) return;
-    allowPressed.current = false;
-    if (!focusDropped(document)) return;
+    const asked = askedForLocation.current;
+    askedForLocation.current = needsPermission;
+    if (!asked || needsPermission || !focusDropped(document)) return;
     const state: RecordScreenState = { phase, locked, needsPermission, startUsable, reasonShown };
-    controlFor(focusAfterSwap("allowed", state), { unlock: unlockRef, lock: lockRef, main: mainControlRef, start: startRef, reason: blocking ? issueRef : elsewhereRef })?.focus();
+    const target = focusAfterSwap("allowed", state);
+    controlFor(target, { unlock: unlockRef, lock: lockRef, main: mainControlRef, start: startRef, reason: blocking ? issueRef : elsewhereRef })?.focus({ preventScroll: target === "start" });
   }, [needsPermission, phase, locked, startUsable, reasonShown, blocking]);
   // Location blocked (refused at the browser's prompt, or in its settings) while Start had focus: Start can't be
   // pressed any more, so focus goes to the banner that says why. Not when the screen opens already blocked, and never
@@ -599,7 +603,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                 <div className="mt-5 rounded-2xl bg-fitx-surface-variant p-4">
                   <p className="flex items-center gap-2 text-sm font-semibold text-fitx-text"><LocateFixed size={16} aria-hidden="true" className="text-fitx-primary" />Allow location to record</p>
                   <p className="mt-1.5 text-[13px] leading-5 text-fitx-text-secondary">Once you allow it, FITX uses your location while this screen is open, to show the GPS signal and then to record, until you finish or leave. Only the positions from while you record are kept, and your routes are private to your account. {MAP_TILES_NOTE}</p>
-                  <button type="button" onClick={() => { allowPressed.current = true; recorder?.warmUp(); }} className="fitx-button mt-3 min-h-12 w-full">Allow location</button>
+                  <button type="button" onClick={() => recorder?.warmUp()} className="fitx-button mt-3 min-h-12 w-full">Allow location</button>
                 </div>
               ) : (
                 <button type="button" ref={startRef} disabled={blocking || !recorder || snapshot.elsewhere} aria-disabled={starting || undefined} onClick={() => void start()} onKeyDown={ignoreHeldKey} className="fitx-button mt-5 min-h-14 w-full rounded-full text-base aria-disabled:cursor-progress aria-disabled:opacity-60">
