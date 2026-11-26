@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { Minus, Plus } from "lucide-react";
 import { REST_STEP_SECONDS, formatCountdown } from "@/app/(dashboard)/workouts/active/_lib/session-progress";
 import { SessionRing } from "./SessionRing";
@@ -9,6 +10,8 @@ type RestDockProps = {
   upNext: string | null;
   onAdjust: (deltaSeconds: number) => void;
   onSkip: () => void;
+  /** The dock itself, so the page can keep what it brings into view clear of it (active/_lib/foot-clearance.ts). */
+  ref?: Ref<HTMLElement>;
 };
 
 /**
@@ -18,9 +21,9 @@ type RestDockProps = {
  * A role="timer" region: screen readers are not interrupted every second; the page announces when the rest starts
  * and ends.
  */
-export function RestDock({ remaining, total, upNext, onAdjust, onSkip }: RestDockProps) {
+export function RestDock({ remaining, total, upNext, onAdjust, onSkip, ref }: RestDockProps) {
   return (
-    <section role="timer" aria-label="Rest timer" className="fitx-panel fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+5.25rem),calc(var(--fitx-inset-consent,0px)+8px+4.5rem))] z-40 mx-auto max-w-md border-fitx-primary/40 bg-fitx-elevated p-3 shadow-xl sm:bottom-[max(1rem,calc(var(--fitx-inset-consent,0px)+8px))] sm:p-4">
+    <section role="timer" aria-label="Rest timer" ref={ref} className="fitx-panel fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+5.25rem),calc(var(--fitx-inset-consent,0px)+8px+4.5rem))] z-40 mx-auto max-w-md border-fitx-primary/40 bg-fitx-elevated p-3 shadow-xl sm:bottom-[max(1rem,calc(var(--fitx-inset-consent,0px)+8px))] sm:p-4">
       <div className="flex items-center gap-3">
         <SessionRing fraction={remaining / Math.max(1, total)} motion="tick" thickness={10} className="w-16">
           <span className="font-heading text-base font-extrabold tabular-nums text-fitx-text">{formatCountdown(remaining)}</span>

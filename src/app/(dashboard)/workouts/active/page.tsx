@@ -37,6 +37,7 @@ import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMN
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { readWithOptional, recordHref, stripStats } from "../history/_lib/session-record";
 import { exerciseProblem, problemAfterExerciseChange, type ActionProblem } from "./_lib/action-problem";
+import { browserFootPage, revealAboveFoot } from "./_lib/foot-clearance";
 import { formatHistorySet, lastTimeForSet, summariseLastTime } from "./_lib/last-time";
 import { SESSION_NOT_FOUND, sessionLinkFrom, type SessionLink } from "./_lib/session-link";
 import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId } from "./_lib/set-entry";
@@ -178,6 +179,16 @@ export default function ActiveWorkoutPage() {
   // action fails: the button then stays, with the problem beside it, and keeps focus.
   const [closedFocus, setClosedFocus] = useState<string | null>(null);
   useEffect(() => { if (closedFocus) focusHeading(document, closedFocus); }, [closedFocus]);
+  // When Finish workout or Abandon says why it did not work (right above the two buttons), their bar is brought into
+  // view clear of the rest timer and the phone's Previous and Next, fixed over the page's foot: on a desktop the reason
+  // lay under the floating rest timer (round 3d re-check). Focus stays on the button; the page stays put if focus has
+  // moved elsewhere meanwhile.
+  const finishBarRef = useRef<HTMLElement>(null);
+  const restDockRef = useRef<HTMLElement>(null);
+  const stepBarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (problem?.at === "finish" && finishBarRef.current) revealAboveFoot(finishBarRef.current, [restDockRef.current, stepBarRef.current], browserFootPage());
+  }, [problem]);
   // The same when ticking an exercise's last open set moves the page on: the set list that held focus is replaced by
   // the next exercise's, whose name takes focus (a touch or mouse user's page does not scroll for it).
   const exerciseIndexRef = useRef(exerciseIndex);
@@ -862,11 +873,13 @@ export default function ActiveWorkoutPage() {
       </div>
     </section>}
 
-    {/* Finish and Abandon say why they did not work right above the buttons (on a phone, beside Finish). */}
-    <section className="fitx-panel grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <p className="flex items-center gap-2 text-sm text-fitx-text-secondary sm:row-start-1"><Trophy size={16} aria-hidden="true" className="shrink-0 text-fitx-primary" /><span>{tally}</span></p>
-      {problem?.at === "finish" && <p role="alert" className={`sm:col-span-2 sm:row-start-2 ${PROBLEM_CLASS}`}>{problem.message}</p>}
-      <div className="flex flex-col-reverse gap-2 sm:col-start-2 sm:row-start-1 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} aria-disabled={saving || clockSaving || undefined} className="fitx-button fitx-button-quiet min-h-11 aria-disabled:opacity-60"><X size={14} aria-hidden="true" />Abandon</button><button type="button" disabled={paused} aria-disabled={saving || clockSaving || undefined} onClick={() => void finishWorkout()} className="fitx-button min-h-12 aria-disabled:opacity-60">{saving ? "Saving…" : "Finish workout"}<Check size={15} aria-hidden="true" /></button></div>
+    {/* Finish and Abandon say why they did not work right above the buttons: on a phone directly above Finish; from
+        640 px in a row of its own over the totals and the buttons (sm:order-first: the grid then places the totals and
+        the buttons in the row under it). It used to take the row under the buttons there (round 3d re-check). */}
+    <section ref={finishBarRef} className="fitx-panel grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <p className="flex items-center gap-2 text-sm text-fitx-text-secondary"><Trophy size={16} aria-hidden="true" className="shrink-0 text-fitx-primary" /><span>{tally}</span></p>
+      {problem?.at === "finish" && <p role="alert" className={`sm:order-first sm:col-span-2 ${PROBLEM_CLASS}`}>{problem.message}</p>}
+      <div className="flex flex-col-reverse gap-2 sm:flex-row"><button type="button" onClick={() => void abandonWorkout()} aria-disabled={saving || clockSaving || undefined} className="fitx-button fitx-button-quiet min-h-11 aria-disabled:opacity-60"><X size={14} aria-hidden="true" />Abandon</button><button type="button" disabled={paused} aria-disabled={saving || clockSaving || undefined} onClick={() => void finishWorkout()} className="fitx-button min-h-12 aria-disabled:opacity-60">{saving ? "Saving…" : "Finish workout"}<Check size={15} aria-hidden="true" /></button></div>
     </section>
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <button type="button" onClick={cues.toggleCues} aria-pressed={cues.cuesOn} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">{cues.cuesOn ? <Volume2 size={14} aria-hidden="true" /> : <VolumeX size={14} aria-hidden="true" />}{cues.cuesOn ? "Rest alert on" : "Rest alert off"}</button>
@@ -874,10 +887,10 @@ export default function ActiveWorkoutPage() {
       {cues.keepAwake && wakeLock !== "off" && <span role="status" className="text-fitx-text-secondary">{wakeLock === "on" ? "The screen stays on while you train." : wakeLock === "unsupported" ? "This browser can’t keep the screen on." : "The screen couldn’t be kept on; battery saver can block it."}</span>}
     </div>
 
-    {resting && <RestDock remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
+    {resting && <RestDock ref={restDockRef} remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
     {/* Phones: Previous and Next at the window's foot, 8 px above the privacy banner while it is open (--fitx-inset-consent);
         RestDock rises with them. */}
-    <div className="fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+.75rem),calc(var(--fitx-inset-consent,0px)+8px))] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} className="fitx-button fitx-button-secondary min-h-12 aria-disabled:opacity-60"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} className="fitx-button min-h-12 aria-disabled:opacity-60">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
+    <div ref={stepBarRef} className="fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+.75rem),calc(var(--fitx-inset-consent,0px)+8px))] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} className="fitx-button fitx-button-secondary min-h-12 aria-disabled:opacity-60"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} className="fitx-button min-h-12 aria-disabled:opacity-60">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
     {swapOpen && swapTarget && <SwapSheet target={swapTarget} catalog={catalog} owned={owned} level={level} exclude={new Set(exercises.flatMap((exercise) => (exercise.exercise_id ? [exercise.exercise_id] : [])))} contextLabel={ownedContext} onPick={(exercise) => void swapExercise(exercise)} onClose={() => setSwapOpen(false)} />}
   </div>;
 }
