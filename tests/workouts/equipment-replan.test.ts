@@ -76,8 +76,16 @@ describe("the Today card's re-plan line lasts while it describes the day and the
     const page = readFileSync("src/app/(dashboard)/workouts/page.tsx", "utf8");
     const between = (start: string, end: string) => page.slice(page.indexOf(start), page.indexOf(end, page.indexOf(start)));
     const load = between("const load = useCallback(", "useEffect(() => { void Promise.resolve().then(load); }, [load]);");
-    assert.match(load, /setLoading\(false\);\s+setError\(""\);[\s\S]{0,500}?setTodayReplan\(replanAfterChange\);\s+setLoadVersion/, "every reload, a save's included");
-    assert.match(between("async function saveEquipment()", "async function replanToday("), /setProfiles\(\(current\) => \(\{ \.\.\.current, \[saved\.context\]: saved\.keys \}\)\);[\s\S]{0,120}?setTodayReplan\(replanAfterChange\);/);
+    assert.match(load, /setLoading\(false\);\s+setError\(""\);[\s\S]{0,700}?setTodayReplan\(replanAfterChange\);\s+setProgrammeNote\(null\);\s+setLoadVersion/, "every reload, a save's included");
+    // The same mistake on the programme card: its "… were re-planned for your gym list" line outlived the list too.
+    assert.ok(load.indexOf("setProgrammeNote(null);") < load.indexOf("if (replanned) setProgrammeNote("), "this load's own re-plan is said after the clear");
+    const save = between("async function saveEquipment()", "async function replanToday(");
+    assert.match(save, /setProfiles\(\(current\) => \(\{ \.\.\.current, \[saved\.context\]: saved\.keys \}\)\);[\s\S]{0,240}?setTodayReplan\(replanAfterChange\);\s+if \(enrolment\?\.context === saved\.context\) setProgrammeNote\(null\);/);
+    // Programme actions say their result after their reload, so the reload never wipes it.
+    for (const start of ["async function enrol(", "async function planAhead()", "async function leave()", "async function pause()", "async function finish()"]) {
+      const action = between(start, "\n  }\n");
+      assert.ok(action.lastIndexOf("await load();") < action.lastIndexOf("setProgrammeNote({"), start);
+    }
     assert.match(between("function setupSaved(", "async function replanAfterSetup("), /setProfiles\(next\.profiles\);\s+setTodayReplan\(replanAfterChange\);/);
     const replan = between("async function replanToday(", "async function enrol(");
     assert.match(replan, /fitted: !checked\.outcome\.error && checked\.outcome\.replanned\.some\(\(day\) => day\.planId === planId\) && !checked\.outcome\.unfixable\.length,/);
@@ -122,7 +130,7 @@ describe("the Workouts page (JSX, read from the source)", () => {
 
   test("Workout setup re-plans the days when it saves a different list for the programme's place, and says so with its own line", () => {
     const saved = page.slice(page.indexOf("function setupSaved("), page.indexOf("useEffect(() => {", page.indexOf("function setupSaved(")));
-    assert.match(saved, /if \(programmeList && listChanged\(programmeList, keys\)\) void replanAfterSetup\(next, keys!\);/);
+    assert.match(saved, /if \(programmeList && listChanged\(programmeList, keys\)\) \{\s+\/\/[^\n]*\n\s+setProgrammeNote\(null\);\s+void replanAfterSetup\(next, keys!\);\s+\}/);
     assert.match(saved, /owned: expandOwnedEquipment\(keys\), level: asLevel\(next\.level\)[\s\S]*mode: "list-saved"/);
     assert.match(saved, /if \(said\) setNotice\(\(current\) => \(current === SETUP_SAVED \? `\$\{SETUP_SAVED\} \$\{said\}` : current\)\);/);
     assert.match(page, /const SETUP_SAVED = "Setup saved\. Workouts now follows your answers\.";/);

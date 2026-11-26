@@ -426,8 +426,11 @@ export default function WorkoutsPage() {
     // The list is read again: a plan card's or a History row's earlier message is about a list that is gone (as the
     // page-wide alert was at 99d06a8). An action that reloads says its own result after this (Delete, a save).
     setListNote(null);
-    // So were the day and the lists: the Today card's re-plan line no longer describes them.
+    // So were the days and the lists: the Today card's re-plan line, and the programme card's line (a re-plan or an
+    // action's result), no longer describe them. Anything this load re-plans, and an action's result, is said below or
+    // after it.
     setTodayReplan(replanAfterChange);
+    setProgrammeNote(null);
     setLoadVersion((value) => value + 1);
     // Home, the week view and To-Do link here with ?plan=: the plan opens in its preview first.
     if (linkedPlanId && !deepLinkHandled.current) {
@@ -507,7 +510,11 @@ export default function WorkoutsPage() {
     notifyUserContextChanged();
     if (firstTime) changeMode(modeForLocation(next.location));
     const keys = enrolment ? next.profiles[enrolment.context] : null;
-    if (programmeList && listChanged(programmeList, keys)) void replanAfterSetup(next, keys!);
+    if (programmeList && listChanged(programmeList, keys)) {
+      // The programme card's line was about the list before this one; the re-plan says its result with the setup's.
+      setProgrammeNote(null);
+      void replanAfterSetup(next, keys!);
+    }
   }
 
   /** Setup saved a new list for the followed programme's place: its days ahead follow it (bug 17), as after Save list. */
@@ -828,8 +835,10 @@ export default function WorkoutsPage() {
     // Profile shows the lists (and counts a saved one as setup done) from the shared context: it reloads now.
     notifyUserContextChanged();
     setProfiles((current) => ({ ...current, [saved.context]: saved.keys }));
-    // The Today card's re-plan line was about the list before this one.
+    // The Today card's re-plan line was about the list before this one, and so was the programme card's when the
+    // list is for the programme's place.
     setTodayReplan(replanAfterChange);
+    if (enrolment?.context === saved.context) setProgrammeNote(null);
     // A saved list counts as setup done (brief 3.4), so the first-visit setup steps aside.
     setSetup((current) => current ? { ...current, profiles: { ...current.profiles, [saved.context]: saved.keys }, done: true } : current);
     // The followed programme's days ahead follow the new list (bug 17): what that changed is said on the list's card.
