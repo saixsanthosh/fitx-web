@@ -68,7 +68,7 @@ test("growth, active users and weeks are worked out from the daily rows", () => 
   assert.equal(report.total(parsed.daily, "new_accounts"), 3);
   assert.equal(report.latest(parsed.daily, "mau"), 8);
   assert.equal(report.latest([], "mau"), null);
-  assert.equal(report.stickiness(parsed.daily), 25);
+  assert.equal(report.stickiness(parsed.daily), 0.25, "a share; the page shows it as 25 %");
   assert.equal(report.stickiness([day("2026-11-18")]), null, "no monthly actives: unknown, not 0 %");
   assert.equal(report.percentChange(9, 12), 33);
   assert.equal(report.percentChange(0, 4), null);

@@ -162,11 +162,14 @@ export function percentChange(first: number, last: number): number | null {
   return Math.round(((last - first) / first) * 100);
 }
 
-/** DAU / MAU on the last day ("stickiness"), as a whole percentage, or null without monthly actives. */
+/**
+ * DAU / MAU on the last day ("stickiness"): the share (0 to 1) of the last 30 days' active members who were active that
+ * day, or null without monthly actives. Shown with percent()'s rule, so 199 of 200 never reads as all of them.
+ */
 export function stickiness(days: readonly ReportDay[]): number | null {
   const last = days[days.length - 1];
   if (!last || last.mau === 0) return null;
-  return Math.round((last.dau / last.mau) * 100);
+  return last.dau / last.mau;
 }
 
 /** Days grouped into Monday-start weeks, summing a flow measure. */

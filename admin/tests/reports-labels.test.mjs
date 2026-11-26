@@ -30,5 +30,5 @@ test("the Reports page: every day label and the range know their year, the empty
   assert.match(page, /const workoutsText = \(n: number\) => `\$\{n\.toLocaleString\("en-IN"\)\} \$\{n === 1 \? "workout" : "workouts"\}`;/);
   assert.match(page, /of="completed workouts" format=\{workoutsText\}/);
   const charts = await readFile(new URL("../src/components/content/charts.tsx", import.meta.url), "utf8");
-  assert.match(charts, /\$\{Math\.round\(share \* 100\)\}%\$\{of \? ` of \$\{of\}` : ""\}/, "a share says what it is a share of");
+  assert.match(charts, /\$\{percent\(share\)\}\$\{of \? ` of \$\{of\}` : ""\}/, "a share says what it is a share of");
 });
