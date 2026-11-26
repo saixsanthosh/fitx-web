@@ -29,7 +29,7 @@ function texts(value: unknown): string[] {
   return [];
 }
 
-const DAY = { totals: { calories: 1990, protein: 60, carbs: 200, fat: 70, unknown: { protein: 0, carbs: 0, fat: 1 } }, target: { calories: 1800, protein: 90, carbs: 220, fat: null }, targetSource: "Targets you set", hasOwnTargets: true, estimateCount: 2, water: { ml: 800, target: 2000 } };
+const DAY = { totals: { calories: 1990, protein: 60, carbs: 200, fat: 70, unknown: { protein: 0, carbs: 0, fat: 1 }, entries: 6 }, target: { calories: 1800, protein: 90, carbs: 220, fat: null }, targetSource: "Targets you set", hasOwnTargets: true, estimateCount: 2, water: { ml: 800, target: 2000 } };
 
 test("until the day is in, the overview shows no number, no missing target and nothing that acts", () => {
   for (const state of ["loading", "failed"] as const) {

@@ -34,6 +34,13 @@ export interface MacroTotals {
 /** Unknown values of a set of entries, added up without them: how many entries lack each value. */
 export interface KnownTotals extends FoodMacros {
   unknown: Record<MacroKey, number>;
+  /** The entries added up: when every one lacks a value, its total is unknown (knownMacro), never 0 g. */
+  entries: number;
+}
+
+/** A total's value when at least one entry gave it, else null: food logged with none of it known is unknown, not 0 g. */
+export function knownMacro(totals: KnownTotals, key: MacroKey): number | null {
+  return totals.entries > 0 && totals.unknown[key] >= totals.entries ? null : totals[key];
 }
 
 /**
@@ -41,8 +48,9 @@ export interface KnownTotals extends FoodMacros {
  * an unlabelled fat value says "1 item has no fat value" instead of quietly adding 0 g.
  */
 export function sumKnown(items: ReadonlyArray<{ calories: number | null; protein: number | null; carbs: number | null; fat: number | null }>): KnownTotals {
-  const total: KnownTotals = { calories: 0, protein: 0, carbs: 0, fat: 0, unknown: { protein: 0, carbs: 0, fat: 0 } };
+  const total: KnownTotals = { calories: 0, protein: 0, carbs: 0, fat: 0, unknown: { protein: 0, carbs: 0, fat: 0 }, entries: 0 };
   for (const item of items) {
+    total.entries += 1;
     total.calories += Number(item.calories || 0);
     for (const key of MACRO_KEYS) {
       const value = item[key];

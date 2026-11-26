@@ -3,7 +3,7 @@
  * shows a loading (or failed) state: never "0 kcal eaten", "no target" or another day's figures under this day's date.
  * Pure, so `node --test` can check it.
  */
-import { calorieBalance, goalPercent, goalProgress, MACRO_KEYS, MACRO_LABEL, type DayTargets, type KnownTotals } from "@/lib/domain/nutrition";
+import { calorieBalance, goalPercent, goalProgress, knownMacro, MACRO_KEYS, MACRO_LABEL, type DayTargets, type KnownTotals, type MacroKey } from "@/lib/domain/nutrition";
 
 export type DayLoad = "loading" | "ready" | "failed";
 
@@ -62,6 +62,14 @@ export interface OverviewInput {
 const SMALL_MACROS = [["carbs", "Carbs"], ["fat", "Fat"]] as const;
 
 /**
+ * Why a day's total of a macro is unknown: food is logged, but none of it gives that value (the day's only food, or all
+ * of them), so the overview shows no number, percent or "left" for it, as meal-totals' unknownDayTotal rule says.
+ */
+export function noValueText(entries: number, key: MacroKey): string {
+  return entries === 1 ? `the food logged has no ${MACRO_LABEL[key]} value` : `none of the foods logged has a ${MACRO_LABEL[key]} value`;
+}
+
+/**
  * The overview's words and figures. Until the day asked for is in (loading, or failed), every figure is a dash, there
  * is no "no target", and neither the targets nor the water buttons act: never 0 kcal or another day's figures.
  */
@@ -90,6 +98,8 @@ export function overviewView(input: OverviewInput): OverviewView {
   const proteinProgress = proteinGoal ? goalProgress(totals.protein, proteinGoal) : null;
   const proteinLeft = proteinGoal ? Math.round(proteinGoal) - protein : null;
   const unknown = MACRO_KEYS.filter((key) => totals.unknown[key] > 0);
+  // No food logged gives protein: unknown, never "0 g" with "120 g protein left".
+  const proteinUnknown = knownMacro(totals, "protein") === null;
   return {
     busy: false,
     status: null,
@@ -105,18 +115,29 @@ export function overviewView(input: OverviewInput): OverviewView {
         ? { kind: "amount", amount: balance.remaining.toLocaleString("en-GB"), text: `kcal ${balance.over ? "over your target" : "left"}`, over: balance.over }
         : { kind: "note", text: "Set a target to see what's left." },
     },
-    protein: {
-      label: `${protein} grams of protein logged${proteinGoal ? ` of ${proteinGoal} gram target` : ""}${totals.unknown.protein ? `, ${totals.unknown.protein} without protein` : ""}`,
-      percent: proteinProgress?.percent ?? 0,
-      number: String(protein),
-      grams: true,
-      unit: proteinGoal ? `/ ${proteinGoal} g protein` : "protein",
-      line: proteinLeft !== null
-        ? { kind: "amount", amount: String(Math.abs(proteinLeft)), text: `g protein ${proteinLeft < 0 ? "over" : "left"}`, over: false }
-        : { kind: "note", text: "No protein target yet." },
-    },
+    protein: proteinUnknown
+      ? {
+        label: `Protein unknown: ${noValueText(totals.entries, "protein")}${proteinGoal ? `. Target ${proteinGoal} grams` : ""}`,
+        percent: 0,
+        number: "–",
+        grams: false,
+        unit: proteinGoal ? `/ ${proteinGoal} g protein` : "protein",
+        line: { kind: "note", text: `Unknown: ${noValueText(totals.entries, "protein")}.` },
+      }
+      : {
+        label: `${protein} grams of protein logged${proteinGoal ? ` of ${proteinGoal} gram target` : ""}${totals.unknown.protein ? `, ${totals.unknown.protein} without protein` : ""}`,
+        percent: proteinProgress?.percent ?? 0,
+        number: String(protein),
+        grams: true,
+        unit: proteinGoal ? `/ ${proteinGoal} g protein` : "protein",
+        line: proteinLeft !== null
+          ? { kind: "amount", amount: String(Math.abs(proteinLeft)), text: `g protein ${proteinLeft < 0 ? "over" : "left"}`, over: false }
+          : { kind: "note", text: "No protein target yet." },
+      },
     macros: SMALL_MACROS.map(([key, name]) => {
       const macroGoal = target?.[key] ?? null;
+      // No food logged gives it: "unknown", with no bar against the target.
+      if (knownMacro(totals, key) === null) return { key, name, value: "unknown", goal: macroGoal ? ` / ${macroGoal} g` : "", progress: null };
       const macro = macroGoal ? goalProgress(totals[key], macroGoal) : null;
       return {
         key, name,

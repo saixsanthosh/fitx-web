@@ -9,7 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 import { NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
 import { buildHistory, dateKeyOf, lastDays, type HistoryDay, type HistoryEntry, type HistoryTargets } from "@/lib/domain/nutrition-history";
 import { isEstimateSnapshot } from "@/lib/food/client-data";
-import { unknownAverageNote } from "./history-tiles";
+import { dayMacroText, unknownAverageNote } from "./history-tiles";
 import styles from "./History.module.css";
 
 type Range = 7 | 30;
@@ -182,12 +182,11 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
 }
 
 function DayRow({ day }: { day: HistoryDay }) {
-  const known = (value: number, key: "protein" | "carbs" | "fat") => `${value}${day.unknown[key] ? ` (${day.unknown[key]} entries without a value left out)` : ""}`;
   return (
     <tr>
       <th scope="row">{dayName(day.date, { weekday: "long", day: "numeric", month: "short" })}</th>
       {day.logged
-        ? <><td>{number(day.calories)}</td><td>{known(day.protein, "protein")}</td><td>{known(day.carbs, "carbs")}</td><td>{known(day.fat, "fat")}</td></>
+        ? <><td>{number(day.calories)}</td><td>{dayMacroText(day, "protein")}</td><td>{dayMacroText(day, "carbs")}</td><td>{dayMacroText(day, "fat")}</td></>
         : <td colSpan={4}>not logged</td>}
     </tr>
   );
