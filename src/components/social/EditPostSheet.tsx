@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
@@ -18,29 +18,47 @@ export const COMMENT_POLICY_OPTIONS = [
 
 /**
  * Edits a member's own post: caption, place, topics and who may comment. Photos stay as posted. A save that fails says
- * so inside the sheet, beside the form (D6); "Post updated" is a toast once the sheet has closed.
+ * so inside the sheet, just above Save changes (D6); "Post updated" is a toast once the sheet has closed.
+ *
+ * Save changes sits in the sheet's actions row, as in every other Explore sheet that acts, not at the end of the form:
+ * there a failure's message, which takes its room from the content, pushed the focused button out of view until the
+ * member scrolled (reg-explore-1). The button submits the form by its id, so it stays one Tab stop after the fields.
  */
 export function EditPostSheet({ db, post, onClose, onSaved }: { db: Db; post: SocialPost | null; onClose: () => void; onSaved: (post: SocialPost) => void }) {
   const { notice, show, clear } = useNotice();
+  const [busy, setBusy] = useState(false);
+  const formId = `${useId()}-edit-post`;
   const close = () => { clear(); onClose(); };
   return (
-    <Sheet open={post !== null} onClose={close} title="Edit post" notice={notice}>
-      {post && <EditForm key={post.id} db={db} post={post} onClose={close} onSaved={onSaved} onFailed={(text) => show("error", text)} onTry={clear} />}
+    <Sheet
+      open={post !== null}
+      onClose={close}
+      title="Edit post"
+      notice={notice}
+      footer={
+        // Busy is aria-disabled, not disabled: a disabled button drops keyboard focus to the page (D5).
+        <button type="submit" form={formId} className="fitx-button w-full aria-disabled:opacity-60" aria-disabled={busy || undefined}>
+          {busy ? "Saving…" : "Save changes"}
+        </button>
+      }
+    >
+      {post && <EditForm key={post.id} id={formId} db={db} post={post} busy={busy} onBusy={setBusy} onClose={close} onSaved={onSaved} onFailed={(text) => show("error", text)} onTry={clear} />}
     </Sheet>
   );
 }
 
-function EditForm({ db, post, onClose, onSaved, onFailed, onTry }: {
-  db: Db; post: SocialPost; onClose: () => void; onSaved: (post: SocialPost) => void; onFailed: (text: string) => void; onTry: () => void;
+function EditForm({ id, db, post, busy, onBusy, onClose, onSaved, onFailed, onTry }: {
+  id: string; db: Db; post: SocialPost; busy: boolean; onBusy: (busy: boolean) => void; onClose: () => void;
+  onSaved: (post: SocialPost) => void; onFailed: (text: string) => void; onTry: () => void;
 }) {
   const [caption, setCaption] = useState(post.caption);
   const [location, setLocation] = useState(post.location ?? "");
   const [topics, setTopics] = useState<string[]>(post.topics);
   const [policy, setPolicy] = useState<CommentPolicy>(post.comment_policy);
-  const [busy, setBusy] = useState(false);
-  async function save() {
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (busy) return;
-    setBusy(true);
+    onBusy(true);
     onTry();
     try {
       const saved = await socialApi.updatePost(db, post.id, { caption, location, topics, commentPolicy: policy });
@@ -50,11 +68,11 @@ function EditForm({ db, post, onClose, onSaved, onFailed, onTry }: {
     } catch (error) {
       onFailed(toSocialError(error).message);
     } finally {
-      setBusy(false);
+      onBusy(false);
     }
   }
   return (
-    <div className={styles.form}>
+    <form id={id} className={styles.form} onSubmit={(event) => void save(event)} noValidate>
       <div className={styles.field}>
         <div className="flex items-center"><label className={styles.label} htmlFor="edit-caption">Caption</label><span className={styles.counter}>{caption.length}/{SOCIAL_LIMITS.captionChars}</span></div>
         <textarea id="edit-caption" className="fitx-field" rows={5} maxLength={SOCIAL_LIMITS.captionChars} value={caption} onChange={(event) => setCaption(event.target.value)} />
@@ -68,7 +86,6 @@ function EditForm({ db, post, onClose, onSaved, onFailed, onTry }: {
         <span className={styles.label}>Comments</span>
         <Segmented label="Who can comment" options={COMMENT_POLICY_OPTIONS} value={policy} onChange={setPolicy} block />
       </div>
-      <button type="button" className="fitx-button aria-disabled:opacity-60" aria-disabled={busy || undefined} onClick={() => void save()}>{busy ? "Saving…" : "Save changes"}</button>
-    </div>
+    </form>
   );
 }

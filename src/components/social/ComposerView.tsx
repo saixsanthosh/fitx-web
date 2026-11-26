@@ -132,11 +132,13 @@ export function ComposerView() {
             {/* eslint-disable-next-line @next/next/no-img-element -- a local preview of the photo being posted */}
             <img src={item.preview} alt={`Photo ${index + 1}`} />
             <span className={styles.pickIndex} aria-hidden="true">{index + 1}</span>
-            <div className={styles.pickTools}>
-              {/* Disabled while the post is being shared: focus is on Share post then (aria-disabled), never here. */}
-              <button type="button" id={photoToolId(item.key, "earlier")} className={styles.pickTool} aria-label={`Move photo ${index + 1} earlier`} disabled={index === 0 || busy} onClick={() => move(index, -1)}><ArrowLeft size={15} aria-hidden="true" /></button>
-              <button type="button" id={photoToolId(item.key, "remove")} className={styles.pickTool} aria-label={`Remove photo ${index + 1}`} disabled={busy} onClick={() => drop(item.key)}><X size={15} aria-hidden="true" /></button>
-              <button type="button" id={photoToolId(item.key, "later")} className={styles.pickTool} aria-label={`Move photo ${index + 1} later`} disabled={index === items.length - 1 || busy} onClick={() => move(index, 1)}><ArrowRight size={15} aria-hidden="true" /></button>
+            {/* Three 44 px tools fit no phone's tile side by side (D4): Remove takes the top corner, the moves the bottom
+                ones, in that order for the keyboard too. Disabled while the post is being shared: focus is on Share
+                post then (aria-disabled), never here. */}
+            <button type="button" id={photoToolId(item.key, "remove")} className={`${styles.pickTool} ${styles.pickRemove}`} aria-label={`Remove photo ${index + 1}`} disabled={busy} onClick={() => drop(item.key)}><X size={16} aria-hidden="true" /></button>
+            <div className={styles.pickMoves}>
+              <button type="button" id={photoToolId(item.key, "earlier")} className={styles.pickTool} aria-label={`Move photo ${index + 1} earlier`} disabled={index === 0 || busy} onClick={() => move(index, -1)}><ArrowLeft size={16} aria-hidden="true" /></button>
+              <button type="button" id={photoToolId(item.key, "later")} className={styles.pickTool} aria-label={`Move photo ${index + 1} later`} disabled={index === items.length - 1 || busy} onClick={() => move(index, 1)}><ArrowRight size={16} aria-hidden="true" /></button>
             </div>
           </div>
         ))}

@@ -199,9 +199,10 @@ export const flow = {
       await compose.getByRole("button", { name: new RegExp(ashaName) }).click();
       await compose.getByRole("textbox", { name: "Message" }).fill("Hello Asha");
       await compose.getByRole("button", { name: "Send" }).click();
-      // Picked from search, so the sheet doesn't know whether Chen follows Asha: the refusal says what Chen can do and
-      // reveals neither Asha's setting nor her age (bug 19).
-      await compose.getByRole("alert").getByText(`@${ashaName} is not taking messages from you. If you do not follow them yet, follow them first, then try again.`, { exact: true }).waitFor({ timeout: 15000 });
+      // Picked from search, so the sheet doesn't know whether Chen follows Asha: the refusal says plainly that it was not
+      // taken, promises nothing (following would not help: Asha takes messages from no one), and reveals neither Asha's
+      // setting nor her age (bug 19, re-check).
+      await compose.getByRole("alert").getByText(`@${ashaName} is not taking messages from you. Some members take messages only from their followers.`, { exact: true }).waitFor({ timeout: 15000 });
       const none = await standin.one(`select count(*)::int n from public.social_conversations where '${chen.id}' in (user_low, user_high)`);
       t.expect(Number(none?.n) === 0, "no conversation was made", none);
       await standin.sql(`update public.social_profiles set dm_policy = 'followers' where user_id = '${asha.id}'`);

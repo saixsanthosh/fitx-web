@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Camera, Flag, ImagePlus, Lock, MoreHorizontal, Settings2, ShieldOff, UserMinus, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Segmented } from "@/components/ui/Segmented";
@@ -12,10 +12,11 @@ import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
 import { PROFILE_ACTIONS } from "@/lib/social/slots";
 import { FollowButton } from "./FollowButton";
-import { PostGrid } from "./PostGrid";
+import { gridTile, lastTile, PostGrid } from "./PostGrid";
 import { ReportSheet } from "./ReportSheet";
 import { useAsync } from "./useAsync";
 import { useFocusAfterRender } from "./useFocusAfterRender";
+import { useShowMoreFocus } from "./useFocusHandOff";
 import { useNotice } from "./useNotice";
 import { usePaged, useSentinel } from "./usePaged";
 import styles from "./Explore.module.css";
@@ -205,6 +206,10 @@ function OwnPosts({ db, userId, self }: { db: Db; userId: string; self: boolean 
     return { items, next: nextCursor(items, PAGE) };
   });
   const sentinel = useSentinel(posts.more, !posts.done && posts.status === "ready");
+  // Show more goes once the last page is in: if it had focus, the first post that page added takes it, else the last
+  // post (D5).
+  const grid = useRef<HTMLUListElement>(null);
+  const [showMoreRef] = useShowMoreFocus(posts.items.map((post) => post.id), (id) => gridTile(grid.current, id), () => lastTile(grid.current));
   if (posts.status === "loading") return <div className={styles.skeleton} style={{ height: 240 }} aria-hidden="true" />;
   if (posts.status === "error" && !posts.items.length) return <p className={styles.alert} role="alert">{posts.error}</p>;
   if (!posts.items.length) {
@@ -218,9 +223,9 @@ function OwnPosts({ db, userId, self }: { db: Db; userId: string; self: boolean 
   }
   return (
     <>
-      <PostGrid posts={posts.items} label="Posts" />
+      <PostGrid ref={grid} posts={posts.items} label="Posts" />
       <div ref={sentinel} className={styles.sentinel} aria-hidden="true" />
-      {!posts.done && <div className="flex justify-center"><button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={posts.more}>Show more</button></div>}
+      {!posts.done && <div className="flex justify-center"><button type="button" ref={showMoreRef} className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={posts.more}>Show more</button></div>}
     </>
   );
 }
@@ -230,13 +235,15 @@ function SavedPosts({ db }: { db: Db }) {
     const items = await socialApi.saved(db, before, PAGE);
     return { items, next: items.length < PAGE ? null : items[items.length - 1].saved_at ?? null };
   });
+  const grid = useRef<HTMLUListElement>(null);
+  const [showMoreRef] = useShowMoreFocus(saved.items.map((post) => post.id), (id) => gridTile(grid.current, id), () => lastTile(grid.current));
   if (saved.status === "loading") return <div className={styles.skeleton} style={{ height: 240 }} aria-hidden="true" />;
   if (!saved.items.length) return <p className={styles.note}>Posts you save show here. Only you can see them.</p>;
   return (
     <>
       <p className={styles.hint}>Only you can see what you saved.</p>
-      <PostGrid posts={saved.items} label="Saved posts" />
-      {!saved.done && <div className="flex justify-center"><button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={saved.more}>Show more</button></div>}
+      <PostGrid ref={grid} posts={saved.items} label="Saved posts" />
+      {!saved.done && <div className="flex justify-center"><button type="button" ref={showMoreRef} className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={saved.more}>Show more</button></div>}
     </>
   );
 }

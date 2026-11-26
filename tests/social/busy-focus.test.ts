@@ -83,7 +83,8 @@ test("the story composer keeps focus while it shares, and moves it on when the c
   assert.match(story, /<input id="story-photo" type="file"[^>]*aria-disabled=\{preparing \|\| undefined\}/, "a refused photo leaves focus on Add a photo");
   assert.match(story, /onClick=\{\(event\) => \{ if \(preparing\) event\.preventDefault\(\); \}\}/);
   assert.match(story, /id="story-caption"/);
-  assert.match(source("src/components/social/videos/VideoPicker.tsx"), /<input id="video-choose" type="file"/);
+  // The picker's first choice carries that id (PICKER_IDS.choose, "video-choose": focus-hand-off.test.ts).
+  assert.match(source("src/components/social/videos/VideoPicker.tsx"), /<input id=\{PICKER_IDS\.choose\} type="file"/);
 });
 
 test("a video's Play keeps focus while the video loads", () => {

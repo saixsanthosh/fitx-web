@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type Ref } from "react";
 import { m } from "framer-motion";
 import { Bell, Clapperboard, Compass, MessageCircle, Newspaper, CirclePause, RefreshCw, UserRound, UsersRound, type LucideIcon } from "lucide-react";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
@@ -15,6 +15,7 @@ import { shareInbox, useUnreadCounts } from "@/lib/social/realtime";
 import { ExploreProvider, useExplore } from "./ExploreContext";
 import { ProfileForm } from "./ProfileForm";
 import { NewPostButton } from "./create/CreateSheet";
+import { useFocusHandOff } from "./useFocusHandOff";
 import styles from "./Explore.module.css";
 
 /** Explore's frame: the member's session and profile, the first-time profile step, and Explore's own navigation. */
@@ -26,9 +27,26 @@ export function ExploreShell({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Where focus goes when the first-time setup gives way to Explore after "Create profile" (D5): Explore's link for the
+ * page now open, else that page's heading (focusable from script, as the skip link does with its target), else
+ * Explore's first link.
+ */
+function afterSetup(shell: HTMLElement | null): HTMLElement | null {
+  const nav = shell?.querySelector<HTMLElement>('nav[aria-label="Explore"]');
+  const current = nav?.querySelector<HTMLElement>('a[aria-current="page"]');
+  if (current) return current;
+  const heading = shell?.querySelector<HTMLElement>("h1");
+  if (heading && !heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+  return heading ?? nav?.querySelector<HTMLElement>("a") ?? null;
+}
+
 function Gate({ children }: { children: ReactNode }) {
   const { status, refresh, me } = useExplore();
   const pathname = usePathname() ?? "/explore";
+  // "Create profile" takes the setup, and the button with focus, off the page: focus goes on into Explore.
+  const shell = useRef<HTMLDivElement>(null);
+  const [setupRef] = useFocusHandOff(() => afterSetup(shell.current));
   if (status === "loading") {
     return (
       <div className={styles.shell} aria-busy="true" aria-label="Loading Explore">
@@ -71,9 +89,9 @@ function Gate({ children }: { children: ReactNode }) {
       />
     );
   }
-  if (status === "setup") return <Setup />;
+  if (status === "setup") return <Setup ref={setupRef} />;
   return (
-    <div className={styles.shell}>
+    <div ref={shell} className={styles.shell}>
       <ExploreNav />
       {children}
     </div>
@@ -94,7 +112,7 @@ function Status({ title, text, action, icon: Icon = Compass }: { title: string; 
   );
 }
 
-function Setup() {
+function Setup({ ref }: { ref?: Ref<HTMLDivElement> }) {
   const { session, setMe } = useExplore();
   const context = useOptionalUserContext();
   const name = context?.data?.profile?.name ?? "";
@@ -103,7 +121,7 @@ function Setup() {
   const waiting = context?.status === "loading";
   if (!session) return null;
   return (
-    <div className={styles.shell}>
+    <div ref={ref} className={styles.shell}>
       <section className={styles.stage} aria-labelledby="explore-setup-title">
         {/* eslint-disable-next-line @next/next/no-img-element -- a local, pre-sized still */}
         <img src={hero.src} alt="" className={styles.stagePhoto} style={{ objectPosition: "60% 45%" }} />

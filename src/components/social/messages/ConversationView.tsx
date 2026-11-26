@@ -17,12 +17,16 @@ import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
 import { ReportSheet } from "../ReportSheet";
 import { useFocusAfterRender } from "../useFocusAfterRender";
+import { useShowMoreFocus } from "../useFocusHandOff";
 import { SocialPhoto } from "../SocialPhoto";
 import styles from "./Messages.module.css";
 import exploreStyles from "../Explore.module.css";
 
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const unsentId = (id: string) => `message-${id}-unsent`;
+const optionsId = (id: string) => `message-${id}-options`;
+/** A message's own control: its options button, or (unsent) the line in its place. */
+const messageControl = (id: string) => document.getElementById(optionsId(id)) ?? document.getElementById(unsentId(id));
 
 /** /explore/messages/[id]: one conversation, the request banner, the composer, unsend and report. */
 export function ConversationView({ id }: { id: string }) {
@@ -43,6 +47,10 @@ export function ConversationView({ id }: { id: string }) {
   const stick = useRef(true);
   const focusAfter = useFocusAfterRender();
   const adult = me.age_band === undefined || me.age_band === "adult";
+  // "Show earlier messages" goes once the oldest page is in: if it had focus, the oldest message takes it, at the top of
+  // the conversation where the button was (D5). The thread shows the messages oldest first.
+  const shownOrder = [...messages].reverse().map((message) => message.id);
+  const [earlierRef, earlierHasFocus] = useShowMoreFocus(shownOrder, messageControl, () => (shownOrder[0] ? messageControl(shownOrder[0]) : null));
 
   const load = useCallback(async () => {
     try {
@@ -88,9 +96,13 @@ export function ConversationView({ id }: { id: string }) {
     const before = element ? element.scrollHeight - element.scrollTop : 0;
     try {
       const page = await messagesApi.messages(db, id, { at: last.created_at, id: last.id });
+      const oldest = page.messages.length < GROUP_LIMITS.messagesPage;
+      // The view stays where the member was reading, unless the button goes with focus on it: focus then takes the view
+      // to the oldest message, in the button's place.
+      const handOff = oldest && earlierHasFocus();
       setMessages((current) => mergeNewest(current, page.messages));
-      setOlder(page.messages.length < GROUP_LIMITS.messagesPage ? "done" : "idle");
-      requestAnimationFrame(() => { if (element) element.scrollTop = element.scrollHeight - before; });
+      setOlder(oldest ? "done" : "idle");
+      if (!handOff) requestAnimationFrame(() => { if (element) element.scrollTop = element.scrollHeight - before; });
     } catch (failure) {
       toast.error(messageErrorText(failure));
       setOlder("idle");
@@ -231,7 +243,7 @@ export function ConversationView({ id }: { id: string }) {
         >
           {/* The button stays (aria-disabled) while it loads, so keyboard focus stays on it instead of falling to the page. */}
           {older !== "done" && messages.length >= GROUP_LIMITS.messagesPage && (
-            <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet} self-center`} aria-disabled={older === "busy" || undefined} onClick={() => void loadOlder()}>
+            <button type="button" ref={earlierRef} className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet} self-center`} aria-disabled={older === "busy" || undefined} onClick={() => void loadOlder()}>
               {older === "busy" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading earlier messages</> : "Show earlier messages"}
             </button>
           )}
@@ -362,6 +374,7 @@ function Bubble({ message, plainLinks, onActions }: { message: DirectMessage; pl
         </div>
         <button
           type="button"
+          id={optionsId(message.id)}
           className={styles.more}
           onClick={onActions}
           aria-haspopup="dialog"

@@ -5,12 +5,13 @@ import { Compass, ImagePlus, Loader2 } from "lucide-react";
 import { Reveal } from "@/components/motion/Reveal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { nextCursor, socialApi, type Cursor, type SocialPost } from "@/lib/social";
-import { focusAfterRemoval, postOptionsId } from "@/lib/social/focus";
+import { focusAfterRemoval, postAuthorId, postOptionsId } from "@/lib/social/focus";
 import { FEED_TOP_SLOT } from "@/lib/social/slots";
 import { useReadyExplore } from "./ExploreContext";
 import { PostCard } from "./PostCard";
 import { Suggestions } from "./Suggestions";
 import { useFocusAfterRender } from "./useFocusAfterRender";
+import { useShowMoreFocus } from "./useFocusHandOff";
 import { usePaged, useSentinel } from "./usePaged";
 import styles from "./Explore.module.css";
 
@@ -33,6 +34,9 @@ export function FeedView() {
     feed.remove(id);
     focusAfter(focusAfterRemoval(order, [postOptionsId(id)]), () => document.getElementById("feed-empty"));
   };
+  // Show more goes once the last page is in: if it had focus, the first post that page added takes it, else the
+  // "You are up to date." line in its place (D5).
+  const [showMoreRef] = useShowMoreFocus(feed.items.map((post) => post.id), (id) => document.getElementById(postAuthorId(id)), () => document.getElementById("feed-end"));
 
   return (
     <>
@@ -60,12 +64,12 @@ export function FeedView() {
           ))}
           {feed.items.length > 0 && !feed.done && (
             <div className="flex justify-center">
-              <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={feed.more} aria-disabled={feed.status === "more" || undefined}>
+              <button type="button" ref={showMoreRef} className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={feed.more} aria-disabled={feed.status === "more" || undefined}>
                 {feed.status === "more" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading</> : "Show more"}
               </button>
             </div>
           )}
-          {feed.items.length > 0 && feed.done && <p className={`${styles.note} text-center`}>You are up to date.</p>}
+          {feed.items.length > 0 && feed.done && <p id="feed-end" tabIndex={-1} className={`${styles.note} text-center`}>You are up to date.</p>}
           {feed.status === "error" && feed.items.length > 0 && <p className={styles.alert} role="alert">{feed.error}</p>}
           <div ref={sentinel} className={styles.sentinel} aria-hidden="true" />
         </div>

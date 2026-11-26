@@ -239,16 +239,20 @@
 .profileActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .lock { display: flex; flex-direction: column; align-items: center; gap: 10px; border: 1px solid var(--fitx-border); border-radius: 22px; padding: 36px 20px; text-align: center; }
 
-/* Composer */
-.picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-@media (min-width: 640px) { .picker { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+/* Composer. A photo's tools are 44 px touch targets (D4): Remove in its top corner, the two moves in the bottom ones.
+   A tile is never narrower than two of them side by side (6 + 44 + 4 + 44 + 6 = 104 px), so the grid takes as many
+   columns as that allows: 2 on a 320 px phone, 3 from 360 px, up to 5 in the 640 px column. */
+.picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
 .pick { position: relative; overflow: hidden; aspect-ratio: 4 / 5; border-radius: 14px; background: var(--fitx-surface-variant); }
 .pick img { width: 100%; height: 100%; object-fit: cover; }
-.pickTools { position: absolute; inset: auto 6px 6px; display: flex; justify-content: space-between; gap: 4px; }
+.pickRemove { position: absolute; top: 6px; right: 6px; }
+.pickMoves { position: absolute; inset: auto 6px 6px; display: flex; justify-content: space-between; gap: 4px; }
 .pickTool {
-  display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 999px; background: color-mix(in srgb, var(--fitx-surface) 92%, transparent);
-  color: var(--fitx-text);
+  display: inline-flex; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; border-radius: 999px;
+  background: color-mix(in srgb, var(--fitx-surface) 92%, transparent); color: var(--fitx-text);
 }
+/* A mouse, with no touch screen, keeps the compact 32 px from 640 px up (as the public footer's links do). */
+@media (min-width: 640px) and (pointer: fine) and (not (any-pointer: coarse)) { .pickTool { width: 32px; height: 32px; } }
 .pickTool:disabled { opacity: .4; }
 .pickTool:focus-visible { outline: 2px solid var(--fitx-primary); }
 .pickIndex { position: absolute; top: 6px; left: 6px; border-radius: 999px; padding: 2px 8px; background: color-mix(in srgb, var(--fitx-scrim) 60%, transparent); color: var(--fitx-on-stage); font-size: 12px; font-weight: 700; }

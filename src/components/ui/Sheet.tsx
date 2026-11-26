@@ -3,7 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
 import { backdropTaps } from "./sheet-backdrop";
-import { returnFocusTarget } from "./sheet-focus";
+import { returnFocusTarget, revealBy } from "./sheet-focus";
 import styles from "./Sheet.module.css";
 
 type SheetProps = {
@@ -47,6 +47,19 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
   const named = useRef(returnFocus);
   useEffect(() => { named.current = returnFocus; });
   const titleId = `${useId()}-sheet-title`;
+  const content = useRef<HTMLDivElement>(null);
+  const noticeKey = notice ? `${notice.tone}:${notice.id ?? ""}:${notice.text}` : null;
+
+  // A notice takes its room from the content, from below, and the content does not scroll by itself: the control the
+  // member just used, often at the end of the content, stays in full view, with its focus ring (reg-explore-1). Only
+  // sheets that pass `notice` ever get here.
+  useLayoutEffect(() => {
+    const box = content.current;
+    const focused = document.activeElement;
+    if (!noticeKey || !box || !(focused instanceof HTMLElement) || !box.contains(focused)) return;
+    const by = revealBy(box.getBoundingClientRect(), focused.getBoundingClientRect());
+    if (by) box.scrollTop += by;
+  }, [noticeKey]);
 
   useLayoutEffect(() => {
     const dialog = ref.current;
@@ -100,7 +113,7 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
             </div>
             <button type="button" className={styles.close} onClick={onClose} aria-label="Close"><X size={18} aria-hidden="true" /></button>
           </header>
-          <div className={styles.content}>{children}</div>
+          <div ref={content} className={styles.content}>{children}</div>
           {notice !== undefined && (
             <div className={styles.notices}>
               {/* Confirmations go to a polite region that is always there; errors are a new alert each time. */}

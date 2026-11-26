@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Inbox, Loader2, MessageCircle, Settings2, SquarePen } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -15,6 +15,7 @@ import { unreadLabel, useInboxRefresh, useUnreadCounts } from "@/lib/social/real
 import { AgeNotice } from "../AgeNotice";
 import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
+import { useShowMoreFocus } from "../useFocusHandOff";
 import { useNotice } from "../useNotice";
 import { NewMessageSheet } from "./NewMessageSheet";
 import { SendTo } from "./SendTo";
@@ -142,6 +143,14 @@ function ConversationList({ box, version, onCompose }: { box: InboxBox; version:
   const [items, setItems] = useState<ConversationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [more, setMore] = useState<"idle" | "busy" | "done">("idle");
+  // Show more goes once the last page is in: if it had focus, the first conversation that page added takes it, else
+  // the last one (D5).
+  const rows = useRef<HTMLUListElement>(null);
+  const [showMoreRef] = useShowMoreFocus(
+    (items ?? []).map((item) => item.id),
+    (id) => rows.current?.querySelector<HTMLElement>(`a[data-conversation-id="${id}"]`) ?? null,
+    () => rows.current?.querySelector<HTMLElement>("li:last-child > a") ?? null,
+  );
 
   useEffect(() => {
     let live = true;
@@ -192,12 +201,12 @@ function ConversationList({ box, version, onCompose }: { box: InboxBox; version:
   }
   return (
     <>
-      <ul className={styles.list} aria-label={box === "inbox" ? "Conversations" : "Message requests"}>
+      <ul ref={rows} className={styles.list} aria-label={box === "inbox" ? "Conversations" : "Message requests"}>
         {items.map((item) => {
           const unread = item.unread > 0;
           return (
             <li key={item.id}>
-              <Link href={`/explore/messages/${item.id}`} className={`${styles.row} ${unread ? styles.rowUnread : ""}`}
+              <Link href={`/explore/messages/${item.id}`} className={`${styles.row} ${unread ? styles.rowUnread : ""}`} data-conversation-id={item.id}
                 aria-label={`${item.other.display_name}, @${item.other.username}${unread ? `, ${unreadLabel(item.unread)}` : ""}`}>
                 <Avatar user={item.other} size={48} />
                 <span className={styles.rowText}>
@@ -215,7 +224,7 @@ function ConversationList({ box, version, onCompose }: { box: InboxBox; version:
       </ul>
       {more !== "done" && (
         <div className="flex justify-center">
-          <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} onClick={() => void loadMore()} aria-disabled={more === "busy" || undefined}>
+          <button type="button" ref={showMoreRef} className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} onClick={() => void loadMore()} aria-disabled={more === "busy" || undefined}>
             {more === "busy" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading</> : "Show more"}
           </button>
         </div>

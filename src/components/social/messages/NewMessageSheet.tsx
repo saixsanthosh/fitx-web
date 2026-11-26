@@ -28,7 +28,7 @@ type Props = {
 /**
  * Starts a conversation: choose a person, write the first message, send. Whether it can go, and whether it waits in
  * Requests, is the other member's setting, which the sheet cannot see: it says so before sending and, when the message
- * is not taken, says what the member can do (without the other member's age or settings).
+ * is not taken, says so plainly, in words that are true whatever the reason (never the other member's age or settings).
  */
 export function NewMessageSheet({ db, userId, open, onClose, initial = null, following = null, returnFocus }: Props) {
   const router = useRouter();
