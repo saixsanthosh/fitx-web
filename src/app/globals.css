@@ -343,14 +343,16 @@
 
 * { box-sizing: border-box; }
 /* When the browser scrolls a control into view (Tab, scrollIntoView, an anchor), it keeps these clear: at the top
-   the sticky header; at the bottom whatever is fixed there, the phone's bar or the privacy banner while it is open
-   (each sets its own inset while it shows: components/layout/bottom-inset.ts), plus room for the focus ring. That
-   bottom room is --fitx-scroll-room-bottom: a scroll adds an element's own scroll-margin-bottom to it, so an element
-   that keeps something else clear (the coach's composer: Coach.module.css .end) asks only for what goes beyond it. */
+   the sticky header; at the bottom whatever is fixed there, the phone's bar or the privacy banner while it is open,
+   or a page's own bars over its foot while they show (the live workout's rest timer and Previous and Next: the
+   "foot" inset, read here only) (each sets its own inset while it shows: components/layout/bottom-inset.ts), plus
+   room for the focus ring. That bottom room is --fitx-scroll-room-bottom: a scroll adds an element's own
+   scroll-margin-bottom to it, so an element that keeps something else clear (the coach's composer:
+   Coach.module.css .end) asks only for what goes beyond it. */
 html {
   min-height: 100%;
   -webkit-text-size-adjust: 100%;
-  --fitx-scroll-room-bottom: calc(max(var(--fitx-inset-bottom-bar, 0px), var(--fitx-inset-consent, 0px)) + 12px);
+  --fitx-scroll-room-bottom: calc(max(var(--fitx-inset-bottom-bar, 0px), var(--fitx-inset-consent, 0px), var(--fitx-inset-page-foot, 0px)) + 12px);
   scroll-padding-top: 84px;
   scroll-padding-bottom: var(--fitx-scroll-room-bottom);
 }

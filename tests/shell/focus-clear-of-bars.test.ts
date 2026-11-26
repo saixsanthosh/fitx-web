@@ -146,8 +146,9 @@ test("globals.css keeps the larger of the two clear when scrolling to a control,
   const globals = css("src/app/globals.css");
   const html = globals.match(/^html \{([^}]*)\}/m)?.[1] ?? "";
   assert.match(html, /scroll-padding-top: 84px;/, "the sticky header, as before");
-  // The bottom room is one variable, so what keeps clear of it (the coach's end marker) reads the same value.
-  assert.match(html, /--fitx-scroll-room-bottom: calc\(max\(var\(--fitx-inset-bottom-bar, 0px\), var\(--fitx-inset-consent, 0px\)\) \+ 12px\);/);
+  // The bottom room is one variable, so what keeps clear of it (the coach's end marker) reads the same value. It also
+  // takes a page's own bars over its foot (the live workout's: tests/workouts/active-bars-scroll-padding.test.ts).
+  assert.match(html, /--fitx-scroll-room-bottom: calc\(max\(var\(--fitx-inset-bottom-bar, 0px\), var\(--fitx-inset-consent, 0px\), var\(--fitx-inset-page-foot, 0px\)\) \+ 12px\);/);
   assert.match(html, /scroll-padding-bottom: var\(--fitx-scroll-room-bottom\);/);
   const body = globals.match(/^body \{([^}]*)\}/m)?.[1] ?? "";
   assert.match(body, /padding-bottom: var\(--fitx-inset-consent, 0px\);/, "room at the page's end while the banner is open");

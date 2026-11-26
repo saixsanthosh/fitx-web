@@ -2,13 +2,33 @@
  * Keeping what the live workout says clear of its own bars at the window's foot (round 3d re-check: on a desktop,
  * Finish workout's reason showed under the buttons, its middle under the floating rest timer). The page fixes two bars
  * there: the rest timer (RestDock) while a rest runs and, on a phone, Previous and Next; both rise above the privacy
- * banner while it is open. When the browser brings something into view it keeps clear only what html's scroll padding
- * names (globals.css --fitx-scroll-room-bottom: the shell's phone bar or the open banner, plus 12 px), and it adds the
- * element's own scroll-margin-bottom to that padding; so an element that must also clear the page's bars asks for the
- * rest as its scroll margin, as the AI Coach's end marker does (Coach.module.css .end). Pure apart from the page given.
+ * banner while it is open. When the browser brings something into view it keeps clear what html's scroll padding names
+ * (globals.css --fitx-scroll-room-bottom, plus 12 px), and it adds the element's own scroll-margin-bottom to that
+ * padding. Since round 3f the two bars are in that padding themselves: while they show they set the shell's "foot"
+ * inset (bottom-inset.ts, through footBarRef), so a control reached with Tab stops above them too. revealAboveFoot's
+ * scroll margin asks only for what goes beyond the padding, which is then nothing; it stays for a bar not measured
+ * yet. Pure apart from the page given.
  */
 import { bottomInset, fixedAreaHeight, type InsetBox } from "@/components/layout/bottom-inset";
 import { focusLost, type FocusState } from "@/lib/workouts/focus-heading";
+
+/**
+ * A callback ref for one of the page's bars fixed over its foot. It keeps `holder` pointing at the bar (what
+ * revealAboveFoot measures) and, while the bar is in the page, has `track` keep html's scroll padding clear of it (the
+ * shell's trackBottomInset under "foot"; it returns the way to stop). React 19 runs the cleanup returned here when the
+ * bar leaves the page (the rest ends), and then nothing is kept clear for it any more.
+ */
+export function footBarRef<T extends object>(holder: { current: T | null }, track: (bar: T) => () => void) {
+  return (bar: T | null) => {
+    holder.current = bar;
+    if (!bar) return undefined;
+    const stop = track(bar);
+    return () => {
+      stop();
+      if (holder.current === bar) holder.current = null;
+    };
+  };
+}
 
 /** The room left between what is brought into view and the bar under it: html's scroll padding leaves the same. */
 export const FOOT_ROOM = 12;

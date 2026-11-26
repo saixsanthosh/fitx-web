@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Check, ChevronLeft, ChevronRight, History, Info, Pause, Play, Plus, Smartphone, Square, Trophy, Volume2, VolumeX, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
+import { trackBottomInset } from "@/components/layout/bottom-inset";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { CountWithCamera, cameraFitsSet, cameraRuleFor, type CameraCountResult } from "@/components/form-coach";
 import { ExerciseDemo } from "@/components/session/ExerciseDemo";
@@ -37,7 +38,7 @@ import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMN
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { readWithOptional, recordHref, stripStats } from "../history/_lib/session-record";
 import { exerciseProblem, problemAfterExerciseChange, type ActionProblem } from "./_lib/action-problem";
-import { browserFootPage, revealAboveFoot } from "./_lib/foot-clearance";
+import { browserFootPage, footBarRef, revealAboveFoot } from "./_lib/foot-clearance";
 import { formatHistorySet, lastTimeForSet, summariseLastTime } from "./_lib/last-time";
 import { SESSION_NOT_FOUND, sessionLinkFrom, type SessionLink } from "./_lib/session-link";
 import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId } from "./_lib/set-entry";
@@ -186,6 +187,11 @@ export default function ActiveWorkoutPage() {
   const finishBarRef = useRef<HTMLElement>(null);
   const restDockRef = useRef<HTMLElement>(null);
   const stepBarRef = useRef<HTMLDivElement>(null);
+  // While they show, the rest timer and the phone's Previous and Next set the shell's "foot" inset, which html's scroll
+  // padding reads (and nothing else): a control reached with Tab then stops above them, as it does above the phone's
+  // bar and the privacy banner (round 3e open item). With neither showing, nothing changes.
+  const restDockAttach = useMemo(() => footBarRef(restDockRef, (bar) => trackBottomInset(bar, "foot")), []);
+  const stepBarAttach = useMemo(() => footBarRef(stepBarRef, (bar) => trackBottomInset(bar, "foot")), []);
   useEffect(() => {
     if (problem?.at === "finish" && finishBarRef.current) revealAboveFoot(finishBarRef.current, [restDockRef.current, stepBarRef.current], browserFootPage());
   }, [problem]);
@@ -887,10 +893,10 @@ export default function ActiveWorkoutPage() {
       {cues.keepAwake && wakeLock !== "off" && <span role="status" className="text-fitx-text-secondary">{wakeLock === "on" ? "The screen stays on while you train." : wakeLock === "unsupported" ? "This browser can’t keep the screen on." : "The screen couldn’t be kept on; battery saver can block it."}</span>}
     </div>
 
-    {resting && <RestDock ref={restDockRef} remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
+    {resting && <RestDock ref={restDockAttach} remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
     {/* Phones: Previous and Next at the window's foot, 8 px above the privacy banner while it is open (--fitx-inset-consent);
-        RestDock rises with them. */}
-    <div ref={stepBarRef} className="fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+.75rem),calc(var(--fitx-inset-consent,0px)+8px))] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} className="fitx-button fitx-button-secondary min-h-12 aria-disabled:opacity-60"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} className="fitx-button min-h-12 aria-disabled:opacity-60">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
+        RestDock rises with them. Both keep html's scroll padding clear of them while they show ("foot", above). */}
+    <div ref={stepBarAttach} className="fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+.75rem),calc(var(--fitx-inset-consent,0px)+8px))] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} className="fitx-button fitx-button-secondary min-h-12 aria-disabled:opacity-60"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} className="fitx-button min-h-12 aria-disabled:opacity-60">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
     {swapOpen && swapTarget && <SwapSheet target={swapTarget} catalog={catalog} owned={owned} level={level} exclude={new Set(exercises.flatMap((exercise) => (exercise.exercise_id ? [exercise.exercise_id] : [])))} contextLabel={ownedContext} onPick={(exercise) => void swapExercise(exercise)} onClose={() => setSwapOpen(false)} />}
   </div>;
 }

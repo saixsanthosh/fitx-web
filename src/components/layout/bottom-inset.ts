@@ -1,6 +1,6 @@
 /**
  * What a bar fixed to the bottom of the screen hides, so the page can keep it clear (bugs 12 and 79). Each such bar
- * measures itself and sets its own CSS variable on <html>; globals.css turns the larger one into the page's
+ * measures itself and sets its own CSS variable on <html>; globals.css turns the largest into the page's
  * scroll-padding-bottom, so a control reached with Tab (or brought into view by scrollIntoView) stops above the bar
  * with its focus ring showing, and, for the privacy banner, into extra room at the end of the page so even the last
  * control can be scrolled clear of it.
@@ -8,10 +8,17 @@
  * No imports and no React, so it is unit-tested; useBottomInsetRef.ts attaches it to an element.
  */
 
-/** The bars and the variables they set: the phone's bottom bar (BottomNav) and the privacy banner (AnalyticsConsent). */
+/**
+ * The bars and the variables they set: the phone's bottom bar (BottomNav), the privacy banner (AnalyticsConsent), and
+ * a page's own bars fixed over its foot ("foot": the live workout's rest timer and, on a phone, its Previous and Next;
+ * release 3 fix round 3f). Those rise above the open banner, so only html's scroll padding reads "foot": were the
+ * banner's place to read it, as it reads "bar", the banner would rise above bars that rise above it, and neither would
+ * ever settle. Several bars can set one variable; it then holds the most any of them hides (trackBottomInset).
+ */
 export const BOTTOM_INSETS = {
   bar: "--fitx-inset-bottom-bar",
   consent: "--fitx-inset-consent",
+  foot: "--fitx-inset-page-foot",
 } as const;
 export type BottomInsetName = keyof typeof BOTTOM_INSETS;
 
@@ -73,25 +80,45 @@ function browserHost(): InsetHost {
   };
 }
 
+/** What each bar tracked under one variable hides now (px), and the value written for them, per <html>. */
+type SharedInset = { written: string | null; hidden: Map<object, number> };
+const sharedInsets = new WeakMap<object, Map<string, SharedInset>>();
+
+function sharedInset(root: object, variable: string): SharedInset {
+  let byVariable = sharedInsets.get(root);
+  if (!byVariable) sharedInsets.set(root, (byVariable = new Map()));
+  let shared = byVariable.get(variable);
+  if (!shared) byVariable.set(variable, (shared = { written: null, hidden: new Map() }));
+  return shared;
+}
+
 /**
  * Keeps `name`'s variable on <html> equal to what `element` hides, now and through resizes (its own and the
  * window's), the element hiding (display: none at some widths) and another bar's change (a banner above the phone's
- * bar moves when the bar comes or goes). Returns the cleanup, which removes the variable.
+ * bar moves when the bar comes or goes). Returns the cleanup, which removes the variable. With several elements
+ * tracked under one name (a page's rest timer and its Previous and Next, both "foot"), the variable holds the most any
+ * of them hides, and an element's cleanup leaves what the others still hide.
  */
 export function trackBottomInset(element: { getBoundingClientRect(): InsetBox }, name: BottomInsetName, host: InsetHost = browserHost()): () => void {
   const { root, view } = host;
   const variable = BOTTOM_INSETS[name];
+  const shared = sharedInset(root, variable);
+  const self = {};
   let frame = 0;
-  let current: string | null = null;
   const announce = () => view.dispatchEvent(new CustomEvent(BOTTOM_INSET_EVENT, { detail: { name } }));
-  const measure = () => {
-    frame = 0;
-    const next = insetValue(bottomInset(element.getBoundingClientRect(), fixedAreaHeight(view.innerHeight, root.clientHeight)));
-    if (next === current) return;
-    current = next;
+  // The most the elements tracked under this name hide, or nothing when none hides anything; true when it changed.
+  const write = () => {
+    const next = insetValue(Math.max(0, ...shared.hidden.values()));
+    if (next === shared.written) return false;
+    shared.written = next;
     if (next) root.style.setProperty(variable, next);
     else root.style.removeProperty(variable);
-    announce();
+    return true;
+  };
+  const measure = () => {
+    frame = 0;
+    shared.hidden.set(self, bottomInset(element.getBoundingClientRect(), fixedAreaHeight(view.innerHeight, root.clientHeight)));
+    if (write()) announce();
   };
   const schedule = () => {
     if (!frame) frame = view.requestAnimationFrame(measure);
@@ -108,7 +135,7 @@ export function trackBottomInset(element: { getBoundingClientRect(): InsetBox },
     stopWatching();
     view.removeEventListener("resize", schedule);
     view.removeEventListener(BOTTOM_INSET_EVENT, onOther);
-    root.style.removeProperty(variable);
-    if (current) announce();
+    shared.hidden.delete(self);
+    if (write()) announce();
   };
 }
