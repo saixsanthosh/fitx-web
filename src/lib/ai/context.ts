@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, NUTRITION_FOCUS_OPTIONS, normalizeDietType, optionLabel, profileAge, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
 import { normalizePreferences, normalizeProfile, targetsFor } from "@/lib/domain/user-context";
-import { CLOCK_SKEW_MS } from "@/lib/activity/future";
+import { CLOCK_SKEW_MS, startsInFuture } from "@/lib/activity/future";
 import { clientMetricForUnit } from "@/lib/domain/goals";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
@@ -368,7 +368,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
     nutrition: nutritionSummary(sources.meals, today),
     my_custom_foods: shortList(sources.customFoods.map((food) => food.name), 15, 40),
     weight_trend: weightTrend(sources.weighIns, today),
-    training_last_28_days: trainingSummary(sources.sessions, sources.recentMuscles, today, daysPerWeek),
+    training_last_28_days: trainingSummary(sources.sessions, sources.recentMuscles, today, daysPerWeek, timeZone),
     personal_records: sources.records
       .filter((record) => cleanText(record.exercise_name, 60))
       .slice(0, 8)
@@ -376,7 +376,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
         exercise: cleanText(record.exercise_name, 60),
         best: positive(record.best_weight_kg) ? `${round1(Number(record.best_weight_kg))} kg x ${integer(record.best_reps, 1, 500) ?? 1}` : `${integer(record.best_reps, 1, 500) ?? 1} reps`,
         estimated_1rm_kg: positive(record.estimated_one_rep_max),
-        date: dateOnly(record.achieved_at),
+        date: memberDay(record.achieved_at, timeZone),
       })),
     active_goals: sources.goals
       .filter((goalRow) => cleanText(goalRow.title, 80))
@@ -391,7 +391,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
       other_events: sources.planner.filter((event) => event.event_type !== "workout").length,
     },
   };
-  if (options.activities && sources.activities) summary.activities_last_28_days = activitySummary(sources.activities, today);
+  if (options.activities && sources.activities) summary.activities_last_28_days = activitySummary(sources.activities, { today, timeZone, now });
   return { facts, summary };
 }
 
@@ -514,11 +514,12 @@ function weightTrend(entries: ContextSources["weighIns"], today: string) {
   return compact({ latest_kg: round1(Number(latest.weight)), latest_date: latest.date, change_30_days_kg: changeSince(30), change_90_days_kg: changeSince(90), weigh_ins_90_days: valid.length });
 }
 
-function trainingSummary(sessions: ContextSources["sessions"], muscles: string[], today: string, perWeek: number | null) {
+function trainingSummary(sessions: ContextSources["sessions"], muscles: string[], today: string, perWeek: number | null, timeZone: string) {
   const completed = sessions.filter((session) => session.status === "completed");
   const weeks = [0, 0, 0, 0];
   for (const session of completed) {
-    const age = daysBetween(dateOnly(session.started_at) ?? today, today);
+    // The member's own day, as `today` is: a 5 am workout in India is today's, not yesterday's UTC date.
+    const age = daysBetween(memberDay(session.started_at, timeZone) ?? today, today);
     if (age >= 0 && age < 28) weeks[3 - Math.floor(age / 7)] += 1;
   }
   return compact({
@@ -527,7 +528,7 @@ function trainingSummary(sessions: ContextSources["sessions"], muscles: string[]
     sessions_per_week_oldest_first: weeks,
     total_minutes: Math.round(completed.reduce((sum, session) => sum + num(session.duration_seconds), 0) / 60),
     total_volume_kg: Math.round(completed.reduce((sum, session) => sum + num(session.total_volume), 0)),
-    last_session: completed[0] ? dateOnly(completed[0].started_at) : null,
+    last_session: completed[0] ? memberDay(completed[0].started_at, timeZone) : null,
     muscles_trained_last_7_days: muscles.slice(0, 12),
   });
 }
@@ -535,8 +536,15 @@ function trainingSummary(sessions: ContextSources["sessions"], muscles: string[]
 /**
  * Activities of the last 28 days per sport: how many, distance (km, one decimal) and moving time (minutes), plus the
  * newest date. Distances are only summed when every activity of that sport has one (unknown is never 0).
+ *
+ * Only activities that have started count (lib/activity/future.ts, a few minutes of clock difference allowed): one a
+ * watch with the wrong clock dated in the future is in no total until then, as on Activity, Progress, Home and goals
+ * (bug 7). loadContextSources' query stops there too; this keeps the summary true whatever rows it is given. Dates are
+ * the member's own days, in their time zone as `today` is, so an evening walk west of UTC is not told as tomorrow's.
  */
-export function activitySummary(rows: NonNullable<ContextSources["activities"]>, today: string) {
+export function activitySummary(all: NonNullable<ContextSources["activities"]>, when: { today: string; timeZone: string; now: Date }) {
+  const { today, timeZone, now } = when;
+  const rows = all.filter((row) => !startsInFuture(Date.parse(row.started_at ?? ""), now.getTime()));
   const bySport = new Map<string, { count: number; km: number | null; minutes: number; climb_m: number | null }>();
   for (const row of rows) {
     const sport = cleanText(row.sport, 20);
@@ -550,7 +558,9 @@ export function activitySummary(rows: NonNullable<ContextSources["activities"]>,
     entry.climb_m = entry.climb_m === null || climb === null ? null : entry.climb_m + climb;
     bySport.set(sport, entry);
   }
-  const newest = rows.map((row) => dateOnly(row.started_at)).filter((date): date is string => Boolean(date)).sort().at(-1) ?? null;
+  const newestDay = rows.map((row) => memberDay(row.started_at, timeZone)).filter((date): date is string => Boolean(date)).sort().at(-1) ?? null;
+  // A start inside the clock allowance counts as now, so it is today's even when it falls just after midnight.
+  const newest = newestDay && newestDay > today ? today : newestDay;
   return {
     count: [...bySport.values()].reduce((sum, entry) => sum + entry.count, 0),
     by_sport: Object.fromEntries([...bySport].map(([sport, entry]) => [sport, compact({
@@ -644,6 +654,17 @@ function daysBetween(from: string, to: string) {
 
 function dateOnly(value: unknown) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : null;
+}
+
+/**
+ * The member's own calendar day (YYYY-MM-DD) for a stored time, in their time zone as `today` is, never the UTC date
+ * the timestamp happens to start with. A bare date is already a day and is kept as it is.
+ */
+function memberDay(value: unknown, timeZone: string): string | null {
+  if (typeof value !== "string") return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? localDate(new Date(time), timeZone) : null;
 }
 
 function text(value: unknown) {
