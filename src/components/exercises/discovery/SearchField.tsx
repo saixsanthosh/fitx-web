@@ -5,11 +5,14 @@ import { History, Search, X } from "lucide-react";
 
 /**
  * The library's search box with the member's recent searches (kept on this device) under it while it is empty.
- * Enter keeps the search in the recent list; each recent search can be reused or forgotten.
+ * Enter keeps the search in the recent list; each recent search can be reused or forgotten. The ×, a recent search
+ * and Clear recent go with their press: the page moves focus on (see _lib/library-focus.ts), never into the box.
  */
-export function SearchField({ value, onChange, onSubmit, recent, onPickRecent, onForgetRecent, onClearRecent }: {
+export function SearchField({ value, onChange, onClear, onSubmit, recent, onPickRecent, onForgetRecent, onClearRecent }: {
   value: string;
   onChange: (value: string) => void;
+  /** The × ("Clear the search"): empties the box (typing it empty is onChange). */
+  onClear: () => void;
   onSubmit: () => void;
   recent: readonly string[];
   onPickRecent: (term: string) => void;
@@ -37,7 +40,7 @@ export function SearchField({ value, onChange, onSubmit, recent, onPickRecent, o
           className="fitx-field pl-11 pr-12 [&::-webkit-search-cancel-button]:appearance-none"
         />
         {value && (
-          <button type="button" aria-label="Clear the search" onClick={() => onChange("")}
+          <button type="button" aria-label="Clear the search" onClick={onClear}
             className="absolute right-0.5 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-md text-fitx-text-secondary hover:text-fitx-text">
             <X size={17} aria-hidden="true" />
           </button>
@@ -50,7 +53,7 @@ export function SearchField({ value, onChange, onSubmit, recent, onPickRecent, o
             {recent.map((term) => (
               <li key={term} className="inline-flex items-center rounded-full border border-fitx-border bg-fitx-surface">
                 <button type="button" onClick={() => onPickRecent(term)} className="inline-flex min-h-11 items-center pl-3.5 pr-1 text-sm text-fitx-text hover:text-fitx-primary-text">{term}</button>
-                <button type="button" onClick={() => onForgetRecent(term)} aria-label={`Remove “${term}” from recent searches`} className="grid h-11 w-9 place-items-center rounded-full text-fitx-text-secondary hover:text-fitx-text">
+                <button type="button" onClick={() => onForgetRecent(term)} aria-label={`Remove “${term}” from recent searches`} data-recent-forget={term} className="grid h-11 w-9 place-items-center rounded-full text-fitx-text-secondary hover:text-fitx-text">
                   <X size={13} aria-hidden="true" />
                 </button>
               </li>

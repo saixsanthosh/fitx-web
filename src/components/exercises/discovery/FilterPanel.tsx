@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
 import { REGIONS, type RegionKey } from "@/lib/training/anatomy";
 import { MACHINES, MOVEMENTS, MOVEMENT_LABELS, NO_EQUIPMENT, type Movement } from "@/lib/training/catalog-search";
 import { CATEGORY_LABELS, EQUIPMENT_KEYS, EXERCISE_CATEGORIES, LEVELS, MECHANICS, type ExerciseCategory, type Level, type Mechanic } from "@/lib/training/taxonomy";
 import { browseByMuscleHref, toggleValue, usesLabel, type LibraryState } from "@/app/(dashboard)/exercises/_lib/library-state";
+import { focusLost } from "@/lib/workouts/focus-heading";
 
 const MUSCLE_SECTIONS: ReadonlyArray<{ title: string; regions: readonly RegionKey[] }> = [
   { title: "Upper body", regions: ["chest", "shoulders", "traps", "neck"] },
@@ -34,6 +35,15 @@ function Toggle({ on, onClick, children, hint }: { on: boolean; onClick: () => v
 
 function Section({ title, count, onClear, children, aside }: { title: string; count: number; onClear: () => void; children: ReactNode; aside?: ReactNode }) {
   const headingId = useId();
+  // Clear shows only while something here is chosen, so it goes with its press: once the section is cleared, its first
+  // option takes focus, where the member can choose again (D5).
+  const options = useRef<HTMLDivElement>(null);
+  const cleared = useRef(false);
+  useEffect(() => {
+    if (!cleared.current || count > 0) return;
+    cleared.current = false;
+    if (focusLost(document)) options.current?.querySelector<HTMLElement>("button")?.focus();
+  }, [count]);
   return (
     <section role="group" aria-labelledby={headingId} className="min-w-0">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -42,10 +52,10 @@ function Section({ title, count, onClear, children, aside }: { title: string; co
         </h3>
         <span className="flex items-center gap-3">
           {aside}
-          {count > 0 && <button type="button" onClick={onClear} aria-label={`Clear ${title.toLowerCase()}`} className="min-h-11 text-xs font-semibold text-fitx-primary-text underline underline-offset-4">Clear</button>}
+          {count > 0 && <button type="button" onClick={() => { cleared.current = true; onClear(); }} aria-label={`Clear ${title.toLowerCase()}`} className="min-h-11 text-xs font-semibold text-fitx-primary-text underline underline-offset-4">Clear</button>}
         </span>
       </div>
-      <div className="flex flex-wrap gap-2">{children}</div>
+      <div ref={options} className="flex flex-wrap gap-2">{children}</div>
     </section>
   );
 }

@@ -27,6 +27,7 @@ import { FOCUS_AREAS, FOCUS_COUNT_NOTE } from "@/lib/training/focus";
 import { FREE_EXERCISE_DB_SOURCE_URL } from "@/lib/training/media";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
+import { focusHeading, focusLost } from "@/lib/workouts/focus-heading";
 import { useRetryFocus, type ReloadPhase } from "@/lib/workouts/retry-focus";
 import styles from "@/components/exercises/discovery/Library.module.css";
 import { buildVocabulary, highlightRanges, suggestSpelling } from "@/lib/training/search-terms";
@@ -52,6 +53,7 @@ import {
   type LibraryState,
 } from "./_lib/library-state";
 import { listsLoadNote } from "./_lib/equipment-lists";
+import { LIBRARY_MARKS, findMarked, libraryFocusAfter, waitsForResults, type LibraryFocus, type LibraryPress } from "./_lib/library-focus";
 import { replaceSearch, useCatalogue, useLibraryAccount, useSavedExercises, useUrlSearch } from "./_lib/use-library";
 
 const PAGE_SIZE = 24;
@@ -110,6 +112,13 @@ export default function ExerciseLibraryPage() {
   const editListLink = useRef<HTMLAnchorElement>(null);
   const [listSaved, setListSaved] = useState(0);
   useEffect(() => { if (listSaved) editListLink.current?.focus(); }, [listSaved]);
+  // Chips, Clear all, recent searches, the search box's ×, the no-results suggestions and "Filter by …" go with their
+  // press (D5): where focus goes then is _lib/library-focus.ts's decision, carried out below once the page has
+  // changed.
+  const [libraryFocus, setLibraryFocus] = useState<{ target: LibraryFocus; seq: number } | null>(null);
+  const handledLibraryFocus = useRef(0);
+  const focusAfter = (press: LibraryPress) => setLibraryFocus((current) => ({ target: libraryFocusAfter(press), seq: (current?.seq ?? 0) + 1 }));
+  const filtersButton = useRef<HTMLButtonElement>(null);
 
   // Links from earlier versions (?equipment=, ?location=, a single ?muscle=full_body) are rewritten once.
   useEffect(() => {
@@ -268,6 +277,20 @@ export default function ExerciseLibraryPage() {
   // Main-muscle results, what the member can do of those, and the ones that only assist (the same "you can do" as Workouts).
   const countLine = result && result.items.length ? resultCountLine(result.items, { focused: view.focus.length > 0, doableOnly: view.doable, ownedKnown: owned !== null }) : null;
   const levelChoice = quickLevel(state);
+  useEffect(() => {
+    if (!libraryFocus || libraryFocus.seq === handledLibraryFocus.current) return;
+    const { target } = libraryFocus;
+    // The results heading says the new count: wait until the results for the new choice are shown.
+    if (waitsForResults(target) && (updating || (!result && catalogue.status !== "error"))) return;
+    handledLibraryFocus.current = libraryFocus.seq;
+    if (target.to === "results") { focusHeading(document, RESULTS_TITLE, { keepScroll: true }); return; }
+    if (!focusLost(document)) return;
+    const marked = (root: ParentNode | null, attribute: string, value: string) => findMarked(root?.querySelectorAll<HTMLElement>(`[${attribute}]`) ?? [], attribute, value);
+    const control = target.to === "filters" ? filtersButton.current
+      : target.to === "chip" ? marked(document, LIBRARY_MARKS.chip, target.id)
+        : marked(document, LIBRARY_MARKS.recent, target.term);
+    control?.focus();
+  }, [libraryFocus, updating, result, catalogue.status]);
   // Try again swaps its alert for loading, taking the button with it (D5). Once the member's details have loaded the
   // page's h1 takes focus; once the library has, the results heading (when the results are worked out). When it failed
   // again, the new Try again does. The page stays where it is for touch.
@@ -314,18 +337,19 @@ export default function ExerciseLibraryPage() {
           <SearchField
             value={state.q}
             onChange={(value) => update({ q: value })}
+            onClear={() => { update({ q: "" }); focusAfter({ control: "clear-search" }); }}
             onSubmit={rememberCurrentSearch}
             recent={recentSearches}
-            onPickRecent={(term) => { update({ q: term }); if (userId) setRecentSearches(rememberSearch(userId, term)); }}
-            onForgetRecent={(term) => { if (userId) setRecentSearches(forgetSearch(userId, term)); }}
-            onClearRecent={() => { if (userId) setRecentSearches(clearRecentSearches(userId)); }}
+            onPickRecent={(term) => { update({ q: term }); if (userId) setRecentSearches(rememberSearch(userId, term)); focusAfter({ control: "pick-recent" }); }}
+            onForgetRecent={(term) => { if (!userId) return; focusAfter({ control: "forget-recent", recent: recentSearches, term }); setRecentSearches(forgetSearch(userId, term)); }}
+            onClearRecent={() => { if (!userId) return; setRecentSearches(clearRecentSearches(userId)); focusAfter({ control: "clear-recent" }); }}
           />
           <div className="flex gap-2">
             <button type="button" aria-pressed={state.saved} onClick={() => update({ saved: !state.saved })} disabled={!userId}
               className={`fitx-button min-h-12 flex-1 px-3.5 sm:flex-none ${state.saved ? "" : "fitx-button-secondary"}`}>
               <Bookmark size={15} aria-hidden="true" />Saved{saved.ready && <span className="tabular-nums">{saved.ids.length}</span>}
             </button>
-            <button type="button" aria-expanded={filtersOpen} aria-controls="exercise-filters" onClick={() => setFiltersOpen((open) => !open)}
+            <button ref={filtersButton} type="button" aria-expanded={filtersOpen} aria-controls="exercise-filters" onClick={() => setFiltersOpen((open) => !open)}
               className="fitx-button fitx-button-secondary min-h-12 flex-1 px-3.5 sm:flex-none">
               <SlidersHorizontal size={15} aria-hidden="true" />Filters
               {panelFilterCount(state) > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-fitx-primary px-1 text-[10px] text-fitx-on-primary">{panelFilterCount(state)}</span>}
@@ -347,7 +371,7 @@ export default function ExerciseLibraryPage() {
           <p className="m-0 flex flex-wrap items-center gap-x-2 text-sm text-fitx-text-secondary">
             <Sparkles size={14} aria-hidden="true" className="text-fitx-primary" />
             <span>“{wordFilter.word}” reads as {wordFilter.label.toLowerCase()}.</span>
-            <button type="button" onClick={() => navigate(wordFilter.next)} className="inline-flex min-h-11 items-center font-semibold text-fitx-primary-text underline underline-offset-4">Filter by {wordFilter.label}</button>
+            <button type="button" onClick={() => { navigate(wordFilter.next); focusAfter({ control: "word-filter" }); }} className="inline-flex min-h-11 items-center font-semibold text-fitx-primary-text underline underline-offset-4">Filter by {wordFilter.label}</button>
           </p>
         )}
         {filtersOpen && <div className="fitx-panel p-3.5 sm:p-5"><FilterPanel id="exercise-filters" state={state} onChange={navigate} /></div>}
@@ -362,8 +386,10 @@ export default function ExerciseLibraryPage() {
         {saved.moved > 0 && <p role="status" className="m-0 text-xs text-fitx-text-secondary">{saved.moved === 1 ? "1 saved exercise" : `${saved.moved} saved exercises`} moved from this device to your account.</p>}
         <ActiveFilters chips={chipItems} onRemove={(id) => {
           const chip = chips.find((item) => `${item.key}:${item.value}` === id);
-          if (chip) navigate(withoutChip(state, chip));
-        }} onClearAll={() => navigate(withoutFilters(state))} />
+          if (!chip) return;
+          focusAfter({ control: "remove-chip", chips: chipItems.map((item) => item.id), id });
+          navigate(withoutChip(state, chip));
+        }} onClearAll={() => { navigate(withoutFilters(state)); focusAfter({ control: "clear-all" }); }} />
       </section>
 
       {!searching && (
@@ -463,25 +489,26 @@ export default function ExerciseLibraryPage() {
           view.saved && !userId ? (
             <NoResults title="Saved exercises unavailable" options={[]} onRelax={() => undefined}
               description={account.status === "error" ? "Your account could not be checked." : "Sign in to save exercises."}
-              clearLabel="Show all exercises" onClear={() => update({ saved: false })} />
+              clearLabel="Show all exercises" onClear={() => { update({ saved: false }); focusAfter({ control: "show-all" }); }} />
           ) : view.saved && !saved.ids.length ? (
             <NoResults title="No saved exercises yet" options={[]} onRelax={() => undefined}
               description={`Tap the bookmark on any exercise${saved.store === "account" ? "" : ". Saved on this device"}.`}
-              clearLabel="Show all exercises" onClear={() => update({ saved: false })} />
+              clearLabel="Show all exercises" onClear={() => { update({ saved: false }); focusAfter({ control: "show-all" }); }} />
           ) : (
             <NoResults
               title="No exercises match"
               description={view.q.trim() ? `Nothing matches “${view.q.trim()}”${chips.length ? " with these filters" : ""}.` : "No exercise matches all of these filters."}
               spelling={spelling}
-              onSpelling={(text) => update({ q: text })}
+              onSpelling={(text) => { update({ q: text }); focusAfter({ control: "spelling" }); }}
               options={relax.map((item) => ({ id: item.facet, label: relaxLabel(item.facet, view), count: item.count }))}
               onRelax={(facet) => {
                 const next = relaxState(facet as QueryFacet, state);
                 // Leaving home keeps the equipment the count was made with, rather than switching to the Gym list.
                 navigate(facet === "environment" && haveKeys ? { ...next, have: [...haveKeys] } : next);
+                focusAfter({ control: "relax" });
               }}
               clearLabel="Clear search and filters"
-              onClear={() => navigate({ ...withoutFilters(state), q: "" })}
+              onClear={() => { navigate({ ...withoutFilters(state), q: "" }); focusAfter({ control: "clear-search-and-filters" }); }}
             />
           )
         ) : (
