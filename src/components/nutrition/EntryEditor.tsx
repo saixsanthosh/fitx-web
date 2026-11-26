@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
-import { describePortion, formatAmount } from "@/lib/domain/food-query";
+import { describePortion, formatAmount, portionName } from "@/lib/domain/food-query";
 import type { FoodPortion } from "@/lib/domain/food-query";
 import { scaleMacros } from "@/lib/domain/nutrition";
 import { entryPer100g, type MealEntry, type MealSnapshot } from "@/lib/food/client-data";
@@ -81,7 +81,7 @@ export function EntryEditor({ entry, busy, sections, onCancel, onSave }: {
         <label>Amount<input ref={first} className="fitx-field" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={!per100} onChange={(event) => { setAmount(event.target.value); setProblem(""); }}/></label>
         <label>Unit<select className="fitx-field" value={unit} disabled={!per100 || !portion} onChange={(event) => changeUnit(event.target.value === "portion" ? "portion" : "g")}>
           <option value="g">grams (g)</option>
-          {portion && <option value="portion">{portion.label} · {formatAmount(portion.grams)} g</option>}
+          {portion && <option value="portion">{portionName(portion)} · {formatAmount(portion.grams)} g</option>}
         </select></label>
         <label>Meal<select ref={mealField} className="fitx-field" value={meal} onChange={(event) => setMeal(event.target.value)}>{(sections.includes(entry.meal) ? sections : [...sections, entry.meal]).map((slot) => <option key={slot}>{slot}</option>)}</select></label>
         <label>Date<input className="fitx-field" type="date" value={date} onChange={(event) => setDate(event.target.value)}/></label>

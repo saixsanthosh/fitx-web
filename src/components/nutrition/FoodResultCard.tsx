@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { formatAmount } from "@/lib/domain/food-query";
+import { formatAmount, portionName } from "@/lib/domain/food-query";
 import type { FoodResult } from "@/lib/food/types";
 import { FITX_RECIPE_SOURCE } from "@/lib/food/value-basis";
 import { BasisBadge, DietBadge, StateTag } from "./FoodBadges";
@@ -26,7 +26,7 @@ export function FoodResultCard({ food, active, dietUnchecked = false, onSelect }
           <StateTag state={food.state}/>
           <DietBadge diet={food.dietType}/>
           {dietUnchecked && <span className={styles.tag} title="FITX has no diet label for this food, so the diet filter can't hide it. Check its ingredients.">Diet not checked</span>}
-          {piece && <span className={styles.tag}>{piece.label} · {formatAmount(piece.grams)} g</span>}
+          {piece && <span className={styles.tag}>{portionName(piece)} · {formatAmount(piece.grams)} g</span>}
         </span>
         <span className={styles.foodMacros}>{(["protein", "carbs", "fat"] as const).map((key) => `${key[0].toUpperCase()} ${food.missing?.includes(key) ? "unknown" : `${formatAmount(food[key])} g`}`).join(" · ")}</span>
       </span>
