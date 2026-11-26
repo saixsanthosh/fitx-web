@@ -9,7 +9,7 @@
 // create menu only while videos are on, and the platform switch closes the video composer and the links route.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { signInUi, titleOf } from "./common.mjs";
+import { hasFocus, signInUi, titleOf } from "./common.mjs";
 import { makePng } from "../support/png.mjs";
 
 const tag = () => Math.random().toString(36).slice(2, 7);
@@ -146,6 +146,8 @@ export const flow = {
       t.expect(await page.getByRole("button", { name: /^Video/ }).count() === 0, "no video choice while videos are off");
       await page.getByLabel("Add a photo").setInputFiles({ name: "run.png", mimeType: "image/png", buffer: makePng(1440, 2560, [30, 60, 90], [220, 120, 80]) });
       await page.getByRole("img", { name: "Your story photo" }).waitFor({ timeout: 20000 });
+      // The photo and video choices give way to the caption and Share story: the focus goes on to the caption (D5).
+      t.expect(await hasFocus(page.getByLabel("Caption (optional)")), "once the photo is ready, the focus is in the caption box");
       await page.getByLabel("Caption (optional)").fill(caption);
       await sawOverflow(t, "story composer");
       await page.getByRole("button", { name: "Share story" }).click();

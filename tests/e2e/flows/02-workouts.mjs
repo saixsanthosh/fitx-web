@@ -3,7 +3,7 @@
 // its plan preview and begun there; a set logged with reps and load, an exercise
 // swapped, the session paused and resumed, then finished: history, personal records and today's planner item
 // ticked. A gym custom workout with a timed movement runs its set timer. A finished session is repeated from history.
-import { kolkataDate, signInUi, textOf } from "./common.mjs";
+import { hasFocus, kolkataDate, signInUi, textOf } from "./common.mjs";
 
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -175,6 +175,8 @@ export const flow = {
     await t.step("pause and resume the session", async () => {
       await page.getByRole("button", { name: "Pause session" }).click();
       await page.getByText("Session paused").waitFor({ timeout: 10000 });
+      // The clock's button stays focusable while it saves and keeps the focus as it turns into Resume (bug 84).
+      t.expect(await hasFocus(page.getByRole("button", { name: "Resume", exact: true })), "after Pause session, the focus stays on the clock's button, now Resume");
       const paused = await standin.one(`select paused_at is not null paused from public.workout_sessions where id = '${sessionId}'`);
       t.expect(paused?.paused === "t", "the pause should be saved", paused);
       const clock = await page.locator("section").filter({ hasText: "Elapsed training time" }).first().innerText();
@@ -184,6 +186,8 @@ export const flow = {
       await t.checkpoint("session paused", { fullPage: false });
       await page.getByRole("button", { name: "Resume workout" }).click();
       await page.getByText("Session paused").waitFor({ state: "detached", timeout: 10000 });
+      // The banner and its button go: the focus moves to the clock's button, Pause session again (bug 84).
+      t.expect(await hasFocus(page.getByRole("button", { name: "Pause session" })), "after Resume workout, the focus is on Pause session");
     });
 
     await t.step("finish: history, records and the planner item ticked", async () => {
