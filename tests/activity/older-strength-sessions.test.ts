@@ -128,7 +128,7 @@ describe("the screens", () => {
     assert.match(feed, /else setSessions\(\{ \.\.\.sessions, more: false, failed: \{ kind: "older", attempt: 0 \} \}\);/);
     assert.match(feed, /else setSessions\(\{ status: "ready", items: \[\], more: false, failed: \{ kind: "first", attempt: 0 \} \}\);/);
     assert.match(feed, /if \(!strength \|\| strength\.status === "unavailable"\) setSessions\(NO_SESSIONS\);/, "no sessions table: nothing is missing");
-    assert.match(feed, /const retrySessions = \(\): boolean => \{\s+const failed = sessions\.failed;\s+if \(!failed \|\| loadingMoreNow\.current \|\| !userId \|\| history\.status !== "ready"\) return false;/);
+    assert.match(feed, /const retrySessions = \(\): boolean => \{\s+const failed = sessions\.failed;\s+(\/\/[^\n]*\n\s+)*if \(!failed \|\| loadingMoreNow\.current \|\| !userId \|\| history\.status === "loading"\) return false;/);
     assert.match(feed, /const floor = shownFloor\(timeline\.entries\);/);
     assert.match(feed, /readSessionsOn\(sessions\.items, floor, PAGE, read, \{ maxPages: MAX_RETRY_PAGES, stillWanted: \(\) => generation === historyGeneration\.current \}\)/);
     assert.match(feed, /failed: \{ kind: result\.items\.length \? "older" : "first", attempt: failed\.attempt \+ 1 \}/);

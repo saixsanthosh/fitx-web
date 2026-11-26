@@ -187,7 +187,9 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
    */
   const retrySessions = (): boolean => {
     const failed = sessions.failed;
-    if (!failed || loadingMoreNow.current || !userId || history.status !== "ready") return false;
+    // Not while the list is read again from the start (it reads the sessions too); with activities that couldn't be
+    // read, the sessions still sit beside the ones kept on this device.
+    if (!failed || loadingMoreNow.current || !userId || history.status === "loading") return false;
     const supabase = createClient();
     if (!supabase) return false;
     loadingMoreNow.current = true;
