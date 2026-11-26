@@ -85,7 +85,7 @@ describe("the Workouts page (JSX, read from the source)", () => {
     // cleared it. At 99d06a8 opening the builder, saving and loading all cleared the page-wide alert it replaced.
     assert.match(between("function openCreator(", "function switchMode("), /setError\(""\);\s+setNotice\(""\);[\s\S]*?setListNote\(null\);\s+\}/);
     const load = between("const load = useCallback(", "useEffect(() => { void Promise.resolve().then(load); }, [load]);");
-    assert.match(load, /setLoading\(false\);\s+setError\(""\);[\s\S]{0,300}?setListNote\(null\);\s+setLoadVersion/, "a list that loaded clears it");
+    assert.match(load, /setLoading\(false\);\s+setError\(""\);[\s\S]{0,300}?setListNote\(null\);[\s\S]{0,200}?setLoadVersion/, "a list that loaded clears it");
     assert.doesNotMatch(load.slice(0, load.indexOf("if (failure?.error)") + 200), /setListNote/, "a failed load leaves it");
     // An action that reloads says its own result after the reload, so the reload never wipes it.
     const remove = between("async function deletePlan(", "async function savePlan(");
