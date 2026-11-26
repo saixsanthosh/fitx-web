@@ -99,6 +99,12 @@
   padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 
+/* Continue and Finish setup while the step saves: aria-disabled, not disabled, so keyboard focus stays on the button
+   (a disabled one drops it to the page in Chrome). They look like .fitx-button:disabled, and a press does nothing. */
+.submit[aria-disabled="true"] { cursor: progress; opacity: 0.58; }
+.submit[aria-disabled="true"]:hover { background: var(--fitx-primary); }
+.submit[aria-disabled="true"]:active { transform: none; }
+
 .section + .section {
   border-top: 1px solid var(--fitx-divider);
 }

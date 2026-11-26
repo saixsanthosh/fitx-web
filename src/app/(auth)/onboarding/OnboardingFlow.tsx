@@ -56,6 +56,7 @@ import {
   type OnboardingPage,
 } from "@/lib/onboarding/form";
 import type { MeasureText } from "@/lib/onboarding/measure-field";
+import { focusAfterFailedSave } from "@/lib/onboarding/save-focus";
 import { createClient } from "@/lib/supabase/client";
 
 const GOAL_PHOTOS: Readonly<Record<string, keyof typeof ONBOARDING_MEDIA>> = {
@@ -107,9 +108,12 @@ export function OnboardingFlow() {
   const [errors, setErrors] = useState<OnboardingErrors>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  // Counts the saves that failed, so focus can be checked once each failure is on the screen.
+  const [failedSaves, setFailedSaves] = useState(0);
   const [reload, setReload] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
   const movedPage = useRef(false);
 
   const page: OnboardingPage = ONBOARDING_PAGES[pageIndex].id;
@@ -162,6 +166,12 @@ export function OnboardingFlow() {
     heading.current?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
   }, [pageIndex, reduced]);
+
+  // A failed save leaves focus where the member left it: Continue stays focusable while the step saves. If focus fell
+  // to the page anyway (the save replaced the field it was in), it goes to Continue, under the message.
+  useEffect(() => {
+    if (failedSaves) focusAfterFailedSave(document.activeElement, document.body, submitRef.current)?.focus({ preventScroll: true });
+  }, [failedSaves]);
 
   const update = useCallback(<K extends keyof OnboardingForm>(key: K, value: OnboardingForm[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
@@ -265,6 +275,7 @@ export function OnboardingFlow() {
   }
 
   async function advance() {
+    // A press of Continue (or Enter in a field) while the step saves does nothing: the button is only aria-disabled.
     if (!form || saving) return;
     const found = validatePage(page, form, schema);
     setErrors(found);
@@ -279,6 +290,7 @@ export function OnboardingFlow() {
     if (problem) {
       setSaving(false);
       setSaveError(problem);
+      setFailedSaves((count) => count + 1);
       return;
     }
     if (isLast) {
@@ -409,12 +421,16 @@ export function OnboardingFlow() {
             <div className={`${styles.actions} px-4 pt-3 sm:px-8 lg:px-12`}>
               {saveError && <p role="alert" className="fitx-alert fitx-alert-danger mb-3">{saveError}</p>}
               <div className="flex items-center gap-2">
+                {/* Back can't be pressed while the step saves, so it never races the save. A save starts from Continue
+                    or from Enter in a field, never with focus on Back, so its being disabled drops no focus. */}
                 {pageIndex > 0 && (
                   <button type="button" onClick={back} disabled={saving} className="fitx-button fitx-button-secondary shrink-0 px-4">
                     <ArrowLeft size={16} aria-hidden="true" />Back
                   </button>
                 )}
-                <button type="submit" disabled={saving} className="fitx-button flex-1 whitespace-nowrap sm:ml-auto sm:flex-none sm:px-7">
+                {/* aria-disabled while saving, not disabled: Chrome drops focus from a button that becomes disabled, and
+                    a failed save's message is then read with focus nowhere. advance() ignores a press meanwhile. */}
+                <button ref={submitRef} type="submit" aria-disabled={saving || undefined} className={`fitx-button ${styles.submit} flex-1 whitespace-nowrap sm:ml-auto sm:flex-none sm:px-7`}>
                   {saving ? "Saving…" : isLast ? "Finish setup" : "Continue"}
                   {isLast ? <Check size={16} aria-hidden="true" /> : <ArrowRight size={16} aria-hidden="true" />}
                 </button>
