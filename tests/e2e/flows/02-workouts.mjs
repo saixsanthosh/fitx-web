@@ -193,6 +193,9 @@ export const flow = {
     await t.step("finish: history, records and the planner item ticked", async () => {
       await page.getByRole("button", { name: "Finish workout" }).click();
       await page.getByRole("heading", { name: "Workout complete" }).waitFor({ timeout: 30000 });
+      // The finish screen replaces the workout, and the button that had the focus with it: its heading takes the focus
+      // (D5, release 3 fix round 3c).
+      t.expect(await hasFocus(page.locator("h1#workout-complete-title")), "after Finish workout, the focus is on the Workout complete heading");
       await t.checkpoint("workout complete");
       const row = await standin.one(`select s.status, s.duration_seconds, s.total_volume::text,
           (select count(*) from public.personal_records r where r.user_id = s.user_id)::int records,
@@ -270,6 +273,8 @@ export const flow = {
       await page.getByRole("button", { name: "Abandon" }).click();
       // The abandoned state keeps the page's one h1, "Workout", over its own h2 (bug 94).
       await page.getByRole("heading", { level: 2, name: "Workout abandoned" }).waitFor({ timeout: 15000 });
+      // Abandon goes with the running workout: the abandoned state's heading takes the focus (D5, fix round 3c).
+      t.expect(await hasFocus(page.locator("h2#workout-abandoned-title")), "after Abandon, the focus is on the Workout abandoned heading");
       const h1s = (await page.getByRole("heading", { level: 1 }).allInnerTexts()).map((text) => text.trim());
       t.expect(h1s.length === 1 && h1s[0] === "Workout", "the abandoned workout's page has one h1, Workout", h1s);
       const row = await standin.one(`select status from public.workout_sessions where id = '${repeated}'`);
