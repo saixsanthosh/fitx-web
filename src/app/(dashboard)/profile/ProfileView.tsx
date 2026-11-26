@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { SectionNotice } from "./ProfileParts";
 import { BodySection, FoodSection, GoalSection, LimitsSection, TrainingSection, type SectionId, type SectionProps } from "./ProfileSections";
 import { profileHeadline } from "./profile-answers";
+import { focusAfterRetry, type ProfileStatus } from "./profile-focus";
 
 const MEDIA_BUCKET = "fitx-user-media";
 /**
@@ -53,8 +54,6 @@ async function fileOpens(file: Blob): Promise<boolean> {
     URL.revokeObjectURL(url);
   }
 }
-
-type Status = "loading" | "ready" | "signed_out" | "unavailable" | "error";
 
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: "body", label: "Body" },
@@ -103,7 +102,7 @@ function useProfileData() {
     setAttempt((count) => count + 1);
     await refreshShared?.();
   }, [refreshShared]);
-  const [local, setLocal] = useState<{ status: Status; data: UserContextData | null; avatarUrl: string | null }>({ status: "loading", data: null, avatarUrl: null });
+  const [local, setLocal] = useState<{ status: ProfileStatus; data: UserContextData | null; avatarUrl: string | null }>({ status: "loading", data: null, avatarUrl: null });
   const loadLocal = useCallback(async () => {
     const supabase = createClient();
     if (!supabase) return setLocal({ status: "unavailable", data: null, avatarUrl: null });
@@ -134,6 +133,9 @@ export function ProfileView() {
   const [editing, setEditing] = useState<SectionId | null>(null);
   const [notices, setNotices] = useState<Partial<Record<SectionId, SectionNotice>>>({});
   const [retrying, setRetrying] = useState(false);
+  const alertBox = useRef<HTMLDivElement>(null);
+  // Set by Try again until focus has been handed on (or found where the member left it).
+  const retryFocus = useRef(false);
 
   // Back or Forward can bring Profile back from the browser's back/forward cache as it was when it was left, after
   // a Log out say: check the session and load again, so an ended session never shows the profile as signed in.
@@ -145,10 +147,30 @@ export function ProfileView() {
     return () => window.removeEventListener("pageshow", onPageShow);
   }, [reload]);
 
+  // Try again keeps focus while it works and when it fails (it stays, aria-disabled). When the alert it sat in gives way,
+  // to the profile or to Sign in, focus goes there instead of falling to the page (D5, profile-focus.ts).
+  useEffect(() => {
+    if (!retryFocus.current || retrying) return;
+    const target = focusAfterRetry(status);
+    if (target === "wait") return;
+    retryFocus.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    const element = target === "heading" ? document.getElementById("profile-name-title")
+      : target === "action" ? alertBox.current?.querySelector<HTMLElement>("a, button")
+      : null;
+    element?.focus();
+  }, [status, retrying]);
+
   async function retry() {
+    if (retrying) return;
+    retryFocus.current = true;
     setRetrying(true);
-    await reload();
-    setRetrying(false);
+    try {
+      await reload();
+    } finally {
+      setRetrying(false);
+    }
   }
 
   if (status === "loading") {
@@ -167,10 +189,10 @@ export function ProfileView() {
     return (
       <div className="mx-auto max-w-5xl">
         <PageHeader title="Profile" />
-        <div role="alert" className="fitx-alert fitx-alert-danger flex flex-wrap items-center gap-x-2">
+        <div ref={alertBox} role="alert" className="fitx-alert fitx-alert-danger flex flex-wrap items-center gap-x-2">
           <span>{text}</span>
           {status === "error" && (
-            <button type="button" onClick={() => void retry()} disabled={retrying} className="fitx-alert-action inline-flex min-h-11 items-center gap-1">
+            <button type="button" onClick={() => void retry()} aria-disabled={retrying || undefined} className="fitx-alert-action inline-flex min-h-11 items-center gap-1 aria-disabled:cursor-progress aria-disabled:opacity-60">
               <RotateCcw size={14} aria-hidden="true" />{retrying ? "Trying again…" : "Try again"}
             </button>
           )}
@@ -385,7 +407,8 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
             </form>
           ) : (
             <div className="flex items-start gap-1">
-              <h1 id="profile-name-title" className="min-w-0 break-words font-heading text-[30px] font-bold leading-[1.05] tracking-[-.035em] text-fitx-text sm:text-[40px]">
+              {/* tabIndex -1: Try again hands focus here when it brings the profile back (profile-focus.ts). */}
+              <h1 id="profile-name-title" tabIndex={-1} className="min-w-0 break-words font-heading text-[30px] font-bold leading-[1.05] tracking-[-.035em] text-fitx-text outline-none sm:text-[40px]">
                 {data.profile?.name || "Add your name"}
               </h1>
               <button type="button" onClick={() => { setName(data.profile?.name ?? ""); setEditingName(true); setNotice(""); }} aria-label="Edit name"
